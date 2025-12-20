@@ -1,8 +1,7 @@
-import { listDirectory, getMediaDir } from '@/lib/file-system'
+import { listDirectory } from '@/lib/file-system'
 import { FileList } from '@/components/file-list'
 import { MediaPlayers } from '@/components/media-players'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { ThemeToggle } from '@/components/theme-toggle'
 import { AlertCircle } from 'lucide-react'
 
 interface PageProps {
@@ -23,13 +22,11 @@ export default async function Home({ searchParams }: PageProps) {
     console.error('Error reading directory:', err)
   }
 
-  const mediaDir = getMediaDir()
-
   return (
     <>
       <MediaPlayers />
-      <div className='min-h-screen flex flex-col pb-20'>
-        <div className='container mx-auto p-4 flex flex-col' style={{ height: 'calc(100vh - 80px)' }}>
+      <div className='min-h-screen flex flex-col pb-12'>
+        <div className='container mx-auto p-4 flex flex-col' style={{ height: 'calc(100vh - 60px)' }}>
           {error ? (
             <Card className='border-destructive shrink-0'>
               <CardHeader>
@@ -50,12 +47,6 @@ export default async function Home({ searchParams }: PageProps) {
               <FileList files={files} currentPath={currentDir} />
             </Card>
           )}
-          <div className='mt-6 shrink-0 flex items-center justify-between'>
-            <p className='text-muted-foreground'>
-              Serving files from: <code className='bg-muted px-2 py-1 rounded'>{mediaDir}</code>
-            </p>
-            <ThemeToggle />
-          </div>
         </div>
       </div>
     </>

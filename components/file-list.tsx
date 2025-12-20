@@ -72,8 +72,6 @@ function FileListInner({ files, currentPath }: FileListProps) {
       // Play media file - scroll to top to see the player
       params.set('playing', file.path)
       params.set('dir', currentPath)
-      // Add autoplay flag for audio/video files
-      params.set('autoplay', 'true')
       router.push(`/?${params.toString()}`)
     }
   }
@@ -136,9 +134,9 @@ function FileListInner({ files, currentPath }: FileListProps) {
   return (
     <div className='flex flex-col h-full min-h-0'>
       {/* Breadcrumb Navigation */}
-      <div className='p-4 border-b border-border bg-muted/30 shrink-0'>
-        <div className='flex items-center justify-between gap-4'>
-          <div className='flex items-center gap-2 flex-wrap'>
+      <div className='p-2 lg:p-4 border-b border-border bg-muted/30 shrink-0'>
+        <div className='flex items-center justify-between gap-2 lg:gap-4'>
+          <div className='flex items-center gap-1 lg:gap-2 flex-wrap'>
             {breadcrumbs.map((crumb, index) => (
               <div key={crumb.path} className='flex items-center gap-2'>
                 {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}

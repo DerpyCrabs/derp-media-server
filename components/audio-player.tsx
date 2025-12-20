@@ -264,10 +264,10 @@ export function AudioPlayer() {
             <span className='text-sm tabular-nums'>{formatTime(duration)}</span>
           </div>
 
-          <Separator orientation='vertical' className='h-8' />
+          <Separator orientation='vertical' className='h-8 hidden md:block' />
 
           {/* Volume */}
-          <div className='flex items-center gap-2 min-w-[140px]'>
+          <div className='hidden lg:flex items-center gap-2 min-w-[140px]'>
             <Button variant='ghost' size='icon' onClick={toggleMute}>
               {isMuted ? <VolumeX className='h-4 w-4' /> : <Volume2 className='h-4 w-4' />}
             </Button>
@@ -282,7 +282,7 @@ export function AudioPlayer() {
             />
           </div>
 
-          <Separator orientation='vertical' className='h-8' />
+          <Separator orientation='vertical' className='h-8 hidden lg:block' />
 
           {/* File name */}
           <div className='min-w-[200px] max-w-[300px] truncate text-sm'>{fileName}</div>
