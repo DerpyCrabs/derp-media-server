@@ -54,36 +54,35 @@ export function VideoPlayer() {
   }
 
   return (
-    <Card
-      className={`fixed z-40 transition-all duration-300 py-0 ${
-        isMinimized ? 'bottom-20 right-4 w-80' : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-4xl'
-      }`}
-    >
-      <div className='relative'>
-        {/* Controls Bar */}
-        <div className='absolute top-0 left-0 right-0 bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between z-10'>
-          <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
-          <div className='flex items-center gap-1'>
-            <Button variant='ghost' size='icon' onClick={toggleMinimize} className='h-8 w-8'>
-              {isMinimized ? <Maximize2 className='h-4 w-4' /> : <Minimize2 className='h-4 w-4' />}
-            </Button>
-            <Button variant='ghost' size='icon' onClick={handleClose} className='h-8 w-8'>
-              <X className='h-4 w-4' />
-            </Button>
+    <div className={` ${isMinimized ? 'fixed bottom-20 right-4 w-80 z-40' : 'w-full bg-background'}`}>
+      <Card className={`py-0 ${isMinimized ? '' : 'w-full rounded-none border-x-0 border-t-0'}`}>
+        <div className='bg-black'>
+          <div className='bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between z-10'>
+            <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
+            <div className='flex items-center gap-1'>
+              <Button variant='ghost' size='icon' onClick={toggleMinimize} className='h-8 w-8'>
+                {isMinimized ? <Maximize2 className='h-4 w-4' /> : <Minimize2 className='h-4 w-4' />}
+              </Button>
+              <Button variant='ghost' size='icon' onClick={handleClose} className='h-8 w-8'>
+                <X className='h-4 w-4' />
+              </Button>
+            </div>
           </div>
+          <video
+            ref={videoRef}
+            controls
+            autoPlay
+            className='w-full bg-black'
+            style={{
+              maxHeight: isMinimized ? '180px' : '70vh',
+              minHeight: isMinimized ? '180px' : '70vh',
+              height: isMinimized ? '180px' : '70vh',
+            }}
+          >
+            Your browser does not support the video tag.
+          </video>
         </div>
-
-        {/* Video Element */}
-        <video
-          ref={videoRef}
-          controls
-          autoPlay
-          className={`w-full bg-black ${isMinimized ? 'aspect-video' : ''}`}
-          style={{ maxHeight: isMinimized ? '180px' : '80vh' }}
-        >
-          Your browser does not support the video tag.
-        </video>
-      </div>
-    </Card>
+      </Card>
+    </div>
   )
 }

@@ -7,6 +7,7 @@ A modern Next.js-based media server with a beautiful web UI for browsing and pla
 - 🎵 **Audio Player** - Persistent audio player that stays active while browsing
 - 🎬 **Video Player** - Minimizable video player with Picture-in-Picture support
 - 📁 **File Browser** - Intuitive file explorer with breadcrumb navigation
+- 🖼️ **Grid & List Views** - Toggle between grid view with video thumbnails and traditional list view
 - 🔄 **State Persistence** - URL-based state management (reload returns to same file/folder)
 - 🎨 **Modern UI** - Built with shadcn/ui and Tailwind CSS
 - 🚀 **React Server Components** - Direct file system access without API overhead
@@ -18,6 +19,28 @@ A modern Next.js-based media server with a beautiful web UI for browsing and pla
 **Audio:** mp3, wav, ogg, m4a, flac, aac, opus
 
 ## Setup
+
+### Prerequisites
+
+- **Node.js** 18 or higher
+- **FFmpeg** (optional, for video thumbnails in grid view)
+
+To install FFmpeg:
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# Windows (using Chocolatey)
+choco install ffmpeg
+```
+
+> Note: Video thumbnails in grid view require FFmpeg. If not installed, placeholder icons will be shown instead.
+
+### Installation
 
 1. **Install dependencies:**
 
@@ -56,6 +79,7 @@ A modern Next.js-based media server with a beautiful web UI for browsing and pla
 - Click on folders to browse into them
 - Use the breadcrumb navigation to go back up the folder tree
 - Click on media files to play them
+- Toggle between **Grid View** (with video thumbnails) and **List View** using the buttons in the top-right
 
 ### Audio Player
 
