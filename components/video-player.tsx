@@ -49,28 +49,13 @@ export function VideoPlayer() {
       window.location.pathname + window.location.search.replace(/[?&]playing=[^&]*/g, '').replace(/^&/, '?')
   }
 
-  const handlePictureInPicture = async () => {
-    const video = videoRef.current
-    if (!video) return
-
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture()
-      } else {
-        await video.requestPictureInPicture()
-      }
-    } catch (error) {
-      console.error('Picture-in-picture error:', error)
-    }
-  }
-
   if (!isVideoFile) {
     return null
   }
 
   return (
     <Card
-      className={`fixed z-40 transition-all duration-300 ${
+      className={`fixed z-40 transition-all duration-300 py-0 ${
         isMinimized ? 'bottom-20 right-4 w-80' : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-4xl'
       }`}
     >
@@ -79,9 +64,6 @@ export function VideoPlayer() {
         <div className='absolute top-0 left-0 right-0 bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between z-10'>
           <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
           <div className='flex items-center gap-1'>
-            <Button variant='ghost' size='icon' onClick={handlePictureInPicture} className='h-8 w-8'>
-              <Maximize2 className='h-4 w-4' />
-            </Button>
             <Button variant='ghost' size='icon' onClick={toggleMinimize} className='h-8 w-8'>
               {isMinimized ? <Maximize2 className='h-4 w-4' /> : <Minimize2 className='h-4 w-4' />}
             </Button>
