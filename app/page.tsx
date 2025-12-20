@@ -11,6 +11,12 @@ interface PageProps {
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams
   const currentDir = params.dir || ''
+  const playingPath = params.playing || ''
+
+  // Check if playing file is an audio file
+  const extension = playingPath.split('.').pop()?.toLowerCase()
+  const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
+  const isAudioPlaying = playingPath && audioExtensions.includes(extension || '')
 
   let files: Awaited<ReturnType<typeof listDirectory>> = []
   let error = null
@@ -25,8 +31,11 @@ export default async function Home({ searchParams }: PageProps) {
   return (
     <>
       <MediaPlayers />
-      <div className='min-h-screen flex flex-col pb-12'>
-        <div className='container mx-auto p-4 flex flex-col' style={{ height: 'calc(100vh - 60px)' }}>
+      <div className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
+        <div
+          className='container mx-auto lg:p-4 flex flex-col'
+          style={{ height: isAudioPlaying ? 'calc(100vh - 60px)' : '100vh' }}
+        >
           {error ? (
             <Card className='border-destructive shrink-0'>
               <CardHeader>
@@ -43,7 +52,7 @@ export default async function Home({ searchParams }: PageProps) {
               </CardContent>
             </Card>
           ) : (
-            <Card className='flex-1 flex flex-col overflow-hidden min-h-0 py-0'>
+            <Card className='flex-1 flex flex-col overflow-hidden min-h-0 py-0 rounded-none lg:rounded-xl'>
               <FileList files={files} currentPath={currentDir} />
             </Card>
           )}
