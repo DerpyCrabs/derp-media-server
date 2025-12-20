@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Media Server
 
-## Getting Started
+A modern Next.js-based media server with a beautiful web UI for browsing and playing your video and audio files.
 
-First, run the development server:
+## Features
+
+- 🎵 **Audio Player** - Persistent audio player that stays active while browsing
+- 🎬 **Video Player** - Minimizable video player with Picture-in-Picture support
+- 📁 **File Browser** - Intuitive file explorer with breadcrumb navigation
+- 🔄 **State Persistence** - URL-based state management (reload returns to same file/folder)
+- 🎨 **Modern UI** - Built with shadcn/ui and Tailwind CSS
+- 🚀 **React Server Components** - Direct file system access without API overhead
+- 📱 **Responsive Design** - Works on desktop and mobile devices
+
+## Supported Formats
+
+**Video:** mp4, webm, ogg, mov, avi, mkv  
+**Audio:** mp3, wav, ogg, m4a, flac, aac, opus
+
+## Setup
+
+1. **Install dependencies:**
+
+   ```bash
+   pnpm install
+   ```
+
+2. **Configure media directory:**
+
+   Set the `MEDIA_DIR` environment variable to point to your media folder:
+
+   ```bash
+   # Linux/Mac
+   export MEDIA_DIR=/path/to/your/media
+
+   # Windows (PowerShell)
+   $env:MEDIA_DIR="C:\path\to\your\media"
+
+   # Or create .env.local file:
+   echo "MEDIA_DIR=/path/to/your/media" > .env.local
+   ```
+
+3. **Run the development server:**
+
+   ```bash
+   pnpm dev
+   ```
+
+4. **Open your browser:**
+   Navigate to [http://localhost:3000](http://localhost:3000)
+
+## Usage
+
+### Navigation
+
+- Click on folders to browse into them
+- Use the breadcrumb navigation to go back up the folder tree
+- Click on media files to play them
+
+### Audio Player
+
+- Appears at the bottom of the screen when playing audio
+- Controls: Play/Pause, Skip forward/backward 10s, Volume, Seek bar
+- Stays active while browsing folders
+
+### Video Player
+
+- Appears as an overlay when playing video
+- Can be minimized to bottom-right corner
+- Supports Picture-in-Picture mode
+- Click X to close
+
+### URL State
+
+The application uses URL parameters to maintain state:
+
+- `?dir=/path/to/folder` - Current directory
+- `?playing=/path/to/file.mp3` - Currently playing file
+
+This means:
+
+- Refreshing the page returns to the same location
+- You can bookmark specific folders or files
+- Browser back/forward buttons work as expected
+
+## Production
+
+Build for production:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm build
+pnpm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Make sure to set the `MEDIA_DIR` environment variable in your production environment.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Security
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Path traversal protection prevents accessing files outside MEDIA_DIR
+- Only configured media file types are served
+- No authentication (intended for local/trusted network use)
 
-## Learn More
+## Technology Stack
 
-To learn more about Next.js, take a look at the following resources:
+- **Next.js 16** - React framework with App Router
+- **React Server Components** - Direct server-side file system access
+- **shadcn/ui** - Beautiful, accessible UI components
+- **Tailwind CSS** - Utility-first styling
+- **TypeScript** - Type-safe development
+- **Lucide Icons** - Modern icon library
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT

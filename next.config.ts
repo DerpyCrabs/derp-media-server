@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // No special configuration needed - streaming handles large files
 };
 
 export default nextConfig;
