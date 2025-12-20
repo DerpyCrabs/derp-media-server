@@ -17,11 +17,11 @@ export function AudioPlayer() {
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const [isRepeat, setIsRepeat] = useState(false)
-  const isInitialMount = useRef(true)
   const [audioFiles, setAudioFiles] = useState<FileItem[]>([])
 
   const playingPath = searchParams.get('playing')
   const currentDir = searchParams.get('dir') || ''
+  const shouldAutoPlay = searchParams.get('autoplay') === 'true'
   const currentFile = playingPath || ''
   const fileName = currentFile.split('/').pop() || ''
 
@@ -121,7 +121,7 @@ export function AudioPlayer() {
     }
   }, [isRepeat, audioFiles, playingPath, currentDir, router, searchParams])
 
-  // Load audio when path changes, auto-play if user clicked a file (not initial page load)
+  // Load audio when path changes, auto-play based on autoplay param
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !playingPath || !isAudioFile) {
@@ -140,8 +140,8 @@ export function AudioPlayer() {
       audio.src = fullUrl
       audio.load()
 
-      // Auto-play if this is not the initial mount (user clicked on a file)
-      if (!isInitialMount.current) {
+      // Auto-play if the autoplay param is set
+      if (shouldAutoPlay) {
         const playHandler = () => {
           const playPromise = audio.play()
           if (playPromise !== undefined) {
@@ -151,12 +151,14 @@ export function AudioPlayer() {
           }
         }
         audio.addEventListener('canplaythrough', playHandler, { once: true })
+
+        // Remove autoplay param from URL after attempting to play
+        const params = new URLSearchParams(searchParams)
+        params.delete('autoplay')
+        router.replace(`/?${params.toString()}`, { scroll: false })
       }
     }
-
-    // Mark that initial mount is complete
-    isInitialMount.current = false
-  }, [playingPath, isAudioFile])
+  }, [playingPath, isAudioFile, shouldAutoPlay, searchParams, router])
 
   const togglePlay = () => {
     const audio = audioRef.current

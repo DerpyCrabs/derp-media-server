@@ -75,8 +75,9 @@ export function VideoPlayer() {
             className='w-full bg-black'
             style={{
               maxHeight: isMinimized ? '180px' : '70vh',
-              minHeight: isMinimized ? '180px' : '70vh',
-              height: isMinimized ? '180px' : '70vh',
+              minHeight: isMinimized ? '180px' : undefined,
+              height: isMinimized ? '180px' : undefined,
+              aspectRatio: isMinimized ? undefined : '16 / 9',
             }}
           >
             Your browser does not support the video tag.

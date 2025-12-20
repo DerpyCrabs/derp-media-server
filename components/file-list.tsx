@@ -72,6 +72,8 @@ function FileListInner({ files, currentPath }: FileListProps) {
       // Play media file - scroll to top to see the player
       params.set('playing', file.path)
       params.set('dir', currentPath)
+      // Add autoplay flag for audio/video files
+      params.set('autoplay', 'true')
       router.push(`/?${params.toString()}`)
     }
   }
@@ -173,60 +175,55 @@ function FileListInner({ files, currentPath }: FileListProps) {
 
       {/* File List */}
       <ScrollArea className='flex-1 min-h-0'>
-        <div className='px-4'>
+        <div>
           {files.length === 0 && !currentPath ? (
             <div className='text-center py-12 text-muted-foreground'>
               <Folder className='h-12 w-12 mx-auto mb-4 opacity-50' />
               <p>No media files found in this directory</p>
             </div>
           ) : viewMode === 'list' ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className='w-12'></TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead className='w-32'>Type</TableHead>
-                  <TableHead className='w-32 text-right'>Size</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {/* Parent directory entry - only show when not at root */}
-                {currentPath && (
-                  <TableRow className='cursor-pointer hover:bg-muted/50' onClick={handleParentDirectory}>
-                    <TableCell>
-                      <ArrowUp className='h-5 w-5 text-muted-foreground' />
-                    </TableCell>
-                    <TableCell className='font-medium'>..</TableCell>
-                    <TableCell className='text-muted-foreground'>Parent Folder</TableCell>
-                    <TableCell className='text-right text-muted-foreground'>—</TableCell>
-                  </TableRow>
-                )}
-                {files.map((file) => (
-                  <TableRow
-                    key={file.path}
-                    className={`cursor-pointer hover:bg-muted/50 ${playingPath === file.path ? 'bg-primary/10' : ''}`}
-                    onClick={() => handleFileClick(file)}
-                  >
-                    <TableCell>
-                      {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
-                    </TableCell>
-                    <TableCell className='font-medium'>{file.name}</TableCell>
-                    <TableCell className='text-muted-foreground capitalize'>
-                      {file.isDirectory ? 'Folder' : file.type}
-                    </TableCell>
-                    <TableCell className='text-right text-muted-foreground'>
-                      {file.isDirectory ? '—' : formatFileSize(file.size)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <div className='sm:px-4 py-2'>
+              <Table>
+                <TableBody>
+                  {/* Parent directory entry - only show when not at root */}
+                  {currentPath && (
+                    <TableRow className='cursor-pointer hover:bg-muted/50 select-none' onClick={handleParentDirectory}>
+                      <TableCell className='w-12'>
+                        <ArrowUp className='h-5 w-5 text-muted-foreground' />
+                      </TableCell>
+                      <TableCell className='font-medium'>..</TableCell>
+                      <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
+                    </TableRow>
+                  )}
+                  {files.map((file) => (
+                    <TableRow
+                      key={file.path}
+                      className={`cursor-pointer hover:bg-muted/50 select-none ${
+                        playingPath === file.path ? 'bg-primary/10' : ''
+                      }`}
+                      onClick={() => handleFileClick(file)}
+                    >
+                      <TableCell className='w-12'>
+                        {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
+                      </TableCell>
+                      <TableCell className='font-medium'>{file.name}</TableCell>
+                      <TableCell className='w-32 text-right text-muted-foreground'>
+                        {file.isDirectory ? '' : formatFileSize(file.size)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           ) : (
-            <div className='py-4'>
+            <div className='py-4 px-4'>
               <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
                 {/* Parent directory card - only show when not at root */}
                 {currentPath && (
-                  <Card className='cursor-pointer hover:bg-muted/50 transition-colors' onClick={handleParentDirectory}>
+                  <Card
+                    className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
+                    onClick={handleParentDirectory}
+                  >
                     <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
                       <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
                       <p className='text-sm font-medium text-center'>..</p>
@@ -237,7 +234,7 @@ function FileListInner({ files, currentPath }: FileListProps) {
                 {files.map((file) => (
                   <Card
                     key={file.path}
-                    className={`cursor-pointer hover:bg-muted/50 transition-colors ${
+                    className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
                       playingPath === file.path ? 'ring-2 ring-primary' : ''
                     }`}
                     onClick={() => handleFileClick(file)}
@@ -276,9 +273,8 @@ function FileListInner({ files, currentPath }: FileListProps) {
                         <p className='text-sm font-medium truncate' title={file.name}>
                           {file.name}
                         </p>
-                        <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                          <span className='capitalize'>{file.isDirectory ? 'Folder' : file.type}</span>
-                          <span>{file.isDirectory ? '—' : formatFileSize(file.size)}</span>
+                        <div className='flex items-center justify-end text-xs text-muted-foreground'>
+                          <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
                         </div>
                       </div>
                     </CardContent>
