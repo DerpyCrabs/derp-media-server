@@ -72,6 +72,7 @@ function FileListInner({ files, currentPath }: FileListProps) {
       // Play media file - scroll to top to see the player
       params.set('playing', file.path)
       params.set('dir', currentPath)
+      params.set('autoplay', 'true')
       router.push(`/?${params.toString()}`)
     }
   }

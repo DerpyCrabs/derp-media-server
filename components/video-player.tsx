@@ -1,17 +1,19 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Minimize2, Maximize2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 
 export function VideoPlayer() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isMinimized, setIsMinimized] = useState(false)
 
   const playingPath = searchParams.get('playing')
+  const shouldAutoPlay = searchParams.get('autoplay') === 'true'
   const currentFile = playingPath || ''
   const fileName = currentFile.split('/').pop() || ''
 
@@ -20,7 +22,7 @@ export function VideoPlayer() {
   const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
   const isVideoFile = currentFile && videoExtensions.includes(extension || '')
 
-  // Load video source when playingPath changes
+  // Load video source when playingPath changes, auto-play based on autoplay param
   useEffect(() => {
     const video = videoRef.current
     if (!video || !playingPath || !isVideoFile) {
@@ -29,11 +31,31 @@ export function VideoPlayer() {
 
     // Update video source
     const mediaUrl = `/api/media/${playingPath}`
-    if (video.src !== window.location.origin + mediaUrl) {
+    const fullUrl = new URL(mediaUrl, window.location.origin).href
+
+    if (video.src !== fullUrl) {
       video.src = mediaUrl
       video.load()
+
+      // Auto-play if the autoplay param is set
+      if (shouldAutoPlay) {
+        const playHandler = () => {
+          const playPromise = video.play()
+          if (playPromise !== undefined) {
+            playPromise.catch((error) => {
+              console.error('Error auto-playing video:', error)
+            })
+          }
+        }
+        video.addEventListener('canplaythrough', playHandler, { once: true })
+
+        // Remove autoplay param from URL after attempting to play
+        const params = new URLSearchParams(searchParams)
+        params.delete('autoplay')
+        router.replace(`/?${params.toString()}`, { scroll: false })
+      }
     }
-  }, [playingPath, isVideoFile])
+  }, [playingPath, isVideoFile, shouldAutoPlay, searchParams, router])
 
   const toggleMinimize = () => {
     setIsMinimized(!isMinimized)
@@ -71,7 +93,6 @@ export function VideoPlayer() {
           <video
             ref={videoRef}
             controls
-            autoPlay
             className='w-full bg-black'
             style={{
               maxHeight: isMinimized ? '180px' : '70vh',
