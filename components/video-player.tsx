@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Minimize2, Maximize2, X } from 'lucide-react'
+import { Minimize2, Maximize2, X, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 
@@ -11,6 +11,7 @@ export function VideoPlayer() {
   const searchParams = useSearchParams()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isMinimized, setIsMinimized] = useState(false)
+  const [showScrollToTop, setShowScrollToTop] = useState(false)
 
   const playingPath = searchParams.get('playing')
   const shouldAutoPlay = searchParams.get('autoplay') === 'true'
@@ -57,6 +58,24 @@ export function VideoPlayer() {
     }
   }, [playingPath, isVideoFile, shouldAutoPlay, searchParams, router])
 
+  // Handle scroll detection for scroll-to-top button
+  useEffect(() => {
+    const handleScroll = () => {
+      // Only show button when video is not minimized and scrolled more than 200px
+      if (!isMinimized && window.scrollY > 200) {
+        setShowScrollToTop(true)
+      } else {
+        setShowScrollToTop(false)
+      }
+    }
+
+    window.addEventListener('scroll', handleScroll)
+    // Check initial scroll position
+    handleScroll()
+
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [isMinimized])
+
   const toggleMinimize = () => {
     setIsMinimized(!isMinimized)
   }
@@ -71,40 +90,59 @@ export function VideoPlayer() {
       window.location.pathname + window.location.search.replace(/[?&]playing=[^&]*/g, '').replace(/^&/, '?')
   }
 
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   if (!isVideoFile) {
     return null
   }
 
   return (
-    <div className={` ${isMinimized ? 'fixed bottom-20 right-4 w-80 z-40' : 'w-full bg-background'}`}>
-      <Card className={`py-0 ${isMinimized ? '' : 'w-full rounded-none border-x-0 border-t-0'}`}>
-        <div className='bg-black'>
-          <div className='bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between z-10'>
-            <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
-            <div className='flex items-center gap-1'>
-              <Button variant='ghost' size='icon' onClick={toggleMinimize} className='h-8 w-8'>
-                {isMinimized ? <Maximize2 className='h-4 w-4' /> : <Minimize2 className='h-4 w-4' />}
-              </Button>
-              <Button variant='ghost' size='icon' onClick={handleClose} className='h-8 w-8'>
-                <X className='h-4 w-4' />
-              </Button>
+    <>
+      <div className={` ${isMinimized ? 'fixed bottom-20 right-4 w-80 z-40' : 'w-full bg-background'}`}>
+        <Card className={`py-0 ${isMinimized ? '' : 'w-full rounded-none border-x-0 border-t-0'}`}>
+          <div className='bg-black'>
+            <div className='bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between z-10'>
+              <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
+              <div className='flex items-center gap-1'>
+                <Button variant='ghost' size='icon' onClick={toggleMinimize} className='h-8 w-8'>
+                  {isMinimized ? <Maximize2 className='h-4 w-4' /> : <Minimize2 className='h-4 w-4' />}
+                </Button>
+                <Button variant='ghost' size='icon' onClick={handleClose} className='h-8 w-8'>
+                  <X className='h-4 w-4' />
+                </Button>
+              </div>
             </div>
+            <video
+              ref={videoRef}
+              controls
+              className='w-full bg-black'
+              style={{
+                maxHeight: isMinimized ? '180px' : '70vh',
+                minHeight: isMinimized ? '180px' : undefined,
+                height: isMinimized ? '180px' : undefined,
+                aspectRatio: isMinimized ? undefined : '16 / 9',
+              }}
+            >
+              Your browser does not support the video tag.
+            </video>
           </div>
-          <video
-            ref={videoRef}
-            controls
-            className='w-full bg-black'
-            style={{
-              maxHeight: isMinimized ? '180px' : '70vh',
-              minHeight: isMinimized ? '180px' : undefined,
-              height: isMinimized ? '180px' : undefined,
-              aspectRatio: isMinimized ? undefined : '16 / 9',
-            }}
-          >
-            Your browser does not support the video tag.
-          </video>
-        </div>
-      </Card>
-    </div>
+        </Card>
+      </div>
+
+      {/* Scroll to top button - only show on large screens, when not minimized and scrolled down */}
+      {showScrollToTop && !isMinimized && (
+        <Button
+          variant='default'
+          size='icon'
+          onClick={scrollToTop}
+          className='flex fixed bottom-4 right-4 lg:bottom-8 lg:right-8 z-50 h-10 w-10 rounded-full shadow-lg'
+          aria-label='Scroll to top'
+        >
+          <ArrowUp className='h-4 w-4' />
+        </Button>
+      )}
+    </>
   )
 }

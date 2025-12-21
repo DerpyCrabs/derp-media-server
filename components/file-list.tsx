@@ -7,7 +7,6 @@ import { formatFileSize } from '@/lib/media-utils'
 import { Folder, Music, Video, ChevronRight, Home, ArrowUp, List, LayoutGrid, Play, Pause } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent } from '@/components/ui/card'
 
 interface FileListProps {
@@ -133,7 +132,7 @@ function FileListInner({ files, currentPath }: FileListProps) {
   }
 
   return (
-    <div className='flex flex-col h-full min-h-0'>
+    <div className='flex flex-col'>
       {/* Breadcrumb Navigation */}
       <div className='p-2 lg:p-4 border-b border-border bg-muted/30 shrink-0'>
         <div className='flex items-center justify-between gap-2 lg:gap-4'>
@@ -173,117 +172,115 @@ function FileListInner({ files, currentPath }: FileListProps) {
       </div>
 
       {/* File List */}
-      <ScrollArea className='flex-1 min-h-0'>
-        <div>
-          {files.length === 0 && !currentPath ? (
-            <div className='text-center py-12 text-muted-foreground'>
-              <Folder className='h-12 w-12 mx-auto mb-4 opacity-50' />
-              <p>No media files found in this directory</p>
-            </div>
-          ) : viewMode === 'list' ? (
-            <div className='sm:px-4 py-2'>
-              <Table>
-                <TableBody>
-                  {/* Parent directory entry - only show when not at root */}
-                  {currentPath && (
-                    <TableRow className='cursor-pointer hover:bg-muted/50 select-none' onClick={handleParentDirectory}>
-                      <TableCell className='w-12'>
-                        <ArrowUp className='h-5 w-5 text-muted-foreground' />
-                      </TableCell>
-                      <TableCell className='font-medium'>..</TableCell>
-                      <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
-                    </TableRow>
-                  )}
-                  {files.map((file) => (
-                    <TableRow
-                      key={file.path}
-                      className={`cursor-pointer hover:bg-muted/50 select-none ${
-                        playingPath === file.path ? 'bg-primary/10' : ''
-                      }`}
-                      onClick={() => handleFileClick(file)}
-                    >
-                      <TableCell className='w-12'>
-                        {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
-                      </TableCell>
-                      <TableCell className='font-medium'>{file.name}</TableCell>
-                      <TableCell className='w-32 text-right text-muted-foreground'>
-                        {file.isDirectory ? '' : formatFileSize(file.size)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <div className='py-4 px-4'>
-              <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
-                {/* Parent directory card - only show when not at root */}
+      <div>
+        {files.length === 0 && !currentPath ? (
+          <div className='text-center py-12 text-muted-foreground'>
+            <Folder className='h-12 w-12 mx-auto mb-4 opacity-50' />
+            <p>No media files found in this directory</p>
+          </div>
+        ) : viewMode === 'list' ? (
+          <div className='sm:px-4 py-2'>
+            <Table>
+              <TableBody>
+                {/* Parent directory entry - only show when not at root */}
                 {currentPath && (
-                  <Card
-                    className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
-                    onClick={handleParentDirectory}
-                  >
-                    <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
-                      <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
-                      <p className='text-sm font-medium text-center'>..</p>
-                      <p className='text-xs text-muted-foreground text-center'>Parent Folder</p>
-                    </CardContent>
-                  </Card>
+                  <TableRow className='cursor-pointer hover:bg-muted/50 select-none' onClick={handleParentDirectory}>
+                    <TableCell className='w-12'>
+                      <ArrowUp className='h-5 w-5 text-muted-foreground' />
+                    </TableCell>
+                    <TableCell className='font-medium'>..</TableCell>
+                    <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
+                  </TableRow>
                 )}
                 {files.map((file) => (
-                  <Card
+                  <TableRow
                     key={file.path}
-                    className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
-                      playingPath === file.path ? 'ring-2 ring-primary' : ''
+                    className={`cursor-pointer hover:bg-muted/50 select-none ${
+                      playingPath === file.path ? 'bg-primary/10' : ''
                     }`}
                     onClick={() => handleFileClick(file)}
                   >
-                    <CardContent className='p-0 flex flex-col h-full'>
-                      {/* Thumbnail/Icon */}
-                      <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden'>
-                        {file.type === MediaType.VIDEO ? (
-                          <img
-                            src={`/api/thumbnail/${encodeURIComponent(file.path)}`}
-                            alt={file.name}
-                            className='w-full h-full object-cover'
-                            onError={(e) => {
-                              // Fallback to icon if thumbnail fails
-                              e.currentTarget.style.display = 'none'
-                              const parent = e.currentTarget.parentElement
-                              if (parent) {
-                                const icon = parent.querySelector('.fallback-icon')
-                                if (icon) {
-                                  icon.classList.remove('hidden')
-                                }
-                              }
-                            }}
-                          />
-                        ) : null}
-                        <div className={`fallback-icon ${file.type === MediaType.VIDEO ? 'hidden' : ''}`}>
-                          {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO) && (
-                            <div className='scale-[2.5]'>
-                              {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {/* File Info */}
-                      <div className='p-3 flex flex-col gap-1'>
-                        <p className='text-sm font-medium truncate' title={file.name}>
-                          {file.name}
-                        </p>
-                        <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                          <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    <TableCell className='w-12'>
+                      {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
+                    </TableCell>
+                    <TableCell className='font-medium'>{file.name}</TableCell>
+                    <TableCell className='w-32 text-right text-muted-foreground'>
+                      {file.isDirectory ? '' : formatFileSize(file.size)}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </div>
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <div className='py-4 px-4'>
+            <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+              {/* Parent directory card - only show when not at root */}
+              {currentPath && (
+                <Card
+                  className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
+                  onClick={handleParentDirectory}
+                >
+                  <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
+                    <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
+                    <p className='text-sm font-medium text-center'>..</p>
+                    <p className='text-xs text-muted-foreground text-center'>Parent Folder</p>
+                  </CardContent>
+                </Card>
+              )}
+              {files.map((file) => (
+                <Card
+                  key={file.path}
+                  className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
+                    playingPath === file.path ? 'ring-2 ring-primary' : ''
+                  }`}
+                  onClick={() => handleFileClick(file)}
+                >
+                  <CardContent className='p-0 flex flex-col h-full'>
+                    {/* Thumbnail/Icon */}
+                    <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
+                      {file.type === MediaType.VIDEO ? (
+                        <img
+                          src={`/api/thumbnail/${encodeURIComponent(file.path)}`}
+                          alt={file.name}
+                          className='w-full h-full object-cover rounded-t-lg'
+                          onError={(e) => {
+                            // Fallback to icon if thumbnail fails
+                            e.currentTarget.style.display = 'none'
+                            const parent = e.currentTarget.parentElement
+                            if (parent) {
+                              const icon = parent.querySelector('.fallback-icon')
+                              if (icon) {
+                                icon.classList.remove('hidden')
+                              }
+                            }
+                          }}
+                        />
+                      ) : null}
+                      <div className={`fallback-icon ${file.type === MediaType.VIDEO ? 'hidden' : ''}`}>
+                        {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO) && (
+                          <div className='scale-[2.5]'>
+                            {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* File Info */}
+                    <div className='p-3 flex flex-col gap-1'>
+                      <p className='text-sm font-medium truncate' title={file.name}>
+                        {file.name}
+                      </p>
+                      <div className='flex items-center justify-end text-xs text-muted-foreground'>
+                        <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          )}
-        </div>
-      </ScrollArea>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

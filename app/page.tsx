@@ -32,10 +32,7 @@ export default async function Home({ searchParams }: PageProps) {
     <>
       <MediaPlayers />
       <div className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
-        <div
-          className='container mx-auto lg:p-4 flex flex-col'
-          style={{ height: isAudioPlaying ? 'calc(100vh - 60px)' : '100vh' }}
-        >
+        <div className='container mx-auto lg:p-4 flex flex-col'>
           {error ? (
             <Card className='border-destructive shrink-0'>
               <CardHeader>
@@ -52,7 +49,7 @@ export default async function Home({ searchParams }: PageProps) {
               </CardContent>
             </Card>
           ) : (
-            <Card className='flex-1 flex flex-col overflow-hidden min-h-0 py-0 rounded-none lg:rounded-xl'>
+            <Card className='py-0 rounded-none lg:rounded-xl'>
               <FileList files={files} currentPath={currentDir} />
             </Card>
           )}
