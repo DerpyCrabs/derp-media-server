@@ -65,7 +65,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
         // Get relative path from MEDIA_DIR
         const relPath = path.relative(MEDIA_DIR, entryPath).replace(/\\/g, '/');
         
-        // Include directories and media files only
+        // Include directories and all files
         if (entry.isDirectory()) {
           fileItems.push({
             name: entry.name,
@@ -75,7 +75,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
             extension: '',
             isDirectory: true,
           });
-        } else if (isMediaFile(extension)) {
+        } else {
           fileItems.push({
             name: entry.name,
             path: relPath,

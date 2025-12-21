@@ -16,6 +16,7 @@ import {
   Play,
   Pause,
   Image as ImageIcon,
+  FileQuestion,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -114,8 +115,10 @@ function FileListInner({ files, currentPath }: FileListProps) {
         return <Video className='h-5 w-5 text-red-500' />
       case MediaType.IMAGE:
         return <ImageIcon className='h-5 w-5 text-green-500' />
+      case MediaType.OTHER:
+        return <FileQuestion className='h-5 w-5 text-yellow-500' />
       default:
-        return null
+        return <FileQuestion className='h-5 w-5 text-yellow-500' />
     }
   }
 
