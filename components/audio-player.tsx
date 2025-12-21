@@ -75,6 +75,7 @@ export function AudioPlayer() {
     const params = new URLSearchParams(searchParams)
     params.set('playing', nextFile.path)
     params.set('dir', currentDir)
+    params.set('autoplay', 'true')
     router.push(`/?${params.toString()}`, { scroll: false })
   }
 

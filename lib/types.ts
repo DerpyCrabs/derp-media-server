@@ -2,6 +2,7 @@ export enum MediaType {
   VIDEO = 'video',
   AUDIO = 'audio',
   IMAGE = 'image',
+  TEXT = 'text',
   FOLDER = 'folder',
   OTHER = 'other',
 }

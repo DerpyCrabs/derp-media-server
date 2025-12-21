@@ -14,9 +14,9 @@ import {
   List,
   LayoutGrid,
   Play,
-  Pause,
   Image as ImageIcon,
   FileQuestion,
+  FileText,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -115,6 +115,8 @@ function FileListInner({ files, currentPath }: FileListProps) {
         return <Video className='h-5 w-5 text-red-500' />
       case MediaType.IMAGE:
         return <ImageIcon className='h-5 w-5 text-green-500' />
+      case MediaType.TEXT:
+        return <FileText className='h-5 w-5 text-cyan-500' />
       case MediaType.OTHER:
         return <FileQuestion className='h-5 w-5 text-yellow-500' />
       default:
