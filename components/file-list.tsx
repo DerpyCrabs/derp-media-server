@@ -4,7 +4,19 @@ import { Suspense, useState, useEffect, useLayoutEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
-import { Folder, Music, Video, ChevronRight, Home, ArrowUp, List, LayoutGrid, Play, Pause } from 'lucide-react'
+import {
+  Folder,
+  Music,
+  Video,
+  ChevronRight,
+  Home,
+  ArrowUp,
+  List,
+  LayoutGrid,
+  Play,
+  Pause,
+  Image as ImageIcon,
+} from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -100,6 +112,8 @@ function FileListInner({ files, currentPath }: FileListProps) {
         return <Music className='h-5 w-5 text-purple-500' />
       case MediaType.VIDEO:
         return <Video className='h-5 w-5 text-red-500' />
+      case MediaType.IMAGE:
+        return <ImageIcon className='h-5 w-5 text-green-500' />
       default:
         return null
     }
@@ -256,8 +270,29 @@ function FileListInner({ files, currentPath }: FileListProps) {
                             }
                           }}
                         />
+                      ) : file.type === MediaType.IMAGE ? (
+                        <img
+                          src={`/api/media/${encodeURIComponent(file.path)}`}
+                          alt={file.name}
+                          className='w-full h-full object-cover rounded-t-lg'
+                          onError={(e) => {
+                            // Fallback to icon if image fails to load
+                            e.currentTarget.style.display = 'none'
+                            const parent = e.currentTarget.parentElement
+                            if (parent) {
+                              const icon = parent.querySelector('.fallback-icon')
+                              if (icon) {
+                                icon.classList.remove('hidden')
+                              }
+                            }
+                          }}
+                        />
                       ) : null}
-                      <div className={`fallback-icon ${file.type === MediaType.VIDEO ? 'hidden' : ''}`}>
+                      <div
+                        className={`fallback-icon ${
+                          file.type === MediaType.VIDEO || file.type === MediaType.IMAGE ? 'hidden' : ''
+                        }`}
+                      >
                         {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO) && (
                           <div className='scale-[2.5]'>
                             {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
