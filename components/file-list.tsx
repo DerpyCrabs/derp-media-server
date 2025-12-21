@@ -72,7 +72,7 @@ function FileListInner({ files, currentPath }: FileListProps) {
       params.set('playing', file.path)
       params.set('dir', currentPath)
       params.set('autoplay', 'true')
-      router.push(`/?${params.toString()}`)
+      router.push(`/?${params.toString()}`, { scroll: false })
     }
   }
 
