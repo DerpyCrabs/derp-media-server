@@ -17,43 +17,45 @@ import { FileItem, MediaType } from '@/lib/types'
 export function UnsupportedFileViewer() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const playingPath = searchParams.get('playing')
+  const viewingPath = searchParams.get('viewing')
   const [fileInfo, setFileInfo] = useState<FileItem | null>(null)
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    if (playingPath) {
-      // Fetch file info
-      const currentDir = searchParams.get('dir') || ''
-      fetch(`/api/files?dir=${encodeURIComponent(currentDir)}`)
-        .then((res) => res.json())
-        .then((data) => {
-          const file = data.files.find((f: FileItem) => f.path === playingPath)
-          if (file && file.type === MediaType.OTHER) {
-            setFileInfo(file)
-            setOpen(true)
-          } else {
-            setFileInfo(null)
-            setOpen(false)
-          }
-        })
-        .catch(() => {
-          setFileInfo(null)
-          setOpen(false)
-        })
-    } else {
+    if (!viewingPath) {
+      // When viewingPath is cleared, reset the dialog state
       setFileInfo(null)
       setOpen(false)
+      return
     }
-  }, [playingPath, searchParams])
+
+    // Fetch file info
+    const currentDir = searchParams.get('dir') || ''
+    fetch(`/api/files?dir=${encodeURIComponent(currentDir)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        const file = data.files.find((f: FileItem) => f.path === viewingPath)
+        if (file && file.type === MediaType.OTHER) {
+          setFileInfo(file)
+          setOpen(true)
+        } else {
+          setFileInfo(null)
+          setOpen(false)
+        }
+      })
+      .catch(() => {
+        setFileInfo(null)
+        setOpen(false)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingPath])
 
   const handleOpenChange = (newOpen: boolean) => {
     setOpen(newOpen)
     if (!newOpen) {
-      // Close modal - remove playing parameter
+      // Close modal - remove viewing parameter
       const params = new URLSearchParams(searchParams)
-      params.delete('playing')
-      params.delete('autoplay')
+      params.delete('viewing')
       router.push(`/?${params.toString()}`, { scroll: false })
     }
   }

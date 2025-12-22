@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState, useEffect, useLayoutEffect } from 'react'
+import { Suspense, useState, useLayoutEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
@@ -18,14 +18,7 @@ import {
   FileQuestion,
   FileText,
 } from 'lucide-react'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -70,6 +63,7 @@ function FileListInner({ files, currentPath }: FileListProps) {
   // Load saved view mode after component mounts (client-side only)
   useLayoutEffect(() => {
     const savedMode = getSavedViewMode(currentPath)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewMode(savedMode || 'list')
   }, [currentPath])
 
@@ -88,10 +82,22 @@ function FileListInner({ files, currentPath }: FileListProps) {
       // Keep the playing state when changing folders
       router.push(`/?${params.toString()}`, { scroll: false })
     } else {
-      // Play media file - scroll to top to see the player
-      params.set('playing', file.path)
-      params.set('dir', currentPath)
-      params.set('autoplay', 'true')
+      // For audio/video, use 'playing' parameter (this stops any current playback)
+      // For images/text/other files, use 'viewing' parameter (this keeps audio/video playing)
+      const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
+
+      if (isMediaFile) {
+        // Clear any viewing state and set playing
+        params.delete('viewing')
+        params.set('playing', file.path)
+        params.set('dir', currentPath)
+        params.set('autoplay', 'true')
+      } else {
+        // Keep playing state but set viewing
+        params.set('viewing', file.path)
+        params.set('dir', currentPath)
+      }
+
       router.push(`/?${params.toString()}`, { scroll: false })
     }
   }

@@ -5,11 +5,14 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { X, Download, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
+import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 
 export function TextViewer() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const playingPath = searchParams.get('playing')
+  const viewingPath = searchParams.get('viewing')
   const [content, setContent] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -17,33 +20,15 @@ export function TextViewer() {
 
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
-    params.delete('playing')
-    params.delete('autoplay')
+    params.delete('viewing')
     router.push(`/?${params.toString()}`, { scroll: false })
   }
 
-  // Close viewer on Escape key
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && playingPath) {
-        closeViewer()
-      }
-    }
-
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playingPath])
-
   // Load text content
   useEffect(() => {
-    if (!playingPath) {
-      setContent('')
-      setLoading(false)
-      return
-    }
+    if (!viewingPath) return
 
-    const fileExtension = playingPath.split('.').pop()?.toLowerCase() || ''
+    const fileExtension = viewingPath.split('.').pop()?.toLowerCase() || ''
     const textExtensions = [
       'txt',
       'md',
@@ -80,34 +65,44 @@ export function TextViewer() {
       'sql',
     ]
 
-    if (!textExtensions.includes(fileExtension)) {
-      setLoading(false)
-      return
+    if (!textExtensions.includes(fileExtension)) return
+
+    let cancelled = false
+
+    const loadContent = async () => {
+      if (!cancelled) {
+        setLoading(true)
+        setError(null)
+      }
+
+      try {
+        const res = await fetch(`/api/media/${encodeURIComponent(viewingPath)}`)
+        if (!res.ok) throw new Error('Failed to load file')
+        const text = await res.text()
+        if (!cancelled) {
+          setContent(text)
+          setLoading(false)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load file')
+          setLoading(false)
+        }
+      }
     }
 
-    setLoading(true)
-    setError(null)
+    loadContent()
 
-    fetch(`/api/media/${encodeURIComponent(playingPath)}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load file')
-        return res.text()
-      })
-      .then((text) => {
-        setContent(text)
-        setLoading(false)
-      })
-      .catch((err) => {
-        setError(err.message)
-        setLoading(false)
-      })
-  }, [playingPath])
+    return () => {
+      cancelled = true
+    }
+  }, [viewingPath])
 
   const handleDownload = () => {
-    if (!playingPath) return
+    if (!viewingPath) return
     const link = document.createElement('a')
-    link.href = `/api/media/${encodeURIComponent(playingPath)}`
-    link.download = playingPath.split(/[/\\]/).pop() || 'file.txt'
+    link.href = `/api/media/${encodeURIComponent(viewingPath)}`
+    link.download = viewingPath.split(/[/\\]/).pop() || 'file.txt'
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -124,10 +119,8 @@ export function TextViewer() {
     }
   }
 
-  if (!playingPath) return null
-
   // Check if the current file is a text file
-  const fileExtension = playingPath.split('.').pop()?.toLowerCase() || ''
+  const fileExtension = viewingPath?.split('.').pop()?.toLowerCase() || ''
   const textExtensions = [
     'txt',
     'md',
@@ -163,56 +156,69 @@ export function TextViewer() {
     'kt',
     'sql',
   ]
-  const isText = textExtensions.includes(fileExtension)
+  const isText = viewingPath && textExtensions.includes(fileExtension)
 
   if (!isText) return null
 
-  const fileName = playingPath.split(/[/\\]/).pop() || ''
+  const fileName = viewingPath.split(/[/\\]/).pop() || ''
 
   return (
-    <div className='fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col'>
-      {/* Header with controls */}
-      <div className='flex items-center justify-between p-4 border-b'>
-        <div className='flex-1'>
-          <h2 className='text-lg font-medium truncate max-w-md'>{fileName}</h2>
-          <p className='text-sm text-muted-foreground'>
-            {fileExtension.toUpperCase()} File • {content.split('\n').length} lines
-          </p>
-        </div>
-        <div className='flex items-center gap-2'>
-          <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
-            {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
-          </Button>
-          <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
-            <Download className='h-5 w-5' />
-          </Button>
-          <Button variant='ghost' size='icon' onClick={closeViewer} title='Close'>
-            <X className='h-5 w-5' />
-          </Button>
-        </div>
-      </div>
+    <Dialog open={!!viewingPath} onOpenChange={(open) => !open && closeViewer()}>
+      <DialogPortal>
+        <DialogOverlay className='bg-background/95 backdrop-blur-sm' />
+        <DialogPrimitive.Content
+          className='fixed inset-0 z-50 flex flex-col data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
+          <VisuallyHidden.Root>
+            <DialogTitle>{fileName}</DialogTitle>
+          </VisuallyHidden.Root>
+          {/* Header with controls */}
+          <div className='flex items-center justify-between p-4 border-b'>
+            <div className='flex-1'>
+              <h2 className='text-lg font-medium truncate max-w-md'>{fileName}</h2>
+              <p className='text-sm text-muted-foreground'>
+                {fileExtension.toUpperCase()} File • {content.split('\n').length} lines
+              </p>
+            </div>
+            <div className='flex items-center gap-2'>
+              <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
+                {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
+              </Button>
+              <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
+                <Download className='h-5 w-5' />
+              </Button>
+              <Button variant='ghost' size='icon' onClick={closeViewer} title='Close'>
+                <X className='h-5 w-5' />
+              </Button>
+            </div>
+          </div>
 
-      {/* Content area */}
-      <div className='flex-1 overflow-hidden'>
-        {loading ? (
-          <div className='flex items-center justify-center h-full'>
-            <p className='text-muted-foreground'>Loading...</p>
+          {/* Content area */}
+          <div className='flex-1 overflow-hidden'>
+            {loading ? (
+              <div className='flex items-center justify-center h-full'>
+                <p className='text-muted-foreground'>Loading...</p>
+              </div>
+            ) : error ? (
+              <div className='flex items-center justify-center h-full'>
+                <div className='text-center'>
+                  <p className='text-destructive mb-2'>Failed to load file</p>
+                  <p className='text-sm text-muted-foreground'>{error}</p>
+                </div>
+              </div>
+            ) : (
+              <ScrollArea className='h-full'>
+                <div className='p-6'>
+                  <pre className='font-mono text-sm whitespace-pre-wrap wrap-break-word'>
+                    {content}
+                  </pre>
+                </div>
+              </ScrollArea>
+            )}
           </div>
-        ) : error ? (
-          <div className='flex items-center justify-center h-full'>
-            <div className='text-center'>
-              <p className='text-destructive mb-2'>Failed to load file</p>
-              <p className='text-sm text-muted-foreground'>{error}</p>
-            </div>
-          </div>
-        ) : (
-          <ScrollArea className='h-full'>
-            <div className='p-6'>
-              <pre className='font-mono text-sm whitespace-pre-wrap wrap-break-word'>{content}</pre>
-            </div>
-          </ScrollArea>
-        )}
-      </div>
-    </div>
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    </Dialog>
   )
 }

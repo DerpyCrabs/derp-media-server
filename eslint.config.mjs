@@ -13,6 +13,11 @@ const eslintConfig = defineConfig([
     'build/**',
     'next-env.d.ts',
   ]),
+  {
+    rules: {
+      'next/no-img-element': 'off',
+    },
+  },
 ])
 
 export default eslintConfig
