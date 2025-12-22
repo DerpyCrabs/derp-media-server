@@ -14,6 +14,7 @@ type ViewMode = 'list' | 'grid'
 
 interface Settings {
   viewModes: Record<string, ViewMode>
+  favorites: string[]
 }
 
 async function readSettings(): Promise<Settings> {
@@ -22,7 +23,7 @@ async function readSettings(): Promise<Settings> {
     const data = await fs.readFile(settingsFile, 'utf-8')
     return JSON.parse(data)
   } catch {
-    return { viewModes: {} }
+    return { viewModes: {}, favorites: [] }
   }
 }
 
@@ -46,9 +47,10 @@ export default async function Home({ searchParams }: PageProps) {
     console.error('Error reading directory:', err)
   }
 
-  // Read view mode from settings
+  // Read view mode and favorites from settings
   const settings = await readSettings()
   const initialViewMode: ViewMode = settings.viewModes[currentDir] || 'list'
+  const initialFavorites = settings.favorites || []
 
   return (
     <>
@@ -73,7 +75,12 @@ export default async function Home({ searchParams }: PageProps) {
             </Card>
           ) : (
             <Card className='py-0 rounded-none lg:rounded-xl'>
-              <FileList files={files} currentPath={currentDir} initialViewMode={initialViewMode} />
+              <FileList
+                files={files}
+                currentPath={currentDir}
+                initialViewMode={initialViewMode}
+                initialFavorites={initialFavorites}
+              />
             </Card>
           )}
         </div>

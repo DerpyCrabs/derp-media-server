@@ -17,6 +17,7 @@ import {
   Image as ImageIcon,
   FileQuestion,
   FileText,
+  Star,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,7 @@ interface FileListProps {
   files: FileItem[]
   currentPath: string
   initialViewMode: 'list' | 'grid'
+  initialFavorites?: string[]
 }
 
 type ViewMode = 'list' | 'grid'
@@ -43,17 +45,48 @@ async function saveViewMode(folderPath: string, mode: ViewMode) {
   }
 }
 
-function FileListInner({ files, currentPath, initialViewMode }: FileListProps) {
+// Toggle favorite status
+async function toggleFavorite(filePath: string) {
+  try {
+    const response = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggleFavorite', filePath }),
+    })
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('Failed to toggle favorite:', error)
+    return null
+  }
+}
+
+function FileListInner({
+  files,
+  currentPath,
+  initialViewMode,
+  initialFavorites = [],
+}: FileListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   // Use the server-provided initial view mode
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode)
+  const [favorites, setFavorites] = useState<string[]>(initialFavorites)
 
   // Handle view mode change and save to server
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode)
     saveViewMode(currentPath, mode)
+  }
+
+  // Handle favorite toggle
+  const handleFavoriteToggle = async (filePath: string, e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent file click
+    const result = await toggleFavorite(filePath)
+    if (result && result.favorites) {
+      setFavorites(result.favorites)
+    }
   }
 
   const handleFileClick = (file: FileItem) => {
@@ -210,23 +243,49 @@ function FileListInner({ files, currentPath, initialViewMode }: FileListProps) {
                     <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
                   </TableRow>
                 )}
-                {files.map((file) => (
-                  <TableRow
-                    key={file.path}
-                    className={`cursor-pointer hover:bg-muted/50 select-none ${
-                      playingPath === file.path ? 'bg-primary/10' : ''
-                    }`}
-                    onClick={() => handleFileClick(file)}
-                  >
-                    <TableCell className='w-12'>
-                      {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
-                    </TableCell>
-                    <TableCell className='font-medium'>{file.name}</TableCell>
-                    <TableCell className='w-32 text-right text-muted-foreground'>
-                      {file.isDirectory ? '' : formatFileSize(file.size)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {files.map((file) => {
+                  const isFavorite = favorites.includes(file.path)
+                  return (
+                    <TableRow
+                      key={file.path}
+                      className={`cursor-pointer hover:bg-muted/50 select-none ${
+                        playingPath === file.path ? 'bg-primary/10' : ''
+                      }`}
+                      onClick={() => handleFileClick(file)}
+                    >
+                      <TableCell className='w-12'>
+                        {getIcon(
+                          file.type,
+                          playingPath === file.path,
+                          file.type === MediaType.AUDIO,
+                        )}
+                      </TableCell>
+                      <TableCell className='font-medium'>
+                        <div className='flex items-center gap-2 group'>
+                          {!file.isDirectory && (
+                            <button
+                              onClick={(e) => handleFavoriteToggle(file.path, e)}
+                              className='shrink-0 opacity-50 hover:opacity-100 transition-opacity'
+                              title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                            >
+                              <Star
+                                className={`h-4 w-4 ${
+                                  isFavorite
+                                    ? 'fill-yellow-400 text-yellow-400 opacity-100'
+                                    : 'text-muted-foreground'
+                                }`}
+                              />
+                            </button>
+                          )}
+                          <span className='flex-1 truncate'>{file.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className='w-32 text-right text-muted-foreground'>
+                        {file.isDirectory ? '' : formatFileSize(file.size)}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -246,86 +305,109 @@ function FileListInner({ files, currentPath, initialViewMode }: FileListProps) {
                   </CardContent>
                 </Card>
               )}
-              {files.map((file) => (
-                <Card
-                  key={file.path}
-                  className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
-                    playingPath === file.path ? 'ring-2 ring-primary' : ''
-                  }`}
-                  onClick={() => handleFileClick(file)}
-                >
-                  <CardContent className='p-0 flex flex-col h-full'>
-                    {/* Thumbnail/Icon */}
-                    <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
-                      {file.type === MediaType.VIDEO ? (
-                        <img
-                          src={`/api/thumbnail/${encodeURIComponent(file.path)}`}
-                          alt={file.name}
-                          className='w-full h-full object-cover rounded-t-lg'
-                          onError={(e) => {
-                            // Fallback to icon if thumbnail fails
-                            e.currentTarget.style.display = 'none'
-                            const parent = e.currentTarget.parentElement
-                            if (parent) {
-                              const icon = parent.querySelector('.fallback-icon')
-                              if (icon) {
-                                icon.classList.remove('hidden')
-                              }
-                            }
-                          }}
-                        />
-                      ) : file.type === MediaType.IMAGE ? (
-                        <img
-                          src={`/api/media/${encodeURIComponent(file.path)}`}
-                          alt={file.name}
-                          className='w-full h-full object-cover rounded-t-lg'
-                          onError={(e) => {
-                            // Fallback to icon if image fails to load
-                            e.currentTarget.style.display = 'none'
-                            const parent = e.currentTarget.parentElement
-                            if (parent) {
-                              const icon = parent.querySelector('.fallback-icon')
-                              if (icon) {
-                                icon.classList.remove('hidden')
-                              }
-                            }
-                          }}
-                        />
-                      ) : null}
-                      <div
-                        className={`fallback-icon ${
-                          file.type === MediaType.VIDEO || file.type === MediaType.IMAGE
-                            ? 'hidden'
-                            : ''
-                        }`}
-                      >
-                        {getIcon(
-                          file.type,
-                          playingPath === file.path,
-                          file.type === MediaType.AUDIO,
-                        ) && (
-                          <div className='scale-[2.5]'>
-                            {getIcon(
-                              file.type,
-                              playingPath === file.path,
-                              file.type === MediaType.AUDIO,
-                            )}
-                          </div>
+              {files.map((file) => {
+                const isFavorite = favorites.includes(file.path)
+                return (
+                  <Card
+                    key={file.path}
+                    className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
+                      playingPath === file.path ? 'ring-2 ring-primary' : ''
+                    }`}
+                    onClick={() => handleFileClick(file)}
+                  >
+                    <CardContent className='p-0 flex flex-col h-full'>
+                      {/* Thumbnail/Icon */}
+                      <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg group'>
+                        {/* Favorite star overlay - only for files, not folders */}
+                        {!file.isDirectory && (
+                          <button
+                            onClick={(e) => handleFavoriteToggle(file.path, e)}
+                            className={`absolute top-1.5 left-1.5 p-1 rounded-full transition-all z-10 ${
+                              isFavorite
+                                ? 'bg-background/90 hover:bg-background shadow-sm'
+                                : 'bg-background/70 hover:bg-background/90 opacity-60 group-hover:opacity-100'
+                            }`}
+                            title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                          >
+                            <Star
+                              className={`h-3.5 w-3.5 ${
+                                isFavorite
+                                  ? 'fill-yellow-400 text-yellow-400'
+                                  : 'text-muted-foreground'
+                              }`}
+                            />
+                          </button>
                         )}
+                        {file.type === MediaType.VIDEO ? (
+                          <img
+                            src={`/api/thumbnail/${encodeURIComponent(file.path)}`}
+                            alt={file.name}
+                            className='w-full h-full object-cover rounded-t-lg'
+                            onError={(e) => {
+                              // Fallback to icon if thumbnail fails
+                              e.currentTarget.style.display = 'none'
+                              const parent = e.currentTarget.parentElement
+                              if (parent) {
+                                const icon = parent.querySelector('.fallback-icon')
+                                if (icon) {
+                                  icon.classList.remove('hidden')
+                                }
+                              }
+                            }}
+                          />
+                        ) : file.type === MediaType.IMAGE ? (
+                          <img
+                            src={`/api/media/${encodeURIComponent(file.path)}`}
+                            alt={file.name}
+                            className='w-full h-full object-cover rounded-t-lg'
+                            onError={(e) => {
+                              // Fallback to icon if image fails to load
+                              e.currentTarget.style.display = 'none'
+                              const parent = e.currentTarget.parentElement
+                              if (parent) {
+                                const icon = parent.querySelector('.fallback-icon')
+                                if (icon) {
+                                  icon.classList.remove('hidden')
+                                }
+                              }
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className={`fallback-icon ${
+                            file.type === MediaType.VIDEO || file.type === MediaType.IMAGE
+                              ? 'hidden'
+                              : ''
+                          }`}
+                        >
+                          {getIcon(
+                            file.type,
+                            playingPath === file.path,
+                            file.type === MediaType.AUDIO,
+                          ) && (
+                            <div className='scale-[2.5]'>
+                              {getIcon(
+                                file.type,
+                                playingPath === file.path,
+                                file.type === MediaType.AUDIO,
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {/* File Info */}
-                    <div className='p-3 flex flex-col gap-1'>
-                      <p className='text-sm font-medium truncate' title={file.name}>
-                        {file.name}
-                      </p>
-                      <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                        <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                      {/* File Info */}
+                      <div className='p-3 flex flex-col gap-1'>
+                        <p className='text-sm font-medium truncate' title={file.name}>
+                          {file.name}
+                        </p>
+                        <div className='flex items-center justify-end text-xs text-muted-foreground'>
+                          <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           </div>
         )}
