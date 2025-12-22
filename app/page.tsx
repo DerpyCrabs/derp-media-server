@@ -31,7 +31,7 @@ export default async function Home({ searchParams }: PageProps) {
   return (
     <>
       <MediaPlayers />
-      <div className={`flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
+      <div className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
         <div className='container mx-auto lg:p-4 flex flex-col'>
           {error ? (
             <Card className='border-destructive shrink-0'>
