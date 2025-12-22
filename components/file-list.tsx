@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
@@ -22,6 +22,8 @@ import {
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { useSettings } from '@/lib/use-settings'
+import { useFiles, usePrefetchFiles } from '@/lib/use-files'
 
 interface FileListProps {
   files: FileItem[]
@@ -30,39 +32,8 @@ interface FileListProps {
   initialFavorites?: string[]
 }
 
-type ViewMode = 'list' | 'grid'
-
-// Save view mode to server
-async function saveViewMode(folderPath: string, mode: ViewMode) {
-  try {
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: folderPath, viewMode: mode }),
-    })
-  } catch (error) {
-    console.error('Failed to save view mode:', error)
-  }
-}
-
-// Toggle favorite status
-async function toggleFavorite(filePath: string) {
-  try {
-    const response = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'toggleFavorite', filePath }),
-    })
-    const data = await response.json()
-    return data
-  } catch (error) {
-    console.error('Failed to toggle favorite:', error)
-    return null
-  }
-}
-
 function FileListInner({
-  files,
+  files: initialFiles,
   currentPath,
   initialViewMode,
   initialFavorites = [],
@@ -70,23 +41,42 @@ function FileListInner({
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  // Use the server-provided initial view mode
-  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode)
-  const [favorites, setFavorites] = useState<string[]>(initialFavorites)
+  // Use React Query for files with SSR initial data
+  const { data: filesData } = useFiles(currentPath, initialFiles)
+  const prefetchFiles = usePrefetchFiles()
 
-  // Handle view mode change and save to server
-  const handleViewModeChange = (mode: ViewMode) => {
-    setViewMode(mode)
-    saveViewMode(currentPath, mode)
+  // Ensure files is ALWAYS an array, no matter what
+  const files = Array.isArray(filesData)
+    ? filesData
+    : Array.isArray(initialFiles)
+      ? initialFiles
+      : []
+
+  // Use React Query for real-time settings
+  const {
+    settings,
+    setViewMode: updateViewMode,
+    toggleFavorite: updateFavorite,
+  } = useSettings(currentPath)
+
+  // Use server settings from React Query, fallback to initial values
+  const viewMode = settings.viewMode || initialViewMode
+  const favorites = settings.favorites || initialFavorites
+
+  // Handle view mode change
+  const handleViewModeChange = (mode: 'list' | 'grid') => {
+    updateViewMode(mode)
   }
 
   // Handle favorite toggle
   const handleFavoriteToggle = async (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation() // Prevent file click
-    const result = await toggleFavorite(filePath)
-    if (result && result.favorites) {
-      setFavorites(result.favorites)
-    }
+    updateFavorite(filePath)
+  }
+
+  // Prefetch folder contents on hover
+  const handleFolderHover = (folderPath: string) => {
+    prefetchFiles(folderPath)
   }
 
   const handleFileClick = (file: FileItem) => {
@@ -192,6 +182,7 @@ function FileListInner({
                   variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
                   size='sm'
                   onClick={() => handleBreadcrumbClick(crumb.path)}
+                  onMouseEnter={() => handleFolderHover(crumb.path)}
                   className='gap-2'
                 >
                   {index === 0 && <Home className='h-4 w-4' />}
@@ -252,6 +243,7 @@ function FileListInner({
                         playingPath === file.path ? 'bg-primary/10' : ''
                       }`}
                       onClick={() => handleFileClick(file)}
+                      onMouseEnter={() => file.isDirectory && handleFolderHover(file.path)}
                     >
                       <TableCell className='w-12'>
                         {getIcon(
@@ -314,6 +306,7 @@ function FileListInner({
                       playingPath === file.path ? 'ring-2 ring-primary' : ''
                     }`}
                     onClick={() => handleFileClick(file)}
+                    onMouseEnter={() => file.isDirectory && handleFolderHover(file.path)}
                   >
                     <CardContent className='p-0 flex flex-col h-full'>
                       {/* Thumbnail/Icon */}

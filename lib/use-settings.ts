@@ -1,0 +1,199 @@
+'use client'
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+
+export type ViewMode = 'list' | 'grid'
+
+interface GlobalSettings {
+  viewModes: Record<string, ViewMode>
+  favorites: string[]
+}
+
+// Fetch full settings file
+async function fetchAllSettings(): Promise<GlobalSettings> {
+  const response = await fetch(`/api/settings/all`)
+  if (!response.ok) {
+    // Fallback to empty settings
+    return { viewModes: {}, favorites: [] }
+  }
+  return response.json()
+}
+
+// Save view mode
+async function saveViewMode(path: string, viewMode: ViewMode) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, viewMode }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to save view mode')
+  }
+  return response.json()
+}
+
+// Toggle favorite
+async function toggleFavorite(filePath: string) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'toggleFavorite', filePath }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to toggle favorite')
+  }
+  return response.json()
+}
+
+// Singleton EventSource to prevent multiple connections
+let globalEventSource: EventSource | null = null
+let connectionRefCount = 0
+
+function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
+  if (!globalEventSource) {
+    console.log('[Settings SSE] Connecting to settings stream...')
+    globalEventSource = new EventSource('/api/settings/stream')
+
+    globalEventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === 'connected') {
+          console.log('[Settings SSE] Connected to settings stream')
+        } else if (data.type === 'settings-changed') {
+          console.log('[Settings SSE] Settings changed, refetching...')
+          // Refetch all settings queries when settings change
+          queryClient.invalidateQueries({ queryKey: ['settings'] })
+        }
+      } catch (error) {
+        console.error('[Settings SSE] Error parsing message:', error)
+      }
+    }
+
+    globalEventSource.onerror = (error) => {
+      console.error('[Settings SSE] Connection error:', error)
+      // Close and reset
+      if (globalEventSource) {
+        globalEventSource.close()
+        globalEventSource = null
+      }
+      // Try to reconnect after 5 seconds
+      setTimeout(() => {
+        if (connectionRefCount > 0) {
+          console.log('[Settings SSE] Reconnecting...')
+          connectToSSE(queryClient)
+        }
+      }, 5000)
+    }
+  }
+  connectionRefCount++
+}
+
+function disconnectFromSSE() {
+  connectionRefCount--
+  if (connectionRefCount === 0 && globalEventSource) {
+    console.log('[Settings SSE] Closing connection')
+    globalEventSource.close()
+    globalEventSource = null
+  }
+}
+
+// Hook to manage settings with SSE and optimistic updates
+export function useSettings(currentPath: string) {
+  const queryClient = useQueryClient()
+
+  // Global query for all settings
+  const { data: globalSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: fetchAllSettings,
+    staleTime: Infinity, // Don't auto-refetch, rely on SSE
+  })
+
+  // Set up SSE connection
+  useEffect(() => {
+    connectToSSE(queryClient)
+    return () => {
+      disconnectFromSSE()
+    }
+  }, [queryClient])
+
+  // Mutation for view mode with optimistic update
+  const viewModeMutation = useMutation({
+    mutationFn: ({ path, viewMode }: { path: string; viewMode: ViewMode }) =>
+      saveViewMode(path, viewMode),
+    onMutate: async ({ path, viewMode }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['settings'] })
+
+      // Snapshot previous value
+      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
+
+      // Optimistically update
+      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+        if (!old) return { viewModes: { [path]: viewMode }, favorites: [] }
+        return {
+          ...old,
+          viewModes: { ...old.viewModes, [path]: viewMode },
+        }
+      })
+
+      return { previousSettings }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings'], context.previousSettings)
+      }
+    },
+    onSettled: () => {
+      // Refetch after mutation (will be fast due to SSE)
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+
+  // Mutation for favorites with optimistic update
+  const favoriteMutation = useMutation({
+    mutationFn: (filePath: string) => toggleFavorite(filePath),
+    onMutate: async (filePath) => {
+      await queryClient.cancelQueries({ queryKey: ['settings'] })
+
+      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
+
+      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+        if (!old) return { viewModes: {}, favorites: [filePath] }
+
+        const favorites = [...old.favorites]
+        const index = favorites.indexOf(filePath)
+
+        if (index > -1) {
+          favorites.splice(index, 1)
+        } else {
+          favorites.push(filePath)
+        }
+
+        return { ...old, favorites }
+      })
+
+      return { previousSettings }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings'], context.previousSettings)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+
+  // Extract current path settings from global settings
+  const viewMode = globalSettings?.viewModes[currentPath] || 'list'
+  const favorites = globalSettings?.favorites || []
+
+  return {
+    settings: { viewMode, favorites },
+    setViewMode: (viewMode: ViewMode) => viewModeMutation.mutate({ path: currentPath, viewMode }),
+    toggleFavorite: (filePath: string) => favoriteMutation.mutate(filePath),
+    isLoading: !globalSettings,
+  }
+}
