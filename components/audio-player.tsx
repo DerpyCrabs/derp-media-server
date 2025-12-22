@@ -243,7 +243,12 @@ export function AudioPlayer() {
             <Button variant='ghost' size='icon' onClick={() => skip(10)} disabled={!currentFile}>
               <SkipForward className='h-4 w-4' />
             </Button>
-            <Button variant={isRepeat ? 'default' : 'ghost'} size='icon' onClick={toggleRepeat} disabled={!currentFile}>
+            <Button
+              variant={isRepeat ? 'default' : 'ghost'}
+              size='icon'
+              onClick={toggleRepeat}
+              disabled={!currentFile}
+            >
               <Repeat className='h-4 w-4' />
             </Button>
           </div>

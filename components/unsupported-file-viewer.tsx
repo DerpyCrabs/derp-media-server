@@ -4,7 +4,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { formatFileSize } from '@/lib/media-utils'
 import { FileItem, MediaType } from '@/lib/types'
 
@@ -77,8 +83,8 @@ export function UnsupportedFileViewer() {
           <div>
             <h3 className='text-lg font-medium mb-2'>Unsupported File Type</h3>
             <p className='text-sm text-muted-foreground'>
-              This file type is not supported for preview. The media server currently supports video, audio, and image
-              files.
+              This file type is not supported for preview. The media server currently supports
+              video, audio, and image files.
             </p>
           </div>
           <div className='pt-2'>

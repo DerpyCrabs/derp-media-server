@@ -140,5 +140,10 @@ export function formatFileSize(bytes: number): string {
 
 export function isMediaFile(extension: string): boolean {
   const type = getMediaType(extension)
-  return type === MediaType.VIDEO || type === MediaType.AUDIO || type === MediaType.IMAGE || type === MediaType.TEXT
+  return (
+    type === MediaType.VIDEO ||
+    type === MediaType.AUDIO ||
+    type === MediaType.IMAGE ||
+    type === MediaType.TEXT
+  )
 }

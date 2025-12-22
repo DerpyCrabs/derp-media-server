@@ -93,11 +93,14 @@ async function createPlaceholderImage(): Promise<Buffer> {
   // Return a simple 1x1 transparent PNG
   return Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-    'base64'
+    'base64',
   )
 }
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
   try {
     const resolvedParams = await params
     const filePath = resolvedParams.path.join('/')

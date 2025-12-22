@@ -18,7 +18,14 @@ import {
   FileQuestion,
   FileText,
 } from 'lucide-react'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -203,7 +210,10 @@ function FileListInner({ files, currentPath }: FileListProps) {
               <TableBody>
                 {/* Parent directory entry - only show when not at root */}
                 {currentPath && (
-                  <TableRow className='cursor-pointer hover:bg-muted/50 select-none' onClick={handleParentDirectory}>
+                  <TableRow
+                    className='cursor-pointer hover:bg-muted/50 select-none'
+                    onClick={handleParentDirectory}
+                  >
                     <TableCell className='w-12'>
                       <ArrowUp className='h-5 w-5 text-muted-foreground' />
                     </TableCell>
@@ -295,12 +305,22 @@ function FileListInner({ files, currentPath }: FileListProps) {
                       ) : null}
                       <div
                         className={`fallback-icon ${
-                          file.type === MediaType.VIDEO || file.type === MediaType.IMAGE ? 'hidden' : ''
+                          file.type === MediaType.VIDEO || file.type === MediaType.IMAGE
+                            ? 'hidden'
+                            : ''
                         }`}
                       >
-                        {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO) && (
+                        {getIcon(
+                          file.type,
+                          playingPath === file.path,
+                          file.type === MediaType.AUDIO,
+                        ) && (
                           <div className='scale-[2.5]'>
-                            {getIcon(file.type, playingPath === file.path, file.type === MediaType.AUDIO)}
+                            {getIcon(
+                              file.type,
+                              playingPath === file.path,
+                              file.type === MediaType.AUDIO,
+                            )}
                           </div>
                         )}
                       </div>

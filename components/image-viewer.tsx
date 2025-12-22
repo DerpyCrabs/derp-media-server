@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { X, ChevronLeft, ChevronRight, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
+import { X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { MediaType } from '@/lib/types'
 
 export function ImageViewer() {
   const router = useRouter()
@@ -87,11 +86,23 @@ export function ImageViewer() {
           <h2 className='text-white text-lg font-medium truncate max-w-md'>{fileName}</h2>
         </div>
         <div className='flex items-center gap-2'>
-          <Button variant='ghost' size='icon' onClick={handleZoomOut} className='text-white hover:bg-white/10'>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={handleZoomOut}
+            className='text-white hover:bg-white/10'
+          >
             <ZoomOut className='h-5 w-5' />
           </Button>
-          <span className='text-white text-sm min-w-16 text-center'>{zoom === 'fit' ? 'Fit' : `${zoom}%`}</span>
-          <Button variant='ghost' size='icon' onClick={handleZoomIn} className='text-white hover:bg-white/10'>
+          <span className='text-white text-sm min-w-16 text-center'>
+            {zoom === 'fit' ? 'Fit' : `${zoom}%`}
+          </span>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={handleZoomIn}
+            className='text-white hover:bg-white/10'
+          >
             <ZoomIn className='h-5 w-5' />
           </Button>
           <Button
@@ -103,21 +114,39 @@ export function ImageViewer() {
           >
             <Maximize2 className='h-5 w-5' />
           </Button>
-          <Button variant='ghost' size='icon' onClick={handleRotate} className='text-white hover:bg-white/10'>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={handleRotate}
+            className='text-white hover:bg-white/10'
+          >
             <RotateCw className='h-5 w-5' />
           </Button>
           <div className='w-px h-6 bg-white/20 mx-2' />
-          <Button variant='ghost' size='icon' onClick={handleDownload} className='text-white hover:bg-white/10'>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={handleDownload}
+            className='text-white hover:bg-white/10'
+          >
             <Download className='h-5 w-5' />
           </Button>
-          <Button variant='ghost' size='icon' onClick={closeViewer} className='text-white hover:bg-white/10'>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={closeViewer}
+            className='text-white hover:bg-white/10'
+          >
             <X className='h-5 w-5' />
           </Button>
         </div>
       </div>
 
       {/* Image container */}
-      <div className='flex-1 flex items-center justify-center overflow-auto p-4' onClick={closeViewer}>
+      <div
+        className='flex-1 flex items-center justify-center overflow-auto p-4'
+        onClick={closeViewer}
+      >
         <img
           src={`/api/media/${encodeURIComponent(playingPath)}`}
           alt={fileName}

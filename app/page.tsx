@@ -44,7 +44,8 @@ export default async function Home({ searchParams }: PageProps) {
               </CardHeader>
               <CardContent>
                 <p className='text-sm text-muted-foreground'>
-                  Please check that the MEDIA_DIR environment variable is set correctly and the directory exists.
+                  Please check that the MEDIA_DIR environment variable is set correctly and the
+                  directory exists.
                 </p>
               </CardContent>
             </Card>

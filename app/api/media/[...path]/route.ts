@@ -4,7 +4,10 @@ import { getFilePath } from '@/lib/file-system'
 import { getMimeType } from '@/lib/media-utils'
 import path from 'path'
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
   try {
     const resolvedParams = await params
     const filePath = resolvedParams.path.join('/')
