@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
+import { FileItem, MediaType } from '@/lib/types'
 
 export function ImageViewer() {
   const router = useRouter()
@@ -14,6 +15,38 @@ export function ImageViewer() {
   const viewingPath = searchParams.get('viewing')
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
   const [rotation, setRotation] = useState(0)
+  const [imageFiles, setImageFiles] = useState<FileItem[]>([])
+
+  const currentDir = searchParams.get('dir') || ''
+
+  // Fetch image files in the current directory
+  useEffect(() => {
+    if (!currentDir && !viewingPath) return
+
+    // Extract directory from viewing path if no dir param
+    let dirToFetch = currentDir
+    if (!dirToFetch && viewingPath) {
+      const pathParts = viewingPath.split(/[/\\]/)
+      pathParts.pop() // Remove filename
+      dirToFetch = pathParts.join('/')
+    }
+
+    const fetchFiles = async () => {
+      try {
+        const response = await fetch(`/api/files?dir=${encodeURIComponent(dirToFetch)}`)
+        const data = await response.json()
+        if (data.files) {
+          // Filter only image files and sort them
+          const imageFiles = data.files.filter((file: FileItem) => file.type === MediaType.IMAGE)
+          setImageFiles(imageFiles)
+        }
+      } catch (error) {
+        console.error('Error fetching files:', error)
+      }
+    }
+
+    fetchFiles()
+  }, [currentDir, viewingPath])
 
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
@@ -22,6 +55,58 @@ export function ImageViewer() {
     setZoom('fit')
     setRotation(0)
   }
+
+  const navigateToNext = useCallback(() => {
+    if (!viewingPath || imageFiles.length === 0) return
+
+    const currentIndex = imageFiles.findIndex((file) => file.path === viewingPath)
+    if (currentIndex === -1 || currentIndex === imageFiles.length - 1) return
+
+    const nextFile = imageFiles[currentIndex + 1]
+    const params = new URLSearchParams(searchParams)
+    params.set('viewing', nextFile.path)
+    if (currentDir) {
+      params.set('dir', currentDir)
+    }
+    router.push(`/?${params.toString()}`, { scroll: false })
+    setZoom('fit')
+    setRotation(0)
+  }, [viewingPath, imageFiles, searchParams, currentDir, router])
+
+  const navigateToPrevious = useCallback(() => {
+    if (!viewingPath || imageFiles.length === 0) return
+
+    const currentIndex = imageFiles.findIndex((file) => file.path === viewingPath)
+    if (currentIndex === -1 || currentIndex === 0) return
+
+    const prevFile = imageFiles[currentIndex - 1]
+    const params = new URLSearchParams(searchParams)
+    params.set('viewing', prevFile.path)
+    if (currentDir) {
+      params.set('dir', currentDir)
+    }
+    router.push(`/?${params.toString()}`, { scroll: false })
+    setZoom('fit')
+    setRotation(0)
+  }, [viewingPath, imageFiles, searchParams, currentDir, router])
+
+  // Handle keyboard navigation
+  useEffect(() => {
+    if (!viewingPath) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        navigateToPrevious()
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        navigateToNext()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [viewingPath, imageFiles, navigateToPrevious, navigateToNext])
 
   const handleDownload = () => {
     if (!viewingPath) return
@@ -65,6 +150,11 @@ export function ImageViewer() {
 
   const fileName = viewingPath.split(/[/\\]/).pop() || ''
 
+  // Calculate current image position
+  const currentImageIndex = imageFiles.findIndex((file) => file.path === viewingPath)
+  const currentImageNumber = currentImageIndex !== -1 ? currentImageIndex + 1 : 1
+  const totalImages = imageFiles.length
+
   return (
     <Dialog open={!!viewingPath} onOpenChange={(open) => !open && closeViewer()}>
       <DialogPortal>
@@ -81,7 +171,14 @@ export function ImageViewer() {
             <div className='flex-1'>
               <h2 className='text-white text-lg font-medium truncate max-w-md'>{fileName}</h2>
             </div>
-            <div className='flex items-center gap-2'>
+            {totalImages > 0 && (
+              <div className='shrink-0 px-4'>
+                <span className='text-white text-sm font-medium'>
+                  {currentImageNumber} of {totalImages}
+                </span>
+              </div>
+            )}
+            <div className='flex items-center gap-2 flex-1 justify-end'>
               <Button
                 variant='ghost'
                 size='icon'
@@ -139,14 +236,21 @@ export function ImageViewer() {
           </div>
 
           {/* Image container */}
-          <div
-            className='flex-1 flex items-center justify-center overflow-auto p-4'
-            onClick={closeViewer}
-          >
+          <div className='flex-1 flex items-center justify-center overflow-auto p-4 relative'>
+            {/* Left navigation area */}
+            <div
+              className='absolute left-0 top-0 bottom-0 w-[30%] cursor-pointer z-10'
+              onClick={navigateToPrevious}
+            />
+            {/* Right navigation area */}
+            <div
+              className='absolute right-0 top-0 bottom-0 w-[30%] cursor-pointer z-10'
+              onClick={navigateToNext}
+            />
             <img
               src={`/api/media/${encodeURIComponent(viewingPath)}`}
               alt={fileName}
-              className='transition-transform duration-200'
+              className='transition-transform duration-200 pointer-events-none'
               style={{
                 ...(zoom === 'fit'
                   ? {
@@ -162,13 +266,6 @@ export function ImageViewer() {
                       objectFit: 'none',
                     }),
                 transform: `scale(${zoom === 'fit' ? 1 : zoom / 100}) rotate(${rotation}deg)`,
-              }}
-              onClick={(e) => {
-                e.stopPropagation()
-                // Allow clicking directly on image to close (but not when zoomed/rotated)
-                if (zoom === 'fit' && rotation === 0) {
-                  closeViewer()
-                }
               }}
             />
           </div>
