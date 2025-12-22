@@ -3,9 +3,27 @@ import { FileList } from '@/components/file-list'
 import { MediaPlayers } from '@/components/media-players'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
+import { promises as fs } from 'fs'
+import path from 'path'
 
 interface PageProps {
   searchParams: Promise<{ dir?: string; playing?: string }>
+}
+
+type ViewMode = 'list' | 'grid'
+
+interface Settings {
+  viewModes: Record<string, ViewMode>
+}
+
+async function readSettings(): Promise<Settings> {
+  try {
+    const settingsFile = path.join(process.cwd(), 'settings.json')
+    const data = await fs.readFile(settingsFile, 'utf-8')
+    return JSON.parse(data)
+  } catch {
+    return { viewModes: {} }
+  }
 }
 
 export default async function Home({ searchParams }: PageProps) {
@@ -27,6 +45,10 @@ export default async function Home({ searchParams }: PageProps) {
     error = err instanceof Error ? err.message : 'Failed to read directory'
     console.error('Error reading directory:', err)
   }
+
+  // Read view mode from settings
+  const settings = await readSettings()
+  const initialViewMode: ViewMode = settings.viewModes[currentDir] || 'list'
 
   return (
     <>
@@ -51,7 +73,7 @@ export default async function Home({ searchParams }: PageProps) {
             </Card>
           ) : (
             <Card className='py-0 rounded-none lg:rounded-xl'>
-              <FileList files={files} currentPath={currentDir} />
+              <FileList files={files} currentPath={currentDir} initialViewMode={initialViewMode} />
             </Card>
           )}
         </div>

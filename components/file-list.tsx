@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState, useLayoutEffect } from 'react'
+import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
@@ -25,49 +25,32 @@ import { Card, CardContent } from '@/components/ui/card'
 interface FileListProps {
   files: FileItem[]
   currentPath: string
+  initialViewMode: 'list' | 'grid'
 }
 
 type ViewMode = 'list' | 'grid'
 
-// LocalStorage key prefix for view mode
-const VIEW_MODE_STORAGE_KEY = 'media-server-view-mode'
-
-// Get saved view mode for a specific folder
-function getSavedViewMode(folderPath: string): ViewMode | null {
-  if (typeof window === 'undefined') return null
+// Save view mode to server
+async function saveViewMode(folderPath: string, mode: ViewMode) {
   try {
-    const saved = localStorage.getItem(`${VIEW_MODE_STORAGE_KEY}:${folderPath}`)
-    return saved === 'grid' || saved === 'list' ? saved : null
-  } catch {
-    return null
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: folderPath, viewMode: mode }),
+    })
+  } catch (error) {
+    console.error('Failed to save view mode:', error)
   }
 }
 
-// Save view mode for a specific folder
-function saveViewMode(folderPath: string, mode: ViewMode) {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem(`${VIEW_MODE_STORAGE_KEY}:${folderPath}`, mode)
-  } catch {
-    // Silently fail if localStorage is not available
-  }
-}
-
-function FileListInner({ files, currentPath }: FileListProps) {
+function FileListInner({ files, currentPath, initialViewMode }: FileListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  // Always initialize with 'list' to avoid hydration mismatch
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
+  // Use the server-provided initial view mode
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode)
 
-  // Load saved view mode after component mounts (client-side only)
-  useLayoutEffect(() => {
-    const savedMode = getSavedViewMode(currentPath)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setViewMode(savedMode || 'list')
-  }, [currentPath])
-
-  // Handle view mode change and save to localStorage
+  // Handle view mode change and save to server
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode)
     saveViewMode(currentPath, mode)
@@ -354,7 +337,7 @@ function FileListInner({ files, currentPath }: FileListProps) {
 export function FileList(props: FileListProps) {
   return (
     <Suspense fallback={<div className='flex items-center justify-center h-full'>Loading...</div>}>
-      <FileListInner {...props} />
+      <FileListInner key={props.currentPath} {...props} />
     </Suspense>
   )
 }
