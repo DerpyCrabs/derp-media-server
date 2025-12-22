@@ -4,13 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatFileSize } from '@/lib/media-utils'
 import { FileItem, MediaType } from '@/lib/types'
 
@@ -99,4 +93,3 @@ export function UnsupportedFileViewer() {
     </Dialog>
   )
 }
-
