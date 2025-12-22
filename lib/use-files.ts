@@ -8,7 +8,8 @@ async function fetchFiles(path: string): Promise<FileItem[]> {
   if (!response.ok) {
     throw new Error('Failed to fetch files')
   }
-  return response.json()
+  const data = await response.json()
+  return data.files
 }
 
 export function useFiles(currentPath: string, initialData?: FileItem[]) {

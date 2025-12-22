@@ -4,6 +4,9 @@ import { FileItem, MediaType } from './types'
 import { getMediaType } from './media-utils'
 
 const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+const EDITABLE_FOLDERS = process.env.EDITABLE_FOLDERS
+  ? process.env.EDITABLE_FOLDERS.split(',').map((f) => f.trim())
+  : []
 
 /**
  * Validates and resolves a path to ensure it's within MEDIA_DIR
@@ -124,4 +127,95 @@ export async function fileExists(relativePath: string): Promise<boolean> {
  */
 export function getFilePath(relativePath: string): string {
   return validatePath(relativePath)
+}
+
+/**
+ * Checks if a path is within an editable folder
+ */
+export function isPathEditable(relativePath: string): boolean {
+  if (EDITABLE_FOLDERS.length === 0) return false
+
+  const normalizedPath = relativePath.replace(/\\/g, '/')
+  return EDITABLE_FOLDERS.some((folder) => {
+    const normalizedFolder = folder.replace(/\\/g, '/')
+    return (
+      normalizedPath === normalizedFolder ||
+      normalizedPath.startsWith(normalizedFolder + '/') ||
+      normalizedPath.startsWith(normalizedFolder + '\\')
+    )
+  })
+}
+
+/**
+ * Gets the list of editable folders
+ */
+export function getEditableFolders(): string[] {
+  return EDITABLE_FOLDERS
+}
+
+/**
+ * Creates a new directory
+ */
+export async function createDirectory(relativePath: string): Promise<void> {
+  const fullPath = validatePath(relativePath)
+
+  // Check if parent directory is editable
+  const parentPath = path.dirname(relativePath).replace(/\\/g, '/')
+  if (!isPathEditable(parentPath) && !isPathEditable(relativePath)) {
+    throw new Error('Cannot create directory: Path is not in an editable folder')
+  }
+
+  await fs.mkdir(fullPath, { recursive: true })
+}
+
+/**
+ * Writes content to a file (creates or updates)
+ */
+export async function writeFile(relativePath: string, content: string): Promise<void> {
+  const fullPath = validatePath(relativePath)
+
+  // Check if path is editable
+  const dirPath = path.dirname(relativePath).replace(/\\/g, '/')
+  if (!isPathEditable(dirPath) && !isPathEditable(relativePath)) {
+    throw new Error('Cannot write file: Path is not in an editable folder')
+  }
+
+  // Ensure directory exists
+  await fs.mkdir(path.dirname(fullPath), { recursive: true })
+  await fs.writeFile(fullPath, content, 'utf-8')
+}
+
+/**
+ * Reads file content as text
+ */
+export async function readFileContent(relativePath: string): Promise<string> {
+  const fullPath = validatePath(relativePath)
+  return await fs.readFile(fullPath, 'utf-8')
+}
+
+/**
+ * Deletes an empty directory
+ */
+export async function deleteDirectory(relativePath: string): Promise<void> {
+  const fullPath = validatePath(relativePath)
+
+  // Check if path is editable
+  if (!isPathEditable(relativePath)) {
+    throw new Error('Cannot delete directory: Path is not in an editable folder')
+  }
+
+  // Check if it's a directory
+  const stats = await fs.stat(fullPath)
+  if (!stats.isDirectory()) {
+    throw new Error('Path is not a directory')
+  }
+
+  // Check if directory is empty
+  const entries = await fs.readdir(fullPath)
+  if (entries.length > 0) {
+    throw new Error('Cannot delete directory: Directory is not empty')
+  }
+
+  // Delete the empty directory
+  await fs.rmdir(fullPath)
 }

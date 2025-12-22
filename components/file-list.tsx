@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
@@ -18,12 +18,35 @@ import {
   FileQuestion,
   FileText,
   Star,
+  FolderPlus,
+  FilePlus,
+  Trash2,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useSettings } from '@/lib/use-settings'
 import { useFiles, usePrefetchFiles } from '@/lib/use-files'
+import { useQueryClient, useMutation } from '@tanstack/react-query'
 
 interface FileListProps {
   files: FileItem[]
@@ -40,6 +63,7 @@ function FileListInner({
 }: FileListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
 
   // Use React Query for files with SSR initial data
   const { data: filesData } = useFiles(currentPath, initialFiles)
@@ -62,6 +86,105 @@ function FileListInner({
   // Use server settings from React Query, fallback to initial values
   const viewMode = settings.viewMode || initialViewMode
   const favorites = settings.favorites || initialFavorites
+
+  // State for dialogs
+  const [showCreateFolder, setShowCreateFolder] = useState(false)
+  const [showCreateFile, setShowCreateFile] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
+  const [isEditable, setIsEditable] = useState(false)
+
+  // Check if current directory is editable
+  useEffect(() => {
+    const checkEditable = async () => {
+      try {
+        const res = await fetch(`/api/files/editable?path=${encodeURIComponent(currentPath || '')}`)
+        const data = await res.json()
+        setIsEditable(data.editable || false)
+      } catch (err) {
+        console.error('Failed to check editable status:', err)
+        setIsEditable(false)
+      }
+    }
+    checkEditable()
+  }, [currentPath])
+
+  // Mutation for creating folders
+  const createFolderMutation = useMutation({
+    mutationFn: async (folderName: string) => {
+      const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName
+      const res = await fetch('/api/files/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'folder', path: folderPath }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to create folder')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+      setShowCreateFolder(false)
+      setNewItemName('')
+    },
+  })
+
+  // Mutation for creating files
+  const createFileMutation = useMutation({
+    mutationFn: async (fileName: string) => {
+      const filePath = currentPath ? `${currentPath}/${fileName}` : fileName
+      const finalFilePath = filePath.includes('.') ? filePath : `${filePath}.txt`
+      const res = await fetch('/api/files/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'file', path: finalFilePath, content: '' }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to create file')
+      }
+      return { data: await res.json(), filePath: finalFilePath }
+    },
+    onSuccess: ({ filePath }) => {
+      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+      setShowCreateFile(false)
+      setNewItemName('')
+      // Open the new file for editing
+      const params = new URLSearchParams(searchParams)
+      params.set('viewing', filePath)
+      router.push(`/?${params.toString()}`, { scroll: false })
+    },
+  })
+
+  // Mutation for deleting folders
+  const deleteFolderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/files/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: currentPath }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to delete folder')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      setShowDeleteConfirm(false)
+      // Navigate to parent folder
+      const params = new URLSearchParams(searchParams)
+      const pathParts = currentPath.split(/[/\\]/).filter(Boolean)
+      if (pathParts.length > 1) {
+        params.set('dir', pathParts.slice(0, -1).join('/'))
+      } else {
+        params.delete('dir')
+      }
+      router.push(`/?${params.toString()}`, { scroll: false })
+    },
+  })
 
   // Handle view mode change
   const handleViewModeChange = (mode: 'list' | 'grid') => {
@@ -169,10 +292,131 @@ function FileListInner({
     }
   }
 
+  const currentFolderName = currentPath ? currentPath.split(/[/\\]/).pop() : ''
+
   return (
     <div className='flex flex-col'>
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Empty Folder?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the folder &ldquo;{currentFolderName}&rdquo;? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteFolderMutation.error && (
+            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
+              {deleteFolderMutation.error.message}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteFolderMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteFolderMutation.mutate()}
+              disabled={deleteFolderMutation.isPending}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {deleteFolderMutation.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Create Folder Dialog */}
+      <Dialog open={showCreateFolder} onOpenChange={setShowCreateFolder}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Folder</DialogTitle>
+            <DialogDescription>Enter a name for the new folder.</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
+            placeholder='Folder name'
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newItemName.trim()) createFolderMutation.mutate(newItemName)
+            }}
+            autoFocus
+            disabled={createFolderMutation.isPending}
+          />
+          {createFolderMutation.error && (
+            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
+              {createFolderMutation.error.message}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setShowCreateFolder(false)
+                setNewItemName('')
+                createFolderMutation.reset()
+              }}
+              disabled={createFolderMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createFolderMutation.mutate(newItemName)}
+              disabled={createFolderMutation.isPending || !newItemName.trim()}
+            >
+              {createFolderMutation.isPending ? 'Creating...' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create File Dialog */}
+      <Dialog open={showCreateFile} onOpenChange={setShowCreateFile}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New File</DialogTitle>
+            <DialogDescription>
+              Enter a name for the new file. .txt extension will be added if no extension is
+              provided.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
+            placeholder='File name (e.g., notes.txt)'
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newItemName.trim()) createFileMutation.mutate(newItemName)
+            }}
+            autoFocus
+            disabled={createFileMutation.isPending}
+          />
+          {createFileMutation.error && (
+            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
+              {createFileMutation.error.message}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setShowCreateFile(false)
+                setNewItemName('')
+                createFileMutation.reset()
+              }}
+              disabled={createFileMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => createFileMutation.mutate(newItemName)}
+              disabled={createFileMutation.isPending || !newItemName.trim()}
+            >
+              {createFileMutation.isPending ? 'Creating...' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Breadcrumb Navigation */}
-      <div className='p-2 lg:p-4 border-b border-border bg-muted/30 shrink-0'>
+      <div className='p-2 lg:p-3 border-b border-border bg-muted/30 shrink-0'>
         <div className='flex items-center justify-between gap-2 lg:gap-4'>
           <div className='flex items-center gap-1 lg:gap-2 flex-wrap'>
             {breadcrumbs.map((crumb, index) => (
@@ -191,7 +435,51 @@ function FileListInner({
               </div>
             ))}
           </div>
-          <div className='flex gap-1'>
+          <div className='flex gap-1 items-center'>
+            {isEditable && (
+              <>
+                <Button
+                  variant='outline'
+                  size='icon'
+                  onClick={() => {
+                    setNewItemName('')
+                    createFolderMutation.reset()
+                    setShowCreateFolder(true)
+                  }}
+                  title='Create new folder'
+                >
+                  <FolderPlus className='h-4 w-4' />
+                </Button>
+                <Button
+                  variant='outline'
+                  size='icon'
+                  onClick={() => {
+                    setNewItemName('')
+                    createFileMutation.reset()
+                    setShowCreateFile(true)
+                  }}
+                  title='Create new file'
+                >
+                  <FilePlus className='h-4 w-4' />
+                </Button>
+                {/* Show delete button only when inside an empty folder */}
+                {currentPath && files.length === 0 && (
+                  <Button
+                    variant='outline'
+                    size='icon'
+                    onClick={() => {
+                      deleteFolderMutation.reset()
+                      setShowDeleteConfirm(true)
+                    }}
+                    className='text-destructive hover:text-destructive'
+                    title='Delete this empty folder'
+                  >
+                    <Trash2 className='h-4 w-4' />
+                  </Button>
+                )}
+                <div className='w-px h-6 bg-border mx-1' />
+              </>
+            )}
             <Button
               variant={viewMode === 'list' ? 'default' : 'ghost'}
               size='sm'
@@ -239,7 +527,7 @@ function FileListInner({
                   return (
                     <TableRow
                       key={file.path}
-                      className={`cursor-pointer hover:bg-muted/50 select-none ${
+                      className={`cursor-pointer hover:bg-muted/50 select-none group ${
                         playingPath === file.path ? 'bg-primary/10' : ''
                       }`}
                       onClick={() => handleFileClick(file)}
@@ -253,7 +541,7 @@ function FileListInner({
                         )}
                       </TableCell>
                       <TableCell className='font-medium'>
-                        <div className='flex items-center gap-2 group'>
+                        <div className='flex items-center gap-2'>
                           {!file.isDirectory && (
                             <button
                               onClick={(e) => handleFavoriteToggle(file.path, e)}

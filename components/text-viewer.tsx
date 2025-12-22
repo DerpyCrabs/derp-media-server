@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { X, Download, Copy, Check } from 'lucide-react'
+import { X, Download, Copy, Check, Edit2, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
@@ -17,6 +17,10 @@ export function TextViewer() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState<string>('')
+  const [isEditable, setIsEditable] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
@@ -24,7 +28,7 @@ export function TextViewer() {
     router.push(`/?${params.toString()}`, { scroll: false })
   }
 
-  // Load text content
+  // Load text content and check if editable
   useEffect(() => {
     if (!viewingPath) return
 
@@ -73,14 +77,24 @@ export function TextViewer() {
       if (!cancelled) {
         setLoading(true)
         setError(null)
+        setIsEditing(false)
       }
 
       try {
+        // Load file content
         const res = await fetch(`/api/media/${encodeURIComponent(viewingPath)}`)
         if (!res.ok) throw new Error('Failed to load file')
         const text = await res.text()
+
+        // Check if file is editable
+        const editableRes = await fetch(
+          `/api/files/editable?path=${encodeURIComponent(viewingPath)}`,
+        )
+        const editableData = await editableRes.json()
+
         if (!cancelled) {
           setContent(text)
+          setIsEditable(editableData.editable || false)
           setLoading(false)
         }
       } catch (err) {
@@ -116,6 +130,61 @@ export function TextViewer() {
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy:', err)
+    }
+  }
+
+  const handleEdit = () => {
+    setEditContent(content)
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setEditContent('')
+  }
+
+  const handleSave = async () => {
+    if (!viewingPath) return
+
+    setSaving(true)
+    try {
+      const res = await fetch('/api/files/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'file',
+          path: viewingPath,
+          content: editContent,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to save file')
+      }
+
+      // Update content and exit edit mode
+      setContent(editContent)
+      setIsEditing(false)
+
+      // Verify the save by reloading from server with cache-busting
+      try {
+        const verifyRes = await fetch(
+          `/api/media/${encodeURIComponent(viewingPath)}?t=${Date.now()}`,
+          { cache: 'no-store' },
+        )
+        if (verifyRes.ok) {
+          const verifiedText = await verifyRes.text()
+          setContent(verifiedText)
+        }
+      } catch (err) {
+        console.error('Failed to verify save:', err)
+      }
+    } catch (err) {
+      console.error('Failed to save:', err)
+      alert(err instanceof Error ? err.message : 'Failed to save file')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -182,12 +251,49 @@ export function TextViewer() {
               </p>
             </div>
             <div className='flex items-center gap-2'>
-              <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
-                {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
-              </Button>
-              <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
-                <Download className='h-5 w-5' />
-              </Button>
+              {isEditing ? (
+                <>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={handleCancelEdit}
+                    disabled={saving}
+                    title='Cancel editing'
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant='default'
+                    size='sm'
+                    onClick={handleSave}
+                    disabled={saving}
+                    title='Save changes'
+                    className='gap-2'
+                  >
+                    <Save className='h-4 w-4' />
+                    {saving ? 'Saving...' : 'Save'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {isEditable && (
+                    <Button variant='ghost' size='icon' onClick={handleEdit} title='Edit file'>
+                      <Edit2 className='h-5 w-5' />
+                    </Button>
+                  )}
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    onClick={handleCopy}
+                    title='Copy to clipboard'
+                  >
+                    {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
+                  </Button>
+                  <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
+                    <Download className='h-5 w-5' />
+                  </Button>
+                </>
+              )}
               <Button variant='ghost' size='icon' onClick={closeViewer} title='Close'>
                 <X className='h-5 w-5' />
               </Button>
@@ -206,6 +312,16 @@ export function TextViewer() {
                   <p className='text-destructive mb-2'>Failed to load file</p>
                   <p className='text-sm text-muted-foreground'>{error}</p>
                 </div>
+              </div>
+            ) : isEditing ? (
+              <div className='h-full p-4'>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  className='w-full h-full font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
+                  placeholder='Enter text...'
+                  spellCheck={false}
+                />
               </div>
             ) : (
               <ScrollArea className='h-full'>

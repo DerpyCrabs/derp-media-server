@@ -8,6 +8,8 @@ A modern Next.js-based media server with a beautiful web UI for browsing and pla
 - 🎬 **Video Player** - Minimizable video player with Picture-in-Picture support
 - 📁 **File Browser** - Intuitive file explorer with breadcrumb navigation
 - 🖼️ **Grid & List Views** - Toggle between grid view with video thumbnails and traditional list view
+- ✏️ **Text File Editing** - Edit text files directly in editable folders
+- 📝 **File Creation** - Create new text files and folders in editable directories
 - 🔄 **State Persistence** - URL-based state management (reload returns to same file/folder)
 - 🎨 **Modern UI** - Built with shadcn/ui and Tailwind CSS
 - 🚀 **React Server Components** - Direct file system access without API overhead
@@ -16,7 +18,8 @@ A modern Next.js-based media server with a beautiful web UI for browsing and pla
 ## Supported Formats
 
 **Video:** mp4, webm, ogg, mov, avi, mkv  
-**Audio:** mp3, wav, ogg, m4a, flac, aac, opus
+**Audio:** mp3, wav, ogg, m4a, flac, aac, opus  
+**Text:** txt, md, json, xml, csv, log, yaml, yml, ini, conf, sh, bat, ps1, js, ts, jsx, tsx, css, scss, html, py, java, c, cpp, h, cs, go, rs, php, rb, swift, kt, sql
 
 ## Setup
 
@@ -63,13 +66,30 @@ choco install ffmpeg
    echo "MEDIA_DIR=/path/to/your/media" > .env.local
    ```
 
-3. **Run the development server:**
+3. **Configure editable folders (optional):**
+
+   To enable text file editing and folder/file creation, set the `EDITABLE_FOLDERS` environment variable:
+
+   ```bash
+   # Comma-separated list of folders (relative to MEDIA_DIR)
+   export EDITABLE_FOLDERS=notes,documents,config
+
+   # Or add to .env.local:
+   echo "EDITABLE_FOLDERS=notes,documents,config" >> .env.local
+   ```
+
+   Any folders listed here (and their subfolders) will allow:
+   - Editing text files
+   - Creating new folders
+   - Creating new text files
+
+4. **Run the development server:**
 
    ```bash
    pnpm dev
    ```
 
-4. **Open your browser:**
+5. **Open your browser:**
    Navigate to [http://localhost:3000](http://localhost:3000)
 
 ## Usage
@@ -94,12 +114,29 @@ choco install ffmpeg
 - Supports Picture-in-Picture mode
 - Click X to close
 
+### Text File Editing
+
+- Click on text files to view them
+- In editable folders, an **Edit** button appears in the viewer
+- Click **Edit** to switch to edit mode with a textarea
+- Click **Save** to save changes or **Cancel** to discard
+
+### Creating Files and Folders
+
+In editable folders, you'll see:
+
+- **Folder** button - Create a new subfolder
+- **File** button - Create a new text file (opens immediately for editing)
+
+Both buttons appear in the toolbar at the top of the file list.
+
 ### URL State
 
 The application uses URL parameters to maintain state:
 
 - `?dir=/path/to/folder` - Current directory
 - `?playing=/path/to/file.mp3` - Currently playing file
+- `?viewing=/path/to/file.txt` - Currently viewing/editing text file
 
 This means:
 
@@ -122,6 +159,7 @@ Make sure to set the `MEDIA_DIR` environment variable in your production environ
 
 - Path traversal protection prevents accessing files outside MEDIA_DIR
 - Only configured media file types are served
+- File editing is restricted to folders specified in `EDITABLE_FOLDERS`
 - No authentication (intended for local/trusted network use)
 
 ## Technology Stack

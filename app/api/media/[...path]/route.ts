@@ -28,6 +28,47 @@ export async function GET(
     const extension = path.extname(fullPath).slice(1)
     const mimeType = getMimeType(extension)
 
+    // Determine if this is a text file that might be edited
+    const textExtensions = [
+      'txt',
+      'md',
+      'json',
+      'xml',
+      'csv',
+      'log',
+      'yaml',
+      'yml',
+      'ini',
+      'conf',
+      'sh',
+      'bat',
+      'ps1',
+      'js',
+      'ts',
+      'jsx',
+      'tsx',
+      'css',
+      'scss',
+      'html',
+      'py',
+      'java',
+      'c',
+      'cpp',
+      'h',
+      'cs',
+      'go',
+      'rs',
+      'php',
+      'rb',
+      'swift',
+      'kt',
+      'sql',
+    ]
+    const isTextFile = textExtensions.includes(extension.toLowerCase())
+    const cacheControl = isTextFile
+      ? 'no-cache, no-store, must-revalidate'
+      : 'public, max-age=31536000'
+
     // Get range header for partial content support (video seeking)
     const range = request.headers.get('range')
 
@@ -49,7 +90,7 @@ export async function GET(
           'Accept-Ranges': 'bytes',
           'Content-Length': chunkSize.toString(),
           'Content-Type': mimeType,
-          'Cache-Control': 'public, max-age=31536000',
+          'Cache-Control': cacheControl,
         },
       })
     } else {
@@ -62,7 +103,7 @@ export async function GET(
           'Content-Type': mimeType,
           'Content-Length': stats.size.toString(),
           'Accept-Ranges': 'bytes',
-          'Cache-Control': 'public, max-age=31536000',
+          'Cache-Control': cacheControl,
         },
       })
     }
