@@ -25,7 +25,7 @@ export function TextViewer() {
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
     params.delete('viewing')
-    router.push(`/?${params.toString()}`, { scroll: false })
+    router.replace(`/?${params.toString()}`, { scroll: false })
   }
 
   // Load text content and check if editable

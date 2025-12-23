@@ -154,7 +154,8 @@ function FileListInner({
       // Open the new file for editing
       const params = new URLSearchParams(searchParams)
       params.set('viewing', filePath)
-      router.push(`/?${params.toString()}`, { scroll: false })
+      // Use replace to avoid adding file opens to browser history
+      router.replace(`/?${params.toString()}`, { scroll: false })
     },
   })
 
@@ -227,7 +228,8 @@ function FileListInner({
         params.set('dir', currentPath)
       }
 
-      router.push(`/?${params.toString()}`, { scroll: false })
+      // Use replace to avoid adding file opens to browser history
+      router.replace(`/?${params.toString()}`, { scroll: false })
     }
   }
 

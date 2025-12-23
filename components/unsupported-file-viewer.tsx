@@ -56,7 +56,7 @@ export function UnsupportedFileViewer() {
       // Close modal - remove viewing parameter
       const params = new URLSearchParams(searchParams)
       params.delete('viewing')
-      router.push(`/?${params.toString()}`, { scroll: false })
+      router.replace(`/?${params.toString()}`, { scroll: false })
     }
   }
 

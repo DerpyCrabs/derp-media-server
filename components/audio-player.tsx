@@ -91,7 +91,7 @@ export function AudioPlayer() {
     params.set('playing', nextFile.path)
     params.set('dir', currentDir)
     params.set('autoplay', 'true')
-    router.push(`/?${params.toString()}`, { scroll: false })
+    router.replace(`/?${params.toString()}`, { scroll: false })
   }, [playingPath, audioFiles, searchParams, currentDir, router])
 
   // Function to play previous audio file
@@ -110,7 +110,7 @@ export function AudioPlayer() {
     params.set('playing', previousFile.path)
     params.set('dir', currentDir)
     params.set('autoplay', 'true')
-    router.push(`/?${params.toString()}`, { scroll: false })
+    router.replace(`/?${params.toString()}`, { scroll: false })
   }, [playingPath, audioFiles, searchParams, currentDir, router])
 
   // Setup event listeners once

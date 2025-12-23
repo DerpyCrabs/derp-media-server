@@ -51,7 +51,7 @@ export function ImageViewer() {
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
     params.delete('viewing')
-    router.push(`/?${params.toString()}`, { scroll: false })
+    router.replace(`/?${params.toString()}`, { scroll: false })
     setZoom('fit')
     setRotation(0)
   }
@@ -68,7 +68,7 @@ export function ImageViewer() {
     if (currentDir) {
       params.set('dir', currentDir)
     }
-    router.push(`/?${params.toString()}`, { scroll: false })
+    router.replace(`/?${params.toString()}`, { scroll: false })
     setZoom('fit')
     setRotation(0)
   }, [viewingPath, imageFiles, searchParams, currentDir, router])
@@ -85,7 +85,7 @@ export function ImageViewer() {
     if (currentDir) {
       params.set('dir', currentDir)
     }
-    router.push(`/?${params.toString()}`, { scroll: false })
+    router.replace(`/?${params.toString()}`, { scroll: false })
     setZoom('fit')
     setRotation(0)
   }, [viewingPath, imageFiles, searchParams, currentDir, router])
