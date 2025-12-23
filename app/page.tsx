@@ -17,11 +17,17 @@ interface Settings {
   favorites: string[]
 }
 
+interface SettingsFile {
+  [mediaDir: string]: Settings
+}
+
 async function readSettings(): Promise<Settings> {
   try {
+    const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
     const settingsFile = path.join(process.cwd(), 'settings.json')
     const data = await fs.readFile(settingsFile, 'utf-8')
-    return JSON.parse(data)
+    const allSettings: SettingsFile = JSON.parse(data)
+    return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [] }
   } catch {
     return { viewModes: {}, favorites: [] }
   }

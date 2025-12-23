@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
 
+const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
 
 interface Settings {
@@ -9,18 +10,29 @@ interface Settings {
   favorites: string[]
 }
 
-async function readSettings(): Promise<Settings> {
+interface SettingsFile {
+  [mediaDir: string]: Settings
+}
+
+async function readAllSettings(): Promise<SettingsFile> {
   try {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
     return JSON.parse(data)
   } catch {
-    // Return default settings if file doesn't exist
-    return { viewModes: {}, favorites: [] }
+    // Return empty settings file if it doesn't exist
+    return {}
   }
 }
 
+async function readSettings(): Promise<Settings> {
+  const allSettings = await readAllSettings()
+  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [] }
+}
+
 async function writeSettings(settings: Settings): Promise<void> {
-  await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8')
+  const allSettings = await readAllSettings()
+  allSettings[MEDIA_DIR] = settings
+  await fs.writeFile(SETTINGS_FILE, JSON.stringify(allSettings, null, 2), 'utf-8')
 }
 
 export async function GET(request: NextRequest) {
