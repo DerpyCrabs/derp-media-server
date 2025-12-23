@@ -142,6 +142,35 @@ export function VideoPlayer() {
       video.src = mediaUrl
       video.load()
 
+      // Set Media Session metadata for mobile controls
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: fileName,
+          artist: 'Media Server',
+        })
+
+        // Set up action handlers for media controls
+        navigator.mediaSession.setActionHandler('play', () => {
+          video.play()
+        })
+        navigator.mediaSession.setActionHandler('pause', () => {
+          video.pause()
+        })
+        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+          const skipTime = details.seekOffset || 10
+          video.currentTime = Math.max(0, video.currentTime - skipTime)
+        })
+        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+          const skipTime = details.seekOffset || 10
+          video.currentTime = Math.min(video.duration, video.currentTime + skipTime)
+        })
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          if (details.seekTime !== null && details.seekTime !== undefined) {
+            video.currentTime = details.seekTime
+          }
+        })
+      }
+
       // Auto-play if the autoplay param is set
       if (shouldAutoPlay) {
         const playHandler = () => {
@@ -160,7 +189,37 @@ export function VideoPlayer() {
         router.replace(`/?${params.toString()}`, { scroll: false })
       }
     }
-  }, [playingPath, isVideoFile, shouldAutoPlay, searchParams, router])
+  }, [playingPath, isVideoFile, shouldAutoPlay, searchParams, router, fileName])
+
+  // Update Media Session position state
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !isVideoFile) {
+      return
+    }
+
+    const updatePositionState = () => {
+      if ('mediaSession' in navigator && !isNaN(video.duration)) {
+        navigator.mediaSession.setPositionState({
+          duration: video.duration,
+          playbackRate: video.playbackRate,
+          position: video.currentTime,
+        })
+      }
+    }
+
+    const handleLoadedMetadata = () => {
+      updatePositionState()
+    }
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('timeupdate', updatePositionState)
+
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('timeupdate', updatePositionState)
+    }
+  }, [isVideoFile])
 
   // Handle scroll detection for scroll-to-top button
   useEffect(() => {

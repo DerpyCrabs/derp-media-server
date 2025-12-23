@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Repeat } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ export function AudioPlayer() {
   const [isMuted, setIsMuted] = useState(false)
   const [isRepeat, setIsRepeat] = useState(false)
   const [audioFiles, setAudioFiles] = useState<FileItem[]>([])
+  const [coverArtUrl, setCoverArtUrl] = useState<string | null>(null)
 
   const playingPath = searchParams.get('playing')
   const currentDir = searchParams.get('dir') || ''
@@ -50,6 +51,20 @@ export function AudioPlayer() {
           // Filter only audio files and sort them
           const audioFiles = data.files.filter((file: FileItem) => file.type === MediaType.AUDIO)
           setAudioFiles(audioFiles)
+
+          // Look for cover art in the same directory
+          const coverFile = data.files.find((file: FileItem) => {
+            if (file.type !== MediaType.IMAGE) return false
+            const name = file.name.toLowerCase()
+            const nameWithoutExt = name.substring(0, name.lastIndexOf('.'))
+            return nameWithoutExt === 'cover'
+          })
+
+          if (coverFile) {
+            setCoverArtUrl(`/api/media/${coverFile.path}`)
+          } else {
+            setCoverArtUrl(null)
+          }
         }
       } catch (error) {
         console.error('Error fetching files:', error)
@@ -60,7 +75,7 @@ export function AudioPlayer() {
   }, [currentDir, playingPath])
 
   // Function to play next audio file
-  const playNextAudio = () => {
+  const playNextAudio = useCallback(() => {
     if (!playingPath || audioFiles.length === 0) return
 
     const currentIndex = audioFiles.findIndex((file) => file.path === playingPath)
@@ -77,16 +92,55 @@ export function AudioPlayer() {
     params.set('dir', currentDir)
     params.set('autoplay', 'true')
     router.push(`/?${params.toString()}`, { scroll: false })
-  }
+  }, [playingPath, audioFiles, searchParams, currentDir, router])
+
+  // Function to play previous audio file
+  const playPreviousAudio = useCallback(() => {
+    if (!playingPath || audioFiles.length === 0) return
+
+    const currentIndex = audioFiles.findIndex((file) => file.path === playingPath)
+    if (currentIndex === -1 || currentIndex === 0) {
+      // Current file not found or it's the first file
+      return
+    }
+
+    // Navigate to previous audio file
+    const previousFile = audioFiles[currentIndex - 1]
+    const params = new URLSearchParams(searchParams)
+    params.set('playing', previousFile.path)
+    params.set('dir', currentDir)
+    params.set('autoplay', 'true')
+    router.push(`/?${params.toString()}`, { scroll: false })
+  }, [playingPath, audioFiles, searchParams, currentDir, router])
 
   // Setup event listeners once
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
 
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime)
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime)
+      // Update Media Session position state
+      if ('mediaSession' in navigator && !isNaN(audio.duration)) {
+        navigator.mediaSession.setPositionState({
+          duration: audio.duration,
+          playbackRate: audio.playbackRate,
+          position: audio.currentTime,
+        })
+      }
+    }
     const handleDurationChange = () => setDuration(audio.duration)
-    const handleLoadedMetadata = () => setDuration(audio.duration)
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration)
+      // Update Media Session position state when metadata loads
+      if ('mediaSession' in navigator && !isNaN(audio.duration)) {
+        navigator.mediaSession.setPositionState({
+          duration: audio.duration,
+          playbackRate: audio.playbackRate,
+          position: audio.currentTime,
+        })
+      }
+    }
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
     const handleEnded = () => {
@@ -120,7 +174,7 @@ export function AudioPlayer() {
       audio.removeEventListener('ended', handleEnded)
       audio.removeEventListener('error', handleError)
     }
-  }, [isRepeat, audioFiles, playingPath, currentDir, router, searchParams])
+  }, [isRepeat, playNextAudio])
 
   // Load audio when path changes, auto-play based on autoplay param
   useEffect(() => {
@@ -133,13 +187,57 @@ export function AudioPlayer() {
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     if (audio.src !== fullUrl) {
-      // Reset state when loading new audio
-      setIsPlaying(false)
-      setCurrentTime(0)
-      setDuration(0)
-
+      // Load new audio - state will be reset by audio events
       audio.src = fullUrl
       audio.load()
+
+      // Set Media Session metadata for mobile controls
+      if ('mediaSession' in navigator) {
+        const metadata: MediaMetadataInit = {
+          title: fileName,
+          artist: 'Media Server',
+          album: currentDir || 'Root',
+        }
+
+        // Add artwork if available
+        if (coverArtUrl) {
+          const fullArtworkUrl = new URL(coverArtUrl, window.location.origin).href
+          metadata.artwork = [
+            { src: fullArtworkUrl, sizes: '512x512', type: 'image/jpeg' },
+            { src: fullArtworkUrl, sizes: '256x256', type: 'image/jpeg' },
+            { src: fullArtworkUrl, sizes: '128x128', type: 'image/jpeg' },
+          ]
+        }
+
+        navigator.mediaSession.metadata = new MediaMetadata(metadata)
+
+        // Set up action handlers for media controls
+        navigator.mediaSession.setActionHandler('play', () => {
+          audio.play()
+        })
+        navigator.mediaSession.setActionHandler('pause', () => {
+          audio.pause()
+        })
+        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+          const skipTime = details.seekOffset || 10
+          audio.currentTime = Math.max(0, audio.currentTime - skipTime)
+        })
+        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+          const skipTime = details.seekOffset || 10
+          audio.currentTime = Math.min(audio.duration, audio.currentTime + skipTime)
+        })
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          if (details.seekTime !== null && details.seekTime !== undefined) {
+            audio.currentTime = details.seekTime
+          }
+        })
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+          playPreviousAudio()
+        })
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+          playNextAudio()
+        })
+      }
 
       // Auto-play if the autoplay param is set
       if (shouldAutoPlay) {
@@ -159,7 +257,18 @@ export function AudioPlayer() {
         router.replace(`/?${params.toString()}`, { scroll: false })
       }
     }
-  }, [playingPath, isAudioFile, shouldAutoPlay, searchParams, router])
+  }, [
+    playingPath,
+    isAudioFile,
+    shouldAutoPlay,
+    searchParams,
+    router,
+    fileName,
+    currentDir,
+    playPreviousAudio,
+    playNextAudio,
+    coverArtUrl,
+  ])
 
   const togglePlay = () => {
     const audio = audioRef.current
