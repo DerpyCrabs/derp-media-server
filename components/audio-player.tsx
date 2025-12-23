@@ -2,34 +2,44 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Repeat } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, StepBack, StepForward, Repeat } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { FileItem, MediaType } from '@/lib/types'
+import { useMediaPlayer } from '@/lib/use-media-player'
 
 export function AudioPlayer() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const audioRef = useRef<HTMLAudioElement>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [volume, setVolume] = useState(1)
-  const [isMuted, setIsMuted] = useState(false)
-  const [isRepeat, setIsRepeat] = useState(false)
   const [audioFiles, setAudioFiles] = useState<FileItem[]>([])
   const [coverArtUrl, setCoverArtUrl] = useState<string | null>(null)
+  const [volume, setVolume] = useState(1)
+  const [isMuted, setIsMuted] = useState(false)
+
+  const {
+    currentFile,
+    mediaType,
+    isPlaying,
+    currentTime,
+    duration,
+    isRepeat,
+    playFile,
+    setCurrentFile,
+    setIsPlaying,
+    setCurrentTime,
+    setDuration,
+    toggleRepeat,
+  } = useMediaPlayer()
 
   const playingPath = searchParams.get('playing')
   const currentDir = searchParams.get('dir') || ''
-  const shouldAutoPlay = searchParams.get('autoplay') === 'true'
-  const currentFile = playingPath || ''
-  const fileName = currentFile.split('/').pop() || ''
+  const fileName = (playingPath || '').split('/').pop() || ''
 
   // Determine if we should show the player based on file type
-  const extension = currentFile.split('.').pop()?.toLowerCase()
+  const extension = (playingPath || '').split('.').pop()?.toLowerCase()
   const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
-  const isAudioFile = currentFile && audioExtensions.includes(extension || '')
+  const isAudioFile = playingPath && audioExtensions.includes(extension || '')
 
   // Fetch audio files in the current directory
   useEffect(() => {
@@ -90,9 +100,11 @@ export function AudioPlayer() {
     const params = new URLSearchParams(searchParams)
     params.set('playing', nextFile.path)
     params.set('dir', currentDir)
-    params.set('autoplay', 'true')
     router.replace(`/?${params.toString()}`, { scroll: false })
-  }, [playingPath, audioFiles, searchParams, currentDir, router])
+
+    // Trigger playback through store
+    playFile(nextFile.path, 'audio')
+  }, [playingPath, audioFiles, searchParams, currentDir, router, setIsPlaying, playFile])
 
   // Function to play previous audio file
   const playPreviousAudio = useCallback(() => {
@@ -109,11 +121,13 @@ export function AudioPlayer() {
     const params = new URLSearchParams(searchParams)
     params.set('playing', previousFile.path)
     params.set('dir', currentDir)
-    params.set('autoplay', 'true')
     router.replace(`/?${params.toString()}`, { scroll: false })
-  }, [playingPath, audioFiles, searchParams, currentDir, router])
 
-  // Setup event listeners once
+    // Trigger playback through store
+    playFile(previousFile.path, 'audio')
+  }, [playingPath, audioFiles, searchParams, currentDir, router, playFile])
+
+  // Setup event listeners
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
@@ -174,9 +188,9 @@ export function AudioPlayer() {
       audio.removeEventListener('ended', handleEnded)
       audio.removeEventListener('error', handleError)
     }
-  }, [isRepeat, playNextAudio])
+  }, [isRepeat, playNextAudio, setIsPlaying, setCurrentTime, setDuration])
 
-  // Load audio when path changes, auto-play based on autoplay param
+  // Load audio when URL changes
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !playingPath || !isAudioFile) {
@@ -186,8 +200,14 @@ export function AudioPlayer() {
     const mediaUrl = `/api/media/${playingPath}`
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
+    // Only load if the source has changed
     if (audio.src !== fullUrl) {
-      // Load new audio - state will be reset by audio events
+      // Sync the URL to store if not already synced (without autoplay)
+      if (currentFile !== playingPath || mediaType !== 'audio') {
+        setCurrentFile(playingPath, 'audio')
+      }
+
+      // Load new audio
       audio.src = fullUrl
       audio.load()
 
@@ -238,62 +258,48 @@ export function AudioPlayer() {
           playNextAudio()
         })
       }
-
-      // Auto-play if the autoplay param is set
-      if (shouldAutoPlay) {
-        const playHandler = () => {
-          const playPromise = audio.play()
-          if (playPromise !== undefined) {
-            playPromise.catch((error) => {
-              console.error('Error auto-playing audio:', error)
-            })
-          }
-        }
-        audio.addEventListener('canplaythrough', playHandler, { once: true })
-
-        // Remove autoplay param from URL after attempting to play
-        const params = new URLSearchParams(searchParams)
-        params.delete('autoplay')
-        router.replace(`/?${params.toString()}`, { scroll: false })
-      }
     }
   }, [
     playingPath,
     isAudioFile,
-    shouldAutoPlay,
-    searchParams,
-    router,
     fileName,
     currentDir,
+    coverArtUrl,
     playPreviousAudio,
     playNextAudio,
-    coverArtUrl,
+    currentFile,
+    mediaType,
+    setCurrentFile,
   ])
 
-  const togglePlay = () => {
+  // React to store isPlaying changes
+  useEffect(() => {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio || !isAudioFile || currentFile !== playingPath || mediaType !== 'audio') return
 
-    if (audio.paused) {
+    if (isPlaying && audio.paused) {
       audio.play().catch((err) => console.error('Play error:', err))
-    } else {
+    } else if (!isPlaying && !audio.paused) {
       audio.pause()
+    }
+  }, [isPlaying, currentFile, playingPath, mediaType, isAudioFile])
+
+  const handleTogglePlayPause = () => {
+    if (playingPath) {
+      playFile(playingPath, 'audio')
     }
   }
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const audio = audioRef.current
     if (!audio) return
-
     const time = parseFloat(e.target.value)
     audio.currentTime = time
-    setCurrentTime(time)
   }
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const audio = audioRef.current
     if (!audio) return
-
     const vol = parseFloat(e.target.value)
     audio.volume = vol
     setVolume(vol)
@@ -306,22 +312,12 @@ export function AudioPlayer() {
 
     if (isMuted) {
       audio.volume = volume || 0.5
+      setVolume(volume || 0.5)
       setIsMuted(false)
     } else {
       audio.volume = 0
       setIsMuted(true)
     }
-  }
-
-  const skip = (seconds: number) => {
-    const audio = audioRef.current
-    if (!audio) return
-
-    audio.currentTime = Math.max(0, Math.min(duration, audio.currentTime + seconds))
-  }
-
-  const toggleRepeat = () => {
-    setIsRepeat(!isRepeat)
   }
 
   const formatTime = (time: number) => {
@@ -343,20 +339,47 @@ export function AudioPlayer() {
 
           {/* Controls */}
           <div className='flex items-center gap-2'>
-            <Button variant='ghost' size='icon' onClick={() => skip(-10)} disabled={!currentFile}>
-              <SkipBack className='h-4 w-4' />
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={playPreviousAudio}
+              disabled={
+                !playingPath ||
+                audioFiles.length === 0 ||
+                audioFiles.findIndex((f) => f.path === playingPath) <= 0
+              }
+            >
+              <StepBack className='h-4 w-4' />
             </Button>
-            <Button variant='default' size='icon' onClick={togglePlay} disabled={!currentFile}>
-              {isPlaying ? <Pause className='h-4 w-4' /> : <Play className='h-4 w-4' />}
+            <Button
+              variant='default'
+              size='icon'
+              onClick={handleTogglePlayPause}
+              disabled={!playingPath}
+            >
+              {isPlaying && mediaType === 'audio' && currentFile === playingPath ? (
+                <Pause className='h-4 w-4' />
+              ) : (
+                <Play className='h-4 w-4' />
+              )}
             </Button>
-            <Button variant='ghost' size='icon' onClick={() => skip(10)} disabled={!currentFile}>
-              <SkipForward className='h-4 w-4' />
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={playNextAudio}
+              disabled={
+                !playingPath ||
+                audioFiles.length === 0 ||
+                audioFiles.findIndex((f) => f.path === playingPath) >= audioFiles.length - 1
+              }
+            >
+              <StepForward className='h-4 w-4' />
             </Button>
             <Button
               variant={isRepeat ? 'default' : 'ghost'}
               size='icon'
               onClick={toggleRepeat}
-              disabled={!currentFile}
+              disabled={!playingPath}
             >
               <Repeat className='h-4 w-4' />
             </Button>
@@ -374,7 +397,7 @@ export function AudioPlayer() {
               value={currentTime}
               onChange={handleSeek}
               className='flex-1 h-2 bg-secondary rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary'
-              disabled={!currentFile}
+              disabled={!playingPath}
             />
             <span className='text-sm tabular-nums'>{formatTime(duration)}</span>
           </div>

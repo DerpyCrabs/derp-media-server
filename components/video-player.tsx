@@ -1,78 +1,50 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Minimize2, Maximize2, X, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-
-// LocalStorage key for video player position
-const PLAYER_POSITION_KEY = 'video-player-position'
+import { useMediaPlayer } from '@/lib/use-media-player'
+import {
+  useVideoPlayerPosition,
+  validatePosition,
+  getDefaultPosition,
+} from '@/lib/use-video-player-position'
 
 interface Position {
   x: number
   y: number
 }
 
-// Get saved position from localStorage
-function getSavedPosition(): Position | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const saved = localStorage.getItem(PLAYER_POSITION_KEY)
-    if (saved) {
-      const position = JSON.parse(saved) as Position
-      // Validate position is within viewport
-      if (
-        position.x >= 0 &&
-        position.y >= 0 &&
-        position.x < window.innerWidth - 100 &&
-        position.y < window.innerHeight - 100
-      ) {
-        return position
-      }
-    }
-  } catch {
-    // Silently fail if localStorage is not available
-  }
-  return null
-}
-
-// Save position to localStorage
-function savePosition(position: Position) {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem(PLAYER_POSITION_KEY, JSON.stringify(position))
-  } catch {
-    // Silently fail if localStorage is not available
-  }
-}
-
 export function VideoPlayer() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<HTMLDivElement>(null)
   const [isMinimized, setIsMinimized] = useState(false)
   const [showScrollToTop, setShowScrollToTop] = useState(false)
-  // Initialize position with saved value or default
-  const [position, setPosition] = useState<Position>(() => {
-    if (typeof window !== 'undefined') {
-      return getSavedPosition() || { x: 0, y: 0 }
-    }
-    return { x: 0, y: 0 }
-  })
   const [isDragging, setIsDragging] = useState(false)
   const dragOffset = useRef<Position>({ x: 0, y: 0 })
 
+  const { position, setPosition } = useVideoPlayerPosition()
+
+  const {
+    currentFile,
+    mediaType,
+    isPlaying,
+    setCurrentFile,
+    setIsPlaying,
+    setCurrentTime,
+    setDuration,
+  } = useMediaPlayer()
+
   const playingPath = searchParams.get('playing')
-  const shouldAutoPlay = searchParams.get('autoplay') === 'true'
-  const currentFile = playingPath || ''
-  const fileName = currentFile.split('/').pop() || ''
+  const fileName = (playingPath || '').split('/').pop() || ''
 
   // Determine if we should show the player based on file type
-  const extension = currentFile.split('.').pop()?.toLowerCase()
+  const extension = (playingPath || '').split('.').pop()?.toLowerCase()
   const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
-  const isVideoFile = currentFile && videoExtensions.includes(extension || '')
+  const isVideoFile = playingPath && videoExtensions.includes(extension || '')
 
   // Handle drag start
   const handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -109,13 +81,12 @@ export function VideoPlayer() {
       const constrainedX = Math.max(0, Math.min(newX, maxX))
       const constrainedY = Math.max(0, Math.min(newY, maxY))
 
+      // Update position in Zustand store (automatically persists to localStorage)
       setPosition({ x: constrainedX, y: constrainedY })
     }
 
     const handleMouseUp = () => {
       setIsDragging(false)
-      // Save position when drag ends
-      savePosition(position)
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -125,9 +96,9 @@ export function VideoPlayer() {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, position])
+  }, [isDragging, setPosition])
 
-  // Load video source when playingPath changes, auto-play based on autoplay param
+  // Load video source when playingPath changes
   useEffect(() => {
     const video = videoRef.current
     if (!video || !playingPath || !isVideoFile) {
@@ -138,7 +109,13 @@ export function VideoPlayer() {
     const mediaUrl = `/api/media/${playingPath}`
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
+    // Only load if the source has changed
     if (video.src !== fullUrl) {
+      // Sync the URL to store if not already synced (without autoplay)
+      if (currentFile !== playingPath || mediaType !== 'video') {
+        setCurrentFile(playingPath, 'video')
+      }
+
       video.src = mediaUrl
       video.load()
 
@@ -170,28 +147,10 @@ export function VideoPlayer() {
           }
         })
       }
-
-      // Auto-play if the autoplay param is set
-      if (shouldAutoPlay) {
-        const playHandler = () => {
-          const playPromise = video.play()
-          if (playPromise !== undefined) {
-            playPromise.catch((error) => {
-              console.error('Error auto-playing video:', error)
-            })
-          }
-        }
-        video.addEventListener('canplaythrough', playHandler, { once: true })
-
-        // Remove autoplay param from URL after attempting to play
-        const params = new URLSearchParams(searchParams)
-        params.delete('autoplay')
-        router.replace(`/?${params.toString()}`, { scroll: false })
-      }
     }
-  }, [playingPath, isVideoFile, shouldAutoPlay, searchParams, router, fileName])
+  }, [playingPath, isVideoFile, fileName, currentFile, mediaType, setCurrentFile])
 
-  // Update Media Session position state
+  // Update Media Session position state and sync with store
   useEffect(() => {
     const video = videoRef.current
     if (!video || !isVideoFile) {
@@ -199,6 +158,7 @@ export function VideoPlayer() {
     }
 
     const updatePositionState = () => {
+      setCurrentTime(video.currentTime)
       if ('mediaSession' in navigator && !isNaN(video.duration)) {
         navigator.mediaSession.setPositionState({
           duration: video.duration,
@@ -209,17 +169,37 @@ export function VideoPlayer() {
     }
 
     const handleLoadedMetadata = () => {
+      setDuration(video.duration)
       updatePositionState()
     }
 
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
+
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('timeupdate', updatePositionState)
+    video.addEventListener('play', handlePlay)
+    video.addEventListener('pause', handlePause)
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('timeupdate', updatePositionState)
+      video.removeEventListener('play', handlePlay)
+      video.removeEventListener('pause', handlePause)
     }
-  }, [isVideoFile])
+  }, [isVideoFile, setCurrentTime, setDuration, setIsPlaying])
+
+  // React to store isPlaying changes
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !isVideoFile || currentFile !== playingPath || mediaType !== 'video') return
+
+    if (isPlaying && video.paused) {
+      video.play().catch((err) => console.error('Play error:', err))
+    } else if (!isPlaying && !video.paused) {
+      video.pause()
+    }
+  }, [isPlaying, currentFile, playingPath, mediaType, isVideoFile])
 
   // Handle scroll detection for scroll-to-top button
   useEffect(() => {
@@ -243,18 +223,15 @@ export function VideoPlayer() {
     const newMinimized = !isMinimized
     setIsMinimized(newMinimized)
 
-    // When minimizing for the first time without a saved position, center it with offset
+    // When minimizing for the first time, ensure position is valid or set default
     if (newMinimized && typeof window !== 'undefined') {
-      const savedPos = getSavedPosition()
-      if (!savedPos) {
-        // Default position: bottom-right with some padding
-        const defaultX = window.innerWidth - 320 - 16 // 320px width + 16px padding
-        const defaultY = window.innerHeight - 300 - 80 // approximate height + padding
-        const newPos = {
-          x: Math.max(0, defaultX),
-          y: Math.max(0, defaultY),
-        }
-        setPosition(newPos)
+      const validatedPos = validatePosition(position)
+      // If position is at origin (0, 0), it's likely uninitialized, set to default
+      if (position.x === 0 && position.y === 0) {
+        setPosition(getDefaultPosition())
+      } else if (validatedPos.x !== position.x || validatedPos.y !== position.y) {
+        // Position is out of bounds, constrain it
+        setPosition(validatedPos)
       }
     }
   }

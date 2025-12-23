@@ -11,6 +11,7 @@ import {
   Video,
   ArrowUp,
   Play,
+  Pause,
   Image as ImageIcon,
   FileQuestion,
   FileText,
@@ -47,6 +48,7 @@ import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
 import { useFiles, usePrefetchFiles } from '@/lib/use-files'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
+import { useMediaPlayer } from '@/lib/use-media-player'
 
 interface FileListProps {
   files: FileItem[]
@@ -66,6 +68,7 @@ function FileListInner({
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
+  const { playFile, isPlaying: mediaPlayerIsPlaying, mediaType, currentFile } = useMediaPlayer()
 
   // Use React Query for files with SSR initial data
   const { data: filesData } = useFiles(currentPath, initialFiles)
@@ -201,24 +204,23 @@ function FileListInner({
       // Keep the playing state when changing folders
       router.push(`/?${params.toString()}`, { scroll: false })
     } else {
-      // For audio/video, use 'playing' parameter (this stops any current playback)
+      // For audio/video, use 'playing' parameter and trigger store playback
       // For images/text/other files, use 'viewing' parameter (this keeps audio/video playing)
       const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
 
       if (isMediaFile) {
-        // Clear any viewing state and set playing
+        const mediaFileType = file.type === MediaType.AUDIO ? 'audio' : 'video'
+        playFile(file.path, mediaFileType)
+
         params.delete('viewing')
         params.set('playing', file.path)
         params.set('dir', currentPath)
-        params.set('autoplay', 'true')
+        router.replace(`/?${params.toString()}`, { scroll: false })
       } else {
-        // Keep playing state but set viewing
         params.set('viewing', file.path)
         params.set('dir', currentPath)
+        router.replace(`/?${params.toString()}`, { scroll: false })
       }
-
-      // Use replace to avoid adding file opens to browser history
-      router.replace(`/?${params.toString()}`, { scroll: false })
     }
   }
 
@@ -233,10 +235,26 @@ function FileListInner({
     router.push(`/?${params.toString()}`, { scroll: false })
   }
 
-  const getIcon = (type: MediaType, isPlaying: boolean = false, isAudioFile: boolean = false) => {
-    // Show play/pause icon for currently playing audio files
-    if (isPlaying && isAudioFile) {
-      return <Play className='h-5 w-5 text-primary' />
+  const getIcon = (
+    type: MediaType,
+    filePath: string,
+    isAudioFile: boolean = false,
+    isVideoFile: boolean = false,
+  ) => {
+    // Show play/pause icon only if this file is actually loaded in the media player
+    // Check both the URL parameter AND the media player store to avoid flickering
+    const isCurrentFile = playingPath === filePath && currentFile === filePath
+
+    if (isCurrentFile && (isAudioFile || isVideoFile)) {
+      const isActuallyPlaying =
+        mediaPlayerIsPlaying &&
+        ((isAudioFile && mediaType === 'audio') || (isVideoFile && mediaType === 'video'))
+
+      if (isActuallyPlaying) {
+        return <Play className='h-5 w-5 text-primary' />
+      } else {
+        return <Pause className='h-5 w-5 text-primary' />
+      }
     }
 
     switch (type) {
@@ -510,8 +528,9 @@ function FileListInner({
                       <TableCell className='w-12'>
                         {getIcon(
                           file.type,
-                          playingPath === file.path,
+                          file.path,
                           file.type === MediaType.AUDIO,
+                          file.type === MediaType.VIDEO,
                         )}
                       </TableCell>
                       <TableCell className='font-medium'>
@@ -637,14 +656,16 @@ function FileListInner({
                         >
                           {getIcon(
                             file.type,
-                            playingPath === file.path,
+                            file.path,
                             file.type === MediaType.AUDIO,
+                            file.type === MediaType.VIDEO,
                           ) && (
                             <div className='scale-[2.5]'>
                               {getIcon(
                                 file.type,
-                                playingPath === file.path,
+                                file.path,
                                 file.type === MediaType.AUDIO,
+                                file.type === MediaType.VIDEO,
                               )}
                             </div>
                           )}
