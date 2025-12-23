@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { FileItem, MediaType } from '@/lib/types'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useAudioMetadata } from '@/lib/use-audio-metadata'
 
 export function AudioPlayer() {
   const router = useRouter()
@@ -40,6 +41,12 @@ export function AudioPlayer() {
   const extension = (playingPath || '').split('.').pop()?.toLowerCase()
   const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
   const isAudioFile = playingPath && audioExtensions.includes(extension || '')
+
+  // Fetch audio metadata using React Query
+  const { data: audioMetadata, isLoading: isLoadingMetadata } = useAudioMetadata(
+    playingPath,
+    !!isAudioFile,
+  )
 
   // Fetch audio files in the current directory
   useEffect(() => {
@@ -134,8 +141,8 @@ export function AudioPlayer() {
 
     const handleTimeUpdate = () => {
       setCurrentTime(audio.currentTime)
-      // Update Media Session position state
-      if ('mediaSession' in navigator && !isNaN(audio.duration)) {
+      // Update Media Session position state only when playing
+      if ('mediaSession' in navigator && !isNaN(audio.duration) && !audio.paused) {
         navigator.mediaSession.setPositionState({
           duration: audio.duration,
           playbackRate: audio.playbackRate,
@@ -155,8 +162,28 @@ export function AudioPlayer() {
         })
       }
     }
-    const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
+    const handlePlay = () => {
+      setIsPlaying(true)
+      // Update Media Session playback state
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing'
+      }
+    }
+    const handlePause = () => {
+      setIsPlaying(false)
+      // Update Media Session playback state and lock position
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused'
+        // Update position state one more time to lock the current position
+        if (!isNaN(audio.duration)) {
+          navigator.mediaSession.setPositionState({
+            duration: audio.duration,
+            playbackRate: audio.playbackRate,
+            position: audio.currentTime,
+          })
+        }
+      }
+    }
     const handleEnded = () => {
       if (isRepeat) {
         audio.currentTime = 0
@@ -211,27 +238,8 @@ export function AudioPlayer() {
       audio.src = fullUrl
       audio.load()
 
-      // Set Media Session metadata for mobile controls
+      // Set up action handlers for media controls (only needs to be done once)
       if ('mediaSession' in navigator) {
-        const metadata: MediaMetadataInit = {
-          title: fileName,
-          artist: 'Media Server',
-          album: currentDir || 'Root',
-        }
-
-        // Add artwork if available
-        if (coverArtUrl) {
-          const fullArtworkUrl = new URL(coverArtUrl, window.location.origin).href
-          metadata.artwork = [
-            { src: fullArtworkUrl, sizes: '512x512', type: 'image/jpeg' },
-            { src: fullArtworkUrl, sizes: '256x256', type: 'image/jpeg' },
-            { src: fullArtworkUrl, sizes: '128x128', type: 'image/jpeg' },
-          ]
-        }
-
-        navigator.mediaSession.metadata = new MediaMetadata(metadata)
-
-        // Set up action handlers for media controls
         navigator.mediaSession.setActionHandler('play', () => {
           audio.play()
         })
@@ -262,15 +270,42 @@ export function AudioPlayer() {
   }, [
     playingPath,
     isAudioFile,
-    fileName,
-    currentDir,
-    coverArtUrl,
     playPreviousAudio,
     playNextAudio,
     currentFile,
     mediaType,
     setCurrentFile,
   ])
+
+  // Update Media Session metadata when metadata loads
+  useEffect(() => {
+    if (!playingPath || !isAudioFile || !('mediaSession' in navigator)) {
+      return
+    }
+
+    const metadata: MediaMetadataInit = {
+      title: audioMetadata?.title || fileName,
+      artist: audioMetadata?.artist || 'Unknown Artist',
+      album: audioMetadata?.album || currentDir || 'Unknown Album',
+    }
+
+    // Prefer embedded cover art, fallback to directory cover
+    const artworkUrl = audioMetadata?.coverArt || coverArtUrl
+    if (artworkUrl) {
+      // If it's a base64 data URL, use it directly; otherwise create full URL
+      const fullArtworkUrl = artworkUrl.startsWith('data:')
+        ? artworkUrl
+        : new URL(artworkUrl, window.location.origin).href
+
+      metadata.artwork = [
+        { src: fullArtworkUrl, sizes: '512x512', type: 'image/jpeg' },
+        { src: fullArtworkUrl, sizes: '256x256', type: 'image/jpeg' },
+        { src: fullArtworkUrl, sizes: '128x128', type: 'image/jpeg' },
+      ]
+    }
+
+    navigator.mediaSession.metadata = new MediaMetadata(metadata)
+  }, [playingPath, isAudioFile, audioMetadata, fileName, currentDir, coverArtUrl])
 
   // React to store isPlaying changes
   useEffect(() => {
@@ -385,10 +420,10 @@ export function AudioPlayer() {
             </Button>
           </div>
 
-          <Separator orientation='vertical' className='h-8' />
+          <Separator orientation='vertical' className='h-8 hidden min-[650px]:block' />
 
           {/* Progress */}
-          <div className='flex-1 flex items-center gap-3'>
+          <div className='hidden min-[650px]:flex flex-1 items-center gap-3'>
             <span className='text-sm tabular-nums'>{formatTime(currentTime)}</span>
             <input
               type='range'
@@ -402,7 +437,7 @@ export function AudioPlayer() {
             <span className='text-sm tabular-nums'>{formatTime(duration)}</span>
           </div>
 
-          <Separator orientation='vertical' className='h-8 hidden md:block' />
+          <Separator orientation='vertical' className='h-8 hidden min-[650px]:block' />
 
           {/* Volume */}
           <div className='hidden lg:flex items-center gap-2 min-w-[140px]'>
@@ -420,10 +455,35 @@ export function AudioPlayer() {
             />
           </div>
 
-          <Separator orientation='vertical' className='h-8 hidden lg:block' />
+          <Separator orientation='vertical' className='h-8 hidden md:block' />
 
-          {/* File name */}
-          <div className='min-w-[200px] max-w-[300px] truncate text-sm'>{fileName}</div>
+          {/* Now Playing Info */}
+          <div className='w-[200px] lg:w-[280px] flex items-center gap-3'>
+            {/* Cover Art Thumbnail - Always reserve space */}
+            <div className='shrink-0 w-12 h-12 rounded overflow-hidden bg-secondary'>
+              {(audioMetadata?.coverArt || coverArtUrl) && (
+                <img
+                  src={audioMetadata?.coverArt || coverArtUrl || ''}
+                  alt='Album art'
+                  className='w-full h-full object-cover'
+                />
+              )}
+            </div>
+
+            {/* Track Info */}
+            <div className='flex-1 min-w-0'>
+              {!isLoadingMetadata && (
+                <>
+                  <div className='font-medium truncate text-sm'>
+                    {audioMetadata?.title || fileName}
+                  </div>
+                  <div className='text-xs text-muted-foreground truncate'>
+                    {audioMetadata?.artist || 'Unknown Artist'}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

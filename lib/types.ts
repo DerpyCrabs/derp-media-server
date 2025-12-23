@@ -15,3 +15,15 @@ export interface FileItem {
   extension: string
   isDirectory: boolean
 }
+
+export interface AudioMetadata {
+  title: string | null
+  artist: string | null
+  album: string | null
+  year: number | null
+  genre: string[] | null
+  duration: number | null
+  coverArt: string | null
+  trackNumber: number | null
+  albumArtist: string | null
+}

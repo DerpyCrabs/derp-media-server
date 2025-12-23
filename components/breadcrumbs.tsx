@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { ChevronRight, Home, MoreHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, Fragment } from 'react'
 
 interface BreadcrumbsProps {
   currentPath: string
@@ -175,15 +175,15 @@ export function Breadcrumbs({ currentPath, onNavigate, onFolderHover }: Breadcru
             const hasHiddenCrumbs = !visibleIndices.has(index - 1)
             if (hasHiddenCrumbs) {
               return (
-                <>
-                  <div key={`ellipsis-${index}`} className='flex items-center gap-2'>
+                <Fragment key='ellipsis'>
+                  <div className='flex items-center gap-2'>
                     <ChevronRight className='h-4 w-4 text-muted-foreground' />
                     <Button variant='ghost' size='sm' className='h-8 px-2.5' disabled>
                       <MoreHorizontal className='h-4 w-4' />
                     </Button>
                   </div>
                   {renderBreadcrumb(crumb, index)}
-                </>
+                </Fragment>
               )
             }
           }
