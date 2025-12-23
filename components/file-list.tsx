@@ -14,6 +14,11 @@ import {
   FileQuestion,
   FileText,
   Star,
+  List,
+  LayoutGrid,
+  FolderPlus,
+  FilePlus,
+  Trash2,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -402,30 +407,80 @@ function FileListInner({
         </DialogContent>
       </Dialog>
 
-      {/* Breadcrumb Navigation */}
-      <Breadcrumbs
-        currentPath={currentPath}
-        onNavigate={handleBreadcrumbClick}
-        onFolderHover={handleFolderHover}
-        isEditable={isEditable}
-        onCreateFolder={() => {
-          setNewItemName('')
-          createFolderMutation.reset()
-          setShowCreateFolder(true)
-        }}
-        onCreateFile={() => {
-          setNewItemName('')
-          createFileMutation.reset()
-          setShowCreateFile(true)
-        }}
-        onDeleteFolder={() => {
-          deleteFolderMutation.reset()
-          setShowDeleteConfirm(true)
-        }}
-        showDeleteButton={currentPath !== '' && files.length === 0}
-        viewMode={viewMode}
-        onViewModeChange={handleViewModeChange}
-      />
+      {/* Breadcrumb Navigation with Toolbar */}
+      <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
+        <div className='flex items-center justify-between gap-1.5 lg:gap-2'>
+          <Breadcrumbs
+            currentPath={currentPath}
+            onNavigate={handleBreadcrumbClick}
+            onFolderHover={handleFolderHover}
+          />
+          <div className='flex gap-1 items-center'>
+            {isEditable && (
+              <>
+                <Button
+                  variant='outline'
+                  size='icon'
+                  onClick={() => {
+                    setNewItemName('')
+                    createFolderMutation.reset()
+                    setShowCreateFolder(true)
+                  }}
+                  title='Create new folder'
+                  className='h-8 w-8'
+                >
+                  <FolderPlus className='h-4 w-4' />
+                </Button>
+                <Button
+                  variant='outline'
+                  size='icon'
+                  onClick={() => {
+                    setNewItemName('')
+                    createFileMutation.reset()
+                    setShowCreateFile(true)
+                  }}
+                  title='Create new file'
+                  className='h-8 w-8'
+                >
+                  <FilePlus className='h-4 w-4' />
+                </Button>
+                {/* Show delete button only when inside an empty folder */}
+                {currentPath !== '' && files.length === 0 && (
+                  <Button
+                    variant='outline'
+                    size='icon'
+                    onClick={() => {
+                      deleteFolderMutation.reset()
+                      setShowDeleteConfirm(true)
+                    }}
+                    className='text-destructive hover:text-destructive h-8 w-8'
+                    title='Delete this empty folder'
+                  >
+                    <Trash2 className='h-4 w-4' />
+                  </Button>
+                )}
+                <div className='w-px h-6 bg-border mx-1' />
+              </>
+            )}
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size='sm'
+              onClick={() => handleViewModeChange('list')}
+              className='h-8 w-8 p-0'
+            >
+              <List className='h-4 w-4' />
+            </Button>
+            <Button
+              variant={viewMode === 'grid' ? 'default' : 'ghost'}
+              size='sm'
+              onClick={() => handleViewModeChange('grid')}
+              className='h-8 w-8 p-0'
+            >
+              <LayoutGrid className='h-4 w-4' />
+            </Button>
+          </div>
+        </div>
+      </div>
 
       {/* File List */}
       <div>

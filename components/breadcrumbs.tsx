@@ -1,43 +1,16 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import {
-  ChevronRight,
-  Home,
-  List,
-  LayoutGrid,
-  FolderPlus,
-  FilePlus,
-  Trash2,
-  MoreHorizontal,
-} from 'lucide-react'
+import { ChevronRight, Home, MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, useMemo } from 'react'
 
 interface BreadcrumbsProps {
   currentPath: string
   onNavigate: (path: string) => void
   onFolderHover: (path: string) => void
-  isEditable: boolean
-  onCreateFolder: () => void
-  onCreateFile: () => void
-  onDeleteFolder: () => void
-  showDeleteButton: boolean
-  viewMode: 'list' | 'grid'
-  onViewModeChange: (mode: 'list' | 'grid') => void
 }
 
-export function Breadcrumbs({
-  currentPath,
-  onNavigate,
-  onFolderHover,
-  isEditable,
-  onCreateFolder,
-  onCreateFile,
-  onDeleteFolder,
-  showDeleteButton,
-  viewMode,
-  onViewModeChange,
-}: BreadcrumbsProps) {
+export function Breadcrumbs({ currentPath, onNavigate, onFolderHover }: BreadcrumbsProps) {
   // Build breadcrumb path
   const breadcrumbs = useMemo(() => {
     const pathParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
@@ -89,7 +62,8 @@ export function Breadcrumbs({
       const calculateTotalWidth = (indices: number[]) => {
         const itemsWidth = indices.reduce((sum, idx) => sum + (crumbWidths[idx] || 0), 0)
         const gapsWidth = (indices.length - 1) * gap
-        return itemsWidth + gapsWidth
+        const safetyMargin = 10 // Add a small margin for safety
+        return itemsWidth + gapsWidth + safetyMargin
       }
 
       // First check if all breadcrumbs fit without ellipsis
@@ -171,115 +145,57 @@ export function Breadcrumbs({
   )
 
   return (
-    <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
-      <div className='flex items-center justify-between gap-1.5 lg:gap-2'>
-        {/* Measurement container - invisible */}
-        <div
-          ref={measureRef}
-          className='absolute left-0 top-0 flex items-center gap-1 lg:gap-2'
-          style={{ visibility: 'hidden', pointerEvents: 'none' }}
-        >
-          {breadcrumbs.map((crumb, index) => renderBreadcrumb(crumb, index, false))}
-          {/* Measure ellipsis button too */}
-          <div className='flex items-center gap-2'>
-            <ChevronRight className='h-4 w-4 text-muted-foreground' />
-            <Button variant='ghost' size='sm' className='h-8 px-2.5' disabled>
-              <MoreHorizontal className='h-4 w-4' />
-            </Button>
-          </div>
-        </div>
-
-        {/* Visible breadcrumbs */}
-        <div
-          ref={containerRef}
-          className='flex items-center gap-1 lg:gap-2 flex-wrap min-w-0 flex-1'
-        >
-          {breadcrumbs.map((crumb, index) => {
-            // Show Home (0)
-            if (index === 0) {
-              return renderBreadcrumb(crumb, index)
-            }
-
-            // Show ellipsis before last 2 items if needed
-            if (showEllipsis && index === breadcrumbs.length - 2) {
-              const hasHiddenCrumbs = !visibleIndices.has(index - 1)
-              if (hasHiddenCrumbs) {
-                return (
-                  <>
-                    <div key={`ellipsis-${index}`} className='flex items-center gap-2'>
-                      <ChevronRight className='h-4 w-4 text-muted-foreground' />
-                      <Button variant='ghost' size='sm' className='h-8 px-2.5' disabled>
-                        <MoreHorizontal className='h-4 w-4' />
-                      </Button>
-                    </div>
-                    {renderBreadcrumb(crumb, index)}
-                  </>
-                )
-              }
-            }
-
-            // Show visible crumbs
-            if (visibleIndices.has(index)) {
-              return renderBreadcrumb(crumb, index)
-            }
-
-            return null
-          })}
-        </div>
-        <div className='flex gap-1 items-center'>
-          {isEditable && (
-            <>
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={onCreateFolder}
-                title='Create new folder'
-                className='h-8 w-8'
-              >
-                <FolderPlus className='h-4 w-4' />
-              </Button>
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={onCreateFile}
-                title='Create new file'
-                className='h-8 w-8'
-              >
-                <FilePlus className='h-4 w-4' />
-              </Button>
-              {/* Show delete button only when inside an empty folder */}
-              {showDeleteButton && (
-                <Button
-                  variant='outline'
-                  size='icon'
-                  onClick={onDeleteFolder}
-                  className='text-destructive hover:text-destructive h-8 w-8'
-                  title='Delete this empty folder'
-                >
-                  <Trash2 className='h-4 w-4' />
-                </Button>
-              )}
-              <div className='w-px h-6 bg-border mx-1' />
-            </>
-          )}
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'ghost'}
-            size='sm'
-            onClick={() => onViewModeChange('list')}
-            className='h-8 w-8 p-0'
-          >
-            <List className='h-4 w-4' />
-          </Button>
-          <Button
-            variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size='sm'
-            onClick={() => onViewModeChange('grid')}
-            className='h-8 w-8 p-0'
-          >
-            <LayoutGrid className='h-4 w-4' />
+    <>
+      {/* Measurement container - invisible */}
+      <div
+        ref={measureRef}
+        className='absolute left-0 top-0 flex items-center gap-1 lg:gap-2'
+        style={{ visibility: 'hidden', pointerEvents: 'none' }}
+      >
+        {breadcrumbs.map((crumb, index) => renderBreadcrumb(crumb, index, false))}
+        {/* Measure ellipsis button too */}
+        <div className='flex items-center gap-2'>
+          <ChevronRight className='h-4 w-4 text-muted-foreground' />
+          <Button variant='ghost' size='sm' className='h-8 px-2.5' disabled>
+            <MoreHorizontal className='h-4 w-4' />
           </Button>
         </div>
       </div>
-    </div>
+
+      {/* Visible breadcrumbs */}
+      <div ref={containerRef} className='flex items-center gap-1 lg:gap-2 flex-wrap min-w-0 flex-1'>
+        {breadcrumbs.map((crumb, index) => {
+          // Show Home (0)
+          if (index === 0) {
+            return renderBreadcrumb(crumb, index)
+          }
+
+          // Show ellipsis before last 2 items if needed
+          if (showEllipsis && index === breadcrumbs.length - 2) {
+            const hasHiddenCrumbs = !visibleIndices.has(index - 1)
+            if (hasHiddenCrumbs) {
+              return (
+                <>
+                  <div key={`ellipsis-${index}`} className='flex items-center gap-2'>
+                    <ChevronRight className='h-4 w-4 text-muted-foreground' />
+                    <Button variant='ghost' size='sm' className='h-8 px-2.5' disabled>
+                      <MoreHorizontal className='h-4 w-4' />
+                    </Button>
+                  </div>
+                  {renderBreadcrumb(crumb, index)}
+                </>
+              )
+            }
+          }
+
+          // Show visible crumbs
+          if (visibleIndices.has(index)) {
+            return renderBreadcrumb(crumb, index)
+          }
+
+          return null
+        })}
+      </div>
+    </>
   )
 }
