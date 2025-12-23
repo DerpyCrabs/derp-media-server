@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createDirectory, writeFile, isPathEditable } from '@/lib/file-system'
+import path from 'path'
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,8 +11,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Path is required' }, { status: 400 })
     }
 
-    // Check if path is editable
-    if (!isPathEditable(relativePath)) {
+    // Get the parent directory for the new item
+    const parentPath = path.dirname(relativePath).replace(/\\/g, '/')
+    const normalizedParent = parentPath === '.' ? '' : parentPath
+
+    // Check if parent directory is editable (or if the path itself is editable for root-level items)
+    if (!isPathEditable(normalizedParent) && !isPathEditable(relativePath)) {
       return NextResponse.json({ error: 'Path is not in an editable folder' }, { status: 403 })
     }
 

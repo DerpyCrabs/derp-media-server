@@ -8,8 +8,13 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
+import { isPathEditable } from '@/lib/utils'
 
-export function TextViewer() {
+interface TextViewerProps {
+  editableFolders: string[]
+}
+
+export function TextViewer({ editableFolders }: TextViewerProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const viewingPath = searchParams.get('viewing')
@@ -19,8 +24,10 @@ export function TextViewer() {
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState<string>('')
-  const [isEditable, setIsEditable] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // Check if the viewing file is editable using client-side utility
+  const isEditable = isPathEditable(viewingPath || '', editableFolders)
 
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
@@ -86,15 +93,8 @@ export function TextViewer() {
         if (!res.ok) throw new Error('Failed to load file')
         const text = await res.text()
 
-        // Check if file is editable
-        const editableRes = await fetch(
-          `/api/files/editable?path=${encodeURIComponent(viewingPath)}`,
-        )
-        const editableData = await editableRes.json()
-
         if (!cancelled) {
           setContent(text)
-          setIsEditable(editableData.editable || false)
           setLoading(false)
         }
       } catch (err) {

@@ -1,9 +1,10 @@
 'use client'
 
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
+import { isPathEditable } from '@/lib/utils'
 import {
   Folder,
   Music,
@@ -52,6 +53,7 @@ interface FileListProps {
   currentPath: string
   initialViewMode: 'list' | 'grid'
   initialFavorites?: string[]
+  editableFolders: string[]
 }
 
 function FileListInner({
@@ -59,6 +61,7 @@ function FileListInner({
   currentPath,
   initialViewMode,
   initialFavorites = [],
+  editableFolders,
 }: FileListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -91,22 +94,9 @@ function FileListInner({
   const [showCreateFile, setShowCreateFile] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [newItemName, setNewItemName] = useState('')
-  const [isEditable, setIsEditable] = useState(false)
 
-  // Check if current directory is editable
-  useEffect(() => {
-    const checkEditable = async () => {
-      try {
-        const res = await fetch(`/api/files/editable?path=${encodeURIComponent(currentPath || '')}`)
-        const data = await res.json()
-        setIsEditable(data.editable || false)
-      } catch (err) {
-        console.error('Failed to check editable status:', err)
-        setIsEditable(false)
-      }
-    }
-    checkEditable()
-  }, [currentPath])
+  // Check if current directory is editable using client-side utility
+  const isEditable = isPathEditable(currentPath || '', editableFolders)
 
   // Mutation for creating folders
   const createFolderMutation = useMutation({

@@ -1,4 +1,4 @@
-import { listDirectory } from '@/lib/file-system'
+import { listDirectory, getEditableFolders } from '@/lib/file-system'
 import { FileList } from '@/components/file-list'
 import { MediaPlayers } from '@/components/media-players'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -52,9 +52,12 @@ export default async function Home({ searchParams }: PageProps) {
   const initialViewMode: ViewMode = settings.viewModes[currentDir] || 'list'
   const initialFavorites = settings.favorites || []
 
+  // Get editable folders from environment (server-side only)
+  const editableFolders = getEditableFolders()
+
   return (
     <>
-      <MediaPlayers />
+      <MediaPlayers editableFolders={editableFolders} />
       <div className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
         <div className='container mx-auto lg:p-4 flex flex-col'>
           {error ? (
@@ -80,6 +83,7 @@ export default async function Home({ searchParams }: PageProps) {
                 currentPath={currentDir}
                 initialViewMode={initialViewMode}
                 initialFavorites={initialFavorites}
+                editableFolders={editableFolders}
               />
             </Card>
           )}

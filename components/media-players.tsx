@@ -7,22 +7,26 @@ import { ImageViewer } from '@/components/image-viewer'
 import { TextViewer } from '@/components/text-viewer'
 import { UnsupportedFileViewer } from '@/components/unsupported-file-viewer'
 
-function MediaPlayersInner() {
+interface MediaPlayersProps {
+  editableFolders: string[]
+}
+
+function MediaPlayersInner({ editableFolders }: MediaPlayersProps) {
   return (
     <>
       <AudioPlayer />
       <VideoPlayer />
       <ImageViewer />
-      <TextViewer />
+      <TextViewer editableFolders={editableFolders} />
       <UnsupportedFileViewer />
     </>
   )
 }
 
-export function MediaPlayers() {
+export function MediaPlayers({ editableFolders }: MediaPlayersProps) {
   return (
     <Suspense fallback={null}>
-      <MediaPlayersInner />
+      <MediaPlayersInner editableFolders={editableFolders} />
     </Suspense>
   )
 }
