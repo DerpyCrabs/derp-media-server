@@ -1,5 +1,7 @@
 # Media Server
 
+> ⚠️ **Warning:** This project is 90% vibe coded. Proceed with caution and manage expectations accordingly.
+
 A modern Next.js-based media server with a beautiful web UI for browsing and playing your video and audio files.
 
 ## Features
