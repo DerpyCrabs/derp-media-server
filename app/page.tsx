@@ -15,6 +15,7 @@ type ViewMode = 'list' | 'grid'
 interface Settings {
   viewModes: Record<string, ViewMode>
   favorites: string[]
+  customIcons: Record<string, string>
 }
 
 interface SettingsFile {
@@ -27,9 +28,9 @@ async function readSettings(): Promise<Settings> {
     const settingsFile = path.join(process.cwd(), 'settings.json')
     const data = await fs.readFile(settingsFile, 'utf-8')
     const allSettings: SettingsFile = JSON.parse(data)
-    return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [] }
+    return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {} }
   } catch {
-    return { viewModes: {}, favorites: [] }
+    return { viewModes: {}, favorites: [], customIcons: {} }
   }
 }
 
@@ -57,6 +58,7 @@ export default async function Home({ searchParams }: PageProps) {
   const settings = await readSettings()
   const initialViewMode: ViewMode = settings.viewModes[currentDir] || 'list'
   const initialFavorites = settings.favorites || []
+  const initialCustomIcons = settings.customIcons || {}
 
   // Get editable folders from environment (server-side only)
   const editableFolders = getEditableFolders()
@@ -89,6 +91,7 @@ export default async function Home({ searchParams }: PageProps) {
                 currentPath={currentDir}
                 initialViewMode={initialViewMode}
                 initialFavorites={initialFavorites}
+                initialCustomIcons={initialCustomIcons}
                 editableFolders={editableFolders}
               />
             </Card>

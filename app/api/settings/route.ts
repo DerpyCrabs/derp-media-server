@@ -8,6 +8,7 @@ const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
 interface Settings {
   viewModes: Record<string, 'list' | 'grid'>
   favorites: string[]
+  customIcons: Record<string, string>
 }
 
 interface SettingsFile {
@@ -26,7 +27,7 @@ async function readAllSettings(): Promise<SettingsFile> {
 
 async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
-  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [] }
+  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {} }
 }
 
 async function writeSettings(settings: Settings): Promise<void> {
@@ -41,10 +42,14 @@ export async function GET(request: NextRequest) {
     const folderPath = request.nextUrl.searchParams.get('path') || ''
     const viewMode = settings.viewModes[folderPath] || 'list'
 
-    return NextResponse.json({ viewMode, favorites: settings.favorites || [] })
+    return NextResponse.json({
+      viewMode,
+      favorites: settings.favorites || [],
+      customIcons: settings.customIcons || {},
+    })
   } catch (error) {
     console.error('Error reading settings:', error)
-    return NextResponse.json({ viewMode: 'list', favorites: [] })
+    return NextResponse.json({ viewMode: 'list', favorites: [], customIcons: {} })
   }
 }
 
@@ -99,6 +104,54 @@ export async function POST(request: NextRequest) {
         success: true,
         isFavorite: index === -1,
         favorites: settings.favorites,
+      })
+    }
+
+    // Handle custom icon set
+    if ('action' in body && body.action === 'setCustomIcon') {
+      const { path: itemPath, iconName } = body
+
+      if (!itemPath && itemPath !== '') {
+        return NextResponse.json({ error: 'Path is required' }, { status: 400 })
+      }
+
+      if (!iconName || typeof iconName !== 'string') {
+        return NextResponse.json({ error: 'Valid icon name is required' }, { status: 400 })
+      }
+
+      const settings = await readSettings()
+      if (!settings.customIcons) {
+        settings.customIcons = {}
+      }
+
+      settings.customIcons[itemPath] = iconName
+      await writeSettings(settings)
+
+      return NextResponse.json({
+        success: true,
+        customIcons: settings.customIcons,
+      })
+    }
+
+    // Handle custom icon removal
+    if ('action' in body && body.action === 'removeCustomIcon') {
+      const { path: itemPath } = body
+
+      if (!itemPath && itemPath !== '') {
+        return NextResponse.json({ error: 'Path is required' }, { status: 400 })
+      }
+
+      const settings = await readSettings()
+      if (!settings.customIcons) {
+        settings.customIcons = {}
+      }
+
+      delete settings.customIcons[itemPath]
+      await writeSettings(settings)
+
+      return NextResponse.json({
+        success: true,
+        customIcons: settings.customIcons,
       })
     }
 

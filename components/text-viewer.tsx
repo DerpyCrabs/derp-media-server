@@ -9,6 +9,8 @@ import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/u
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { isPathEditable } from '@/lib/utils'
+import { useSettings } from '@/lib/use-settings'
+import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 
 interface TextViewerProps {
   editableFolders: string[]
@@ -28,6 +30,20 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
 
   // Check if the viewing file is editable using client-side utility
   const isEditable = isPathEditable(viewingPath || '', editableFolders)
+
+  // Get current directory for settings
+  const currentDir = searchParams.get('dir') || ''
+  const { settings } = useSettings(currentDir)
+  const customIcons = settings.customIcons || {}
+
+  // Update favicon when viewing a text file with custom icon
+  const currentFileName = viewingPath ? viewingPath.split(/[/\\]/).pop() || '' : ''
+  useDynamicFavicon({
+    itemPath: viewingPath || null,
+    itemName: currentFileName,
+    customIconName: viewingPath ? customIcons[viewingPath] || null : null,
+    isActive: !!viewingPath,
+  })
 
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)

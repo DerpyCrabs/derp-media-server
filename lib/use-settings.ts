@@ -8,6 +8,7 @@ export type ViewMode = 'list' | 'grid'
 interface GlobalSettings {
   viewModes: Record<string, ViewMode>
   favorites: string[]
+  customIcons: Record<string, string>
 }
 
 // Fetch full settings file
@@ -15,7 +16,7 @@ async function fetchAllSettings(): Promise<GlobalSettings> {
   const response = await fetch(`/api/settings/all`)
   if (!response.ok) {
     // Fallback to empty settings
-    return { viewModes: {}, favorites: [] }
+    return { viewModes: {}, favorites: [], customIcons: {} }
   }
   return response.json()
 }
@@ -42,6 +43,32 @@ async function toggleFavorite(filePath: string) {
   })
   if (!response.ok) {
     throw new Error('Failed to toggle favorite')
+  }
+  return response.json()
+}
+
+// Set custom icon
+async function setCustomIcon(path: string, iconName: string) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'setCustomIcon', path, iconName }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to set custom icon')
+  }
+  return response.json()
+}
+
+// Remove custom icon
+async function removeCustomIcon(path: string) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'removeCustomIcon', path }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to remove custom icon')
   }
   return response.json()
 }
@@ -130,7 +157,7 @@ export function useSettings(currentPath: string) {
 
       // Optimistically update
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: { [path]: viewMode }, favorites: [] }
+        if (!old) return { viewModes: { [path]: viewMode }, favorites: [], customIcons: {} }
         return {
           ...old,
           viewModes: { ...old.viewModes, [path]: viewMode },
@@ -160,7 +187,7 @@ export function useSettings(currentPath: string) {
       const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
 
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: {}, favorites: [filePath] }
+        if (!old) return { viewModes: {}, favorites: [filePath], customIcons: {} }
 
         const favorites = [...old.favorites]
         const index = favorites.indexOf(filePath)
@@ -171,7 +198,67 @@ export function useSettings(currentPath: string) {
           favorites.push(filePath)
         }
 
-        return { ...old, favorites }
+        return {
+          viewModes: old.viewModes,
+          favorites,
+          customIcons: old.customIcons || {},
+        }
+      })
+
+      return { previousSettings }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings'], context.previousSettings)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+
+  // Mutation for setting custom icon with optimistic update
+  const setIconMutation = useMutation({
+    mutationFn: ({ path, iconName }: { path: string; iconName: string }) =>
+      setCustomIcon(path, iconName),
+    onMutate: async ({ path, iconName }) => {
+      await queryClient.cancelQueries({ queryKey: ['settings'] })
+
+      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
+
+      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+        if (!old) return { viewModes: {}, favorites: [], customIcons: { [path]: iconName } }
+        return {
+          ...old,
+          customIcons: { ...old.customIcons, [path]: iconName },
+        }
+      })
+
+      return { previousSettings }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings'], context.previousSettings)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+
+  // Mutation for removing custom icon with optimistic update
+  const removeIconMutation = useMutation({
+    mutationFn: (path: string) => removeCustomIcon(path),
+    onMutate: async (path) => {
+      await queryClient.cancelQueries({ queryKey: ['settings'] })
+
+      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
+
+      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+        if (!old) return { viewModes: {}, favorites: [], customIcons: {} }
+        const customIcons = { ...old.customIcons }
+        delete customIcons[path]
+        return { ...old, customIcons }
       })
 
       return { previousSettings }
@@ -189,11 +276,14 @@ export function useSettings(currentPath: string) {
   // Extract current path settings from global settings
   const viewMode = globalSettings?.viewModes[currentPath] || 'list'
   const favorites = globalSettings?.favorites || []
+  const customIcons = globalSettings?.customIcons || {}
 
   return {
-    settings: { viewMode, favorites },
+    settings: { viewMode, favorites, customIcons },
     setViewMode: (viewMode: ViewMode) => viewModeMutation.mutate({ path: currentPath, viewMode }),
     toggleFavorite: (filePath: string) => favoriteMutation.mutate(filePath),
+    setCustomIcon: (path: string, iconName: string) => setIconMutation.mutate({ path, iconName }),
+    removeCustomIcon: (path: string) => removeIconMutation.mutate(path),
     isLoading: !globalSettings,
   }
 }

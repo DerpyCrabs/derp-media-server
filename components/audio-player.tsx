@@ -8,6 +8,8 @@ import { Separator } from '@/components/ui/separator'
 import { FileItem, MediaType } from '@/lib/types'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useAudioMetadata } from '@/lib/use-audio-metadata'
+import { useSettings } from '@/lib/use-settings'
+import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 
 export function AudioPlayer() {
   const router = useRouter()
@@ -50,6 +52,18 @@ export function AudioPlayer() {
     playingPath,
     !!isAudioFile,
   )
+
+  // Get settings to access custom icons
+  const { settings } = useSettings(currentDir)
+  const customIcons = settings.customIcons || {}
+
+  // Update favicon when playing audio with custom icon
+  useDynamicFavicon({
+    itemPath: playingPath || null,
+    itemName: fileName,
+    customIconName: playingPath ? customIcons[playingPath] || null : null,
+    isActive: !!playingPath && (isAudioFile || isAudioOnly),
+  })
 
   // Fetch audio files in the current directory
   useEffect(() => {

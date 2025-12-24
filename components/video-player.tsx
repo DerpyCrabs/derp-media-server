@@ -11,6 +11,8 @@ import {
   validatePosition,
   getDefaultPosition,
 } from '@/lib/use-video-player-position'
+import { useSettings } from '@/lib/use-settings'
+import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 
 interface Position {
   x: number
@@ -49,6 +51,19 @@ export function VideoPlayer() {
   const extension = (playingPath || '').split('.').pop()?.toLowerCase()
   const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
   const isVideoFile = playingPath && videoExtensions.includes(extension || '')
+
+  // Get current directory for settings
+  const currentDir = searchParams.get('dir') || ''
+  const { settings } = useSettings(currentDir)
+  const customIcons = settings.customIcons || {}
+
+  // Update favicon when playing a video with custom icon
+  useDynamicFavicon({
+    itemPath: playingPath || null,
+    itemName: fileName,
+    customIconName: playingPath ? customIcons[playingPath] || null : null,
+    isActive: !!playingPath && !!isVideoFile,
+  })
 
   // Handle drag start
   const handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {

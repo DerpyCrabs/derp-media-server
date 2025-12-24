@@ -3,14 +3,21 @@
 import { Button } from '@/components/ui/button'
 import { ChevronRight, Home, MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, useMemo, Fragment } from 'react'
+import { getIconComponent } from '@/lib/icon-utils'
 
 interface BreadcrumbsProps {
   currentPath: string
   onNavigate: (path: string) => void
   onFolderHover: (path: string) => void
+  customIcons?: Record<string, string>
 }
 
-export function Breadcrumbs({ currentPath, onNavigate, onFolderHover }: BreadcrumbsProps) {
+export function Breadcrumbs({
+  currentPath,
+  onNavigate,
+  onFolderHover,
+  customIcons = {},
+}: BreadcrumbsProps) {
   // Build breadcrumb path
   const breadcrumbs = useMemo(() => {
     const pathParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
@@ -119,30 +126,40 @@ export function Breadcrumbs({ currentPath, onNavigate, onFolderHover }: Breadcru
     crumb: { name: string; path: string },
     index: number,
     isVisible: boolean = true,
-  ) => (
-    <div
-      key={crumb.path}
-      className='flex items-center gap-2'
-      style={
-        !isVisible
-          ? { position: 'absolute', visibility: 'hidden', pointerEvents: 'none' }
-          : undefined
-      }
-    >
-      {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
-      <Button
-        variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
-        size='sm'
-        onClick={() => onNavigate(crumb.path)}
-        onMouseEnter={() => onFolderHover(crumb.path)}
-        className='gap-1.5 text-sm h-8 px-2.5'
-        disabled={!isVisible}
+  ) => {
+    // Get custom icon for this breadcrumb
+    const customIconName = customIcons[crumb.path]
+    const CustomIcon = customIconName ? getIconComponent(customIconName) : null
+
+    return (
+      <div
+        key={crumb.path}
+        className='flex items-center gap-2'
+        style={
+          !isVisible
+            ? { position: 'absolute', visibility: 'hidden', pointerEvents: 'none' }
+            : undefined
+        }
       >
-        {index === 0 && <Home className='h-4 w-4' />}
-        {crumb.name}
-      </Button>
-    </div>
-  )
+        {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
+        <Button
+          variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
+          size='sm'
+          onClick={() => onNavigate(crumb.path)}
+          onMouseEnter={() => onFolderHover(crumb.path)}
+          className='gap-1.5 text-sm h-8 px-2.5'
+          disabled={!isVisible}
+        >
+          {CustomIcon ? (
+            <CustomIcon className='h-4 w-4' />
+          ) : (
+            index === 0 && <Home className='h-4 w-4' />
+          )}
+          {crumb.name}
+        </Button>
+      </div>
+    )
+  }
 
   return (
     <>

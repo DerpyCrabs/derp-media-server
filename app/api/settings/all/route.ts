@@ -8,6 +8,7 @@ const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
 interface Settings {
   viewModes: Record<string, 'list' | 'grid'>
   favorites: string[]
+  customIcons: Record<string, string>
 }
 
 interface SettingsFile {
@@ -25,7 +26,7 @@ async function readAllSettings(): Promise<SettingsFile> {
 
 async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
-  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [] }
+  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {} }
 }
 
 export async function GET() {
@@ -34,6 +35,6 @@ export async function GET() {
     return NextResponse.json(settings)
   } catch (error) {
     console.error('Error reading settings:', error)
-    return NextResponse.json({ viewModes: {}, favorites: [] })
+    return NextResponse.json({ viewModes: {}, favorites: [], customIcons: {} })
   }
 }

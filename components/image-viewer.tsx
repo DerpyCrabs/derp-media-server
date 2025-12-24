@@ -8,6 +8,8 @@ import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/u
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { FileItem, MediaType } from '@/lib/types'
+import { useSettings } from '@/lib/use-settings'
+import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 
 export function ImageViewer() {
   const router = useRouter()
@@ -18,6 +20,19 @@ export function ImageViewer() {
   const [imageFiles, setImageFiles] = useState<FileItem[]>([])
 
   const currentDir = searchParams.get('dir') || ''
+
+  // Get settings to access custom icons
+  const { settings } = useSettings(currentDir)
+  const customIcons = settings.customIcons || {}
+
+  // Update favicon when viewing an image with custom icon
+  const currentFileName = viewingPath ? viewingPath.split(/[/\\]/).pop() || '' : ''
+  useDynamicFavicon({
+    itemPath: viewingPath || null,
+    itemName: currentFileName,
+    customIconName: viewingPath ? customIcons[viewingPath] || null : null,
+    isActive: !!viewingPath,
+  })
 
   // Fetch image files in the current directory
   useEffect(() => {
@@ -71,7 +86,7 @@ export function ImageViewer() {
     router.replace(`/?${params.toString()}`, { scroll: false })
     setZoom('fit')
     setRotation(0)
-  }, [viewingPath, imageFiles, searchParams, currentDir, router])
+  }, [viewingPath, imageFiles, searchParams, currentDir, router, setZoom, setRotation])
 
   const navigateToPrevious = useCallback(() => {
     if (!viewingPath || imageFiles.length === 0) return
@@ -88,7 +103,7 @@ export function ImageViewer() {
     router.replace(`/?${params.toString()}`, { scroll: false })
     setZoom('fit')
     setRotation(0)
-  }, [viewingPath, imageFiles, searchParams, currentDir, router])
+  }, [viewingPath, imageFiles, searchParams, currentDir, router, setZoom, setRotation])
 
   // Handle keyboard navigation
   useEffect(() => {

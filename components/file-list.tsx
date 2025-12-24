@@ -51,12 +51,16 @@ import { useFiles, usePrefetchFiles } from '@/lib/use-files'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useViewStats } from '@/lib/use-view-stats'
+import { IconEditorDialog } from '@/components/icon-editor-dialog'
+import { getIconComponent } from '@/lib/icon-utils'
+import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 
 interface FileListProps {
   files: FileItem[]
   currentPath: string
   initialViewMode: 'list' | 'grid'
   initialFavorites?: string[]
+  initialCustomIcons?: Record<string, string>
   editableFolders: string[]
 }
 
@@ -65,6 +69,7 @@ function FileListInner({
   currentPath,
   initialViewMode,
   initialFavorites = [],
+  initialCustomIcons = {},
   editableFolders,
 }: FileListProps) {
   const router = useRouter()
@@ -91,16 +96,23 @@ function FileListInner({
     settings,
     setViewMode: updateViewMode,
     toggleFavorite: updateFavorite,
+    setCustomIcon,
+    removeCustomIcon,
+    isLoading: settingsLoading,
   } = useSettings(currentPath)
 
   // Use server settings from React Query, fallback to initial values
   const viewMode = settings.viewMode || initialViewMode
   const favorites = settings.favorites || initialFavorites
+  // Use initialCustomIcons until settings load, then switch to React Query data
+  const customIcons = settingsLoading ? initialCustomIcons : settings.customIcons || {}
 
   // State for dialogs
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [showCreateFile, setShowCreateFile] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showIconEditor, setShowIconEditor] = useState(false)
+  const [editingItem, setEditingItem] = useState<{ path: string; name: string } | null>(null)
   const [newItemName, setNewItemName] = useState('')
 
   // Check if current directory is editable using client-side utility
@@ -249,6 +261,35 @@ function FileListInner({
     isAudioFile: boolean = false,
     isVideoFile: boolean = false,
   ) => {
+    // Determine color based on type
+    const getColorClass = (mediaType: MediaType) => {
+      switch (mediaType) {
+        case MediaType.FOLDER:
+          return 'text-blue-500'
+        case MediaType.AUDIO:
+          return 'text-purple-500'
+        case MediaType.VIDEO:
+          return 'text-red-500'
+        case MediaType.IMAGE:
+          return 'text-green-500'
+        case MediaType.TEXT:
+          return 'text-cyan-500'
+        case MediaType.OTHER:
+          return 'text-yellow-500'
+        default:
+          return 'text-yellow-500'
+      }
+    }
+
+    // Check for custom icon first
+    const customIconName = customIcons[filePath]
+    if (customIconName) {
+      const CustomIcon = getIconComponent(customIconName)
+      if (CustomIcon) {
+        return <CustomIcon className={`h-5 w-5 ${getColorClass(type)}`} />
+      }
+    }
+
     // Show play/pause icon only if this file is actually loaded in the media player
     // Check both the URL parameter AND the media player store to avoid flickering
     const isCurrentFile = playingPath === filePath && currentFile === filePath
@@ -302,8 +343,44 @@ function FileListInner({
 
   const currentFolderName = currentPath ? currentPath.split(/[/\\]/).pop() : ''
 
+  // Update favicon when browsing a folder with custom icon
+  useDynamicFavicon({
+    itemPath: currentPath,
+    itemName: currentFolderName || 'Root',
+    customIconName: customIcons[currentPath] || null,
+    isActive: !!currentPath && !!customIcons[currentPath],
+  })
+
+  // Handle icon editor
+  const handleOpenIconEditor = (file: FileItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingItem({ path: file.path, name: file.name })
+    setShowIconEditor(true)
+  }
+
+  const handleSaveIcon = (iconName: string | null) => {
+    if (!editingItem) return
+    if (iconName) {
+      setCustomIcon(editingItem.path, iconName)
+    } else {
+      removeCustomIcon(editingItem.path)
+    }
+  }
+
   return (
     <div className='flex flex-col'>
+      {/* Icon Editor Dialog */}
+      <IconEditorDialog
+        isOpen={showIconEditor}
+        onClose={() => {
+          setShowIconEditor(false)
+          setEditingItem(null)
+        }}
+        fileName={editingItem?.name || ''}
+        currentIcon={editingItem ? customIcons[editingItem.path] || null : null}
+        onSave={handleSaveIcon}
+      />
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
@@ -430,6 +507,7 @@ function FileListInner({
             currentPath={currentPath}
             onNavigate={handleBreadcrumbClick}
             onFolderHover={handleFolderHover}
+            customIcons={customIcons}
           />
           <div className='flex gap-1 items-center'>
             {isEditable && (
@@ -535,12 +613,18 @@ function FileListInner({
                       onMouseEnter={() => file.isDirectory && handleFolderHover(file.path)}
                     >
                       <TableCell className='w-12'>
-                        {getIcon(
-                          file.type,
-                          file.path,
-                          file.type === MediaType.AUDIO,
-                          file.type === MediaType.VIDEO,
-                        )}
+                        <button
+                          onClick={(e) => handleOpenIconEditor(file, e)}
+                          className='flex items-center justify-center'
+                          title='Click to change icon'
+                        >
+                          {getIcon(
+                            file.type,
+                            file.path,
+                            file.type === MediaType.AUDIO,
+                            file.type === MediaType.VIDEO,
+                          )}
+                        </button>
                       </TableCell>
                       <TableCell className='font-medium'>
                         <div className='flex items-center gap-2'>
@@ -687,21 +771,18 @@ function FileListInner({
                               : ''
                           }`}
                         >
-                          {getIcon(
-                            file.type,
-                            file.path,
-                            file.type === MediaType.AUDIO,
-                            file.type === MediaType.VIDEO,
-                          ) && (
-                            <div className='scale-[2.5]'>
-                              {getIcon(
-                                file.type,
-                                file.path,
-                                file.type === MediaType.AUDIO,
-                                file.type === MediaType.VIDEO,
-                              )}
-                            </div>
-                          )}
+                          <button
+                            onClick={(e) => handleOpenIconEditor(file, e)}
+                            className='scale-[2.5] cursor-pointer'
+                            title='Click to change icon'
+                          >
+                            {getIcon(
+                              file.type,
+                              file.path,
+                              file.type === MediaType.AUDIO,
+                              file.type === MediaType.VIDEO,
+                            )}
+                          </button>
                         </div>
                       </div>
                       {/* File Info */}
