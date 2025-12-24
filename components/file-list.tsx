@@ -54,6 +54,8 @@ import { useViewStats } from '@/lib/use-view-stats'
 import { IconEditorDialog } from '@/components/icon-editor-dialog'
 import { getIconComponent } from '@/lib/icon-utils'
 import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
+import { usePaste } from '@/lib/use-paste'
+import { PasteDialog } from '@/components/paste-dialog'
 
 interface FileListProps {
   files: FileItem[]
@@ -106,6 +108,15 @@ function FileListInner({
   const favorites = settings.favorites || initialFavorites
   // Use initialCustomIcons until settings load, then switch to React Query data
   const customIcons = settingsLoading ? initialCustomIcons : settings.customIcons || {}
+
+  const {
+    pasteData,
+    showPasteDialog,
+    pasteFileMutation,
+    handlePaste,
+    handlePasteFile,
+    closePasteDialog,
+  } = usePaste(currentPath)
 
   // State for dialogs
   const [showCreateFolder, setShowCreateFolder] = useState(false)
@@ -362,8 +373,13 @@ function FileListInner({
     }
   }
 
+  const handlePasteEvent = (e: React.ClipboardEvent) => {
+    if (!isEditable) return
+    handlePaste(e)
+  }
+
   return (
-    <div className='flex flex-col'>
+    <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
       {/* Icon Editor Dialog */}
       <IconEditorDialog
         isOpen={showIconEditor}
@@ -494,6 +510,16 @@ function FileListInner({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PasteDialog
+        isOpen={showPasteDialog}
+        pasteData={pasteData}
+        isPending={pasteFileMutation.isPending}
+        error={pasteFileMutation.error}
+        existingFiles={files.map((f) => f.name.toLowerCase())}
+        onPaste={handlePasteFile}
+        onClose={closePasteDialog}
+      />
 
       {/* Breadcrumb Navigation with Toolbar */}
       <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
@@ -652,7 +678,9 @@ function FileListInner({
                               <span>{viewCount}</span>
                             </div>
                           )}
-                          <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                          <span className='w-20'>
+                            {file.isDirectory ? '' : formatFileSize(file.size)}
+                          </span>
                         </div>
                       </TableCell>
                     </TableRow>

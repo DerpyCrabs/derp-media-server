@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createDirectory, writeFile, isPathEditable } from '@/lib/file-system'
+import { createDirectory, writeFile, writeBinaryFile, isPathEditable } from '@/lib/file-system'
 import path from 'path'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { type, path: relativePath, content } = body
+    const { type, path: relativePath, content, base64Content } = body
 
     if (!relativePath) {
       return NextResponse.json({ error: 'Path is required' }, { status: 400 })
@@ -24,10 +24,15 @@ export async function POST(request: NextRequest) {
       await createDirectory(relativePath)
       return NextResponse.json({ success: true, message: 'Folder created' })
     } else if (type === 'file') {
-      if (content === undefined) {
+      if (content === undefined && base64Content === undefined) {
         return NextResponse.json({ error: 'Content is required for files' }, { status: 400 })
       }
-      await writeFile(relativePath, content)
+      // Handle binary content (base64 encoded)
+      if (base64Content) {
+        await writeBinaryFile(relativePath, base64Content)
+      } else {
+        await writeFile(relativePath, content)
+      }
       return NextResponse.json({ success: true, message: 'File saved' })
     } else {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 })

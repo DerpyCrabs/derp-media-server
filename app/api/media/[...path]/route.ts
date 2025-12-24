@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createReadStream, statSync } from 'fs'
-import { getFilePath } from '@/lib/file-system'
+import { getFilePath, isPathEditable } from '@/lib/file-system'
 import { getMimeType } from '@/lib/media-utils'
 import path from 'path'
 
@@ -65,9 +65,13 @@ export async function GET(
       'sql',
     ]
     const isTextFile = textExtensions.includes(extension.toLowerCase())
-    const cacheControl = isTextFile
-      ? 'no-cache, no-store, must-revalidate'
-      : 'public, max-age=31536000'
+
+    // Check if file is in an editable folder
+    const isEditable = isPathEditable(filePath)
+
+    // Use no-cache for text files OR files in editable folders (so pasted images update immediately)
+    const cacheControl =
+      isTextFile || isEditable ? 'no-cache, no-store, must-revalidate' : 'public, max-age=31536000'
 
     // Get range header for partial content support (video seeking)
     const range = request.headers.get('range')

@@ -186,6 +186,26 @@ export async function writeFile(relativePath: string, content: string): Promise<
 }
 
 /**
+ * Writes binary content (base64 encoded) to a file
+ */
+export async function writeBinaryFile(relativePath: string, base64Content: string): Promise<void> {
+  const fullPath = validatePath(relativePath)
+
+  // Check if path is editable
+  const dirPath = path.dirname(relativePath).replace(/\\/g, '/')
+  if (!isPathEditable(dirPath) && !isPathEditable(relativePath)) {
+    throw new Error('Cannot write file: Path is not in an editable folder')
+  }
+
+  // Ensure directory exists
+  await fs.mkdir(path.dirname(fullPath), { recursive: true })
+
+  // Convert base64 to buffer and write
+  const buffer = Buffer.from(base64Content, 'base64')
+  await fs.writeFile(fullPath, buffer)
+}
+
+/**
  * Reads file content as text
  */
 export async function readFileContent(relativePath: string): Promise<string> {
