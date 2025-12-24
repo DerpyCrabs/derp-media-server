@@ -23,6 +23,8 @@ import {
   Sparkles,
   Zap,
   Crown,
+  KeySquare,
+  KeyRound,
   type LucideIcon,
 } from 'lucide-react'
 import { MediaType } from './types'
@@ -53,6 +55,8 @@ export const AVAILABLE_ICONS = [
   { name: 'Sparkles', component: Sparkles },
   { name: 'Zap', component: Zap },
   { name: 'Crown', component: Crown },
+  { name: 'KeySquare', component: KeySquare },
+  { name: 'KeyRound', component: KeyRound },
 ] as const
 
 // Get icon component by name

@@ -343,13 +343,8 @@ function FileListInner({
 
   const currentFolderName = currentPath ? currentPath.split(/[/\\]/).pop() : ''
 
-  // Update favicon when browsing a folder with custom icon
-  useDynamicFavicon({
-    itemPath: currentPath,
-    itemName: currentFolderName || 'Root',
-    customIconName: customIcons[currentPath] || null,
-    isActive: !!currentPath && !!customIcons[currentPath],
-  })
+  // Update favicon and title based on URL params
+  useDynamicFavicon(customIcons)
 
   // Handle icon editor
   const handleOpenIconEditor = (file: FileItem, e: React.MouseEvent) => {
