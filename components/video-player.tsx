@@ -25,6 +25,7 @@ export function VideoPlayer() {
   const [showScrollToTop, setShowScrollToTop] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const dragOffset = useRef<Position>({ x: 0, y: 0 })
+  const isProgrammaticChange = useRef(false)
 
   const { position, setPosition } = useVideoPlayerPosition()
 
@@ -173,8 +174,16 @@ export function VideoPlayer() {
       updatePositionState()
     }
 
-    const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
+    const handlePlay = () => {
+      if (!isProgrammaticChange.current) {
+        setIsPlaying(true)
+      }
+    }
+    const handlePause = () => {
+      if (!isProgrammaticChange.current) {
+        setIsPlaying(false)
+      }
+    }
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('timeupdate', updatePositionState)
@@ -195,9 +204,17 @@ export function VideoPlayer() {
     if (!video || !isVideoFile || currentFile !== playingPath || mediaType !== 'video') return
 
     if (isPlaying && video.paused) {
-      video.play().catch((err) => console.error('Play error:', err))
+      isProgrammaticChange.current = true
+      video
+        .play()
+        .catch((err) => console.error('Play error:', err))
+        .finally(() => {
+          isProgrammaticChange.current = false
+        })
     } else if (!isPlaying && !video.paused) {
+      isProgrammaticChange.current = true
       video.pause()
+      isProgrammaticChange.current = false
     }
   }, [isPlaying, currentFile, playingPath, mediaType, isVideoFile])
 
