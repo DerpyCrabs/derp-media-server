@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Play, Pause, Volume2, VolumeX, StepBack, StepForward, Repeat } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, StepBack, StepForward, Repeat, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { FileItem, MediaType } from '@/lib/types'
@@ -40,7 +40,10 @@ export function AudioPlayer() {
   // Determine if we should show the player based on file type
   const extension = (playingPath || '').split('.').pop()?.toLowerCase()
   const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
+  const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
   const isAudioFile = playingPath && audioExtensions.includes(extension || '')
+  const isVideoFile = playingPath && videoExtensions.includes(extension || '')
+  const isAudioOnly = searchParams.get('audioOnly') === 'true'
 
   // Fetch audio metadata using React Query
   const { data: audioMetadata, isLoading: isLoadingMetadata } = useAudioMetadata(
@@ -65,8 +68,10 @@ export function AudioPlayer() {
         const response = await fetch(`/api/files?dir=${encodeURIComponent(dirToFetch)}`)
         const data = await response.json()
         if (data.files) {
-          // Filter only audio files and sort them
-          const audioFiles = data.files.filter((file: FileItem) => file.type === MediaType.AUDIO)
+          // Filter audio and video files (videos can be played audio-only)
+          const audioFiles = data.files.filter(
+            (file: FileItem) => file.type === MediaType.AUDIO || file.type === MediaType.VIDEO,
+          )
           setAudioFiles(audioFiles)
 
           // Look for cover art in the same directory
@@ -220,11 +225,12 @@ export function AudioPlayer() {
   // Load audio when URL changes
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || !playingPath || !isAudioFile) {
+    if (!audio || !playingPath || (!isAudioFile && !isVideoFile)) {
       return
     }
 
-    const mediaUrl = `/api/media/${playingPath}`
+    // Use extract API for video files, regular media API for audio files
+    const mediaUrl = isVideoFile ? `/api/audio/extract/${playingPath}` : `/api/media/${playingPath}`
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     // Only load if the source has changed
@@ -237,6 +243,15 @@ export function AudioPlayer() {
       // Load new audio
       audio.src = fullUrl
       audio.load()
+
+      // Seek to stored position if switching from video player
+      if (currentTime > 0) {
+        const seekToPosition = () => {
+          audio.currentTime = currentTime
+          audio.removeEventListener('loadedmetadata', seekToPosition)
+        }
+        audio.addEventListener('loadedmetadata', seekToPosition)
+      }
 
       // Set up action handlers for media controls (only needs to be done once)
       if ('mediaSession' in navigator) {
@@ -270,23 +285,27 @@ export function AudioPlayer() {
   }, [
     playingPath,
     isAudioFile,
+    isVideoFile,
     playPreviousAudio,
     playNextAudio,
     currentFile,
     mediaType,
     setCurrentFile,
+    currentTime,
   ])
 
   // Update Media Session metadata when metadata loads
   useEffect(() => {
-    if (!playingPath || !isAudioFile || !('mediaSession' in navigator)) {
+    if (!playingPath || (!isAudioFile && !isVideoFile) || !('mediaSession' in navigator)) {
       return
     }
 
     const metadata: MediaMetadataInit = {
-      title: audioMetadata?.title || fileName,
-      artist: audioMetadata?.artist || 'Unknown Artist',
-      album: audioMetadata?.album || currentDir || 'Unknown Album',
+      title: isVideoFile ? `${fileName} (Audio)` : audioMetadata?.title || fileName,
+      artist: isVideoFile ? 'Video Audio' : audioMetadata?.artist || 'Unknown Artist',
+      album: isVideoFile
+        ? currentDir || 'Unknown Album'
+        : audioMetadata?.album || currentDir || 'Unknown Album',
     }
 
     // Prefer embedded cover art, fallback to directory cover
@@ -305,23 +324,45 @@ export function AudioPlayer() {
     }
 
     navigator.mediaSession.metadata = new MediaMetadata(metadata)
-  }, [playingPath, isAudioFile, audioMetadata, fileName, currentDir, coverArtUrl])
+  }, [playingPath, isAudioFile, isVideoFile, audioMetadata, fileName, currentDir, coverArtUrl])
 
   // React to store isPlaying changes
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || !isAudioFile || currentFile !== playingPath || mediaType !== 'audio') return
+    if (
+      !audio ||
+      (!isAudioFile && !isVideoFile) ||
+      currentFile !== playingPath ||
+      mediaType !== 'audio'
+    )
+      return
 
     if (isPlaying && audio.paused) {
       audio.play().catch((err) => console.error('Play error:', err))
     } else if (!isPlaying && !audio.paused) {
       audio.pause()
     }
-  }, [isPlaying, currentFile, playingPath, mediaType, isAudioFile])
+  }, [isPlaying, currentFile, playingPath, mediaType, isAudioFile, isVideoFile])
 
   const handleTogglePlayPause = () => {
     if (playingPath) {
       playFile(playingPath, 'audio')
+    }
+  }
+
+  const handleShowVideo = () => {
+    const audio = audioRef.current
+    if (audio && playingPath) {
+      // Save current playback position
+      setCurrentTime(audio.currentTime)
+
+      // Update media type to video so video player takes over
+      setCurrentFile(playingPath, 'video')
+
+      // Remove audioOnly parameter to show video player
+      const params = new URLSearchParams(searchParams)
+      params.delete('audioOnly')
+      router.replace(`/?${params.toString()}`, { scroll: false })
     }
   }
 
@@ -362,7 +403,8 @@ export function AudioPlayer() {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
 
-  if (!isAudioFile) {
+  // Show player for audio files, or video files in audio-only mode
+  if (!isAudioFile && !(isVideoFile && isAudioOnly)) {
     return null
   }
 
@@ -418,6 +460,17 @@ export function AudioPlayer() {
             >
               <Repeat className='h-4 w-4' />
             </Button>
+            {isVideoFile && (
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={handleShowVideo}
+                disabled={!playingPath}
+                aria-label='Show video'
+              >
+                <Monitor className='h-4 w-4' />
+              </Button>
+            )}
           </div>
 
           <Separator orientation='vertical' className='h-8 hidden min-[650px]:block' />

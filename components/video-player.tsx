@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Minimize2, Maximize2, X, ArrowUp } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Minimize2, Maximize2, X, ArrowUp, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useMediaPlayer } from '@/lib/use-media-player'
@@ -18,6 +18,7 @@ interface Position {
 }
 
 export function VideoPlayer() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<HTMLDivElement>(null)
@@ -33,6 +34,7 @@ export function VideoPlayer() {
     currentFile,
     mediaType,
     isPlaying,
+    currentTime,
     setCurrentFile,
     setIsPlaying,
     setCurrentTime,
@@ -40,6 +42,7 @@ export function VideoPlayer() {
   } = useMediaPlayer()
 
   const playingPath = searchParams.get('playing')
+  const isAudioOnly = searchParams.get('audioOnly') === 'true'
   const fileName = (playingPath || '').split('/').pop() || ''
 
   // Determine if we should show the player based on file type
@@ -99,10 +102,10 @@ export function VideoPlayer() {
     }
   }, [isDragging, setPosition])
 
-  // Load video source when playingPath changes
+  // Load video source when playingPath changes or returning from audio-only mode
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !playingPath || !isVideoFile) {
+    if (!video || !playingPath || !isVideoFile || isAudioOnly) {
       return
     }
 
@@ -110,7 +113,7 @@ export function VideoPlayer() {
     const mediaUrl = `/api/media/${playingPath}`
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
-    // Only load if the source has changed
+    // Load video (will reload when returning from audio-only mode due to isAudioOnly in deps)
     if (video.src !== fullUrl) {
       // Sync the URL to store if not already synced (without autoplay)
       if (currentFile !== playingPath || mediaType !== 'video') {
@@ -119,6 +122,15 @@ export function VideoPlayer() {
 
       video.src = mediaUrl
       video.load()
+
+      // Seek to stored position if switching from audio player
+      if (currentTime > 0) {
+        const seekToPosition = () => {
+          video.currentTime = currentTime
+          video.removeEventListener('loadedmetadata', seekToPosition)
+        }
+        video.addEventListener('loadedmetadata', seekToPosition)
+      }
 
       // Set Media Session metadata for mobile controls
       if ('mediaSession' in navigator) {
@@ -149,7 +161,16 @@ export function VideoPlayer() {
         })
       }
     }
-  }, [playingPath, isVideoFile, fileName, currentFile, mediaType, setCurrentFile])
+  }, [
+    playingPath,
+    isVideoFile,
+    isAudioOnly,
+    fileName,
+    currentFile,
+    mediaType,
+    setCurrentFile,
+    currentTime,
+  ])
 
   // Update Media Session position state and sync with store
   useEffect(() => {
@@ -268,7 +289,21 @@ export function VideoPlayer() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  if (!isVideoFile) {
+  const handleAudioOnly = () => {
+    const video = videoRef.current
+    if (video && playingPath) {
+      // Save current playback position
+      setCurrentTime(video.currentTime)
+
+      // Add audioOnly parameter to switch to audio player
+      const params = new URLSearchParams(searchParams)
+      params.set('audioOnly', 'true')
+      router.replace(`/?${params.toString()}`, { scroll: false })
+    }
+  }
+
+  // Hide video player when in audio-only mode
+  if (!isVideoFile || isAudioOnly) {
     return null
   }
 
@@ -295,6 +330,15 @@ export function VideoPlayer() {
             >
               <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
               <div className='flex items-center gap-1'>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={handleAudioOnly}
+                  className='h-8 w-8'
+                  aria-label='Audio only mode'
+                >
+                  <Headphones className='h-4 w-4' />
+                </Button>
                 <Button variant='ghost' size='icon' onClick={toggleMinimize} className='h-8 w-8'>
                   {isMinimized ? (
                     <Maximize2 className='h-4 w-4' />
