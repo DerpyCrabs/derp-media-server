@@ -21,6 +21,7 @@ import {
   FolderPlus,
   FilePlus,
   Trash2,
+  Eye,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -49,6 +50,7 @@ import { useSettings } from '@/lib/use-settings'
 import { useFiles, usePrefetchFiles } from '@/lib/use-files'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useViewStats } from '@/lib/use-view-stats'
 
 interface FileListProps {
   files: FileItem[]
@@ -73,6 +75,9 @@ function FileListInner({
   // Use React Query for files with SSR initial data
   const { data: filesData } = useFiles(currentPath, initialFiles)
   const prefetchFiles = usePrefetchFiles()
+
+  // Use view stats hook
+  const { incrementView, getViewCount } = useViewStats()
 
   // Ensure files is ALWAYS an array, no matter what
   const files = Array.isArray(filesData)
@@ -204,6 +209,9 @@ function FileListInner({
       // Keep the playing state when changing folders
       router.push(`/?${params.toString()}`, { scroll: false })
     } else {
+      // Increment view count for files (not directories)
+      incrementView(file.path)
+
       // For audio/video, use 'playing' parameter and trigger store playback
       // For images/text/other files, use 'viewing' parameter (this keeps audio/video playing)
       const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
@@ -516,6 +524,7 @@ function FileListInner({
                 )}
                 {files.map((file) => {
                   const isFavorite = favorites.includes(file.path)
+                  const viewCount = getViewCount(file.path)
                   return (
                     <TableRow
                       key={file.path}
@@ -554,7 +563,18 @@ function FileListInner({
                         </div>
                       </TableCell>
                       <TableCell className='w-32 text-right text-muted-foreground'>
-                        {file.isDirectory ? '' : formatFileSize(file.size)}
+                        <div className='flex items-center justify-end gap-2'>
+                          {!file.isDirectory && viewCount > 0 && (
+                            <div
+                              className='flex items-center gap-1 text-xs'
+                              title={`${viewCount} views`}
+                            >
+                              <Eye className='h-3.5 w-3.5' />
+                              <span>{viewCount}</span>
+                            </div>
+                          )}
+                          <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -580,6 +600,7 @@ function FileListInner({
               )}
               {files.map((file) => {
                 const isFavorite = favorites.includes(file.path)
+                const viewCount = getViewCount(file.path)
                 return (
                   <Card
                     key={file.path}
@@ -611,6 +632,18 @@ function FileListInner({
                               }`}
                             />
                           </button>
+                        )}
+                        {/* View count badge - only for files with views */}
+                        {!file.isDirectory && viewCount > 0 && (
+                          <div
+                            className='absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm z-10 flex items-center gap-1'
+                            title={`${viewCount} views`}
+                          >
+                            <Eye className='h-3 w-3 text-muted-foreground' />
+                            <span className='text-xs font-medium text-muted-foreground'>
+                              {viewCount}
+                            </span>
+                          </div>
                         )}
                         {file.type === MediaType.VIDEO ? (
                           <img
