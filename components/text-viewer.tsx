@@ -244,11 +244,10 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     }
 
     try {
-      const res = await fetch('/api/files/create', {
+      const res = await fetch('/api/files/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'file',
           path: viewingPath,
           content: editContent,
         }),
