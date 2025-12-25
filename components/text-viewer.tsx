@@ -462,6 +462,21 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
                   value={editContent}
                   onChange={(e) => handleContentChange(e.target.value)}
                   onBlur={handleBlur}
+                  onKeyDown={(e) => {
+                    // Prevent dialog from capturing arrow keys and other navigation keys
+                    if (
+                      e.key === 'ArrowLeft' ||
+                      e.key === 'ArrowRight' ||
+                      e.key === 'ArrowUp' ||
+                      e.key === 'ArrowDown' ||
+                      e.key === 'Home' ||
+                      e.key === 'End' ||
+                      e.key === 'PageUp' ||
+                      e.key === 'PageDown'
+                    ) {
+                      e.stopPropagation()
+                    }
+                  }}
                   className='w-full h-full font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
                   placeholder='Enter text...'
                   spellCheck={false}
