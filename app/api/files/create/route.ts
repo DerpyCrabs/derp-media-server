@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createDirectory, writeFile, writeBinaryFile, isPathEditable } from '@/lib/file-system'
+import {
+  createDirectory,
+  writeFile,
+  writeBinaryFile,
+  isPathEditable,
+  fileExists,
+} from '@/lib/file-system'
 import path from 'path'
 
 export async function POST(request: NextRequest) {
@@ -18,6 +24,16 @@ export async function POST(request: NextRequest) {
     // Check if parent directory is editable (or if the path itself is editable for root-level items)
     if (!isPathEditable(normalizedParent) && !isPathEditable(relativePath)) {
       return NextResponse.json({ error: 'Path is not in an editable folder' }, { status: 403 })
+    }
+
+    // Check if file/folder already exists
+    const exists = await fileExists(relativePath)
+    if (exists) {
+      const itemType = type === 'folder' ? 'folder' : 'file'
+      return NextResponse.json(
+        { error: `A ${itemType} with this name already exists` },
+        { status: 409 },
+      )
     }
 
     if (type === 'folder') {

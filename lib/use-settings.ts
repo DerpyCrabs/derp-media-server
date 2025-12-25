@@ -77,11 +77,11 @@ async function removeCustomIcon(path: string) {
 }
 
 // Set auto-save for file
-async function setAutoSave(filePath: string, enabled: boolean) {
+async function setAutoSave(filePath: string, enabled: boolean, readOnly?: boolean) {
   const response = await fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'setAutoSave', filePath, enabled }),
+    body: JSON.stringify({ action: 'setAutoSave', filePath, enabled, readOnly }),
   })
   if (!response.ok) {
     throw new Error('Failed to set auto-save setting')
@@ -294,9 +294,16 @@ export function useSettings(currentPath: string) {
 
   // Mutation for auto-save setting with optimistic update
   const autoSaveMutation = useMutation({
-    mutationFn: ({ filePath, enabled }: { filePath: string; enabled: boolean }) =>
-      setAutoSave(filePath, enabled),
-    onMutate: async ({ filePath, enabled }) => {
+    mutationFn: ({
+      filePath,
+      enabled,
+      readOnly,
+    }: {
+      filePath: string
+      enabled: boolean
+      readOnly?: boolean
+    }) => setAutoSave(filePath, enabled, readOnly),
+    onMutate: async ({ filePath, enabled, readOnly }) => {
       await queryClient.cancelQueries({ queryKey: ['settings'] })
 
       const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
@@ -307,11 +314,17 @@ export function useSettings(currentPath: string) {
             viewModes: {},
             favorites: [],
             customIcons: {},
-            autoSave: { [filePath]: { enabled } },
+            autoSave: { [filePath]: { enabled, ...(readOnly !== undefined && { readOnly }) } },
           }
         return {
           ...old,
-          autoSave: { ...old.autoSave, [filePath]: { enabled } },
+          autoSave: {
+            ...old.autoSave,
+            [filePath]: {
+              enabled,
+              ...(readOnly !== undefined && { readOnly }),
+            },
+          },
         }
       })
 
@@ -339,8 +352,8 @@ export function useSettings(currentPath: string) {
     toggleFavorite: (filePath: string) => favoriteMutation.mutate(filePath),
     setCustomIcon: (path: string, iconName: string) => setIconMutation.mutate({ path, iconName }),
     removeCustomIcon: (path: string) => removeIconMutation.mutate(path),
-    setAutoSave: (filePath: string, enabled: boolean) =>
-      autoSaveMutation.mutate({ filePath, enabled }),
+    setAutoSave: (filePath: string, enabled: boolean, readOnly?: boolean) =>
+      autoSaveMutation.mutate({ filePath, enabled, readOnly }),
     isLoading: !globalSettings,
   }
 }

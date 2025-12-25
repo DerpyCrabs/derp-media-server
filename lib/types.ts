@@ -31,4 +31,5 @@ export interface AudioMetadata {
 
 export interface AutoSaveSettings {
   enabled: boolean
+  readOnly?: boolean
 }

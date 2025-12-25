@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     // Handle auto-save setting
     if ('action' in body && body.action === 'setAutoSave') {
-      const { filePath, enabled } = body
+      const { filePath, enabled, readOnly } = body
 
       if (!filePath) {
         return NextResponse.json({ error: 'File path is required' }, { status: 400 })
@@ -175,7 +175,10 @@ export async function POST(request: NextRequest) {
         settings.autoSave = {}
       }
 
-      settings.autoSave[filePath] = { enabled }
+      settings.autoSave[filePath] = {
+        enabled,
+        ...(readOnly !== undefined && { readOnly }),
+      }
       await writeSettings(settings)
 
       return NextResponse.json({

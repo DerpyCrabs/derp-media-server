@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { X, Download, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
@@ -32,7 +31,8 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
 
   // Get settings including auto-save
   const { settings, setAutoSave } = useSettings('')
-  const autoSaveEnabled = viewingPath ? settings.autoSave[viewingPath]?.enabled || false : false
+  const autoSaveEnabled = viewingPath ? (settings.autoSave[viewingPath]?.enabled ?? true) : true // Default to true
+  const isReadOnly = viewingPath ? settings.autoSave[viewingPath]?.readOnly || false : false
 
   // Check if the viewing file is editable using client-side utility
   const isEditable = isPathEditable(viewingPath || '', editableFolders)
@@ -100,10 +100,10 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     let cancelled = false
 
     const loadContent = async () => {
-      if (!cancelled) {
+      // Only show loading if we don't have content yet (initial load)
+      if (!cancelled && !content) {
         setLoading(true)
         setError(null)
-        setIsEditing(false)
       }
 
       try {
@@ -115,6 +115,18 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
         if (!cancelled) {
           setContent(text)
           setLoading(false)
+
+          // Check if file is editable and read-only setting
+          const isFileEditable = isPathEditable(viewingPath, editableFolders)
+          const fileReadOnly = settings.autoSave[viewingPath]?.readOnly || false
+
+          // Start in edit mode by default if editable and not in read-only mode
+          if (isFileEditable && !fileReadOnly) {
+            setEditContent(text)
+            setIsEditing(true)
+          } else {
+            setIsEditing(false)
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -129,7 +141,8 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     return () => {
       cancelled = true
     }
-  }, [viewingPath])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingPath, editableFolders, settings.autoSave])
 
   const handleDownload = () => {
     if (!viewingPath) return
@@ -150,11 +163,6 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     } catch (err) {
       console.error('Failed to copy:', err)
     }
-  }
-
-  const handleEdit = () => {
-    setEditContent(content)
-    setIsEditing(true)
   }
 
   // Handle content change with auto-save
@@ -206,15 +214,22 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     }
   }
 
-  const handleCancelEdit = () => {
-    // Clear any pending auto-save timer
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current)
-      autoSaveTimerRef.current = null
+  // Toggle read-only mode
+  const toggleReadOnly = () => {
+    if (viewingPath) {
+      const newReadOnly = !isReadOnly
+      // When switching to read-only, exit edit mode
+      if (newReadOnly) {
+        setIsEditing(false)
+        setEditContent('')
+      } else {
+        // When switching to edit mode, enter edit mode with auto-save enabled
+        setEditContent(content)
+        setIsEditing(true)
+        setAutoSave(viewingPath, true, false)
+      }
+      setAutoSave(viewingPath, !newReadOnly, newReadOnly)
     }
-
-    setIsEditing(false)
-    setEditContent('')
   }
 
   const handleSave = async (skipStateUpdate = false) => {
@@ -381,29 +396,32 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
                   <Button
                     variant='ghost'
                     size='sm'
-                    onClick={handleCancelEdit}
+                    onClick={toggleReadOnly}
                     disabled={saving}
-                    title='Cancel editing'
+                    title='Switch to read-only mode'
                   >
-                    Cancel
+                    {autoSaveEnabled ? 'Read only' : 'Cancel'}
                   </Button>
-                  <Button
-                    variant='default'
-                    size='sm'
-                    onClick={() => handleSave(false)}
-                    disabled={saving}
-                    title='Save changes'
-                    className='gap-2'
-                  >
-                    <Save className='h-4 w-4' />
-                    {saving ? 'Saving...' : 'Save'}
-                  </Button>
+                  {!autoSaveEnabled && (
+                    <Button
+                      variant='default'
+                      size='sm'
+                      onClick={() => handleSave(false)}
+                      disabled={saving}
+                      title='Save changes'
+                      className='gap-2'
+                    >
+                      <Save className='h-4 w-4' />
+                      {saving ? 'Saving...' : 'Save'}
+                    </Button>
+                  )}
                 </>
               ) : (
                 <>
                   {isEditable && (
-                    <Button variant='ghost' size='icon' onClick={handleEdit} title='Edit file'>
+                    <Button variant='ghost' size='sm' onClick={toggleReadOnly} title='Edit file'>
                       <Edit2 className='h-5 w-5' />
+                      <span className='ml-2'>Edit</span>
                     </Button>
                   )}
                   <Button
@@ -451,13 +469,13 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
                 />
               </div>
             ) : (
-              <ScrollArea className='h-full'>
-                <div className='p-6'>
+              <div className='h-full p-4'>
+                <div className='w-full h-full p-4 bg-background border rounded-lg overflow-auto'>
                   <pre className='font-mono text-sm whitespace-pre-wrap wrap-break-word'>
                     {content}
                   </pre>
                 </div>
-              </ScrollArea>
+              </div>
             )}
           </div>
         </DialogPrimitive.Content>

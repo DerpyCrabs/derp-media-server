@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useState, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
@@ -22,6 +22,7 @@ import {
   FilePlus,
   Trash2,
   Eye,
+  AlertCircle,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -87,11 +88,10 @@ function FileListInner({
   const { incrementView, getViewCount } = useViewStats()
 
   // Ensure files is ALWAYS an array, no matter what
-  const files = Array.isArray(filesData)
-    ? filesData
-    : Array.isArray(initialFiles)
-      ? initialFiles
-      : []
+  const files = useMemo(
+    () => (Array.isArray(filesData) ? filesData : Array.isArray(initialFiles) ? initialFiles : []),
+    [filesData, initialFiles],
+  )
 
   // Use React Query for real-time settings
   const {
@@ -354,6 +354,19 @@ function FileListInner({
 
   const currentFolderName = currentPath ? currentPath.split(/[/\\]/).pop() : ''
 
+  // Check if new folder name already exists
+  const folderExists = useMemo(() => {
+    if (!newItemName.trim()) return false
+    return files.some((f) => f.isDirectory && f.name.toLowerCase() === newItemName.toLowerCase())
+  }, [newItemName, files])
+
+  // Check if new file name already exists (with .txt extension if not provided)
+  const fileExists = useMemo(() => {
+    if (!newItemName.trim()) return false
+    const fileName = newItemName.includes('.') ? newItemName : `${newItemName}.txt`
+    return files.some((f) => !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase())
+  }, [newItemName, files])
+
   // Update favicon and title based on URL params
   useDynamicFavicon(customIcons)
 
@@ -432,11 +445,25 @@ function FileListInner({
             onChange={(e) => setNewItemName(e.target.value)}
             placeholder='Folder name'
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && newItemName.trim()) createFolderMutation.mutate(newItemName)
+              if (e.key === 'Enter' && newItemName.trim() && !folderExists)
+                createFolderMutation.mutate(newItemName)
             }}
             autoFocus
             disabled={createFolderMutation.isPending}
+            className={folderExists ? 'border-yellow-500' : ''}
           />
+          {/* Folder exists warning */}
+          {folderExists && (
+            <div className='rounded-lg bg-yellow-500/10 border border-yellow-500/50 p-3 flex items-start gap-2'>
+              <AlertCircle className='h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0' />
+              <div className='text-sm text-yellow-800 dark:text-yellow-200'>
+                <p className='font-medium'>Folder already exists</p>
+                <p className='text-xs mt-1 opacity-90'>
+                  A folder with this name already exists in this directory.
+                </p>
+              </div>
+            </div>
+          )}
           {createFolderMutation.error && (
             <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
               {createFolderMutation.error.message}
@@ -456,7 +483,7 @@ function FileListInner({
             </Button>
             <Button
               onClick={() => createFolderMutation.mutate(newItemName)}
-              disabled={createFolderMutation.isPending || !newItemName.trim()}
+              disabled={createFolderMutation.isPending || !newItemName.trim() || folderExists}
             >
               {createFolderMutation.isPending ? 'Creating...' : 'Create'}
             </Button>
@@ -479,11 +506,25 @@ function FileListInner({
             onChange={(e) => setNewItemName(e.target.value)}
             placeholder='File name (e.g., notes.txt)'
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && newItemName.trim()) createFileMutation.mutate(newItemName)
+              if (e.key === 'Enter' && newItemName.trim() && !fileExists)
+                createFileMutation.mutate(newItemName)
             }}
             autoFocus
             disabled={createFileMutation.isPending}
+            className={fileExists ? 'border-yellow-500' : ''}
           />
+          {/* File exists warning */}
+          {fileExists && (
+            <div className='rounded-lg bg-yellow-500/10 border border-yellow-500/50 p-3 flex items-start gap-2'>
+              <AlertCircle className='h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0' />
+              <div className='text-sm text-yellow-800 dark:text-yellow-200'>
+                <p className='font-medium'>File already exists</p>
+                <p className='text-xs mt-1 opacity-90'>
+                  A file with this name already exists in this directory.
+                </p>
+              </div>
+            </div>
+          )}
           {createFileMutation.error && (
             <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
               {createFileMutation.error.message}
@@ -503,7 +544,7 @@ function FileListInner({
             </Button>
             <Button
               onClick={() => createFileMutation.mutate(newItemName)}
-              disabled={createFileMutation.isPending || !newItemName.trim()}
+              disabled={createFileMutation.isPending || !newItemName.trim() || fileExists}
             >
               {createFileMutation.isPending ? 'Creating...' : 'Create'}
             </Button>
