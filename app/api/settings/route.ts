@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
+import type { AutoSaveSettings } from '@/lib/types'
 
 const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
@@ -9,6 +10,7 @@ interface Settings {
   viewModes: Record<string, 'list' | 'grid'>
   favorites: string[]
   customIcons: Record<string, string>
+  autoSave: Record<string, AutoSaveSettings>
 }
 
 interface SettingsFile {
@@ -27,7 +29,7 @@ async function readAllSettings(): Promise<SettingsFile> {
 
 async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
-  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {} }
+  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
 }
 
 async function writeSettings(settings: Settings): Promise<void> {
@@ -46,10 +48,11 @@ export async function GET(request: NextRequest) {
       viewMode,
       favorites: settings.favorites || [],
       customIcons: settings.customIcons || {},
+      autoSave: settings.autoSave || {},
     })
   } catch (error) {
     console.error('Error reading settings:', error)
-    return NextResponse.json({ viewMode: 'list', favorites: [], customIcons: {} })
+    return NextResponse.json({ viewMode: 'list', favorites: [], customIcons: {}, autoSave: {} })
   }
 }
 
@@ -152,6 +155,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         customIcons: settings.customIcons,
+      })
+    }
+
+    // Handle auto-save setting
+    if ('action' in body && body.action === 'setAutoSave') {
+      const { filePath, enabled } = body
+
+      if (!filePath) {
+        return NextResponse.json({ error: 'File path is required' }, { status: 400 })
+      }
+
+      if (typeof enabled !== 'boolean') {
+        return NextResponse.json({ error: 'Enabled must be a boolean' }, { status: 400 })
+      }
+
+      const settings = await readSettings()
+      if (!settings.autoSave) {
+        settings.autoSave = {}
+      }
+
+      settings.autoSave[filePath] = { enabled }
+      await writeSettings(settings)
+
+      return NextResponse.json({
+        success: true,
+        autoSave: settings.autoSave,
       })
     }
 

@@ -28,3 +28,7 @@ export interface AudioMetadata {
   trackNumber: number | null
   albumArtist: string | null
 }
+
+export interface AutoSaveSettings {
+  enabled: boolean
+}

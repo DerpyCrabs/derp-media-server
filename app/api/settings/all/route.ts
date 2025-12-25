@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
+import type { AutoSaveSettings } from '@/lib/types'
 
 const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
@@ -9,6 +10,7 @@ interface Settings {
   viewModes: Record<string, 'list' | 'grid'>
   favorites: string[]
   customIcons: Record<string, string>
+  autoSave: Record<string, AutoSaveSettings>
 }
 
 interface SettingsFile {
@@ -26,7 +28,7 @@ async function readAllSettings(): Promise<SettingsFile> {
 
 async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
-  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {} }
+  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
 }
 
 export async function GET() {
@@ -35,6 +37,6 @@ export async function GET() {
     return NextResponse.json(settings)
   } catch (error) {
     console.error('Error reading settings:', error)
-    return NextResponse.json({ viewModes: {}, favorites: [], customIcons: {} })
+    return NextResponse.json({ viewModes: {}, favorites: [], customIcons: {}, autoSave: {} })
   }
 }

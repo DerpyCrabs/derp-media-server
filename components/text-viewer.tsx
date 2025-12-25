@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { X, Download, Copy, Check, Edit2, Save } from 'lucide-react'
+import { X, Download, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { isPathEditable } from '@/lib/utils'
+import { useSettings } from '@/lib/use-settings'
 
 interface TextViewerProps {
   editableFolders: string[]
@@ -25,11 +26,29 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState<string>('')
   const [saving, setSaving] = useState(false)
+  const [autoSaveError, setAutoSaveError] = useState<string | null>(null)
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Get settings including auto-save
+  const { settings, setAutoSave } = useSettings('')
+  const autoSaveEnabled = viewingPath ? settings.autoSave[viewingPath]?.enabled || false : false
 
   // Check if the viewing file is editable using client-side utility
   const isEditable = isPathEditable(viewingPath || '', editableFolders)
 
   const closeViewer = () => {
+    // Clear any pending auto-save timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = null
+    }
+
+    // Auto-save on close if enabled and there are changes
+    if (isEditing && autoSaveEnabled && editContent !== content) {
+      handleSave(true)
+    }
+
     const params = new URLSearchParams(searchParams)
     params.delete('viewing')
     router.replace(`/?${params.toString()}`, { scroll: false })
@@ -138,15 +157,77 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     setIsEditing(true)
   }
 
+  // Handle content change with auto-save
+  const handleContentChange = (newContent: string) => {
+    setEditContent(newContent)
+  }
+
+  // Auto-save effect with debounce
+  useEffect(() => {
+    if (!isEditing || !autoSaveEnabled || !viewingPath) return
+    if (editContent === content) return
+
+    // Clear existing timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+    }
+
+    // Schedule new save after 2 seconds of inactivity
+    autoSaveTimerRef.current = setTimeout(() => {
+      if (editContent !== content) {
+        handleSave(true)
+      }
+    }, 2000)
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editContent, isEditing, autoSaveEnabled, content, viewingPath])
+
+  // Handle blur event (focus lost) for textarea
+  const handleBlur = () => {
+    if (autoSaveEnabled && editContent !== content) {
+      // Clear pending timer and save immediately
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+      handleSave(true)
+    }
+  }
+
+  // Toggle auto-save
+  const toggleAutoSave = () => {
+    if (viewingPath) {
+      setAutoSave(viewingPath, !autoSaveEnabled)
+    }
+  }
+
   const handleCancelEdit = () => {
+    // Clear any pending auto-save timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = null
+    }
+
     setIsEditing(false)
     setEditContent('')
   }
 
-  const handleSave = async () => {
+  const handleSave = async (skipStateUpdate = false) => {
     if (!viewingPath) return
 
-    setSaving(true)
+    const saveState = skipStateUpdate ? () => {} : setSaving
+    saveState(true)
+
+    // Clear any previous auto-save error
+    if (skipStateUpdate) {
+      setAutoSaveError(null)
+    }
+
     try {
       const res = await fetch('/api/files/create', {
         method: 'POST',
@@ -163,9 +244,11 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
         throw new Error(data.error || 'Failed to save file')
       }
 
-      // Update content and exit edit mode
+      // Update content and exit edit mode (only if manual save)
       setContent(editContent)
-      setIsEditing(false)
+      if (!skipStateUpdate) {
+        setIsEditing(false)
+      }
 
       // Verify the save by reloading from server with cache-busting
       try {
@@ -182,9 +265,19 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
       }
     } catch (err) {
       console.error('Failed to save:', err)
-      alert(err instanceof Error ? err.message : 'Failed to save file')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save file'
+
+      if (skipStateUpdate) {
+        // Auto-save error - show in UI
+        setAutoSaveError(errorMessage)
+        // Clear error after 5 seconds
+        setTimeout(() => setAutoSaveError(null), 5000)
+      } else {
+        // Manual save error - show alert
+        alert(errorMessage)
+      }
     } finally {
-      setSaving(false)
+      saveState(false)
     }
   }
 
@@ -253,6 +346,38 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
             <div className='flex items-center gap-2'>
               {isEditing ? (
                 <>
+                  {isEditable && (
+                    <div className='flex items-center gap-2 mr-2 border-r pr-3'>
+                      <Button
+                        variant={autoSaveEnabled ? 'default' : 'outline'}
+                        size='sm'
+                        onClick={toggleAutoSave}
+                        className='gap-2'
+                        title={autoSaveEnabled ? 'Auto-save enabled' : 'Auto-save disabled'}
+                      >
+                        {autoSaveEnabled ? (
+                          <>
+                            <Zap className='h-4 w-4' />
+                            <span>Auto-save</span>
+                          </>
+                        ) : (
+                          <>
+                            <ZapOff className='h-4 w-4' />
+                            <span>Auto-save</span>
+                          </>
+                        )}
+                      </Button>
+                      {autoSaveError && (
+                        <div
+                          className='flex items-center gap-1 text-sm text-destructive'
+                          title={autoSaveError}
+                        >
+                          <AlertCircle className='h-4 w-4' />
+                          <span>Save failed</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <Button
                     variant='ghost'
                     size='sm'
@@ -265,7 +390,7 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
                   <Button
                     variant='default'
                     size='sm'
-                    onClick={handleSave}
+                    onClick={() => handleSave(false)}
                     disabled={saving}
                     title='Save changes'
                     className='gap-2'
@@ -316,8 +441,10 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
             ) : isEditing ? (
               <div className='h-full p-4'>
                 <textarea
+                  ref={textareaRef}
                   value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
+                  onChange={(e) => handleContentChange(e.target.value)}
+                  onBlur={handleBlur}
                   className='w-full h-full font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
                   placeholder='Enter text...'
                   spellCheck={false}

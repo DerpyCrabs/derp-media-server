@@ -3,12 +3,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
+import type { AutoSaveSettings } from './types'
+
 export type ViewMode = 'list' | 'grid'
 
 interface GlobalSettings {
   viewModes: Record<string, ViewMode>
   favorites: string[]
   customIcons: Record<string, string>
+  autoSave: Record<string, AutoSaveSettings>
 }
 
 // Fetch full settings file
@@ -16,7 +19,7 @@ async function fetchAllSettings(): Promise<GlobalSettings> {
   const response = await fetch(`/api/settings/all`)
   if (!response.ok) {
     // Fallback to empty settings
-    return { viewModes: {}, favorites: [], customIcons: {} }
+    return { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
   }
   return response.json()
 }
@@ -69,6 +72,19 @@ async function removeCustomIcon(path: string) {
   })
   if (!response.ok) {
     throw new Error('Failed to remove custom icon')
+  }
+  return response.json()
+}
+
+// Set auto-save for file
+async function setAutoSave(filePath: string, enabled: boolean) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'setAutoSave', filePath, enabled }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to set auto-save setting')
   }
   return response.json()
 }
@@ -157,7 +173,8 @@ export function useSettings(currentPath: string) {
 
       // Optimistically update
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: { [path]: viewMode }, favorites: [], customIcons: {} }
+        if (!old)
+          return { viewModes: { [path]: viewMode }, favorites: [], customIcons: {}, autoSave: {} }
         return {
           ...old,
           viewModes: { ...old.viewModes, [path]: viewMode },
@@ -187,7 +204,7 @@ export function useSettings(currentPath: string) {
       const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
 
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: {}, favorites: [filePath], customIcons: {} }
+        if (!old) return { viewModes: {}, favorites: [filePath], customIcons: {}, autoSave: {} }
 
         const favorites = [...old.favorites]
         const index = favorites.indexOf(filePath)
@@ -202,6 +219,7 @@ export function useSettings(currentPath: string) {
           viewModes: old.viewModes,
           favorites,
           customIcons: old.customIcons || {},
+          autoSave: old.autoSave || {},
         }
       })
 
@@ -227,7 +245,8 @@ export function useSettings(currentPath: string) {
       const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
 
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: {}, favorites: [], customIcons: { [path]: iconName } }
+        if (!old)
+          return { viewModes: {}, favorites: [], customIcons: { [path]: iconName }, autoSave: {} }
         return {
           ...old,
           customIcons: { ...old.customIcons, [path]: iconName },
@@ -255,10 +274,45 @@ export function useSettings(currentPath: string) {
       const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
 
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: {}, favorites: [], customIcons: {} }
+        if (!old) return { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
         const customIcons = { ...old.customIcons }
         delete customIcons[path]
         return { ...old, customIcons }
+      })
+
+      return { previousSettings }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings'], context.previousSettings)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+
+  // Mutation for auto-save setting with optimistic update
+  const autoSaveMutation = useMutation({
+    mutationFn: ({ filePath, enabled }: { filePath: string; enabled: boolean }) =>
+      setAutoSave(filePath, enabled),
+    onMutate: async ({ filePath, enabled }) => {
+      await queryClient.cancelQueries({ queryKey: ['settings'] })
+
+      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
+
+      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+        if (!old)
+          return {
+            viewModes: {},
+            favorites: [],
+            customIcons: {},
+            autoSave: { [filePath]: { enabled } },
+          }
+        return {
+          ...old,
+          autoSave: { ...old.autoSave, [filePath]: { enabled } },
+        }
       })
 
       return { previousSettings }
@@ -277,13 +331,16 @@ export function useSettings(currentPath: string) {
   const viewMode = globalSettings?.viewModes[currentPath] || 'list'
   const favorites = globalSettings?.favorites || []
   const customIcons = globalSettings?.customIcons || {}
+  const autoSave = globalSettings?.autoSave || {}
 
   return {
-    settings: { viewMode, favorites, customIcons },
+    settings: { viewMode, favorites, customIcons, autoSave },
     setViewMode: (viewMode: ViewMode) => viewModeMutation.mutate({ path: currentPath, viewMode }),
     toggleFavorite: (filePath: string) => favoriteMutation.mutate(filePath),
     setCustomIcon: (path: string, iconName: string) => setIconMutation.mutate({ path, iconName }),
     removeCustomIcon: (path: string) => removeIconMutation.mutate(path),
+    setAutoSave: (filePath: string, enabled: boolean) =>
+      autoSaveMutation.mutate({ filePath, enabled }),
     isLoading: !globalSettings,
   }
 }
