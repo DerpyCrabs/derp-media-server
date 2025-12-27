@@ -101,14 +101,28 @@ export function AudioPlayer() {
     if (!playingPath || audioFiles.length === 0) return
 
     const currentIndex = audioFiles.findIndex((file) => file.path === playingPath)
-    if (currentIndex === -1 || currentIndex === audioFiles.length - 1) {
-      // Current file not found or it's the last file
+    if (currentIndex === -1) {
+      // Current file not found
+      setIsPlaying(false)
+      return
+    }
+
+    // Find the next audio-only file (skip video files)
+    let nextFile = null
+    for (let i = currentIndex + 1; i < audioFiles.length; i++) {
+      if (audioFiles[i].type === MediaType.AUDIO) {
+        nextFile = audioFiles[i]
+        break
+      }
+    }
+
+    if (!nextFile) {
+      // No more audio files to play
       setIsPlaying(false)
       return
     }
 
     // Navigate to next audio file
-    const nextFile = audioFiles[currentIndex + 1]
     const params = new URLSearchParams(searchParams)
     params.set('playing', nextFile.path)
     params.set('dir', currentDir)
@@ -123,13 +137,26 @@ export function AudioPlayer() {
     if (!playingPath || audioFiles.length === 0) return
 
     const currentIndex = audioFiles.findIndex((file) => file.path === playingPath)
-    if (currentIndex === -1 || currentIndex === 0) {
-      // Current file not found or it's the first file
+    if (currentIndex === -1) {
+      // Current file not found
+      return
+    }
+
+    // Find the previous audio-only file (skip video files)
+    let previousFile = null
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      if (audioFiles[i].type === MediaType.AUDIO) {
+        previousFile = audioFiles[i]
+        break
+      }
+    }
+
+    if (!previousFile) {
+      // No previous audio files
       return
     }
 
     // Navigate to previous audio file
-    const previousFile = audioFiles[currentIndex - 1]
     const params = new URLSearchParams(searchParams)
     params.set('playing', previousFile.path)
     params.set('dir', currentDir)
@@ -403,6 +430,35 @@ export function AudioPlayer() {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
 
+  // Helper functions to check if there are previous/next audio files
+  const hasPreviousAudio = useCallback(() => {
+    if (!playingPath || audioFiles.length === 0) return false
+    const currentIndex = audioFiles.findIndex((file) => file.path === playingPath)
+    if (currentIndex === -1) return false
+
+    // Check if there's any audio file before the current index
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      if (audioFiles[i].type === MediaType.AUDIO) {
+        return true
+      }
+    }
+    return false
+  }, [playingPath, audioFiles])
+
+  const hasNextAudio = useCallback(() => {
+    if (!playingPath || audioFiles.length === 0) return false
+    const currentIndex = audioFiles.findIndex((file) => file.path === playingPath)
+    if (currentIndex === -1) return false
+
+    // Check if there's any audio file after the current index
+    for (let i = currentIndex + 1; i < audioFiles.length; i++) {
+      if (audioFiles[i].type === MediaType.AUDIO) {
+        return true
+      }
+    }
+    return false
+  }, [playingPath, audioFiles])
+
   // Show player for audio files, or video files in audio-only mode
   if (!isAudioFile && !(isVideoFile && isAudioOnly)) {
     return null
@@ -420,11 +476,7 @@ export function AudioPlayer() {
               variant='ghost'
               size='icon'
               onClick={playPreviousAudio}
-              disabled={
-                !playingPath ||
-                audioFiles.length === 0 ||
-                audioFiles.findIndex((f) => f.path === playingPath) <= 0
-              }
+              disabled={!hasPreviousAudio()}
             >
               <StepBack className='h-4 w-4' />
             </Button>
@@ -440,16 +492,7 @@ export function AudioPlayer() {
                 <Play className='h-4 w-4' />
               )}
             </Button>
-            <Button
-              variant='ghost'
-              size='icon'
-              onClick={playNextAudio}
-              disabled={
-                !playingPath ||
-                audioFiles.length === 0 ||
-                audioFiles.findIndex((f) => f.path === playingPath) >= audioFiles.length - 1
-              }
-            >
+            <Button variant='ghost' size='icon' onClick={playNextAudio} disabled={!hasNextAudio()}>
               <StepForward className='h-4 w-4' />
             </Button>
             <Button
