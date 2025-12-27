@@ -136,6 +136,14 @@ export function AudioPlayer() {
   const playPreviousAudio = useCallback(() => {
     if (!playingPath || audioFiles.length === 0) return
 
+    const audio = audioRef.current
+
+    // If current time is more than 20 seconds, restart the current file
+    if (audio && currentTime > 20) {
+      audio.currentTime = 0
+      return
+    }
+
     const currentIndex = audioFiles.findIndex((file) => file.path === playingPath)
     if (currentIndex === -1) {
       // Current file not found
@@ -164,7 +172,7 @@ export function AudioPlayer() {
 
     // Trigger playback through store
     playFile(previousFile.path, 'audio')
-  }, [playingPath, audioFiles, searchParams, currentDir, router, playFile])
+  }, [playingPath, audioFiles, searchParams, currentDir, router, playFile, currentTime])
 
   // Setup event listeners
   useEffect(() => {
