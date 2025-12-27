@@ -8,6 +8,30 @@ const EDITABLE_FOLDERS = process.env.EDITABLE_FOLDERS
   ? process.env.EDITABLE_FOLDERS.split(',').map((f) => f.trim())
   : []
 
+// Folders to exclude from listing
+const EXCLUDED_FOLDERS = [
+  'node_modules',
+  '$RECYCLE.BIN',
+  'System Volume Information',
+  '.git',
+  '.svn',
+  '.hg',
+  '__pycache__',
+  '.DS_Store',
+]
+
+/**
+ * Checks if a folder should be excluded from listing
+ */
+export function shouldExcludeFolder(folderName: string): boolean {
+  // Exclude hidden folders (starting with .)
+  if (folderName.startsWith('.')) {
+    return true
+  }
+  // Exclude common system and build folders
+  return EXCLUDED_FOLDERS.includes(folderName)
+}
+
 /**
  * Validates and resolves a path to ensure it's within MEDIA_DIR
  * Prevents path traversal attacks
@@ -61,6 +85,11 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
 
     for (const entry of entries) {
       try {
+        // Skip excluded folders
+        if (entry.isDirectory() && shouldExcludeFolder(entry.name)) {
+          continue
+        }
+
         const entryPath = path.join(fullPath, entry.name)
         const stats = await fs.stat(entryPath)
         const extension = path.extname(entry.name).slice(1).toLowerCase()
