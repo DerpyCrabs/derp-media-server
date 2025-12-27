@@ -465,7 +465,29 @@ export function AudioPlayer() {
   }
 
   return (
-    <div className='fixed bottom-0 left-0 right-0 bg-background border-t border-border z-50'>
+    <div className='fixed bottom-0 left-0 right-0 bg-background z-50'>
+      {/* Mobile Seekbar - Top Border */}
+      <div className='min-[650px]:hidden relative w-full h-1 bg-secondary'>
+        {/* Progress indicator */}
+        <div
+          className='absolute top-0 left-0 h-full bg-white transition-all duration-100'
+          style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+        />
+        {/* Invisible full-width slider for interaction */}
+        <input
+          type='range'
+          min='0'
+          max={duration || 0}
+          value={currentTime}
+          onChange={handleSeek}
+          className='absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer'
+          disabled={!playingPath}
+        />
+      </div>
+
+      {/* Border below seekbar on mobile, or at top on desktop */}
+      <div className='border-t border-border' />
+
       <div className='container mx-auto px-4 py-3'>
         <div className='flex items-center gap-4'>
           <audio ref={audioRef} preload='auto' />
@@ -518,7 +540,7 @@ export function AudioPlayer() {
 
           <Separator orientation='vertical' className='h-8 hidden min-[650px]:block' />
 
-          {/* Progress */}
+          {/* Desktop Progress */}
           <div className='hidden min-[650px]:flex flex-1 items-center gap-3'>
             <span className='text-sm tabular-nums'>{formatTime(currentTime)}</span>
             <input
