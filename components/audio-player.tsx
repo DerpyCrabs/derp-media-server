@@ -262,6 +262,9 @@ export function AudioPlayer() {
 
     // Only load if the source has changed
     if (audio.src !== fullUrl) {
+      // Check if we're switching from the same file (e.g., video to audio mode)
+      const isSameFile = currentFile === playingPath
+
       // Sync the URL to store if not already synced (without autoplay)
       if (currentFile !== playingPath || mediaType !== 'audio') {
         setCurrentFile(playingPath, 'audio')
@@ -271,8 +274,8 @@ export function AudioPlayer() {
       audio.src = fullUrl
       audio.load()
 
-      // Seek to stored position if switching from video player
-      if (currentTime > 0) {
+      // Only seek to stored position if switching from video player for the SAME file
+      if (currentTime > 0 && isSameFile) {
         const seekToPosition = () => {
           audio.currentTime = currentTime
           audio.removeEventListener('loadedmetadata', seekToPosition)
