@@ -114,7 +114,7 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
     }
 
     globalEventSource.onerror = (error) => {
-      console.error('[Settings SSE] Connection error:', error)
+      console.warn('[Settings SSE] Connection error:', error)
       // Close and reset
       if (globalEventSource) {
         globalEventSource.close()
