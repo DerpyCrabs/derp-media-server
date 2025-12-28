@@ -20,7 +20,6 @@ import {
   LayoutGrid,
   FolderPlus,
   FilePlus,
-  Trash2,
   Eye,
   AlertCircle,
 } from 'lucide-react'
@@ -123,8 +122,10 @@ function FileListInner({
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [showCreateFile, setShowCreateFile] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showRenameDialog, setShowRenameDialog] = useState(false)
   const [showIconEditor, setShowIconEditor] = useState(false)
   const [editingItem, setEditingItem] = useState<{ path: string; name: string } | null>(null)
+  const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
 
   // Check if current directory is editable using client-side utility
@@ -205,6 +206,53 @@ function FileListInner({
         params.delete('dir')
       }
       router.push(`/?${params.toString()}`, { scroll: false })
+    },
+  })
+
+  // Mutation for deleting individual files/folders
+  const deleteItemMutation = useMutation({
+    mutationFn: async (itemPath: string) => {
+      const res = await fetch('/api/files/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: itemPath }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to delete')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+      setShowDeleteConfirm(false)
+      setItemToDelete(null)
+    },
+  })
+
+  // Mutation for renaming files/folders
+  const renameMutation = useMutation({
+    mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
+      const pathParts = oldPath.split(/[/\\]/).filter(Boolean)
+      const parentPath = pathParts.slice(0, -1).join('/')
+      const newPath = parentPath ? `${parentPath}/${newName}` : newName
+
+      const res = await fetch('/api/files/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPath, newPath }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to rename')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+      setShowRenameDialog(false)
+      setEditingItem(null)
+      setNewItemName('')
     },
   })
 
@@ -368,6 +416,14 @@ function FileListInner({
     return files.some((f) => !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase())
   }, [newItemName, files])
 
+  // Check if rename target name already exists (but isn't the original file)
+  const renameTargetExists = useMemo(() => {
+    if (!newItemName.trim() || !editingItem) return false
+    return files.some(
+      (f) => f.path !== editingItem.path && f.name.toLowerCase() === newItemName.toLowerCase(),
+    )
+  }, [newItemName, files, editingItem])
+
   // Update favicon and title based on URL params
   useDynamicFavicon(customIcons)
 
@@ -391,6 +447,19 @@ function FileListInner({
     setShowIconEditor(true)
   }
 
+  // Handle context menu action for renaming
+  const handleContextRename = (file: FileItem) => {
+    setEditingItem({ path: file.path, name: file.name })
+    setNewItemName(file.name)
+    setShowRenameDialog(true)
+  }
+
+  // Handle context menu action for deleting
+  const handleContextDelete = (file: FileItem) => {
+    setItemToDelete(file)
+    setShowDeleteConfirm(true)
+  }
+
   return (
     <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
       {/* Icon Editor Dialog */}
@@ -409,25 +478,60 @@ function FileListInner({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Empty Folder?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {itemToDelete
+                ? `Delete ${itemToDelete.isDirectory ? 'Folder' : 'File'}?`
+                : 'Delete Empty Folder?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the folder &ldquo;{currentFolderName}&rdquo;? This
-              action cannot be undone.
+              {itemToDelete ? (
+                <>
+                  Are you sure you want to delete &ldquo;{itemToDelete.name}&rdquo;?
+                  {itemToDelete.isDirectory && (
+                    <span className='block mt-1 text-sm'>(Only empty folders can be deleted)</span>
+                  )}
+                  <span className='block mt-2 text-sm font-medium'>
+                    This action cannot be undone.
+                  </span>
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete the folder &ldquo;{currentFolderName}&rdquo;? This
+                  action cannot be undone.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {deleteFolderMutation.error && (
+          {(deleteFolderMutation.error || deleteItemMutation.error) && (
             <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
-              {deleteFolderMutation.error.message}
+              {(deleteFolderMutation.error || deleteItemMutation.error)?.message}
             </div>
           )}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteFolderMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel
+              disabled={deleteFolderMutation.isPending || deleteItemMutation.isPending}
+              onClick={() => {
+                setItemToDelete(null)
+                deleteFolderMutation.reset()
+                deleteItemMutation.reset()
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleteFolderMutation.mutate()}
-              disabled={deleteFolderMutation.isPending}
+              onClick={() => {
+                if (itemToDelete) {
+                  deleteItemMutation.mutate(itemToDelete.path)
+                } else {
+                  deleteFolderMutation.mutate()
+                }
+              }}
+              disabled={deleteFolderMutation.isPending || deleteItemMutation.isPending}
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
-              {deleteFolderMutation.isPending ? 'Deleting...' : 'Delete'}
+              {deleteFolderMutation.isPending || deleteItemMutation.isPending
+                ? 'Deleting...'
+                : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -552,6 +656,90 @@ function FileListInner({
         </DialogContent>
       </Dialog>
 
+      {/* Rename Dialog */}
+      <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename {editingItem?.name}</DialogTitle>
+            <DialogDescription>
+              Enter a new name for this{' '}
+              {editingItem && files.find((f) => f.path === editingItem.path)?.isDirectory
+                ? 'folder'
+                : 'file'}
+              .
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
+            placeholder='New name'
+            onKeyDown={(e) => {
+              if (
+                e.key === 'Enter' &&
+                newItemName.trim() &&
+                editingItem &&
+                newItemName !== editingItem.name &&
+                !renameTargetExists
+              )
+                renameMutation.mutate({ oldPath: editingItem.path, newName: newItemName })
+            }}
+            autoFocus
+            disabled={renameMutation.isPending}
+            className={renameTargetExists ? 'border-yellow-500' : ''}
+          />
+          {/* Name already exists warning */}
+          {renameTargetExists && (
+            <div className='rounded-lg bg-yellow-500/10 border border-yellow-500/50 p-3 flex items-start gap-2'>
+              <AlertCircle className='h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0' />
+              <div className='text-sm text-yellow-800 dark:text-yellow-200'>
+                <p className='font-medium'>Name already exists</p>
+                <p className='text-xs mt-1 opacity-90'>
+                  A{' '}
+                  {editingItem && files.find((f) => f.path === editingItem.path)?.isDirectory
+                    ? 'folder'
+                    : 'file'}{' '}
+                  with this name already exists in this directory.
+                </p>
+              </div>
+            </div>
+          )}
+          {renameMutation.error && (
+            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
+              {renameMutation.error.message}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setShowRenameDialog(false)
+                setEditingItem(null)
+                setNewItemName('')
+                renameMutation.reset()
+              }}
+              disabled={renameMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (editingItem) {
+                  renameMutation.mutate({ oldPath: editingItem.path, newName: newItemName })
+                }
+              }}
+              disabled={
+                renameMutation.isPending ||
+                !newItemName.trim() ||
+                newItemName === editingItem?.name ||
+                renameTargetExists
+              }
+            >
+              {renameMutation.isPending ? 'Renaming...' : 'Rename'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <PasteDialog
         isOpen={showPasteDialog}
         pasteData={pasteData}
@@ -600,21 +788,6 @@ function FileListInner({
                 >
                   <FilePlus className='h-4 w-4' />
                 </Button>
-                {/* Show delete button only when inside an empty folder */}
-                {currentPath !== '' && files.length === 0 && (
-                  <Button
-                    variant='outline'
-                    size='icon'
-                    onClick={() => {
-                      deleteFolderMutation.reset()
-                      setShowDeleteConfirm(true)
-                    }}
-                    className='text-destructive hover:text-destructive h-8 w-8'
-                    title='Delete this empty folder'
-                  >
-                    <Trash2 className='h-4 w-4' />
-                  </Button>
-                )}
                 <div className='w-px h-6 bg-border mx-1' />
               </>
             )}
@@ -665,8 +838,16 @@ function FileListInner({
                 {files.map((file) => {
                   const isFavorite = favorites.includes(file.path)
                   const viewCount = getViewCount(file.path)
+                  const isFileEditable = isPathEditable(file.path, editableFolders)
                   return (
-                    <FileContextMenu key={file.path} file={file} onSetIcon={handleContextSetIcon}>
+                    <FileContextMenu
+                      key={file.path}
+                      file={file}
+                      onSetIcon={handleContextSetIcon}
+                      onRename={handleContextRename}
+                      onDelete={handleContextDelete}
+                      isEditable={isFileEditable}
+                    >
                       <TableRow
                         className={`cursor-pointer hover:bg-muted/50 select-none group ${
                           playingPath === file.path ? 'bg-primary/10' : ''
@@ -746,8 +927,16 @@ function FileListInner({
               {files.map((file) => {
                 const isFavorite = favorites.includes(file.path)
                 const viewCount = getViewCount(file.path)
+                const isFileEditable = isPathEditable(file.path, editableFolders)
                 return (
-                  <FileContextMenu key={file.path} file={file} onSetIcon={handleContextSetIcon}>
+                  <FileContextMenu
+                    key={file.path}
+                    file={file}
+                    onSetIcon={handleContextSetIcon}
+                    onRename={handleContextRename}
+                    onDelete={handleContextDelete}
+                    isEditable={isFileEditable}
+                  >
                     <Card
                       className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
                         playingPath === file.path ? 'ring-2 ring-primary' : ''

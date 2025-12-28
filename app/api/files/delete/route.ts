@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { deleteDirectory } from '@/lib/file-system'
+import { deleteDirectory, deleteFile, validatePath } from '@/lib/file-system'
+import { promises as fs } from 'fs'
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,12 +11,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Path is required' }, { status: 400 })
     }
 
-    await deleteDirectory(relativePath)
-    return NextResponse.json({ success: true, message: 'Folder deleted' })
+    // Check if it's a directory or file
+    const fullPath = validatePath(relativePath)
+    const stats = await fs.stat(fullPath)
+
+    if (stats.isDirectory()) {
+      await deleteDirectory(relativePath)
+      return NextResponse.json({ success: true, message: 'Folder deleted' })
+    } else {
+      await deleteFile(relativePath)
+      return NextResponse.json({ success: true, message: 'File deleted' })
+    }
   } catch (error) {
-    console.error('Error deleting folder:', error)
+    console.error('Error deleting:', error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to delete folder' },
+      { error: error instanceof Error ? error.message : 'Failed to delete' },
       { status: 500 },
     )
   }

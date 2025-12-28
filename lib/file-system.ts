@@ -268,3 +268,58 @@ export async function deleteDirectory(relativePath: string): Promise<void> {
   // Delete the empty directory
   await fs.rmdir(fullPath)
 }
+
+/**
+ * Deletes a file
+ */
+export async function deleteFile(relativePath: string): Promise<void> {
+  const fullPath = validatePath(relativePath)
+
+  // Check if path is editable
+  if (!isPathEditable(relativePath)) {
+    throw new Error('Cannot delete file: Path is not in an editable folder')
+  }
+
+  // Check if it's a file (not a directory)
+  const stats = await fs.stat(fullPath)
+  if (stats.isDirectory()) {
+    throw new Error('Path is a directory, not a file')
+  }
+
+  // Delete the file
+  await fs.unlink(fullPath)
+}
+
+/**
+ * Renames a file or directory
+ */
+export async function renameFileOrDirectory(
+  oldRelativePath: string,
+  newRelativePath: string,
+): Promise<void> {
+  const oldFullPath = validatePath(oldRelativePath)
+  const newFullPath = validatePath(newRelativePath)
+
+  // Check if both paths are editable
+  if (!isPathEditable(oldRelativePath)) {
+    throw new Error('Cannot rename: Source path is not in an editable folder')
+  }
+  if (!isPathEditable(newRelativePath)) {
+    throw new Error('Cannot rename: Destination path is not in an editable folder')
+  }
+
+  // Check if old path exists
+  const exists = await fileExists(oldRelativePath)
+  if (!exists) {
+    throw new Error('Source file or directory does not exist')
+  }
+
+  // Check if new path already exists
+  const newExists = await fileExists(newRelativePath)
+  if (newExists) {
+    throw new Error('Destination file or directory already exists')
+  }
+
+  // Rename the file or directory
+  await fs.rename(oldFullPath, newFullPath)
+}
