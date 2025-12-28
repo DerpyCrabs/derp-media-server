@@ -11,6 +11,7 @@ import {
   validatePosition,
   getDefaultPosition,
 } from '@/lib/use-video-player-position'
+import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 
 interface Position {
   x: number
@@ -29,12 +30,14 @@ export function VideoPlayer() {
   const isProgrammaticChange = useRef(false)
 
   const { position, setPosition } = useVideoPlayerPosition()
+  const { getSavedTime, saveTime } = useVideoPlaybackTime()
 
   const {
     currentFile,
     mediaType,
     isPlaying,
     currentTime,
+    duration,
     setCurrentFile,
     setIsPlaying,
     setCurrentTime,
@@ -123,10 +126,13 @@ export function VideoPlayer() {
       video.src = mediaUrl
       video.load()
 
-      // Seek to stored position if switching from audio player
-      if (currentTime > 0) {
+      // Restore saved playback position or seek to stored position from audio player
+      const savedTime = getSavedTime(playingPath)
+      const timeToRestore = savedTime ?? (currentTime > 0 ? currentTime : 0)
+
+      if (timeToRestore > 0) {
         const seekToPosition = () => {
-          video.currentTime = currentTime
+          video.currentTime = timeToRestore
           video.removeEventListener('loadedmetadata', seekToPosition)
         }
         video.addEventListener('loadedmetadata', seekToPosition)
@@ -170,6 +176,7 @@ export function VideoPlayer() {
     mediaType,
     setCurrentFile,
     currentTime,
+    getSavedTime,
   ])
 
   // Update Media Session position state and sync with store
@@ -181,6 +188,12 @@ export function VideoPlayer() {
 
     const updatePositionState = () => {
       setCurrentTime(video.currentTime)
+
+      // Save playback position to localStorage (will clear if in last 10%)
+      if (playingPath && !isNaN(video.duration) && video.duration > 0) {
+        saveTime(playingPath, video.currentTime, video.duration)
+      }
+
       if ('mediaSession' in navigator && !isNaN(video.duration)) {
         navigator.mediaSession.setPositionState({
           duration: video.duration,
@@ -217,7 +230,7 @@ export function VideoPlayer() {
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
     }
-  }, [isVideoFile, setCurrentTime, setDuration, setIsPlaying])
+  }, [isVideoFile, playingPath, setCurrentTime, setDuration, setIsPlaying, saveTime])
 
   // React to store isPlaying changes
   useEffect(() => {
