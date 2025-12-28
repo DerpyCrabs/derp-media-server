@@ -460,6 +460,16 @@ function FileListInner({
     setShowDeleteConfirm(true)
   }
 
+  // Handle context menu action for downloading
+  const handleContextDownload = (file: FileItem) => {
+    const link = document.createElement('a')
+    link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`
+    link.download = file.isDirectory ? `${file.name}.zip` : file.name
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   return (
     <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
       {/* Icon Editor Dialog */}
@@ -846,6 +856,7 @@ function FileListInner({
                       onSetIcon={handleContextSetIcon}
                       onRename={handleContextRename}
                       onDelete={handleContextDelete}
+                      onDownload={handleContextDownload}
                       isEditable={isFileEditable}
                     >
                       <TableRow
@@ -935,6 +946,7 @@ function FileListInner({
                     onSetIcon={handleContextSetIcon}
                     onRename={handleContextRename}
                     onDelete={handleContextDelete}
+                    onDownload={handleContextDownload}
                     isEditable={isFileEditable}
                   >
                     <Card

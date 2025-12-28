@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { X, Download, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle } from 'lucide-react'
+import { X, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
@@ -143,16 +143,6 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingPath, editableFolders, settings.autoSave])
-
-  const handleDownload = () => {
-    if (!viewingPath) return
-    const link = document.createElement('a')
-    link.href = `/api/media/${encodeURIComponent(viewingPath)}`
-    link.download = viewingPath.split(/[/\\]/).pop() || 'file.txt'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
 
   const handleCopy = async () => {
     if (!content) return
@@ -430,9 +420,6 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
                     title='Copy to clipboard'
                   >
                     {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
-                  </Button>
-                  <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
-                    <Download className='h-5 w-5' />
                   </Button>
                 </>
               )}

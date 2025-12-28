@@ -8,7 +8,7 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Pencil, Trash2, Edit3 } from 'lucide-react'
+import { Pencil, Trash2, Edit3, Download } from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
 
@@ -18,6 +18,7 @@ interface FileContextMenuProps {
   onSetIcon: (file: FileItem, e?: Event) => void
   onRename?: (file: FileItem) => void
   onDelete?: (file: FileItem) => void
+  onDownload?: (file: FileItem) => void
   isEditable?: boolean
 }
 
@@ -27,6 +28,7 @@ export function FileContextMenu({
   onSetIcon,
   onRename,
   onDelete,
+  onDownload,
   isEditable = false,
 }: FileContextMenuProps) {
   const [open, setOpen] = React.useState(false)
@@ -60,6 +62,13 @@ export function FileContextMenu({
     setOpen(false)
   }
 
+  const handleDownload = () => {
+    if (onDownload) {
+      onDownload(file)
+    }
+    setOpen(false)
+  }
+
   // Clone the child element and add the long press handlers and ref
   const childWithHandlers = React.cloneElement(children, {
     ...longPressHandlers,
@@ -73,6 +82,10 @@ export function FileContextMenu({
         <ContextMenuItem onSelect={handleSetIcon}>
           <Pencil className='mr-2 h-4 w-4' />
           Set icon
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={handleDownload}>
+          <Download className='mr-2 h-4 w-4' />
+          Download{file.isDirectory ? ' as ZIP' : ''}
         </ContextMenuItem>
         {isEditable && (
           <>
