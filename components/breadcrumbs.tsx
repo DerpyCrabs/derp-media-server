@@ -36,6 +36,8 @@ export function Breadcrumbs({
     new Set(breadcrumbs.map((_, i) => i)),
   )
   const [showEllipsis, setShowEllipsis] = useState(false)
+  const [isManuallyExpanded, setIsManuallyExpanded] = useState(false)
+  const [wouldShowEllipsis, setWouldShowEllipsis] = useState(false)
 
   useEffect(() => {
     const calculateVisibleBreadcrumbs = () => {
@@ -77,9 +79,20 @@ export function Breadcrumbs({
       const allIndices = Array.from({ length: breadcrumbs.length }, (_, i) => i)
       const totalWidth = calculateTotalWidth(allIndices)
 
+      // If manually expanded, show all breadcrumbs but check if they would naturally fit
+      if (isManuallyExpanded) {
+        setVisibleIndices(new Set(breadcrumbs.map((_, i) => i)))
+        setShowEllipsis(false)
+        // Only show collapse button if breadcrumbs wouldn't naturally fit
+        setWouldShowEllipsis(totalWidth > availableWidth)
+        return
+      }
+
       if (totalWidth <= availableWidth) {
         setVisibleIndices(new Set(allIndices))
         setShowEllipsis(false)
+        setWouldShowEllipsis(false)
+        setIsManuallyExpanded(false) // Reset manual expansion when everything fits
         return
       }
 
@@ -109,6 +122,7 @@ export function Breadcrumbs({
       // Show ellipsis if we couldn't fit all breadcrumbs
       const allVisible = visible.length === breadcrumbs.length
       setShowEllipsis(!allVisible)
+      setWouldShowEllipsis(!allVisible)
       setVisibleIndices(new Set(visible))
     }
 
@@ -120,7 +134,7 @@ export function Breadcrumbs({
     }
 
     return () => resizeObserver.disconnect()
-  }, [breadcrumbs])
+  }, [breadcrumbs, isManuallyExpanded])
 
   const renderBreadcrumb = (
     crumb: { name: string; path: string },
@@ -161,6 +175,10 @@ export function Breadcrumbs({
     )
   }
 
+  const handleEllipsisClick = () => {
+    setIsManuallyExpanded(!isManuallyExpanded)
+  }
+
   return (
     <>
       {/* Measurement container - invisible */}
@@ -187,7 +205,7 @@ export function Breadcrumbs({
             return renderBreadcrumb(crumb, index)
           }
 
-          // Show ellipsis before last 2 items if needed
+          // Show ellipsis/collapse button before last 2 items if needed
           if (showEllipsis && index === breadcrumbs.length - 2) {
             const hasHiddenCrumbs = !visibleIndices.has(index - 1)
             if (hasHiddenCrumbs) {
@@ -195,7 +213,12 @@ export function Breadcrumbs({
                 <Fragment key='ellipsis'>
                   <div className='flex items-center gap-2'>
                     <ChevronRight className='h-4 w-4 text-muted-foreground' />
-                    <Button variant='ghost' size='sm' className='h-8 px-2.5' disabled>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='h-8 px-2.5'
+                      onClick={handleEllipsisClick}
+                    >
                       <MoreHorizontal className='h-4 w-4' />
                     </Button>
                   </div>
@@ -212,6 +235,22 @@ export function Breadcrumbs({
 
           return null
         })}
+
+        {/* Show collapse button when manually expanded */}
+        {isManuallyExpanded && wouldShowEllipsis && (
+          <div className='flex items-center gap-2'>
+            <ChevronRight className='h-4 w-4 text-muted-foreground' />
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-8 px-2.5'
+              onClick={handleEllipsisClick}
+              title='Collapse breadcrumbs'
+            >
+              <MoreHorizontal className='h-4 w-4' />
+            </Button>
+          </div>
+        )}
       </div>
     </>
   )
