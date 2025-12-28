@@ -103,7 +103,7 @@ export function useDynamicFavicon(customIcons: Record<string, string>) {
     }
 
     // Set title to current directory name
-    const folderName = currentDir ? currentDir.split(/[/\\]/).pop() : 'Root'
+    const folderName = currentDir ? currentDir.split(/[/\\]/).pop() : 'Home'
     document.title = folderName ? `${folderName} - Media Server` : 'Media Server'
 
     // Update favicon if there's a custom icon
