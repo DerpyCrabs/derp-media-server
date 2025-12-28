@@ -130,7 +130,8 @@ function FileListInner({
   const [newItemName, setNewItemName] = useState('')
 
   // Check if we're in a virtual folder
-  const isVirtualFolder = currentPath === VIRTUAL_FOLDERS.MOST_PLAYED
+  const isVirtualFolder =
+    currentPath === VIRTUAL_FOLDERS.MOST_PLAYED || currentPath === VIRTUAL_FOLDERS.FAVORITES
 
   // Check if current directory is editable using client-side utility
   const isEditable = !isVirtualFolder && isPathEditable(currentPath || '', editableFolders)
@@ -370,6 +371,20 @@ function FileListInner({
       return <Eye className='h-5 w-5 text-blue-500' />
     }
 
+    // Check for virtual folder (Favorites)
+    if (isVirtual && filePath === VIRTUAL_FOLDERS.FAVORITES) {
+      // Check for custom icon first
+      const customIconName = customIcons[filePath]
+      if (customIconName) {
+        const CustomIcon = getIconComponent(customIconName)
+        if (CustomIcon) {
+          return <CustomIcon className='h-5 w-5 text-blue-500' />
+        }
+      }
+      // Default icon for Favorites
+      return <Star className='h-5 w-5 text-blue-500' />
+    }
+
     // Check for custom icon first
     const customIconName = customIcons[filePath]
     if (customIconName) {
@@ -505,6 +520,11 @@ function FileListInner({
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  // Handle context menu action for toggling favorite
+  const handleContextToggleFavorite = (file: FileItem) => {
+    updateFavorite(file.path)
   }
 
   return (
@@ -865,11 +885,17 @@ function FileListInner({
             <Folder className='h-12 w-12 mx-auto mb-4 opacity-50' />
             <p>No media files found in this directory</p>
           </div>
-        ) : files.length === 0 && isVirtualFolder ? (
+        ) : files.length === 0 && currentPath === VIRTUAL_FOLDERS.MOST_PLAYED ? (
           <div className='text-center py-12 text-muted-foreground'>
             <Eye className='h-12 w-12 mx-auto mb-4 opacity-50' />
             <p>No played files yet</p>
             <p className='text-xs mt-2'>Files you play will appear here</p>
+          </div>
+        ) : files.length === 0 && currentPath === VIRTUAL_FOLDERS.FAVORITES ? (
+          <div className='text-center py-12 text-muted-foreground'>
+            <Star className='h-12 w-12 mx-auto mb-4 opacity-50' />
+            <p>No favorites yet</p>
+            <p className='text-xs mt-2'>Star files to add them to your favorites</p>
           </div>
         ) : viewMode === 'list' ? (
           <div className='sm:px-4 py-2'>
@@ -900,6 +926,8 @@ function FileListInner({
                       onRename={handleContextRename}
                       onDelete={handleContextDelete}
                       onDownload={handleContextDownload}
+                      onToggleFavorite={handleContextToggleFavorite}
+                      isFavorite={isFavorite}
                       isEditable={isFileEditable}
                     >
                       <TableRow
@@ -998,6 +1026,8 @@ function FileListInner({
                     onRename={handleContextRename}
                     onDelete={handleContextDelete}
                     onDownload={handleContextDownload}
+                    onToggleFavorite={handleContextToggleFavorite}
+                    isFavorite={isFavorite}
                     isEditable={isFileEditable}
                   >
                     <Card

@@ -8,7 +8,7 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Pencil, Trash2, Edit3, Download } from 'lucide-react'
+import { Pencil, Trash2, Edit3, Download, Star } from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
 
@@ -19,6 +19,8 @@ interface FileContextMenuProps {
   onRename?: (file: FileItem) => void
   onDelete?: (file: FileItem) => void
   onDownload?: (file: FileItem) => void
+  onToggleFavorite?: (file: FileItem) => void
+  isFavorite?: boolean
   isEditable?: boolean
 }
 
@@ -29,60 +31,74 @@ export function FileContextMenu({
   onRename,
   onDelete,
   onDownload,
+  onToggleFavorite,
+  isFavorite = false,
   isEditable = false,
 }: FileContextMenuProps) {
-  const [open, setOpen] = React.useState(false)
-  const triggerRef = React.useRef<HTMLElement>(null)
-
-  // Handle long press for touch devices
+  // Handle long press for touch devices to trigger context menu
   const longPressHandlers = useLongPress({
     onLongPress: (e) => {
       e.preventDefault()
-      setOpen(true)
+      // Simulate a context menu event
+      const target = e.target as HTMLElement
+      const contextMenuEvent = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: (e as React.TouchEvent).touches?.[0]?.clientX || (e as React.MouseEvent).clientX,
+        clientY: (e as React.TouchEvent).touches?.[0]?.clientY || (e as React.MouseEvent).clientY,
+      })
+      target.dispatchEvent(contextMenuEvent)
     },
     delay: 500,
   })
 
   const handleSetIcon = () => {
     onSetIcon(file)
-    setOpen(false)
   }
 
   const handleRename = () => {
     if (onRename) {
       onRename(file)
     }
-    setOpen(false)
   }
 
   const handleDelete = () => {
     if (onDelete) {
       onDelete(file)
     }
-    setOpen(false)
   }
 
   const handleDownload = () => {
     if (onDownload) {
       onDownload(file)
     }
-    setOpen(false)
   }
 
-  // Clone the child element and add the long press handlers and ref
-  const childWithHandlers = React.cloneElement(children, {
-    ...longPressHandlers,
-    ref: triggerRef,
-  })
+  const handleToggleFavorite = () => {
+    if (onToggleFavorite) {
+      onToggleFavorite(file)
+    }
+  }
+
+  // Clone the child element and add the long press handlers
+  const childWithHandlers = React.cloneElement(children, longPressHandlers)
 
   return (
-    <ContextMenu open={open} onOpenChange={setOpen}>
+    <ContextMenu>
       <ContextMenuTrigger asChild>{childWithHandlers}</ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={handleSetIcon}>
           <Pencil className='mr-2 h-4 w-4' />
           Set icon
         </ContextMenuItem>
+        {file.isDirectory && (
+          <ContextMenuItem onSelect={handleToggleFavorite}>
+            <Star
+              className={`mr-2 h-4 w-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : ''}`}
+            />
+            {isFavorite ? 'Unfavorite' : 'Favorite'}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={handleDownload}>
           <Download className='mr-2 h-4 w-4' />
           Download{file.isDirectory ? ' as ZIP' : ''}

@@ -90,6 +90,15 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
     // Add virtual folders at root level
     if (relativePath === '' || relativePath === '.') {
       fileItems.push({
+        name: 'Favorites',
+        path: VIRTUAL_FOLDERS.FAVORITES,
+        type: MediaType.FOLDER,
+        size: 0,
+        extension: '',
+        isDirectory: true,
+        isVirtual: true,
+      })
+      fileItems.push({
         name: 'Most Played',
         path: VIRTUAL_FOLDERS.MOST_PLAYED,
         type: MediaType.FOLDER,

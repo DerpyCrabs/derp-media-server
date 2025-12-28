@@ -6,7 +6,7 @@ import { AlertCircle } from 'lucide-react'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { getMediaType } from '@/lib/media-utils'
-import { FileItem } from '@/lib/types'
+import { FileItem, MediaType } from '@/lib/types'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 
 interface PageProps {
@@ -88,6 +88,46 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
   }
 }
 
+async function getFavoriteFiles(): Promise<FileItem[]> {
+  try {
+    const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+    const settingsFile = path.join(process.cwd(), 'settings.json')
+    const data = await fs.readFile(settingsFile, 'utf-8')
+    const allSettings: SettingsFile = JSON.parse(data)
+    const settings = allSettings[MEDIA_DIR] || { favorites: [] }
+    const favorites = settings.favorites || []
+
+    // Build FileItem array
+    const fileItems: FileItem[] = []
+    for (const filePath of favorites) {
+      try {
+        const fullPath = path.join(MEDIA_DIR, filePath)
+        const stat = await fs.stat(fullPath)
+
+        const fileName = path.basename(filePath)
+        const extension = path.extname(fileName).slice(1).toLowerCase()
+
+        fileItems.push({
+          name: fileName,
+          path: filePath,
+          type: stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension),
+          size: stat.isDirectory() ? 0 : stat.size,
+          extension,
+          isDirectory: stat.isDirectory(),
+        })
+      } catch (error) {
+        // Skip files that no longer exist or can't be accessed
+        console.error(`Error accessing ${filePath}:`, error)
+        continue
+      }
+    }
+
+    return fileItems
+  } catch {
+    return []
+  }
+}
+
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams
   const currentDir = params.dir || ''
@@ -105,6 +145,8 @@ export default async function Home({ searchParams }: PageProps) {
     // Check if we're accessing a virtual folder
     if (currentDir === VIRTUAL_FOLDERS.MOST_PLAYED) {
       files = await getMostPlayedFiles()
+    } else if (currentDir === VIRTUAL_FOLDERS.FAVORITES) {
+      files = await getFavoriteFiles()
     } else {
       files = await listDirectory(currentDir)
     }

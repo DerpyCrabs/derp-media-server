@@ -2,4 +2,5 @@
 // These are used as actual paths, so they should be display-friendly
 export const VIRTUAL_FOLDERS = {
   MOST_PLAYED: 'Most Played',
+  FAVORITES: 'Favorites',
 } as const

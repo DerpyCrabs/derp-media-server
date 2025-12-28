@@ -2,8 +2,29 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileItem } from './types'
+import { VIRTUAL_FOLDERS } from './constants'
 
 async function fetchFiles(path: string): Promise<FileItem[]> {
+  // Handle virtual folders
+  if (path === VIRTUAL_FOLDERS.MOST_PLAYED) {
+    const response = await fetch('/api/stats/most-played')
+    if (!response.ok) {
+      throw new Error('Failed to fetch most played files')
+    }
+    const data = await response.json()
+    return data.files
+  }
+
+  if (path === VIRTUAL_FOLDERS.FAVORITES) {
+    const response = await fetch('/api/stats/favorites')
+    if (!response.ok) {
+      throw new Error('Failed to fetch favorites')
+    }
+    const data = await response.json()
+    return data.files
+  }
+
+  // Handle regular folders
   const response = await fetch(`/api/files?dir=${encodeURIComponent(path)}`)
   if (!response.ok) {
     throw new Error('Failed to fetch files')
