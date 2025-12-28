@@ -14,6 +14,7 @@ export interface FileItem {
   size: number
   extension: string
   isDirectory: boolean
+  isVirtual?: boolean
   viewCount?: number
 }
 

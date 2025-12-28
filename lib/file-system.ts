@@ -2,6 +2,10 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { FileItem, MediaType } from './types'
 import { getMediaType } from './media-utils'
+import { VIRTUAL_FOLDERS } from './constants'
+
+// Re-export VIRTUAL_FOLDERS for convenience
+export { VIRTUAL_FOLDERS }
 
 const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
 const EDITABLE_FOLDERS = process.env.EDITABLE_FOLDERS
@@ -83,6 +87,19 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
     const entries = await fs.readdir(fullPath, { withFileTypes: true })
     const fileItems: FileItem[] = []
 
+    // Add virtual folders at root level
+    if (relativePath === '' || relativePath === '.') {
+      fileItems.push({
+        name: 'Most Played',
+        path: VIRTUAL_FOLDERS.MOST_PLAYED,
+        type: MediaType.FOLDER,
+        size: 0,
+        extension: '',
+        isDirectory: true,
+        isVirtual: true,
+      })
+    }
+
     for (const entry of entries) {
       try {
         // Skip excluded folders
@@ -124,10 +141,17 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
       }
     }
 
-    // Sort: directories first, then by name
+    // Sort: virtual folders first, then directories, then files, then by name
     fileItems.sort((a, b) => {
+      // Virtual folders always come first
+      if (a.isVirtual && !b.isVirtual) return -1
+      if (!a.isVirtual && b.isVirtual) return 1
+
+      // Then regular directories
       if (a.isDirectory && !b.isDirectory) return -1
       if (!a.isDirectory && b.isDirectory) return 1
+
+      // Then sort by name
       return a.name.localeCompare(b.name, undefined, { numeric: true })
     })
 

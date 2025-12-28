@@ -5,6 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { AlertCircle } from 'lucide-react'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { getMediaType } from '@/lib/media-utils'
+import { FileItem } from '@/lib/types'
+import { VIRTUAL_FOLDERS } from '@/lib/constants'
 
 interface PageProps {
   searchParams: Promise<{ dir?: string; playing?: string }>
@@ -34,6 +37,57 @@ async function readSettings(): Promise<Settings> {
   }
 }
 
+async function getMostPlayedFiles(): Promise<FileItem[]> {
+  try {
+    const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+    const statsFile = path.join(process.cwd(), 'stats.json')
+    const data = await fs.readFile(statsFile, 'utf-8')
+    const allStats = JSON.parse(data)
+    const stats = allStats[MEDIA_DIR] || { views: {} }
+    const views = stats.views || {}
+
+    // Sort files by view count (descending)
+    const sortedFiles = Object.entries(views)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
+      .slice(0, 50) // Limit to top 50
+
+    // Build FileItem array
+    const fileItems: FileItem[] = []
+    for (const [filePath, viewCount] of sortedFiles) {
+      try {
+        const fullPath = path.join(MEDIA_DIR, filePath)
+        const stat = await fs.stat(fullPath)
+
+        // Skip directories
+        if (stat.isDirectory()) {
+          continue
+        }
+
+        const fileName = path.basename(filePath)
+        const extension = path.extname(fileName).slice(1).toLowerCase()
+
+        fileItems.push({
+          name: fileName,
+          path: filePath,
+          type: getMediaType(extension),
+          size: stat.size,
+          extension,
+          isDirectory: false,
+          viewCount: viewCount as number,
+        })
+      } catch (error) {
+        // Skip files that no longer exist or can't be accessed
+        console.error(`Error accessing ${filePath}:`, error)
+        continue
+      }
+    }
+
+    return fileItems
+  } catch {
+    return []
+  }
+}
+
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams
   const currentDir = params.dir || ''
@@ -48,7 +102,12 @@ export default async function Home({ searchParams }: PageProps) {
   let error = null
 
   try {
-    files = await listDirectory(currentDir)
+    // Check if we're accessing a virtual folder
+    if (currentDir === VIRTUAL_FOLDERS.MOST_PLAYED) {
+      files = await getMostPlayedFiles()
+    } else {
+      files = await listDirectory(currentDir)
+    }
   } catch (err) {
     error = err instanceof Error ? err.message : 'Failed to read directory'
     console.error('Error reading directory:', err)

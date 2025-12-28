@@ -57,6 +57,7 @@ import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 import { usePaste } from '@/lib/use-paste'
 import { PasteDialog } from '@/components/paste-dialog'
 import { FileContextMenu } from '@/components/file-context-menu'
+import { VIRTUAL_FOLDERS } from '@/lib/constants'
 
 interface FileListProps {
   files: FileItem[]
@@ -128,8 +129,11 @@ function FileListInner({
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
 
+  // Check if we're in a virtual folder
+  const isVirtualFolder = currentPath === VIRTUAL_FOLDERS.MOST_PLAYED
+
   // Check if current directory is editable using client-side utility
-  const isEditable = isPathEditable(currentPath || '', editableFolders)
+  const isEditable = !isVirtualFolder && isPathEditable(currentPath || '', editableFolders)
 
   // Mutation for creating folders
   const createFolderMutation = useMutation({
@@ -294,11 +298,21 @@ function FileListInner({
 
         params.delete('viewing')
         params.set('playing', file.path)
-        params.set('dir', currentPath)
+        // When clicking file from virtual folder, preserve the virtual folder context
+        if (isVirtualFolder) {
+          params.set('dir', currentPath)
+        } else {
+          params.set('dir', currentPath)
+        }
         router.replace(`/?${params.toString()}`, { scroll: false })
       } else {
         params.set('viewing', file.path)
-        params.set('dir', currentPath)
+        // When clicking file from virtual folder, preserve the virtual folder context
+        if (isVirtualFolder) {
+          params.set('dir', currentPath)
+        } else {
+          params.set('dir', currentPath)
+        }
         router.replace(`/?${params.toString()}`, { scroll: false })
       }
     }
@@ -320,6 +334,7 @@ function FileListInner({
     filePath: string,
     isAudioFile: boolean = false,
     isVideoFile: boolean = false,
+    isVirtual: boolean = false,
   ) => {
     // Determine color based on type
     const getColorClass = (mediaType: MediaType) => {
@@ -339,6 +354,20 @@ function FileListInner({
         default:
           return 'text-yellow-500'
       }
+    }
+
+    // Check for virtual folder (Most Played)
+    if (isVirtual && filePath === VIRTUAL_FOLDERS.MOST_PLAYED) {
+      // Check for custom icon first
+      const customIconName = customIcons[filePath]
+      if (customIconName) {
+        const CustomIcon = getIconComponent(customIconName)
+        if (CustomIcon) {
+          return <CustomIcon className='h-5 w-5 text-blue-500' />
+        }
+      }
+      // Default icon for Most Played
+      return <Eye className='h-5 w-5 text-blue-500' />
     }
 
     // Check for custom icon first
@@ -389,6 +418,14 @@ function FileListInner({
   // Handle navigation to parent directory
   const handleParentDirectory = () => {
     const params = new URLSearchParams(searchParams)
+
+    // If we're in a virtual folder, go back to root
+    if (isVirtualFolder) {
+      params.delete('dir')
+      router.push(`/?${params.toString()}`, { scroll: false })
+      return
+    }
+
     const pathParts = currentPath.split(/[/\\]/).filter(Boolean)
     if (pathParts.length > 0) {
       const parentPath = pathParts.slice(0, -1).join('/')
@@ -828,11 +865,17 @@ function FileListInner({
             <Folder className='h-12 w-12 mx-auto mb-4 opacity-50' />
             <p>No media files found in this directory</p>
           </div>
+        ) : files.length === 0 && isVirtualFolder ? (
+          <div className='text-center py-12 text-muted-foreground'>
+            <Eye className='h-12 w-12 mx-auto mb-4 opacity-50' />
+            <p>No played files yet</p>
+            <p className='text-xs mt-2'>Files you play will appear here</p>
+          </div>
         ) : viewMode === 'list' ? (
           <div className='sm:px-4 py-2'>
             <Table>
               <TableBody>
-                {/* Parent directory entry - only show when not at root */}
+                {/* Parent directory entry - only show when not at root and not in virtual folder */}
                 {currentPath && (
                   <TableRow
                     className='cursor-pointer hover:bg-muted/50 select-none'
@@ -873,6 +916,7 @@ function FileListInner({
                               file.path,
                               file.type === MediaType.AUDIO,
                               file.type === MediaType.VIDEO,
+                              file.isVirtual,
                             )}
                           </div>
                         </TableCell>
@@ -893,7 +937,14 @@ function FileListInner({
                                 />
                               </button>
                             )}
-                            <span className='flex-1 truncate'>{file.name}</span>
+                            <div className='flex-1 min-w-0'>
+                              <span className='truncate block'>{file.name}</span>
+                              {isVirtualFolder && !file.isDirectory && (
+                                <span className='text-xs text-muted-foreground truncate block'>
+                                  {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell className='w-32 text-right text-muted-foreground'>
@@ -922,7 +973,7 @@ function FileListInner({
         ) : (
           <div className='py-4 px-4'>
             <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
-              {/* Parent directory card - only show when not at root */}
+              {/* Parent directory card - only show when not at root and not in virtual folder */}
               {currentPath && (
                 <Card
                   className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
@@ -1039,6 +1090,7 @@ function FileListInner({
                                 file.path,
                                 file.type === MediaType.AUDIO,
                                 file.type === MediaType.VIDEO,
+                                file.isVirtual,
                               )}
                             </div>
                           </div>
@@ -1048,9 +1100,18 @@ function FileListInner({
                           <p className='text-sm font-medium truncate' title={file.name}>
                             {file.name}
                           </p>
-                          <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                            <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                          </div>
+                          {isVirtualFolder && !file.isDirectory ? (
+                            <p
+                              className='text-xs text-muted-foreground truncate'
+                              title={file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
+                            >
+                              {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
+                            </p>
+                          ) : (
+                            <div className='flex items-center justify-end text-xs text-muted-foreground'>
+                              <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
