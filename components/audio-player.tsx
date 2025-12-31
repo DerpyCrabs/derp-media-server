@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { FileItem, MediaType } from '@/lib/types'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useAudioMetadata } from '@/lib/use-audio-metadata'
+import { useViewStats } from '@/lib/use-view-stats'
 
 export function AudioPlayer() {
   const router = useRouter()
@@ -32,6 +33,8 @@ export function AudioPlayer() {
     setDuration,
     toggleRepeat,
   } = useMediaPlayer()
+
+  const { incrementView } = useViewStats()
 
   const playingPath = searchParams.get('playing')
   const currentDir = searchParams.get('dir') || ''
@@ -122,6 +125,9 @@ export function AudioPlayer() {
       return
     }
 
+    // Increment view count for the next file
+    incrementView(nextFile.path)
+
     // Navigate to next audio file
     const params = new URLSearchParams(searchParams)
     params.set('playing', nextFile.path)
@@ -130,7 +136,16 @@ export function AudioPlayer() {
 
     // Trigger playback through store
     playFile(nextFile.path, 'audio')
-  }, [playingPath, audioFiles, searchParams, currentDir, router, setIsPlaying, playFile])
+  }, [
+    playingPath,
+    audioFiles,
+    searchParams,
+    currentDir,
+    router,
+    setIsPlaying,
+    playFile,
+    incrementView,
+  ])
 
   // Function to play previous audio file
   const playPreviousAudio = useCallback(() => {
@@ -164,6 +179,9 @@ export function AudioPlayer() {
       return
     }
 
+    // Increment view count for the previous file
+    incrementView(previousFile.path)
+
     // Navigate to previous audio file
     const params = new URLSearchParams(searchParams)
     params.set('playing', previousFile.path)
@@ -172,7 +190,16 @@ export function AudioPlayer() {
 
     // Trigger playback through store
     playFile(previousFile.path, 'audio')
-  }, [playingPath, audioFiles, searchParams, currentDir, router, playFile, currentTime])
+  }, [
+    playingPath,
+    audioFiles,
+    searchParams,
+    currentDir,
+    router,
+    playFile,
+    currentTime,
+    incrementView,
+  ])
 
   // Setup event listeners
   useEffect(() => {
