@@ -3,61 +3,29 @@
 import { Suspense, useState, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
-import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
-import {
-  Folder,
-  Music,
-  Video,
-  ArrowUp,
-  Play,
-  Pause,
-  Image as ImageIcon,
-  FileQuestion,
-  FileText,
-  Star,
-  List,
-  LayoutGrid,
-  FolderPlus,
-  FilePlus,
-  Eye,
-  AlertCircle,
-} from 'lucide-react'
-import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
+import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
 import { useFiles, usePrefetchFiles } from '@/lib/use-files'
-import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useViewStats } from '@/lib/use-view-stats'
 import { IconEditorDialog } from '@/components/icon-editor-dialog'
-import { getIconComponent } from '@/lib/icon-utils'
 import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 import { usePaste } from '@/lib/use-paste'
 import { PasteDialog } from '@/components/paste-dialog'
-import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
+import { useFileMutations } from '@/lib/use-file-mutations'
+import { useFileIcon } from '@/lib/use-file-icon'
+import { FileListView } from '@/components/file-list-view'
+import { FileGridView } from '@/components/file-grid-view'
+import {
+  CreateFolderDialog,
+  CreateFileDialog,
+  RenameDialog,
+  DeleteConfirmDialog,
+} from '@/components/file-dialogs'
 
 interface FileListProps {
   files: FileItem[]
@@ -78,7 +46,6 @@ function FileListInner({
 }: FileListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const queryClient = useQueryClient()
   const { playFile, isPlaying: mediaPlayerIsPlaying, mediaType, currentFile } = useMediaPlayer()
 
   // Use React Query for files with SSR initial data
@@ -119,6 +86,15 @@ function FileListInner({
     closePasteDialog,
   } = usePaste(currentPath)
 
+  // Use file mutations hook
+  const {
+    createFolderMutation,
+    createFileMutation,
+    deleteFolderMutation,
+    deleteItemMutation,
+    renameMutation,
+  } = useFileMutations(currentPath)
+
   // State for dialogs
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [showCreateFile, setShowCreateFile] = useState(false)
@@ -136,129 +112,15 @@ function FileListInner({
   // Check if current directory is editable using client-side utility
   const isEditable = !isVirtualFolder && isPathEditable(currentPath || '', editableFolders)
 
-  // Mutation for creating folders
-  const createFolderMutation = useMutation({
-    mutationFn: async (folderName: string) => {
-      const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName
-      const res = await fetch('/api/files/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'folder', path: folderPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to create folder')
-      }
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-      setShowCreateFolder(false)
-      setNewItemName('')
-    },
-  })
+  const playingPath = searchParams.get('playing')
 
-  // Mutation for creating files
-  const createFileMutation = useMutation({
-    mutationFn: async (fileName: string) => {
-      const filePath = currentPath ? `${currentPath}/${fileName}` : fileName
-      const finalFilePath = filePath.includes('.') ? filePath : `${filePath}.txt`
-      const res = await fetch('/api/files/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'file', path: finalFilePath, content: '' }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to create file')
-      }
-      return { data: await res.json(), filePath: finalFilePath }
-    },
-    onSuccess: ({ filePath }) => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-      setShowCreateFile(false)
-      setNewItemName('')
-      // Open the new file for editing
-      const params = new URLSearchParams(searchParams)
-      params.set('viewing', filePath)
-      // Use replace to avoid adding file opens to browser history
-      router.replace(`/?${params.toString()}`, { scroll: false })
-    },
-  })
-
-  // Mutation for deleting folders
-  const deleteFolderMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/files/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to delete folder')
-      }
-      return res.json()
-    },
-    onSuccess: () => {
-      setShowDeleteConfirm(false)
-      // Navigate to parent folder
-      const params = new URLSearchParams(searchParams)
-      const pathParts = currentPath.split(/[/\\]/).filter(Boolean)
-      if (pathParts.length > 1) {
-        params.set('dir', pathParts.slice(0, -1).join('/'))
-      } else {
-        params.delete('dir')
-      }
-      router.push(`/?${params.toString()}`, { scroll: false })
-    },
-  })
-
-  // Mutation for deleting individual files/folders
-  const deleteItemMutation = useMutation({
-    mutationFn: async (itemPath: string) => {
-      const res = await fetch('/api/files/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: itemPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to delete')
-      }
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-      setShowDeleteConfirm(false)
-      setItemToDelete(null)
-    },
-  })
-
-  // Mutation for renaming files/folders
-  const renameMutation = useMutation({
-    mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
-      const pathParts = oldPath.split(/[/\\]/).filter(Boolean)
-      const parentPath = pathParts.slice(0, -1).join('/')
-      const newPath = parentPath ? `${parentPath}/${newName}` : newName
-
-      const res = await fetch('/api/files/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath, newPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to rename')
-      }
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-      setShowRenameDialog(false)
-      setEditingItem(null)
-      setNewItemName('')
-    },
+  // Use file icon hook
+  const { getIcon } = useFileIcon({
+    customIcons,
+    playingPath,
+    currentFile,
+    mediaPlayerIsPlaying,
+    mediaType,
   })
 
   // Handle view mode change
@@ -299,21 +161,11 @@ function FileListInner({
 
         params.delete('viewing')
         params.set('playing', file.path)
-        // When clicking file from virtual folder, preserve the virtual folder context
-        if (isVirtualFolder) {
-          params.set('dir', currentPath)
-        } else {
-          params.set('dir', currentPath)
-        }
+        params.set('dir', currentPath)
         router.replace(`/?${params.toString()}`, { scroll: false })
       } else {
         params.set('viewing', file.path)
-        // When clicking file from virtual folder, preserve the virtual folder context
-        if (isVirtualFolder) {
-          params.set('dir', currentPath)
-        } else {
-          params.set('dir', currentPath)
-        }
+        params.set('dir', currentPath)
         router.replace(`/?${params.toString()}`, { scroll: false })
       }
     }
@@ -329,106 +181,6 @@ function FileListInner({
     // Keep the playing state when navigating via breadcrumbs
     router.push(`/?${params.toString()}`, { scroll: false })
   }
-
-  const getIcon = (
-    type: MediaType,
-    filePath: string,
-    isAudioFile: boolean = false,
-    isVideoFile: boolean = false,
-    isVirtual: boolean = false,
-  ) => {
-    // Determine color based on type
-    const getColorClass = (mediaType: MediaType) => {
-      switch (mediaType) {
-        case MediaType.FOLDER:
-          return 'text-blue-500'
-        case MediaType.AUDIO:
-          return 'text-purple-500'
-        case MediaType.VIDEO:
-          return 'text-red-500'
-        case MediaType.IMAGE:
-          return 'text-green-500'
-        case MediaType.TEXT:
-          return 'text-cyan-500'
-        case MediaType.OTHER:
-          return 'text-yellow-500'
-        default:
-          return 'text-yellow-500'
-      }
-    }
-
-    // Check for virtual folder (Most Played)
-    if (isVirtual && filePath === VIRTUAL_FOLDERS.MOST_PLAYED) {
-      // Check for custom icon first
-      const customIconName = customIcons[filePath]
-      if (customIconName) {
-        const CustomIcon = getIconComponent(customIconName)
-        if (CustomIcon) {
-          return <CustomIcon className='h-5 w-5 text-blue-500' />
-        }
-      }
-      // Default icon for Most Played
-      return <Eye className='h-5 w-5 text-blue-500' />
-    }
-
-    // Check for virtual folder (Favorites)
-    if (isVirtual && filePath === VIRTUAL_FOLDERS.FAVORITES) {
-      // Check for custom icon first
-      const customIconName = customIcons[filePath]
-      if (customIconName) {
-        const CustomIcon = getIconComponent(customIconName)
-        if (CustomIcon) {
-          return <CustomIcon className='h-5 w-5 text-blue-500' />
-        }
-      }
-      // Default icon for Favorites
-      return <Star className='h-5 w-5 text-blue-500' />
-    }
-
-    // Check for custom icon first
-    const customIconName = customIcons[filePath]
-    if (customIconName) {
-      const CustomIcon = getIconComponent(customIconName)
-      if (CustomIcon) {
-        return <CustomIcon className={`h-5 w-5 ${getColorClass(type)}`} />
-      }
-    }
-
-    // Show play/pause icon only if this file is actually loaded in the media player
-    // Check both the URL parameter AND the media player store to avoid flickering
-    const isCurrentFile = playingPath === filePath && currentFile === filePath
-
-    if (isCurrentFile && (isAudioFile || isVideoFile)) {
-      const isActuallyPlaying =
-        mediaPlayerIsPlaying &&
-        ((isAudioFile && mediaType === 'audio') || (isVideoFile && mediaType === 'video'))
-
-      if (isActuallyPlaying) {
-        return <Play className='h-5 w-5 text-primary' />
-      } else {
-        return <Pause className='h-5 w-5 text-primary' />
-      }
-    }
-
-    switch (type) {
-      case MediaType.FOLDER:
-        return <Folder className='h-5 w-5 text-blue-500' />
-      case MediaType.AUDIO:
-        return <Music className='h-5 w-5 text-purple-500' />
-      case MediaType.VIDEO:
-        return <Video className='h-5 w-5 text-red-500' />
-      case MediaType.IMAGE:
-        return <ImageIcon className='h-5 w-5 text-green-500' />
-      case MediaType.TEXT:
-        return <FileText className='h-5 w-5 text-cyan-500' />
-      case MediaType.OTHER:
-        return <FileQuestion className='h-5 w-5 text-yellow-500' />
-      default:
-        return <FileQuestion className='h-5 w-5 text-yellow-500' />
-    }
-  }
-
-  const playingPath = searchParams.get('playing')
 
   // Handle navigation to parent directory
   const handleParentDirectory = () => {
@@ -542,270 +294,87 @@ function FileListInner({
       />
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {itemToDelete
-                ? `Delete ${itemToDelete.isDirectory ? 'Folder' : 'File'}?`
-                : 'Delete Empty Folder?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {itemToDelete ? (
-                <>
-                  Are you sure you want to delete &ldquo;{itemToDelete.name}&rdquo;?
-                  {itemToDelete.isDirectory && (
-                    <span className='block mt-1 text-sm'>(Only empty folders can be deleted)</span>
-                  )}
-                  <span className='block mt-2 text-sm font-medium'>
-                    This action cannot be undone.
-                  </span>
-                </>
-              ) : (
-                <>
-                  Are you sure you want to delete the folder &ldquo;{currentFolderName}&rdquo;? This
-                  action cannot be undone.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {(deleteFolderMutation.error || deleteItemMutation.error) && (
-            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
-              {(deleteFolderMutation.error || deleteItemMutation.error)?.message}
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              disabled={deleteFolderMutation.isPending || deleteItemMutation.isPending}
-              onClick={() => {
-                setItemToDelete(null)
-                deleteFolderMutation.reset()
-                deleteItemMutation.reset()
-              }}
-            >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (itemToDelete) {
-                  deleteItemMutation.mutate(itemToDelete.path)
-                } else {
-                  deleteFolderMutation.mutate()
-                }
-              }}
-              disabled={deleteFolderMutation.isPending || deleteItemMutation.isPending}
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-            >
-              {deleteFolderMutation.isPending || deleteItemMutation.isPending
-                ? 'Deleting...'
-                : 'Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        isOpen={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        item={itemToDelete}
+        currentFolderName={currentFolderName}
+        onDelete={() => {
+          if (itemToDelete) {
+            deleteItemMutation.mutate(itemToDelete.path)
+          } else {
+            deleteFolderMutation.mutate()
+          }
+        }}
+        isPending={deleteFolderMutation.isPending || deleteItemMutation.isPending}
+        error={deleteFolderMutation.error || deleteItemMutation.error}
+        onReset={() => {
+          setShowDeleteConfirm(false)
+          setItemToDelete(null)
+          deleteFolderMutation.reset()
+          deleteItemMutation.reset()
+        }}
+      />
 
       {/* Create Folder Dialog */}
-      <Dialog open={showCreateFolder} onOpenChange={setShowCreateFolder}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Folder</DialogTitle>
-            <DialogDescription>Enter a name for the new folder.</DialogDescription>
-          </DialogHeader>
-          <Input
-            value={newItemName}
-            onChange={(e) => setNewItemName(e.target.value)}
-            placeholder='Folder name'
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newItemName.trim() && !folderExists)
-                createFolderMutation.mutate(newItemName)
-            }}
-            autoFocus
-            disabled={createFolderMutation.isPending}
-            className={folderExists ? 'border-yellow-500' : ''}
-          />
-          {/* Folder exists warning */}
-          {folderExists && (
-            <div className='rounded-lg bg-yellow-500/10 border border-yellow-500/50 p-3 flex items-start gap-2'>
-              <AlertCircle className='h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0' />
-              <div className='text-sm text-yellow-800 dark:text-yellow-200'>
-                <p className='font-medium'>Folder already exists</p>
-                <p className='text-xs mt-1 opacity-90'>
-                  A folder with this name already exists in this directory.
-                </p>
-              </div>
-            </div>
-          )}
-          {createFolderMutation.error && (
-            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
-              {createFolderMutation.error.message}
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              variant='outline'
-              onClick={() => {
-                setShowCreateFolder(false)
-                setNewItemName('')
-                createFolderMutation.reset()
-              }}
-              disabled={createFolderMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => createFolderMutation.mutate(newItemName)}
-              disabled={createFolderMutation.isPending || !newItemName.trim() || folderExists}
-            >
-              {createFolderMutation.isPending ? 'Creating...' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateFolderDialog
+        isOpen={showCreateFolder}
+        onOpenChange={setShowCreateFolder}
+        folderName={newItemName}
+        onFolderNameChange={setNewItemName}
+        onCreateFolder={() => createFolderMutation.mutate(newItemName)}
+        isPending={createFolderMutation.isPending}
+        error={createFolderMutation.error}
+        folderExists={folderExists}
+        onReset={() => {
+          setShowCreateFolder(false)
+          setNewItemName('')
+          createFolderMutation.reset()
+        }}
+      />
 
       {/* Create File Dialog */}
-      <Dialog open={showCreateFile} onOpenChange={setShowCreateFile}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New File</DialogTitle>
-            <DialogDescription>
-              Enter a name for the new file. .txt extension will be added if no extension is
-              provided.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={newItemName}
-            onChange={(e) => setNewItemName(e.target.value)}
-            placeholder='File name (e.g., notes.txt)'
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newItemName.trim() && !fileExists)
-                createFileMutation.mutate(newItemName)
-            }}
-            autoFocus
-            disabled={createFileMutation.isPending}
-            className={fileExists ? 'border-yellow-500' : ''}
-          />
-          {/* File exists warning */}
-          {fileExists && (
-            <div className='rounded-lg bg-yellow-500/10 border border-yellow-500/50 p-3 flex items-start gap-2'>
-              <AlertCircle className='h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0' />
-              <div className='text-sm text-yellow-800 dark:text-yellow-200'>
-                <p className='font-medium'>File already exists</p>
-                <p className='text-xs mt-1 opacity-90'>
-                  A file with this name already exists in this directory.
-                </p>
-              </div>
-            </div>
-          )}
-          {createFileMutation.error && (
-            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
-              {createFileMutation.error.message}
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              variant='outline'
-              onClick={() => {
-                setShowCreateFile(false)
-                setNewItemName('')
-                createFileMutation.reset()
-              }}
-              disabled={createFileMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => createFileMutation.mutate(newItemName)}
-              disabled={createFileMutation.isPending || !newItemName.trim() || fileExists}
-            >
-              {createFileMutation.isPending ? 'Creating...' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateFileDialog
+        isOpen={showCreateFile}
+        onOpenChange={setShowCreateFile}
+        fileName={newItemName}
+        onFileNameChange={setNewItemName}
+        onCreateFile={() => createFileMutation.mutate(newItemName)}
+        isPending={createFileMutation.isPending}
+        error={createFileMutation.error}
+        fileExists={fileExists}
+        onReset={() => {
+          setShowCreateFile(false)
+          setNewItemName('')
+          createFileMutation.reset()
+        }}
+      />
 
       {/* Rename Dialog */}
-      <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename {editingItem?.name}</DialogTitle>
-            <DialogDescription>
-              Enter a new name for this{' '}
-              {editingItem && files.find((f) => f.path === editingItem.path)?.isDirectory
-                ? 'folder'
-                : 'file'}
-              .
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={newItemName}
-            onChange={(e) => setNewItemName(e.target.value)}
-            placeholder='New name'
-            onKeyDown={(e) => {
-              if (
-                e.key === 'Enter' &&
-                newItemName.trim() &&
-                editingItem &&
-                newItemName !== editingItem.name &&
-                !renameTargetExists
-              )
-                renameMutation.mutate({ oldPath: editingItem.path, newName: newItemName })
-            }}
-            autoFocus
-            disabled={renameMutation.isPending}
-            className={renameTargetExists ? 'border-yellow-500' : ''}
-          />
-          {/* Name already exists warning */}
-          {renameTargetExists && (
-            <div className='rounded-lg bg-yellow-500/10 border border-yellow-500/50 p-3 flex items-start gap-2'>
-              <AlertCircle className='h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0' />
-              <div className='text-sm text-yellow-800 dark:text-yellow-200'>
-                <p className='font-medium'>Name already exists</p>
-                <p className='text-xs mt-1 opacity-90'>
-                  A{' '}
-                  {editingItem && files.find((f) => f.path === editingItem.path)?.isDirectory
-                    ? 'folder'
-                    : 'file'}{' '}
-                  with this name already exists in this directory.
-                </p>
-              </div>
-            </div>
-          )}
-          {renameMutation.error && (
-            <div className='rounded-lg bg-destructive/10 p-3 text-sm text-destructive'>
-              {renameMutation.error.message}
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              variant='outline'
-              onClick={() => {
-                setShowRenameDialog(false)
-                setEditingItem(null)
-                setNewItemName('')
-                renameMutation.reset()
-              }}
-              disabled={renameMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (editingItem) {
-                  renameMutation.mutate({ oldPath: editingItem.path, newName: newItemName })
-                }
-              }}
-              disabled={
-                renameMutation.isPending ||
-                !newItemName.trim() ||
-                newItemName === editingItem?.name ||
-                renameTargetExists
-              }
-            >
-              {renameMutation.isPending ? 'Renaming...' : 'Rename'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RenameDialog
+        isOpen={showRenameDialog}
+        onOpenChange={setShowRenameDialog}
+        itemName={editingItem?.name || ''}
+        newName={newItemName}
+        onNewNameChange={setNewItemName}
+        onRename={() => {
+          if (editingItem) {
+            renameMutation.mutate({ oldPath: editingItem.path, newName: newItemName })
+          }
+        }}
+        isPending={renameMutation.isPending}
+        error={renameMutation.error}
+        nameExists={renameTargetExists}
+        isDirectory={
+          editingItem ? files.find((f) => f.path === editingItem.path)?.isDirectory || false : false
+        }
+        onReset={() => {
+          setShowRenameDialog(false)
+          setEditingItem(null)
+          setNewItemName('')
+          renameMutation.reset()
+        }}
+      />
 
       <PasteDialog
         isOpen={showPasteDialog}
@@ -878,278 +447,48 @@ function FileListInner({
         </div>
       </div>
 
-      {/* File List */}
+      {/* File List or Grid View */}
       <div>
-        {files.length === 0 && !currentPath ? (
-          <div className='text-center py-12 text-muted-foreground'>
-            <Folder className='h-12 w-12 mx-auto mb-4 opacity-50' />
-            <p>No media files found in this directory</p>
-          </div>
-        ) : files.length === 0 && currentPath === VIRTUAL_FOLDERS.MOST_PLAYED ? (
-          <div className='text-center py-12 text-muted-foreground'>
-            <Eye className='h-12 w-12 mx-auto mb-4 opacity-50' />
-            <p>No played files yet</p>
-            <p className='text-xs mt-2'>Files you play will appear here</p>
-          </div>
-        ) : files.length === 0 && currentPath === VIRTUAL_FOLDERS.FAVORITES ? (
-          <div className='text-center py-12 text-muted-foreground'>
-            <Star className='h-12 w-12 mx-auto mb-4 opacity-50' />
-            <p>No favorites yet</p>
-            <p className='text-xs mt-2'>Star files to add them to your favorites</p>
-          </div>
-        ) : viewMode === 'list' ? (
-          <div className='sm:px-4 py-2'>
-            <Table>
-              <TableBody>
-                {/* Parent directory entry - only show when not at root and not in virtual folder */}
-                {currentPath && (
-                  <TableRow
-                    className='cursor-pointer hover:bg-muted/50 select-none'
-                    onClick={handleParentDirectory}
-                  >
-                    <TableCell className='w-12'>
-                      <ArrowUp className='h-5 w-5 text-muted-foreground' />
-                    </TableCell>
-                    <TableCell className='font-medium'>..</TableCell>
-                    <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
-                  </TableRow>
-                )}
-                {files.map((file) => {
-                  const isFavorite = favorites.includes(file.path)
-                  const viewCount = getViewCount(file.path)
-                  const isFileEditable = isPathEditable(file.path, editableFolders)
-                  return (
-                    <FileContextMenu
-                      key={file.path}
-                      file={file}
-                      onSetIcon={handleContextSetIcon}
-                      onRename={handleContextRename}
-                      onDelete={handleContextDelete}
-                      onDownload={handleContextDownload}
-                      onToggleFavorite={handleContextToggleFavorite}
-                      isFavorite={isFavorite}
-                      isEditable={isFileEditable}
-                    >
-                      <TableRow
-                        className={`cursor-pointer hover:bg-muted/50 select-none group ${
-                          playingPath === file.path ? 'bg-primary/10' : ''
-                        }`}
-                        onClick={() => handleFileClick(file)}
-                        onMouseEnter={() => file.isDirectory && handleFolderHover(file.path)}
-                      >
-                        <TableCell className='w-12'>
-                          <div className='flex items-center justify-center'>
-                            {getIcon(
-                              file.type,
-                              file.path,
-                              file.type === MediaType.AUDIO,
-                              file.type === MediaType.VIDEO,
-                              file.isVirtual,
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className='font-medium'>
-                          <div className='flex items-center gap-2'>
-                            {!file.isDirectory && (
-                              <button
-                                onClick={(e) => handleFavoriteToggle(file.path, e)}
-                                className='shrink-0 opacity-50 hover:opacity-100 transition-opacity'
-                                title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                              >
-                                <Star
-                                  className={`h-4 w-4 ${
-                                    isFavorite
-                                      ? 'fill-yellow-400 text-yellow-400 opacity-100'
-                                      : 'text-muted-foreground'
-                                  }`}
-                                />
-                              </button>
-                            )}
-                            <div className='flex-1 min-w-0'>
-                              <span className='truncate block'>{file.name}</span>
-                              {isVirtualFolder && !file.isDirectory && (
-                                <span className='text-xs text-muted-foreground truncate block'>
-                                  {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className='w-32 text-right text-muted-foreground'>
-                          <div className='flex items-center justify-end gap-2'>
-                            {!file.isDirectory && viewCount > 0 && (
-                              <div
-                                className='flex items-center gap-1 text-xs'
-                                title={`${viewCount} views`}
-                              >
-                                <Eye className='h-3.5 w-3.5' />
-                                <span>{viewCount}</span>
-                              </div>
-                            )}
-                            <span className='w-20'>
-                              {file.isDirectory ? '' : formatFileSize(file.size)}
-                            </span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    </FileContextMenu>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
+        {viewMode === 'list' ? (
+          <FileListView
+            files={files}
+            currentPath={currentPath}
+            favorites={favorites}
+            playingPath={playingPath}
+            isVirtualFolder={isVirtualFolder}
+            editableFolders={editableFolders}
+            onFileClick={handleFileClick}
+            onFolderHover={handleFolderHover}
+            onParentDirectory={handleParentDirectory}
+            onFavoriteToggle={handleFavoriteToggle}
+            onContextSetIcon={handleContextSetIcon}
+            onContextRename={handleContextRename}
+            onContextDelete={handleContextDelete}
+            onContextDownload={handleContextDownload}
+            onContextToggleFavorite={handleContextToggleFavorite}
+            getViewCount={getViewCount}
+            getIcon={getIcon}
+          />
         ) : (
-          <div className='py-4 px-4'>
-            <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
-              {/* Parent directory card - only show when not at root and not in virtual folder */}
-              {currentPath && (
-                <Card
-                  className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
-                  onClick={handleParentDirectory}
-                >
-                  <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
-                    <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
-                    <p className='text-sm font-medium text-center'>..</p>
-                    <p className='text-xs text-muted-foreground text-center'>Parent Folder</p>
-                  </CardContent>
-                </Card>
-              )}
-              {files.map((file) => {
-                const isFavorite = favorites.includes(file.path)
-                const viewCount = getViewCount(file.path)
-                const isFileEditable = isPathEditable(file.path, editableFolders)
-                return (
-                  <FileContextMenu
-                    key={file.path}
-                    file={file}
-                    onSetIcon={handleContextSetIcon}
-                    onRename={handleContextRename}
-                    onDelete={handleContextDelete}
-                    onDownload={handleContextDownload}
-                    onToggleFavorite={handleContextToggleFavorite}
-                    isFavorite={isFavorite}
-                    isEditable={isFileEditable}
-                  >
-                    <Card
-                      className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
-                        playingPath === file.path ? 'ring-2 ring-primary' : ''
-                      }`}
-                      onClick={() => handleFileClick(file)}
-                      onMouseEnter={() => file.isDirectory && handleFolderHover(file.path)}
-                    >
-                      <CardContent className='p-0 flex flex-col h-full'>
-                        {/* Thumbnail/Icon */}
-                        <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg group'>
-                          {/* Favorite star overlay - only for files, not folders */}
-                          {!file.isDirectory && (
-                            <button
-                              onClick={(e) => handleFavoriteToggle(file.path, e)}
-                              className={`absolute top-1.5 left-1.5 p-1 rounded-full transition-all z-10 ${
-                                isFavorite
-                                  ? 'bg-background/90 hover:bg-background shadow-sm'
-                                  : 'bg-background/70 hover:bg-background/90 opacity-60 group-hover:opacity-100'
-                              }`}
-                              title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                            >
-                              <Star
-                                className={`h-3.5 w-3.5 ${
-                                  isFavorite
-                                    ? 'fill-yellow-400 text-yellow-400'
-                                    : 'text-muted-foreground'
-                                }`}
-                              />
-                            </button>
-                          )}
-                          {/* View count badge - only for files with views */}
-                          {!file.isDirectory && viewCount > 0 && (
-                            <div
-                              className='absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm z-10 flex items-center gap-1'
-                              title={`${viewCount} views`}
-                            >
-                              <Eye className='h-3 w-3 text-muted-foreground' />
-                              <span className='text-xs font-medium text-muted-foreground'>
-                                {viewCount}
-                              </span>
-                            </div>
-                          )}
-                          {file.type === MediaType.VIDEO ? (
-                            <img
-                              src={`/api/thumbnail/${encodeURIComponent(file.path)}`}
-                              alt={file.name}
-                              className='w-full h-full object-cover rounded-t-lg'
-                              onError={(e) => {
-                                // Fallback to icon if thumbnail fails
-                                e.currentTarget.style.display = 'none'
-                                const parent = e.currentTarget.parentElement
-                                if (parent) {
-                                  const icon = parent.querySelector('.fallback-icon')
-                                  if (icon) {
-                                    icon.classList.remove('hidden')
-                                  }
-                                }
-                              }}
-                            />
-                          ) : file.type === MediaType.IMAGE ? (
-                            <img
-                              src={`/api/media/${encodeURIComponent(file.path)}`}
-                              alt={file.name}
-                              className='w-full h-full object-cover rounded-t-lg'
-                              onError={(e) => {
-                                // Fallback to icon if image fails to load
-                                e.currentTarget.style.display = 'none'
-                                const parent = e.currentTarget.parentElement
-                                if (parent) {
-                                  const icon = parent.querySelector('.fallback-icon')
-                                  if (icon) {
-                                    icon.classList.remove('hidden')
-                                  }
-                                }
-                              }}
-                            />
-                          ) : null}
-                          <div
-                            className={`fallback-icon ${
-                              file.type === MediaType.VIDEO || file.type === MediaType.IMAGE
-                                ? 'hidden'
-                                : ''
-                            }`}
-                          >
-                            <div className='scale-[2.5]'>
-                              {getIcon(
-                                file.type,
-                                file.path,
-                                file.type === MediaType.AUDIO,
-                                file.type === MediaType.VIDEO,
-                                file.isVirtual,
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {/* File Info */}
-                        <div className='p-3 flex flex-col gap-1'>
-                          <p className='text-sm font-medium truncate' title={file.name}>
-                            {file.name}
-                          </p>
-                          {isVirtualFolder && !file.isDirectory ? (
-                            <p
-                              className='text-xs text-muted-foreground truncate'
-                              title={file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
-                            >
-                              {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
-                            </p>
-                          ) : (
-                            <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                              <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </FileContextMenu>
-                )
-              })}
-            </div>
-          </div>
+          <FileGridView
+            files={files}
+            currentPath={currentPath}
+            favorites={favorites}
+            playingPath={playingPath}
+            isVirtualFolder={isVirtualFolder}
+            editableFolders={editableFolders}
+            onFileClick={handleFileClick}
+            onFolderHover={handleFolderHover}
+            onParentDirectory={handleParentDirectory}
+            onFavoriteToggle={handleFavoriteToggle}
+            onContextSetIcon={handleContextSetIcon}
+            onContextRename={handleContextRename}
+            onContextDelete={handleContextDelete}
+            onContextDownload={handleContextDownload}
+            onContextToggleFavorite={handleContextToggleFavorite}
+            getViewCount={getViewCount}
+            getIcon={getIcon}
+          />
         )}
       </div>
     </div>

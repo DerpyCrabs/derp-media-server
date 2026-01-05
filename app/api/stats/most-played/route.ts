@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { getMediaType } from '@/lib/media-utils'
-import { FileItem, MediaType } from '@/lib/types'
+import { FileItem } from '@/lib/types'
 
 const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
 const STATS_FILE = path.join(process.cwd(), 'stats.json')

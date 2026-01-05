@@ -37,7 +37,6 @@ export function VideoPlayer() {
     mediaType,
     isPlaying,
     currentTime,
-    duration,
     setCurrentFile,
     setIsPlaying,
     setCurrentTime,

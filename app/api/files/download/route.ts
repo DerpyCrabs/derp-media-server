@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       headers.set('Content-Disposition', `attachment; filename="${zipFileName}"`)
       headers.set('Content-Length', zipBuffer.length.toString())
 
-      return new Response(zipBuffer, { headers })
+      return new Response(zipBuffer as unknown as BodyInit, { headers })
     } else {
       // Download single file
       const fileName = path.basename(fullPath)
