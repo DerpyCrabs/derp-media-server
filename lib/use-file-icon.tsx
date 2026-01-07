@@ -12,6 +12,7 @@ import {
   Eye,
   Play,
   Pause,
+  Book,
 } from 'lucide-react'
 
 interface UseFileIconProps {
@@ -49,6 +50,8 @@ export function useFileIcon({
           return 'text-green-500'
         case MediaType.TEXT:
           return 'text-cyan-500'
+        case MediaType.PDF:
+          return 'text-orange-500'
         case MediaType.OTHER:
           return 'text-yellow-500'
         default:
@@ -120,6 +123,8 @@ export function useFileIcon({
         return <ImageIcon className='h-5 w-5 text-green-500' />
       case MediaType.TEXT:
         return <FileText className='h-5 w-5 text-cyan-500' />
+      case MediaType.PDF:
+        return <Book className='h-5 w-5 text-emerald-500' />
       case MediaType.OTHER:
         return <FileQuestion className='h-5 w-5 text-yellow-500' />
       default:

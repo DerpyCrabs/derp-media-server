@@ -3,6 +3,7 @@ import { MediaType } from './types'
 const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico']
+const PDF_EXTENSIONS = ['pdf']
 const TEXT_EXTENSIONS = [
   'txt',
   'md',
@@ -66,6 +67,9 @@ export const MIME_TYPES: Record<string, string> = {
   svg: 'image/svg+xml',
   ico: 'image/x-icon',
 
+  // PDF
+  pdf: 'application/pdf',
+
   // Text
   txt: 'text/plain',
   md: 'text/markdown',
@@ -115,6 +119,10 @@ export function getMediaType(extension: string): MediaType {
 
   if (IMAGE_EXTENSIONS.includes(ext)) {
     return MediaType.IMAGE
+  }
+
+  if (PDF_EXTENSIONS.includes(ext)) {
+    return MediaType.PDF
   }
 
   if (TEXT_EXTENSIONS.includes(ext)) {
