@@ -322,7 +322,15 @@ function FileListInner({
         onOpenChange={setShowCreateFolder}
         folderName={newItemName}
         onFolderNameChange={setNewItemName}
-        onCreateFolder={() => createFolderMutation.mutate(newItemName)}
+        onCreateFolder={() =>
+          createFolderMutation.mutate(newItemName, {
+            onSuccess: () => {
+              setShowCreateFolder(false)
+              setNewItemName('')
+              createFolderMutation.reset()
+            },
+          })
+        }
         isPending={createFolderMutation.isPending}
         error={createFolderMutation.error}
         folderExists={folderExists}
@@ -339,7 +347,15 @@ function FileListInner({
         onOpenChange={setShowCreateFile}
         fileName={newItemName}
         onFileNameChange={setNewItemName}
-        onCreateFile={() => createFileMutation.mutate(newItemName)}
+        onCreateFile={() =>
+          createFileMutation.mutate(newItemName, {
+            onSuccess: () => {
+              setShowCreateFile(false)
+              setNewItemName('')
+              createFileMutation.reset()
+            },
+          })
+        }
         isPending={createFileMutation.isPending}
         error={createFileMutation.error}
         fileExists={fileExists}
