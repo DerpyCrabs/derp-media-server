@@ -91,9 +91,10 @@ export function PdfViewer() {
 
           {/* PDF container */}
           <div className='flex-1 flex items-center justify-center overflow-hidden bg-neutral-800'>
-            <iframe
-              src={`/api/media/${encodeURIComponent(viewingPath)}`}
-              className='w-full h-full border-0'
+            <embed
+              src={`/api/media/${encodeURIComponent(viewingPath)}#toolbar=1`}
+              type='application/pdf'
+              className='w-full h-full'
               title={fileName}
             />
           </div>
