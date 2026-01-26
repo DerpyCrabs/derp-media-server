@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/u
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { FileItem, MediaType } from '@/lib/types'
+import { useFiles } from '@/lib/use-files'
 
 export function ImageViewer() {
   const router = useRouter()
@@ -15,38 +16,29 @@ export function ImageViewer() {
   const viewingPath = searchParams.get('viewing')
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
   const [rotation, setRotation] = useState(0)
-  const [imageFiles, setImageFiles] = useState<FileItem[]>([])
 
   const currentDir = searchParams.get('dir') || ''
 
-  // Fetch image files in the current directory
-  useEffect(() => {
-    if (!currentDir && !viewingPath) return
+  // Extract directory from viewing path if no dir param
+  const dirToFetch = useMemo(() => {
+    if (!currentDir && !viewingPath) return ''
 
-    // Extract directory from viewing path if no dir param
-    let dirToFetch = currentDir
-    if (!dirToFetch && viewingPath) {
+    let dir = currentDir
+    if (!dir && viewingPath) {
       const pathParts = viewingPath.split(/[/\\]/)
       pathParts.pop() // Remove filename
-      dirToFetch = pathParts.join('/')
+      dir = pathParts.join('/')
     }
-
-    const fetchFiles = async () => {
-      try {
-        const response = await fetch(`/api/files?dir=${encodeURIComponent(dirToFetch)}`)
-        const data = await response.json()
-        if (data.files) {
-          // Filter only image files and sort them
-          const imageFiles = data.files.filter((file: FileItem) => file.type === MediaType.IMAGE)
-          setImageFiles(imageFiles)
-        }
-      } catch (error) {
-        console.error('Error fetching files:', error)
-      }
-    }
-
-    fetchFiles()
+    return dir
   }, [currentDir, viewingPath])
+
+  // Fetch files in the current directory using React Query
+  const { data: allFiles = [] } = useFiles(dirToFetch)
+
+  // Filter only image files
+  const imageFiles = useMemo(() => {
+    return allFiles.filter((file: FileItem) => file.type === MediaType.IMAGE)
+  }, [allFiles])
 
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)

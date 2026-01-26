@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Play, Pause, Volume2, VolumeX, StepBack, StepForward, Repeat, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,13 +9,12 @@ import { FileItem, MediaType } from '@/lib/types'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useAudioMetadata } from '@/lib/use-audio-metadata'
 import { useViewStats } from '@/lib/use-view-stats'
+import { useFiles } from '@/lib/use-files'
 
 export function AudioPlayer() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const audioRef = useRef<HTMLAudioElement>(null)
-  const [audioFiles, setAudioFiles] = useState<FileItem[]>([])
-  const [coverArtUrl, setCoverArtUrl] = useState<string | null>(null)
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
 
@@ -48,56 +47,45 @@ export function AudioPlayer() {
   const isVideoFile = playingPath && videoExtensions.includes(extension || '')
   const isAudioOnly = searchParams.get('audioOnly') === 'true'
 
+  // Extract directory from playing path if no dir param
+  const dirToFetch = useMemo(() => {
+    if (!currentDir && !playingPath) return ''
+
+    let dir = currentDir
+    if (!dir && playingPath) {
+      const pathParts = playingPath.split(/[/\\]/)
+      pathParts.pop() // Remove filename
+      dir = pathParts.join('/')
+    }
+    return dir
+  }, [currentDir, playingPath])
+
+  // Fetch files in the current directory using React Query
+  const { data: allFiles = [] } = useFiles(dirToFetch)
+
+  // Filter audio and video files (videos can be played audio-only)
+  const audioFiles = useMemo(() => {
+    return allFiles.filter(
+      (file: FileItem) => file.type === MediaType.AUDIO || file.type === MediaType.VIDEO,
+    )
+  }, [allFiles])
+
+  // Look for cover art in the same directory
+  const coverArtUrl = useMemo(() => {
+    const coverFile = allFiles.find((file: FileItem) => {
+      if (file.type !== MediaType.IMAGE) return false
+      const name = file.name.toLowerCase()
+      const nameWithoutExt = name.substring(0, name.lastIndexOf('.'))
+      return nameWithoutExt === 'cover'
+    })
+    return coverFile ? `/api/media/${coverFile.path}` : null
+  }, [allFiles])
+
   // Fetch audio metadata using React Query
   const { data: audioMetadata, isLoading: isLoadingMetadata } = useAudioMetadata(
     playingPath,
     !!isAudioFile,
   )
-
-  // Fetch audio files in the current directory
-  useEffect(() => {
-    if (!currentDir && !playingPath) return
-
-    // Extract directory from playing path if no dir param
-    let dirToFetch = currentDir
-    if (!dirToFetch && playingPath) {
-      const pathParts = playingPath.split(/[/\\]/)
-      pathParts.pop() // Remove filename
-      dirToFetch = pathParts.join('/')
-    }
-
-    const fetchFiles = async () => {
-      try {
-        const response = await fetch(`/api/files?dir=${encodeURIComponent(dirToFetch)}`)
-        const data = await response.json()
-        if (data.files) {
-          // Filter audio and video files (videos can be played audio-only)
-          const audioFiles = data.files.filter(
-            (file: FileItem) => file.type === MediaType.AUDIO || file.type === MediaType.VIDEO,
-          )
-          setAudioFiles(audioFiles)
-
-          // Look for cover art in the same directory
-          const coverFile = data.files.find((file: FileItem) => {
-            if (file.type !== MediaType.IMAGE) return false
-            const name = file.name.toLowerCase()
-            const nameWithoutExt = name.substring(0, name.lastIndexOf('.'))
-            return nameWithoutExt === 'cover'
-          })
-
-          if (coverFile) {
-            setCoverArtUrl(`/api/media/${coverFile.path}`)
-          } else {
-            setCoverArtUrl(null)
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching files:', error)
-      }
-    }
-
-    fetchFiles()
-  }, [currentDir, playingPath])
 
   // Function to play next audio file
   const playNextAudio = useCallback(() => {
