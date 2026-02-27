@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
 import type { AutoSaveSettings } from '@/lib/types'
-
-const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+import { config } from '@/lib/config'
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
 
 interface Settings {
@@ -29,12 +28,13 @@ async function readAllSettings(): Promise<SettingsFile> {
 
 async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
-  return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
+  const mediaDir = config.mediaDir
+  return allSettings[mediaDir] || { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
 }
 
 async function writeSettings(settings: Settings): Promise<void> {
   const allSettings = await readAllSettings()
-  allSettings[MEDIA_DIR] = settings
+  allSettings[config.mediaDir] = settings
   await fs.writeFile(SETTINGS_FILE, JSON.stringify(allSettings, null, 2), 'utf-8')
 }
 
