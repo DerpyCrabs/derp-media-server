@@ -85,7 +85,7 @@ export function FileContextMenu({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{childWithHandlers}</ContextMenuTrigger>
+      <ContextMenuTrigger render={childWithHandlers} />
       <ContextMenuContent>
         <ContextMenuItem onSelect={handleSetIcon}>
           <Pencil className='mr-2 h-4 w-4' />

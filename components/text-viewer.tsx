@@ -5,9 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
-import * as DialogPrimitive from '@radix-ui/react-dialog'
-import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
+import {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { isPathEditable } from '@/lib/utils'
 import { useSettings } from '@/lib/use-settings'
 
@@ -262,13 +266,10 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     <Dialog open={!!viewingPath} onOpenChange={(open) => !open && closeViewer()}>
       <DialogPortal>
         <DialogOverlay className='bg-background/95 backdrop-blur-sm' />
-        <DialogPrimitive.Content
-          className='fixed inset-0 z-50 flex flex-col data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
-          onPointerDownOutside={(e) => e.preventDefault()}
-        >
-          <VisuallyHidden.Root>
+        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
+          <span className='sr-only'>
             <DialogTitle>{fileName}</DialogTitle>
-          </VisuallyHidden.Root>
+          </span>
           {/* Header with controls */}
           <div className='flex items-center justify-between p-4 border-b'>
             <div className='flex-1'>
@@ -411,7 +412,7 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
               </div>
             )}
           </div>
-        </DialogPrimitive.Content>
+        </DialogPopup>
       </DialogPortal>
     </Dialog>
   )
