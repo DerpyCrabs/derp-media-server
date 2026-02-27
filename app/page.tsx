@@ -1,4 +1,5 @@
 import { listDirectory, getEditableFolders } from '@/lib/file-system'
+import { config } from '@/lib/config'
 import { FileList } from '@/components/file-list'
 import { MediaPlayers } from '@/components/media-players'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -27,11 +28,11 @@ interface SettingsFile {
 
 async function readSettings(): Promise<Settings> {
   try {
-    const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+    const mediaDir = config.mediaDir
     const settingsFile = path.join(process.cwd(), 'settings.json')
     const data = await fs.readFile(settingsFile, 'utf-8')
     const allSettings: SettingsFile = JSON.parse(data)
-    return allSettings[MEDIA_DIR] || { viewModes: {}, favorites: [], customIcons: {} }
+    return allSettings[mediaDir] || { viewModes: {}, favorites: [], customIcons: {} }
   } catch {
     return { viewModes: {}, favorites: [], customIcons: {} }
   }
@@ -39,11 +40,11 @@ async function readSettings(): Promise<Settings> {
 
 async function getMostPlayedFiles(): Promise<FileItem[]> {
   try {
-    const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+    const mediaDir = config.mediaDir
     const statsFile = path.join(process.cwd(), 'stats.json')
     const data = await fs.readFile(statsFile, 'utf-8')
     const allStats = JSON.parse(data)
-    const stats = allStats[MEDIA_DIR] || { views: {} }
+    const stats = allStats[mediaDir] || { views: {} }
     const views = stats.views || {}
 
     // Sort files by view count (descending)
@@ -55,7 +56,7 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
     const fileItems: FileItem[] = []
     for (const [filePath, viewCount] of sortedFiles) {
       try {
-        const fullPath = path.join(MEDIA_DIR, filePath)
+        const fullPath = path.join(mediaDir, filePath)
         const stat = await fs.stat(fullPath)
 
         // Skip directories
@@ -90,18 +91,18 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
 
 async function getFavoriteFiles(): Promise<FileItem[]> {
   try {
-    const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+    const mediaDir = config.mediaDir
     const settingsFile = path.join(process.cwd(), 'settings.json')
     const data = await fs.readFile(settingsFile, 'utf-8')
     const allSettings: SettingsFile = JSON.parse(data)
-    const settings = allSettings[MEDIA_DIR] || { favorites: [] }
+    const settings = allSettings[mediaDir] || { favorites: [] }
     const favorites = settings.favorites || []
 
     // Build FileItem array
     const fileItems: FileItem[] = []
     for (const filePath of favorites) {
       try {
-        const fullPath = path.join(MEDIA_DIR, filePath)
+        const fullPath = path.join(mediaDir, filePath)
         const stat = await fs.stat(fullPath)
 
         const fileName = path.basename(filePath)
@@ -180,8 +181,8 @@ export default async function Home({ searchParams }: PageProps) {
               </CardHeader>
               <CardContent>
                 <p className='text-sm text-muted-foreground'>
-                  Please check that the MEDIA_DIR environment variable is set correctly and the
-                  directory exists.
+                  Please check that mediaDir in config.jsonc is set correctly and the directory
+                  exists.
                 </p>
               </CardContent>
             </Card>

@@ -3,8 +3,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { getMediaType } from '@/lib/media-utils'
 import { FileItem } from '@/lib/types'
-
-const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+import { config } from '@/lib/config'
 const STATS_FILE = path.join(process.cwd(), 'stats.json')
 
 interface ViewStats {
@@ -19,7 +18,8 @@ async function readStats(): Promise<ViewStats> {
   try {
     const data = await fs.readFile(STATS_FILE, 'utf-8')
     const allStats: StatsFile = JSON.parse(data)
-    return allStats[MEDIA_DIR] || { views: {} }
+    const mediaDir = config.mediaDir
+    return allStats[mediaDir] || { views: {} }
   } catch {
     return { views: {} }
   }
@@ -40,7 +40,7 @@ export async function GET() {
     const fileItems: FileItem[] = []
     for (const [filePath, viewCount] of sortedFiles) {
       try {
-        const fullPath = path.join(MEDIA_DIR, filePath)
+        const fullPath = path.join(config.mediaDir, filePath)
         const stat = await fs.stat(fullPath)
 
         // Skip directories

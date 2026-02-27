@@ -3,8 +3,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { getMediaType } from '@/lib/media-utils'
 import { FileItem, MediaType } from '@/lib/types'
-
-const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+import { config } from '@/lib/config'
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
 
 interface Settings {
@@ -19,7 +18,8 @@ async function readSettings(): Promise<Settings> {
   try {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
     const allSettings: SettingsFile = JSON.parse(data)
-    return allSettings[MEDIA_DIR] || { favorites: [] }
+    const mediaDir = config.mediaDir
+    return allSettings[mediaDir] || { favorites: [] }
   } catch {
     return { favorites: [] }
   }
@@ -35,7 +35,7 @@ export async function GET() {
     const fileItems: FileItem[] = []
     for (const filePath of favorites) {
       try {
-        const fullPath = path.join(MEDIA_DIR, filePath)
+        const fullPath = path.join(config.mediaDir, filePath)
         const stat = await fs.stat(fullPath)
 
         const fileName = path.basename(filePath)

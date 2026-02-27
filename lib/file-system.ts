@@ -3,14 +3,10 @@ import path from 'path'
 import { FileItem, MediaType } from './types'
 import { getMediaType } from './media-utils'
 import { VIRTUAL_FOLDERS } from './constants'
+import { config } from './config'
 
 // Re-export VIRTUAL_FOLDERS for convenience
 export { VIRTUAL_FOLDERS }
-
-const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
-const EDITABLE_FOLDERS = process.env.EDITABLE_FOLDERS
-  ? process.env.EDITABLE_FOLDERS.split(',').map((f) => f.trim())
-  : []
 
 // Folders to exclude from listing
 const EXCLUDED_FOLDERS = [
@@ -41,16 +37,17 @@ export function shouldExcludeFolder(folderName: string): boolean {
  * Prevents path traversal attacks
  */
 export function validatePath(relativePath: string): string {
+  const mediaDir = config.mediaDir
   // Convert URL-style forward slashes to platform-specific separators
   const platformPath = relativePath.replace(/\//g, path.sep)
 
   // Normalize and resolve the path
   const normalizedPath = path.normalize(platformPath).replace(/^(\.\.(\/|\\|$))+/, '')
-  const fullPath = path.join(MEDIA_DIR, normalizedPath)
+  const fullPath = path.join(mediaDir, normalizedPath)
 
-  // Ensure the resolved path is within MEDIA_DIR
+  // Ensure the resolved path is within mediaDir
   const resolvedPath = path.resolve(fullPath)
-  const resolvedMediaDir = path.resolve(MEDIA_DIR)
+  const resolvedMediaDir = path.resolve(mediaDir)
 
   if (!resolvedPath.startsWith(resolvedMediaDir)) {
     throw new Error('Invalid path: Path traversal detected')
@@ -60,22 +57,20 @@ export function validatePath(relativePath: string): string {
 }
 
 /**
- * Gets the media directory from environment variable
+ * Gets the media directory from config
  */
 export function getMediaDir(): string {
-  if (!process.env.MEDIA_DIR) {
-    console.warn('MEDIA_DIR not set, using current working directory')
-  }
-  return MEDIA_DIR
+  return config.mediaDir
 }
 
 /**
  * Lists files and folders in a directory
- * @param relativePath Path relative to MEDIA_DIR (empty string for root)
+ * @param relativePath Path relative to media directory (empty string for root)
  * @returns Array of FileItem objects
  */
 export async function listDirectory(relativePath: string = ''): Promise<FileItem[]> {
   try {
+    const mediaDir = config.mediaDir
     const fullPath = validatePath(relativePath)
 
     // Check if path exists and is a directory
@@ -120,8 +115,8 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
         const stats = await fs.stat(entryPath)
         const extension = path.extname(entry.name).slice(1).toLowerCase()
 
-        // Get relative path from MEDIA_DIR
-        const relPath = path.relative(MEDIA_DIR, entryPath).replace(/\\/g, '/')
+        // Get relative path from media directory
+        const relPath = path.relative(mediaDir, entryPath).replace(/\\/g, '/')
 
         // Include directories and all files
         if (entry.isDirectory()) {
@@ -195,10 +190,11 @@ export function getFilePath(relativePath: string): string {
  * Checks if a path is within an editable folder
  */
 export function isPathEditable(relativePath: string): boolean {
-  if (EDITABLE_FOLDERS.length === 0) return false
+  const editableFolders = config.editableFolders
+  if (editableFolders.length === 0) return false
 
   const normalizedPath = relativePath.replace(/\\/g, '/')
-  return EDITABLE_FOLDERS.some((folder) => {
+  return editableFolders.some((folder) => {
     const normalizedFolder = folder.replace(/\\/g, '/')
     return (
       normalizedPath === normalizedFolder ||
@@ -212,7 +208,7 @@ export function isPathEditable(relativePath: string): boolean {
  * Gets the list of editable folders
  */
 export function getEditableFolders(): string[] {
-  return EDITABLE_FOLDERS
+  return config.editableFolders
 }
 
 /**

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
-
-const MEDIA_DIR = process.env.MEDIA_DIR || process.cwd()
+import { config } from '@/lib/config'
 const STATS_FILE = path.join(process.cwd(), 'stats.json')
 
 interface ViewStats {
@@ -25,12 +24,13 @@ async function readAllStats(): Promise<StatsFile> {
 
 async function readStats(): Promise<ViewStats> {
   const allStats = await readAllStats()
-  return allStats[MEDIA_DIR] || { views: {} }
+  const mediaDir = config.mediaDir
+  return allStats[mediaDir] || { views: {} }
 }
 
 async function writeStats(stats: ViewStats): Promise<void> {
   const allStats = await readAllStats()
-  allStats[MEDIA_DIR] = stats
+  allStats[config.mediaDir] = stats
   await fs.writeFile(STATS_FILE, JSON.stringify(allStats, null, 2), 'utf-8')
 }
 
