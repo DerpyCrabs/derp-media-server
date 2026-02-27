@@ -2,9 +2,16 @@ import fs from 'fs'
 import path from 'path'
 import stripJsonComments from 'strip-json-comments'
 
+export interface AuthConfig {
+  enabled: boolean
+  /** Password required when enabled */
+  password?: string
+}
+
 export interface AppConfig {
   mediaDir: string
   editableFolders: string[]
+  auth?: AuthConfig
 }
 
 const DEFAULT_CONFIG_PATH = path.join(process.cwd(), 'config.jsonc')
@@ -50,20 +57,30 @@ function loadConfigOnce(): AppConfig {
       }
     }
 
-    const parsed = JSON.parse(stripJsonComments(content)) as Partial<AppConfig>
+    const parsed = JSON.parse(
+      stripJsonComments(content, { trailingCommas: true }),
+    ) as Partial<AppConfig>
 
     const mediaDir = parsed.mediaDir ?? process.cwd()
     const editableFolders = Array.isArray(parsed.editableFolders)
       ? parsed.editableFolders.map((f) => String(f).trim()).filter(Boolean)
       : []
+    const auth =
+      parsed.auth && typeof parsed.auth === 'object'
+        ? {
+            enabled: Boolean(parsed.auth.enabled),
+            password: typeof parsed.auth.password === 'string' ? parsed.auth.password : undefined,
+          }
+        : { enabled: false }
 
-    return { mediaDir, editableFolders }
+    return { mediaDir, editableFolders, auth }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
       return {
         mediaDir: process.cwd(),
         editableFolders: [],
+        auth: { enabled: false, password: undefined },
       }
     }
     throw error
