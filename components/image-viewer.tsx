@@ -4,9 +4,13 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
-import * as DialogPrimitive from '@radix-ui/react-dialog'
-import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
+import {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 
@@ -151,13 +155,10 @@ export function ImageViewer() {
     <Dialog open={!!viewingPath} onOpenChange={(open) => !open && closeViewer()}>
       <DialogPortal>
         <DialogOverlay className='bg-black/95' />
-        <DialogPrimitive.Content
-          className='fixed inset-0 z-50 flex flex-col data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
-          onPointerDownOutside={(e) => e.preventDefault()}
-        >
-          <VisuallyHidden.Root>
+        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
+          <span className='sr-only'>
             <DialogTitle>{fileName}</DialogTitle>
-          </VisuallyHidden.Root>
+          </span>
           {/* Header with controls */}
           <div className='flex items-center justify-between p-4 bg-black/50 backdrop-blur-sm'>
             <div className='flex-1'>
@@ -261,7 +262,7 @@ export function ImageViewer() {
               }}
             />
           </div>
-        </DialogPrimitive.Content>
+        </DialogPopup>
       </DialogPortal>
     </Dialog>
   )

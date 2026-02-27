@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,24 +20,19 @@ export function UnsupportedFileViewer() {
   const searchParams = useSearchParams()
   const viewingPath = searchParams.get('viewing')
   const currentDir = searchParams.get('dir') || ''
-  const [open, setOpen] = useState(false)
-
   const { data: allFiles = [] } = useFiles(currentDir)
 
   // Find the file info from the fetched files
   const fileInfo = useMemo(() => {
     if (!viewingPath) return null
     const file = allFiles.find((f: FileItem) => f.path === viewingPath)
-    if (file && file.type === MediaType.OTHER) {
-      if (!open) setOpen(true)
-      return file
-    }
-    if (open) setOpen(false)
+    if (file && file.type === MediaType.OTHER) return file
     return null
-  }, [viewingPath, allFiles, open])
+  }, [viewingPath, allFiles])
+
+  const open = !!fileInfo
 
   const handleOpenChange = (newOpen: boolean) => {
-    setOpen(newOpen)
     if (!newOpen) {
       // Close modal - remove viewing parameter
       const params = new URLSearchParams(searchParams)
@@ -76,11 +71,17 @@ export function UnsupportedFileViewer() {
             </p>
           </div>
           <div className='pt-2'>
-            <Button variant='default' asChild>
-              <a href={`/api/media/${encodeURIComponent(fileInfo.path)}`} download={fileInfo.name}>
-                Download File
-              </a>
-            </Button>
+            <Button
+              variant='default'
+              render={
+                <a
+                  href={`/api/media/${encodeURIComponent(fileInfo.path)}`}
+                  download={fileInfo.name}
+                >
+                  Download File
+                </a>
+              }
+            />
           </div>
         </div>
       </DialogContent>
