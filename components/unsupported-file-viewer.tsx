@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState, useMemo } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,42 +13,28 @@ import {
 } from '@/components/ui/dialog'
 import { formatFileSize } from '@/lib/media-utils'
 import { FileItem, MediaType } from '@/lib/types'
+import { useFiles } from '@/lib/use-files'
 
 export function UnsupportedFileViewer() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const viewingPath = searchParams.get('viewing')
-  const [fileInfo, setFileInfo] = useState<FileItem | null>(null)
+  const currentDir = searchParams.get('dir') || ''
   const [open, setOpen] = useState(false)
 
-  useEffect(() => {
-    if (!viewingPath) {
-      // When viewingPath is cleared, reset the dialog state
-      setFileInfo(null)
-      setOpen(false)
-      return
-    }
+  const { data: allFiles = [] } = useFiles(currentDir)
 
-    // Fetch file info
-    const currentDir = searchParams.get('dir') || ''
-    fetch(`/api/files?dir=${encodeURIComponent(currentDir)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        const file = data.files.find((f: FileItem) => f.path === viewingPath)
-        if (file && file.type === MediaType.OTHER) {
-          setFileInfo(file)
-          setOpen(true)
-        } else {
-          setFileInfo(null)
-          setOpen(false)
-        }
-      })
-      .catch(() => {
-        setFileInfo(null)
-        setOpen(false)
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewingPath])
+  // Find the file info from the fetched files
+  const fileInfo = useMemo(() => {
+    if (!viewingPath) return null
+    const file = allFiles.find((f: FileItem) => f.path === viewingPath)
+    if (file && file.type === MediaType.OTHER) {
+      if (!open) setOpen(true)
+      return file
+    }
+    if (open) setOpen(false)
+    return null
+  }, [viewingPath, allFiles, open])
 
   const handleOpenChange = (newOpen: boolean) => {
     setOpen(newOpen)

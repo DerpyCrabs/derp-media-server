@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogPortal, DialogOverlay, DialogTitle } from '@/components/ui/dialog'
@@ -17,10 +18,8 @@ interface TextViewerProps {
 export function TextViewer({ editableFolders }: TextViewerProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const viewingPath = searchParams.get('viewing')
-  const [content, setContent] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState<string>('')
@@ -36,6 +35,77 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
 
   // Check if the viewing file is editable using client-side utility
   const isEditable = isPathEditable(viewingPath || '', editableFolders)
+
+  // Determine if this is a text file
+  const fileExtension = viewingPath?.split('.').pop()?.toLowerCase() || ''
+  const textExtensions = [
+    'txt',
+    'md',
+    'json',
+    'xml',
+    'csv',
+    'log',
+    'yaml',
+    'yml',
+    'ini',
+    'conf',
+    'sh',
+    'bat',
+    'ps1',
+    'js',
+    'ts',
+    'jsx',
+    'tsx',
+    'css',
+    'scss',
+    'html',
+    'py',
+    'java',
+    'c',
+    'cpp',
+    'h',
+    'cs',
+    'go',
+    'rs',
+    'php',
+    'rb',
+    'swift',
+    'kt',
+    'sql',
+  ]
+  const isText = viewingPath && textExtensions.includes(fileExtension)
+
+  const {
+    data: content = '',
+    isLoading: loading,
+    error,
+  } = useQuery({
+    queryKey: ['text-content', viewingPath],
+    queryFn: async () => {
+      if (!viewingPath) return ''
+      const res = await fetch(`/api/media/${encodeURIComponent(viewingPath)}`)
+      if (!res.ok) throw new Error('Failed to load file')
+      return await res.text()
+    },
+    enabled: !!isText,
+    staleTime: 1000 * 60 * 5, // Consider data fresh for 5 minutes
+    gcTime: 1000 * 60 * 10, // Keep in cache for 10 minutes
+  })
+
+  // Start in edit mode by default if editable and not in read-only mode
+  useEffect(() => {
+    if (!viewingPath || !content) return
+
+    const isFileEditable = isPathEditable(viewingPath, editableFolders)
+    const fileReadOnly = settings.autoSave[viewingPath]?.readOnly || false
+
+    if (isFileEditable && !fileReadOnly) {
+      setEditContent(content)
+      setIsEditing(true)
+    } else {
+      setIsEditing(false)
+    }
+  }, [viewingPath, content, editableFolders, settings.autoSave])
 
   const closeViewer = () => {
     // Clear any pending auto-save timer
@@ -53,96 +123,6 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
     params.delete('viewing')
     router.replace(`/?${params.toString()}`, { scroll: false })
   }
-
-  // Load text content and check if editable
-  useEffect(() => {
-    if (!viewingPath) return
-
-    const fileExtension = viewingPath.split('.').pop()?.toLowerCase() || ''
-    const textExtensions = [
-      'txt',
-      'md',
-      'json',
-      'xml',
-      'csv',
-      'log',
-      'yaml',
-      'yml',
-      'ini',
-      'conf',
-      'sh',
-      'bat',
-      'ps1',
-      'js',
-      'ts',
-      'jsx',
-      'tsx',
-      'css',
-      'scss',
-      'html',
-      'py',
-      'java',
-      'c',
-      'cpp',
-      'h',
-      'cs',
-      'go',
-      'rs',
-      'php',
-      'rb',
-      'swift',
-      'kt',
-      'sql',
-    ]
-
-    if (!textExtensions.includes(fileExtension)) return
-
-    let cancelled = false
-
-    const loadContent = async () => {
-      // Only show loading if we don't have content yet (initial load)
-      if (!cancelled && !content) {
-        setLoading(true)
-        setError(null)
-      }
-
-      try {
-        // Load file content
-        const res = await fetch(`/api/media/${encodeURIComponent(viewingPath)}`)
-        if (!res.ok) throw new Error('Failed to load file')
-        const text = await res.text()
-
-        if (!cancelled) {
-          setContent(text)
-          setLoading(false)
-
-          // Check if file is editable and read-only setting
-          const isFileEditable = isPathEditable(viewingPath, editableFolders)
-          const fileReadOnly = settings.autoSave[viewingPath]?.readOnly || false
-
-          // Start in edit mode by default if editable and not in read-only mode
-          if (isFileEditable && !fileReadOnly) {
-            setEditContent(text)
-            setIsEditing(true)
-          } else {
-            setIsEditing(false)
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load file')
-          setLoading(false)
-        }
-      }
-    }
-
-    loadContent()
-
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewingPath, editableFolders, settings.autoSave])
 
   const handleCopy = async () => {
     if (!content) return
@@ -248,25 +228,14 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
         throw new Error(data.error || 'Failed to save file')
       }
 
-      // Update content and exit edit mode (only if manual save)
-      setContent(editContent)
+      // Update cached content and exit edit mode (only if manual save)
+      queryClient.setQueryData(['text-content', viewingPath], editContent)
       if (!skipStateUpdate) {
         setIsEditing(false)
       }
 
-      // Verify the save by reloading from server with cache-busting
-      try {
-        const verifyRes = await fetch(
-          `/api/media/${encodeURIComponent(viewingPath)}?t=${Date.now()}`,
-          { cache: 'no-store' },
-        )
-        if (verifyRes.ok) {
-          const verifiedText = await verifyRes.text()
-          setContent(verifiedText)
-        }
-      } catch (err) {
-        console.error('Failed to verify save:', err)
-      }
+      // Verify the save by invalidating and refetching
+      await queryClient.invalidateQueries({ queryKey: ['text-content', viewingPath] })
     } catch (err) {
       console.error('Failed to save:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to save file'
@@ -284,45 +253,6 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
       saveState(false)
     }
   }
-
-  // Check if the current file is a text file
-  const fileExtension = viewingPath?.split('.').pop()?.toLowerCase() || ''
-  const textExtensions = [
-    'txt',
-    'md',
-    'json',
-    'xml',
-    'csv',
-    'log',
-    'yaml',
-    'yml',
-    'ini',
-    'conf',
-    'sh',
-    'bat',
-    'ps1',
-    'js',
-    'ts',
-    'jsx',
-    'tsx',
-    'css',
-    'scss',
-    'html',
-    'py',
-    'java',
-    'c',
-    'cpp',
-    'h',
-    'cs',
-    'go',
-    'rs',
-    'php',
-    'rb',
-    'swift',
-    'kt',
-    'sql',
-  ]
-  const isText = viewingPath && textExtensions.includes(fileExtension)
 
   if (!isText) return null
 
@@ -439,7 +369,9 @@ export function TextViewer({ editableFolders }: TextViewerProps) {
               <div className='flex items-center justify-center h-full'>
                 <div className='text-center'>
                   <p className='text-destructive mb-2'>Failed to load file</p>
-                  <p className='text-sm text-muted-foreground'>{error}</p>
+                  <p className='text-sm text-muted-foreground'>
+                    {error instanceof Error ? error.message : 'Unknown error'}
+                  </p>
                 </div>
               </div>
             ) : isEditing ? (
