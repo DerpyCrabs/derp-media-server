@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { writeFile, writeBinaryFile } from '@/lib/file-system'
+import { broadcastFileChange } from '@/lib/file-change-emitter'
+import path from 'path'
 
 export async function POST(
   request: NextRequest,
@@ -36,6 +38,8 @@ export async function POST(
       await writeFile(resolved, content)
     }
 
+    const parentDir = path.dirname(resolved).replace(/\\/g, '/')
+    broadcastFileChange(parentDir === '.' ? '' : parentDir)
     return NextResponse.json({ success: true, message: 'File saved' })
   } catch (error) {
     console.error('Error editing shared file:', error)

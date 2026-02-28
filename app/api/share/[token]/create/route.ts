@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { createDirectory, writeFile, writeBinaryFile, fileExists } from '@/lib/file-system'
+import { broadcastFileChange } from '@/lib/file-change-emitter'
+import path from 'path'
 
 export async function POST(
   request: NextRequest,
@@ -35,8 +37,12 @@ export async function POST(
       )
     }
 
+    const parentDir = path.dirname(resolved).replace(/\\/g, '/')
+    const normalizedParent = parentDir === '.' ? '' : parentDir
+
     if (type === 'folder') {
       await createDirectory(resolved)
+      broadcastFileChange(normalizedParent)
       return NextResponse.json({ success: true, message: 'Folder created' })
     } else if (type === 'file') {
       if (content === undefined && base64Content === undefined) {
@@ -47,6 +53,7 @@ export async function POST(
       } else {
         await writeFile(resolved, content)
       }
+      broadcastFileChange(normalizedParent)
       return NextResponse.json({ success: true, message: 'File saved' })
     }
 

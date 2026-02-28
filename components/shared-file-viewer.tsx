@@ -340,10 +340,6 @@ function SharedTextViewer({
     async (auto = false) => {
       if (!auto) setSaving(true)
       try {
-        const subPath = shareInfo.path
-          .split('/')
-          .slice(shareInfo.path.split('/').indexOf(shareInfo.path.split('/').pop()!))
-          .join('/')
         const res = await fetch(`/api/share/${token}/edit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { writeFile, writeBinaryFile, isPathEditable } from '@/lib/file-system'
+import { broadcastFileChange } from '@/lib/file-change-emitter'
+import path from 'path'
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest) {
       await writeFile(relativePath, content)
     }
 
+    const parentDir = path.dirname(relativePath).replace(/\\/g, '/')
+    broadcastFileChange(parentDir === '.' ? '' : parentDir)
     return NextResponse.json({ success: true, message: 'File saved' })
   } catch (error) {
     console.error('Error editing file:', error)

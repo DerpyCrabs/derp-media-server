@@ -15,7 +15,7 @@ import { useLongPress } from '@/lib/use-long-press'
 interface FileContextMenuProps {
   file: FileItem
   children: React.ReactElement
-  onSetIcon: (file: FileItem, e?: Event) => void
+  onSetIcon?: (file: FileItem, e?: Event) => void
   onRename?: (file: FileItem) => void
   onDelete?: (file: FileItem) => void
   onDownload?: (file: FileItem) => void
@@ -57,7 +57,7 @@ export function FileContextMenu({
   })
 
   const handleSetIcon = () => {
-    onSetIcon(file)
+    if (onSetIcon) onSetIcon(file)
   }
 
   const handleRename = () => {
@@ -97,10 +97,12 @@ export function FileContextMenu({
     <ContextMenu>
       <ContextMenuTrigger render={childWithHandlers} />
       <ContextMenuContent>
-        <ContextMenuItem onClick={handleSetIcon}>
-          <Pencil className='mr-2 h-4 w-4' />
-          Set icon
-        </ContextMenuItem>
+        {onSetIcon && (
+          <ContextMenuItem onClick={handleSetIcon}>
+            <Pencil className='mr-2 h-4 w-4' />
+            Set icon
+          </ContextMenuItem>
+        )}
         {file.isDirectory && (
           <ContextMenuItem onClick={handleToggleFavorite}>
             <Star

@@ -4,7 +4,7 @@ import { Suspense, useState, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { isPathEditable } from '@/lib/utils'
-import { FolderPlus, FilePlus, List, LayoutGrid, RefreshCw } from 'lucide-react'
+import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
@@ -17,6 +17,7 @@ import { usePaste } from '@/lib/use-paste'
 import { PasteDialog } from '@/components/paste-dialog'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { useFileMutations } from '@/lib/use-file-mutations'
+import { useFileWatcher } from '@/lib/use-file-watcher'
 import { useFileIcon } from '@/lib/use-file-icon'
 import { FileListView } from '@/components/file-list-view'
 import { FileGridView } from '@/components/file-grid-view'
@@ -49,6 +50,7 @@ function FileListInner({
 }: FileListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  useFileWatcher()
   const { playFile, isPlaying: mediaPlayerIsPlaying, mediaType, currentFile } = useMediaPlayer()
 
   // Use React Query for files with SSR initial data
@@ -241,10 +243,11 @@ function FileListInner({
   // Check if rename target name already exists (but isn't the original file)
   const renameTargetExists = useMemo(() => {
     if (!newItemName.trim() || !editingItem) return false
+    if (renameMutation.isPending) return false
     return files.some(
       (f) => f.path !== editingItem.path && f.name.toLowerCase() === newItemName.toLowerCase(),
     )
-  }, [newItemName, files, editingItem])
+  }, [newItemName, files, editingItem, renameMutation.isPending])
 
   // Update favicon and title based on URL params
   useDynamicFavicon(customIcons)
@@ -403,7 +406,17 @@ function FileListInner({
         onNewNameChange={setNewItemName}
         onRename={() => {
           if (editingItem) {
-            renameMutation.mutate({ oldPath: editingItem.path, newName: newItemName })
+            renameMutation.mutate(
+              { oldPath: editingItem.path, newName: newItemName },
+              {
+                onSuccess: () => {
+                  setShowRenameDialog(false)
+                  setEditingItem(null)
+                  setNewItemName('')
+                  renameMutation.reset()
+                },
+              },
+            )
           }
         }}
         isPending={renameMutation.isPending}
@@ -494,16 +507,6 @@ function FileListInner({
                 <div className='w-px h-6 bg-border mx-1' />
               </>
             )}
-            <Button
-              variant='ghost'
-              size='icon'
-              onClick={() => router.refresh()}
-              title='Refresh'
-              className='h-8 w-8'
-            >
-              <RefreshCw className='h-4 w-4' />
-            </Button>
-            <div className='w-px h-6 bg-border mx-1' />
             <Button
               variant={viewMode === 'list' ? 'default' : 'ghost'}
               size='sm'

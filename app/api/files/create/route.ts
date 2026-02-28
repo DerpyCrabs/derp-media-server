@@ -6,6 +6,7 @@ import {
   isPathEditable,
   fileExists,
 } from '@/lib/file-system'
+import { broadcastFileChange } from '@/lib/file-change-emitter'
 import path from 'path'
 
 export async function POST(request: NextRequest) {
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
 
     if (type === 'folder') {
       await createDirectory(relativePath)
+      broadcastFileChange(normalizedParent)
       return NextResponse.json({ success: true, message: 'Folder created' })
     } else if (type === 'file') {
       if (content === undefined && base64Content === undefined) {
@@ -49,6 +51,7 @@ export async function POST(request: NextRequest) {
       } else {
         await writeFile(relativePath, content)
       }
+      broadcastFileChange(normalizedParent)
       return NextResponse.json({ success: true, message: 'File saved' })
     } else {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
