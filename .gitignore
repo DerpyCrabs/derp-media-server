@@ -44,4 +44,5 @@ next-env.d.ts
 .thumbnails
 settings.json
 stats.json
+shares.json
 config.json*

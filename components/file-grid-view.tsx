@@ -3,10 +3,11 @@
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
-import { ArrowUp, Star, Eye } from 'lucide-react'
+import { ArrowUp, Star, Eye, Link, Share2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
+import type { ShareLink } from '@/lib/shares'
 
 interface FileGridViewProps {
   files: FileItem[]
@@ -24,7 +25,10 @@ interface FileGridViewProps {
   onContextDelete: (file: FileItem) => void
   onContextDownload: (file: FileItem) => void
   onContextToggleFavorite: (file: FileItem) => void
+  onContextShare: (file: FileItem) => void
+  shares: ShareLink[]
   getViewCount: (path: string) => number
+  getShareViewCount: (path: string) => number
   getIcon: (
     type: MediaType,
     filePath: string,
@@ -50,7 +54,10 @@ export function FileGridView({
   onContextDelete,
   onContextDownload,
   onContextToggleFavorite,
+  onContextShare,
+  shares,
   getViewCount,
+  getShareViewCount,
   getIcon,
 }: FileGridViewProps) {
   if (files.length === 0 && !currentPath) {
@@ -103,7 +110,9 @@ export function FileGridView({
         {files.map((file) => {
           const isFavorite = favorites.includes(file.path)
           const viewCount = getViewCount(file.path)
+          const shareViewCount = getShareViewCount(file.path)
           const isFileEditable = isPathEditable(file.path, editableFolders)
+          const isShared = shares.some((s) => s.path === file.path)
           return (
             <FileContextMenu
               key={file.path}
@@ -113,8 +122,10 @@ export function FileGridView({
               onDelete={onContextDelete}
               onDownload={onContextDownload}
               onToggleFavorite={onContextToggleFavorite}
+              onShare={onContextShare}
               isFavorite={isFavorite}
               isEditable={isFileEditable}
+              isShared={isShared}
             >
               <Card
                 className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
@@ -144,16 +155,31 @@ export function FileGridView({
                         />
                       </button>
                     )}
-                    {/* View count badge - only for files with views */}
-                    {!file.isDirectory && viewCount > 0 && (
-                      <div
-                        className='absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm z-10 flex items-center gap-1'
-                        title={`${viewCount} views`}
-                      >
-                        <Eye className='h-3 w-3 text-muted-foreground' />
-                        <span className='text-xs font-medium text-muted-foreground'>
-                          {viewCount}
-                        </span>
+                    {/* View count badges */}
+                    {!file.isDirectory && (viewCount > 0 || shareViewCount > 0) && (
+                      <div className='absolute top-1.5 right-1.5 flex items-center gap-1 z-10'>
+                        {viewCount > 0 && (
+                          <div
+                            className='px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1'
+                            title={`${viewCount} views`}
+                          >
+                            <Eye className='h-3 w-3 text-muted-foreground' />
+                            <span className='text-xs font-medium text-muted-foreground'>
+                              {viewCount}
+                            </span>
+                          </div>
+                        )}
+                        {shareViewCount > 0 && (
+                          <div
+                            className='px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1'
+                            title={`${shareViewCount} shared views`}
+                          >
+                            <Share2 className='h-3 w-3 text-primary/70' />
+                            <span className='text-xs font-medium text-primary/70'>
+                              {shareViewCount}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                     {file.type === MediaType.VIDEO ? (
@@ -213,6 +239,7 @@ export function FileGridView({
                   <div className='p-3 flex flex-col gap-1'>
                     <p className='text-sm font-medium truncate' title={file.name}>
                       {file.name}
+                      {isShared && <Link className='inline h-3 w-3 ml-1 text-primary opacity-70' />}
                     </p>
                     {isVirtualFolder && !file.isDirectory ? (
                       <p

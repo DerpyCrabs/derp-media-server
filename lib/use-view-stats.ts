@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 interface ViewStats {
   views: Record<string, number>
+  shareViews: Record<string, number>
 }
 
 async function fetchViewStats(): Promise<ViewStats> {
@@ -44,6 +45,7 @@ export function useViewStats() {
   })
 
   const views = data?.views || {}
+  const shareViews = data?.shareViews || {}
 
   const incrementView = (filePath: string) => {
     incrementMutation.mutate(filePath)
@@ -53,9 +55,15 @@ export function useViewStats() {
     return views[filePath] || 0
   }
 
+  const getShareViewCount = (filePath: string): number => {
+    return shareViews[filePath] || 0
+  }
+
   return {
     views,
+    shareViews,
     incrementView,
     getViewCount,
+    getShareViewCount,
   }
 }

@@ -4,7 +4,7 @@ import { Suspense, useState, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { isPathEditable } from '@/lib/utils'
-import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
+import { FolderPlus, FilePlus, List, LayoutGrid, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
@@ -26,6 +26,9 @@ import {
   RenameDialog,
   DeleteConfirmDialog,
 } from '@/components/file-dialogs'
+import { ShareDialog } from '@/components/share-dialog'
+import { useQuery } from '@tanstack/react-query'
+import type { ShareLink } from '@/lib/shares'
 
 interface FileListProps {
   files: FileItem[]
@@ -53,7 +56,7 @@ function FileListInner({
   const prefetchFiles = usePrefetchFiles()
 
   // Use view stats hook
-  const { incrementView, getViewCount } = useViewStats()
+  const { incrementView, getViewCount, getShareViewCount } = useViewStats()
 
   // Ensure files is ALWAYS an array, no matter what
   const files = useMemo(
@@ -95,12 +98,27 @@ function FileListInner({
     renameMutation,
   } = useFileMutations(currentPath)
 
+  // Fetch shares for indicators
+  const { data: sharesData } = useQuery({
+    queryKey: ['shares'],
+    queryFn: async () => {
+      const res = await fetch('/api/shares')
+      if (!res.ok) return { shares: [] }
+      return res.json() as Promise<{ shares: ShareLink[] }>
+    },
+    staleTime: 1000 * 60 * 2,
+    gcTime: 1000 * 60 * 10,
+  })
+  const shares = sharesData?.shares || []
+
   // State for dialogs
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [showCreateFile, setShowCreateFile] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showRenameDialog, setShowRenameDialog] = useState(false)
   const [showIconEditor, setShowIconEditor] = useState(false)
+  const [showShareDialog, setShowShareDialog] = useState(false)
+  const [shareTarget, setShareTarget] = useState<FileItem | null>(null)
   const [editingItem, setEditingItem] = useState<{ path: string; name: string } | null>(null)
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
@@ -279,6 +297,16 @@ function FileListInner({
     updateFavorite(file.path)
   }
 
+  // Handle context menu action for sharing
+  const handleContextShare = (file: FileItem) => {
+    setShareTarget(file)
+    setShowShareDialog(true)
+  }
+
+  const getShareForPath = (path: string): ShareLink | null => {
+    return shares.find((s) => s.path === path) || null
+  }
+
   return (
     <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
       {/* Icon Editor Dialog */}
@@ -402,6 +430,20 @@ function FileListInner({
         onClose={closePasteDialog}
       />
 
+      {/* Share Dialog */}
+      <ShareDialog
+        isOpen={showShareDialog}
+        onClose={() => {
+          setShowShareDialog(false)
+          setShareTarget(null)
+        }}
+        filePath={shareTarget?.path || ''}
+        fileName={shareTarget?.name || ''}
+        isDirectory={shareTarget?.isDirectory || false}
+        isEditable={shareTarget ? isPathEditable(shareTarget.path, editableFolders) : false}
+        existingShare={shareTarget ? getShareForPath(shareTarget.path) : null}
+      />
+
       {/* Breadcrumb Navigation with Toolbar */}
       <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
         <div className='flex items-center justify-between gap-1.5 lg:gap-2'>
@@ -444,6 +486,16 @@ function FileListInner({
               </>
             )}
             <Button
+              variant='ghost'
+              size='icon'
+              onClick={() => router.refresh()}
+              title='Refresh'
+              className='h-8 w-8'
+            >
+              <RefreshCw className='h-4 w-4' />
+            </Button>
+            <div className='w-px h-6 bg-border mx-1' />
+            <Button
               variant={viewMode === 'list' ? 'default' : 'ghost'}
               size='sm'
               onClick={() => handleViewModeChange('list')}
@@ -482,7 +534,10 @@ function FileListInner({
             onContextDelete={handleContextDelete}
             onContextDownload={handleContextDownload}
             onContextToggleFavorite={handleContextToggleFavorite}
+            onContextShare={handleContextShare}
+            shares={shares}
             getViewCount={getViewCount}
+            getShareViewCount={getShareViewCount}
             getIcon={getIcon}
           />
         ) : (
@@ -502,7 +557,10 @@ function FileListInner({
             onContextDelete={handleContextDelete}
             onContextDownload={handleContextDownload}
             onContextToggleFavorite={handleContextToggleFavorite}
+            onContextShare={handleContextShare}
+            shares={shares}
             getViewCount={getViewCount}
+            getShareViewCount={getShareViewCount}
             getIcon={getIcon}
           />
         )}

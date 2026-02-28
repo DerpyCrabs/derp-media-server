@@ -4,7 +4,7 @@ import { verifySessionValue } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 
-const PUBLIC_PREFIXES = ['/login', '/api/auth/']
+const PUBLIC_PREFIXES = ['/login', '/api/auth/', '/share', '/api/share/']
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))
