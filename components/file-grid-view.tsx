@@ -25,9 +25,11 @@ interface FileGridViewProps {
   onContextDelete: (file: FileItem) => void
   onContextDownload: (file: FileItem) => void
   onContextToggleFavorite: (file: FileItem) => void
+  onContextToggleKnowledgeBase?: (file: FileItem) => void
   onContextShare: (file: FileItem) => void
   onContextCopyShareLink?: (file: FileItem) => void
   shares: ShareLink[]
+  knowledgeBases?: string[]
   getViewCount: (path: string) => number
   getShareViewCount: (path: string) => number
   getIcon: (
@@ -55,9 +57,11 @@ export function FileGridView({
   onContextDelete,
   onContextDownload,
   onContextToggleFavorite,
+  onContextToggleKnowledgeBase,
   onContextShare,
   onContextCopyShareLink,
   shares,
+  knowledgeBases = [],
   getViewCount,
   getShareViewCount,
   getIcon,
@@ -123,6 +127,7 @@ export function FileGridView({
         )}
         {files.map((file) => {
           const isFavorite = favorites.includes(file.path)
+          const isKnowledgeBase = file.isDirectory && knowledgeBases.includes(file.path)
           const viewCount = getViewCount(file.path)
           const shareViewCount = getShareViewCount(file.path)
           const isFileEditable = isPathEditable(file.path, editableFolders)
@@ -136,9 +141,11 @@ export function FileGridView({
               onDelete={onContextDelete}
               onDownload={onContextDownload}
               onToggleFavorite={onContextToggleFavorite}
+              onToggleKnowledgeBase={onContextToggleKnowledgeBase}
               onShare={onContextShare}
               onCopyShareLink={onContextCopyShareLink}
               isFavorite={isFavorite}
+              isKnowledgeBase={isKnowledgeBase}
               isEditable={isFileEditable}
               isShared={isShared}
             >

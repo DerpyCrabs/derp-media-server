@@ -205,11 +205,7 @@ export function isPathEditable(relativePath: string): boolean {
   const normalizedPath = relativePath.replace(/\\/g, '/')
   return editableFolders.some((folder) => {
     const normalizedFolder = folder.replace(/\\/g, '/')
-    return (
-      normalizedPath === normalizedFolder ||
-      normalizedPath.startsWith(normalizedFolder + '/') ||
-      normalizedPath.startsWith(normalizedFolder + '\\')
-    )
+    return normalizedPath === normalizedFolder || normalizedPath.startsWith(normalizedFolder + '/')
   })
 }
 

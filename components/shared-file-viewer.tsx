@@ -1,18 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  Download,
-  ZoomIn,
-  ZoomOut,
-  RotateCw,
-  Maximize2,
-  Copy,
-  Check,
-  Save,
-  ExternalLink,
-} from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { TextViewer } from '@/components/text-viewer'
+import { Download, ZoomIn, ZoomOut, RotateCw, Maximize2, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface ShareInfo {
@@ -62,11 +52,13 @@ export function SharedFileViewer({ token, shareInfo }: SharedFileViewerProps) {
       return <SharedPdfViewer name={shareInfo.name} mediaUrl={mediaUrl} downloadUrl={downloadUrl} />
     case 'text':
       return (
-        <SharedTextViewer
-          token={token}
-          shareInfo={shareInfo}
-          mediaUrl={mediaUrl}
-          downloadUrl={downloadUrl}
+        <TextViewer
+          shareMode={{
+            token,
+            shareInfo,
+            mediaUrl,
+            downloadUrl,
+          }}
         />
       )
     default:
@@ -284,140 +276,6 @@ function SharedPdfViewer({
           className='w-full h-[calc(100vh-72px)]'
           title={name}
         />
-      </div>
-    </div>
-  )
-}
-
-function SharedTextViewer({
-  token,
-  shareInfo,
-  mediaUrl,
-  downloadUrl,
-}: {
-  token: string
-  shareInfo: ShareInfo
-  mediaUrl: string
-  downloadUrl: string
-}) {
-  const queryClient = useQueryClient()
-  const [isEditing, setIsEditing] = useState(false)
-  const [editContent, setEditContent] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
-
-  const { data: content = '', isLoading } = useQuery({
-    queryKey: ['share-text', token, shareInfo.path],
-    queryFn: async () => {
-      const res = await fetch(mediaUrl)
-      if (!res.ok) throw new Error('Failed to load file')
-      return await res.text()
-    },
-  })
-
-  useEffect(() => {
-    if (shareInfo.editable && content) {
-      setEditContent(content)
-      setIsEditing(true)
-    }
-  }, [content, shareInfo.editable])
-
-  // Auto-save with debounce
-  useEffect(() => {
-    if (!isEditing || !shareInfo.editable || editContent === content) return
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-    autoSaveTimerRef.current = setTimeout(() => {
-      if (editContent !== content) handleSave(true)
-    }, 2000)
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editContent, isEditing, content])
-
-  const handleSave = useCallback(
-    async (auto = false) => {
-      if (!auto) setSaving(true)
-      try {
-        const res = await fetch(`/api/share/${token}/edit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: '', content: editContent }),
-        })
-        if (!res.ok) throw new Error('Failed to save')
-        queryClient.setQueryData(['share-text', token, shareInfo.path], editContent)
-      } catch (err) {
-        console.error('Save error:', err)
-      } finally {
-        if (!auto) setSaving(false)
-      }
-    },
-    [token, shareInfo.path, editContent, queryClient],
-  )
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <div className='min-h-screen flex flex-col'>
-      <div className='flex items-center justify-between p-4 border-b'>
-        <div>
-          <h2 className='text-lg font-medium truncate'>{shareInfo.name}</h2>
-          <p className='text-sm text-muted-foreground'>
-            {shareInfo.extension.toUpperCase()} File
-            {content ? ` \u2022 ${content.split('\n').length} lines` : ''}
-          </p>
-        </div>
-        <div className='flex items-center gap-2'>
-          {isEditing && !saving && (
-            <Button variant='default' size='sm' onClick={() => handleSave(false)} disabled={saving}>
-              <Save className='h-4 w-4 mr-2' />
-              Save
-            </Button>
-          )}
-          <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
-            {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
-          </Button>
-          <Button
-            variant='ghost'
-            size='icon'
-            onClick={() => {
-              const a = document.createElement('a')
-              a.href = `${downloadUrl}`
-              a.download = shareInfo.name
-              a.click()
-            }}
-            title='Download'
-          >
-            <Download className='h-5 w-5' />
-          </Button>
-        </div>
-      </div>
-      <div className='flex-1 p-4'>
-        {isLoading ? (
-          <div className='flex items-center justify-center h-full'>
-            <p className='text-muted-foreground'>Loading...</p>
-          </div>
-        ) : isEditing ? (
-          <textarea
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            className='w-full h-full min-h-[calc(100vh-140px)] font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
-            spellCheck={false}
-          />
-        ) : (
-          <div className='w-full h-full p-4 bg-background border rounded-lg overflow-auto'>
-            <pre className='font-mono text-sm whitespace-pre-wrap wrap-break-word'>{content}</pre>
-          </div>
-        )}
       </div>
     </div>
   )

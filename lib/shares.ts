@@ -1,11 +1,19 @@
 import { promises as fs } from 'fs'
 import path from 'path'
-import { randomBytes, createHmac, timingSafeEqual } from 'crypto'
+import {
+  randomBytes,
+  createHmac,
+  timingSafeEqual,
+  createCipheriv,
+  createDecipheriv,
+  scryptSync,
+} from 'crypto'
 import { cookies } from 'next/headers'
 import { config } from '@/lib/config'
 import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import { Mutex } from '@/lib/mutex'
 
 export interface ShareLink {
   token: string
@@ -27,6 +35,48 @@ interface SharesFile {
 const SHARES_FILE = path.join(process.cwd(), 'shares.json')
 const SHARE_SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
 
+// One mutex per shares file to serialise all read-modify-write operations.
+const sharesMutex = new Mutex()
+
+const ENCRYPTION_SALT = 'derp-media-server-passcode-v1'
+let _encKey: Buffer | null = null
+
+function getEncryptionKey(): Buffer {
+  if (_encKey) return _encKey
+  const password = config.auth?.password || 'derp-media-server-default'
+  _encKey = scryptSync(password, ENCRYPTION_SALT, 32)
+  return _encKey
+}
+
+function encryptPasscode(passcode: string): string {
+  const key = getEncryptionKey()
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const encrypted = Buffer.concat([cipher.update(passcode, 'utf8'), cipher.final()])
+  const authTag = cipher.getAuthTag()
+  return Buffer.concat([iv, authTag, encrypted]).toString('base64url')
+}
+
+function decryptPasscode(encrypted: string): string | null {
+  try {
+    const key = getEncryptionKey()
+    const data = Buffer.from(encrypted, 'base64url')
+    if (data.length < 28) return null
+    const iv = data.subarray(0, 12)
+    const authTag = data.subarray(12, 28)
+    const ciphertext = data.subarray(28)
+    const decipher = createDecipheriv('aes-256-gcm', key, iv)
+    decipher.setAuthTag(authTag)
+    return decipher.update(ciphertext).toString('utf8') + decipher.final('utf8')
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Token / passcode generation
+// ---------------------------------------------------------------------------
+
 function generateToken(): string {
   return randomBytes(16).toString('base64url')
 }
@@ -41,6 +91,10 @@ function generatePasscode(): string {
   return result
 }
 
+// ---------------------------------------------------------------------------
+// File I/O (raw — no decryption; used internally only)
+// ---------------------------------------------------------------------------
+
 async function readSharesFile(): Promise<SharesFile> {
   try {
     const data = await fs.readFile(SHARES_FILE, 'utf-8')
@@ -54,60 +108,98 @@ async function writeSharesFile(allShares: SharesFile): Promise<void> {
   await fs.writeFile(SHARES_FILE, JSON.stringify(allShares, null, 2), 'utf-8')
 }
 
-async function readShares(): Promise<SharesData> {
+async function readSharesRaw(): Promise<SharesData> {
   const all = await readSharesFile()
   return all[config.mediaDir] || { shares: [] }
 }
 
-async function writeShares(data: SharesData): Promise<void> {
+async function writeSharesData(data: SharesData): Promise<void> {
   const all = await readSharesFile()
   all[config.mediaDir] = data
   await writeSharesFile(all)
 }
+
+// ---------------------------------------------------------------------------
+// Decrypt passcode fields when returning share objects to callers
+// ---------------------------------------------------------------------------
+
+function decryptSharePasscode(share: ShareLink): ShareLink {
+  if (share.passcode) {
+    const plain = decryptPasscode(share.passcode)
+    if (plain) return { ...share, passcode: plain }
+  }
+  return share
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export async function createShare(
   sharePath: string,
   isDirectory: boolean,
   editable: boolean,
 ): Promise<ShareLink> {
-  const data = await readShares()
+  const release = await sharesMutex.acquire()
+  try {
+    const data = await readSharesRaw()
 
-  const existing = data.shares.find((s) => s.path === sharePath)
-  if (existing) {
-    return existing
+    const existingIndex = data.shares.findIndex((s) => s.path === sharePath)
+    if (existingIndex !== -1) {
+      const existing = data.shares[existingIndex]
+      // Update editable/isDirectory if they differ — then persist
+      if (existing.editable !== editable || existing.isDirectory !== isDirectory) {
+        const updated: ShareLink = { ...existing, editable, isDirectory }
+        data.shares[existingIndex] = updated
+        await writeSharesData(data)
+        return decryptSharePasscode(updated)
+      }
+      return decryptSharePasscode(existing)
+    }
+
+    const plainPasscode = config.auth?.enabled ? generatePasscode() : undefined
+    const share: ShareLink = {
+      token: generateToken(),
+      path: sharePath,
+      isDirectory,
+      editable,
+      passcode: plainPasscode ? encryptPasscode(plainPasscode) : undefined,
+      createdAt: Date.now(),
+    }
+
+    data.shares.push(share)
+    await writeSharesData(data)
+
+    // Return with plaintext passcode for one-time display
+    return { ...share, passcode: plainPasscode }
+  } finally {
+    release()
   }
-
-  const share: ShareLink = {
-    token: generateToken(),
-    path: sharePath,
-    isDirectory,
-    editable,
-    passcode: config.auth?.enabled ? generatePasscode() : undefined,
-    createdAt: Date.now(),
-  }
-
-  data.shares.push(share)
-  await writeShares(data)
-  return share
 }
 
 export async function getShare(token: string): Promise<ShareLink | null> {
-  const data = await readShares()
-  return data.shares.find((s) => s.token === token) || null
+  const data = await readSharesRaw()
+  const share = data.shares.find((s) => s.token === token)
+  return share ? decryptSharePasscode(share) : null
 }
 
 export async function deleteShare(token: string): Promise<boolean> {
-  const data = await readShares()
-  const index = data.shares.findIndex((s) => s.token === token)
-  if (index === -1) return false
-  data.shares.splice(index, 1)
-  await writeShares(data)
-  return true
+  const release = await sharesMutex.acquire()
+  try {
+    const data = await readSharesRaw()
+    const index = data.shares.findIndex((s) => s.token === token)
+    if (index === -1) return false
+    data.shares.splice(index, 1)
+    await writeSharesData(data)
+    return true
+  } finally {
+    release()
+  }
 }
 
 export async function getAllShares(): Promise<ShareLink[]> {
-  const data = await readShares()
-  return data.shares
+  const data = await readSharesRaw()
+  return data.shares.map(decryptSharePasscode)
 }
 
 export async function getSharesAsFileItems(): Promise<FileItem[]> {
@@ -141,12 +233,14 @@ export async function getSharesAsFileItems(): Promise<FileItem[]> {
 }
 
 export async function getSharesForPath(targetPath: string): Promise<ShareLink[]> {
-  const data = await readShares()
+  const data = await readSharesRaw()
   const normalized = targetPath.replace(/\\/g, '/')
-  return data.shares.filter((s) => {
-    const sp = s.path.replace(/\\/g, '/')
-    return sp === normalized
-  })
+  return data.shares
+    .filter((s) => {
+      const sp = s.path.replace(/\\/g, '/')
+      return sp === normalized
+    })
+    .map(decryptSharePasscode)
 }
 
 /**
@@ -179,7 +273,9 @@ export function resolveShareSubPath(share: ShareLink, subPath: string): string |
   return normalized
 }
 
-// --- Share session cookies (for passcode-protected shares) ---
+// ---------------------------------------------------------------------------
+// Share session cookies (for passcode-protected shares)
+// ---------------------------------------------------------------------------
 
 function signShareSession(token: string, payload: string): string {
   const secret = token + (config.auth?.password || 'share-secret')

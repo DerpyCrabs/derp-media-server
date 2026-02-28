@@ -8,7 +8,7 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Pencil, Trash2, Edit3, Download, Star, Link, Copy } from 'lucide-react'
+import { Pencil, Trash2, Edit3, Download, Star, Link, Copy, BookOpen } from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
 
@@ -20,9 +20,11 @@ interface FileContextMenuProps {
   onDelete?: (file: FileItem) => void
   onDownload?: (file: FileItem) => void
   onToggleFavorite?: (file: FileItem) => void
+  onToggleKnowledgeBase?: (file: FileItem) => void
   onShare?: (file: FileItem) => void
   onCopyShareLink?: (file: FileItem) => void
   isFavorite?: boolean
+  isKnowledgeBase?: boolean
   isEditable?: boolean
   isShared?: boolean
 }
@@ -35,9 +37,11 @@ export function FileContextMenu({
   onDelete,
   onDownload,
   onToggleFavorite,
+  onToggleKnowledgeBase,
   onShare,
   onCopyShareLink,
   isFavorite = false,
+  isKnowledgeBase = false,
   isEditable = false,
   isShared = false,
 }: FileContextMenuProps) {
@@ -86,6 +90,12 @@ export function FileContextMenu({
     }
   }
 
+  const handleToggleKnowledgeBase = () => {
+    if (onToggleKnowledgeBase) {
+      onToggleKnowledgeBase(file)
+    }
+  }
+
   const handleShare = () => {
     if (onShare) {
       onShare(file)
@@ -112,12 +122,20 @@ export function FileContextMenu({
           </ContextMenuItem>
         )}
         {file.isDirectory && (
-          <ContextMenuItem onClick={handleToggleFavorite}>
-            <Star
-              className={`mr-2 h-4 w-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : ''}`}
-            />
-            {isFavorite ? 'Unfavorite' : 'Favorite'}
-          </ContextMenuItem>
+          <>
+            <ContextMenuItem onClick={handleToggleFavorite}>
+              <Star
+                className={`mr-2 h-4 w-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : ''}`}
+              />
+              {isFavorite ? 'Unfavorite' : 'Favorite'}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={handleToggleKnowledgeBase}>
+              <BookOpen
+                className={`mr-2 h-4 w-4 ${isKnowledgeBase ? 'fill-primary text-primary' : ''}`}
+              />
+              {isKnowledgeBase ? 'Remove Knowledge Base' : 'Set as Knowledge Base'}
+            </ContextMenuItem>
+          </>
         )}
         <ContextMenuItem onClick={handleDownload}>
           <Download className='mr-2 h-4 w-4' />

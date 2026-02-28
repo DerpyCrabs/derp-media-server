@@ -10,6 +10,7 @@ export type ViewMode = 'list' | 'grid'
 interface GlobalSettings {
   viewModes: Record<string, ViewMode>
   favorites: string[]
+  knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
 }
@@ -19,7 +20,7 @@ async function fetchAllSettings(): Promise<GlobalSettings> {
   const response = await fetch(`/api/settings/all`)
   if (!response.ok) {
     // Fallback to empty settings
-    return { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
+    return { viewModes: {}, favorites: [], knowledgeBases: [], customIcons: {}, autoSave: {} }
   }
   return response.json()
 }
@@ -46,6 +47,19 @@ async function toggleFavorite(filePath: string) {
   })
   if (!response.ok) {
     throw new Error('Failed to toggle favorite')
+  }
+  return response.json()
+}
+
+// Toggle knowledge base
+async function toggleKnowledgeBase(filePath: string) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'toggleKnowledgeBase', filePath }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to toggle knowledge base')
   }
   return response.json()
 }
@@ -142,23 +156,23 @@ function disconnectFromSSE() {
 }
 
 // Hook to manage settings with SSE and optimistic updates
-export function useSettings(currentPath: string) {
+export function useSettings(currentPath: string, enabled = true) {
   const queryClient = useQueryClient()
 
-  // Global query for all settings
   const { data: globalSettings } = useQuery({
     queryKey: ['settings'],
     queryFn: fetchAllSettings,
     staleTime: Infinity, // Don't auto-refetch, rely on SSE
+    enabled,
   })
 
-  // Set up SSE connection
   useEffect(() => {
+    if (!enabled) return
     connectToSSE(queryClient)
     return () => {
       disconnectFromSSE()
     }
-  }, [queryClient])
+  }, [queryClient, enabled])
 
   // Mutation for view mode with optimistic update
   const viewModeMutation = useMutation({
@@ -174,7 +188,13 @@ export function useSettings(currentPath: string) {
       // Optimistically update
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
-          return { viewModes: { [path]: viewMode }, favorites: [], customIcons: {}, autoSave: {} }
+          return {
+            viewModes: { [path]: viewMode },
+            favorites: [],
+            knowledgeBases: [],
+            customIcons: {},
+            autoSave: {},
+          }
         return {
           ...old,
           viewModes: { ...old.viewModes, [path]: viewMode },
@@ -204,7 +224,14 @@ export function useSettings(currentPath: string) {
       const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
 
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: {}, favorites: [filePath], customIcons: {}, autoSave: {} }
+        if (!old)
+          return {
+            viewModes: {},
+            favorites: [filePath],
+            knowledgeBases: [],
+            customIcons: {},
+            autoSave: {},
+          }
 
         const favorites = [...old.favorites]
         const index = favorites.indexOf(filePath)
@@ -218,6 +245,55 @@ export function useSettings(currentPath: string) {
         return {
           viewModes: old.viewModes,
           favorites,
+          knowledgeBases: old.knowledgeBases || [],
+          customIcons: old.customIcons || {},
+          autoSave: old.autoSave || {},
+        }
+      })
+
+      return { previousSettings }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings'], context.previousSettings)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+
+  // Mutation for toggling knowledge base with optimistic update
+  const knowledgeBaseMutation = useMutation({
+    mutationFn: (filePath: string) => toggleKnowledgeBase(filePath),
+    onMutate: async (filePath) => {
+      await queryClient.cancelQueries({ queryKey: ['settings'] })
+
+      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
+
+      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+        if (!old)
+          return {
+            viewModes: {},
+            favorites: [],
+            knowledgeBases: [filePath],
+            customIcons: {},
+            autoSave: {},
+          }
+
+        const knowledgeBases = [...(old.knowledgeBases || [])]
+        const index = knowledgeBases.indexOf(filePath)
+
+        if (index > -1) {
+          knowledgeBases.splice(index, 1)
+        } else {
+          knowledgeBases.push(filePath)
+        }
+
+        return {
+          viewModes: old.viewModes,
+          favorites: old.favorites || [],
+          knowledgeBases,
           customIcons: old.customIcons || {},
           autoSave: old.autoSave || {},
         }
@@ -246,7 +322,13 @@ export function useSettings(currentPath: string) {
 
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
-          return { viewModes: {}, favorites: [], customIcons: { [path]: iconName }, autoSave: {} }
+          return {
+            viewModes: {},
+            favorites: [],
+            knowledgeBases: [],
+            customIcons: { [path]: iconName },
+            autoSave: {},
+          }
         return {
           ...old,
           customIcons: { ...old.customIcons, [path]: iconName },
@@ -274,7 +356,8 @@ export function useSettings(currentPath: string) {
       const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
 
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
-        if (!old) return { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
+        if (!old)
+          return { viewModes: {}, favorites: [], knowledgeBases: [], customIcons: {}, autoSave: {} }
         const customIcons = { ...old.customIcons }
         delete customIcons[path]
         return { ...old, customIcons }
@@ -313,6 +396,7 @@ export function useSettings(currentPath: string) {
           return {
             viewModes: {},
             favorites: [],
+            knowledgeBases: [],
             customIcons: {},
             autoSave: { [filePath]: { enabled, ...(readOnly !== undefined && { readOnly }) } },
           }
@@ -343,13 +427,15 @@ export function useSettings(currentPath: string) {
   // Extract current path settings from global settings
   const viewMode = globalSettings?.viewModes[currentPath] || 'list'
   const favorites = globalSettings?.favorites || []
+  const knowledgeBases = globalSettings?.knowledgeBases || []
   const customIcons = globalSettings?.customIcons || {}
   const autoSave = globalSettings?.autoSave || {}
 
   return {
-    settings: { viewMode, favorites, customIcons, autoSave },
+    settings: { viewMode, favorites, knowledgeBases, customIcons, autoSave },
     setViewMode: (viewMode: ViewMode) => viewModeMutation.mutate({ path: currentPath, viewMode }),
     toggleFavorite: (filePath: string) => favoriteMutation.mutate(filePath),
+    toggleKnowledgeBase: (filePath: string) => knowledgeBaseMutation.mutate(filePath),
     setCustomIcon: (path: string, iconName: string) => setIconMutation.mutate({ path, iconName }),
     removeCustomIcon: (path: string) => removeIconMutation.mutate(path),
     setAutoSave: (filePath: string, enabled: boolean, readOnly?: boolean) =>

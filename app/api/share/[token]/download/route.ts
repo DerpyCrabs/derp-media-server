@@ -30,7 +30,10 @@ export async function GET(
 
       const headers = new Headers()
       headers.set('Content-Type', 'application/zip')
-      headers.set('Content-Disposition', `attachment; filename="${folderName}.zip"`)
+      headers.set(
+        'Content-Disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(folderName + '.zip')}`,
+      )
       headers.set('Content-Length', zipBuffer.length.toString())
 
       return new Response(zipBuffer as unknown as BodyInit, { headers })
@@ -41,7 +44,10 @@ export async function GET(
 
     const headers = new Headers()
     headers.set('Content-Type', 'application/octet-stream')
-    headers.set('Content-Disposition', `attachment; filename="${fileName}"`)
+    headers.set(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    )
     headers.set('Content-Length', stats.size.toString())
 
     const stream = new ReadableStream({

@@ -2,12 +2,12 @@ import { NextRequest } from 'next/server'
 import { getFilePath } from '@/lib/file-system'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { existsSync, statSync } from 'fs'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import fs from 'fs/promises'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 const CACHE_DIR = path.join(process.cwd(), '.thumbnails')
 
 async function ensureCacheDir() {
@@ -29,7 +29,7 @@ let ffmpegAvailable: boolean | null = null
 async function checkFFmpeg(): Promise<boolean> {
   if (ffmpegAvailable !== null) return ffmpegAvailable
   try {
-    await execAsync('ffmpeg -version')
+    await execFileAsync('ffmpeg', ['-version'])
     ffmpegAvailable = true
   } catch {
     ffmpegAvailable = false
@@ -39,8 +39,19 @@ async function checkFFmpeg(): Promise<boolean> {
 
 async function getVideoDuration(videoPath: string): Promise<number> {
   try {
-    const command = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`
-    const { stdout } = await execAsync(command, { timeout: 5000 })
+    const { stdout } = await execFileAsync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        videoPath,
+      ],
+      { timeout: 5000 },
+    )
     const duration = parseFloat(stdout.trim())
     return isNaN(duration) ? 0 : duration
   } catch {
@@ -56,8 +67,22 @@ async function generateThumbnail(videoPath: string, outputPath: string): Promise
   let startTime = 3.0
   if (duration > 0) startTime = Math.min(duration * 0.05, 3.0)
 
-  const command = `ffmpeg -ss ${startTime} -i "${videoPath}" -vf "thumbnail=n=100,scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`
-  await execAsync(command, { timeout: 15000 })
+  await execFileAsync(
+    'ffmpeg',
+    [
+      '-ss',
+      String(startTime),
+      '-i',
+      videoPath,
+      '-vf',
+      "thumbnail=n=100,scale='min(300,iw)':-1",
+      '-frames:v',
+      '1',
+      outputPath,
+      '-y',
+    ],
+    { timeout: 15000 },
+  )
 }
 
 function createPlaceholderImage(): Buffer {

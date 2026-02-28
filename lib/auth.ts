@@ -6,7 +6,7 @@ import { config } from '@/lib/config'
 const scryptAsync = promisify(scrypt)
 const SALT = 'derp-media-server'
 const KEY_LEN = 64
-const SESSION_COOKIE = 'auth_session'
+export const SESSION_COOKIE = 'auth_session'
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
 
 function signSession(secret: string, payload: string): string {

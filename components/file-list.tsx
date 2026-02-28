@@ -71,6 +71,7 @@ function FileListInner({
     settings,
     setViewMode: updateViewMode,
     toggleFavorite: updateFavorite,
+    toggleKnowledgeBase: updateKnowledgeBase,
     setCustomIcon,
     removeCustomIcon,
     isLoading: settingsLoading,
@@ -79,6 +80,7 @@ function FileListInner({
   // Use server settings from React Query, fallback to initial values
   const viewMode = settings.viewMode || initialViewMode
   const favorites = settings.favorites || initialFavorites
+  const knowledgeBases = settings.knowledgeBases || []
   // Use initialCustomIcons until settings load, then switch to React Query data
   const customIcons = settingsLoading ? initialCustomIcons : settings.customIcons || {}
 
@@ -318,6 +320,11 @@ function FileListInner({
   // Handle context menu action for toggling favorite
   const handleContextToggleFavorite = (file: FileItem) => {
     updateFavorite(file.path)
+  }
+
+  // Handle context menu action for toggling knowledge base
+  const handleContextToggleKnowledgeBase = (file: FileItem) => {
+    updateKnowledgeBase(file.path)
   }
 
   // Handle context menu action for sharing
@@ -591,9 +598,11 @@ function FileListInner({
             onContextDelete={handleContextDelete}
             onContextDownload={handleContextDownload}
             onContextToggleFavorite={handleContextToggleFavorite}
+            onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
             onContextShare={handleContextShare}
             onContextCopyShareLink={handleContextCopyShareLink}
             shares={shares}
+            knowledgeBases={knowledgeBases}
             getViewCount={getViewCount}
             getShareViewCount={getShareViewCount}
             getIcon={getIcon}
@@ -615,9 +624,11 @@ function FileListInner({
             onContextDelete={handleContextDelete}
             onContextDownload={handleContextDownload}
             onContextToggleFavorite={handleContextToggleFavorite}
+            onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
             onContextShare={handleContextShare}
             onContextCopyShareLink={handleContextCopyShareLink}
             shares={shares}
+            knowledgeBases={knowledgeBases}
             getViewCount={getViewCount}
             getShareViewCount={getShareViewCount}
             getIcon={getIcon}
