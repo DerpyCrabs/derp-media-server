@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { renameFileOrDirectory } from '@/lib/file-system'
+import { broadcastFileChange } from '@/lib/file-change-emitter'
+import path from 'path'
 
 export async function POST(
   request: NextRequest,
@@ -30,6 +32,12 @@ export async function POST(
     if (resolvedNew instanceof NextResponse) return resolvedNew
 
     await renameFileOrDirectory(resolvedOld, resolvedNew)
+    const oldParent = path.dirname(resolvedOld).replace(/\\/g, '/')
+    const newParent = path.dirname(resolvedNew).replace(/\\/g, '/')
+    broadcastFileChange(oldParent === '.' ? '' : oldParent)
+    if (newParent !== oldParent) {
+      broadcastFileChange(newParent === '.' ? '' : newParent)
+    }
     return NextResponse.json({ success: true, message: 'Renamed successfully' })
   } catch (error) {
     console.error('Error renaming in share:', error)

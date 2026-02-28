@@ -37,7 +37,7 @@ export function useFiles(currentPath: string, initialData?: FileItem[]) {
   return useQuery({
     queryKey: ['files', currentPath],
     queryFn: () => fetchFiles(currentPath),
-    staleTime: 1000 * 60 * 2, // Consider data fresh for 2 minutes
+    staleTime: 1000 * 30, // Consider data fresh for 30s; SSE events drive invalidation
     gcTime: 1000 * 60 * 10, // Keep in cache for 10 minutes
     initialData: initialData, // Use SSR data if available
     enabled: true, // Always enabled

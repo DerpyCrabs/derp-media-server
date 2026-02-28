@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { renameFileOrDirectory } from '@/lib/file-system'
+import { broadcastFileChange } from '@/lib/file-change-emitter'
+import path from 'path'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,6 +13,12 @@ export async function POST(request: NextRequest) {
     }
 
     await renameFileOrDirectory(oldPath, newPath)
+    const oldParent = path.dirname(oldPath).replace(/\\/g, '/')
+    const newParent = path.dirname(newPath).replace(/\\/g, '/')
+    broadcastFileChange(oldParent === '.' ? '' : oldParent)
+    if (newParent !== oldParent) {
+      broadcastFileChange(newParent === '.' ? '' : newParent)
+    }
     return NextResponse.json({ success: true, message: 'Renamed successfully' })
   } catch (error) {
     console.error('Error renaming:', error)

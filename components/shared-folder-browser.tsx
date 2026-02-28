@@ -23,7 +23,6 @@ import {
   Copy,
   Check,
   Save,
-  RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -40,6 +39,9 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useFileIcon } from '@/lib/use-file-icon'
+import { useFileWatcher } from '@/lib/use-file-watcher'
+import { FileContextMenu } from '@/components/file-context-menu'
+import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
 
 interface ShareInfo {
   token: string
@@ -71,12 +73,12 @@ export function SharedFolderBrowser(props: SharedFolderBrowserProps) {
 function SharedFolderBrowserInner({
   token,
   shareInfo,
-  searchParams: initialParams,
   adminViewMode = 'list',
 }: SharedFolderBrowserProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
+  useFileWatcher()
 
   const currentSubDir = searchParams.get('dir') || ''
   const viewingPath = searchParams.get('viewing')
@@ -202,16 +204,22 @@ function SharedFolderBrowserInner({
       queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
   })
 
+  const [showRenameDialog, setShowRenameDialog] = useState(false)
+  const [renamingItem, setRenamingItem] = useState<FileItem | null>(null)
+  const [renameNewName, setRenameNewName] = useState('')
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deletingItem, setDeletingItem] = useState<FileItem | null>(null)
+
   const renameMutation = useMutation({
     mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
-      const relOld = stripSharePrefix(oldPath)
-      const parts = relOld.split('/')
-      parts[parts.length - 1] = newName
-      const relNew = parts.join('/')
+      const relativeOld = stripSharePrefix(oldPath)
+      const parts = relativeOld.split('/').filter(Boolean)
+      const parentPath = parts.slice(0, -1).join('/')
+      const relativeNew = parentPath ? `${parentPath}/${newName}` : newName
       const res = await fetch(`/api/share/${token}/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath: relOld, newPath: relNew }),
+        body: JSON.stringify({ oldPath: relativeOld, newPath: relativeNew }),
       })
       if (!res.ok) {
         const d = await res.json()
@@ -221,6 +229,25 @@ function SharedFolderBrowserInner({
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
   })
+
+  const renameTargetExists = useMemo(() => {
+    if (!renameNewName.trim() || !renamingItem) return false
+    if (renameMutation.isPending) return false
+    return files.some(
+      (f) => f.path !== renamingItem.path && f.name.toLowerCase() === renameNewName.toLowerCase(),
+    )
+  }, [renameNewName, files, renamingItem, renameMutation.isPending])
+
+  const handleContextRename = useCallback((file: FileItem) => {
+    setRenamingItem(file)
+    setRenameNewName(file.name)
+    setShowRenameDialog(true)
+  }, [])
+
+  const handleContextDelete = useCallback((file: FileItem) => {
+    setDeletingItem(file)
+    setShowDeleteDialog(true)
+  }, [])
 
   const navigate = useCallback(
     (subDir: string) => {
@@ -323,7 +350,6 @@ function SharedFolderBrowserInner({
       )}
       {playingPath && (
         <ShareMediaPlayer
-          token={token}
           filePath={playingPath}
           files={files}
           getMediaUrl={getShareMediaUrl}
@@ -385,18 +411,6 @@ function SharedFolderBrowserInner({
                   </>
                 )}
                 <Button
-                  variant='ghost'
-                  size='icon'
-                  onClick={() =>
-                    queryClient.invalidateQueries({ queryKey: ['share-files', token] })
-                  }
-                  title='Refresh'
-                  className='h-8 w-8'
-                >
-                  <RefreshCw className='h-4 w-4' />
-                </Button>
-                <div className='w-px h-6 bg-border mx-1' />
-                <Button
                   variant={viewMode === 'list' ? 'default' : 'ghost'}
                   size='sm'
                   onClick={() => handleViewModeChange('list')}
@@ -437,61 +451,63 @@ function SharedFolderBrowserInner({
                       <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
                     </TableRow>
                   )}
-                  {files.map((file) => (
-                    <TableRow
-                      key={file.path}
-                      className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''}`}
-                      onClick={() => handleFileClick(file)}
-                    >
-                      <TableCell className='w-12'>
-                        <div className='flex items-center justify-center'>
-                          {getIcon(
-                            file.type,
-                            file.path,
-                            file.type === MediaType.AUDIO,
-                            file.type === MediaType.VIDEO,
-                            file.isVirtual,
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className='font-medium'>
-                        <span className='truncate block'>{file.name}</span>
-                      </TableCell>
-                      <TableCell className='w-48 text-right text-muted-foreground'>
-                        <div className='flex items-center justify-end gap-2'>
-                          {shareInfo.editable && !file.isDirectory && (
+                  {files.map((file) => {
+                    const row = (
+                      <TableRow
+                        key={file.path}
+                        className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''}`}
+                        onClick={() => handleFileClick(file)}
+                      >
+                        <TableCell className='w-12'>
+                          <div className='flex items-center justify-center'>
+                            {getIcon(
+                              file.type,
+                              file.path,
+                              file.type === MediaType.AUDIO,
+                              file.type === MediaType.VIDEO,
+                              file.isVirtual,
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className='font-medium'>
+                          <span className='truncate block'>{file.name}</span>
+                        </TableCell>
+                        <TableCell className='w-48 text-right text-muted-foreground'>
+                          <div className='flex items-center justify-end gap-2'>
                             <Button
                               variant='ghost'
                               size='icon'
-                              className='h-7 w-7 opacity-0 group-hover:opacity-100'
+                              className='h-7 w-7'
                               onClick={(e) => {
                                 e.stopPropagation()
-                                deleteItemMutation.mutate(file.path)
+                                handleDownload(file)
                               }}
-                              title='Delete'
+                              title='Download'
                             >
-                              <X className='h-3.5 w-3.5' />
+                              <Download className='h-3.5 w-3.5' />
                             </Button>
-                          )}
-                          <Button
-                            variant='ghost'
-                            size='icon'
-                            className='h-7 w-7'
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDownload(file)
-                            }}
-                            title='Download'
-                          >
-                            <Download className='h-3.5 w-3.5' />
-                          </Button>
-                          <span className='w-20'>
-                            {file.isDirectory ? '' : formatFileSize(file.size)}
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                            <span className='w-20'>
+                              {file.isDirectory ? '' : formatFileSize(file.size)}
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                    return shareInfo.editable ? (
+                      <FileContextMenu
+                        key={file.path}
+                        file={file}
+                        isEditable
+                        onDownload={handleDownload}
+                        onRename={handleContextRename}
+                        onDelete={handleContextDelete}
+                      >
+                        {row}
+                      </FileContextMenu>
+                    ) : (
+                      row
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -510,55 +526,71 @@ function SharedFolderBrowserInner({
                     </CardContent>
                   </Card>
                 )}
-                {files.map((file) => (
-                  <Card
-                    key={file.path}
-                    className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''}`}
-                    onClick={() => handleFileClick(file)}
-                  >
-                    <CardContent className='p-0 flex flex-col h-full'>
-                      <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
-                        {file.type === MediaType.VIDEO ? (
-                          <img
-                            src={`/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`}
-                            alt={file.name}
-                            className='w-full h-full object-cover rounded-t-lg'
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none'
-                            }}
-                          />
-                        ) : file.type === MediaType.IMAGE ? (
-                          <img
-                            src={getShareMediaUrl(file.path)}
-                            alt={file.name}
-                            className='w-full h-full object-cover rounded-t-lg'
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none'
-                            }}
-                          />
-                        ) : (
-                          <div className='scale-[2.5]'>
-                            {getIcon(
-                              file.type,
-                              file.path,
-                              file.type === MediaType.AUDIO,
-                              false,
-                              file.isVirtual,
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className='p-3 flex flex-col gap-1'>
-                        <p className='text-sm font-medium truncate' title={file.name}>
-                          {file.name}
-                        </p>
-                        <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                          <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                {files.map((file) => {
+                  const card = (
+                    <Card
+                      key={file.path}
+                      className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''}`}
+                      onClick={() => handleFileClick(file)}
+                    >
+                      <CardContent className='p-0 flex flex-col h-full'>
+                        <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
+                          {file.type === MediaType.VIDEO ? (
+                            <img
+                              src={`/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`}
+                              alt={file.name}
+                              className='w-full h-full object-cover rounded-t-lg'
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                              }}
+                            />
+                          ) : file.type === MediaType.IMAGE ? (
+                            <img
+                              src={getShareMediaUrl(file.path)}
+                              alt={file.name}
+                              className='w-full h-full object-cover rounded-t-lg'
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                              }}
+                            />
+                          ) : (
+                            <div className='scale-[2.5]'>
+                              {getIcon(
+                                file.type,
+                                file.path,
+                                file.type === MediaType.AUDIO,
+                                false,
+                                file.isVirtual,
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        <div className='p-3 flex flex-col gap-1'>
+                          <p className='text-sm font-medium truncate' title={file.name}>
+                            {file.name}
+                          </p>
+                          <div className='flex items-center justify-end text-xs text-muted-foreground'>
+                            <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                  return shareInfo.editable ? (
+                    <FileContextMenu
+                      key={file.path}
+                      file={file}
+                      isEditable
+                      onDownload={handleDownload}
+                      onRename={handleContextRename}
+                      onDelete={handleContextDelete}
+                    >
+                      {card}
+                    </FileContextMenu>
+                  ) : (
+                    card
+                  )
+                })}
               </div>
             </div>
           )}
@@ -631,6 +663,64 @@ function SharedFolderBrowserInner({
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Rename Dialog */}
+      <RenameDialog
+        isOpen={showRenameDialog}
+        onOpenChange={setShowRenameDialog}
+        itemName={renamingItem?.name || ''}
+        newName={renameNewName}
+        onNewNameChange={setRenameNewName}
+        onRename={() => {
+          if (renamingItem) {
+            renameMutation.mutate(
+              { oldPath: renamingItem.path, newName: renameNewName },
+              {
+                onSuccess: () => {
+                  setShowRenameDialog(false)
+                  setRenamingItem(null)
+                  setRenameNewName('')
+                  renameMutation.reset()
+                },
+              },
+            )
+          }
+        }}
+        isPending={renameMutation.isPending}
+        error={renameMutation.error}
+        nameExists={renameTargetExists}
+        isDirectory={renamingItem?.isDirectory || false}
+        onReset={() => {
+          setShowRenameDialog(false)
+          setRenamingItem(null)
+          setRenameNewName('')
+          renameMutation.reset()
+        }}
+      />
+
+      {/* Delete Confirm Dialog */}
+      <DeleteConfirmDialog
+        isOpen={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        item={deletingItem}
+        onDelete={() => {
+          if (deletingItem) {
+            deleteItemMutation.mutate(deletingItem.path, {
+              onSuccess: () => {
+                setShowDeleteDialog(false)
+                setDeletingItem(null)
+              },
+            })
+          }
+        }}
+        isPending={deleteItemMutation.isPending}
+        error={deleteItemMutation.error}
+        onReset={() => {
+          setShowDeleteDialog(false)
+          setDeletingItem(null)
+          deleteItemMutation.reset()
+        }}
+      />
     </div>
   )
 }
@@ -666,7 +756,6 @@ function ShareInlineViewer({
         mediaUrl={mediaUrl}
         filePath={filePath}
         imageFiles={imageFiles}
-        getMediaUrl={getMediaUrl}
         onNavigate={onNavigate}
         onClose={onClose}
       />
@@ -707,7 +796,6 @@ function InlineImageViewer({
   mediaUrl,
   filePath,
   imageFiles,
-  getMediaUrl,
   onNavigate,
   onClose,
 }: {
@@ -715,7 +803,6 @@ function InlineImageViewer({
   mediaUrl: string
   filePath: string
   imageFiles: FileItem[]
-  getMediaUrl: (path: string) => string
   onNavigate: (file: FileItem) => void
   onClose: () => void
 }) {
@@ -1043,14 +1130,12 @@ function InlineTextViewer({
 
 // Simple media player for audio/video within shared folders
 function ShareMediaPlayer({
-  token,
   filePath,
   files,
   getMediaUrl,
   onNavigate,
   onClose,
 }: {
-  token: string
   filePath: string
   files: FileItem[]
   getMediaUrl: (path: string) => string
