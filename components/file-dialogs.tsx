@@ -257,6 +257,8 @@ interface DeleteConfirmDialogProps {
   isPending: boolean
   error: Error | null
   onReset: () => void
+  /** When true, show "Revoke Share" instead of "Delete" */
+  isRevokeShare?: boolean
 }
 
 export function DeleteConfirmDialog({
@@ -268,16 +270,26 @@ export function DeleteConfirmDialog({
   isPending,
   error,
   onReset,
+  isRevokeShare = false,
 }: DeleteConfirmDialogProps) {
   return (
     <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {item ? `Delete ${item.isDirectory ? 'Folder' : 'File'}?` : 'Delete Empty Folder?'}
+            {isRevokeShare
+              ? 'Revoke Share?'
+              : item
+                ? `Delete ${item.isDirectory ? 'Folder' : 'File'}?`
+                : 'Delete Empty Folder?'}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {item ? (
+            {isRevokeShare && item ? (
+              <>
+                Are you sure you want to revoke the share link for &ldquo;{item.name}&rdquo;? The
+                link will stop working immediately.
+              </>
+            ) : item ? (
               <>
                 Are you sure you want to delete &ldquo;{item.name}&rdquo;?
                 {item.isDirectory && (
@@ -309,7 +321,13 @@ export function DeleteConfirmDialog({
             disabled={isPending}
             className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
           >
-            {isPending ? 'Deleting...' : 'Delete'}
+            {isPending
+              ? isRevokeShare
+                ? 'Revoking...'
+                : 'Deleting...'
+              : isRevokeShare
+                ? 'Revoke Share'
+                : 'Delete'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

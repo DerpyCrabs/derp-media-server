@@ -3,6 +3,9 @@ import path from 'path'
 import { randomBytes, createHmac, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
 import { config } from '@/lib/config'
+import { getMediaType } from '@/lib/media-utils'
+import type { FileItem } from '@/lib/types'
+import { MediaType } from '@/lib/types'
 
 export interface ShareLink {
   token: string
@@ -105,6 +108,36 @@ export async function deleteShare(token: string): Promise<boolean> {
 export async function getAllShares(): Promise<ShareLink[]> {
   const data = await readShares()
   return data.shares
+}
+
+export async function getSharesAsFileItems(): Promise<FileItem[]> {
+  const shares = await getAllShares()
+  const fileItems: FileItem[] = []
+
+  for (const share of shares) {
+    try {
+      const fullPath = path.join(config.mediaDir, share.path)
+      const stat = await fs.stat(fullPath)
+
+      const fileName = path.basename(share.path)
+      const extension = path.extname(fileName).slice(1).toLowerCase()
+
+      fileItems.push({
+        name: fileName,
+        path: share.path,
+        type: stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension),
+        size: stat.isDirectory() ? 0 : stat.size,
+        extension,
+        isDirectory: share.isDirectory,
+        shareToken: share.token,
+      })
+    } catch {
+      // Skip shares whose files no longer exist
+      continue
+    }
+  }
+
+  return fileItems
 }
 
 export async function getSharesForPath(targetPath: string): Promise<ShareLink[]> {

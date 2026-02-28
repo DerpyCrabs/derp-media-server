@@ -28,7 +28,7 @@ import {
   DeleteConfirmDialog,
 } from '@/components/file-dialogs'
 import { ShareDialog } from '@/components/share-dialog'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ShareLink } from '@/lib/shares'
 
 interface FileListProps {
@@ -100,6 +100,24 @@ function FileListInner({
     renameMutation,
   } = useFileMutations(currentPath)
 
+  const queryClient = useQueryClient()
+
+  // Revoke share mutation (for Shares virtual folder)
+  const revokeShareMutation = useMutation({
+    mutationFn: async (token: string) => {
+      const res = await fetch('/api/shares', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      if (!res.ok) throw new Error('Failed to revoke share')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shares'] })
+      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+    },
+  })
+
   // Fetch shares for indicators
   const { data: sharesData } = useQuery({
     queryKey: ['shares'],
@@ -127,7 +145,9 @@ function FileListInner({
 
   // Check if we're in a virtual folder
   const isVirtualFolder =
-    currentPath === VIRTUAL_FOLDERS.MOST_PLAYED || currentPath === VIRTUAL_FOLDERS.FAVORITES
+    currentPath === VIRTUAL_FOLDERS.MOST_PLAYED ||
+    currentPath === VIRTUAL_FOLDERS.FAVORITES ||
+    currentPath === VIRTUAL_FOLDERS.SHARES
 
   // Check if current directory is editable using client-side utility
   const isEditable = !isVirtualFolder && isPathEditable(currentPath || '', editableFolders)
@@ -306,6 +326,17 @@ function FileListInner({
     setShowShareDialog(true)
   }
 
+  // Handle context menu action for copying share link (in Shares folder)
+  const handleContextCopyShareLink = async (file: FileItem) => {
+    if (!file.shareToken) return
+    const url = `${window.location.origin}/share/${file.shareToken}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      /* ignore */
+    }
+  }
+
   const getShareForPath = (path: string): ShareLink | null => {
     return shares.find((s) => s.path === path) || null
   }
@@ -331,20 +362,34 @@ function FileListInner({
         item={itemToDelete}
         currentFolderName={currentFolderName}
         onDelete={() => {
-          if (itemToDelete) {
+          if (itemToDelete?.shareToken) {
+            revokeShareMutation.mutate(itemToDelete.shareToken, {
+              onSuccess: () => {
+                setShowDeleteConfirm(false)
+                setItemToDelete(null)
+                revokeShareMutation.reset()
+              },
+            })
+          } else if (itemToDelete) {
             deleteItemMutation.mutate(itemToDelete.path)
           } else {
             deleteFolderMutation.mutate()
           }
         }}
-        isPending={deleteFolderMutation.isPending || deleteItemMutation.isPending}
-        error={deleteFolderMutation.error || deleteItemMutation.error}
+        isPending={
+          deleteFolderMutation.isPending ||
+          deleteItemMutation.isPending ||
+          revokeShareMutation.isPending
+        }
+        error={deleteFolderMutation.error || deleteItemMutation.error || revokeShareMutation.error}
         onReset={() => {
           setShowDeleteConfirm(false)
           setItemToDelete(null)
           deleteFolderMutation.reset()
           deleteItemMutation.reset()
+          revokeShareMutation.reset()
         }}
+        isRevokeShare={!!itemToDelete?.shareToken}
       />
 
       {/* Create Folder Dialog */}
@@ -547,6 +592,7 @@ function FileListInner({
             onContextDownload={handleContextDownload}
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
+            onContextCopyShareLink={handleContextCopyShareLink}
             shares={shares}
             getViewCount={getViewCount}
             getShareViewCount={getShareViewCount}
@@ -570,6 +616,7 @@ function FileListInner({
             onContextDownload={handleContextDownload}
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
+            onContextCopyShareLink={handleContextCopyShareLink}
             shares={shares}
             getViewCount={getViewCount}
             getShareViewCount={getShareViewCount}

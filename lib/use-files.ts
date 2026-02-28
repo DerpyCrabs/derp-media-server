@@ -24,6 +24,15 @@ async function fetchFiles(path: string): Promise<FileItem[]> {
     return data.files
   }
 
+  if (path === VIRTUAL_FOLDERS.SHARES) {
+    const response = await fetch('/api/shares/files')
+    if (!response.ok) {
+      throw new Error('Failed to fetch shares')
+    }
+    const data = await response.json()
+    return data.files
+  }
+
   // Handle regular folders
   const response = await fetch(`/api/files?dir=${encodeURIComponent(path)}`)
   if (!response.ok) {
