@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { config as appConfig } from '@/lib/config'
 import { verifySessionValue } from '@/lib/auth'
 
-export const runtime = 'nodejs'
-
 const PUBLIC_PREFIXES = ['/login', '/api/auth/', '/share', '/api/share/', '/api/files/stream']
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   if (!appConfig.auth?.enabled) return NextResponse.next()
 
   const { pathname } = request.nextUrl
