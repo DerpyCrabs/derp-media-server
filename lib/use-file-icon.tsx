@@ -13,6 +13,7 @@ import {
   Play,
   Pause,
   Book,
+  Link,
 } from 'lucide-react'
 
 interface UseFileIconProps {
@@ -85,6 +86,20 @@ export function useFileIcon({
       }
       // Default icon for Favorites
       return <Star className='h-5 w-5 text-blue-500' />
+    }
+
+    // Check for virtual folder (Shares)
+    if (isVirtual && filePath === VIRTUAL_FOLDERS.SHARES) {
+      // Check for custom icon first
+      const customIconName = customIcons[filePath]
+      if (customIconName) {
+        const CustomIcon = getIconComponent(customIconName)
+        if (CustomIcon) {
+          return <CustomIcon className='h-5 w-5 text-blue-500' />
+        }
+      }
+      // Default icon for Shares
+      return <Link className='h-5 w-5 text-blue-500' />
     }
 
     // Check for custom icon first

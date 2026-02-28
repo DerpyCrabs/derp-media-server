@@ -8,7 +8,7 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Pencil, Trash2, Edit3, Download, Star, Link } from 'lucide-react'
+import { Pencil, Trash2, Edit3, Download, Star, Link, Copy } from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
 
@@ -21,6 +21,7 @@ interface FileContextMenuProps {
   onDownload?: (file: FileItem) => void
   onToggleFavorite?: (file: FileItem) => void
   onShare?: (file: FileItem) => void
+  onCopyShareLink?: (file: FileItem) => void
   isFavorite?: boolean
   isEditable?: boolean
   isShared?: boolean
@@ -35,6 +36,7 @@ export function FileContextMenu({
   onDownload,
   onToggleFavorite,
   onShare,
+  onCopyShareLink,
   isFavorite = false,
   isEditable = false,
   isShared = false,
@@ -90,6 +92,12 @@ export function FileContextMenu({
     }
   }
 
+  const handleCopyShareLink = () => {
+    if (onCopyShareLink) {
+      onCopyShareLink(file)
+    }
+  }
+
   // Clone the child element and add the long press handlers
   const childWithHandlers = React.cloneElement(children, longPressHandlers)
 
@@ -115,23 +123,38 @@ export function FileContextMenu({
           <Download className='mr-2 h-4 w-4' />
           Download{file.isDirectory ? ' as ZIP' : ''}
         </ContextMenuItem>
-        {!file.isVirtual && (
+        {file.shareToken && onCopyShareLink && (
+          <ContextMenuItem onClick={handleCopyShareLink}>
+            <Copy className='mr-2 h-4 w-4' />
+            Copy share link
+          </ContextMenuItem>
+        )}
+        {!file.isVirtual && !file.shareToken && (
           <ContextMenuItem onClick={handleShare}>
             <Link className={`mr-2 h-4 w-4 ${isShared ? 'text-primary' : ''}`} />
             {isShared ? 'Manage Share' : 'Share'}
           </ContextMenuItem>
         )}
-        {isEditable && (
+        {(isEditable || file.shareToken) && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={handleRename}>
-              <Edit3 className='mr-2 h-4 w-4' />
-              Rename
-            </ContextMenuItem>
-            <ContextMenuItem onClick={handleDelete} className='text-destructive'>
-              <Trash2 className='mr-2 h-4 w-4' />
-              Delete
-            </ContextMenuItem>
+            {file.shareToken ? (
+              <ContextMenuItem onClick={handleDelete} className='text-destructive'>
+                <Trash2 className='mr-2 h-4 w-4' />
+                Revoke Share
+              </ContextMenuItem>
+            ) : (
+              <>
+                <ContextMenuItem onClick={handleRename}>
+                  <Edit3 className='mr-2 h-4 w-4' />
+                  Rename
+                </ContextMenuItem>
+                <ContextMenuItem onClick={handleDelete} className='text-destructive'>
+                  <Trash2 className='mr-2 h-4 w-4' />
+                  Delete
+                </ContextMenuItem>
+              </>
+            )}
           </>
         )}
       </ContextMenuContent>

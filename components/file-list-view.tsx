@@ -26,6 +26,7 @@ interface FileListViewProps {
   onContextDownload: (file: FileItem) => void
   onContextToggleFavorite: (file: FileItem) => void
   onContextShare: (file: FileItem) => void
+  onContextCopyShareLink?: (file: FileItem) => void
   shares: ShareLink[]
   getViewCount: (path: string) => number
   getShareViewCount: (path: string) => number
@@ -55,6 +56,7 @@ export function FileListView({
   onContextDownload,
   onContextToggleFavorite,
   onContextShare,
+  onContextCopyShareLink,
   shares,
   getViewCount,
   getShareViewCount,
@@ -91,6 +93,18 @@ export function FileListView({
     )
   }
 
+  if (files.length === 0 && currentPath === VIRTUAL_FOLDERS.SHARES) {
+    return (
+      <div className='text-center py-12 text-muted-foreground'>
+        <Link className='h-12 w-12 mx-auto mb-4 opacity-50' />
+        <p>No active shares</p>
+        <p className='text-xs mt-2'>
+          Right-click a file or folder and select Share to create a link
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className='sm:px-4 py-2'>
       <Table>
@@ -116,7 +130,7 @@ export function FileListView({
             const isShared = shares.some((s) => s.path === file.path)
             return (
               <FileContextMenu
-                key={file.path}
+                key={file.shareToken ? `share-${file.shareToken}` : file.path}
                 file={file}
                 onSetIcon={onContextSetIcon}
                 onRename={onContextRename}
@@ -124,6 +138,7 @@ export function FileListView({
                 onDownload={onContextDownload}
                 onToggleFavorite={onContextToggleFavorite}
                 onShare={onContextShare}
+                onCopyShareLink={onContextCopyShareLink}
                 isFavorite={isFavorite}
                 isEditable={isFileEditable}
                 isShared={isShared}

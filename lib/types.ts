@@ -17,6 +17,7 @@ export interface FileItem {
   isDirectory: boolean
   isVirtual?: boolean
   viewCount?: number
+  shareToken?: string
 }
 
 export interface AudioMetadata {

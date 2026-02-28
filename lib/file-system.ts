@@ -102,6 +102,15 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
         isDirectory: true,
         isVirtual: true,
       })
+      fileItems.push({
+        name: 'Shares',
+        path: VIRTUAL_FOLDERS.SHARES,
+        type: MediaType.FOLDER,
+        size: 0,
+        extension: '',
+        isDirectory: true,
+        isVirtual: true,
+      })
     }
 
     for (const entry of entries) {

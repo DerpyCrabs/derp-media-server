@@ -177,7 +177,9 @@ export function Breadcrumbs({
       extension: '',
       isDirectory: true,
       isVirtual:
-        crumb.path === VIRTUAL_FOLDERS.FAVORITES || crumb.path === VIRTUAL_FOLDERS.MOST_PLAYED,
+        crumb.path === VIRTUAL_FOLDERS.FAVORITES ||
+        crumb.path === VIRTUAL_FOLDERS.MOST_PLAYED ||
+        crumb.path === VIRTUAL_FOLDERS.SHARES,
     }
 
     const button = (

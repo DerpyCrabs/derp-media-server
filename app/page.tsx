@@ -148,6 +148,9 @@ export default async function Home({ searchParams }: PageProps) {
       files = await getMostPlayedFiles()
     } else if (currentDir === VIRTUAL_FOLDERS.FAVORITES) {
       files = await getFavoriteFiles()
+    } else if (currentDir === VIRTUAL_FOLDERS.SHARES) {
+      const { getSharesAsFileItems } = await import('@/lib/shares')
+      files = await getSharesAsFileItems()
     } else {
       files = await listDirectory(currentDir)
     }
