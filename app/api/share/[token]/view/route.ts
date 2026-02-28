@@ -3,8 +3,10 @@ import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { config } from '@/lib/config'
+import { Mutex } from '@/lib/mutex'
 
 const STATS_FILE = path.join(process.cwd(), 'stats.json')
+const statsMutex = new Mutex()
 
 export async function POST(
   request: NextRequest,
@@ -28,26 +30,31 @@ export async function POST(
       resolvedPath = share.path
     }
 
-    let allStats: Record<
-      string,
-      { views: Record<string, number>; shareViews: Record<string, number> }
-    > = {}
+    const release = await statsMutex.acquire()
     try {
-      const data = await fs.readFile(STATS_FILE, 'utf-8')
-      allStats = JSON.parse(data)
-    } catch {}
+      let allStats: Record<
+        string,
+        { views: Record<string, number>; shareViews: Record<string, number> }
+      > = {}
+      try {
+        const data = await fs.readFile(STATS_FILE, 'utf-8')
+        allStats = JSON.parse(data)
+      } catch {}
 
-    const mediaDir = config.mediaDir
-    if (!allStats[mediaDir]) {
-      allStats[mediaDir] = { views: {}, shareViews: {} }
-    }
-    if (!allStats[mediaDir].shareViews) {
-      allStats[mediaDir].shareViews = {}
-    }
+      const mediaDir = config.mediaDir
+      if (!allStats[mediaDir]) {
+        allStats[mediaDir] = { views: {}, shareViews: {} }
+      }
+      if (!allStats[mediaDir].shareViews) {
+        allStats[mediaDir].shareViews = {}
+      }
 
-    allStats[mediaDir].shareViews[resolvedPath] =
-      (allStats[mediaDir].shareViews[resolvedPath] || 0) + 1
-    await fs.writeFile(STATS_FILE, JSON.stringify(allStats, null, 2), 'utf-8')
+      allStats[mediaDir].shareViews[resolvedPath] =
+        (allStats[mediaDir].shareViews[resolvedPath] || 0) + 1
+      await fs.writeFile(STATS_FILE, JSON.stringify(allStats, null, 2), 'utf-8')
+    } finally {
+      release()
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

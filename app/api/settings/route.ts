@@ -3,11 +3,14 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import type { AutoSaveSettings } from '@/lib/types'
 import { config } from '@/lib/config'
+import { Mutex } from '@/lib/mutex'
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
+const settingsMutex = new Mutex()
 
 interface Settings {
   viewModes: Record<string, 'list' | 'grid'>
   favorites: string[]
+  knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
 }
@@ -29,13 +32,26 @@ async function readAllSettings(): Promise<SettingsFile> {
 async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
   const mediaDir = config.mediaDir
-  return allSettings[mediaDir] || { viewModes: {}, favorites: [], customIcons: {}, autoSave: {} }
+  return (
+    allSettings[mediaDir] || {
+      viewModes: {},
+      favorites: [],
+      knowledgeBases: [],
+      customIcons: {},
+      autoSave: {},
+    }
+  )
 }
 
 async function writeSettings(settings: Settings): Promise<void> {
-  const allSettings = await readAllSettings()
-  allSettings[config.mediaDir] = settings
-  await fs.writeFile(SETTINGS_FILE, JSON.stringify(allSettings, null, 2), 'utf-8')
+  const release = await settingsMutex.acquire()
+  try {
+    const allSettings = await readAllSettings()
+    allSettings[config.mediaDir] = settings
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(allSettings, null, 2), 'utf-8')
+  } finally {
+    release()
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -52,7 +68,13 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error reading settings:', error)
-    return NextResponse.json({ viewMode: 'list', favorites: [], customIcons: {}, autoSave: {} })
+    return NextResponse.json({
+      viewMode: 'list',
+      favorites: [],
+      knowledgeBases: [],
+      customIcons: {},
+      autoSave: {},
+    })
   }
 }
 
@@ -107,6 +129,35 @@ export async function POST(request: NextRequest) {
         success: true,
         isFavorite: index === -1,
         favorites: settings.favorites,
+      })
+    }
+
+    // Handle knowledge base toggles
+    if ('action' in body && body.action === 'toggleKnowledgeBase') {
+      const { filePath } = body
+
+      if (!filePath) {
+        return NextResponse.json({ error: 'File path is required' }, { status: 400 })
+      }
+
+      const settings = await readSettings()
+      if (!settings.knowledgeBases) {
+        settings.knowledgeBases = []
+      }
+
+      const index = settings.knowledgeBases.indexOf(filePath)
+      if (index > -1) {
+        settings.knowledgeBases.splice(index, 1)
+      } else {
+        settings.knowledgeBases.push(filePath)
+      }
+
+      await writeSettings(settings)
+
+      return NextResponse.json({
+        success: true,
+        isKnowledgeBase: index === -1,
+        knowledgeBases: settings.knowledgeBases,
       })
     }
 

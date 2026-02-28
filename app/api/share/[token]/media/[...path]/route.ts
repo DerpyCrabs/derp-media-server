@@ -3,6 +3,7 @@ import { createReadStream, statSync } from 'fs'
 import { getFilePath } from '@/lib/file-system'
 import { getMimeType } from '@/lib/media-utils'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
+import { getKnowledgeBases, isKnowledgeBaseImagePath } from '@/lib/knowledge-base'
 import path from 'path'
 
 export async function GET(
@@ -17,20 +18,31 @@ export async function GET(
 
     const filePath = pathSegments.join('/')
 
-    // For file shares, the path must match the share path exactly
-    const resolvedPath = share.isDirectory ? resolveSharePath(share, filePath) : share.path
+    let resolvedPath: string | Response
 
-    if (resolvedPath instanceof Response) return resolvedPath
-
-    // For file shares, verify the requested path matches
-    if (!share.isDirectory && filePath !== share.path && filePath !== '.') {
-      return new Response(JSON.stringify({ error: 'Invalid path' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      })
+    if (share.isDirectory) {
+      resolvedPath = resolveSharePath(share, filePath)
+    } else {
+      if (filePath === share.path || filePath === '.') {
+        resolvedPath = share.path
+      } else {
+        resolvedPath = new Response(JSON.stringify({ error: 'Invalid path' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
     }
 
-    const fullPath = getFilePath(resolvedPath)
+    if (resolvedPath instanceof Response) {
+      const knowledgeBases = await getKnowledgeBases()
+      if (isKnowledgeBaseImagePath(filePath, share.path, knowledgeBases)) {
+        resolvedPath = filePath
+      } else {
+        return resolvedPath
+      }
+    }
+
+    const fullPath = getFilePath(resolvedPath as string)
     const stats = statSync(fullPath)
 
     if (!stats.isFile()) {

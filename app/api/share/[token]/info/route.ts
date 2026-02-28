@@ -23,7 +23,7 @@ export async function GET(
 
     return NextResponse.json({
       name,
-      path: share.path,
+      ...(authorized && { path: share.path }),
       isDirectory: share.isDirectory,
       editable: share.editable,
       mediaType,

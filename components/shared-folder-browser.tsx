@@ -20,9 +20,6 @@ import {
   RotateCw,
   Maximize2,
   ExternalLink,
-  Copy,
-  Check,
-  Save,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -42,6 +39,7 @@ import { useFileIcon } from '@/lib/use-file-icon'
 import { useFileWatcher } from '@/lib/use-file-watcher'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
+import { TextViewer } from '@/components/text-viewer'
 
 interface ShareInfo {
   token: string
@@ -767,14 +765,22 @@ function ShareInlineViewer({
   }
 
   if (type === 'text') {
+    const shareFwd = shareInfo.path.replace(/\\/g, '/')
+    const fileFwd = filePath.replace(/\\/g, '/')
+    const relative = fileFwd.startsWith(shareFwd + '/')
+      ? fileFwd.slice(shareFwd.length + 1)
+      : fileFwd
+    const downloadUrl = `/api/share/${token}/download?path=${encodeURIComponent(relative)}`
     return (
-      <InlineTextViewer
-        token={token}
-        shareInfo={shareInfo}
-        filePath={filePath}
-        fileName={fileName}
-        mediaUrl={mediaUrl}
-        onClose={onClose}
+      <TextViewer
+        shareMode={{
+          token,
+          shareInfo,
+          mediaUrl,
+          downloadUrl,
+          filePath,
+          onClose,
+        }}
       />
     )
   }
@@ -989,138 +995,6 @@ function InlinePdfViewer({
               className='w-full h-full'
               title={fileName}
             />
-          </div>
-        </DialogPopup>
-      </DialogPortal>
-    </Dialog>
-  )
-}
-
-function InlineTextViewer({
-  token,
-  shareInfo,
-  filePath,
-  fileName,
-  mediaUrl,
-  onClose,
-}: {
-  token: string
-  shareInfo: ShareInfo
-  filePath: string
-  fileName: string
-  mediaUrl: string
-  onClose: () => void
-}) {
-  const queryClient = useQueryClient()
-  const [isEditing, setIsEditing] = useState(false)
-  const [editContent, setEditContent] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  const {
-    data: content,
-    isLoading,
-    isSuccess,
-  } = useQuery({
-    queryKey: ['share-text', token, filePath],
-    queryFn: async () => {
-      const res = await fetch(mediaUrl)
-      if (!res.ok) throw new Error('Failed to load file')
-      return await res.text()
-    },
-  })
-
-  const ext = filePath.split('.').pop()?.toLowerCase() || ''
-
-  useEffect(() => {
-    if (shareInfo.editable && isSuccess && !isEditing) {
-      setEditContent(content ?? '')
-      setIsEditing(true)
-    }
-  }, [shareInfo.editable, isSuccess, isEditing, content])
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const sharePath = shareInfo.path.replace(/\\/g, '/')
-      const fileFwd = filePath.replace(/\\/g, '/')
-      const relative = fileFwd.startsWith(sharePath + '/')
-        ? fileFwd.slice(sharePath.length + 1)
-        : fileFwd
-      const res = await fetch(`/api/share/${token}/edit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: relative, content: editContent }),
-      })
-      if (!res.ok) throw new Error('Failed to save')
-      queryClient.setQueryData(['share-text', token, filePath], editContent)
-    } catch (err) {
-      console.error('Save error:', err)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(content ?? '')
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogPortal>
-        <DialogOverlay className='bg-background/95 backdrop-blur-sm' />
-        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
-          <span className='sr-only'>
-            <DialogTitle>{fileName}</DialogTitle>
-          </span>
-          <div className='flex items-center justify-between p-4 border-b'>
-            <div>
-              <h2 className='text-lg font-medium truncate max-w-md'>{fileName}</h2>
-              <p className='text-sm text-muted-foreground'>
-                {ext.toUpperCase()} File
-                {content != null ? ` \u2022 ${content.split('\n').length} lines` : ''}
-              </p>
-            </div>
-            <div className='flex items-center gap-2'>
-              {isEditing && (
-                <Button variant='default' size='sm' onClick={handleSave} disabled={saving}>
-                  <Save className='h-4 w-4 mr-2' />
-                  {saving ? 'Saving...' : 'Save'}
-                </Button>
-              )}
-              <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
-                {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
-              </Button>
-              <Button variant='ghost' size='icon' onClick={onClose}>
-                <X className='h-5 w-5' />
-              </Button>
-            </div>
-          </div>
-          <div className='flex-1 overflow-hidden p-4'>
-            {isLoading ? (
-              <div className='flex items-center justify-center h-full'>
-                <p className='text-muted-foreground'>Loading...</p>
-              </div>
-            ) : isEditing ? (
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className='w-full h-full font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
-                spellCheck={false}
-              />
-            ) : (
-              <div className='w-full h-full p-4 bg-background border rounded-lg overflow-auto'>
-                <pre className='font-mono text-sm whitespace-pre-wrap wrap-break-word'>
-                  {content ?? ''}
-                </pre>
-              </div>
-            )}
           </div>
         </DialogPopup>
       </DialogPortal>
