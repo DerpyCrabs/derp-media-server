@@ -452,6 +452,15 @@ function FileListInner({
             onNavigate={handleBreadcrumbClick}
             onFolderHover={handleFolderHover}
             customIcons={customIcons}
+            onContextSetIcon={handleContextSetIcon}
+            onContextRename={handleContextRename}
+            onContextDelete={handleContextDelete}
+            onContextDownload={handleContextDownload}
+            onContextToggleFavorite={handleContextToggleFavorite}
+            onContextShare={handleContextShare}
+            favorites={favorites}
+            editableFolders={editableFolders}
+            shares={shares}
           />
           <div className='flex gap-1 items-center'>
             {isEditable && (

@@ -4,12 +4,26 @@ import { Button } from '@/components/ui/button'
 import { ChevronRight, Home, MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, useMemo, Fragment } from 'react'
 import { getIconComponent } from '@/lib/icon-utils'
+import { FileContextMenu } from '@/components/file-context-menu'
+import { FileItem, MediaType } from '@/lib/types'
+import { isPathEditable } from '@/lib/utils'
+import { VIRTUAL_FOLDERS } from '@/lib/constants'
+import type { ShareLink } from '@/lib/shares'
 
 interface BreadcrumbsProps {
   currentPath: string
   onNavigate: (path: string) => void
   onFolderHover: (path: string) => void
   customIcons?: Record<string, string>
+  onContextSetIcon?: (file: FileItem) => void
+  onContextRename?: (file: FileItem) => void
+  onContextDelete?: (file: FileItem) => void
+  onContextDownload?: (file: FileItem) => void
+  onContextToggleFavorite?: (file: FileItem) => void
+  onContextShare?: (file: FileItem) => void
+  favorites?: string[]
+  editableFolders?: string[]
+  shares?: ShareLink[]
 }
 
 export function Breadcrumbs({
@@ -17,7 +31,17 @@ export function Breadcrumbs({
   onNavigate,
   onFolderHover,
   customIcons = {},
+  onContextSetIcon,
+  onContextRename,
+  onContextDelete,
+  onContextDownload,
+  onContextToggleFavorite,
+  onContextShare,
+  favorites = [],
+  editableFolders = [],
+  shares = [],
 }: BreadcrumbsProps) {
+  const hasContextMenu = Boolean(onContextSetIcon)
   // Build breadcrumb path
   const breadcrumbs = useMemo(() => {
     const pathParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
@@ -145,6 +169,54 @@ export function Breadcrumbs({
     const customIconName = customIcons[crumb.path]
     const CustomIcon = customIconName ? getIconComponent(customIconName) : null
 
+    const folderItem: FileItem = {
+      name: crumb.name,
+      path: crumb.path,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual:
+        crumb.path === VIRTUAL_FOLDERS.FAVORITES || crumb.path === VIRTUAL_FOLDERS.MOST_PLAYED,
+    }
+
+    const button = (
+      <Button
+        variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
+        size='sm'
+        onClick={() => onNavigate(crumb.path)}
+        onMouseEnter={() => onFolderHover(crumb.path)}
+        className='gap-1.5 text-sm h-8 px-2.5'
+        disabled={!isVisible}
+      >
+        {CustomIcon ? (
+          <CustomIcon className='h-4 w-4' />
+        ) : (
+          index === 0 && <Home className='h-4 w-4' />
+        )}
+        {crumb.name}
+      </Button>
+    )
+
+    const crumbContent = hasContextMenu ? (
+      <FileContextMenu
+        file={folderItem}
+        onSetIcon={onContextSetIcon!}
+        onRename={onContextRename}
+        onDelete={onContextDelete}
+        onDownload={onContextDownload}
+        onToggleFavorite={onContextToggleFavorite}
+        onShare={onContextShare}
+        isFavorite={favorites.includes(crumb.path)}
+        isEditable={isPathEditable(crumb.path, editableFolders)}
+        isShared={shares.some((s) => s.path === crumb.path)}
+      >
+        {button}
+      </FileContextMenu>
+    ) : (
+      button
+    )
+
     return (
       <div
         key={crumb.path}
@@ -156,21 +228,7 @@ export function Breadcrumbs({
         }
       >
         {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
-        <Button
-          variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
-          size='sm'
-          onClick={() => onNavigate(crumb.path)}
-          onMouseEnter={() => onFolderHover(crumb.path)}
-          className='gap-1.5 text-sm h-8 px-2.5'
-          disabled={!isVisible}
-        >
-          {CustomIcon ? (
-            <CustomIcon className='h-4 w-4' />
-          ) : (
-            index === 0 && <Home className='h-4 w-4' />
-          )}
-          {crumb.name}
-        </Button>
+        {crumbContent}
       </div>
     )
   }
