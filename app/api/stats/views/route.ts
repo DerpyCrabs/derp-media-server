@@ -6,6 +6,7 @@ const STATS_FILE = path.join(process.cwd(), 'stats.json')
 
 interface ViewStats {
   views: Record<string, number>
+  shareViews: Record<string, number>
 }
 
 interface StatsFile {
@@ -25,7 +26,7 @@ async function readAllStats(): Promise<StatsFile> {
 async function readStats(): Promise<ViewStats> {
   const allStats = await readAllStats()
   const mediaDir = config.mediaDir
-  return allStats[mediaDir] || { views: {} }
+  return allStats[mediaDir] || { views: {}, shareViews: {} }
 }
 
 async function writeStats(stats: ViewStats): Promise<void> {
@@ -38,10 +39,10 @@ async function writeStats(stats: ViewStats): Promise<void> {
 export async function GET() {
   try {
     const stats = await readStats()
-    return NextResponse.json({ views: stats.views || {} })
+    return NextResponse.json({ views: stats.views || {}, shareViews: stats.shareViews || {} })
   } catch (error) {
     console.error('Error reading stats:', error)
-    return NextResponse.json({ views: {} })
+    return NextResponse.json({ views: {}, shareViews: {} })
   }
 }
 

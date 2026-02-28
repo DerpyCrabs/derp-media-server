@@ -35,3 +35,5 @@ export interface AutoSaveSettings {
   enabled: boolean
   readOnly?: boolean
 }
+
+export type { ShareLink } from './shares'

@@ -8,7 +8,7 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Pencil, Trash2, Edit3, Download, Star } from 'lucide-react'
+import { Pencil, Trash2, Edit3, Download, Star, Link } from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
 
@@ -20,8 +20,10 @@ interface FileContextMenuProps {
   onDelete?: (file: FileItem) => void
   onDownload?: (file: FileItem) => void
   onToggleFavorite?: (file: FileItem) => void
+  onShare?: (file: FileItem) => void
   isFavorite?: boolean
   isEditable?: boolean
+  isShared?: boolean
 }
 
 export function FileContextMenu({
@@ -32,8 +34,10 @@ export function FileContextMenu({
   onDelete,
   onDownload,
   onToggleFavorite,
+  onShare,
   isFavorite = false,
   isEditable = false,
+  isShared = false,
 }: FileContextMenuProps) {
   // Handle long press for touch devices to trigger context menu
   const longPressHandlers = useLongPress({
@@ -80,6 +84,12 @@ export function FileContextMenu({
     }
   }
 
+  const handleShare = () => {
+    if (onShare) {
+      onShare(file)
+    }
+  }
+
   // Clone the child element and add the long press handlers
   const childWithHandlers = React.cloneElement(children, longPressHandlers)
 
@@ -87,30 +97,36 @@ export function FileContextMenu({
     <ContextMenu>
       <ContextMenuTrigger render={childWithHandlers} />
       <ContextMenuContent>
-        <ContextMenuItem onSelect={handleSetIcon}>
+        <ContextMenuItem onClick={handleSetIcon}>
           <Pencil className='mr-2 h-4 w-4' />
           Set icon
         </ContextMenuItem>
         {file.isDirectory && (
-          <ContextMenuItem onSelect={handleToggleFavorite}>
+          <ContextMenuItem onClick={handleToggleFavorite}>
             <Star
               className={`mr-2 h-4 w-4 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : ''}`}
             />
             {isFavorite ? 'Unfavorite' : 'Favorite'}
           </ContextMenuItem>
         )}
-        <ContextMenuItem onSelect={handleDownload}>
+        <ContextMenuItem onClick={handleDownload}>
           <Download className='mr-2 h-4 w-4' />
           Download{file.isDirectory ? ' as ZIP' : ''}
         </ContextMenuItem>
+        {!file.isVirtual && (
+          <ContextMenuItem onClick={handleShare}>
+            <Link className={`mr-2 h-4 w-4 ${isShared ? 'text-primary' : ''}`} />
+            {isShared ? 'Manage Share' : 'Share'}
+          </ContextMenuItem>
+        )}
         {isEditable && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem onSelect={handleRename}>
+            <ContextMenuItem onClick={handleRename}>
               <Edit3 className='mr-2 h-4 w-4' />
               Rename
             </ContextMenuItem>
-            <ContextMenuItem onSelect={handleDelete} className='text-destructive'>
+            <ContextMenuItem onClick={handleDelete} className='text-destructive'>
               <Trash2 className='mr-2 h-4 w-4' />
               Delete
             </ContextMenuItem>

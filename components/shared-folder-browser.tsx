@@ -1,0 +1,1136 @@
+'use client'
+
+import { Suspense, useState, useEffect, useMemo, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { FileItem, MediaType } from '@/lib/types'
+import { formatFileSize, getMediaType } from '@/lib/media-utils'
+import {
+  FolderPlus,
+  FilePlus,
+  List,
+  LayoutGrid,
+  ArrowUp,
+  Download,
+  ChevronRight,
+  Folder,
+  X,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  Maximize2,
+  ExternalLink,
+  Copy,
+  Check,
+  Save,
+  RefreshCw,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
+import {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogPopup,
+  DialogTitle,
+  DialogContent,
+  DialogHeader,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { useFileIcon } from '@/lib/use-file-icon'
+
+interface ShareInfo {
+  token: string
+  name: string
+  path: string
+  isDirectory: boolean
+  editable: boolean
+  mediaType: string
+  extension: string
+}
+
+interface SharedFolderBrowserProps {
+  token: string
+  shareInfo: ShareInfo
+  searchParams: { dir?: string; viewing?: string; playing?: string }
+  adminViewMode?: 'list' | 'grid'
+}
+
+export function SharedFolderBrowser(props: SharedFolderBrowserProps) {
+  return (
+    <Suspense
+      fallback={<div className='flex items-center justify-center h-screen'>Loading...</div>}
+    >
+      <SharedFolderBrowserInner {...props} />
+    </Suspense>
+  )
+}
+
+function SharedFolderBrowserInner({
+  token,
+  shareInfo,
+  searchParams: initialParams,
+  adminViewMode = 'list',
+}: SharedFolderBrowserProps) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
+
+  const currentSubDir = searchParams.get('dir') || ''
+  const viewingPath = searchParams.get('viewing')
+  const playingPath = searchParams.get('playing')
+
+  const storageKey = `share-viewmode-${token}`
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(storageKey)
+      if (saved === 'list' || saved === 'grid') return saved
+    }
+    return adminViewMode
+  })
+
+  const handleViewModeChange = useCallback(
+    (mode: 'list' | 'grid') => {
+      setViewMode(mode)
+      try {
+        localStorage.setItem(storageKey, mode)
+      } catch {}
+    },
+    [storageKey],
+  )
+  const [showCreateFolder, setShowCreateFolder] = useState(false)
+  const [showCreateFile, setShowCreateFile] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
+
+  const { getIcon } = useFileIcon({
+    customIcons: {},
+    playingPath,
+    currentFile: null,
+    mediaPlayerIsPlaying: false,
+    mediaType: null,
+  })
+
+  const stripSharePrefix = useCallback(
+    (filePath: string) => {
+      const sharePath = shareInfo.path.replace(/\\/g, '/')
+      const fwd = filePath.replace(/\\/g, '/')
+      return fwd.startsWith(sharePath + '/') ? fwd.slice(sharePath.length + 1) : fwd
+    },
+    [shareInfo.path],
+  )
+
+  const encodePathForUrl = useCallback(
+    (filePath: string) => {
+      return stripSharePrefix(filePath).split('/').map(encodeURIComponent).join('/')
+    },
+    [stripSharePrefix],
+  )
+
+  const getShareMediaUrl = useCallback(
+    (filePath: string) => {
+      return `/api/share/${token}/media/${encodePathForUrl(filePath)}`
+    },
+    [token, encodePathForUrl],
+  )
+
+  const { data: files = [], isLoading } = useQuery({
+    queryKey: ['share-files', token, currentSubDir],
+    queryFn: async () => {
+      const res = await fetch(`/api/share/${token}/files?dir=${encodeURIComponent(currentSubDir)}`)
+      if (!res.ok) throw new Error('Failed to load files')
+      const data = await res.json()
+      return data.files as FileItem[]
+    },
+  })
+
+  const createFolderMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const subPath = currentSubDir ? `${currentSubDir}/${name}` : name
+      const res = await fetch(`/api/share/${token}/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'folder', path: subPath }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || 'Failed to create folder')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] })
+      setShowCreateFolder(false)
+      setNewItemName('')
+    },
+  })
+
+  const createFileMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const fileName = name.includes('.') ? name : `${name}.txt`
+      const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
+      const res = await fetch(`/api/share/${token}/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'file', path: subPath, content: '' }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || 'Failed to create file')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] })
+      setShowCreateFile(false)
+      setNewItemName('')
+    },
+  })
+
+  const deleteItemMutation = useMutation({
+    mutationFn: async (filePath: string) => {
+      const res = await fetch(`/api/share/${token}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: stripSharePrefix(filePath) }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || 'Failed to delete')
+      }
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+  })
+
+  const renameMutation = useMutation({
+    mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
+      const relOld = stripSharePrefix(oldPath)
+      const parts = relOld.split('/')
+      parts[parts.length - 1] = newName
+      const relNew = parts.join('/')
+      const res = await fetch(`/api/share/${token}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPath: relOld, newPath: relNew }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || 'Failed to rename')
+      }
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+  })
+
+  const navigate = useCallback(
+    (subDir: string) => {
+      const params = new URLSearchParams(searchParams)
+      params.delete('viewing')
+      params.delete('playing')
+      if (subDir) params.set('dir', subDir)
+      else params.delete('dir')
+      router.push(`/share/${token}?${params.toString()}`, { scroll: false })
+    },
+    [router, token, searchParams],
+  )
+
+  const trackShareView = useCallback(
+    (filePath: string) => {
+      fetch(`/api/share/${token}/view`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: stripSharePrefix(filePath) }),
+      }).catch(() => {})
+    },
+    [token, stripSharePrefix],
+  )
+
+  const handleFileClick = useCallback(
+    (file: FileItem) => {
+      if (file.isDirectory) {
+        navigate(stripSharePrefix(file.path))
+      } else {
+        trackShareView(file.path)
+        const params = new URLSearchParams(searchParams)
+        const ext = file.path.split('.').pop()?.toLowerCase() || ''
+        const type = getMediaType(ext)
+        const isMedia = type === 'audio' || type === 'video'
+        if (isMedia) {
+          params.set('playing', file.path)
+          params.delete('viewing')
+        } else {
+          params.set('viewing', file.path)
+          params.delete('playing')
+        }
+        router.replace(`/share/${token}?${params.toString()}`, { scroll: false })
+      }
+    },
+    [stripSharePrefix, navigate, searchParams, router, token, trackShareView],
+  )
+
+  const handleParentDirectory = useCallback(() => {
+    if (!currentSubDir) return
+    const parts = currentSubDir.split('/').filter(Boolean)
+    if (parts.length <= 1) {
+      navigate('')
+    } else {
+      navigate(parts.slice(0, -1).join('/'))
+    }
+  }, [currentSubDir, navigate])
+
+  const handleDownload = useCallback(
+    (file: FileItem) => {
+      const a = document.createElement('a')
+      a.href = `/api/share/${token}/download?path=${encodeURIComponent(stripSharePrefix(file.path))}`
+      a.download = file.name
+      a.click()
+    },
+    [token, stripSharePrefix],
+  )
+
+  const closeViewer = useCallback(() => {
+    const params = new URLSearchParams(searchParams)
+    params.delete('viewing')
+    params.delete('playing')
+    router.replace(`/share/${token}?${params.toString()}`, { scroll: false })
+  }, [searchParams, router, token])
+
+  // Build breadcrumbs relative to share root
+  const breadcrumbs = useMemo(() => {
+    const parts = currentSubDir ? currentSubDir.split('/').filter(Boolean) : []
+    return [
+      { name: shareInfo.name, path: '' },
+      ...parts.map((part, i) => ({
+        name: part,
+        path: parts.slice(0, i + 1).join('/'),
+      })),
+    ]
+  }, [currentSubDir, shareInfo.name])
+
+  return (
+    <div className='min-h-screen flex flex-col'>
+      {/* Viewers for playing/viewing files */}
+      {viewingPath && (
+        <ShareInlineViewer
+          token={token}
+          shareInfo={shareInfo}
+          filePath={viewingPath}
+          files={files}
+          getMediaUrl={getShareMediaUrl}
+          onNavigate={handleFileClick}
+          onClose={closeViewer}
+        />
+      )}
+      {playingPath && (
+        <ShareMediaPlayer
+          token={token}
+          filePath={playingPath}
+          files={files}
+          getMediaUrl={getShareMediaUrl}
+          onNavigate={handleFileClick}
+          onClose={closeViewer}
+        />
+      )}
+
+      <div className='container mx-auto lg:p-4 flex flex-col flex-1'>
+        <Card className='py-0 rounded-none lg:rounded-xl flex-1'>
+          {/* Toolbar */}
+          <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
+            <div className='flex items-center justify-between gap-1.5 lg:gap-2'>
+              {/* Breadcrumbs */}
+              <div className='flex items-center gap-1 lg:gap-2 flex-wrap min-w-0 flex-1'>
+                {breadcrumbs.map((crumb, index) => (
+                  <div key={crumb.path} className='flex items-center gap-2'>
+                    {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
+                    <Button
+                      variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
+                      size='sm'
+                      onClick={() => navigate(crumb.path)}
+                      className='gap-1.5 text-sm h-8 px-2.5'
+                    >
+                      {index === 0 && <Folder className='h-4 w-4' />}
+                      {crumb.name}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className='flex gap-1 items-center'>
+                {shareInfo.editable && (
+                  <>
+                    <Button
+                      variant='outline'
+                      size='icon'
+                      onClick={() => {
+                        setNewItemName('')
+                        setShowCreateFolder(true)
+                      }}
+                      title='Create new folder'
+                      className='h-8 w-8'
+                    >
+                      <FolderPlus className='h-4 w-4' />
+                    </Button>
+                    <Button
+                      variant='outline'
+                      size='icon'
+                      onClick={() => {
+                        setNewItemName('')
+                        setShowCreateFile(true)
+                      }}
+                      title='Create new file'
+                      className='h-8 w-8'
+                    >
+                      <FilePlus className='h-4 w-4' />
+                    </Button>
+                    <div className='w-px h-6 bg-border mx-1' />
+                  </>
+                )}
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={() =>
+                    queryClient.invalidateQueries({ queryKey: ['share-files', token] })
+                  }
+                  title='Refresh'
+                  className='h-8 w-8'
+                >
+                  <RefreshCw className='h-4 w-4' />
+                </Button>
+                <div className='w-px h-6 bg-border mx-1' />
+                <Button
+                  variant={viewMode === 'list' ? 'default' : 'ghost'}
+                  size='sm'
+                  onClick={() => handleViewModeChange('list')}
+                  className='h-8 w-8 p-0'
+                >
+                  <List className='h-4 w-4' />
+                </Button>
+                <Button
+                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                  size='sm'
+                  onClick={() => handleViewModeChange('grid')}
+                  className='h-8 w-8 p-0'
+                >
+                  <LayoutGrid className='h-4 w-4' />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* File list */}
+          {isLoading ? (
+            <div className='flex items-center justify-center py-12 text-muted-foreground'>
+              Loading...
+            </div>
+          ) : viewMode === 'list' ? (
+            <div className='sm:px-4 py-2'>
+              <Table>
+                <TableBody>
+                  {currentSubDir && (
+                    <TableRow
+                      className='cursor-pointer hover:bg-muted/50 select-none'
+                      onClick={handleParentDirectory}
+                    >
+                      <TableCell className='w-12'>
+                        <ArrowUp className='h-5 w-5 text-muted-foreground' />
+                      </TableCell>
+                      <TableCell className='font-medium'>..</TableCell>
+                      <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
+                    </TableRow>
+                  )}
+                  {files.map((file) => (
+                    <TableRow
+                      key={file.path}
+                      className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''}`}
+                      onClick={() => handleFileClick(file)}
+                    >
+                      <TableCell className='w-12'>
+                        <div className='flex items-center justify-center'>
+                          {getIcon(
+                            file.type,
+                            file.path,
+                            file.type === MediaType.AUDIO,
+                            file.type === MediaType.VIDEO,
+                            file.isVirtual,
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className='font-medium'>
+                        <span className='truncate block'>{file.name}</span>
+                      </TableCell>
+                      <TableCell className='w-48 text-right text-muted-foreground'>
+                        <div className='flex items-center justify-end gap-2'>
+                          {shareInfo.editable && !file.isDirectory && (
+                            <Button
+                              variant='ghost'
+                              size='icon'
+                              className='h-7 w-7 opacity-0 group-hover:opacity-100'
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                deleteItemMutation.mutate(file.path)
+                              }}
+                              title='Delete'
+                            >
+                              <X className='h-3.5 w-3.5' />
+                            </Button>
+                          )}
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            className='h-7 w-7'
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDownload(file)
+                            }}
+                            title='Download'
+                          >
+                            <Download className='h-3.5 w-3.5' />
+                          </Button>
+                          <span className='w-20'>
+                            {file.isDirectory ? '' : formatFileSize(file.size)}
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className='py-4 px-4'>
+              <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+                {currentSubDir && (
+                  <Card
+                    className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
+                    onClick={handleParentDirectory}
+                  >
+                    <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
+                      <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
+                      <p className='text-sm font-medium text-center'>..</p>
+                      <p className='text-xs text-muted-foreground text-center'>Parent Folder</p>
+                    </CardContent>
+                  </Card>
+                )}
+                {files.map((file) => (
+                  <Card
+                    key={file.path}
+                    className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''}`}
+                    onClick={() => handleFileClick(file)}
+                  >
+                    <CardContent className='p-0 flex flex-col h-full'>
+                      <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
+                        {file.type === MediaType.VIDEO ? (
+                          <img
+                            src={`/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`}
+                            alt={file.name}
+                            className='w-full h-full object-cover rounded-t-lg'
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
+                        ) : file.type === MediaType.IMAGE ? (
+                          <img
+                            src={getShareMediaUrl(file.path)}
+                            alt={file.name}
+                            className='w-full h-full object-cover rounded-t-lg'
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div className='scale-[2.5]'>
+                            {getIcon(
+                              file.type,
+                              file.path,
+                              file.type === MediaType.AUDIO,
+                              false,
+                              file.isVirtual,
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className='p-3 flex flex-col gap-1'>
+                        <p className='text-sm font-medium truncate' title={file.name}>
+                          {file.name}
+                        </p>
+                        <div className='flex items-center justify-end text-xs text-muted-foreground'>
+                          <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Create Folder Dialog */}
+      <Dialog open={showCreateFolder} onOpenChange={setShowCreateFolder}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Folder</DialogTitle>
+            <DialogDescription>Enter a name for the new folder</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              createFolderMutation.mutate(newItemName)
+            }}
+            className='space-y-4'
+          >
+            <Input
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              placeholder='Folder name'
+              autoFocus
+            />
+            <div className='flex justify-end gap-2'>
+              <Button variant='outline' type='button' onClick={() => setShowCreateFolder(false)}>
+                Cancel
+              </Button>
+              <Button
+                type='submit'
+                disabled={!newItemName.trim() || createFolderMutation.isPending}
+              >
+                {createFolderMutation.isPending ? 'Creating...' : 'Create'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create File Dialog */}
+      <Dialog open={showCreateFile} onOpenChange={setShowCreateFile}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create File</DialogTitle>
+            <DialogDescription>Enter a name for the new file</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              createFileMutation.mutate(newItemName)
+            }}
+            className='space-y-4'
+          >
+            <Input
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              placeholder='filename.txt'
+              autoFocus
+            />
+            <div className='flex justify-end gap-2'>
+              <Button variant='outline' type='button' onClick={() => setShowCreateFile(false)}>
+                Cancel
+              </Button>
+              <Button type='submit' disabled={!newItemName.trim() || createFileMutation.isPending}>
+                {createFileMutation.isPending ? 'Creating...' : 'Create'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// Inline viewer for text/images/PDFs within the shared folder
+function ShareInlineViewer({
+  token,
+  shareInfo,
+  filePath,
+  files,
+  getMediaUrl,
+  onNavigate,
+  onClose,
+}: {
+  token: string
+  shareInfo: ShareInfo
+  filePath: string
+  files: FileItem[]
+  getMediaUrl: (path: string) => string
+  onNavigate: (file: FileItem) => void
+  onClose: () => void
+}) {
+  const ext = filePath.split('.').pop()?.toLowerCase() || ''
+  const type = getMediaType(ext)
+  const fileName = filePath.split(/[/\\]/).pop() || ''
+  const mediaUrl = getMediaUrl(filePath)
+
+  if (type === 'image') {
+    const imageFiles = files.filter((f) => !f.isDirectory && getMediaType(f.extension) === 'image')
+    return (
+      <InlineImageViewer
+        fileName={fileName}
+        mediaUrl={mediaUrl}
+        filePath={filePath}
+        imageFiles={imageFiles}
+        getMediaUrl={getMediaUrl}
+        onNavigate={onNavigate}
+        onClose={onClose}
+      />
+    )
+  }
+
+  if (type === 'pdf') {
+    return <InlinePdfViewer fileName={fileName} mediaUrl={mediaUrl} onClose={onClose} />
+  }
+
+  if (type === 'text') {
+    return (
+      <InlineTextViewer
+        token={token}
+        shareInfo={shareInfo}
+        filePath={filePath}
+        fileName={fileName}
+        mediaUrl={mediaUrl}
+        onClose={onClose}
+      />
+    )
+  }
+
+  // For other types, just trigger download
+  const a = document.createElement('a')
+  const shareFwd = shareInfo.path.replace(/\\/g, '/')
+  const fileFwd = filePath.replace(/\\/g, '/')
+  const relative = fileFwd.startsWith(shareFwd + '/') ? fileFwd.slice(shareFwd.length + 1) : fileFwd
+  a.href = `/api/share/${token}/download?path=${encodeURIComponent(relative)}`
+  a.download = fileName
+  a.click()
+  onClose()
+  return null
+}
+
+function InlineImageViewer({
+  fileName,
+  mediaUrl,
+  filePath,
+  imageFiles,
+  getMediaUrl,
+  onNavigate,
+  onClose,
+}: {
+  fileName: string
+  mediaUrl: string
+  filePath: string
+  imageFiles: FileItem[]
+  getMediaUrl: (path: string) => string
+  onNavigate: (file: FileItem) => void
+  onClose: () => void
+}) {
+  const [zoom, setZoom] = useState<number | 'fit'>('fit')
+  const [rotation, setRotation] = useState(0)
+
+  const currentIndex = imageFiles.findIndex((f) => f.path === filePath)
+  const hasPrev = currentIndex > 0
+  const hasNext = currentIndex < imageFiles.length - 1
+
+  const goNext = useCallback(() => {
+    if (!hasNext) return
+    setZoom('fit')
+    setRotation(0)
+    onNavigate(imageFiles[currentIndex + 1])
+  }, [hasNext, currentIndex, imageFiles, onNavigate])
+
+  const goPrev = useCallback(() => {
+    if (!hasPrev) return
+    setZoom('fit')
+    setRotation(0)
+    onNavigate(imageFiles[currentIndex - 1])
+  }, [hasPrev, currentIndex, imageFiles, onNavigate])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        goPrev()
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        goNext()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [goNext, goPrev])
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogPortal>
+        <DialogOverlay className='bg-black/95' />
+        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
+          <span className='sr-only'>
+            <DialogTitle>{fileName}</DialogTitle>
+          </span>
+          <div className='flex items-center justify-between p-4 bg-black/50 backdrop-blur-sm'>
+            <h2 className='text-white text-lg font-medium truncate flex-1'>{fileName}</h2>
+            {imageFiles.length > 1 && (
+              <span className='text-white text-sm shrink-0 px-4'>
+                {currentIndex + 1} of {imageFiles.length}
+              </span>
+            )}
+            <div className='flex items-center gap-2'>
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={() => setZoom((z) => Math.max((z === 'fit' ? 100 : z) - 25, 25))}
+                className='text-white hover:bg-white/10'
+              >
+                <ZoomOut className='h-5 w-5' />
+              </Button>
+              <span className='text-white text-sm min-w-16 text-center'>
+                {zoom === 'fit' ? 'Fit' : `${zoom}%`}
+              </span>
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={() => setZoom((z) => Math.min((z === 'fit' ? 100 : z) + 25, 400))}
+                className='text-white hover:bg-white/10'
+              >
+                <ZoomIn className='h-5 w-5' />
+              </Button>
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={() => {
+                  setZoom('fit')
+                  setRotation(0)
+                }}
+                className='text-white hover:bg-white/10'
+              >
+                <Maximize2 className='h-5 w-5' />
+              </Button>
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={() => setRotation((r) => (r + 90) % 360)}
+                className='text-white hover:bg-white/10'
+              >
+                <RotateCw className='h-5 w-5' />
+              </Button>
+              <div className='w-px h-6 bg-white/20 mx-2' />
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={onClose}
+                className='text-white hover:bg-white/10'
+              >
+                <X className='h-5 w-5' />
+              </Button>
+            </div>
+          </div>
+          <div className='flex-1 flex items-center justify-center overflow-auto p-4 relative'>
+            {hasPrev && (
+              <div
+                className='absolute left-0 top-0 bottom-0 w-[30%] cursor-pointer z-10'
+                onClick={goPrev}
+              />
+            )}
+            {hasNext && (
+              <div
+                className='absolute right-0 top-0 bottom-0 w-[30%] cursor-pointer z-10'
+                onClick={goNext}
+              />
+            )}
+            <img
+              src={mediaUrl}
+              alt={fileName}
+              className='transition-transform duration-200 pointer-events-none'
+              style={{
+                ...(zoom === 'fit'
+                  ? { width: '100%', height: '100%', objectFit: 'contain' as const }
+                  : {
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      width: 'auto',
+                      height: 'auto',
+                      objectFit: 'none' as const,
+                    }),
+                transform: `scale(${zoom === 'fit' ? 1 : zoom / 100}) rotate(${rotation}deg)`,
+              }}
+            />
+          </div>
+        </DialogPopup>
+      </DialogPortal>
+    </Dialog>
+  )
+}
+
+function InlinePdfViewer({
+  fileName,
+  mediaUrl,
+  onClose,
+}: {
+  fileName: string
+  mediaUrl: string
+  onClose: () => void
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogPortal>
+        <DialogOverlay className='bg-black/95' />
+        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
+          <span className='sr-only'>
+            <DialogTitle>{fileName}</DialogTitle>
+          </span>
+          <div className='flex items-center justify-between p-4 bg-black/50 backdrop-blur-sm'>
+            <h2 className='text-white text-lg font-medium truncate flex-1'>{fileName}</h2>
+            <div className='flex items-center gap-2'>
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={() => window.open(mediaUrl, '_blank')}
+                className='text-white hover:bg-white/10'
+              >
+                <ExternalLink className='h-5 w-5' />
+              </Button>
+              <div className='w-px h-6 bg-white/20 mx-2' />
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={onClose}
+                className='text-white hover:bg-white/10'
+              >
+                <X className='h-5 w-5' />
+              </Button>
+            </div>
+          </div>
+          <div className='flex-1 overflow-hidden bg-neutral-800'>
+            <embed
+              src={`${mediaUrl}#toolbar=1`}
+              type='application/pdf'
+              className='w-full h-full'
+              title={fileName}
+            />
+          </div>
+        </DialogPopup>
+      </DialogPortal>
+    </Dialog>
+  )
+}
+
+function InlineTextViewer({
+  token,
+  shareInfo,
+  filePath,
+  fileName,
+  mediaUrl,
+  onClose,
+}: {
+  token: string
+  shareInfo: ShareInfo
+  filePath: string
+  fileName: string
+  mediaUrl: string
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const {
+    data: content,
+    isLoading,
+    isSuccess,
+  } = useQuery({
+    queryKey: ['share-text', token, filePath],
+    queryFn: async () => {
+      const res = await fetch(mediaUrl)
+      if (!res.ok) throw new Error('Failed to load file')
+      return await res.text()
+    },
+  })
+
+  const ext = filePath.split('.').pop()?.toLowerCase() || ''
+
+  useEffect(() => {
+    if (shareInfo.editable && isSuccess && !isEditing) {
+      setEditContent(content ?? '')
+      setIsEditing(true)
+    }
+  }, [shareInfo.editable, isSuccess, isEditing, content])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const sharePath = shareInfo.path.replace(/\\/g, '/')
+      const fileFwd = filePath.replace(/\\/g, '/')
+      const relative = fileFwd.startsWith(sharePath + '/')
+        ? fileFwd.slice(sharePath.length + 1)
+        : fileFwd
+      const res = await fetch(`/api/share/${token}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: relative, content: editContent }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      queryClient.setQueryData(['share-text', token, filePath], editContent)
+    } catch (err) {
+      console.error('Save error:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content ?? '')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogPortal>
+        <DialogOverlay className='bg-background/95 backdrop-blur-sm' />
+        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
+          <span className='sr-only'>
+            <DialogTitle>{fileName}</DialogTitle>
+          </span>
+          <div className='flex items-center justify-between p-4 border-b'>
+            <div>
+              <h2 className='text-lg font-medium truncate max-w-md'>{fileName}</h2>
+              <p className='text-sm text-muted-foreground'>
+                {ext.toUpperCase()} File
+                {content != null ? ` \u2022 ${content.split('\n').length} lines` : ''}
+              </p>
+            </div>
+            <div className='flex items-center gap-2'>
+              {isEditing && (
+                <Button variant='default' size='sm' onClick={handleSave} disabled={saving}>
+                  <Save className='h-4 w-4 mr-2' />
+                  {saving ? 'Saving...' : 'Save'}
+                </Button>
+              )}
+              <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
+                {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
+              </Button>
+              <Button variant='ghost' size='icon' onClick={onClose}>
+                <X className='h-5 w-5' />
+              </Button>
+            </div>
+          </div>
+          <div className='flex-1 overflow-hidden p-4'>
+            {isLoading ? (
+              <div className='flex items-center justify-center h-full'>
+                <p className='text-muted-foreground'>Loading...</p>
+              </div>
+            ) : isEditing ? (
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                className='w-full h-full font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
+                spellCheck={false}
+              />
+            ) : (
+              <div className='w-full h-full p-4 bg-background border rounded-lg overflow-auto'>
+                <pre className='font-mono text-sm whitespace-pre-wrap wrap-break-word'>
+                  {content ?? ''}
+                </pre>
+              </div>
+            )}
+          </div>
+        </DialogPopup>
+      </DialogPortal>
+    </Dialog>
+  )
+}
+
+// Simple media player for audio/video within shared folders
+function ShareMediaPlayer({
+  token,
+  filePath,
+  files,
+  getMediaUrl,
+  onNavigate,
+  onClose,
+}: {
+  token: string
+  filePath: string
+  files: FileItem[]
+  getMediaUrl: (path: string) => string
+  onNavigate: (file: FileItem) => void
+  onClose: () => void
+}) {
+  const fileName = filePath.split(/[/\\]/).pop() || ''
+  const ext = filePath.split('.').pop()?.toLowerCase() || ''
+  const type = getMediaType(ext)
+  const mediaUrl = getMediaUrl(filePath)
+
+  const mediaFiles = useMemo(
+    () =>
+      files.filter((f) => {
+        if (f.isDirectory) return false
+        const t = getMediaType(f.extension)
+        return type === 'audio' ? t === 'audio' : t === 'video'
+      }),
+    [files, type],
+  )
+
+  const currentIndex = mediaFiles.findIndex((f) => f.path === filePath)
+
+  const playNext = useCallback(() => {
+    if (currentIndex >= 0 && currentIndex < mediaFiles.length - 1) {
+      onNavigate(mediaFiles[currentIndex + 1])
+    } else {
+      onClose()
+    }
+  }, [currentIndex, mediaFiles, onNavigate, onClose])
+
+  if (type === 'video') {
+    return (
+      <div className='w-full bg-background'>
+        <Card className='py-0 w-full rounded-none border-x-0 border-t-0'>
+          <div className='bg-black'>
+            <div className='bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between'>
+              <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
+              {mediaFiles.length > 1 && (
+                <span className='text-sm text-muted-foreground px-2'>
+                  {currentIndex + 1} of {mediaFiles.length}
+                </span>
+              )}
+              <Button variant='ghost' size='icon' onClick={onClose} className='h-8 w-8'>
+                <X className='h-4 w-4' />
+              </Button>
+            </div>
+            <video
+              controls
+              autoPlay
+              className='w-full bg-black'
+              style={{ maxHeight: '70vh', aspectRatio: '16 / 9' }}
+              src={mediaUrl}
+              onEnded={playNext}
+            >
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // Audio
+  return (
+    <div className='fixed bottom-0 left-0 right-0 z-40 bg-background border-t p-3'>
+      <div className='container mx-auto flex items-center gap-4'>
+        <span className='text-sm font-medium truncate flex-1'>{fileName}</span>
+        {mediaFiles.length > 1 && (
+          <span className='text-sm text-muted-foreground shrink-0'>
+            {currentIndex + 1} of {mediaFiles.length}
+          </span>
+        )}
+        <audio controls autoPlay className='flex-1 max-w-lg' src={mediaUrl} onEnded={playNext}>
+          Your browser does not support the audio tag.
+        </audio>
+        <Button variant='ghost' size='icon' onClick={onClose} className='h-8 w-8'>
+          <X className='h-4 w-4' />
+        </Button>
+      </div>
+    </div>
+  )
+}

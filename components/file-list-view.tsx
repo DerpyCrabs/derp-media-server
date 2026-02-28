@@ -3,10 +3,11 @@
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
-import { ArrowUp, Star, Eye } from 'lucide-react'
+import { ArrowUp, Star, Eye, Link, Share2 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
+import type { ShareLink } from '@/lib/shares'
 
 interface FileListViewProps {
   files: FileItem[]
@@ -24,7 +25,10 @@ interface FileListViewProps {
   onContextDelete: (file: FileItem) => void
   onContextDownload: (file: FileItem) => void
   onContextToggleFavorite: (file: FileItem) => void
+  onContextShare: (file: FileItem) => void
+  shares: ShareLink[]
   getViewCount: (path: string) => number
+  getShareViewCount: (path: string) => number
   getIcon: (
     type: MediaType,
     filePath: string,
@@ -50,7 +54,10 @@ export function FileListView({
   onContextDelete,
   onContextDownload,
   onContextToggleFavorite,
+  onContextShare,
+  shares,
   getViewCount,
+  getShareViewCount,
   getIcon,
 }: FileListViewProps) {
   if (files.length === 0 && !currentPath) {
@@ -104,7 +111,9 @@ export function FileListView({
           {files.map((file) => {
             const isFavorite = favorites.includes(file.path)
             const viewCount = getViewCount(file.path)
+            const shareViewCount = getShareViewCount(file.path)
             const isFileEditable = isPathEditable(file.path, editableFolders)
+            const isShared = shares.some((s) => s.path === file.path)
             return (
               <FileContextMenu
                 key={file.path}
@@ -114,8 +123,10 @@ export function FileListView({
                 onDelete={onContextDelete}
                 onDownload={onContextDownload}
                 onToggleFavorite={onContextToggleFavorite}
+                onShare={onContextShare}
                 isFavorite={isFavorite}
                 isEditable={isFileEditable}
+                isShared={isShared}
               >
                 <TableRow
                   className={`cursor-pointer hover:bg-muted/50 select-none group ${
@@ -155,7 +166,12 @@ export function FileListView({
                         </button>
                       )}
                       <div className='flex-1 min-w-0'>
-                        <span className='truncate block'>{file.name}</span>
+                        <span className='truncate block'>
+                          {file.name}
+                          {isShared && (
+                            <Link className='inline h-3 w-3 ml-1.5 text-primary opacity-70' />
+                          )}
+                        </span>
                         {isVirtualFolder && !file.isDirectory && (
                           <span className='text-xs text-muted-foreground truncate block'>
                             {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
@@ -174,6 +190,16 @@ export function FileListView({
                         >
                           <Eye className='h-3.5 w-3.5' />
                           <span suppressHydrationWarning>{viewCount}</span>
+                        </div>
+                      )}
+                      {!file.isDirectory && shareViewCount > 0 && (
+                        <div
+                          className='flex items-center gap-1 text-xs text-primary/70'
+                          title={`${shareViewCount} shared views`}
+                          suppressHydrationWarning
+                        >
+                          <Share2 className='h-3 w-3' />
+                          <span suppressHydrationWarning>{shareViewCount}</span>
                         </div>
                       )}
                       <span className='w-20'>
