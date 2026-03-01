@@ -109,6 +109,7 @@ function FileListInner({
     deleteItemMutation,
     renameMutation,
     moveMutation,
+    copyMutation,
   } = useFileMutations(currentPath)
 
   const queryClient = useQueryClient()
@@ -152,6 +153,8 @@ function FileListInner({
   const [shareTarget, setShareTarget] = useState<FileItem | null>(null)
   const [showMoveDialog, setShowMoveDialog] = useState(false)
   const [moveTarget, setMoveTarget] = useState<FileItem | null>(null)
+  const [showCopyDialog, setShowCopyDialog] = useState(false)
+  const [copyTarget, setCopyTarget] = useState<FileItem | null>(null)
   const [editingItem, setEditingItem] = useState<{ path: string; name: string } | null>(null)
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
@@ -431,6 +434,12 @@ function FileListInner({
     setShowMoveDialog(true)
   }
 
+  const handleContextCopy = (file: FileItem) => {
+    setCopyTarget(file)
+    copyMutation.reset()
+    setShowCopyDialog(true)
+  }
+
   const handleDialogMove = (destinationDir: string) => {
     if (!moveTarget) return
     moveMutation.mutate(
@@ -624,6 +633,35 @@ function FileListInner({
         editableFolders={editableFolders}
       />
 
+      {/* Copy To Dialog */}
+      <MoveToDialog
+        mode='copy'
+        isOpen={showCopyDialog}
+        onClose={() => {
+          setShowCopyDialog(false)
+          setCopyTarget(null)
+          copyMutation.reset()
+        }}
+        fileName={copyTarget?.name || ''}
+        filePath={copyTarget?.path || ''}
+        onMove={(dest) => {
+          if (!copyTarget) return
+          copyMutation.mutate(
+            { sourcePath: copyTarget.path, destinationDir: dest },
+            {
+              onSuccess: () => {
+                setShowCopyDialog(false)
+                setCopyTarget(null)
+                copyMutation.reset()
+              },
+            },
+          )
+        }}
+        isPending={copyMutation.isPending}
+        error={copyMutation.error}
+        editableFolders={editableFolders}
+      />
+
       {/* Share Dialog */}
       <ShareDialog
         isOpen={showShareDialog}
@@ -755,6 +793,8 @@ function FileListInner({
                 onContextShare={handleContextShare}
                 onContextCopyShareLink={handleContextCopyShareLink}
                 onContextMove={handleContextMove}
+                onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
+                hasEditableFolders={editableFolders.length > 0}
                 onMoveFile={handleMoveFile}
                 shares={shares}
                 knowledgeBases={knowledgeBases}
@@ -802,6 +842,8 @@ function FileListInner({
                 onContextShare={handleContextShare}
                 onContextCopyShareLink={handleContextCopyShareLink}
                 onContextMove={handleContextMove}
+                onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
+                hasEditableFolders={editableFolders.length > 0}
                 onMoveFile={handleMoveFile}
                 shares={shares}
                 knowledgeBases={knowledgeBases}

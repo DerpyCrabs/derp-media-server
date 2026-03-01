@@ -147,6 +147,30 @@ export function useFileMutations(currentPath: string) {
     },
   })
 
+  const copyMutation = useMutation({
+    mutationFn: async ({
+      sourcePath,
+      destinationDir,
+    }: {
+      sourcePath: string
+      destinationDir: string
+    }) => {
+      const res = await fetch('/api/files/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourcePath, destinationDir }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to copy')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+    },
+  })
+
   return {
     createFolderMutation,
     createFileMutation,
@@ -154,5 +178,6 @@ export function useFileMutations(currentPath: string) {
     deleteItemMutation,
     renameMutation,
     moveMutation,
+    copyMutation,
   }
 }

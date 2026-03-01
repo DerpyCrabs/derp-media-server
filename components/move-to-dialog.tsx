@@ -15,6 +15,8 @@ import {
 
 type BrowseFolder = { name: string; navPath: string }
 
+type MoveOrCopyMode = 'move' | 'copy'
+
 interface MoveToDialogProps {
   isOpen: boolean
   onClose: () => void
@@ -26,6 +28,8 @@ interface MoveToDialogProps {
   editableFolders?: string[]
   shareToken?: string
   shareRootPath?: string
+  /** When 'copy', shows "Copy to" UI; destination must be editable folder */
+  mode?: MoveOrCopyMode
 }
 
 export function MoveToDialog({
@@ -39,7 +43,9 @@ export function MoveToDialog({
   editableFolders = [],
   shareToken,
   shareRootPath,
+  mode = 'move',
 }: MoveToDialogProps) {
+  const isCopy = mode === 'copy'
   const sourceDir = useMemo(() => {
     const parts = filePath.split(/[/\\]/).filter(Boolean)
     return parts.slice(0, -1).join('/')
@@ -140,8 +146,12 @@ export function MoveToDialog({
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className='sm:max-w-md'>
         <DialogHeader>
-          <DialogTitle className='truncate pr-6'>Move &ldquo;{fileName}&rdquo;</DialogTitle>
-          <DialogDescription>Choose a destination folder</DialogDescription>
+          <DialogTitle className='truncate pr-6'>
+            {isCopy ? 'Copy' : 'Move'} &ldquo;{fileName}&rdquo;
+          </DialogTitle>
+          <DialogDescription>
+            {isCopy ? 'Choose an editable destination folder' : 'Choose a destination folder'}
+          </DialogDescription>
         </DialogHeader>
 
         {!shareToken && editableFolders.length > 1 && (
@@ -216,7 +226,7 @@ export function MoveToDialog({
             Cancel
           </Button>
           <Button onClick={() => onMove(browsePath)} disabled={isSameAsSource || isPending}>
-            {isPending ? 'Moving...' : 'Move here'}
+            {isPending ? (isCopy ? 'Copying...' : 'Moving...') : isCopy ? 'Copy here' : 'Move here'}
           </Button>
         </div>
       </DialogContent>

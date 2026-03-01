@@ -30,6 +30,8 @@ interface FileGridViewProps {
   onContextShare: (file: FileItem) => void
   onContextCopyShareLink?: (file: FileItem) => void
   onContextMove?: (file: FileItem) => void
+  onContextCopy?: (file: FileItem) => void
+  hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
   shares: ShareLink[]
   knowledgeBases?: string[]
@@ -64,6 +66,8 @@ export function FileGridView({
   onContextShare,
   onContextCopyShareLink,
   onContextMove,
+  onContextCopy,
+  hasEditableFolders = false,
   onMoveFile,
   shares,
   knowledgeBases = [],
@@ -185,6 +189,8 @@ export function FileGridView({
               onShare={onContextShare}
               onCopyShareLink={onContextCopyShareLink}
               onMove={onContextMove}
+              onCopy={onContextCopy}
+              hasEditableFolders={hasEditableFolders}
               isFavorite={isFavorite}
               isKnowledgeBase={isKnowledgeBase}
               isEditable={isFileEditable}
