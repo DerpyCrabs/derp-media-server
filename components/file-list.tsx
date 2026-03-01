@@ -35,6 +35,10 @@ import { KbDashboard } from '@/components/kb-dashboard'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ShareLink } from '@/lib/shares'
 import { useShareLinkBase } from '@/lib/use-share-link-base'
+import { useUpload } from '@/lib/use-upload'
+import { UploadDropZone } from '@/components/upload-drop-zone'
+import { UploadProgress } from '@/components/upload-progress'
+import { UploadMenuButton } from '@/components/upload-menu-button'
 
 interface FileListProps {
   files: FileItem[]
@@ -113,6 +117,18 @@ function FileListInner({
     moveMutation,
     copyMutation,
   } = useFileMutations(currentPath, { inKb })
+
+  const {
+    uploadFiles,
+    isUploading,
+    error: uploadError,
+    fileCount: uploadFileCount,
+    reset: resetUpload,
+  } = useUpload()
+
+  const handleUploadFiles = (files: File[]) => {
+    uploadFiles(files, currentPath)
+  }
 
   const queryClient = useQueryClient()
 
@@ -748,6 +764,7 @@ function FileListInner({
                 >
                   <FilePlus className='h-4 w-4' />
                 </Button>
+                <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
                 <div className='w-px h-6 bg-border mx-1' />
               </>
             )}
@@ -772,7 +789,11 @@ function FileListInner({
       </div>
 
       {/* File List or Grid View, or KB Search Results */}
-      <div className='flex flex-col min-h-0 flex-1 overflow-hidden'>
+      <UploadDropZone
+        enabled={isEditable}
+        onUpload={handleUploadFiles}
+        className='flex flex-col min-h-0 flex-1 overflow-hidden'
+      >
         {searchQuery.trim() ? (
           <KbSearchResults
             results={searchResults}
@@ -870,7 +891,14 @@ function FileListInner({
             )}
           </>
         )}
-      </div>
+      </UploadDropZone>
+
+      <UploadProgress
+        isUploading={isUploading}
+        error={uploadError}
+        fileCount={uploadFileCount}
+        onDismiss={resetUpload}
+      />
     </div>
   )
 }

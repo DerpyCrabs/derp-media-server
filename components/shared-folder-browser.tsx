@@ -45,6 +45,10 @@ import { MoveToDialog } from '@/components/move-to-dialog'
 import { TextViewer } from '@/components/text-viewer'
 import { KbSearchResults } from '@/components/kb-search-results'
 import { KbDashboard } from '@/components/kb-dashboard'
+import { useUpload } from '@/lib/use-upload'
+import { UploadDropZone } from '@/components/upload-drop-zone'
+import { UploadProgress } from '@/components/upload-progress'
+import { UploadMenuButton } from '@/components/upload-menu-button'
 
 interface ShareRestrictions {
   allowDelete: boolean
@@ -127,6 +131,20 @@ function SharedFolderBrowserInner({
   const [inlineName, setInlineName] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const {
+    uploadFiles,
+    isUploading,
+    error: uploadError,
+    fileCount: uploadFileCount,
+    reset: resetUpload,
+  } = useUpload({ shareToken: token })
+
+  const handleUploadFiles = useCallback(
+    (files: File[]) => {
+      uploadFiles(files, currentSubDir)
+    },
+    [uploadFiles, currentSubDir],
+  )
 
   useEffect(() => {
     if (inlineMode === 'file') fileInputRef.current?.focus()
@@ -543,7 +561,7 @@ function SharedFolderBrowserInner({
       )}
 
       <div className='container mx-auto lg:p-4'>
-        <Card className='py-0 rounded-none lg:rounded-xl'>
+        <Card className='py-0 gap-0 rounded-none lg:rounded-xl'>
           {/* Toolbar */}
           <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
             <div className='flex flex-wrap items-center justify-between gap-1.5 lg:gap-2'>
@@ -625,6 +643,7 @@ function SharedFolderBrowserInner({
                     >
                       <FilePlus className='h-4 w-4' />
                     </Button>
+                    <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
                     <div className='w-px h-6 bg-border mx-1' />
                   </>
                 )}
@@ -649,37 +668,299 @@ function SharedFolderBrowserInner({
           </div>
 
           {/* File list or KB search results */}
-          {searchQuery.trim() ? (
-            <KbSearchResults
-              results={searchResults}
-              query={searchQuery}
-              isLoading={searchLoading}
-              currentPath={
-                shareInfo.path.replace(/\\/g, '/') + (currentSubDir ? `/${currentSubDir}` : '')
-              }
-              onResultClick={handleKbResultClick}
-            />
-          ) : isLoading ? (
-            <div className='flex items-center justify-center py-12 text-muted-foreground'>
-              Loading...
-            </div>
-          ) : (
-            <>
-              {inKb && (
-                <KbDashboard
-                  scopePath={shareInfo.path}
-                  onFileClick={handleKbResultClick}
-                  fetchUrl={kbRecentUrl}
-                />
-              )}
-              {viewMode === 'list' ? (
-                <div className='sm:px-4 py-2'>
-                  <Table>
-                    <TableBody>
+          <UploadDropZone enabled={canUpload} onUpload={handleUploadFiles}>
+            {searchQuery.trim() ? (
+              <KbSearchResults
+                results={searchResults}
+                query={searchQuery}
+                isLoading={searchLoading}
+                currentPath={
+                  shareInfo.path.replace(/\\/g, '/') + (currentSubDir ? `/${currentSubDir}` : '')
+                }
+                onResultClick={handleKbResultClick}
+              />
+            ) : isLoading ? (
+              <div className='flex items-center justify-center py-12 text-muted-foreground'>
+                Loading...
+              </div>
+            ) : (
+              <>
+                {inKb && (
+                  <KbDashboard
+                    scopePath={shareInfo.path}
+                    onFileClick={handleKbResultClick}
+                    fetchUrl={kbRecentUrl}
+                  />
+                )}
+                {viewMode === 'list' ? (
+                  <div className='sm:px-4 py-2'>
+                    <Table>
+                      <TableBody>
+                        {currentSubDir && (
+                          <TableRow
+                            className={`cursor-pointer hover:bg-muted/50 select-none ${
+                              dragOverPath === '__parent__' ? 'bg-primary/20' : ''
+                            }`}
+                            onClick={handleParentDirectory}
+                            onDragOver={(e) => {
+                              if (!canDropOnParent || !draggedPath) return
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                              setDragOverPath('__parent__')
+                            }}
+                            onDragLeave={(e) => {
+                              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                setDragOverPath(null)
+                              }
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault()
+                              setDragOverPath(null)
+                              if (draggedPath) {
+                                handleMoveFile(draggedPath, parentSubDir)
+                              }
+                            }}
+                          >
+                            <TableCell className='w-12'>
+                              <ArrowUp className='h-5 w-5 text-muted-foreground' />
+                            </TableCell>
+                            <TableCell className='font-medium'>..</TableCell>
+                            <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
+                          </TableRow>
+                        )}
+                        {files.map((file) => {
+                          const row = (
+                            <TableRow
+                              key={file.path}
+                              className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''} ${
+                                draggedPath === file.path ? 'opacity-50' : ''
+                              } ${file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''}`}
+                              draggable={canEdit && enableDrag}
+                              onClick={() => handleFileClick(file)}
+                              onDragStart={(e) => {
+                                if (!canEdit) return
+                                e.dataTransfer.setData('text/plain', file.path)
+                                e.dataTransfer.effectAllowed = 'move'
+                                setDraggedPath(file.path)
+                              }}
+                              onDragEnd={() => {
+                                setDraggedPath(null)
+                                setDragOverPath(null)
+                              }}
+                              onDragOver={(e) => {
+                                if (!file.isDirectory || !canEdit || !draggedPath) return
+                                if (!canDropOn(file.path)) return
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                                setDragOverPath(file.path)
+                              }}
+                              onDragLeave={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                  if (dragOverPath === file.path) setDragOverPath(null)
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                setDragOverPath(null)
+                                if (
+                                  draggedPath &&
+                                  file.isDirectory &&
+                                  canEdit &&
+                                  canDropOn(file.path)
+                                ) {
+                                  handleMoveFile(draggedPath, stripSharePrefix(file.path))
+                                }
+                              }}
+                            >
+                              <TableCell className='w-12'>
+                                <div className='flex items-center justify-center'>
+                                  {getIcon(
+                                    file.type,
+                                    file.path,
+                                    file.type === MediaType.AUDIO,
+                                    file.type === MediaType.VIDEO,
+                                    file.isVirtual,
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className='font-medium'>
+                                <span className='truncate block'>{file.name}</span>
+                              </TableCell>
+                              <TableCell className='w-48 text-right text-muted-foreground'>
+                                <div className='flex items-center justify-end gap-2'>
+                                  <Button
+                                    variant='ghost'
+                                    size='icon'
+                                    className='h-7 w-7'
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleDownload(file)
+                                    }}
+                                    title='Download'
+                                  >
+                                    <Download className='h-3.5 w-3.5' />
+                                  </Button>
+                                  <span className='w-20'>
+                                    {file.isDirectory ? '' : formatFileSize(file.size)}
+                                  </span>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                          return shareInfo.editable ? (
+                            <FileContextMenu
+                              key={file.path}
+                              file={file}
+                              isEditable
+                              onDownload={handleDownload}
+                              onRename={canEdit ? handleContextRename : undefined}
+                              onDelete={canDelete ? handleContextDelete : undefined}
+                              onMove={canEdit ? handleContextMoveFile : undefined}
+                              onOpenInNewTab={file.isDirectory ? handleOpenInNewTab : undefined}
+                            >
+                              {row}
+                            </FileContextMenu>
+                          ) : (
+                            row
+                          )
+                        })}
+                        {inKb && canUpload && (
+                          <TableRow
+                            className='border-t bg-muted/20 hover:bg-muted/30'
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <TableCell colSpan={3} className='p-0'>
+                              <div className='grid grid-cols-2 gap-px p-2'>
+                                <div className='w-full min-w-0 flex flex-col gap-1'>
+                                  {inlineMode === 'file' ? (
+                                    <>
+                                      <Input
+                                        ref={fileInputRef}
+                                        value={inlineName}
+                                        onChange={(e) => setInlineName(e.target.value)}
+                                        placeholder={`File name (e.g. notes.${inKb ? 'md' : 'txt'})`}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            const name = inlineName.trim()
+                                            if (!name) return
+                                            createFileMutation.mutate(name, {
+                                              onSuccess: () => {
+                                                setInlineMode(null)
+                                                setInlineName('')
+                                                createFileMutation.reset()
+                                              },
+                                            })
+                                          } else if (e.key === 'Escape') {
+                                            setInlineMode(null)
+                                            setInlineName('')
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          setInlineMode(null)
+                                          setInlineName('')
+                                          createFileMutation.reset()
+                                        }}
+                                        disabled={createFileMutation.isPending}
+                                        className={`h-8 text-sm ${
+                                          createFileMutation.error
+                                            ? 'border-destructive ring-2 ring-destructive/30'
+                                            : ''
+                                        }`}
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                      {createFileMutation.error && (
+                                        <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
+                                          <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
+                                          <span>{createFileMutation.error.message}</span>
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <button
+                                      type='button'
+                                      onClick={() => {
+                                        setInlineMode('file')
+                                        setInlineName('')
+                                      }}
+                                      className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
+                                    >
+                                      <FilePlus className='h-4 w-4' />
+                                      New file
+                                    </button>
+                                  )}
+                                </div>
+                                <div className='w-full min-w-0 flex flex-col gap-1'>
+                                  {inlineMode === 'folder' ? (
+                                    <>
+                                      <Input
+                                        ref={folderInputRef}
+                                        value={inlineName}
+                                        onChange={(e) => setInlineName(e.target.value)}
+                                        placeholder='Folder name'
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            const name = inlineName.trim()
+                                            if (!name) return
+                                            createFolderMutation.mutate(name, {
+                                              onSuccess: () => {
+                                                setInlineMode(null)
+                                                setInlineName('')
+                                                createFolderMutation.reset()
+                                              },
+                                            })
+                                          } else if (e.key === 'Escape') {
+                                            setInlineMode(null)
+                                            setInlineName('')
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          setInlineMode(null)
+                                          setInlineName('')
+                                          createFolderMutation.reset()
+                                        }}
+                                        disabled={createFolderMutation.isPending}
+                                        className={`h-8 text-sm ${
+                                          createFolderMutation.error
+                                            ? 'border-destructive ring-2 ring-destructive/30'
+                                            : ''
+                                        }`}
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                      {createFolderMutation.error && (
+                                        <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
+                                          <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
+                                          <span>{createFolderMutation.error.message}</span>
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <button
+                                      type='button'
+                                      onClick={() => {
+                                        setInlineMode('folder')
+                                        setInlineName('')
+                                      }}
+                                      className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
+                                    >
+                                      <FolderPlus className='h-4 w-4' />
+                                      New folder
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className='py-4 px-4'>
+                    <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
                       {currentSubDir && (
-                        <TableRow
-                          className={`cursor-pointer hover:bg-muted/50 select-none ${
-                            dragOverPath === '__parent__' ? 'bg-primary/20' : ''
+                        <Card
+                          className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
+                            dragOverPath === '__parent__' ? 'ring-2 ring-primary bg-primary/10' : ''
                           }`}
                           onClick={handleParentDirectory}
                           onDragOver={(e) => {
@@ -701,20 +982,26 @@ function SharedFolderBrowserInner({
                             }
                           }}
                         >
-                          <TableCell className='w-12'>
-                            <ArrowUp className='h-5 w-5 text-muted-foreground' />
-                          </TableCell>
-                          <TableCell className='font-medium'>..</TableCell>
-                          <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
-                        </TableRow>
+                          <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
+                            <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
+                            <p className='text-sm font-medium text-center'>..</p>
+                            <p className='text-xs text-muted-foreground text-center'>
+                              Parent Folder
+                            </p>
+                          </CardContent>
+                        </Card>
                       )}
                       {files.map((file) => {
-                        const row = (
-                          <TableRow
+                        const card = (
+                          <Card
                             key={file.path}
-                            className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''} ${
+                            className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''} ${
                               draggedPath === file.path ? 'opacity-50' : ''
-                            } ${file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''}`}
+                            } ${
+                              file.isDirectory && dragOverPath === file.path
+                                ? 'ring-2 ring-primary bg-primary/10'
+                                : ''
+                            }`}
                             draggable={canEdit && enableDrag}
                             onClick={() => handleFileClick(file)}
                             onDragStart={(e) => {
@@ -752,40 +1039,48 @@ function SharedFolderBrowserInner({
                               }
                             }}
                           >
-                            <TableCell className='w-12'>
-                              <div className='flex items-center justify-center'>
-                                {getIcon(
-                                  file.type,
-                                  file.path,
-                                  file.type === MediaType.AUDIO,
-                                  file.type === MediaType.VIDEO,
-                                  file.isVirtual,
+                            <CardContent className='p-0 flex flex-col h-full'>
+                              <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
+                                {file.type === MediaType.VIDEO ? (
+                                  <img
+                                    src={`/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`}
+                                    alt={file.name}
+                                    className='w-full h-full object-cover rounded-t-lg'
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none'
+                                    }}
+                                  />
+                                ) : file.type === MediaType.IMAGE ? (
+                                  <img
+                                    src={getShareMediaUrl(file.path)}
+                                    alt={file.name}
+                                    className='w-full h-full object-cover rounded-t-lg'
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none'
+                                    }}
+                                  />
+                                ) : (
+                                  <div className='scale-[2.5]'>
+                                    {getIcon(
+                                      file.type,
+                                      file.path,
+                                      file.type === MediaType.AUDIO,
+                                      false,
+                                      file.isVirtual,
+                                    )}
+                                  </div>
                                 )}
                               </div>
-                            </TableCell>
-                            <TableCell className='font-medium'>
-                              <span className='truncate block'>{file.name}</span>
-                            </TableCell>
-                            <TableCell className='w-48 text-right text-muted-foreground'>
-                              <div className='flex items-center justify-end gap-2'>
-                                <Button
-                                  variant='ghost'
-                                  size='icon'
-                                  className='h-7 w-7'
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleDownload(file)
-                                  }}
-                                  title='Download'
-                                >
-                                  <Download className='h-3.5 w-3.5' />
-                                </Button>
-                                <span className='w-20'>
-                                  {file.isDirectory ? '' : formatFileSize(file.size)}
-                                </span>
+                              <div className='p-3 flex flex-col gap-1'>
+                                <p className='text-sm font-medium truncate' title={file.name}>
+                                  {file.name}
+                                </p>
+                                <div className='flex items-center justify-end text-xs text-muted-foreground'>
+                                  <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                                </div>
                               </div>
-                            </TableCell>
-                          </TableRow>
+                            </CardContent>
+                          </Card>
                         )
                         return shareInfo.editable ? (
                           <FileContextMenu
@@ -798,292 +1093,27 @@ function SharedFolderBrowserInner({
                             onMove={canEdit ? handleContextMoveFile : undefined}
                             onOpenInNewTab={file.isDirectory ? handleOpenInNewTab : undefined}
                           >
-                            {row}
+                            {card}
                           </FileContextMenu>
                         ) : (
-                          row
+                          card
                         )
                       })}
-                      {inKb && canUpload && (
-                        <TableRow
-                          className='border-t bg-muted/20 hover:bg-muted/30'
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <TableCell colSpan={3} className='p-0'>
-                            <div className='grid grid-cols-2 gap-px p-2'>
-                              <div className='w-full min-w-0 flex flex-col gap-1'>
-                                {inlineMode === 'file' ? (
-                                  <>
-                                    <Input
-                                      ref={fileInputRef}
-                                      value={inlineName}
-                                      onChange={(e) => setInlineName(e.target.value)}
-                                      placeholder={`File name (e.g. notes.${inKb ? 'md' : 'txt'})`}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          const name = inlineName.trim()
-                                          if (!name) return
-                                          createFileMutation.mutate(name, {
-                                            onSuccess: () => {
-                                              setInlineMode(null)
-                                              setInlineName('')
-                                              createFileMutation.reset()
-                                            },
-                                          })
-                                        } else if (e.key === 'Escape') {
-                                          setInlineMode(null)
-                                          setInlineName('')
-                                        }
-                                      }}
-                                      onBlur={() => {
-                                        setInlineMode(null)
-                                        setInlineName('')
-                                        createFileMutation.reset()
-                                      }}
-                                      disabled={createFileMutation.isPending}
-                                      className={`h-8 text-sm ${
-                                        createFileMutation.error
-                                          ? 'border-destructive ring-2 ring-destructive/30'
-                                          : ''
-                                      }`}
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    {createFileMutation.error && (
-                                      <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
-                                        <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
-                                        <span>{createFileMutation.error.message}</span>
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <button
-                                    type='button'
-                                    onClick={() => {
-                                      setInlineMode('file')
-                                      setInlineName('')
-                                    }}
-                                    className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
-                                  >
-                                    <FilePlus className='h-4 w-4' />
-                                    New file
-                                  </button>
-                                )}
-                              </div>
-                              <div className='w-full min-w-0 flex flex-col gap-1'>
-                                {inlineMode === 'folder' ? (
-                                  <>
-                                    <Input
-                                      ref={folderInputRef}
-                                      value={inlineName}
-                                      onChange={(e) => setInlineName(e.target.value)}
-                                      placeholder='Folder name'
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          const name = inlineName.trim()
-                                          if (!name) return
-                                          createFolderMutation.mutate(name, {
-                                            onSuccess: () => {
-                                              setInlineMode(null)
-                                              setInlineName('')
-                                              createFolderMutation.reset()
-                                            },
-                                          })
-                                        } else if (e.key === 'Escape') {
-                                          setInlineMode(null)
-                                          setInlineName('')
-                                        }
-                                      }}
-                                      onBlur={() => {
-                                        setInlineMode(null)
-                                        setInlineName('')
-                                        createFolderMutation.reset()
-                                      }}
-                                      disabled={createFolderMutation.isPending}
-                                      className={`h-8 text-sm ${
-                                        createFolderMutation.error
-                                          ? 'border-destructive ring-2 ring-destructive/30'
-                                          : ''
-                                      }`}
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    {createFolderMutation.error && (
-                                      <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
-                                        <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
-                                        <span>{createFolderMutation.error.message}</span>
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <button
-                                    type='button'
-                                    onClick={() => {
-                                      setInlineMode('folder')
-                                      setInlineName('')
-                                    }}
-                                    className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
-                                  >
-                                    <FolderPlus className='h-4 w-4' />
-                                    New folder
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className='py-4 px-4'>
-                  <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
-                    {currentSubDir && (
-                      <Card
-                        className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
-                          dragOverPath === '__parent__' ? 'ring-2 ring-primary bg-primary/10' : ''
-                        }`}
-                        onClick={handleParentDirectory}
-                        onDragOver={(e) => {
-                          if (!canDropOnParent || !draggedPath) return
-                          e.preventDefault()
-                          e.dataTransfer.dropEffect = 'move'
-                          setDragOverPath('__parent__')
-                        }}
-                        onDragLeave={(e) => {
-                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                            setDragOverPath(null)
-                          }
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault()
-                          setDragOverPath(null)
-                          if (draggedPath) {
-                            handleMoveFile(draggedPath, parentSubDir)
-                          }
-                        }}
-                      >
-                        <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
-                          <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
-                          <p className='text-sm font-medium text-center'>..</p>
-                          <p className='text-xs text-muted-foreground text-center'>Parent Folder</p>
-                        </CardContent>
-                      </Card>
-                    )}
-                    {files.map((file) => {
-                      const card = (
-                        <Card
-                          key={file.path}
-                          className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''} ${
-                            draggedPath === file.path ? 'opacity-50' : ''
-                          } ${
-                            file.isDirectory && dragOverPath === file.path
-                              ? 'ring-2 ring-primary bg-primary/10'
-                              : ''
-                          }`}
-                          draggable={canEdit && enableDrag}
-                          onClick={() => handleFileClick(file)}
-                          onDragStart={(e) => {
-                            if (!canEdit) return
-                            e.dataTransfer.setData('text/plain', file.path)
-                            e.dataTransfer.effectAllowed = 'move'
-                            setDraggedPath(file.path)
-                          }}
-                          onDragEnd={() => {
-                            setDraggedPath(null)
-                            setDragOverPath(null)
-                          }}
-                          onDragOver={(e) => {
-                            if (!file.isDirectory || !canEdit || !draggedPath) return
-                            if (!canDropOn(file.path)) return
-                            e.preventDefault()
-                            e.dataTransfer.dropEffect = 'move'
-                            setDragOverPath(file.path)
-                          }}
-                          onDragLeave={(e) => {
-                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                              if (dragOverPath === file.path) setDragOverPath(null)
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault()
-                            setDragOverPath(null)
-                            if (
-                              draggedPath &&
-                              file.isDirectory &&
-                              canEdit &&
-                              canDropOn(file.path)
-                            ) {
-                              handleMoveFile(draggedPath, stripSharePrefix(file.path))
-                            }
-                          }}
-                        >
-                          <CardContent className='p-0 flex flex-col h-full'>
-                            <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
-                              {file.type === MediaType.VIDEO ? (
-                                <img
-                                  src={`/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`}
-                                  alt={file.name}
-                                  className='w-full h-full object-cover rounded-t-lg'
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none'
-                                  }}
-                                />
-                              ) : file.type === MediaType.IMAGE ? (
-                                <img
-                                  src={getShareMediaUrl(file.path)}
-                                  alt={file.name}
-                                  className='w-full h-full object-cover rounded-t-lg'
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none'
-                                  }}
-                                />
-                              ) : (
-                                <div className='scale-[2.5]'>
-                                  {getIcon(
-                                    file.type,
-                                    file.path,
-                                    file.type === MediaType.AUDIO,
-                                    false,
-                                    file.isVirtual,
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            <div className='p-3 flex flex-col gap-1'>
-                              <p className='text-sm font-medium truncate' title={file.name}>
-                                {file.name}
-                              </p>
-                              <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                                <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )
-                      return shareInfo.editable ? (
-                        <FileContextMenu
-                          key={file.path}
-                          file={file}
-                          isEditable
-                          onDownload={handleDownload}
-                          onRename={canEdit ? handleContextRename : undefined}
-                          onDelete={canDelete ? handleContextDelete : undefined}
-                          onMove={canEdit ? handleContextMoveFile : undefined}
-                          onOpenInNewTab={file.isDirectory ? handleOpenInNewTab : undefined}
-                        >
-                          {card}
-                        </FileContextMenu>
-                      ) : (
-                        card
-                      )
-                    })}
+                    </div>
                   </div>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
+          </UploadDropZone>
         </Card>
       </div>
+
+      <UploadProgress
+        isUploading={isUploading}
+        error={uploadError}
+        fileCount={uploadFileCount}
+        onDismiss={resetUpload}
+      />
 
       {/* Move To Dialog */}
       <MoveToDialog
