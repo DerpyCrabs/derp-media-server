@@ -277,30 +277,21 @@ export async function readFileContent(relativePath: string): Promise<string> {
 }
 
 /**
- * Deletes an empty directory
+ * Deletes a directory and all its contents recursively
  */
 export async function deleteDirectory(relativePath: string): Promise<void> {
   const fullPath = validatePath(relativePath)
 
-  // Check if path is editable
   if (!isPathEditable(relativePath)) {
     throw new Error('Cannot delete directory: Path is not in an editable folder')
   }
 
-  // Check if it's a directory
   const stats = await fs.stat(fullPath)
   if (!stats.isDirectory()) {
     throw new Error('Path is not a directory')
   }
 
-  // Check if directory is empty
-  const entries = await fs.readdir(fullPath)
-  if (entries.length > 0) {
-    throw new Error('Cannot delete directory: Directory is not empty')
-  }
-
-  // Delete the empty directory
-  await fs.rmdir(fullPath)
+  await fs.rm(fullPath, { recursive: true })
 }
 
 /**

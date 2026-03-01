@@ -286,7 +286,7 @@ export function DeleteConfirmDialog({
               ? 'Revoke Share?'
               : item
                 ? `Delete ${item.isDirectory ? 'Folder' : 'File'}?`
-                : 'Delete Empty Folder?'}
+                : 'Delete Folder?'}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {isRevokeShare && item ? (
@@ -297,9 +297,6 @@ export function DeleteConfirmDialog({
             ) : item ? (
               <>
                 Are you sure you want to delete &ldquo;{item.name}&rdquo;?
-                {item.isDirectory && (
-                  <span className='block mt-1 text-sm'>(Only empty folders can be deleted)</span>
-                )}
                 <span className='block mt-2 text-sm font-medium'>
                   This action cannot be undone.
                 </span>
