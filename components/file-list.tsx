@@ -1,11 +1,12 @@
 'use client'
 
-import { Suspense, useState, useMemo } from 'react'
+import { Suspense, useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
-import { isPathEditable } from '@/lib/utils'
+import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
 import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
 import { useFiles, usePrefetchFiles } from '@/lib/use-files'
@@ -28,6 +29,8 @@ import {
   DeleteConfirmDialog,
 } from '@/components/file-dialogs'
 import { ShareDialog } from '@/components/share-dialog'
+import { KbSearchResults } from '@/components/kb-search-results'
+import { KbDashboard } from '@/components/kb-dashboard'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ShareLink } from '@/lib/shares'
 
@@ -83,6 +86,10 @@ function FileListInner({
   const knowledgeBases = settings.knowledgeBases || []
   // Use initialCustomIcons until settings load, then switch to React Query data
   const customIcons = settingsLoading ? initialCustomIcons : settings.customIcons || {}
+
+  // KB detection: inKb = inside any KB folder (root or subfolder)
+  const kbRoot = getKnowledgeBaseRoot(currentPath, knowledgeBases)
+  const inKb = kbRoot !== null
 
   const {
     pasteData,
@@ -144,6 +151,44 @@ function FileListInner({
   const [editingItem, setEditingItem] = useState<{ path: string; name: string } | null>(null)
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<
+    { path: string; name: string; snippet: string }[]
+  >([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Debounced KB search
+  useEffect(() => {
+    if (!searchQuery.trim() || !kbRoot) {
+      setSearchResults([])
+      setSearchLoading(false)
+      return
+    }
+    setSearchLoading(true)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/kb/search?q=${encodeURIComponent(searchQuery)}&root=${encodeURIComponent(kbRoot)}`,
+        )
+        if (res.ok) {
+          const data = await res.json()
+          setSearchResults(data.results || [])
+        } else {
+          setSearchResults([])
+        }
+      } catch {
+        setSearchResults([])
+      } finally {
+        setSearchLoading(false)
+      }
+      searchDebounceRef.current = null
+    }, 300)
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    }
+  }, [searchQuery, kbRoot])
 
   // Check if we're in a virtual folder
   const isVirtualFolder =
@@ -176,9 +221,21 @@ function FileListInner({
     updateFavorite(filePath)
   }
 
-  // Prefetch folder contents on hover
+  // Prefetch folder contents and KB recent on hover
   const handleFolderHover = (folderPath: string) => {
     prefetchFiles(folderPath)
+    if (getKnowledgeBaseRoot(folderPath, knowledgeBases)) {
+      queryClient.prefetchQuery({
+        queryKey: ['kb-recent', folderPath],
+        queryFn: async () => {
+          const res = await fetch(`/api/kb/recent?root=${encodeURIComponent(folderPath)}`)
+          if (!res.ok) throw new Error('Failed to fetch recent')
+          const data = await res.json()
+          return data.results || []
+        },
+        staleTime: 1000 * 60,
+      })
+    }
   }
 
   const handleFileClick = (file: FileItem) => {
@@ -211,6 +268,14 @@ function FileListInner({
         router.replace(`/?${params.toString()}`, { scroll: false })
       }
     }
+  }
+
+  const handleKbResultClick = (filePath: string) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('dir', currentPath)
+    params.set('viewing', filePath)
+    setSearchQuery('') // Clear search to show the file
+    router.replace(`/?${params.toString()}`, { scroll: false })
   }
 
   const handleBreadcrumbClick = (path: string) => {
@@ -511,7 +576,7 @@ function FileListInner({
 
       {/* Breadcrumb Navigation with Toolbar */}
       <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
-        <div className='flex items-center justify-between gap-1.5 lg:gap-2'>
+        <div className='flex flex-wrap items-center justify-between gap-1.5 lg:gap-2'>
           <Breadcrumbs
             currentPath={currentPath}
             onNavigate={handleBreadcrumbClick}
@@ -527,6 +592,17 @@ function FileListInner({
             editableFolders={editableFolders}
             shares={shares}
           />
+          {inKb && (
+            <div className='w-full md:w-auto md:flex-1 md:min-w-0 md:max-w-[200px] lg:max-w-[260px] basis-full md:basis-auto order-last md:order-0'>
+              <Input
+                type='search'
+                placeholder='Search notes...'
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className='h-8 w-full'
+              />
+            </div>
+          )}
           <div className='flex gap-1 items-center'>
             {isEditable && (
               <>
@@ -579,60 +655,75 @@ function FileListInner({
         </div>
       </div>
 
-      {/* File List or Grid View */}
-      <div>
-        {viewMode === 'list' ? (
-          <FileListView
-            files={files}
+      {/* File List or Grid View, or KB Search Results */}
+      <div className='flex flex-col min-h-0 flex-1 overflow-hidden'>
+        {searchQuery.trim() ? (
+          <KbSearchResults
+            results={searchResults}
+            query={searchQuery}
+            isLoading={searchLoading}
             currentPath={currentPath}
-            favorites={favorites}
-            playingPath={playingPath}
-            isVirtualFolder={isVirtualFolder}
-            editableFolders={editableFolders}
-            onFileClick={handleFileClick}
-            onFolderHover={handleFolderHover}
-            onParentDirectory={handleParentDirectory}
-            onFavoriteToggle={handleFavoriteToggle}
-            onContextSetIcon={handleContextSetIcon}
-            onContextRename={handleContextRename}
-            onContextDelete={handleContextDelete}
-            onContextDownload={handleContextDownload}
-            onContextToggleFavorite={handleContextToggleFavorite}
-            onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
-            onContextShare={handleContextShare}
-            onContextCopyShareLink={handleContextCopyShareLink}
-            shares={shares}
-            knowledgeBases={knowledgeBases}
-            getViewCount={getViewCount}
-            getShareViewCount={getShareViewCount}
-            getIcon={getIcon}
+            onResultClick={handleKbResultClick}
           />
         ) : (
-          <FileGridView
-            files={files}
-            currentPath={currentPath}
-            favorites={favorites}
-            playingPath={playingPath}
-            isVirtualFolder={isVirtualFolder}
-            editableFolders={editableFolders}
-            onFileClick={handleFileClick}
-            onFolderHover={handleFolderHover}
-            onParentDirectory={handleParentDirectory}
-            onFavoriteToggle={handleFavoriteToggle}
-            onContextSetIcon={handleContextSetIcon}
-            onContextRename={handleContextRename}
-            onContextDelete={handleContextDelete}
-            onContextDownload={handleContextDownload}
-            onContextToggleFavorite={handleContextToggleFavorite}
-            onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
-            onContextShare={handleContextShare}
-            onContextCopyShareLink={handleContextCopyShareLink}
-            shares={shares}
-            knowledgeBases={knowledgeBases}
-            getViewCount={getViewCount}
-            getShareViewCount={getShareViewCount}
-            getIcon={getIcon}
-          />
+          <>
+            {inKb && currentPath && (
+              <KbDashboard scopePath={currentPath} onFileClick={handleKbResultClick} />
+            )}
+            {viewMode === 'list' ? (
+              <FileListView
+                files={files}
+                currentPath={currentPath}
+                favorites={favorites}
+                playingPath={playingPath}
+                isVirtualFolder={isVirtualFolder}
+                editableFolders={editableFolders}
+                onFileClick={handleFileClick}
+                onFolderHover={handleFolderHover}
+                onParentDirectory={handleParentDirectory}
+                onFavoriteToggle={handleFavoriteToggle}
+                onContextSetIcon={handleContextSetIcon}
+                onContextRename={handleContextRename}
+                onContextDelete={handleContextDelete}
+                onContextDownload={handleContextDownload}
+                onContextToggleFavorite={handleContextToggleFavorite}
+                onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
+                onContextShare={handleContextShare}
+                onContextCopyShareLink={handleContextCopyShareLink}
+                shares={shares}
+                knowledgeBases={knowledgeBases}
+                getViewCount={getViewCount}
+                getShareViewCount={getShareViewCount}
+                getIcon={getIcon}
+              />
+            ) : (
+              <FileGridView
+                files={files}
+                currentPath={currentPath}
+                favorites={favorites}
+                playingPath={playingPath}
+                isVirtualFolder={isVirtualFolder}
+                editableFolders={editableFolders}
+                onFileClick={handleFileClick}
+                onFolderHover={handleFolderHover}
+                onParentDirectory={handleParentDirectory}
+                onFavoriteToggle={handleFavoriteToggle}
+                onContextSetIcon={handleContextSetIcon}
+                onContextRename={handleContextRename}
+                onContextDelete={handleContextDelete}
+                onContextDownload={handleContextDownload}
+                onContextToggleFavorite={handleContextToggleFavorite}
+                onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
+                onContextShare={handleContextShare}
+                onContextCopyShareLink={handleContextCopyShareLink}
+                shares={shares}
+                knowledgeBases={knowledgeBases}
+                getViewCount={getViewCount}
+                getShareViewCount={getShareViewCount}
+                getIcon={getIcon}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
