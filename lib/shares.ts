@@ -177,19 +177,6 @@ export async function createShare(
   try {
     const data = await readSharesRaw()
 
-    const existingIndex = data.shares.findIndex((s) => s.path === sharePath)
-    if (existingIndex !== -1) {
-      const existing = data.shares[existingIndex]
-      if (existing.editable !== editable || existing.isDirectory !== isDirectory) {
-        const updated: ShareLink = { ...existing, editable, isDirectory }
-        if (editable && restrictions) updated.restrictions = restrictions
-        data.shares[existingIndex] = updated
-        await writeSharesData(data)
-        return decryptSharePasscode(updated)
-      }
-      return decryptSharePasscode(existing)
-    }
-
     const plainPasscode = config.auth?.enabled ? generatePasscode() : undefined
     const share: ShareLink = {
       token: generateToken(),
@@ -210,18 +197,21 @@ export async function createShare(
   }
 }
 
-export async function updateShareRestrictions(
+export async function updateShare(
   token: string,
-  restrictions: ShareRestrictions,
+  updates: { restrictions?: ShareRestrictions; editable?: boolean },
 ): Promise<ShareLink | null> {
   const release = await sharesMutex.acquire()
   try {
     const data = await readSharesRaw()
     const index = data.shares.findIndex((s) => s.token === token)
     if (index === -1) return null
-    data.shares[index] = { ...data.shares[index], restrictions }
+    const share = { ...data.shares[index] }
+    if (updates.restrictions !== undefined) share.restrictions = updates.restrictions
+    if (updates.editable !== undefined) share.editable = updates.editable
+    data.shares[index] = share
     await writeSharesData(data)
-    return decryptSharePasscode(data.shares[index])
+    return decryptSharePasscode(share)
   } finally {
     release()
   }
@@ -267,10 +257,15 @@ export async function getAllShares(): Promise<ShareLink[]> {
 }
 
 export async function getSharesAsFileItems(): Promise<FileItem[]> {
-  const shares = await getAllShares()
+  const shares = (await getAllShares()).sort((a, b) => b.createdAt - a.createdAt)
   const fileItems: FileItem[] = []
+  const seenPaths = new Set<string>()
 
   for (const share of shares) {
+    const normalized = share.path.replace(/\\/g, '/')
+    if (seenPaths.has(normalized)) continue
+    seenPaths.add(normalized)
+
     try {
       const fullPath = path.join(config.mediaDir, share.path)
       const stat = await fs.stat(fullPath)
@@ -288,7 +283,6 @@ export async function getSharesAsFileItems(): Promise<FileItem[]> {
         shareToken: share.token,
       })
     } catch {
-      // Skip shares whose files no longer exist
       continue
     }
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Dialog,
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Copy, Check, Link, Trash2, Save, ChevronDown, ChevronUp } from 'lucide-react'
+import { Copy, Check, Link, Trash2, ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import type { ShareLink, ShareRestrictions } from '@/lib/shares'
 import { formatFileSize } from '@/lib/media-utils'
 
@@ -32,7 +32,7 @@ interface ShareDialogProps {
   fileName: string
   isDirectory: boolean
   isEditable: boolean
-  existingShare: ShareLink | null
+  existingShares: ShareLink[]
 }
 
 type QuotaMode = 'unlimited' | 'preset' | 'custom'
@@ -160,6 +160,231 @@ function RestrictionsEditor({
   )
 }
 
+function extractRestrictions(share: ShareLink): Required<ShareRestrictions> {
+  const r = share.restrictions || {}
+  return {
+    allowDelete: r.allowDelete !== false,
+    allowUpload: r.allowUpload !== false,
+    allowEdit: r.allowEdit !== false,
+    maxUploadBytes: r.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
+  }
+}
+
+function buildShareUrl(share: ShareLink) {
+  const base = `${window.location.origin}/share/${share.token}`
+  return share.passcode ? `${base}?p=${encodeURIComponent(share.passcode)}` : base
+}
+
+function ShareCard({
+  share,
+  isDirectory,
+  isEditable,
+  onRevoked,
+}: {
+  share: ShareLink
+  isDirectory: boolean
+  isEditable: boolean
+  onRevoked: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [copiedLink, setCopiedLink] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [editable, setEditable] = useState(share.editable)
+  const [restrictions, setRestrictions] = useState<Required<ShareRestrictions>>(
+    extractRestrictions(share),
+  )
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const initializedRef = useRef(false)
+
+  useEffect(() => {
+    setEditable(share.editable)
+    setRestrictions(extractRestrictions(share))
+  }, [share])
+
+  const updateMutation = useMutation({
+    mutationFn: async (payload: { editable?: boolean; restrictions?: ShareRestrictions }) => {
+      const res = await fetch('/api/shares', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: share.token, ...payload }),
+      })
+      if (!res.ok) throw new Error('Failed to update share')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shares'] })
+    },
+  })
+
+  const scheduleUpdate = useCallback(
+    (newEditable: boolean, newRestrictions: Required<ShareRestrictions>) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => {
+        updateMutation.mutate({
+          editable: newEditable,
+          restrictions: newRestrictions,
+        })
+      }, 500)
+    },
+    [updateMutation],
+  )
+
+  const handleEditableChange = (val: boolean) => {
+    setEditable(val)
+    scheduleUpdate(val, restrictions)
+  }
+
+  const handleRestrictionsChange = (r: Required<ShareRestrictions>) => {
+    setRestrictions(r)
+    scheduleUpdate(editable, r)
+  }
+
+  useEffect(() => {
+    if (!initializedRef.current) {
+      initializedRef.current = true
+      return
+    }
+  }, [editable, restrictions])
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
+
+  const revokeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/shares', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: share.token }),
+      })
+      if (!res.ok) throw new Error('Failed to revoke share')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shares'] })
+      onRevoked()
+    },
+  })
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(buildShareUrl(share))
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 2000)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const url = buildShareUrl(share)
+  const used = share.usedBytes || 0
+  const limit = restrictions.maxUploadBytes
+
+  return (
+    <div className='rounded-lg border p-3 space-y-3'>
+      {/* Header: date + type */}
+      <div className='flex items-center justify-between'>
+        <p className='text-xs text-muted-foreground'>
+          Created{' '}
+          {new Date(share.createdAt).toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </p>
+        <span className='text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground'>
+          {share.isDirectory ? 'Folder' : 'File'}
+        </span>
+      </div>
+
+      {/* URL + copy */}
+      <div className='flex gap-2'>
+        <Input value={url} readOnly className='font-mono text-xs' />
+        <Button variant='outline' size='icon' onClick={handleCopyLink} title='Copy link'>
+          {copiedLink ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
+        </Button>
+      </div>
+
+      {share.passcode && (
+        <p className='text-xs text-muted-foreground'>Passcode is included in the link.</p>
+      )}
+
+      {/* Settings toggle */}
+      <Button
+        variant='ghost'
+        size='sm'
+        className='w-full justify-between h-8'
+        onClick={() => setShowSettings(!showSettings)}
+      >
+        <span className='text-xs'>
+          {editable ? 'Editable' : 'Read-only'}
+          {editable &&
+            (() => {
+              const denied: string[] = []
+              if (!restrictions.allowUpload) denied.push('upload')
+              if (!restrictions.allowEdit) denied.push('edit')
+              if (!restrictions.allowDelete) denied.push('delete')
+              if (denied.length > 0) return ` (no ${denied.join(', ')})`
+              return ''
+            })()}
+          {editable && limit > 0 ? ` · ${formatFileSize(used)} / ${formatFileSize(limit)}` : ''}
+          {editable && limit === 0 ? ` · ${formatFileSize(used)} (unlimited)` : ''}
+        </span>
+        {showSettings ? (
+          <ChevronUp className='h-3.5 w-3.5' />
+        ) : (
+          <ChevronDown className='h-3.5 w-3.5' />
+        )}
+      </Button>
+
+      {showSettings && (
+        <div className='space-y-3 pt-1'>
+          {/* Editable toggle */}
+          {isDirectory && isEditable && (
+            <label className='flex items-center gap-3 cursor-pointer'>
+              <input
+                type='checkbox'
+                checked={editable}
+                onChange={(e) => handleEditableChange(e.target.checked)}
+                className='h-4 w-4 rounded border-input'
+              />
+              <div>
+                <p className='text-sm font-medium'>Allow editing</p>
+                <p className='text-xs text-muted-foreground'>
+                  Recipients can create, edit, and delete files
+                </p>
+              </div>
+            </label>
+          )}
+
+          {/* Restrictions */}
+          {editable && (
+            <div className='rounded-lg border p-3 space-y-3'>
+              <p className='text-xs font-medium text-muted-foreground'>Restrictions</p>
+              <RestrictionsEditor restrictions={restrictions} onChange={handleRestrictionsChange} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Revoke */}
+      <Button
+        variant='destructive'
+        size='sm'
+        className='w-full'
+        onClick={() => revokeMutation.mutate()}
+        disabled={revokeMutation.isPending}
+      >
+        <Trash2 className='h-3.5 w-3.5 mr-1.5' />
+        {revokeMutation.isPending ? 'Revoking...' : 'Revoke'}
+      </Button>
+    </div>
+  )
+}
+
 export function ShareDialog({
   isOpen,
   onClose,
@@ -167,56 +392,30 @@ export function ShareDialog({
   fileName,
   isDirectory,
   isEditable,
-  existingShare,
+  existingShares,
 }: ShareDialogProps) {
   const queryClient = useQueryClient()
-  const [editable, setEditable] = useState(false)
-  const [shareData, setShareData] = useState<{ share: ShareLink; url: string } | null>(null)
-  const [copiedLink, setCopiedLink] = useState(false)
-  const [showRestrictions, setShowRestrictions] = useState(false)
-  const [restrictions, setRestrictions] = useState<Required<ShareRestrictions>>({
+  const [showCreate, setShowCreate] = useState(false)
+  const [newEditable, setNewEditable] = useState(false)
+  const [newRestrictions, setNewRestrictions] = useState<Required<ShareRestrictions>>({
     allowDelete: true,
     allowUpload: true,
     allowEdit: true,
     maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
   })
 
-  const buildShareUrl = (share: ShareLink) => {
-    const base = `${window.location.origin}/share/${share.token}`
-    return share.passcode ? `${base}?p=${encodeURIComponent(share.passcode)}` : base
-  }
-
-  const loadRestrictions = useCallback((share: ShareLink) => {
-    const r = share.restrictions || {}
-    setRestrictions({
-      allowDelete: r.allowDelete !== false,
-      allowUpload: r.allowUpload !== false,
-      allowEdit: r.allowEdit !== false,
-      maxUploadBytes: r.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
-    })
-  }, [])
-
   useEffect(() => {
-    if (existingShare) {
-      setShareData({
-        share: existingShare,
-        url: buildShareUrl(existingShare),
-      })
-      setEditable(existingShare.editable)
-      loadRestrictions(existingShare)
-      setShowRestrictions(false)
-    } else {
-      setShareData(null)
-      setEditable(false)
-      setRestrictions({
+    if (isOpen) {
+      setShowCreate(false)
+      setNewEditable(false)
+      setNewRestrictions({
         allowDelete: true,
         allowUpload: true,
         allowEdit: true,
         maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES,
       })
-      setShowRestrictions(false)
     }
-  }, [existingShare, isOpen, loadRestrictions])
+  }, [isOpen])
 
   const createShareMutation = useMutation({
     mutationFn: async () => {
@@ -226,231 +425,117 @@ export function ShareDialog({
         body: JSON.stringify({
           path: filePath,
           isDirectory,
-          editable,
-          ...(editable ? { restrictions } : {}),
+          editable: newEditable,
+          ...(newEditable ? { restrictions: newRestrictions } : {}),
         }),
       })
       if (!res.ok) throw new Error('Failed to create share')
       return res.json()
     },
-    onSuccess: (data: { share: ShareLink; url: string }) => {
-      setShareData({
-        share: data.share,
-        url: buildShareUrl(data.share),
-      })
-      loadRestrictions(data.share)
-      queryClient.invalidateQueries({ queryKey: ['shares'] })
-    },
-  })
-
-  const updateRestrictionsMutation = useMutation({
-    mutationFn: async () => {
-      if (!shareData) throw new Error('No share')
-      const res = await fetch('/api/shares', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: shareData.share.token,
-          restrictions,
-        }),
-      })
-      if (!res.ok) throw new Error('Failed to update restrictions')
-      return res.json()
-    },
-    onSuccess: (data: { share: ShareLink }) => {
-      if (shareData) {
-        setShareData({ ...shareData, share: data.share })
-      }
-      loadRestrictions(data.share)
-      queryClient.invalidateQueries({ queryKey: ['shares'] })
-    },
-  })
-
-  const revokeShareMutation = useMutation({
-    mutationFn: async (token: string) => {
-      const res = await fetch('/api/shares', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      })
-      if (!res.ok) throw new Error('Failed to revoke share')
-    },
     onSuccess: () => {
-      setShareData(null)
+      setShowCreate(false)
       queryClient.invalidateQueries({ queryKey: ['shares'] })
     },
   })
 
-  const handleCopyLink = async () => {
-    if (!shareData) return
-    try {
-      await navigator.clipboard.writeText(shareData.url)
-      setCopiedLink(true)
-      setTimeout(() => setCopiedLink(false), 2000)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const handleCreate = () => {
-    createShareMutation.mutate()
-  }
-
-  const handleRevoke = () => {
-    if (shareData) {
-      revokeShareMutation.mutate(shareData.share.token)
-    }
-  }
-
-  const restrictionsSummary = (share: ShareLink) => {
-    const r = share.restrictions || {}
-    const denied: string[] = []
-    if (r.allowDelete === false) denied.push('delete')
-    if (r.allowUpload === false) denied.push('upload')
-    if (r.allowEdit === false) denied.push('edit')
-    const limit = r.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES
-    const used = share.usedBytes || 0
-    return { denied, limit, used }
-  }
+  const hasShares = existingShares.length > 0
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='sm:max-w-md'>
+      <DialogContent className='sm:max-w-md max-h-[85vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <Link className='h-5 w-5' />
-            {shareData ? 'Share Link' : 'Create Share Link'}
+            Share Links
           </DialogTitle>
           <DialogDescription>
-            {shareData ? `Sharing "${fileName}"` : `Create a share link for "${fileName}"`}
+            {hasShares
+              ? `${existingShares.length} share${existingShares.length > 1 ? 's' : ''} for "${fileName}"`
+              : `Create a share link for "${fileName}"`}
           </DialogDescription>
         </DialogHeader>
 
-        {shareData ? (
-          <div className='space-y-4'>
-            {/* Share URL */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Link</label>
-              <div className='flex gap-2'>
-                <Input value={shareData.url} readOnly className='font-mono text-xs' />
-                <Button variant='outline' size='icon' onClick={handleCopyLink} title='Copy link'>
-                  {copiedLink ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
-                </Button>
-              </div>
-            </div>
+        <div className='space-y-3'>
+          {/* Create new share */}
+          {showCreate ? (
+            <div className='rounded-lg border border-dashed p-3 space-y-3'>
+              <p className='text-sm font-medium'>New Share Link</p>
 
-            {shareData.share.passcode && (
-              <p className='text-xs text-muted-foreground'>Passcode is included in the link.</p>
-            )}
-
-            {/* Share info */}
-            <div className='rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground space-y-1'>
-              <p>Type: {shareData.share.isDirectory ? 'Folder' : 'File'}</p>
-              {shareData.share.editable && (
+              {isDirectory && isEditable && (
                 <>
-                  <p>Access: Editable</p>
-                  {(() => {
-                    const { denied, limit, used } = restrictionsSummary(shareData.share)
-                    return (
-                      <>
-                        {denied.length > 0 && <p>Restricted: {denied.join(', ')}</p>}
-                        <p>
-                          Quota:{' '}
-                          {limit === 0
-                            ? `${formatFileSize(used)} used (unlimited)`
-                            : `${formatFileSize(used)} / ${formatFileSize(limit)} used`}
-                        </p>
-                      </>
-                    )
-                  })()}
+                  <label className='flex items-center gap-3 cursor-pointer'>
+                    <input
+                      type='checkbox'
+                      checked={newEditable}
+                      onChange={(e) => setNewEditable(e.target.checked)}
+                      className='h-4 w-4 rounded border-input'
+                    />
+                    <div>
+                      <p className='text-sm font-medium'>Allow editing</p>
+                      <p className='text-xs text-muted-foreground'>
+                        Recipients can create, edit, and delete files
+                      </p>
+                    </div>
+                  </label>
+
+                  {newEditable && (
+                    <div className='rounded-lg border p-3 space-y-3'>
+                      <p className='text-xs font-medium text-muted-foreground'>Restrictions</p>
+                      <RestrictionsEditor
+                        restrictions={newRestrictions}
+                        onChange={setNewRestrictions}
+                      />
+                    </div>
+                  )}
                 </>
               )}
-              <p>Created: {new Date(shareData.share.createdAt).toLocaleDateString()}</p>
-            </div>
 
-            {/* Restrictions editor for editable shares */}
-            {shareData.share.editable && (
-              <div>
+              <div className='flex gap-2'>
                 <Button
-                  variant='ghost'
+                  className='flex-1'
                   size='sm'
-                  className='w-full justify-between'
-                  onClick={() => setShowRestrictions(!showRestrictions)}
+                  onClick={() => createShareMutation.mutate()}
+                  disabled={createShareMutation.isPending}
                 >
-                  <span>Edit Restrictions</span>
-                  {showRestrictions ? (
-                    <ChevronUp className='h-4 w-4' />
-                  ) : (
-                    <ChevronDown className='h-4 w-4' />
-                  )}
+                  <Link className='h-3.5 w-3.5 mr-1.5' />
+                  {createShareMutation.isPending ? 'Creating...' : 'Create'}
                 </Button>
-                {showRestrictions && (
-                  <div className='mt-2 space-y-3 rounded-lg border p-3'>
-                    <RestrictionsEditor restrictions={restrictions} onChange={setRestrictions} />
-                    <Button
-                      className='w-full'
-                      size='sm'
-                      onClick={() => updateRestrictionsMutation.mutate()}
-                      disabled={updateRestrictionsMutation.isPending}
-                    >
-                      <Save className='h-4 w-4 mr-2' />
-                      {updateRestrictionsMutation.isPending ? 'Saving...' : 'Save Restrictions'}
-                    </Button>
-                  </div>
-                )}
+                <Button variant='outline' size='sm' onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
               </div>
-            )}
-
-            {/* Revoke */}
+            </div>
+          ) : (
             <Button
-              variant='destructive'
+              variant='outline'
               className='w-full'
-              onClick={handleRevoke}
-              disabled={revokeShareMutation.isPending}
+              size='sm'
+              onClick={() => setShowCreate(true)}
             >
-              <Trash2 className='h-4 w-4 mr-2' />
-              {revokeShareMutation.isPending ? 'Revoking...' : 'Revoke Share'}
+              <Plus className='h-3.5 w-3.5 mr-1.5' />
+              Create New Share Link
             </Button>
-          </div>
-        ) : (
-          <div className='space-y-4'>
-            {/* Editable toggle (only for directories in editable folders) */}
-            {isDirectory && isEditable && (
-              <>
-                <label className='flex items-center gap-3 cursor-pointer'>
-                  <input
-                    type='checkbox'
-                    checked={editable}
-                    onChange={(e) => setEditable(e.target.checked)}
-                    className='h-4 w-4 rounded border-input'
-                  />
-                  <div>
-                    <p className='text-sm font-medium'>Allow editing</p>
-                    <p className='text-xs text-muted-foreground'>
-                      Recipients can create, edit, and delete files
-                    </p>
-                  </div>
-                </label>
+          )}
 
-                {editable && (
-                  <div className='rounded-lg border p-3 space-y-3'>
-                    <p className='text-sm font-medium text-muted-foreground'>Restrictions</p>
-                    <RestrictionsEditor restrictions={restrictions} onChange={setRestrictions} />
-                  </div>
-                )}
-              </>
-            )}
+          {/* Existing shares list (newest first) */}
+          {[...existingShares]
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .map((share) => (
+              <ShareCard
+                key={share.token}
+                share={share}
+                isDirectory={isDirectory}
+                isEditable={isEditable}
+                onRevoked={() => {}}
+              />
+            ))}
 
-            <Button
-              className='w-full'
-              onClick={handleCreate}
-              disabled={createShareMutation.isPending}
-            >
-              <Link className='h-4 w-4 mr-2' />
-              {createShareMutation.isPending ? 'Creating...' : 'Create Share Link'}
-            </Button>
-          </div>
-        )}
+          {!hasShares && !showCreate && (
+            <p className='text-sm text-muted-foreground text-center py-2'>
+              No share links yet. Create one to get started.
+            </p>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )
