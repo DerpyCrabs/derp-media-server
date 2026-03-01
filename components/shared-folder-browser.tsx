@@ -42,6 +42,13 @@ import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
 import { MoveToDialog } from '@/components/move-to-dialog'
 import { TextViewer } from '@/components/text-viewer'
 
+interface ShareRestrictions {
+  allowDelete: boolean
+  allowUpload: boolean
+  allowEdit: boolean
+  maxUploadBytes: number
+}
+
 interface ShareInfo {
   token: string
   name: string
@@ -50,6 +57,7 @@ interface ShareInfo {
   editable: boolean
   mediaType: string
   extension: string
+  restrictions?: ShareRestrictions
 }
 
 interface SharedFolderBrowserProps {
@@ -82,6 +90,10 @@ function SharedFolderBrowserInner({
   const currentSubDir = searchParams.get('dir') || ''
   const viewingPath = searchParams.get('viewing')
   const playingPath = searchParams.get('playing')
+
+  const canUpload = shareInfo.editable && shareInfo.restrictions?.allowUpload !== false
+  const canEdit = shareInfo.editable && shareInfo.restrictions?.allowEdit !== false
+  const canDelete = shareInfo.editable && shareInfo.restrictions?.allowDelete !== false
 
   const storageKey = `share-viewmode-${token}`
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
@@ -264,7 +276,7 @@ function SharedFolderBrowserInner({
     return parts.slice(0, -1).join('/')
   }, [currentSubDir])
 
-  const canDropOnParent = shareInfo.editable && !!currentSubDir
+  const canDropOnParent = canEdit && !!currentSubDir
 
   const canDropOn = useCallback(
     (targetPath: string) => {
@@ -463,7 +475,7 @@ function SharedFolderBrowserInner({
                 ))}
               </div>
               <div className='flex gap-1 items-center'>
-                {shareInfo.editable && (
+                {canUpload && (
                   <>
                     <Button
                       variant='outline'
@@ -560,10 +572,10 @@ function SharedFolderBrowserInner({
                         className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''} ${
                           draggedPath === file.path ? 'opacity-50' : ''
                         } ${file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''}`}
-                        draggable={shareInfo.editable && enableDrag}
+                        draggable={canEdit && enableDrag}
                         onClick={() => handleFileClick(file)}
                         onDragStart={(e) => {
-                          if (!shareInfo.editable) return
+                          if (!canEdit) return
                           e.dataTransfer.setData('text/plain', file.path)
                           e.dataTransfer.effectAllowed = 'move'
                           setDraggedPath(file.path)
@@ -573,7 +585,7 @@ function SharedFolderBrowserInner({
                           setDragOverPath(null)
                         }}
                         onDragOver={(e) => {
-                          if (!file.isDirectory || !shareInfo.editable || !draggedPath) return
+                          if (!file.isDirectory || !canEdit || !draggedPath) return
                           if (!canDropOn(file.path)) return
                           e.preventDefault()
                           e.dataTransfer.dropEffect = 'move'
@@ -587,12 +599,7 @@ function SharedFolderBrowserInner({
                         onDrop={(e) => {
                           e.preventDefault()
                           setDragOverPath(null)
-                          if (
-                            draggedPath &&
-                            file.isDirectory &&
-                            shareInfo.editable &&
-                            canDropOn(file.path)
-                          ) {
+                          if (draggedPath && file.isDirectory && canEdit && canDropOn(file.path)) {
                             handleMoveFile(draggedPath, stripSharePrefix(file.path))
                           }
                         }}
@@ -638,9 +645,9 @@ function SharedFolderBrowserInner({
                         file={file}
                         isEditable
                         onDownload={handleDownload}
-                        onRename={handleContextRename}
-                        onDelete={handleContextDelete}
-                        onMove={handleContextMoveFile}
+                        onRename={canEdit ? handleContextRename : undefined}
+                        onDelete={canDelete ? handleContextDelete : undefined}
+                        onMove={canEdit ? handleContextMoveFile : undefined}
                       >
                         {row}
                       </FileContextMenu>
@@ -697,10 +704,10 @@ function SharedFolderBrowserInner({
                           ? 'ring-2 ring-primary bg-primary/10'
                           : ''
                       }`}
-                      draggable={shareInfo.editable && enableDrag}
+                      draggable={canEdit && enableDrag}
                       onClick={() => handleFileClick(file)}
                       onDragStart={(e) => {
-                        if (!shareInfo.editable) return
+                        if (!canEdit) return
                         e.dataTransfer.setData('text/plain', file.path)
                         e.dataTransfer.effectAllowed = 'move'
                         setDraggedPath(file.path)
@@ -710,7 +717,7 @@ function SharedFolderBrowserInner({
                         setDragOverPath(null)
                       }}
                       onDragOver={(e) => {
-                        if (!file.isDirectory || !shareInfo.editable || !draggedPath) return
+                        if (!file.isDirectory || !canEdit || !draggedPath) return
                         if (!canDropOn(file.path)) return
                         e.preventDefault()
                         e.dataTransfer.dropEffect = 'move'
@@ -724,12 +731,7 @@ function SharedFolderBrowserInner({
                       onDrop={(e) => {
                         e.preventDefault()
                         setDragOverPath(null)
-                        if (
-                          draggedPath &&
-                          file.isDirectory &&
-                          shareInfo.editable &&
-                          canDropOn(file.path)
-                        ) {
+                        if (draggedPath && file.isDirectory && canEdit && canDropOn(file.path)) {
                           handleMoveFile(draggedPath, stripSharePrefix(file.path))
                         }
                       }}
@@ -783,9 +785,9 @@ function SharedFolderBrowserInner({
                       file={file}
                       isEditable
                       onDownload={handleDownload}
-                      onRename={handleContextRename}
-                      onDelete={handleContextDelete}
-                      onMove={handleContextMoveFile}
+                      onRename={canEdit ? handleContextRename : undefined}
+                      onDelete={canDelete ? handleContextDelete : undefined}
+                      onMove={canEdit ? handleContextMoveFile : undefined}
                     >
                       {card}
                     </FileContextMenu>

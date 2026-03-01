@@ -15,6 +15,13 @@ import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { Mutex } from '@/lib/mutex'
 
+export interface ShareRestrictions {
+  allowDelete?: boolean
+  allowUpload?: boolean
+  allowEdit?: boolean
+  maxUploadBytes?: number
+}
+
 export interface ShareLink {
   token: string
   path: string
@@ -22,6 +29,31 @@ export interface ShareLink {
   editable: boolean
   passcode?: string
   createdAt: number
+  restrictions?: ShareRestrictions
+  usedBytes?: number
+}
+
+const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
+
+export function getEffectiveRestrictions(share: ShareLink): Required<ShareRestrictions> {
+  const r = share.restrictions || {}
+  return {
+    allowDelete: r.allowDelete !== false,
+    allowUpload: r.allowUpload !== false,
+    allowEdit: r.allowEdit !== false,
+    maxUploadBytes: r.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
+  }
+}
+
+export function checkUploadQuota(
+  share: ShareLink,
+  contentSizeBytes: number,
+): { allowed: boolean; remaining: number } {
+  const restrictions = getEffectiveRestrictions(share)
+  if (restrictions.maxUploadBytes === 0) return { allowed: true, remaining: Infinity }
+  const used = share.usedBytes || 0
+  const remaining = Math.max(0, restrictions.maxUploadBytes - used)
+  return { allowed: contentSizeBytes <= remaining, remaining }
 }
 
 interface SharesData {
@@ -139,6 +171,7 @@ export async function createShare(
   sharePath: string,
   isDirectory: boolean,
   editable: boolean,
+  restrictions?: ShareRestrictions,
 ): Promise<ShareLink> {
   const release = await sharesMutex.acquire()
   try {
@@ -147,9 +180,9 @@ export async function createShare(
     const existingIndex = data.shares.findIndex((s) => s.path === sharePath)
     if (existingIndex !== -1) {
       const existing = data.shares[existingIndex]
-      // Update editable/isDirectory if they differ — then persist
       if (existing.editable !== editable || existing.isDirectory !== isDirectory) {
         const updated: ShareLink = { ...existing, editable, isDirectory }
+        if (editable && restrictions) updated.restrictions = restrictions
         data.shares[existingIndex] = updated
         await writeSharesData(data)
         return decryptSharePasscode(updated)
@@ -165,13 +198,44 @@ export async function createShare(
       editable,
       passcode: plainPasscode ? encryptPasscode(plainPasscode) : undefined,
       createdAt: Date.now(),
+      ...(editable && restrictions ? { restrictions } : {}),
     }
 
     data.shares.push(share)
     await writeSharesData(data)
 
-    // Return with plaintext passcode for one-time display
     return { ...share, passcode: plainPasscode }
+  } finally {
+    release()
+  }
+}
+
+export async function updateShareRestrictions(
+  token: string,
+  restrictions: ShareRestrictions,
+): Promise<ShareLink | null> {
+  const release = await sharesMutex.acquire()
+  try {
+    const data = await readSharesRaw()
+    const index = data.shares.findIndex((s) => s.token === token)
+    if (index === -1) return null
+    data.shares[index] = { ...data.shares[index], restrictions }
+    await writeSharesData(data)
+    return decryptSharePasscode(data.shares[index])
+  } finally {
+    release()
+  }
+}
+
+export async function addShareUsedBytes(token: string, bytes: number): Promise<boolean> {
+  const release = await sharesMutex.acquire()
+  try {
+    const data = await readSharesRaw()
+    const index = data.shares.findIndex((s) => s.token === token)
+    if (index === -1) return false
+    data.shares[index].usedBytes = (data.shares[index].usedBytes || 0) + bytes
+    await writeSharesData(data)
+    return true
   } finally {
     release()
   }

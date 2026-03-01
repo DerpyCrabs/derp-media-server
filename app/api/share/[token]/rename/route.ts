@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { renameFileOrDirectory } from '@/lib/file-system'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
+import { getEffectiveRestrictions } from '@/lib/shares'
 import path from 'path'
 
 export async function POST(
@@ -16,6 +17,10 @@ export async function POST(
 
     if (!share.editable) {
       return NextResponse.json({ error: 'Share is not editable' }, { status: 403 })
+    }
+
+    if (!getEffectiveRestrictions(share).allowEdit) {
+      return NextResponse.json({ error: 'Editing is not allowed for this share' }, { status: 403 })
     }
 
     const body = await request.json()

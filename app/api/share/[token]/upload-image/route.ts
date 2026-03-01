@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validateShareAccess } from '@/lib/share-access'
 import { writeBinaryFile, isPathEditable } from '@/lib/file-system'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
+import { getEffectiveRestrictions, checkUploadQuota, addShareUsedBytes } from '@/lib/shares'
 import { getKnowledgeBaseRootForPath } from '@/lib/knowledge-base'
 import path from 'path'
 
@@ -19,11 +20,22 @@ export async function POST(
       return NextResponse.json({ error: 'Share is not editable' }, { status: 403 })
     }
 
+    const restrictions = getEffectiveRestrictions(share)
+    if (!restrictions.allowUpload) {
+      return NextResponse.json({ error: 'Uploads are not allowed for this share' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { base64Content, mimeType } = body
 
     if (!base64Content || typeof base64Content !== 'string') {
       return NextResponse.json({ error: 'base64Content is required' }, { status: 400 })
+    }
+
+    const contentSize = Math.ceil((base64Content.length * 3) / 4)
+    const quota = checkUploadQuota(share, contentSize)
+    if (!quota.allowed) {
+      return NextResponse.json({ error: 'Upload quota exceeded for this share' }, { status: 413 })
     }
 
     const { getKnowledgeBases } = await import('@/lib/knowledge-base')
@@ -59,6 +71,7 @@ export async function POST(
     const imagePath = `${imagesDir}/${fileName}`
 
     await writeBinaryFile(imagePath, base64Content)
+    await addShareUsedBytes(token, contentSize)
 
     const parentDir = path.dirname(imagePath).replace(/\\/g, '/')
     broadcastFileChange(parentDir === '.' ? '' : parentDir)

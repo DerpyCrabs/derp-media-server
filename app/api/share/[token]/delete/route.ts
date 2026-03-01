@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { deleteDirectory, deleteFile, validatePath } from '@/lib/file-system'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
+import { getEffectiveRestrictions } from '@/lib/shares'
 import { promises as fs } from 'fs'
 import path from 'path'
 
@@ -17,6 +18,10 @@ export async function POST(
 
     if (!share.editable) {
       return NextResponse.json({ error: 'Share is not editable' }, { status: 403 })
+    }
+
+    if (!getEffectiveRestrictions(share).allowDelete) {
+      return NextResponse.json({ error: 'Deletion is not allowed for this share' }, { status: 403 })
     }
 
     const body = await request.json()
