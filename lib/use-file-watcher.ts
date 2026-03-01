@@ -20,6 +20,7 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
           console.log('[Files SSE] Files changed in:', data.directory)
           queryClient.invalidateQueries({ queryKey: ['files'] })
           queryClient.invalidateQueries({ queryKey: ['share-files'] })
+          queryClient.invalidateQueries({ queryKey: ['kb-recent'] })
           queryClient.invalidateQueries({ queryKey: ['text-content'] })
           queryClient.invalidateQueries({ queryKey: ['share-text'] })
         }
