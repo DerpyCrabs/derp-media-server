@@ -34,6 +34,7 @@ import { KbSearchResults } from '@/components/kb-search-results'
 import { KbDashboard } from '@/components/kb-dashboard'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ShareLink } from '@/lib/shares'
+import { useShareLinkBase } from '@/lib/use-share-link-base'
 
 interface FileListProps {
   files: FileItem[]
@@ -54,6 +55,7 @@ function FileListInner({
 }: FileListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const shareLinkBase = useShareLinkBase()
   useFileWatcher()
   const { playFile, isPlaying: mediaPlayerIsPlaying, mediaType, currentFile } = useMediaPlayer()
 
@@ -417,7 +419,7 @@ function FileListInner({
   // Handle context menu action for copying share link (in Shares folder)
   const handleContextCopyShareLink = async (file: FileItem) => {
     if (!file.shareToken) return
-    const url = `${window.location.origin}/share/${file.shareToken}`
+    const url = `${shareLinkBase}/share/${file.shareToken}`
     try {
       await navigator.clipboard.writeText(url)
     } catch {

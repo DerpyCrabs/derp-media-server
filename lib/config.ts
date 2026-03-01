@@ -6,11 +6,13 @@ export interface AuthConfig {
   enabled: boolean
   /** Password required when enabled */
   password?: string
+  adminAccessDomains?: string[]
 }
 
 export interface AppConfig {
   mediaDir: string
   editableFolders: string[]
+  shareLinkDomain?: string
   auth?: AuthConfig
 }
 
@@ -65,21 +67,33 @@ function loadConfigOnce(): AppConfig {
     const editableFolders = Array.isArray(parsed.editableFolders)
       ? parsed.editableFolders.map((f) => String(f).trim()).filter(Boolean)
       : []
+    const rawShare = typeof parsed.shareLinkDomain === 'string' && parsed.shareLinkDomain.trim()
+    const shareLinkDomain = rawShare
+      ? (() => {
+          const s = parsed.shareLinkDomain!.trim().replace(/\/$/, '')
+          return s.startsWith('http://') || s.startsWith('https://') ? s : `https://${s}`
+        })()
+      : undefined
+    const adminAccessDomains = Array.isArray(parsed.auth?.adminAccessDomains)
+      ? parsed.auth.adminAccessDomains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
+      : undefined
     const auth =
       parsed.auth && typeof parsed.auth === 'object'
         ? {
             enabled: Boolean(parsed.auth.enabled),
             password: typeof parsed.auth.password === 'string' ? parsed.auth.password : undefined,
+            adminAccessDomains,
           }
         : { enabled: false }
 
-    return { mediaDir, editableFolders, auth }
+    return { mediaDir, editableFolders, shareLinkDomain, auth }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
       return {
         mediaDir: process.cwd(),
         editableFolders: [],
+        shareLinkDomain: undefined,
         auth: { enabled: false, password: undefined },
       }
     }
