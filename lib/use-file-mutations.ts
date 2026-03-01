@@ -121,11 +121,38 @@ export function useFileMutations(currentPath: string) {
     },
   })
 
+  const moveMutation = useMutation({
+    mutationFn: async ({
+      sourcePath,
+      destinationDir,
+    }: {
+      sourcePath: string
+      destinationDir: string
+    }) => {
+      const fileName = sourcePath.split(/[/\\]/).pop()!
+      const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
+      const res = await fetch('/api/files/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPath: sourcePath, newPath }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to move')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+    },
+  })
+
   return {
     createFolderMutation,
     createFileMutation,
     deleteFolderMutation,
     deleteItemMutation,
     renameMutation,
+    moveMutation,
   }
 }

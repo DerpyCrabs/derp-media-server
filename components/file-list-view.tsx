@@ -30,6 +30,8 @@ interface FileListViewProps {
   onContextToggleKnowledgeBase?: (file: FileItem) => void
   onContextShare: (file: FileItem) => void
   onContextCopyShareLink?: (file: FileItem) => void
+  onContextMove?: (file: FileItem) => void
+  onMoveFile?: (sourcePath: string, destinationDir: string) => void
   shares: ShareLink[]
   knowledgeBases?: string[]
   getViewCount: (path: string) => number
@@ -71,6 +73,8 @@ export function FileListView({
   onContextToggleKnowledgeBase,
   onContextShare,
   onContextCopyShareLink,
+  onContextMove,
+  onMoveFile,
   shares,
   knowledgeBases = [],
   getViewCount,
@@ -89,6 +93,21 @@ export function FileListView({
   const [inlineName, setInlineName] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+
+  const [draggedPath, setDraggedPath] = useState<string | null>(null)
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+  const enableDrag = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
+
+  const parentParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
+  const parentDir = parentParts.slice(0, -1).join('/')
+  const canDropOnParent =
+    !!onMoveFile && !!currentPath && isPathEditable(parentDir || '', editableFolders)
+
+  const canDropOn = (targetPath: string) => {
+    if (!draggedPath || draggedPath === targetPath) return false
+    if (targetPath.startsWith(draggedPath + '/')) return false
+    return true
+  }
 
   useEffect(() => {
     if (inlineMode === 'file') fileInputRef.current?.focus()
@@ -171,8 +190,28 @@ export function FileListView({
           {/* Parent directory entry - only show when not at root */}
           {currentPath && (
             <TableRow
-              className='cursor-pointer hover:bg-muted/50 select-none'
+              className={`cursor-pointer hover:bg-muted/50 select-none ${
+                dragOverPath === '__parent__' ? 'bg-primary/20' : ''
+              }`}
               onClick={onParentDirectory}
+              onDragOver={(e) => {
+                if (!canDropOnParent || !draggedPath) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setDragOverPath('__parent__')
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDragOverPath(null)
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragOverPath(null)
+                if (draggedPath && onMoveFile) {
+                  onMoveFile(draggedPath, parentDir)
+                }
+              }}
             >
               <TableCell className='w-12'>
                 <ArrowUp className='h-5 w-5 text-muted-foreground' />
@@ -200,6 +239,7 @@ export function FileListView({
                 onToggleKnowledgeBase={onContextToggleKnowledgeBase}
                 onShare={onContextShare}
                 onCopyShareLink={onContextCopyShareLink}
+                onMove={onContextMove}
                 isFavorite={isFavorite}
                 isKnowledgeBase={isKnowledgeBase}
                 isEditable={isFileEditable}
@@ -208,9 +248,42 @@ export function FileListView({
                 <TableRow
                   className={`cursor-pointer hover:bg-muted/50 select-none group ${
                     playingPath === file.path ? 'bg-primary/10' : ''
+                  } ${draggedPath === file.path ? 'opacity-50' : ''} ${
+                    file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''
                   }`}
+                  draggable={isFileEditable && !!onMoveFile && enableDrag}
                   onClick={() => onFileClick(file)}
                   onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
+                  onDragStart={(e) => {
+                    if (!isFileEditable || !onMoveFile) return
+                    e.dataTransfer.setData('text/plain', file.path)
+                    e.dataTransfer.effectAllowed = 'move'
+                    setDraggedPath(file.path)
+                  }}
+                  onDragEnd={() => {
+                    setDraggedPath(null)
+                    setDragOverPath(null)
+                  }}
+                  onDragOver={(e) => {
+                    if (!file.isDirectory || !onMoveFile || !draggedPath) return
+                    if (!canDropOn(file.path)) return
+                    if (!isPathEditable(file.path, editableFolders)) return
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    setDragOverPath(file.path)
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      if (dragOverPath === file.path) setDragOverPath(null)
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDragOverPath(null)
+                    if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
+                      onMoveFile(draggedPath, file.path)
+                    }
+                  }}
                 >
                   <TableCell className='w-12'>
                     <div className='flex items-center justify-center'>

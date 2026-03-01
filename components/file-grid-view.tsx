@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
@@ -28,6 +29,8 @@ interface FileGridViewProps {
   onContextToggleKnowledgeBase?: (file: FileItem) => void
   onContextShare: (file: FileItem) => void
   onContextCopyShareLink?: (file: FileItem) => void
+  onContextMove?: (file: FileItem) => void
+  onMoveFile?: (sourcePath: string, destinationDir: string) => void
   shares: ShareLink[]
   knowledgeBases?: string[]
   getViewCount: (path: string) => number
@@ -60,12 +63,29 @@ export function FileGridView({
   onContextToggleKnowledgeBase,
   onContextShare,
   onContextCopyShareLink,
+  onContextMove,
+  onMoveFile,
   shares,
   knowledgeBases = [],
   getViewCount,
   getShareViewCount,
   getIcon,
 }: FileGridViewProps) {
+  const [draggedPath, setDraggedPath] = useState<string | null>(null)
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+  const enableDrag = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
+
+  const parentParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
+  const parentDir = parentParts.slice(0, -1).join('/')
+  const canDropOnParent =
+    !!onMoveFile && !!currentPath && isPathEditable(parentDir || '', editableFolders)
+
+  const canDropOn = (targetPath: string) => {
+    if (!draggedPath || draggedPath === targetPath) return false
+    if (targetPath.startsWith(draggedPath + '/')) return false
+    return true
+  }
+
   if (files.length === 0 && !currentPath) {
     return (
       <div className='text-center py-12 text-muted-foreground'>
@@ -115,8 +135,28 @@ export function FileGridView({
         {/* Parent directory card - only show when not at root */}
         {currentPath && (
           <Card
-            className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
+            className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
+              dragOverPath === '__parent__' ? 'ring-2 ring-primary bg-primary/10' : ''
+            }`}
             onClick={onParentDirectory}
+            onDragOver={(e) => {
+              if (!canDropOnParent || !draggedPath) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              setDragOverPath('__parent__')
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDragOverPath(null)
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDragOverPath(null)
+              if (draggedPath && onMoveFile) {
+                onMoveFile(draggedPath, parentDir)
+              }
+            }}
           >
             <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
               <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
@@ -144,6 +184,7 @@ export function FileGridView({
               onToggleKnowledgeBase={onContextToggleKnowledgeBase}
               onShare={onContextShare}
               onCopyShareLink={onContextCopyShareLink}
+              onMove={onContextMove}
               isFavorite={isFavorite}
               isKnowledgeBase={isKnowledgeBase}
               isEditable={isFileEditable}
@@ -152,9 +193,44 @@ export function FileGridView({
               <Card
                 className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
                   playingPath === file.path ? 'ring-2 ring-primary' : ''
+                } ${draggedPath === file.path ? 'opacity-50' : ''} ${
+                  file.isDirectory && dragOverPath === file.path
+                    ? 'ring-2 ring-primary bg-primary/10'
+                    : ''
                 }`}
+                draggable={isFileEditable && !!onMoveFile && enableDrag}
                 onClick={() => onFileClick(file)}
                 onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
+                onDragStart={(e) => {
+                  if (!isFileEditable || !onMoveFile) return
+                  e.dataTransfer.setData('text/plain', file.path)
+                  e.dataTransfer.effectAllowed = 'move'
+                  setDraggedPath(file.path)
+                }}
+                onDragEnd={() => {
+                  setDraggedPath(null)
+                  setDragOverPath(null)
+                }}
+                onDragOver={(e) => {
+                  if (!file.isDirectory || !onMoveFile || !draggedPath) return
+                  if (!canDropOn(file.path)) return
+                  if (!isPathEditable(file.path, editableFolders)) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setDragOverPath(file.path)
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverPath === file.path) setDragOverPath(null)
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOverPath(null)
+                  if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
+                    onMoveFile(draggedPath, file.path)
+                  }
+                }}
               >
                 <CardContent className='p-0 flex flex-col h-full'>
                   {/* Thumbnail/Icon */}
