@@ -12,10 +12,12 @@ interface RecentFile {
 interface KbDashboardProps {
   scopePath: string
   onFileClick: (path: string) => void
+  fetchUrl?: string
 }
 
-async function fetchRecent(scopePath: string): Promise<RecentFile[]> {
-  const res = await fetch(`/api/kb/recent?root=${encodeURIComponent(scopePath)}`)
+async function fetchRecent(scopePath: string, fetchUrl?: string): Promise<RecentFile[]> {
+  const url = fetchUrl || `/api/kb/recent?root=${encodeURIComponent(scopePath)}`
+  const res = await fetch(url)
   if (!res.ok) throw new Error('Failed to fetch recent')
   const data = await res.json()
   return data.results || []
@@ -35,10 +37,10 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString()
 }
 
-export function KbDashboard({ scopePath, onFileClick }: KbDashboardProps) {
+export function KbDashboard({ scopePath, onFileClick, fetchUrl }: KbDashboardProps) {
   const { data: recent, isLoading } = useQuery({
-    queryKey: ['kb-recent', scopePath],
-    queryFn: () => fetchRecent(scopePath),
+    queryKey: ['kb-recent', fetchUrl || scopePath],
+    queryFn: () => fetchRecent(scopePath, fetchUrl),
     staleTime: 1000 * 60,
   })
 

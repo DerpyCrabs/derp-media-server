@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useRouter } from 'next/navigation'
 
-export function useFileMutations(currentPath: string) {
+export function useFileMutations(currentPath: string, options?: { inKb?: boolean }) {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const router = useRouter()
+  const inKb = options?.inKb ?? false
 
   // Mutation for creating folders
   const createFolderMutation = useMutation({
@@ -30,7 +31,8 @@ export function useFileMutations(currentPath: string) {
   const createFileMutation = useMutation({
     mutationFn: async (fileName: string) => {
       const filePath = currentPath ? `${currentPath}/${fileName}` : fileName
-      const finalFilePath = filePath.includes('.') ? filePath : `${filePath}.txt`
+      const defaultExt = inKb ? '.md' : '.txt'
+      const finalFilePath = filePath.includes('.') ? filePath : `${filePath}${defaultExt}`
       const res = await fetch('/api/files/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

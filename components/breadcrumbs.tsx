@@ -21,6 +21,7 @@ interface BreadcrumbsProps {
   onContextDownload?: (file: FileItem) => void
   onContextToggleFavorite?: (file: FileItem) => void
   onContextShare?: (file: FileItem) => void
+  onContextOpenInNewTab?: (file: FileItem) => void
   favorites?: string[]
   editableFolders?: string[]
   shares?: ShareLink[]
@@ -37,6 +38,7 @@ export function Breadcrumbs({
   onContextDownload,
   onContextToggleFavorite,
   onContextShare,
+  onContextOpenInNewTab,
   favorites = [],
   editableFolders = [],
   shares = [],
@@ -209,6 +211,7 @@ export function Breadcrumbs({
         onDownload={onContextDownload}
         onToggleFavorite={onContextToggleFavorite}
         onShare={onContextShare}
+        onOpenInNewTab={onContextOpenInNewTab}
         isFavorite={favorites.includes(crumb.path)}
         isEditable={isPathEditable(crumb.path, editableFolders)}
         isShared={shares.some((s) => s.path === crumb.path)}

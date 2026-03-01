@@ -110,7 +110,7 @@ function FileListInner({
     renameMutation,
     moveMutation,
     copyMutation,
-  } = useFileMutations(currentPath)
+  } = useFileMutations(currentPath, { inKb })
 
   const queryClient = useQueryClient()
 
@@ -327,12 +327,13 @@ function FileListInner({
     return files.some((f) => f.isDirectory && f.name.toLowerCase() === newItemName.toLowerCase())
   }, [newItemName, files])
 
-  // Check if new file name already exists (with .txt extension if not provided)
+  // Check if new file name already exists (with .md in KB, .txt elsewhere if not provided)
   const fileExists = useMemo(() => {
     if (!newItemName.trim()) return false
-    const fileName = newItemName.includes('.') ? newItemName : `${newItemName}.txt`
+    const defaultExt = inKb ? '.md' : '.txt'
+    const fileName = newItemName.includes('.') ? newItemName : `${newItemName}${defaultExt}`
     return files.some((f) => !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase())
-  }, [newItemName, files])
+  }, [newItemName, files, inKb])
 
   // Check if rename target name already exists (but isn't the original file)
   const renameTargetExists = useMemo(() => {
@@ -422,6 +423,15 @@ function FileListInner({
     } catch {
       /* ignore */
     }
+  }
+
+  // Handle context menu action for opening folder in new tab
+  const handleContextOpenInNewTab = (file: FileItem) => {
+    if (!file.isDirectory || file.isVirtual) return
+    const params = new URLSearchParams()
+    if (file.path) params.set('dir', file.path)
+    const url = `${window.location.origin}${window.location.pathname || '/'}?${params.toString()}`
+    window.open(url, '_blank')
   }
 
   const handleMoveFile = (sourcePath: string, destinationDir: string) => {
@@ -552,6 +562,7 @@ function FileListInner({
         onOpenChange={setShowCreateFile}
         fileName={newItemName}
         onFileNameChange={setNewItemName}
+        defaultExtension={inKb ? 'md' : 'txt'}
         onCreateFile={() =>
           createFileMutation.mutate(newItemName, {
             onSuccess: () => {
@@ -690,6 +701,7 @@ function FileListInner({
             onContextDownload={handleContextDownload}
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
+            onContextOpenInNewTab={handleContextOpenInNewTab}
             favorites={favorites}
             editableFolders={editableFolders}
             shares={shares}
@@ -794,6 +806,7 @@ function FileListInner({
                 onContextCopyShareLink={handleContextCopyShareLink}
                 onContextMove={handleContextMove}
                 onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
+                onContextOpenInNewTab={handleContextOpenInNewTab}
                 hasEditableFolders={editableFolders.length > 0}
                 onMoveFile={handleMoveFile}
                 shares={shares}
@@ -843,6 +856,7 @@ function FileListInner({
                 onContextCopyShareLink={handleContextCopyShareLink}
                 onContextMove={handleContextMove}
                 onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
+                onContextOpenInNewTab={handleContextOpenInNewTab}
                 hasEditableFolders={editableFolders.length > 0}
                 onMoveFile={handleMoveFile}
                 shares={shares}

@@ -106,6 +106,8 @@ interface CreateFileDialogProps {
   error: Error | null
   fileExists: boolean
   onReset: () => void
+  /** Default extension when none provided (.md for knowledge base, .txt otherwise) */
+  defaultExtension?: 'txt' | 'md'
 }
 
 export function CreateFileDialog({
@@ -118,20 +120,23 @@ export function CreateFileDialog({
   error,
   fileExists,
   onReset,
+  defaultExtension = 'txt',
 }: CreateFileDialogProps) {
+  const extExample = defaultExtension === 'md' ? 'notes.md' : 'notes.txt'
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create New File</DialogTitle>
           <DialogDescription>
-            Enter a name for the new file. .txt extension will be added if no extension is provided.
+            Enter a name for the new file. .{defaultExtension} extension will be added if no
+            extension is provided.
           </DialogDescription>
         </DialogHeader>
         <Input
           value={fileName}
           onChange={(e) => onFileNameChange(e.target.value)}
-          placeholder='File name (e.g., notes.txt)'
+          placeholder={`File name (e.g., ${extExample})`}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && fileName.trim() && !fileExists) onCreateFile()
           }}

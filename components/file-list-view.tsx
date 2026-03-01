@@ -32,6 +32,7 @@ interface FileListViewProps {
   onContextCopyShareLink?: (file: FileItem) => void
   onContextMove?: (file: FileItem) => void
   onContextCopy?: (file: FileItem) => void
+  onContextOpenInNewTab?: (file: FileItem) => void
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
   shares: ShareLink[]
@@ -77,6 +78,7 @@ export function FileListView({
   onContextCopyShareLink,
   onContextMove,
   onContextCopy,
+  onContextOpenInNewTab,
   hasEditableFolders = false,
   onMoveFile,
   shares,
@@ -245,6 +247,7 @@ export function FileListView({
                 onCopyShareLink={onContextCopyShareLink}
                 onMove={onContextMove}
                 onCopy={onContextCopy}
+                onOpenInNewTab={onContextOpenInNewTab}
                 hasEditableFolders={hasEditableFolders}
                 isFavorite={isFavorite}
                 isKnowledgeBase={isKnowledgeBase}
@@ -381,7 +384,7 @@ export function FileListView({
                           ref={fileInputRef}
                           value={inlineName}
                           onChange={(e) => setInlineName(e.target.value)}
-                          placeholder='File name (e.g. notes.txt)'
+                          placeholder='File name (e.g. notes.md)'
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') handleInlineCreateFile()
                             else if (e.key === 'Escape') {
