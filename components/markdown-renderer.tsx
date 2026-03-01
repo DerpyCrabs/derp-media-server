@@ -3,12 +3,26 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+const imageExtRe = /\.(png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif)$/i
+
+function preprocessObsidianImages(content: string): string {
+  return content.replace(/!\[\[([^\]]+)\]\]/g, (_match, inner: string) => {
+    const pipeIdx = inner.indexOf('|')
+    const filename = (pipeIdx >= 0 ? inner.slice(0, pipeIdx) : inner).trim()
+    if (!imageExtRe.test(filename)) return _match
+    const alt = (pipeIdx >= 0 ? inner.slice(pipeIdx + 1).trim() : filename) || filename
+    return `![${alt}](<${filename}>)`
+  })
+}
+
 interface MarkdownRendererProps {
   content: string
   resolveImageUrl?: (src: string) => string | null
 }
 
 export function MarkdownRenderer({ content, resolveImageUrl }: MarkdownRendererProps) {
+  const processed = preprocessObsidianImages(content)
+
   return (
     <div className='prose prose-neutral dark:prose-invert max-w-none'>
       <ReactMarkdown
@@ -54,7 +68,7 @@ export function MarkdownRenderer({ content, resolveImageUrl }: MarkdownRendererP
           },
         }}
       >
-        {content}
+        {processed}
       </ReactMarkdown>
     </div>
   )
