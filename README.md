@@ -1,177 +1,161 @@
 # Media Server
 
-> ⚠️ **Warning:** This project is 90% vibe coded. Proceed with caution and manage expectations accordingly.
+> **Warning:** This project is 90% vibe coded. Proceed with caution and manage expectations accordingly.
 
-A modern Next.js-based media server with a beautiful web UI for browsing and playing your video and audio files.
+A modern Next.js-based media server with a web UI for browsing, playing, and managing your media files. Supports authentication, share links, knowledge bases, and real-time sync across clients.
 
 ## Features
 
-- 🎵 **Audio Player** - Persistent audio player that stays active while browsing
-- 🎬 **Video Player** - Minimizable video player with Picture-in-Picture support
-- 📁 **File Browser** - Intuitive file explorer with breadcrumb navigation
-- 🖼️ **Grid & List Views** - Toggle between grid view with video thumbnails and traditional list view
-- ✏️ **Text File Editing** - Edit text files directly in editable folders
-- 📝 **File Creation** - Create new text files and folders in editable directories
-- 🔄 **State Persistence** - URL-based state management (reload returns to same file/folder)
-- 🎨 **Modern UI** - Built with shadcn/ui and Tailwind CSS
-- 🚀 **React Server Components** - Direct file system access without API overhead
-- 📱 **Responsive Design** - Works on desktop and mobile devices
+- **Authentication** - Optional password auth with session cookies, rate limiting, and admin domain restrictions
+- **Share Links** - Share files and folders via token-based links with optional passcodes, upload quotas, and granular permissions
+- **Knowledge Base** - Designate folders as knowledge bases with search, recent files, and Obsidian-style markdown support
+- **File Management** - Upload, move, copy, rename, and delete files and folders
+- **Drag & Drop** - Drop files to upload; drag files between folders to move them
+- **Audio Player** - Persistent player that stays active while browsing
+- **Video Player** - Minimizable video player with Picture-in-Picture support
+- **Image Viewer** - Full-screen viewer with zoom, rotate, and keyboard navigation
+- **Markdown Rendering** - GFM support, Obsidian `![[image]]` syntax, and code highlighting
+- **File Browser** - Grid view with thumbnails or list view, breadcrumb navigation with folder menus
+- **Text Editing** - Edit text files in editable folders, create new files and folders inline
+- **Live Sync** - Server-Sent Events keep all connected clients in sync automatically
+- **Search** - Full-text search within knowledge base folders
+- **Modern UI** - Built with Base UI and Tailwind CSS, responsive on desktop and mobile
 
 ## Supported Formats
 
-**Video:** mp4, webm, ogg, mov, avi, mkv  
-**Audio:** mp3, wav, ogg, m4a, flac, aac, opus  
+**Video:** mp4, webm, ogg, mov, avi, mkv
+**Audio:** mp3, wav, ogg, m4a, flac, aac, opus
+**Images:** jpg, jpeg, png, gif, webp, bmp, svg, ico
 **Text:** txt, md, json, xml, csv, log, yaml, yml, ini, conf, sh, bat, ps1, js, ts, jsx, tsx, css, scss, html, py, java, c, cpp, h, cs, go, rs, php, rb, swift, kt, sql
 
 ## Setup
 
 ### Prerequisites
 
-- **Node.js** 18 or higher
+- **Node.js** 18+
+- **pnpm**
 - **FFmpeg** (optional, for video thumbnails in grid view)
-
-To install FFmpeg:
-
-```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt install ffmpeg
-
-# Windows (using Chocolatey)
-choco install ffmpeg
-```
-
-> Note: Video thumbnails in grid view require FFmpeg. If not installed, placeholder icons will be shown instead.
 
 ### Installation
 
-1. **Install dependencies:**
+1. Install dependencies:
 
    ```bash
    pnpm install
    ```
 
-2. **Configure media directory:**
+2. Configure the server by editing `config.jsonc`:
 
-   Set the `MEDIA_DIR` environment variable to point to your media folder:
-
-   ```bash
-   # Linux/Mac
-   export MEDIA_DIR=/path/to/your/media
-
-   # Windows (PowerShell)
-   $env:MEDIA_DIR="C:\path\to\your\media"
-
-   # Or create .env.local file:
-   echo "MEDIA_DIR=/path/to/your/media" > .env.local
+   ```jsonc
+   {
+     "mediaDir": "/path/to/your/media",
+     "editableFolders": ["notes", "documents"],
+     // Optional: password auth
+     "auth": {
+       "enabled": true,
+       "password": "your-secret",
+       "adminAccessDomains": ["127.0.0.1"],
+     },
+   }
    ```
 
-3. **Configure editable folders (optional):**
+   See [Configuration](#configuration) for all options.
 
-   To enable text file editing and folder/file creation, set the `EDITABLE_FOLDERS` environment variable:
-
-   ```bash
-   # Comma-separated list of folders (relative to MEDIA_DIR)
-   export EDITABLE_FOLDERS=notes,documents,config
-
-   # Or add to .env.local:
-   echo "EDITABLE_FOLDERS=notes,documents,config" >> .env.local
-   ```
-
-   Any folders listed here (and their subfolders) will allow:
-   - Editing text files
-   - Creating new folders
-   - Creating new text files
-
-4. **Run the development server:**
+3. Run the server:
 
    ```bash
    pnpm dev
    ```
 
-5. **Open your browser:**
-   Navigate to [http://localhost:3000](http://localhost:3000)
+4. Open [http://localhost:3000](http://localhost:3000)
 
-## Usage
+## Configuration
 
-### Navigation
+Configuration lives in `config.jsonc` at the project root (JSONC supports comments and trailing commas). Every option can be overridden via environment variables or `.env`.
 
-- Click on folders to browse into them
-- Use the breadcrumb navigation to go back up the folder tree
-- Click on media files to play them
-- Toggle between **Grid View** (with video thumbnails) and **List View** using the buttons in the top-right
+### Options
 
-### Audio Player
+| Config Key                | Env Variable                | Description                                                                               |
+| ------------------------- | --------------------------- | ----------------------------------------------------------------------------------------- |
+| `mediaDir`                | `MEDIA_DIR`                 | Root directory for media files                                                            |
+| `editableFolders`         | `EDITABLE_FOLDERS`          | Folders (relative to `mediaDir`) where file management is allowed. Comma-separated in env |
+| `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (e.g. `share.example.com`). Defaults to the request origin       |
+| `auth.enabled`            | `AUTH_ENABLED`              | Enable password authentication (`true` / `1`)                                             |
+| `auth.password`           | `AUTH_PASSWORD`             | Password for login                                                                        |
+| `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Restrict admin access to specific hostnames. Comma-separated in env                       |
 
-- Appears at the bottom of the screen when playing audio
-- Controls: Play/Pause, Skip forward/backward 10s, Volume, Seek bar
-- Stays active while browsing folders
+The config file path itself can be changed with `CONFIG_PATH` env var or `--config-path` CLI argument. Falls back to `config.json` if `config.jsonc` is not found.
 
-### Video Player
+## Authentication
 
-- Appears as an overlay when playing video
-- Can be minimized to bottom-right corner
-- Supports Picture-in-Picture mode
-- Click X to close
+When auth is enabled, all routes except share links require a valid session. Sessions are cookie-based and last 7 days.
 
-### Text File Editing
+- **Login** is rate-limited to 10 attempts per IP per 15 minutes
+- **Admin access domains** restrict which hostnames can access the admin UI and API. This lets you expose share links on a public domain while keeping admin access on a trusted network (e.g. `["127.0.0.1", "192.168.1.100"]`). When the list is empty, all hostnames are allowed.
+- Share links are always accessible regardless of auth settings
 
-- Click on text files to view them
-- In editable folders, an **Edit** button appears in the viewer
-- Click **Edit** to switch to edit mode with a textarea
-- Click **Save** to save changes or **Cancel** to discard
+## Share Links
 
-### Creating Files and Folders
+Share files or folders via token-based URLs. Right-click a file or folder and select "Share" to create a link.
 
-In editable folders, you'll see:
+- **Passcode protection** - When auth is enabled, shares are automatically assigned a 6-character passcode
+- **Editable shares** - Optionally allow recipients to upload, edit, rename, move, and delete files
+- **Granular permissions** - Toggle upload, edit, and delete independently on editable shares
+- **Upload quota** - Set a maximum upload size per share (default 2 GB)
+- **Multiple shares** - Create multiple share links for the same file or folder with different settings
+- Share URLs can include the passcode as a query parameter for one-click access
 
-- **Folder** button - Create a new subfolder
-- **File** button - Create a new text file (opens immediately for editing)
+## Knowledge Base
 
-Both buttons appear in the toolbar at the top of the file list.
+Designate any folder as a knowledge base via the right-click context menu. Knowledge base folders get:
 
-### URL State
+- **Search** - Full-text search across `.md` and `.txt` files with highlighted snippets
+- **Recent files** - Dashboard showing the 10 most recently modified notes
+- **Obsidian compatibility** - `![[image.png]]` syntax resolves images from an `images/` subdirectory
+- **Markdown-first** - New files default to `.md` extension in knowledge base folders
+- Knowledge base features are also available through share links for shared KB folders
 
-The application uses URL parameters to maintain state:
+## File Management
 
-- `?dir=/path/to/folder` - Current directory
-- `?playing=/path/to/file.mp3` - Currently playing file
-- `?viewing=/path/to/file.txt` - Currently viewing/editing text file
+In editable folders:
 
-This means:
+- **Upload** files and folders via the toolbar button or by dragging them into the file list
+- **Move** files by dragging them onto folders, or via right-click "Move to" dialog
+- **Copy** files via right-click "Copy to" dialog
+- **Create** new files and folders inline
+- **Edit** text files directly in the browser
+- **Delete** files and folders via the context menu
 
-- Refreshing the page returns to the same location
-- You can bookmark specific folders or files
-- Browser back/forward buttons work as expected
+All changes broadcast via SSE so every connected client updates in real time.
 
 ## Production
-
-Build for production:
 
 ```bash
 pnpm build
 pnpm start
 ```
 
-Make sure to set the `MEDIA_DIR` environment variable in your production environment.
+The production server listens on `0.0.0.0` by default.
 
 ## Security
 
-- Path traversal protection prevents accessing files outside MEDIA_DIR
-- Only configured media file types are served
-- File editing is restricted to folders specified in `EDITABLE_FOLDERS`
-- No authentication (intended for local/trusted network use)
+- Path traversal protection prevents accessing files outside `mediaDir`
+- File editing restricted to `editableFolders`
+- Optional password auth with scrypt hashing and timing-safe comparison
+- Rate-limited login
+- Admin domain restrictions for separating public share access from admin access
+- Share links use independent passcode-based sessions
 
 ## Technology Stack
 
 - **Next.js 16** - React framework with App Router
-- **React Server Components** - Direct server-side file system access
-- **shadcn/ui** - Beautiful, accessible UI components
+- **React 19** - Server and client components
+- **Base UI** - Accessible UI primitives
 - **Tailwind CSS** - Utility-first styling
+- **TanStack Query** - Data fetching and cache invalidation
+- **Zustand** - Client state management
 - **TypeScript** - Type-safe development
-- **Lucide Icons** - Modern icon library
+- **oxlint** - Linting
 
 ## License
 
