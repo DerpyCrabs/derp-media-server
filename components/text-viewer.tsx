@@ -408,6 +408,17 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
 
   const resolveImageUrl = useCallback(
     (src: string): string | null => {
+      try {
+        src = decodeURIComponent(src)
+      } catch {}
+
+      if (!src.startsWith('http://') && !src.startsWith('https://') && !src.includes('/')) {
+        const kbRoot = getKnowledgeBaseRoot(viewingPath || '', knowledgeBasesRef.current)
+        if (kbRoot) {
+          src = `${kbRoot}/images/${src}`
+        }
+      }
+
       if (isShareMode) {
         if (src.startsWith('http://') || src.startsWith('https://')) return src
         const fileDir = (viewingPath || '').replace(/\\/g, '/').replace(/\/[^/]*$/, '')
@@ -441,8 +452,6 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
           .join('/')
         return encoded ? `/api/share/${shareMode!.token}/media/${encoded}` : null
       }
-      // Encode each path segment separately so forward slashes are preserved
-      // as URL path separators (the route handler uses [...path] segments).
       return `/api/media/${src.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
     },
     [isShareMode, shareMode, viewingPath],
