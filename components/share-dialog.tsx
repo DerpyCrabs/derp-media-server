@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Copy, Check, Link, Trash2, ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import type { ShareLink, ShareRestrictions } from '@/lib/shares'
 import { formatFileSize } from '@/lib/media-utils'
+import { useShareLinkBase } from '@/lib/use-share-link-base'
 
 const SIZE_PRESETS = [
   { label: '500 MB', value: 500 * 1024 * 1024 },
@@ -170,9 +171,9 @@ function extractRestrictions(share: ShareLink): Required<ShareRestrictions> {
   }
 }
 
-function buildShareUrl(share: ShareLink) {
-  const base = `${window.location.origin}/share/${share.token}`
-  return share.passcode ? `${base}?p=${encodeURIComponent(share.passcode)}` : base
+function buildShareUrl(share: ShareLink, baseOrigin: string) {
+  const url = `${baseOrigin}/share/${share.token}`
+  return share.passcode ? `${url}?p=${encodeURIComponent(share.passcode)}` : url
 }
 
 function ShareCard({
@@ -187,6 +188,7 @@ function ShareCard({
   onRevoked: () => void
 }) {
   const queryClient = useQueryClient()
+  const shareLinkBase = useShareLinkBase()
   const [copiedLink, setCopiedLink] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [editable, setEditable] = useState(share.editable)
@@ -269,7 +271,7 @@ function ShareCard({
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(buildShareUrl(share))
+      await navigator.clipboard.writeText(buildShareUrl(share, shareLinkBase))
       setCopiedLink(true)
       setTimeout(() => setCopiedLink(false), 2000)
     } catch {
@@ -277,7 +279,7 @@ function ShareCard({
     }
   }
 
-  const url = buildShareUrl(share)
+  const url = buildShareUrl(share, shareLinkBase)
   const used = share.usedBytes || 0
   const limit = restrictions.maxUploadBytes
 

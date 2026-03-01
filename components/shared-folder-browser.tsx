@@ -38,6 +38,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { useFileIcon } from '@/lib/use-file-icon'
 import { useFileWatcher } from '@/lib/use-file-watcher'
+import { useShareLinkBase } from '@/lib/use-share-link-base'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
 import { MoveToDialog } from '@/components/move-to-dialog'
@@ -89,6 +90,7 @@ function SharedFolderBrowserInner({
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
+  const shareLinkBase = useShareLinkBase()
   useFileWatcher()
 
   const currentSubDir = searchParams.get('dir') || ''
@@ -498,10 +500,10 @@ function SharedFolderBrowserInner({
       params.delete('playing')
       if (subPath) params.set('dir', subPath)
       else params.delete('dir')
-      const url = `${window.location.origin}/share/${token}?${params.toString()}`
+      const url = `${shareLinkBase}/share/${token}?${params.toString()}`
       window.open(url, '_blank')
     },
-    [token, shareInfo.path, searchParams, stripSharePrefix],
+    [token, shareInfo.path, searchParams, stripSharePrefix, shareLinkBase],
   )
 
   // Build breadcrumbs relative to share root

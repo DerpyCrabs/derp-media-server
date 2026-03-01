@@ -26,9 +26,30 @@ function checkRateLimit(ip: string): boolean {
   return true
 }
 
+function getRequestHost(request: NextRequest): string {
+  const hostHeader =
+    request.headers.get('x-forwarded-host')?.split(',')[0].trim() ?? request.headers.get('host')
+  if (hostHeader) {
+    const hostname = hostHeader.split(':')[0].trim().toLowerCase()
+    if (hostname) return hostname
+  }
+  return request.nextUrl.hostname?.toLowerCase() ?? ''
+}
+
 export async function POST(request: NextRequest) {
   if (!config.auth?.enabled || !config.auth.password) {
     return NextResponse.json({ error: 'Auth not enabled' }, { status: 400 })
+  }
+
+  const domains = config.auth.adminAccessDomains
+  if (domains && domains.length > 0) {
+    const host = getRequestHost(request)
+    if (!host || !domains.includes(host)) {
+      return NextResponse.json(
+        { error: 'Admin access not allowed from this domain' },
+        { status: 403 },
+      )
+    }
   }
 
   const ip = getClientIp(request)

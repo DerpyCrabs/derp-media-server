@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createShare, getAllShares, deleteShare, updateShare } from '@/lib/shares'
 import type { ShareRestrictions } from '@/lib/shares'
 import { isPathEditable } from '@/lib/file-system'
+import { config } from '@/lib/config'
 
 function parseRestrictions(raw: unknown): ShareRestrictions | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -39,8 +40,8 @@ export async function POST(request: NextRequest) {
 
     const share = await createShare(sharePath, Boolean(isDirectory), shouldBeEditable, restrictions)
 
-    const origin = request.nextUrl.origin
-    const url = `${origin}/share/${share.token}`
+    const base = config.shareLinkDomain ?? request.nextUrl.origin
+    const url = `${base}/share/${share.token}`
 
     return NextResponse.json({ share, url })
   } catch (error) {
