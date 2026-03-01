@@ -46,11 +46,11 @@ export function useFiles(currentPath: string, initialData?: FileItem[]) {
   return useQuery({
     queryKey: ['files', currentPath],
     queryFn: () => fetchFiles(currentPath),
-    staleTime: 1000 * 30, // Consider data fresh for 30s; SSE events drive invalidation
-    gcTime: 1000 * 60 * 10, // Keep in cache for 10 minutes
-    initialData: initialData, // Use SSR data if available
-    enabled: true, // Always enabled
-    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    staleTime: 1000 * 60 * 5, // 5 min — SSE invalidation handles real-time updates
+    gcTime: 1000 * 60 * 10,
+    initialData: initialData,
+    enabled: true,
+    refetchOnWindowFocus: false, // SSE handles freshness; no need to refetch on tab switch
   })
 }
 
