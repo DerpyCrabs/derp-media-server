@@ -171,7 +171,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
   })
 
   useEffect(() => {
-    if (!viewingPath || !content) return
+    if (!viewingPath || loading) return
 
     // Reset edit state when switching to a different file
     if (prevViewingPathRef.current !== viewingPath) {
@@ -204,6 +204,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
   }, [
     viewingPath,
     content,
+    loading,
     editContent,
     isEditing,
     editableFolders,
