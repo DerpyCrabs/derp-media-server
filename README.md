@@ -24,8 +24,11 @@ A modern Next.js-based media server with a web UI for browsing, playing, and man
 ## Supported Formats
 
 **Video:** mp4, webm, ogg, mov, avi, mkv
+
 **Audio:** mp3, wav, ogg, m4a, flac, aac, opus
+
 **Images:** jpg, jpeg, png, gif, webp, bmp, svg, ico
+
 **Text:** txt, md, json, xml, csv, log, yaml, yml, ini, conf, sh, bat, ps1, js, ts, jsx, tsx, css, scss, html, py, java, c, cpp, h, cs, go, rs, php, rb, swift, kt, sql
 
 ## Setup
