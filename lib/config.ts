@@ -41,6 +41,42 @@ function getConfigPath(): string {
   return DEFAULT_CONFIG_PATH
 }
 
+function applyEnvOverrides(cfg: AppConfig): AppConfig {
+  if (process.env.MEDIA_DIR) {
+    cfg.mediaDir = process.env.MEDIA_DIR
+  }
+
+  if (process.env.EDITABLE_FOLDERS) {
+    cfg.editableFolders = process.env.EDITABLE_FOLDERS.split(',')
+      .map((f) => f.trim())
+      .filter(Boolean)
+  }
+
+  if (process.env.SHARE_LINK_DOMAIN) {
+    const s = process.env.SHARE_LINK_DOMAIN.trim().replace(/\/$/, '')
+    cfg.shareLinkDomain = s.startsWith('http://') || s.startsWith('https://') ? s : `https://${s}`
+  }
+
+  if (process.env.AUTH_ENABLED !== undefined) {
+    if (!cfg.auth) cfg.auth = { enabled: false }
+    cfg.auth.enabled = process.env.AUTH_ENABLED === 'true' || process.env.AUTH_ENABLED === '1'
+  }
+
+  if (process.env.AUTH_PASSWORD !== undefined) {
+    if (!cfg.auth) cfg.auth = { enabled: false }
+    cfg.auth.password = process.env.AUTH_PASSWORD || undefined
+  }
+
+  if (process.env.AUTH_ADMIN_ACCESS_DOMAINS) {
+    if (!cfg.auth) cfg.auth = { enabled: false }
+    cfg.auth.adminAccessDomains = process.env.AUTH_ADMIN_ACCESS_DOMAINS.split(',')
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean)
+  }
+
+  return cfg
+}
+
 function loadConfigOnce(): AppConfig {
   let configPath = getConfigPath()
   const isDefaultPath = configPath === DEFAULT_CONFIG_PATH
@@ -86,16 +122,16 @@ function loadConfigOnce(): AppConfig {
           }
         : { enabled: false }
 
-    return { mediaDir, editableFolders, shareLinkDomain, auth }
+    return applyEnvOverrides({ mediaDir, editableFolders, shareLinkDomain, auth })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
-      return {
+      return applyEnvOverrides({
         mediaDir: process.cwd(),
         editableFolders: [],
         shareLinkDomain: undefined,
         auth: { enabled: false, password: undefined },
-      }
+      })
     }
     throw error
   }
