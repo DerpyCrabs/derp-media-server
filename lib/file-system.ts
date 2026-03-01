@@ -357,3 +357,36 @@ export async function renameFileOrDirectory(
   // Rename the file or directory
   await fs.rename(oldFullPath, newFullPath)
 }
+
+/**
+ * Copies a file or directory to a destination folder
+ * Source can be anywhere in mediaDir (readable). Destination must be in an editable folder.
+ */
+export async function copyFileOrDirectory(
+  sourceRelativePath: string,
+  destinationDir: string,
+): Promise<void> {
+  const sourceFullPath = validatePath(sourceRelativePath)
+  const destDirPath = destinationDir.replace(/\\/g, '/')
+  const fileName = sourceRelativePath.split(/[/\\]/).pop()
+  if (!fileName) throw new Error('Invalid source path')
+  const destRelativePath = destDirPath ? `${destDirPath}/${fileName}` : fileName
+  const destFullPath = validatePath(destRelativePath)
+
+  // Destination must be in an editable folder
+  if (!isPathEditable(destRelativePath)) {
+    throw new Error('Cannot copy: Destination is not in an editable folder')
+  }
+
+  const sourceStats = await fs.stat(sourceFullPath)
+  if (!sourceStats.isDirectory() && !sourceStats.isFile()) {
+    throw new Error('Source is not a file or directory')
+  }
+
+  const destExists = await fileExists(destRelativePath)
+  if (destExists) {
+    throw new Error('Destination file or directory already exists')
+  }
+
+  await fs.cp(sourceFullPath, destFullPath, { recursive: true })
+}
