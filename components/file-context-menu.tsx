@@ -19,6 +19,7 @@ import {
   BookOpen,
   FolderInput,
   CopyPlus,
+  ExternalLink,
 } from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
@@ -36,6 +37,7 @@ interface FileContextMenuProps {
   onCopyShareLink?: (file: FileItem) => void
   onMove?: (file: FileItem) => void
   onCopy?: (file: FileItem) => void
+  onOpenInNewTab?: (file: FileItem) => void
   hasEditableFolders?: boolean
   isFavorite?: boolean
   isKnowledgeBase?: boolean
@@ -56,6 +58,7 @@ export function FileContextMenu({
   onCopyShareLink,
   onMove,
   onCopy,
+  onOpenInNewTab,
   hasEditableFolders = false,
   isFavorite = false,
   isKnowledgeBase = false,
@@ -133,6 +136,10 @@ export function FileContextMenu({
     if (onCopy) onCopy(file)
   }
 
+  const handleOpenInNewTab = () => {
+    if (onOpenInNewTab) onOpenInNewTab(file)
+  }
+
   // Clone the child element and add the long press handlers
   const childWithHandlers = React.cloneElement(children, longPressHandlers)
 
@@ -144,6 +151,12 @@ export function FileContextMenu({
           <ContextMenuItem onClick={handleSetIcon}>
             <Pencil className='mr-2 h-4 w-4' />
             Set icon
+          </ContextMenuItem>
+        )}
+        {file.isDirectory && !file.isVirtual && onOpenInNewTab && (
+          <ContextMenuItem onClick={handleOpenInNewTab}>
+            <ExternalLink className='mr-2 h-4 w-4' />
+            Open in new tab
           </ContextMenuItem>
         )}
         {file.isDirectory && (

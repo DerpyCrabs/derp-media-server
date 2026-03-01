@@ -1,5 +1,6 @@
 import { getShare, getEffectiveRestrictions } from '@/lib/shares'
 import { getMediaType } from '@/lib/media-utils'
+import { getKnowledgeBases, getKnowledgeBaseRootForPath } from '@/lib/knowledge-base'
 import { SharedFileViewer } from '@/components/shared-file-viewer'
 import { SharedFolderBrowser } from '@/components/shared-folder-browser'
 import { SharePasscodeGate } from '@/components/share-passcode-form'
@@ -54,6 +55,9 @@ export default async function SharePage({ params, searchParams }: PageProps) {
   const needsPasscode = Boolean(share.passcode)
 
   const restrictions = share.editable ? getEffectiveRestrictions(share) : undefined
+  const knowledgeBases = share.isDirectory ? await getKnowledgeBases() : []
+  const isKnowledgeBase =
+    share.isDirectory && getKnowledgeBaseRootForPath(share.path, knowledgeBases) !== null
 
   const shareInfo = {
     token: share.token,
@@ -65,6 +69,7 @@ export default async function SharePage({ params, searchParams }: PageProps) {
     extension,
     needsPasscode,
     restrictions,
+    isKnowledgeBase,
   }
 
   const adminViewMode = share.isDirectory ? await getAdminViewMode(share.path) : 'list'
