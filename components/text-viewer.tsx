@@ -24,6 +24,12 @@ export interface ShareInfoForViewer {
   editable: boolean
   mediaType: string
   extension: string
+  restrictions?: {
+    allowDelete: boolean
+    allowUpload: boolean
+    allowEdit: boolean
+    maxUploadBytes: number
+  }
 }
 
 interface TextViewerProps {
@@ -61,19 +67,20 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
   const [shareSettings, setShareSettings] = useState(() => {
     if (!isShareMode) return { enabled: true, readOnly: false }
     const key = `share-autosave-${shareMode.token}${shareMode.filePath ? `-${shareMode.filePath.replace(/[/\\]/g, '_')}` : ''}`
-    if (typeof window === 'undefined')
-      return { enabled: true, readOnly: !shareMode.shareInfo.editable }
+    const canEdit =
+      shareMode.shareInfo.editable && shareMode.shareInfo.restrictions?.allowEdit !== false
+    if (typeof window === 'undefined') return { enabled: true, readOnly: !canEdit }
     try {
       const raw = localStorage.getItem(key)
       if (raw) {
         const parsed = JSON.parse(raw)
         return {
           enabled: parsed.enabled ?? true,
-          readOnly: parsed.readOnly ?? !shareMode.shareInfo.editable,
+          readOnly: parsed.readOnly ?? !canEdit,
         }
       }
     } catch {}
-    return { enabled: true, readOnly: !shareMode.shareInfo.editable }
+    return { enabled: true, readOnly: !canEdit }
   })
   const persistShareSettings = useCallback(
     (enabled: boolean, readOnly?: boolean) => {
@@ -103,7 +110,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
       : false
 
   const isEditable = isShareMode
-    ? shareMode!.shareInfo.editable
+    ? shareMode!.shareInfo.editable && shareMode!.shareInfo.restrictions?.allowEdit !== false
     : isPathEditable(viewingPath || '', editableFolders)
 
   const fileExtension = viewingPath?.split('.').pop()?.toLowerCase() || ''
@@ -184,7 +191,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
       ? shareSettings.readOnly
       : settings.autoSave[viewingPath]?.readOnly || false
     const fileEditable = isShareMode
-      ? shareMode!.shareInfo.editable
+      ? shareMode!.shareInfo.editable && shareMode!.shareInfo.restrictions?.allowEdit !== false
       : isPathEditable(viewingPath, editableFolders)
 
     if (fileEditable && !fileReadOnly) {
@@ -212,6 +219,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
     isShareMode,
     shareSettings.readOnly,
     shareMode?.shareInfo.editable,
+    shareMode?.shareInfo.restrictions?.allowEdit,
   ])
 
   const closeViewer = async () => {

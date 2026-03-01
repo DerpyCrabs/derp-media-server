@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getShare, isShareAccessAuthorized } from '@/lib/shares'
+import { getShare, isShareAccessAuthorized, getEffectiveRestrictions } from '@/lib/shares'
 import path from 'path'
 import { getMediaType } from '@/lib/media-utils'
 
@@ -21,6 +21,9 @@ export async function GET(
     const extension = share.isDirectory ? '' : path.extname(share.path).slice(1).toLowerCase()
     const mediaType = share.isDirectory ? 'folder' : getMediaType(extension)
 
+    const restrictions = share.editable ? getEffectiveRestrictions(share) : undefined
+    const usedBytes = share.editable ? share.usedBytes || 0 : undefined
+
     return NextResponse.json({
       name,
       ...(authorized && { path: share.path }),
@@ -30,6 +33,8 @@ export async function GET(
       extension,
       needsPasscode,
       authorized,
+      ...(restrictions && { restrictions }),
+      ...(usedBytes !== undefined && { usedBytes }),
     })
   } catch (error) {
     console.error('Error getting share info:', error)

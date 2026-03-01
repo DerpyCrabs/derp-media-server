@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validateShareAccess, resolveSharePath } from '@/lib/share-access'
 import { createDirectory, writeFile, writeBinaryFile, fileExists } from '@/lib/file-system'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
+import { getEffectiveRestrictions, checkUploadQuota, addShareUsedBytes } from '@/lib/shares'
 import path from 'path'
+
+function estimateContentSize(content?: string, base64Content?: string): number {
+  if (base64Content) return Math.ceil((base64Content.length * 3) / 4)
+  if (content) return Buffer.byteLength(content, 'utf8')
+  return 0
+}
 
 export async function POST(
   request: NextRequest,
@@ -16,6 +23,14 @@ export async function POST(
 
     if (!share.editable) {
       return NextResponse.json({ error: 'Share is not editable' }, { status: 403 })
+    }
+
+    const restrictions = getEffectiveRestrictions(share)
+    if (!restrictions.allowUpload) {
+      return NextResponse.json(
+        { error: 'Creating files/folders is not allowed for this share' },
+        { status: 403 },
+      )
     }
 
     const body = await request.json()
@@ -48,11 +63,20 @@ export async function POST(
       if (content === undefined && base64Content === undefined) {
         return NextResponse.json({ error: 'Content is required for files' }, { status: 400 })
       }
+
+      const contentSize = estimateContentSize(content, base64Content)
+      const quota = checkUploadQuota(share, contentSize)
+      if (!quota.allowed) {
+        return NextResponse.json({ error: 'Upload quota exceeded for this share' }, { status: 413 })
+      }
+
       if (base64Content) {
         await writeBinaryFile(resolved, base64Content)
       } else {
         await writeFile(resolved, content)
       }
+
+      if (contentSize > 0) await addShareUsedBytes(token, contentSize)
       broadcastFileChange(normalizedParent)
       return NextResponse.json({ success: true, message: 'File saved' })
     }

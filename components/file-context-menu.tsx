@@ -200,14 +200,18 @@ export function FileContextMenu({
                     Move to...
                   </ContextMenuItem>
                 )}
-                <ContextMenuItem onClick={handleRename}>
-                  <Edit3 className='mr-2 h-4 w-4' />
-                  Rename
-                </ContextMenuItem>
-                <ContextMenuItem onClick={handleDelete} className='text-destructive'>
-                  <Trash2 className='mr-2 h-4 w-4' />
-                  Delete
-                </ContextMenuItem>
+                {onRename && (
+                  <ContextMenuItem onClick={handleRename}>
+                    <Edit3 className='mr-2 h-4 w-4' />
+                    Rename
+                  </ContextMenuItem>
+                )}
+                {onDelete && (
+                  <ContextMenuItem onClick={handleDelete} className='text-destructive'>
+                    <Trash2 className='mr-2 h-4 w-4' />
+                    Delete
+                  </ContextMenuItem>
+                )}
               </>
             )}
           </>

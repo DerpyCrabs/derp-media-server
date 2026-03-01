@@ -1,4 +1,4 @@
-import { getShare } from '@/lib/shares'
+import { getShare, getEffectiveRestrictions } from '@/lib/shares'
 import { getMediaType } from '@/lib/media-utils'
 import { SharedFileViewer } from '@/components/shared-file-viewer'
 import { SharedFolderBrowser } from '@/components/shared-folder-browser'
@@ -53,6 +53,8 @@ export default async function SharePage({ params, searchParams }: PageProps) {
   const mediaType = share.isDirectory ? 'folder' : getMediaType(extension)
   const needsPasscode = Boolean(share.passcode)
 
+  const restrictions = share.editable ? getEffectiveRestrictions(share) : undefined
+
   const shareInfo = {
     token: share.token,
     name,
@@ -62,6 +64,7 @@ export default async function SharePage({ params, searchParams }: PageProps) {
     mediaType,
     extension,
     needsPasscode,
+    restrictions,
   }
 
   const adminViewMode = share.isDirectory ? await getAdminViewMode(share.path) : 'list'
