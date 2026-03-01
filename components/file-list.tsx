@@ -443,9 +443,21 @@ function FileListInner({
               },
             })
           } else if (itemToDelete) {
-            deleteItemMutation.mutate(itemToDelete.path)
+            deleteItemMutation.mutate(itemToDelete.path, {
+              onSuccess: () => {
+                setShowDeleteConfirm(false)
+                setItemToDelete(null)
+                deleteItemMutation.reset()
+              },
+            })
           } else {
-            deleteFolderMutation.mutate()
+            deleteFolderMutation.mutate(undefined, {
+              onSuccess: () => {
+                setShowDeleteConfirm(false)
+                setItemToDelete(null)
+                deleteFolderMutation.reset()
+              },
+            })
           }
         }}
         isPending={

@@ -605,7 +605,13 @@ function SharedFolderBrowserInner({
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              createFolderMutation.mutate(newItemName)
+              createFolderMutation.mutate(newItemName, {
+                onSuccess: () => {
+                  setShowCreateFolder(false)
+                  setNewItemName('')
+                  createFolderMutation.reset()
+                },
+              })
             }}
             className='space-y-4'
           >
@@ -640,7 +646,13 @@ function SharedFolderBrowserInner({
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              createFileMutation.mutate(newItemName)
+              createFileMutation.mutate(newItemName, {
+                onSuccess: () => {
+                  setShowCreateFile(false)
+                  setNewItemName('')
+                  createFileMutation.reset()
+                },
+              })
             }}
             className='space-y-4'
           >
@@ -707,6 +719,7 @@ function SharedFolderBrowserInner({
               onSuccess: () => {
                 setShowDeleteDialog(false)
                 setDeletingItem(null)
+                deleteItemMutation.reset()
               },
             })
           }
