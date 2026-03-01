@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { VIRTUAL_FOLDERS } from './constants'
 
 let globalEventSource: EventSource | null = null
 let connectionRefCount = 0
@@ -18,7 +19,23 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
           console.log('[Files SSE] Connected to files stream')
         } else if (data.type === 'files-changed') {
           console.log('[Files SSE] Files changed in:', data.directory)
-          queryClient.invalidateQueries({ queryKey: ['files'] })
+
+          // Only invalidate the affected directory and its parent instead of
+          // every ['files'] query — avoids cascading re-renders in components
+          // (like the audio player) that hold unrelated file queries.
+          const dir: string = data.directory ?? ''
+          queryClient.invalidateQueries({ queryKey: ['files', dir] })
+
+          const parentDir = dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : ''
+          if (parentDir !== dir) {
+            queryClient.invalidateQueries({ queryKey: ['files', parentDir] })
+          }
+
+          // Virtual folders aggregate across all directories
+          queryClient.invalidateQueries({ queryKey: ['files', VIRTUAL_FOLDERS.MOST_PLAYED] })
+          queryClient.invalidateQueries({ queryKey: ['files', VIRTUAL_FOLDERS.FAVORITES] })
+          queryClient.invalidateQueries({ queryKey: ['files', VIRTUAL_FOLDERS.SHARES] })
+
           queryClient.invalidateQueries({ queryKey: ['share-files'] })
           queryClient.invalidateQueries({ queryKey: ['kb-recent'] })
           queryClient.invalidateQueries({ queryKey: ['text-content'] })
