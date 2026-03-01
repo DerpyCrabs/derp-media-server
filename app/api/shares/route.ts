@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createShare, getAllShares, deleteShare, updateShareRestrictions } from '@/lib/shares'
+import { createShare, getAllShares, deleteShare, updateShare } from '@/lib/shares'
 import type { ShareRestrictions } from '@/lib/shares'
 import { isPathEditable } from '@/lib/file-system'
 
@@ -52,18 +52,20 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { token, restrictions: rawRestrictions } = body
+    const { token, restrictions: rawRestrictions, editable } = body
 
     if (typeof token !== 'string' || token.length === 0) {
       return NextResponse.json({ error: 'Token is required' }, { status: 400 })
     }
 
     const restrictions = parseRestrictions(rawRestrictions)
-    if (!restrictions) {
-      return NextResponse.json({ error: 'Valid restrictions are required' }, { status: 400 })
+    const editableVal = typeof editable === 'boolean' ? editable : undefined
+
+    if (!restrictions && editableVal === undefined) {
+      return NextResponse.json({ error: 'No valid updates provided' }, { status: 400 })
     }
 
-    const share = await updateShareRestrictions(token, restrictions)
+    const share = await updateShare(token, { restrictions, editable: editableVal })
     if (!share) {
       return NextResponse.json({ error: 'Share not found' }, { status: 404 })
     }

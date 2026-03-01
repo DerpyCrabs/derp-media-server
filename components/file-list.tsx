@@ -464,8 +464,8 @@ function FileListInner({
     )
   }
 
-  const getShareForPath = (path: string): ShareLink | null => {
-    return shares.find((s) => s.path === path) || null
+  const getSharesForPath = (path: string): ShareLink[] => {
+    return shares.filter((s) => s.path === path)
   }
 
   return (
@@ -684,7 +684,7 @@ function FileListInner({
         fileName={shareTarget?.name || ''}
         isDirectory={shareTarget?.isDirectory || false}
         isEditable={shareTarget ? isPathEditable(shareTarget.path, editableFolders) : false}
-        existingShare={shareTarget ? getShareForPath(shareTarget.path) : null}
+        existingShares={shareTarget ? getSharesForPath(shareTarget.path) : []}
       />
 
       {/* Breadcrumb Navigation with Toolbar */}
