@@ -1,10 +1,12 @@
 'use client'
 
+import { useState, useRef, useEffect } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
-import { ArrowUp, Star, Eye, Link, Share2 } from 'lucide-react'
+import { ArrowUp, Star, Eye, Link, Share2, FilePlus, FolderPlus, AlertCircle } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
+import { Input } from '@/components/ui/input'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
@@ -39,6 +41,15 @@ interface FileListViewProps {
     isVideoFile?: boolean,
     isVirtual?: boolean,
   ) => React.ReactElement
+  /** When true, show inline New file / New folder row at bottom (KB + editable) */
+  showInlineCreate?: boolean
+  onInlineCreateFile?: (name: string) => void
+  onInlineCreateFolder?: (name: string) => void
+  createFilePending?: boolean
+  createFolderPending?: boolean
+  createFileError?: Error | null
+  createFolderError?: Error | null
+  onInlineCreateCancel?: () => void
 }
 
 export function FileListView({
@@ -65,7 +76,51 @@ export function FileListView({
   getViewCount,
   getShareViewCount,
   getIcon,
+  showInlineCreate = false,
+  onInlineCreateFile,
+  onInlineCreateFolder,
+  createFilePending = false,
+  createFolderPending = false,
+  createFileError = null,
+  createFolderError = null,
+  onInlineCreateCancel,
 }: FileListViewProps) {
+  const [inlineMode, setInlineMode] = useState<'file' | 'folder' | null>(null)
+  const [inlineName, setInlineName] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (inlineMode === 'file') fileInputRef.current?.focus()
+    else if (inlineMode === 'folder') folderInputRef.current?.focus()
+  }, [inlineMode])
+
+  const inlineFolderExists =
+    inlineMode === 'folder' &&
+    !!inlineName.trim() &&
+    files.some((f) => f.isDirectory && f.name.toLowerCase() === inlineName.trim().toLowerCase())
+  const inlineFileExists =
+    inlineMode === 'file' &&
+    !!inlineName.trim() &&
+    files.some((f) => {
+      const fileName = inlineName.includes('.') ? inlineName.trim() : `${inlineName.trim()}.txt`
+      return !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase()
+    })
+
+  const handleInlineCreateFile = () => {
+    const name = inlineName.trim()
+    if (!name || inlineFileExists || !onInlineCreateFile) return
+    onInlineCreateFile(name)
+    setInlineMode(null)
+    setInlineName('')
+  }
+  const handleInlineCreateFolder = () => {
+    const name = inlineName.trim()
+    if (!name || inlineFolderExists || !onInlineCreateFolder) return
+    onInlineCreateFolder(name)
+    setInlineMode(null)
+    setInlineName('')
+  }
   if (files.length === 0 && !currentPath) {
     return (
       <div className='text-center py-12 text-muted-foreground'>
@@ -233,6 +288,131 @@ export function FileListView({
               </FileContextMenu>
             )
           })}
+          {showInlineCreate && (
+            <TableRow
+              className='border-t bg-muted/20 hover:bg-muted/30'
+              onClick={(e) => e.stopPropagation()}
+            >
+              <TableCell colSpan={3} className='p-0'>
+                <div className='grid grid-cols-2 gap-px p-2'>
+                  <div className='w-full min-w-0 flex flex-col gap-1'>
+                    {inlineMode === 'file' ? (
+                      <>
+                        <Input
+                          ref={fileInputRef}
+                          value={inlineName}
+                          onChange={(e) => setInlineName(e.target.value)}
+                          placeholder='File name (e.g. notes.txt)'
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleInlineCreateFile()
+                            else if (e.key === 'Escape') {
+                              setInlineMode(null)
+                              setInlineName('')
+                            }
+                          }}
+                          onBlur={() => {
+                            setInlineMode(null)
+                            setInlineName('')
+                            onInlineCreateCancel?.()
+                          }}
+                          disabled={createFilePending}
+                          className={`h-8 text-sm ${
+                            inlineFileExists
+                              ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                              : createFileError
+                                ? 'border-destructive ring-2 ring-destructive/30'
+                                : ''
+                          }`}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {inlineFileExists && (
+                          <div className='flex items-start gap-1.5 rounded bg-yellow-500/10 border border-yellow-500/50 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                            <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
+                            <span>A file with this name already exists.</span>
+                          </div>
+                        )}
+                        {createFileError && !inlineFileExists && (
+                          <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
+                            <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
+                            <span>{createFileError.message}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <button
+                        type='button'
+                        onClick={() => {
+                          setInlineMode('file')
+                          setInlineName('')
+                        }}
+                        className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
+                      >
+                        <FilePlus className='h-4 w-4' />
+                        New file
+                      </button>
+                    )}
+                  </div>
+                  <div className='w-full min-w-0 flex flex-col gap-1'>
+                    {inlineMode === 'folder' ? (
+                      <>
+                        <Input
+                          ref={folderInputRef}
+                          value={inlineName}
+                          onChange={(e) => setInlineName(e.target.value)}
+                          placeholder='Folder name'
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleInlineCreateFolder()
+                            else if (e.key === 'Escape') {
+                              setInlineMode(null)
+                              setInlineName('')
+                            }
+                          }}
+                          onBlur={() => {
+                            setInlineMode(null)
+                            setInlineName('')
+                            onInlineCreateCancel?.()
+                          }}
+                          disabled={createFolderPending}
+                          className={`h-8 text-sm ${
+                            inlineFolderExists
+                              ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                              : createFolderError
+                                ? 'border-destructive ring-2 ring-destructive/30'
+                                : ''
+                          }`}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {inlineFolderExists && (
+                          <div className='flex items-start gap-1.5 rounded bg-yellow-500/10 border border-yellow-500/50 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                            <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
+                            <span>A folder with this name already exists.</span>
+                          </div>
+                        )}
+                        {createFolderError && !inlineFolderExists && (
+                          <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
+                            <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
+                            <span>{createFolderError.message}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <button
+                        type='button'
+                        onClick={() => {
+                          setInlineMode('folder')
+                          setInlineName('')
+                        }}
+                        className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
+                      >
+                        <FolderPlus className='h-4 w-4' />
+                        New folder
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
         </TableBody>
       </Table>
     </div>

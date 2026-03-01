@@ -350,6 +350,14 @@ function FileListInner({
 
   const handlePasteEvent = (e: React.ClipboardEvent) => {
     if (!isEditable) return
+    const target = e.target as HTMLElement
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable
+    ) {
+      return
+    }
     handlePaste(e)
   }
 
@@ -707,6 +715,25 @@ function FileListInner({
                 getViewCount={getViewCount}
                 getShareViewCount={getShareViewCount}
                 getIcon={getIcon}
+                showInlineCreate={isEditable && inKb}
+                onInlineCreateFile={(name) =>
+                  createFileMutation.mutate(name, {
+                    onSuccess: () => createFileMutation.reset(),
+                  })
+                }
+                onInlineCreateFolder={(name) =>
+                  createFolderMutation.mutate(name, {
+                    onSuccess: () => createFolderMutation.reset(),
+                  })
+                }
+                onInlineCreateCancel={() => {
+                  createFileMutation.reset()
+                  createFolderMutation.reset()
+                }}
+                createFilePending={createFileMutation.isPending}
+                createFolderPending={createFolderMutation.isPending}
+                createFileError={createFileMutation.error}
+                createFolderError={createFolderMutation.error}
               />
             ) : (
               <FileGridView
