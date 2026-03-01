@@ -8,7 +8,17 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { Pencil, Trash2, Edit3, Download, Star, Link, Copy, BookOpen } from 'lucide-react'
+import {
+  Pencil,
+  Trash2,
+  Edit3,
+  Download,
+  Star,
+  Link,
+  Copy,
+  BookOpen,
+  FolderInput,
+} from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
 
@@ -23,6 +33,7 @@ interface FileContextMenuProps {
   onToggleKnowledgeBase?: (file: FileItem) => void
   onShare?: (file: FileItem) => void
   onCopyShareLink?: (file: FileItem) => void
+  onMove?: (file: FileItem) => void
   isFavorite?: boolean
   isKnowledgeBase?: boolean
   isEditable?: boolean
@@ -40,6 +51,7 @@ export function FileContextMenu({
   onToggleKnowledgeBase,
   onShare,
   onCopyShareLink,
+  onMove,
   isFavorite = false,
   isKnowledgeBase = false,
   isEditable = false,
@@ -108,6 +120,10 @@ export function FileContextMenu({
     }
   }
 
+  const handleMove = () => {
+    if (onMove) onMove(file)
+  }
+
   // Clone the child element and add the long press handlers
   const childWithHandlers = React.cloneElement(children, longPressHandlers)
 
@@ -163,6 +179,12 @@ export function FileContextMenu({
               </ContextMenuItem>
             ) : (
               <>
+                {onMove && (
+                  <ContextMenuItem onClick={handleMove}>
+                    <FolderInput className='mr-2 h-4 w-4' />
+                    Move to...
+                  </ContextMenuItem>
+                )}
                 <ContextMenuItem onClick={handleRename}>
                   <Edit3 className='mr-2 h-4 w-4' />
                   Rename

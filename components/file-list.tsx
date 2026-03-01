@@ -29,6 +29,7 @@ import {
   DeleteConfirmDialog,
 } from '@/components/file-dialogs'
 import { ShareDialog } from '@/components/share-dialog'
+import { MoveToDialog } from '@/components/move-to-dialog'
 import { KbSearchResults } from '@/components/kb-search-results'
 import { KbDashboard } from '@/components/kb-dashboard'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -107,6 +108,7 @@ function FileListInner({
     deleteFolderMutation,
     deleteItemMutation,
     renameMutation,
+    moveMutation,
   } = useFileMutations(currentPath)
 
   const queryClient = useQueryClient()
@@ -148,6 +150,8 @@ function FileListInner({
   const [showIconEditor, setShowIconEditor] = useState(false)
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [shareTarget, setShareTarget] = useState<FileItem | null>(null)
+  const [showMoveDialog, setShowMoveDialog] = useState(false)
+  const [moveTarget, setMoveTarget] = useState<FileItem | null>(null)
   const [editingItem, setEditingItem] = useState<{ path: string; name: string } | null>(null)
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
@@ -417,6 +421,30 @@ function FileListInner({
     }
   }
 
+  const handleMoveFile = (sourcePath: string, destinationDir: string) => {
+    moveMutation.mutate({ sourcePath, destinationDir })
+  }
+
+  const handleContextMove = (file: FileItem) => {
+    setMoveTarget(file)
+    moveMutation.reset()
+    setShowMoveDialog(true)
+  }
+
+  const handleDialogMove = (destinationDir: string) => {
+    if (!moveTarget) return
+    moveMutation.mutate(
+      { sourcePath: moveTarget.path, destinationDir },
+      {
+        onSuccess: () => {
+          setShowMoveDialog(false)
+          setMoveTarget(null)
+          moveMutation.reset()
+        },
+      },
+    )
+  }
+
   const getShareForPath = (path: string): ShareLink | null => {
     return shares.find((s) => s.path === path) || null
   }
@@ -580,6 +608,22 @@ function FileListInner({
         onClose={closePasteDialog}
       />
 
+      {/* Move To Dialog */}
+      <MoveToDialog
+        isOpen={showMoveDialog}
+        onClose={() => {
+          setShowMoveDialog(false)
+          setMoveTarget(null)
+          moveMutation.reset()
+        }}
+        fileName={moveTarget?.name || ''}
+        filePath={moveTarget?.path || ''}
+        onMove={handleDialogMove}
+        isPending={moveMutation.isPending}
+        error={moveMutation.error}
+        editableFolders={editableFolders}
+      />
+
       {/* Share Dialog */}
       <ShareDialog
         isOpen={showShareDialog}
@@ -710,6 +754,8 @@ function FileListInner({
                 onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
                 onContextShare={handleContextShare}
                 onContextCopyShareLink={handleContextCopyShareLink}
+                onContextMove={handleContextMove}
+                onMoveFile={handleMoveFile}
                 shares={shares}
                 knowledgeBases={knowledgeBases}
                 getViewCount={getViewCount}
@@ -755,6 +801,8 @@ function FileListInner({
                 onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
                 onContextShare={handleContextShare}
                 onContextCopyShareLink={handleContextCopyShareLink}
+                onContextMove={handleContextMove}
+                onMoveFile={handleMoveFile}
                 shares={shares}
                 knowledgeBases={knowledgeBases}
                 getViewCount={getViewCount}

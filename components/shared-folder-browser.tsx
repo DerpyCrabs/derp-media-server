@@ -39,6 +39,7 @@ import { useFileIcon } from '@/lib/use-file-icon'
 import { useFileWatcher } from '@/lib/use-file-watcher'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
+import { MoveToDialog } from '@/components/move-to-dialog'
 import { TextViewer } from '@/components/text-viewer'
 
 interface ShareInfo {
@@ -207,6 +208,8 @@ function SharedFolderBrowserInner({
   const [renameNewName, setRenameNewName] = useState('')
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deletingItem, setDeletingItem] = useState<FileItem | null>(null)
+  const [showMoveDialog, setShowMoveDialog] = useState(false)
+  const [moveTarget, setMoveTarget] = useState<FileItem | null>(null)
 
   const renameMutation = useMutation({
     mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
@@ -227,6 +230,87 @@ function SharedFolderBrowserInner({
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
   })
+
+  const moveMutation = useMutation({
+    mutationFn: async ({
+      sourceRelative,
+      destRelative,
+    }: {
+      sourceRelative: string
+      destRelative: string
+    }) => {
+      const fileName = sourceRelative.split('/').pop()!
+      const newPath = destRelative ? `${destRelative}/${fileName}` : fileName
+      const res = await fetch(`/api/share/${token}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPath: sourceRelative, newPath }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || 'Failed to move')
+      }
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+  })
+
+  const [draggedPath, setDraggedPath] = useState<string | null>(null)
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+
+  const parentSubDir = useMemo(() => {
+    if (!currentSubDir) return ''
+    const parts = currentSubDir.split('/').filter(Boolean)
+    return parts.slice(0, -1).join('/')
+  }, [currentSubDir])
+
+  const canDropOnParent = shareInfo.editable && !!currentSubDir
+
+  const canDropOn = useCallback(
+    (targetPath: string) => {
+      if (!draggedPath || draggedPath === targetPath) return false
+      if (targetPath.startsWith(draggedPath + '/')) return false
+      return true
+    },
+    [draggedPath],
+  )
+
+  const handleMoveFile = useCallback(
+    (sourceFullPath: string, destDir: string) => {
+      const sourceRelative = stripSharePrefix(sourceFullPath)
+      moveMutation.mutate({ sourceRelative, destRelative: destDir })
+    },
+    [stripSharePrefix, moveMutation],
+  )
+
+  const enableDrag = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
+
+  const handleContextMoveFile = useCallback(
+    (file: FileItem) => {
+      setMoveTarget(file)
+      moveMutation.reset()
+      setShowMoveDialog(true)
+    },
+    [moveMutation],
+  )
+
+  const handleDialogMove = useCallback(
+    (destDir: string) => {
+      if (!moveTarget) return
+      const sourceRelative = stripSharePrefix(moveTarget.path)
+      moveMutation.mutate(
+        { sourceRelative, destRelative: destDir },
+        {
+          onSuccess: () => {
+            setShowMoveDialog(false)
+            setMoveTarget(null)
+            moveMutation.reset()
+          },
+        },
+      )
+    },
+    [moveTarget, stripSharePrefix, moveMutation],
+  )
 
   const renameTargetExists = useMemo(() => {
     if (!renameNewName.trim() || !renamingItem) return false
@@ -439,8 +523,28 @@ function SharedFolderBrowserInner({
                 <TableBody>
                   {currentSubDir && (
                     <TableRow
-                      className='cursor-pointer hover:bg-muted/50 select-none'
+                      className={`cursor-pointer hover:bg-muted/50 select-none ${
+                        dragOverPath === '__parent__' ? 'bg-primary/20' : ''
+                      }`}
                       onClick={handleParentDirectory}
+                      onDragOver={(e) => {
+                        if (!canDropOnParent || !draggedPath) return
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                        setDragOverPath('__parent__')
+                      }}
+                      onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          setDragOverPath(null)
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        setDragOverPath(null)
+                        if (draggedPath) {
+                          handleMoveFile(draggedPath, parentSubDir)
+                        }
+                      }}
                     >
                       <TableCell className='w-12'>
                         <ArrowUp className='h-5 w-5 text-muted-foreground' />
@@ -453,8 +557,45 @@ function SharedFolderBrowserInner({
                     const row = (
                       <TableRow
                         key={file.path}
-                        className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''}`}
+                        className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''} ${
+                          draggedPath === file.path ? 'opacity-50' : ''
+                        } ${file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''}`}
+                        draggable={shareInfo.editable && enableDrag}
                         onClick={() => handleFileClick(file)}
+                        onDragStart={(e) => {
+                          if (!shareInfo.editable) return
+                          e.dataTransfer.setData('text/plain', file.path)
+                          e.dataTransfer.effectAllowed = 'move'
+                          setDraggedPath(file.path)
+                        }}
+                        onDragEnd={() => {
+                          setDraggedPath(null)
+                          setDragOverPath(null)
+                        }}
+                        onDragOver={(e) => {
+                          if (!file.isDirectory || !shareInfo.editable || !draggedPath) return
+                          if (!canDropOn(file.path)) return
+                          e.preventDefault()
+                          e.dataTransfer.dropEffect = 'move'
+                          setDragOverPath(file.path)
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            if (dragOverPath === file.path) setDragOverPath(null)
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          setDragOverPath(null)
+                          if (
+                            draggedPath &&
+                            file.isDirectory &&
+                            shareInfo.editable &&
+                            canDropOn(file.path)
+                          ) {
+                            handleMoveFile(draggedPath, stripSharePrefix(file.path))
+                          }
+                        }}
                       >
                         <TableCell className='w-12'>
                           <div className='flex items-center justify-center'>
@@ -499,6 +640,7 @@ function SharedFolderBrowserInner({
                         onDownload={handleDownload}
                         onRename={handleContextRename}
                         onDelete={handleContextDelete}
+                        onMove={handleContextMoveFile}
                       >
                         {row}
                       </FileContextMenu>
@@ -514,8 +656,28 @@ function SharedFolderBrowserInner({
               <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
                 {currentSubDir && (
                   <Card
-                    className='cursor-pointer hover:bg-muted/50 transition-colors select-none'
+                    className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
+                      dragOverPath === '__parent__' ? 'ring-2 ring-primary bg-primary/10' : ''
+                    }`}
                     onClick={handleParentDirectory}
+                    onDragOver={(e) => {
+                      if (!canDropOnParent || !draggedPath) return
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'move'
+                      setDragOverPath('__parent__')
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setDragOverPath(null)
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      setDragOverPath(null)
+                      if (draggedPath) {
+                        handleMoveFile(draggedPath, parentSubDir)
+                      }
+                    }}
                   >
                     <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
                       <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
@@ -528,8 +690,49 @@ function SharedFolderBrowserInner({
                   const card = (
                     <Card
                       key={file.path}
-                      className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''}`}
+                      className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''} ${
+                        draggedPath === file.path ? 'opacity-50' : ''
+                      } ${
+                        file.isDirectory && dragOverPath === file.path
+                          ? 'ring-2 ring-primary bg-primary/10'
+                          : ''
+                      }`}
+                      draggable={shareInfo.editable && enableDrag}
                       onClick={() => handleFileClick(file)}
+                      onDragStart={(e) => {
+                        if (!shareInfo.editable) return
+                        e.dataTransfer.setData('text/plain', file.path)
+                        e.dataTransfer.effectAllowed = 'move'
+                        setDraggedPath(file.path)
+                      }}
+                      onDragEnd={() => {
+                        setDraggedPath(null)
+                        setDragOverPath(null)
+                      }}
+                      onDragOver={(e) => {
+                        if (!file.isDirectory || !shareInfo.editable || !draggedPath) return
+                        if (!canDropOn(file.path)) return
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                        setDragOverPath(file.path)
+                      }}
+                      onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          if (dragOverPath === file.path) setDragOverPath(null)
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        setDragOverPath(null)
+                        if (
+                          draggedPath &&
+                          file.isDirectory &&
+                          shareInfo.editable &&
+                          canDropOn(file.path)
+                        ) {
+                          handleMoveFile(draggedPath, stripSharePrefix(file.path))
+                        }
+                      }}
                     >
                       <CardContent className='p-0 flex flex-col h-full'>
                         <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
@@ -582,6 +785,7 @@ function SharedFolderBrowserInner({
                       onDownload={handleDownload}
                       onRename={handleContextRename}
                       onDelete={handleContextDelete}
+                      onMove={handleContextMoveFile}
                     >
                       {card}
                     </FileContextMenu>
@@ -594,6 +798,23 @@ function SharedFolderBrowserInner({
           )}
         </Card>
       </div>
+
+      {/* Move To Dialog */}
+      <MoveToDialog
+        isOpen={showMoveDialog}
+        onClose={() => {
+          setShowMoveDialog(false)
+          setMoveTarget(null)
+          moveMutation.reset()
+        }}
+        fileName={moveTarget?.name || ''}
+        filePath={moveTarget ? stripSharePrefix(moveTarget.path) : ''}
+        onMove={handleDialogMove}
+        isPending={moveMutation.isPending}
+        error={moveMutation.error}
+        shareToken={token}
+        shareRootPath={shareInfo.path}
+      />
 
       {/* Create Folder Dialog */}
       <Dialog open={showCreateFolder} onOpenChange={setShowCreateFolder}>
