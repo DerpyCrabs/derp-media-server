@@ -230,11 +230,20 @@ function SharedFolderBrowserInner({
         const d = await res.json()
         throw new Error(d.error || 'Failed to create file')
       }
+      const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+      const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
+      return { fullPath }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] })
       setShowCreateFile(false)
       setNewItemName('')
+      if (inKb && data?.fullPath) {
+        const params = new URLSearchParams(searchParams)
+        params.set('viewing', data.fullPath)
+        params.delete('playing')
+        router.replace(`/share/${token}?${params.toString()}`, { scroll: false })
+      }
     },
   })
 
