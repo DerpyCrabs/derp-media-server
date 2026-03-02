@@ -177,43 +177,36 @@ function FileListInner({
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<
-    { path: string; name: string; snippet: string }[]
-  >([])
-  const [searchLoading, setSearchLoading] = useState(false)
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Debounced KB search
   useEffect(() => {
     if (!searchQuery.trim() || !kbRoot) {
-      setSearchResults([])
-      setSearchLoading(false)
+      setDebouncedSearchQuery('')
       return
     }
-    setSearchLoading(true)
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    searchDebounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/kb/search?q=${encodeURIComponent(searchQuery)}&root=${encodeURIComponent(kbRoot)}`,
-        )
-        if (res.ok) {
-          const data = await res.json()
-          setSearchResults(data.results || [])
-        } else {
-          setSearchResults([])
-        }
-      } catch {
-        setSearchResults([])
-      } finally {
-        setSearchLoading(false)
-      }
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery)
       searchDebounceRef.current = null
     }, 300)
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     }
   }, [searchQuery, kbRoot])
+
+  const { data: searchResults = [], isLoading: searchLoading } = useQuery({
+    queryKey: ['kb-search', kbRoot, debouncedSearchQuery],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/kb/search?q=${encodeURIComponent(debouncedSearchQuery)}&root=${encodeURIComponent(kbRoot!)}`,
+      )
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data.results || []) as { path: string; name: string; snippet: string }[]
+    },
+    enabled: !!debouncedSearchQuery.trim() && !!kbRoot,
+  })
 
   // Check if we're in a virtual folder
   const isVirtualFolder =
@@ -490,6 +483,7 @@ function FileListInner({
     <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
       {/* Icon Editor Dialog */}
       <IconEditorDialog
+        key={`${showIconEditor}`}
         isOpen={showIconEditor}
         onClose={() => {
           setShowIconEditor(false)
