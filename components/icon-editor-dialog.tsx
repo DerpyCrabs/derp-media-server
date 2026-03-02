@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -29,11 +29,6 @@ export function IconEditorDialog({
   onSave,
 }: IconEditorDialogProps) {
   const [selectedIcon, setSelectedIcon] = useState<string | null>(currentIcon)
-
-  // Update selected icon when currentIcon changes
-  useEffect(() => {
-    setSelectedIcon(currentIcon)
-  }, [currentIcon])
 
   const handleSave = () => {
     onSave(selectedIcon)

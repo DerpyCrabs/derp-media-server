@@ -264,43 +264,37 @@ function SharedFolderBrowserInner({
   })
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<
-    { path: string; name: string; snippet: string }[]
-  >([])
-  const [searchLoading, setSearchLoading] = useState(false)
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!searchQuery.trim() || !inKb) {
-      setSearchResults([])
-      setSearchLoading(false)
+      setDebouncedSearchQuery('')
       return
     }
-    setSearchLoading(true)
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    searchDebounceRef.current = setTimeout(async () => {
-      try {
-        const dirParam = currentSubDir ? `&dir=${encodeURIComponent(currentSubDir)}` : ''
-        const res = await fetch(
-          `/api/share/${token}/kb/search?q=${encodeURIComponent(searchQuery)}${dirParam}`,
-        )
-        if (res.ok) {
-          const data = await res.json()
-          setSearchResults(data.results || [])
-        } else {
-          setSearchResults([])
-        }
-      } catch {
-        setSearchResults([])
-      } finally {
-        setSearchLoading(false)
-      }
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery)
       searchDebounceRef.current = null
     }, 300)
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     }
-  }, [searchQuery, inKb, token, currentSubDir])
+  }, [searchQuery, inKb])
+
+  const { data: searchResults = [], isLoading: searchLoading } = useQuery({
+    queryKey: ['kb-search', token, currentSubDir, debouncedSearchQuery],
+    queryFn: async () => {
+      const dirParam = currentSubDir ? `&dir=${encodeURIComponent(currentSubDir)}` : ''
+      const res = await fetch(
+        `/api/share/${token}/kb/search?q=${encodeURIComponent(debouncedSearchQuery)}${dirParam}`,
+      )
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data.results || []) as { path: string; name: string; snippet: string }[]
+    },
+    enabled: !!debouncedSearchQuery.trim() && inKb,
+  })
 
   const handleKbResultClick = useCallback(
     (filePath: string) => {
