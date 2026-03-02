@@ -38,6 +38,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { useFileIcon } from '@/lib/use-file-icon'
 import { useFileWatcher } from '@/lib/use-file-watcher'
+import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 import { useShareLinkBase } from '@/lib/use-share-link-base'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
@@ -100,6 +101,8 @@ function SharedFolderBrowserInner({
   const currentSubDir = searchParams.get('dir') || ''
   const viewingPath = searchParams.get('viewing')
   const playingPath = searchParams.get('playing')
+
+  useDynamicFavicon({}, { rootName: shareInfo.name })
 
   const canUpload = shareInfo.editable && shareInfo.restrictions?.allowUpload !== false
   const canEdit = shareInfo.editable && shareInfo.restrictions?.allowEdit !== false

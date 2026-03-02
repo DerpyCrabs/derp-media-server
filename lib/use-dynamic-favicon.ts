@@ -65,7 +65,10 @@ function setFavicon(href: string) {
   }
 }
 
-export function useDynamicFavicon(customIcons: Record<string, string>) {
+export function useDynamicFavicon(
+  customIcons: Record<string, string>,
+  options?: { rootName?: string },
+) {
   const searchParams = useSearchParams()
   const originalTitleRef = useRef<string>('Media Server')
   const originalFaviconRef = useRef<string>('/favicon.ico')
@@ -102,8 +105,8 @@ export function useDynamicFavicon(customIcons: Record<string, string>) {
       shouldUpdateFavicon = true
     }
 
-    // Set title to current directory name
-    const folderName = currentDir ? currentDir.split(/[/\\]/).pop() : 'Home'
+    // Set title to current directory name (use rootName for share view when at root)
+    const folderName = currentDir ? currentDir.split(/[/\\]/).pop() : (options?.rootName ?? 'Home')
     document.title = folderName ? `${folderName} - Media Server` : 'Media Server'
 
     // Update favicon if there's a custom icon
@@ -129,5 +132,5 @@ export function useDynamicFavicon(customIcons: Record<string, string>) {
         setFavicon(originalFaviconRef.current)
       }
     }
-  }, [searchParams, customIcons])
+  }, [searchParams, customIcons, options?.rootName])
 }

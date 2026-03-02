@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 import { TextViewer } from '@/components/text-viewer'
 import { Download, ZoomIn, ZoomOut, RotateCw, Maximize2, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -21,6 +22,8 @@ interface SharedFileViewerProps {
 }
 
 export function SharedFileViewer({ token, shareInfo }: SharedFileViewerProps) {
+  useDynamicFavicon({}, { rootName: shareInfo.name })
+
   const tracked = useRef(false)
   useEffect(() => {
     if (tracked.current) return
