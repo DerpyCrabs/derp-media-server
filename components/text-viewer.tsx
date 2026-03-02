@@ -467,7 +467,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
 
   if (!isText) return null
 
-  const fileName = isShareMode ? shareMode!.shareInfo.name : viewingPath.split(/[/\\]/).pop() || ''
+  const fileName = viewingPath?.split(/[/\\]/).pop() || ''
 
   const headerAndContent = (
     <>
