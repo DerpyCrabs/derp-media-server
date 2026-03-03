@@ -1,0 +1,92 @@
+import { test, expect } from '@playwright/test'
+
+test.describe('Text Editor', () => {
+  test('opens text viewer when clicking a text file', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    await page.locator('table').getByText('readme.txt').click()
+    await page.waitForURL(/viewing=/)
+    await expect(page.getByText('This is a test readme file')).toBeVisible()
+  })
+
+  test('renders markdown headings and formatting', async ({ page }) => {
+    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/notes.md')}`)
+    await expect(page.locator('h1:has-text("Test Notes")')).toBeVisible()
+    await expect(page.locator('strong:has-text("markdown")')).toBeVisible()
+    await expect(page.locator('a[href="https://example.com"]')).toBeVisible()
+  })
+
+  test('does not show edit button for non-editable folders', async ({ page }) => {
+    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
+    await expect(page.getByText('This is a test readme file')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Edit' })).not.toBeVisible()
+  })
+
+  test('auto-enters edit mode in editable folders', async ({ page }) => {
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
+    await expect(page.locator('textarea')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Read only' })).toBeVisible()
+  })
+
+  test('shows textarea with file content in edit mode', async ({ page }) => {
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
+    await expect(page.locator('textarea')).toBeVisible()
+    const content = await page.locator('textarea').inputValue()
+    expect(content).toContain('Todo List')
+  })
+
+  test('saves edits and persists changes', async ({ page }) => {
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
+    const textarea = page.locator('textarea')
+    await expect(textarea).toBeVisible()
+    await textarea.fill('# Updated Todo\n\n- Brand new item\n')
+    // Blur triggers immediate auto-save
+    await page.locator('button[title="Close"]').focus()
+    await page.waitForTimeout(500)
+
+    // Close and reopen
+    await page.locator('button[title="Close"]').click()
+    await page.locator('table').getByText('todo.md').click()
+    await expect(page.locator('textarea')).toBeVisible()
+    const content = await page.locator('textarea').inputValue()
+    expect(content).toContain('Updated Todo')
+    expect(content).toContain('Brand new item')
+
+    // Restore original content
+    await page
+      .locator('textarea')
+      .fill('# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n')
+    await page.locator('button[title="Close"]').focus()
+    await page.waitForTimeout(500)
+  })
+
+  test('closes text viewer returns to file list', async ({ page }) => {
+    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
+    await expect(page.getByText('This is a test readme file')).toBeVisible()
+    await page.locator('button[title="Close"]').click()
+    await expect(page).not.toHaveURL(/viewing=/)
+    await expect(page.locator('table').getByText('readme.txt')).toBeVisible()
+  })
+
+  test('displays JSON files', async ({ page }) => {
+    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/data.json')}`)
+    await expect(page.getByText('"name"')).toBeVisible()
+    await expect(page.getByText('"test"')).toBeVisible()
+  })
+
+  test('copy-to-clipboard button exists', async ({ page }) => {
+    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
+    await expect(page.locator('button[title="Copy to clipboard"]')).toBeVisible()
+  })
+
+  test('switches between edit and read-only mode', async ({ page }) => {
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
+    await expect(page.locator('textarea')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Read only' }).click()
+    await expect(page.locator('textarea')).not.toBeVisible()
+    await expect(page.locator('h1:has-text("Todo List")')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Edit' }).click()
+    await expect(page.locator('textarea')).toBeVisible()
+  })
+})
