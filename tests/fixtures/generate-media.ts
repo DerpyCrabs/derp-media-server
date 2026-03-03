@@ -1,0 +1,144 @@
+import fs from 'fs'
+import path from 'path'
+import { execSync } from 'child_process'
+
+// Minimal valid 1x1 JPEG
+const MINIMAL_JPEG = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof' +
+    'Hh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwh' +
+    'MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAAR' +
+    'CAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAP/' +
+    'aAAwDAQACEQMRAD8AVMAH/9k=',
+  'base64',
+)
+
+// Minimal valid 1x1 PNG (red pixel)
+const MINIMAL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/Pch' +
+    'I7wAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+// Minimal valid PDF (single blank page)
+const MINIMAL_PDF = Buffer.from(
+  '%PDF-1.0\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
+    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+    '3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n' +
+    'xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n' +
+    '0000000058 00000 n \n0000000115 00000 n \n' +
+    'trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF',
+)
+
+export function hasFfmpeg(): boolean {
+  try {
+    execSync('ffmpeg -version', { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function run(cmd: string, cwd: string) {
+  execSync(cmd, { stdio: 'ignore', cwd, timeout: 30_000 })
+}
+
+function ensureDir(dir: string) {
+  fs.mkdirSync(dir, { recursive: true })
+}
+
+export function generateTestMedia(baseDir: string) {
+  const ff = hasFfmpeg()
+  if (!ff) {
+    console.warn('WARNING: ffmpeg not found — video/audio files will not be generated.')
+    console.warn('Install ffmpeg for full test coverage.')
+  }
+
+  // --- Videos ---
+  const videosDir = path.join(baseDir, 'Videos')
+  ensureDir(videosDir)
+  if (ff) {
+    run(
+      'ffmpeg -y -f lavfi -i color=black:s=320x240:d=2 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac sample.mp4',
+      videosDir,
+    )
+    try {
+      run(
+        'ffmpeg -y -f lavfi -i color=black:s=320x240:d=2 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libvpx -c:a libvorbis sample.webm',
+        videosDir,
+      )
+    } catch {
+      console.warn('  Could not generate WebM (libvpx unavailable), skipping')
+    }
+  }
+
+  // --- Music ---
+  const musicDir = path.join(baseDir, 'Music')
+  ensureDir(musicDir)
+  if (ff) {
+    run('ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 2 -c:a libmp3lame track.mp3', musicDir)
+    run('ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 2 track.flac', musicDir)
+  }
+  fs.writeFileSync(path.join(musicDir, 'cover.jpg'), MINIMAL_JPEG)
+
+  // --- Images ---
+  const imagesDir = path.join(baseDir, 'Images')
+  ensureDir(imagesDir)
+  fs.writeFileSync(path.join(imagesDir, 'photo.jpg'), MINIMAL_JPEG)
+  fs.writeFileSync(path.join(imagesDir, 'photo.png'), MINIMAL_PNG)
+
+  // --- Documents (read-only) ---
+  const docsDir = path.join(baseDir, 'Documents')
+  ensureDir(docsDir)
+  fs.writeFileSync(
+    path.join(docsDir, 'readme.txt'),
+    'This is a test readme file.\nIt has multiple lines.\nLine three.\n',
+  )
+  fs.writeFileSync(
+    path.join(docsDir, 'notes.md'),
+    '# Test Notes\n\nThis is a **markdown** file with [a link](https://example.com).\n\n## Section Two\n\nMore content here.\n',
+  )
+  fs.writeFileSync(
+    path.join(docsDir, 'data.json'),
+    JSON.stringify({ name: 'test', items: [1, 2, 3] }, null, 2),
+  )
+  fs.writeFileSync(path.join(docsDir, 'sample.pdf'), MINIMAL_PDF)
+
+  // --- Notes (editable + KB) ---
+  const notesDir = path.join(baseDir, 'Notes')
+  ensureDir(path.join(notesDir, 'images'))
+  ensureDir(path.join(notesDir, 'subfolder'))
+  fs.writeFileSync(
+    path.join(notesDir, 'welcome.md'),
+    '# Welcome\n\nThis is the welcome note.\n\n![[diagram.png]]\n',
+  )
+  fs.writeFileSync(
+    path.join(notesDir, 'todo.md'),
+    '# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n',
+  )
+  fs.writeFileSync(
+    path.join(notesDir, 'subfolder', 'nested-note.md'),
+    '# Nested Note\n\nThis is a nested note inside a subfolder.\n',
+  )
+  fs.writeFileSync(path.join(notesDir, 'images', 'diagram.png'), MINIMAL_PNG)
+
+  // --- SharedContent (editable, for share tests) ---
+  const sharedDir = path.join(baseDir, 'SharedContent')
+  ensureDir(path.join(sharedDir, 'subfolder'))
+  fs.writeFileSync(
+    path.join(sharedDir, 'public-doc.txt'),
+    'This is a public document for share testing.\n',
+  )
+  fs.writeFileSync(
+    path.join(sharedDir, 'subfolder', 'nested.txt'),
+    'Nested file in shared content.\n',
+  )
+  if (ff) {
+    run(
+      'ffmpeg -y -f lavfi -i color=black:s=320x240:d=2 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac public-video.mp4',
+      sharedDir,
+    )
+  }
+
+  // --- EmptyFolder ---
+  ensureDir(path.join(baseDir, 'EmptyFolder'))
+}

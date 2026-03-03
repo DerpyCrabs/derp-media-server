@@ -12,9 +12,15 @@
 
 # testing
 /coverage
+/test-media
+/test-results
+/playwright-report
+/blob-report
+tests/fixtures/.auth/
 
 # next.js
 /.next/
+/.next-test/
 /out/
 
 # production

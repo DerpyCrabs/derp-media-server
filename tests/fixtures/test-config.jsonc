@@ -1,0 +1,9 @@
+{
+  "mediaDir": "test-media",
+  "editableFolders": ["Notes", "SharedContent"],
+  "shareLinkDomain": "http://localhost:5973",
+  "auth": {
+    "enabled": true,
+    "password": "test-password",
+  },
+}
