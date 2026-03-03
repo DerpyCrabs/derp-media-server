@@ -2,6 +2,7 @@ import { listDirectory, getEditableFolders } from '@/lib/file-system'
 import { config } from '@/lib/config'
 import { FileList } from '@/components/file-list'
 import { MediaPlayers } from '@/components/media-players'
+import { MediaPlayerProvider } from '@/lib/use-media-player'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
 import { promises as fs } from 'fs'
@@ -169,7 +170,7 @@ export default async function Home({ searchParams }: PageProps) {
   const editableFolders = getEditableFolders()
 
   return (
-    <>
+    <MediaPlayerProvider>
       <MediaPlayers editableFolders={editableFolders} />
       <div className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
         <div className='container mx-auto lg:p-4 flex flex-col'>
@@ -203,6 +204,6 @@ export default async function Home({ searchParams }: PageProps) {
           )}
         </div>
       </div>
-    </>
+    </MediaPlayerProvider>
   )
 }

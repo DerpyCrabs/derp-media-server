@@ -4,7 +4,8 @@ import { Suspense, useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
-import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
+import { FolderPlus, FilePlus, List, LayoutGrid, AppWindow } from 'lucide-react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Breadcrumbs } from '@/components/breadcrumbs'
@@ -777,6 +778,22 @@ function FileListInner({
               className='h-8 w-8 p-0'
             >
               <LayoutGrid className='h-4 w-4' />
+            </Button>
+            <div className='w-px h-6 bg-border mx-1' />
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-8 gap-1.5 px-2.5'
+              render={
+                <Link
+                  href={
+                    currentPath ? `/workspace?dir=${encodeURIComponent(currentPath)}` : '/workspace'
+                  }
+                />
+              }
+            >
+              <AppWindow className='h-4 w-4' />
+              <span className='hidden sm:inline'>Workspace</span>
             </Button>
           </div>
         </div>

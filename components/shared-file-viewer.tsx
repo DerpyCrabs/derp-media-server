@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
-import { TextViewer } from '@/components/text-viewer'
+import { TextViewer } from '@/components/viewers/text-viewer'
 import { Download, ZoomIn, ZoomOut, RotateCw, Maximize2, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 

@@ -14,31 +14,31 @@ import type { ShareLink } from '@/lib/shares'
 interface FileListViewProps {
   files: FileItem[]
   currentPath: string
-  favorites: string[]
-  playingPath: string | null
-  isVirtualFolder: boolean
-  editableFolders: string[]
+  favorites?: string[]
+  playingPath?: string | null
+  isVirtualFolder?: boolean
+  editableFolders?: string[]
   onFileClick: (file: FileItem) => void
-  onFolderHover: (path: string) => void
+  onFolderHover?: (path: string) => void
   onParentDirectory: () => void
-  onFavoriteToggle: (path: string, e: React.MouseEvent) => void
-  onContextSetIcon: (file: FileItem) => void
-  onContextRename: (file: FileItem) => void
-  onContextDelete: (file: FileItem) => void
-  onContextDownload: (file: FileItem) => void
-  onContextToggleFavorite: (file: FileItem) => void
+  onFavoriteToggle?: (path: string, e: React.MouseEvent) => void
+  onContextSetIcon?: (file: FileItem) => void
+  onContextRename?: (file: FileItem) => void
+  onContextDelete?: (file: FileItem) => void
+  onContextDownload?: (file: FileItem) => void
+  onContextToggleFavorite?: (file: FileItem) => void
   onContextToggleKnowledgeBase?: (file: FileItem) => void
-  onContextShare: (file: FileItem) => void
+  onContextShare?: (file: FileItem) => void
   onContextCopyShareLink?: (file: FileItem) => void
   onContextMove?: (file: FileItem) => void
   onContextCopy?: (file: FileItem) => void
   onContextOpenInNewTab?: (file: FileItem) => void
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
-  shares: ShareLink[]
+  shares?: ShareLink[]
   knowledgeBases?: string[]
-  getViewCount: (path: string) => number
-  getShareViewCount: (path: string) => number
+  getViewCount?: (path: string) => number
+  getShareViewCount?: (path: string) => number
   getIcon: (
     type: MediaType,
     filePath: string,
@@ -46,7 +46,6 @@ interface FileListViewProps {
     isVideoFile?: boolean,
     isVirtual?: boolean,
   ) => React.ReactElement
-  /** When true, show inline New file / New folder row at bottom (KB + editable) */
   showInlineCreate?: boolean
   onInlineCreateFile?: (name: string) => void
   onInlineCreateFolder?: (name: string) => void
@@ -60,10 +59,10 @@ interface FileListViewProps {
 export function FileListView({
   files,
   currentPath,
-  favorites,
-  playingPath,
-  isVirtualFolder,
-  editableFolders,
+  favorites = [],
+  playingPath = null,
+  isVirtualFolder = false,
+  editableFolders = [],
   onFileClick,
   onFolderHover,
   onParentDirectory,
@@ -81,10 +80,10 @@ export function FileListView({
   onContextOpenInNewTab,
   hasEditableFolders = false,
   onMoveFile,
-  shares,
+  shares = [],
   knowledgeBases = [],
-  getViewCount,
-  getShareViewCount,
+  getViewCount = () => 0,
+  getShareViewCount = () => 0,
   getIcon,
   showInlineCreate = false,
   onInlineCreateFile,
@@ -262,7 +261,7 @@ export function FileListView({
                   }`}
                   draggable={isFileEditable && !!onMoveFile && enableDrag}
                   onClick={() => onFileClick(file)}
-                  onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
+                  onMouseEnter={() => file.isDirectory && onFolderHover?.(file.path)}
                   onDragStart={(e) => {
                     if (!isFileEditable || !onMoveFile) return
                     e.dataTransfer.setData('text/plain', file.path)
@@ -307,7 +306,7 @@ export function FileListView({
                   </TableCell>
                   <TableCell className='font-medium'>
                     <div className='flex items-center gap-2'>
-                      {!file.isDirectory && (
+                      {!file.isDirectory && onFavoriteToggle && (
                         <button
                           onClick={(e) => onFavoriteToggle(file.path, e)}
                           className='shrink-0 opacity-50 hover:opacity-100 transition-opacity'

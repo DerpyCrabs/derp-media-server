@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useCallback } from 'react'
-import { MarkdownRenderer } from '@/components/markdown-renderer'
+import { MarkdownRenderer } from '@/components/viewers/markdown-renderer'
 
 export interface TextContentProps {
   content: string

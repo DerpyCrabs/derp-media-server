@@ -13,31 +13,31 @@ import type { ShareLink } from '@/lib/shares'
 interface FileGridViewProps {
   files: FileItem[]
   currentPath: string
-  favorites: string[]
-  playingPath: string | null
-  isVirtualFolder: boolean
-  editableFolders: string[]
+  favorites?: string[]
+  playingPath?: string | null
+  isVirtualFolder?: boolean
+  editableFolders?: string[]
   onFileClick: (file: FileItem) => void
-  onFolderHover: (path: string) => void
+  onFolderHover?: (path: string) => void
   onParentDirectory: () => void
-  onFavoriteToggle: (path: string, e: React.MouseEvent) => void
-  onContextSetIcon: (file: FileItem) => void
-  onContextRename: (file: FileItem) => void
-  onContextDelete: (file: FileItem) => void
-  onContextDownload: (file: FileItem) => void
-  onContextToggleFavorite: (file: FileItem) => void
+  onFavoriteToggle?: (path: string, e: React.MouseEvent) => void
+  onContextSetIcon?: (file: FileItem) => void
+  onContextRename?: (file: FileItem) => void
+  onContextDelete?: (file: FileItem) => void
+  onContextDownload?: (file: FileItem) => void
+  onContextToggleFavorite?: (file: FileItem) => void
   onContextToggleKnowledgeBase?: (file: FileItem) => void
-  onContextShare: (file: FileItem) => void
+  onContextShare?: (file: FileItem) => void
   onContextCopyShareLink?: (file: FileItem) => void
   onContextMove?: (file: FileItem) => void
   onContextCopy?: (file: FileItem) => void
   onContextOpenInNewTab?: (file: FileItem) => void
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
-  shares: ShareLink[]
+  shares?: ShareLink[]
   knowledgeBases?: string[]
-  getViewCount: (path: string) => number
-  getShareViewCount: (path: string) => number
+  getViewCount?: (path: string) => number
+  getShareViewCount?: (path: string) => number
   getIcon: (
     type: MediaType,
     filePath: string,
@@ -45,15 +45,17 @@ interface FileGridViewProps {
     isVideoFile?: boolean,
     isVirtual?: boolean,
   ) => React.ReactElement
+  getThumbnailUrl?: (file: FileItem) => string | null
+  getMediaUrl?: (file: FileItem) => string | null
 }
 
 export function FileGridView({
   files,
   currentPath,
-  favorites,
-  playingPath,
-  isVirtualFolder,
-  editableFolders,
+  favorites = [],
+  playingPath = null,
+  isVirtualFolder = false,
+  editableFolders = [],
   onFileClick,
   onFolderHover,
   onParentDirectory,
@@ -71,11 +73,13 @@ export function FileGridView({
   onContextOpenInNewTab,
   hasEditableFolders = false,
   onMoveFile,
-  shares,
+  shares = [],
   knowledgeBases = [],
-  getViewCount,
-  getShareViewCount,
+  getViewCount = () => 0,
+  getShareViewCount = () => 0,
   getIcon,
+  getThumbnailUrl,
+  getMediaUrl,
 }: FileGridViewProps) {
   const [draggedPath, setDraggedPath] = useState<string | null>(null)
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
@@ -209,7 +213,7 @@ export function FileGridView({
                 }`}
                 draggable={isFileEditable && !!onMoveFile && enableDrag}
                 onClick={() => onFileClick(file)}
-                onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
+                onMouseEnter={() => file.isDirectory && onFolderHover?.(file.path)}
                 onDragStart={(e) => {
                   if (!isFileEditable || !onMoveFile) return
                   e.dataTransfer.setData('text/plain', file.path)
@@ -244,8 +248,7 @@ export function FileGridView({
                 <CardContent className='p-0 flex flex-col h-full'>
                   {/* Thumbnail/Icon */}
                   <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg group'>
-                    {/* Favorite star overlay - only for files, not folders */}
-                    {!file.isDirectory && (
+                    {!file.isDirectory && onFavoriteToggle && (
                       <button
                         onClick={(e) => onFavoriteToggle(file.path, e)}
                         className={`absolute top-1.5 left-1.5 p-1 rounded-full transition-all z-10 ${
@@ -291,35 +294,37 @@ export function FileGridView({
                     )}
                     {file.type === MediaType.VIDEO ? (
                       <img
-                        src={`/api/thumbnail/${encodeURIComponent(file.path)}`}
+                        src={
+                          getThumbnailUrl
+                            ? (getThumbnailUrl(file) ?? '')
+                            : `/api/thumbnail/${encodeURIComponent(file.path)}`
+                        }
                         alt={file.name}
                         className='w-full h-full object-cover rounded-t-lg'
                         onError={(e) => {
-                          // Fallback to icon if thumbnail fails
                           e.currentTarget.style.display = 'none'
                           const parent = e.currentTarget.parentElement
                           if (parent) {
                             const icon = parent.querySelector('.fallback-icon')
-                            if (icon) {
-                              icon.classList.remove('hidden')
-                            }
+                            if (icon) icon.classList.remove('hidden')
                           }
                         }}
                       />
                     ) : file.type === MediaType.IMAGE ? (
                       <img
-                        src={`/api/media/${encodeURIComponent(file.path)}`}
+                        src={
+                          getMediaUrl
+                            ? (getMediaUrl(file) ?? '')
+                            : `/api/media/${encodeURIComponent(file.path)}`
+                        }
                         alt={file.name}
                         className='w-full h-full object-cover rounded-t-lg'
                         onError={(e) => {
-                          // Fallback to icon if image fails to load
                           e.currentTarget.style.display = 'none'
                           const parent = e.currentTarget.parentElement
                           if (parent) {
                             const icon = parent.querySelector('.fallback-icon')
-                            if (icon) {
-                              icon.classList.remove('hidden')
-                            }
+                            if (icon) icon.classList.remove('hidden')
                           }
                         }}
                       />
