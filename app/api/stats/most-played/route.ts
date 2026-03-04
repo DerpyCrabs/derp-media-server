@@ -25,25 +25,39 @@ async function readStats(): Promise<ViewStats> {
   }
 }
 
+async function writeStats(stats: ViewStats): Promise<void> {
+  const allStats = await readAllStats()
+  allStats[config.mediaDir] = stats
+  await fs.writeFile(STATS_FILE, JSON.stringify(allStats, null, 2), 'utf-8')
+}
+
+async function readAllStats(): Promise<StatsFile> {
+  try {
+    const data = await fs.readFile(STATS_FILE, 'utf-8')
+    return JSON.parse(data)
+  } catch {
+    return {}
+  }
+}
+
 // GET - Get most played files
 export async function GET() {
   try {
     const stats = await readStats()
     const views = stats.views || {}
 
-    // Sort files by view count (descending)
     const sortedFiles = Object.entries(views)
       .sort(([, a], [, b]) => b - a)
-      .slice(0, 50) // Limit to top 50
+      .slice(0, 50)
 
-    // Build FileItem array
     const fileItems: FileItem[] = []
+    const staleKeys: string[] = []
+
     for (const [filePath, viewCount] of sortedFiles) {
       try {
         const fullPath = path.join(config.mediaDir, filePath)
         const stat = await fs.stat(fullPath)
 
-        // Skip directories
         if (stat.isDirectory()) {
           continue
         }
@@ -60,11 +74,19 @@ export async function GET() {
           isDirectory: false,
           viewCount,
         })
-      } catch (error) {
-        // Skip files that no longer exist or can't be accessed
-        console.error(`Error accessing ${filePath}:`, error)
+      } catch {
+        staleKeys.push(filePath)
         continue
       }
+    }
+
+    // Prune stale entries from stats in the background
+    if (staleKeys.length > 0) {
+      const freshViews = { ...views }
+      for (const key of staleKeys) {
+        delete freshViews[key]
+      }
+      writeStats({ ...stats, views: freshViews }).catch(() => {})
     }
 
     return NextResponse.json({ files: fileItems })

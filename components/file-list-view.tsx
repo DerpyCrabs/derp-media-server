@@ -102,7 +102,10 @@ export function FileListView({
 
   const [draggedPath, setDraggedPath] = useState<string | null>(null)
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
-  const enableDrag = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
+  const [enableDrag, setEnableDrag] = useState(false)
+  useEffect(() => {
+    setEnableDrag(window.matchMedia('(hover: hover)').matches)
+  }, [])
 
   const parentParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
   const parentDir = parentParts.slice(0, -1).join('/')
@@ -341,9 +344,9 @@ export function FileListView({
                   </TableCell>
                   <TableCell className='w-32 text-right text-muted-foreground'>
                     <div className='flex items-center justify-end gap-2'>
-                      {!file.isDirectory && viewCount > 0 && (
+                      {!file.isDirectory && (
                         <div
-                          className='flex items-center gap-1 text-xs'
+                          className={`flex items-center gap-1 text-xs ${viewCount > 0 ? '' : 'hidden'}`}
                           title={`${viewCount} views`}
                           suppressHydrationWarning
                         >
@@ -351,9 +354,9 @@ export function FileListView({
                           <span suppressHydrationWarning>{viewCount}</span>
                         </div>
                       )}
-                      {!file.isDirectory && shareViewCount > 0 && (
+                      {!file.isDirectory && (
                         <div
-                          className='flex items-center gap-1 text-xs text-primary/70'
+                          className={`flex items-center gap-1 text-xs text-primary/70 ${shareViewCount > 0 ? '' : 'hidden'}`}
                           title={`${shareViewCount} shared views`}
                           suppressHydrationWarning
                         >

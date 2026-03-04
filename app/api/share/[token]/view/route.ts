@@ -18,8 +18,13 @@ export async function POST(
     if (result instanceof NextResponse) return result
     const { share } = result
 
-    const body = await request.json()
-    const { filePath } = body
+    let filePath: string | undefined
+    try {
+      const body = await request.json()
+      filePath = body.filePath
+    } catch {
+      // Body may be empty for single-file shares
+    }
 
     let resolvedPath: string
     if (share.isDirectory && filePath) {

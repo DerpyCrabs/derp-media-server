@@ -14,15 +14,24 @@ interface SettingsFile {
   [mediaDir: string]: Settings
 }
 
-async function readSettings(): Promise<Settings> {
+async function readAllSettings(): Promise<SettingsFile> {
   try {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
-    const allSettings: SettingsFile = JSON.parse(data)
-    const mediaDir = config.mediaDir
-    return allSettings[mediaDir] || { favorites: [] }
+    return JSON.parse(data)
   } catch {
-    return { favorites: [] }
+    return {}
   }
+}
+
+async function readSettings(): Promise<Settings> {
+  const allSettings = await readAllSettings()
+  return allSettings[config.mediaDir] || { favorites: [] }
+}
+
+async function writeSettings(settings: Settings): Promise<void> {
+  const allSettings = await readAllSettings()
+  allSettings[config.mediaDir] = settings
+  await fs.writeFile(SETTINGS_FILE, JSON.stringify(allSettings, null, 2), 'utf-8')
 }
 
 // GET - Get favorite files and folders
@@ -31,8 +40,9 @@ export async function GET() {
     const settings = await readSettings()
     const favorites = settings.favorites || []
 
-    // Build FileItem array
     const fileItems: FileItem[] = []
+    const stalePaths: string[] = []
+
     for (const filePath of favorites) {
       try {
         const fullPath = path.join(config.mediaDir, filePath)
@@ -49,11 +59,16 @@ export async function GET() {
           extension,
           isDirectory: stat.isDirectory(),
         })
-      } catch (error) {
-        // Skip files that no longer exist or can't be accessed
-        console.error(`Error accessing ${filePath}:`, error)
+      } catch {
+        stalePaths.push(filePath)
         continue
       }
+    }
+
+    // Prune stale favorites from settings in the background
+    if (stalePaths.length > 0) {
+      const freshFavorites = favorites.filter((f: string) => !stalePaths.includes(f))
+      writeSettings({ ...settings, favorites: freshFavorites }).catch(() => {})
     }
 
     return NextResponse.json({ files: fileItems })

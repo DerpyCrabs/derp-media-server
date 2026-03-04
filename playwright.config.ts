@@ -13,8 +13,8 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: [['line'], ['html', { open: 'never' }]],
-  timeout: 60_000,
-  expect: { timeout: 10_000 },
+  timeout: 10_000,
+  expect: { timeout: 5_000 },
   use: {
     baseURL: 'http://localhost:5973',
     trace: 'on-first-retry',

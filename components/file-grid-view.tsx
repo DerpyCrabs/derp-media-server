@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
@@ -79,7 +79,10 @@ export function FileGridView({
 }: FileGridViewProps) {
   const [draggedPath, setDraggedPath] = useState<string | null>(null)
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
-  const enableDrag = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
+  const [enableDrag, setEnableDrag] = useState(false)
+  useEffect(() => {
+    setEnableDrag(window.matchMedia('(hover: hover)').matches)
+  }, [])
 
   const parentParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
   const parentDir = parentParts.slice(0, -1).join('/')
@@ -263,30 +266,37 @@ export function FileGridView({
                       </button>
                     )}
                     {/* View count badges */}
-                    {!file.isDirectory && (viewCount > 0 || shareViewCount > 0) && (
-                      <div className='absolute top-1.5 right-1.5 flex items-center gap-1 z-10'>
-                        {viewCount > 0 && (
-                          <div
-                            className='px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1'
-                            title={`${viewCount} views`}
+                    {!file.isDirectory && (
+                      <div
+                        className={`absolute top-1.5 right-1.5 flex items-center gap-1 z-10 ${viewCount > 0 || shareViewCount > 0 ? '' : 'hidden'}`}
+                        suppressHydrationWarning
+                      >
+                        <div
+                          className={`px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1 ${viewCount > 0 ? '' : 'hidden'}`}
+                          title={`${viewCount} views`}
+                          suppressHydrationWarning
+                        >
+                          <Eye className='h-3 w-3 text-muted-foreground' />
+                          <span
+                            className='text-xs font-medium text-muted-foreground'
+                            suppressHydrationWarning
                           >
-                            <Eye className='h-3 w-3 text-muted-foreground' />
-                            <span className='text-xs font-medium text-muted-foreground'>
-                              {viewCount}
-                            </span>
-                          </div>
-                        )}
-                        {shareViewCount > 0 && (
-                          <div
-                            className='px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1'
-                            title={`${shareViewCount} shared views`}
+                            {viewCount}
+                          </span>
+                        </div>
+                        <div
+                          className={`px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1 ${shareViewCount > 0 ? '' : 'hidden'}`}
+                          title={`${shareViewCount} shared views`}
+                          suppressHydrationWarning
+                        >
+                          <Share2 className='h-3 w-3 text-primary/70' />
+                          <span
+                            className='text-xs font-medium text-primary/70'
+                            suppressHydrationWarning
                           >
-                            <Share2 className='h-3 w-3 text-primary/70' />
-                            <span className='text-xs font-medium text-primary/70'>
-                              {shareViewCount}
-                            </span>
-                          </div>
-                        )}
+                            {shareViewCount}
+                          </span>
+                        </div>
                       </div>
                     )}
                     {file.type === MediaType.VIDEO ? (

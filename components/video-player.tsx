@@ -291,10 +291,11 @@ export function VideoPlayer() {
     if (video) {
       video.pause()
     }
-    // Navigate to clear the playing parameter
-    window.location.href =
-      window.location.pathname +
-      window.location.search.replace(/[?&]playing=[^&]*/g, '').replace(/^&/, '?')
+    const params = new URLSearchParams(searchParams)
+    params.delete('playing')
+    params.delete('audioOnly')
+    const qs = params.toString()
+    router.replace(qs ? `/?${qs}` : '/', { scroll: false })
   }
 
   const scrollToTop = () => {
