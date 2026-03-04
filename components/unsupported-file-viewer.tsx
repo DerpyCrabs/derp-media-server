@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { useMemo } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,7 +16,6 @@ import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 
 export function UnsupportedFileViewer() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const viewingPath = searchParams.get('viewing')
   const currentDir = searchParams.get('dir') || ''
@@ -37,7 +36,7 @@ export function UnsupportedFileViewer() {
       // Close modal - remove viewing parameter
       const params = new URLSearchParams(searchParams)
       params.delete('viewing')
-      router.replace(`/?${params.toString()}`, { scroll: false })
+      window.history.replaceState(null, '', `/?${params.toString()}`)
     }
   }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -45,7 +45,6 @@ interface TextViewerProps {
 }
 
 export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps) {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const isShareMode = !!shareMode
@@ -233,7 +232,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
 
     const params = new URLSearchParams(searchParams)
     params.delete('viewing')
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    window.history.replaceState(null, '', `/?${params.toString()}`)
   }
 
   const handleCopy = async () => {

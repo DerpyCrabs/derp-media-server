@@ -124,46 +124,46 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
       })
     }
 
-    for (const entry of entries) {
-      try {
-        if (entry.isDirectory() && shouldExcludeFolder(entry.name)) {
-          continue
-        }
-        if (!entry.isDirectory() && EXCLUDED_FILES.includes(entry.name)) {
-          continue
-        }
+    const filteredEntries = entries.filter((entry) => {
+      if (entry.isDirectory() && shouldExcludeFolder(entry.name)) return false
+      if (!entry.isDirectory() && EXCLUDED_FILES.includes(entry.name)) return false
+      return true
+    })
 
-        const entryPath = path.join(fullPath, entry.name)
-        const stats = await fs.stat(entryPath)
-        const extension = path.extname(entry.name).slice(1).toLowerCase()
+    const results = await Promise.all(
+      filteredEntries.map(async (entry): Promise<FileItem | null> => {
+        try {
+          const entryPath = path.join(fullPath, entry.name)
+          const relPath = path.relative(mediaDir, entryPath).replace(/\\/g, '/')
 
-        // Get relative path from media directory
-        const relPath = path.relative(mediaDir, entryPath).replace(/\\/g, '/')
+          if (entry.isDirectory()) {
+            return {
+              name: entry.name,
+              path: relPath,
+              type: MediaType.FOLDER,
+              size: 0,
+              extension: '',
+              isDirectory: true,
+            }
+          }
 
-        // Include directories and all files
-        if (entry.isDirectory()) {
-          fileItems.push({
-            name: entry.name,
-            path: relPath,
-            type: MediaType.FOLDER,
-            size: 0,
-            extension: '',
-            isDirectory: true,
-          })
-        } else {
-          fileItems.push({
+          const stats = await fs.stat(entryPath)
+          const extension = path.extname(entry.name).slice(1).toLowerCase()
+          return {
             name: entry.name,
             path: relPath,
             type: getMediaType(extension),
             size: stats.size,
             extension,
             isDirectory: false,
-          })
+          }
+        } catch {
+          return null
         }
-      } catch {
-        continue
-      }
-    }
+      }),
+    )
+
+    fileItems.push(...results.filter((r): r is FileItem => r !== null))
 
     // Sort: virtual folders first, then directories, then files, then by name
     fileItems.sort((a, b) => {

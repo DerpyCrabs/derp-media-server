@@ -47,41 +47,36 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
     const stats = allStats[mediaDir] || { views: {} }
     const views = stats.views || {}
 
-    // Sort files by view count (descending)
     const sortedFiles = Object.entries(views)
       .sort(([, a], [, b]) => (b as number) - (a as number))
-      .slice(0, 50) // Limit to top 50
+      .slice(0, 50)
 
-    // Build FileItem array
-    const fileItems: FileItem[] = []
-    for (const [filePath, viewCount] of sortedFiles) {
-      try {
-        const fullPath = path.join(mediaDir, filePath)
-        const stat = await fs.stat(fullPath)
+    const results = await Promise.all(
+      sortedFiles.map(async ([filePath, viewCount]): Promise<FileItem | null> => {
+        try {
+          const fullPath = path.join(mediaDir, filePath)
+          const stat = await fs.stat(fullPath)
+          if (stat.isDirectory()) return null
 
-        // Skip directories
-        if (stat.isDirectory()) {
-          continue
+          const fileName = path.basename(filePath)
+          const extension = path.extname(fileName).slice(1).toLowerCase()
+
+          return {
+            name: fileName,
+            path: filePath,
+            type: getMediaType(extension),
+            size: stat.size,
+            extension,
+            isDirectory: false,
+            viewCount: viewCount as number,
+          }
+        } catch {
+          return null
         }
+      }),
+    )
 
-        const fileName = path.basename(filePath)
-        const extension = path.extname(fileName).slice(1).toLowerCase()
-
-        fileItems.push({
-          name: fileName,
-          path: filePath,
-          type: getMediaType(extension),
-          size: stat.size,
-          extension,
-          isDirectory: false,
-          viewCount: viewCount as number,
-        })
-      } catch {
-        continue
-      }
-    }
-
-    return fileItems
+    return results.filter((r): r is FileItem => r !== null)
   } catch {
     return []
   }
@@ -96,30 +91,30 @@ async function getFavoriteFiles(): Promise<FileItem[]> {
     const settings = allSettings[mediaDir] || { favorites: [] }
     const favorites = settings.favorites || []
 
-    // Build FileItem array
-    const fileItems: FileItem[] = []
-    for (const filePath of favorites) {
-      try {
-        const fullPath = path.join(mediaDir, filePath)
-        const stat = await fs.stat(fullPath)
+    const results = await Promise.all(
+      favorites.map(async (filePath): Promise<FileItem | null> => {
+        try {
+          const fullPath = path.join(mediaDir, filePath)
+          const stat = await fs.stat(fullPath)
 
-        const fileName = path.basename(filePath)
-        const extension = path.extname(fileName).slice(1).toLowerCase()
+          const fileName = path.basename(filePath)
+          const extension = path.extname(fileName).slice(1).toLowerCase()
 
-        fileItems.push({
-          name: fileName,
-          path: filePath,
-          type: stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension),
-          size: stat.isDirectory() ? 0 : stat.size,
-          extension,
-          isDirectory: stat.isDirectory(),
-        })
-      } catch {
-        continue
-      }
-    }
+          return {
+            name: fileName,
+            path: filePath,
+            type: stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension),
+            size: stat.isDirectory() ? 0 : stat.size,
+            extension,
+            isDirectory: stat.isDirectory(),
+          }
+        } catch {
+          return null
+        }
+      }),
+    )
 
-    return fileItems
+    return results.filter((r): r is FileItem => r !== null)
   } catch {
     return []
   }
@@ -135,28 +130,30 @@ export default async function Home({ searchParams }: PageProps) {
   const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
   const isAudioPlaying = playingPath && audioExtensions.includes(extension || '')
 
-  let files: Awaited<ReturnType<typeof listDirectory>> = []
   let error = null
 
-  try {
-    // Check if we're accessing a virtual folder
+  const filesPromise = (async () => {
     if (currentDir === VIRTUAL_FOLDERS.MOST_PLAYED) {
-      files = await getMostPlayedFiles()
+      return getMostPlayedFiles()
     } else if (currentDir === VIRTUAL_FOLDERS.FAVORITES) {
-      files = await getFavoriteFiles()
+      return getFavoriteFiles()
     } else if (currentDir === VIRTUAL_FOLDERS.SHARES) {
       const { getSharesAsFileItems } = await import('@/lib/shares')
-      files = await getSharesAsFileItems()
+      return getSharesAsFileItems()
     } else {
-      files = await listDirectory(currentDir)
+      return listDirectory(currentDir)
     }
-  } catch (err) {
-    error = err instanceof Error ? err.message : 'Failed to read directory'
-    console.error('Error reading directory:', err)
-  }
+  })()
 
-  // Read view mode and favorites from settings
-  const settings = await readSettings()
+  const [files, settings] = await Promise.all([
+    filesPromise.catch((err) => {
+      error = err instanceof Error ? err.message : 'Failed to read directory'
+      console.error('Error reading directory:', err)
+      return [] as FileItem[]
+    }),
+    readSettings(),
+  ])
+
   const initialViewMode: ViewMode = settings.viewModes[currentDir] || 'list'
   const initialFavorites = settings.favorites || []
   const initialCustomIcons = settings.customIcons || {}

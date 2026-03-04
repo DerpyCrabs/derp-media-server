@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { X, Download, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,14 +12,13 @@ import {
 } from '@/components/ui/dialog'
 
 export function PdfViewer() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const viewingPath = searchParams.get('viewing')
 
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
     params.delete('viewing')
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    window.history.replaceState(null, '', `/?${params.toString()}`)
   }
 
   const handleDownload = () => {

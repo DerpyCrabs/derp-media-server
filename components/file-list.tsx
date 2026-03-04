@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useState, useMemo, useEffect, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { FileItem, MediaType } from '@/lib/types'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
 import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
@@ -51,30 +51,27 @@ interface FileListProps {
 
 function FileListInner({
   files: initialFiles,
-  currentPath,
+  currentPath: serverPath,
   initialViewMode,
   initialFavorites = [],
   initialCustomIcons = {},
   editableFolders,
 }: FileListProps) {
-  const router = useRouter()
   const searchParams = useSearchParams()
+  const currentPath = searchParams.get('dir') || ''
   const shareLinkBase = useShareLinkBase()
   useFileWatcher()
   const { playFile, isPlaying: mediaPlayerIsPlaying, mediaType, currentFile } = useMediaPlayer()
 
-  // Use React Query for files with SSR initial data
-  const { data: filesData } = useFiles(currentPath, initialFiles)
+  // Use React Query for files — only seed with SSR data when on the server-rendered path
+  const initialData = currentPath === serverPath ? initialFiles : undefined
+  const { data: filesData } = useFiles(currentPath, initialData)
   const prefetchFiles = usePrefetchFiles()
 
   // Use view stats hook
   const { incrementView, getViewCount, getShareViewCount } = useViewStats()
 
-  // Ensure files is ALWAYS an array, no matter what
-  const files = useMemo(
-    () => (Array.isArray(filesData) ? filesData : Array.isArray(initialFiles) ? initialFiles : []),
-    [filesData, initialFiles],
-  )
+  const files = useMemo(() => (Array.isArray(filesData) ? filesData : []), [filesData])
 
   // Use React Query for real-time settings
   const {
@@ -181,6 +178,10 @@ function FileListInner({
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    setSearchQuery('')
+  }, [currentPath])
+
+  useEffect(() => {
     if (!searchQuery.trim() || !kbRoot) {
       setDebouncedSearchQuery('')
       return
@@ -260,16 +261,11 @@ function FileListInner({
     const params = new URLSearchParams(searchParams)
 
     if (file.isDirectory) {
-      // Navigate to folder
       params.set('dir', file.path)
-      // Keep the playing state when changing folders
-      router.push(`/?${params.toString()}`, { scroll: false })
+      window.history.pushState(null, '', `/?${params.toString()}`)
     } else {
-      // Increment view count for files (not directories)
       incrementView(file.path)
 
-      // For audio/video, use 'playing' parameter and trigger store playback
-      // For images/text/other files, use 'viewing' parameter (this keeps audio/video playing)
       const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
 
       if (isMediaFile) {
@@ -279,11 +275,11 @@ function FileListInner({
         params.delete('viewing')
         params.set('playing', file.path)
         params.set('dir', currentPath)
-        router.replace(`/?${params.toString()}`, { scroll: false })
+        window.history.replaceState(null, '', `/?${params.toString()}`)
       } else {
         params.set('viewing', file.path)
         params.set('dir', currentPath)
-        router.replace(`/?${params.toString()}`, { scroll: false })
+        window.history.replaceState(null, '', `/?${params.toString()}`)
       }
     }
   }
@@ -292,8 +288,8 @@ function FileListInner({
     const params = new URLSearchParams(searchParams)
     params.set('dir', currentPath)
     params.set('viewing', filePath)
-    setSearchQuery('') // Clear search to show the file
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    setSearchQuery('')
+    window.history.replaceState(null, '', `/?${params.toString()}`)
   }
 
   const handleBreadcrumbClick = (path: string) => {
@@ -303,18 +299,15 @@ function FileListInner({
     } else {
       params.delete('dir')
     }
-    // Keep the playing state when navigating via breadcrumbs
-    router.push(`/?${params.toString()}`, { scroll: false })
+    window.history.pushState(null, '', `/?${params.toString()}`)
   }
 
-  // Handle navigation to parent directory
   const handleParentDirectory = () => {
     const params = new URLSearchParams(searchParams)
 
-    // If we're in a virtual folder, go back to root
     if (isVirtualFolder) {
       params.delete('dir')
-      router.push(`/?${params.toString()}`, { scroll: false })
+      window.history.pushState(null, '', `/?${params.toString()}`)
       return
     }
 
@@ -326,7 +319,7 @@ function FileListInner({
       } else {
         params.delete('dir')
       }
-      router.push(`/?${params.toString()}`, { scroll: false })
+      window.history.pushState(null, '', `/?${params.toString()}`)
     }
   }
 
@@ -900,7 +893,7 @@ function FileListInner({
 export function FileList(props: FileListProps) {
   return (
     <Suspense fallback={<div className='flex items-center justify-center h-full'>Loading...</div>}>
-      <FileListInner key={props.currentPath} {...props} />
+      <FileListInner {...props} />
     </Suspense>
   )
 }

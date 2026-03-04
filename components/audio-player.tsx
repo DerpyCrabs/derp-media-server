@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Play, Pause, Volume2, VolumeX, StepBack, StepForward, Repeat, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -12,7 +12,6 @@ import { useViewStats } from '@/lib/use-view-stats'
 import { useFiles } from '@/lib/use-files'
 
 export function AudioPlayer() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const audioRef = useRef<HTMLAudioElement>(null)
   const [volume, setVolume] = useState(1)
@@ -118,19 +117,10 @@ export function AudioPlayer() {
     const params = new URLSearchParams(searchParams)
     params.set('playing', nextFile.path)
     params.set('dir', currentDir)
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    window.history.replaceState(null, '', `/?${params.toString()}`)
 
     playFile(nextFile.path, 'audio')
-  }, [
-    playingPath,
-    audioFiles,
-    searchParams,
-    currentDir,
-    router,
-    setIsPlaying,
-    playFile,
-    incrementView,
-  ])
+  }, [playingPath, audioFiles, searchParams, currentDir, setIsPlaying, playFile, incrementView])
 
   const playPreviousAudio = useCallback(() => {
     if (!playingPath || audioFiles.length === 0) return
@@ -165,10 +155,10 @@ export function AudioPlayer() {
     const params = new URLSearchParams(searchParams)
     params.set('playing', previousFile.path)
     params.set('dir', currentDir)
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    window.history.replaceState(null, '', `/?${params.toString()}`)
 
     playFile(previousFile.path, 'audio')
-  }, [playingPath, audioFiles, searchParams, currentDir, router, playFile, incrementView])
+  }, [playingPath, audioFiles, searchParams, currentDir, playFile, incrementView])
 
   // Keep callback refs in sync without causing effect re-runs
   useEffect(() => {
@@ -379,7 +369,7 @@ export function AudioPlayer() {
 
       const params = new URLSearchParams(searchParams)
       params.delete('audioOnly')
-      router.replace(`/?${params.toString()}`, { scroll: false })
+      window.history.replaceState(null, '', `/?${params.toString()}`)
     }
   }
 
