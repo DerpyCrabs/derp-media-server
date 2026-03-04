@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Minimize2, Maximize2, X, ArrowUp, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -19,7 +19,6 @@ interface Position {
 }
 
 export function VideoPlayer() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<HTMLDivElement>(null)
@@ -295,7 +294,7 @@ export function VideoPlayer() {
     params.delete('playing')
     params.delete('audioOnly')
     const qs = params.toString()
-    router.replace(qs ? `/?${qs}` : '/', { scroll: false })
+    window.history.replaceState(null, '', qs ? `/?${qs}` : '/')
   }
 
   const scrollToTop = () => {
@@ -311,7 +310,7 @@ export function VideoPlayer() {
       // Add audioOnly parameter to switch to audio player
       const params = new URLSearchParams(searchParams)
       params.set('audioOnly', 'true')
-      router.replace(`/?${params.toString()}`, { scroll: false })
+      window.history.replaceState(null, '', `/?${params.toString()}`)
     }
   }
 

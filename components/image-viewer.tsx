@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,7 +15,6 @@ import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 
 export function ImageViewer() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const viewingPath = searchParams.get('viewing')
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
@@ -47,7 +46,7 @@ export function ImageViewer() {
   const closeViewer = () => {
     const params = new URLSearchParams(searchParams)
     params.delete('viewing')
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    window.history.replaceState(null, '', `/?${params.toString()}`)
     setZoom('fit')
     setRotation(0)
   }
@@ -64,10 +63,10 @@ export function ImageViewer() {
     if (currentDir) {
       params.set('dir', currentDir)
     }
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    window.history.replaceState(null, '', `/?${params.toString()}`)
     setZoom('fit')
     setRotation(0)
-  }, [viewingPath, imageFiles, searchParams, currentDir, router, setZoom, setRotation])
+  }, [viewingPath, imageFiles, searchParams, currentDir, setZoom, setRotation])
 
   const navigateToPrevious = useCallback(() => {
     if (!viewingPath || imageFiles.length === 0) return
@@ -81,10 +80,10 @@ export function ImageViewer() {
     if (currentDir) {
       params.set('dir', currentDir)
     }
-    router.replace(`/?${params.toString()}`, { scroll: false })
+    window.history.replaceState(null, '', `/?${params.toString()}`)
     setZoom('fit')
     setRotation(0)
-  }, [viewingPath, imageFiles, searchParams, currentDir, router, setZoom, setRotation])
+  }, [viewingPath, imageFiles, searchParams, currentDir, setZoom, setRotation])
 
   // Handle keyboard navigation
   useEffect(() => {
