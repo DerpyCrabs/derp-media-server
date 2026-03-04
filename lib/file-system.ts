@@ -20,6 +20,17 @@ const EXCLUDED_FOLDERS = [
   '.DS_Store',
 ]
 
+const EXCLUDED_FILES = [
+  'pagefile.sys',
+  'swapfile.sys',
+  'hiberfil.sys',
+  'DumpStack.log',
+  'DumpStack.log.tmp',
+  'desktop.ini',
+  'Thumbs.db',
+  '.DS_Store',
+]
+
 /**
  * Checks if a folder should be excluded from listing
  */
@@ -115,8 +126,10 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
 
     for (const entry of entries) {
       try {
-        // Skip excluded folders
         if (entry.isDirectory() && shouldExcludeFolder(entry.name)) {
+          continue
+        }
+        if (!entry.isDirectory() && EXCLUDED_FILES.includes(entry.name)) {
           continue
         }
 
@@ -147,9 +160,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
             isDirectory: false,
           })
         }
-      } catch (error) {
-        // Skip files that can't be accessed
-        console.error(`Error accessing ${entry.name}:`, error)
+      } catch {
         continue
       }
     }
