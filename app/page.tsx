@@ -76,9 +76,7 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
           isDirectory: false,
           viewCount: viewCount as number,
         })
-      } catch (error) {
-        // Skip files that no longer exist or can't be accessed
-        console.error(`Error accessing ${filePath}:`, error)
+      } catch {
         continue
       }
     }
@@ -116,9 +114,7 @@ async function getFavoriteFiles(): Promise<FileItem[]> {
           extension,
           isDirectory: stat.isDirectory(),
         })
-      } catch (error) {
-        // Skip files that no longer exist or can't be accessed
-        console.error(`Error accessing ${filePath}:`, error)
+      } catch {
         continue
       }
     }
@@ -168,39 +164,45 @@ export default async function Home({ searchParams }: PageProps) {
   // Get editable folders from environment (server-side only)
   const editableFolders = getEditableFolders()
 
+  if (error) {
+    return (
+      <div className='min-h-screen flex flex-col'>
+        <div className='container mx-auto lg:p-4 flex flex-col'>
+          <Card className='border-destructive shrink-0'>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2 text-destructive'>
+                <AlertCircle className='h-5 w-5' />
+                Error Loading Directory
+              </CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className='text-sm text-muted-foreground'>
+                Please check that mediaDir in config.jsonc is set correctly and the directory
+                exists.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       <MediaPlayers editableFolders={editableFolders} />
       <div className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
         <div className='container mx-auto lg:p-4 flex flex-col'>
-          {error ? (
-            <Card className='border-destructive shrink-0'>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2 text-destructive'>
-                  <AlertCircle className='h-5 w-5' />
-                  Error Loading Directory
-                </CardTitle>
-                <CardDescription>{error}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className='text-sm text-muted-foreground'>
-                  Please check that mediaDir in config.jsonc is set correctly and the directory
-                  exists.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className='py-0 rounded-none lg:rounded-xl'>
-              <FileList
-                files={files}
-                currentPath={currentDir}
-                initialViewMode={initialViewMode}
-                initialFavorites={initialFavorites}
-                initialCustomIcons={initialCustomIcons}
-                editableFolders={editableFolders}
-              />
-            </Card>
-          )}
+          <Card className='py-0 rounded-none lg:rounded-xl'>
+            <FileList
+              files={files}
+              currentPath={currentDir}
+              initialViewMode={initialViewMode}
+              initialFavorites={initialFavorites}
+              initialCustomIcons={initialCustomIcons}
+              editableFolders={editableFolders}
+            />
+          </Card>
         </div>
       </div>
     </>

@@ -30,8 +30,16 @@ function mergeJsonFile(filePath: string, data: Record<string, unknown>) {
 export default async function setup(_config: FullConfig) {
   console.log('[e2e] Setting up test fixtures...')
 
-  if (fs.existsSync(TEST_MEDIA_DIR)) {
-    fs.rmSync(TEST_MEDIA_DIR, { recursive: true, force: true })
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (fs.existsSync(TEST_MEDIA_DIR)) {
+        fs.rmSync(TEST_MEDIA_DIR, { recursive: true, force: true })
+      }
+      break
+    } catch {
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1000))
+      else throw new Error(`Failed to clean test-media directory after 3 attempts`)
+    }
   }
 
   generateTestMedia(TEST_MEDIA_DIR)

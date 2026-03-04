@@ -35,17 +35,17 @@ export async function GET(
       })
     }
 
-    // FFmpeg command to extract audio
-    // Copy audio stream without re-encoding (fastest, preserves quality)
     const ffmpegArgs = [
       '-i',
       fullPath,
-      '-vn', // No video
+      '-vn',
       '-c:a',
-      'copy', // Copy audio codec without re-encoding
+      'libopus',
+      '-b:a',
+      '128k',
       '-f',
-      'webm', // WebM container
-      'pipe:1', // Output to stdout
+      'webm',
+      'pipe:1',
     ]
 
     // Extract the complete audio to a buffer first (enables seeking)
