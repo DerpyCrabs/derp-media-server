@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -45,12 +45,12 @@ interface TextViewerProps {
 }
 
 export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps) {
-  const searchParams = useSearchParams()
+  const { urlState, closeViewer: urlCloseViewer } = useUrlState()
   const queryClient = useQueryClient()
   const isShareMode = !!shareMode
   const viewingPath = isShareMode
     ? (shareMode!.filePath ?? shareMode!.shareInfo.path)
-    : searchParams.get('viewing')
+    : urlState.viewing
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState<string>('')
@@ -230,9 +230,7 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
       await handleSave(true)
     }
 
-    const params = new URLSearchParams(searchParams)
-    params.delete('viewing')
-    window.history.replaceState(null, '', `/?${params.toString()}`)
+    urlCloseViewer()
   }
 
   const handleCopy = async () => {

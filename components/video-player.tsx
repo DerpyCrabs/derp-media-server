@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import { Minimize2, Maximize2, X, ArrowUp, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -19,7 +19,7 @@ interface Position {
 }
 
 export function VideoPlayer() {
-  const searchParams = useSearchParams()
+  const { urlState, closePlayer, setAudioOnly } = useUrlState()
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<HTMLDivElement>(null)
   const [isMinimized, setIsMinimized] = useState(false)
@@ -42,8 +42,8 @@ export function VideoPlayer() {
     setDuration,
   } = useMediaPlayer()
 
-  const playingPath = searchParams.get('playing')
-  const isAudioOnly = searchParams.get('audioOnly') === 'true'
+  const playingPath = urlState.playing
+  const isAudioOnly = urlState.audioOnly
   const fileName = (playingPath || '').split('/').pop() || ''
 
   // Determine if we should show the player based on file type
@@ -290,11 +290,7 @@ export function VideoPlayer() {
     if (video) {
       video.pause()
     }
-    const params = new URLSearchParams(searchParams)
-    params.delete('playing')
-    params.delete('audioOnly')
-    const qs = params.toString()
-    window.history.replaceState(null, '', qs ? `/?${qs}` : '/')
+    closePlayer()
   }
 
   const scrollToTop = () => {
@@ -304,13 +300,8 @@ export function VideoPlayer() {
   const handleAudioOnly = () => {
     const video = videoRef.current
     if (video && playingPath) {
-      // Save current playback position
       setCurrentTime(video.currentTime)
-
-      // Add audioOnly parameter to switch to audio player
-      const params = new URLSearchParams(searchParams)
-      params.set('audioOnly', 'true')
-      window.history.replaceState(null, '', `/?${params.toString()}`)
+      setAudioOnly(true)
     }
   }
 

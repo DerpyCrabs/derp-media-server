@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import { Play, Pause, Volume2, VolumeX, StepBack, StepForward, Repeat, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -12,7 +12,7 @@ import { useViewStats } from '@/lib/use-view-stats'
 import { useFiles } from '@/lib/use-files'
 
 export function AudioPlayer() {
-  const searchParams = useSearchParams()
+  const { urlState, playFile: urlPlayFile, setAudioOnly } = useUrlState()
   const audioRef = useRef<HTMLAudioElement>(null)
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
@@ -34,8 +34,8 @@ export function AudioPlayer() {
 
   const { incrementView } = useViewStats()
 
-  const playingPath = searchParams.get('playing')
-  const currentDir = searchParams.get('dir') || ''
+  const playingPath = urlState.playing
+  const currentDir = urlState.dir || ''
   const fileName = (playingPath || '').split('/').pop() || ''
 
   const extension = (playingPath || '').split('.').pop()?.toLowerCase()
@@ -43,7 +43,7 @@ export function AudioPlayer() {
   const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
   const isAudioFile = playingPath && audioExtensions.includes(extension || '')
   const isVideoFile = playingPath && videoExtensions.includes(extension || '')
-  const isAudioOnly = searchParams.get('audioOnly') === 'true'
+  const isAudioOnly = urlState.audioOnly
 
   const dirToFetch = useMemo(() => {
     if (!currentDir && !playingPath) return ''
@@ -113,14 +113,9 @@ export function AudioPlayer() {
     }
 
     incrementView(nextFile.path)
-
-    const params = new URLSearchParams(searchParams)
-    params.set('playing', nextFile.path)
-    params.set('dir', currentDir)
-    window.history.replaceState(null, '', `/?${params.toString()}`)
-
+    urlPlayFile(nextFile.path, currentDir)
     playFile(nextFile.path, 'audio')
-  }, [playingPath, audioFiles, searchParams, currentDir, setIsPlaying, playFile, incrementView])
+  }, [playingPath, audioFiles, currentDir, setIsPlaying, playFile, incrementView, urlPlayFile])
 
   const playPreviousAudio = useCallback(() => {
     if (!playingPath || audioFiles.length === 0) return
@@ -151,14 +146,9 @@ export function AudioPlayer() {
     }
 
     incrementView(previousFile.path)
-
-    const params = new URLSearchParams(searchParams)
-    params.set('playing', previousFile.path)
-    params.set('dir', currentDir)
-    window.history.replaceState(null, '', `/?${params.toString()}`)
-
+    urlPlayFile(previousFile.path, currentDir)
     playFile(previousFile.path, 'audio')
-  }, [playingPath, audioFiles, searchParams, currentDir, playFile, incrementView])
+  }, [playingPath, audioFiles, currentDir, playFile, incrementView, urlPlayFile])
 
   // Keep callback refs in sync without causing effect re-runs
   useEffect(() => {
@@ -366,10 +356,7 @@ export function AudioPlayer() {
     if (audio && playingPath) {
       setCurrentTime(audio.currentTime)
       setCurrentFile(playingPath, 'video')
-
-      const params = new URLSearchParams(searchParams)
-      params.delete('audioOnly')
-      window.history.replaceState(null, '', `/?${params.toString()}`)
+      setAudioOnly(false)
     }
   }
 

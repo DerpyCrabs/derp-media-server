@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import { X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,12 +15,12 @@ import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 
 export function ImageViewer() {
-  const searchParams = useSearchParams()
-  const viewingPath = searchParams.get('viewing')
+  const { urlState, viewFile, closeViewer: urlCloseViewer } = useUrlState()
+  const viewingPath = urlState.viewing
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
   const [rotation, setRotation] = useState(0)
 
-  const currentDir = searchParams.get('dir') || ''
+  const currentDir = urlState.dir || ''
 
   // Extract directory from viewing path if no dir param
   const dirToFetch = useMemo(() => {
@@ -44,9 +44,7 @@ export function ImageViewer() {
   }, [allFiles])
 
   const closeViewer = () => {
-    const params = new URLSearchParams(searchParams)
-    params.delete('viewing')
-    window.history.replaceState(null, '', `/?${params.toString()}`)
+    urlCloseViewer()
     setZoom('fit')
     setRotation(0)
   }
@@ -58,15 +56,10 @@ export function ImageViewer() {
     if (currentIndex === -1 || currentIndex === imageFiles.length - 1) return
 
     const nextFile = imageFiles[currentIndex + 1]
-    const params = new URLSearchParams(searchParams)
-    params.set('viewing', nextFile.path)
-    if (currentDir) {
-      params.set('dir', currentDir)
-    }
-    window.history.replaceState(null, '', `/?${params.toString()}`)
+    viewFile(nextFile.path, currentDir || undefined)
     setZoom('fit')
     setRotation(0)
-  }, [viewingPath, imageFiles, searchParams, currentDir, setZoom, setRotation])
+  }, [viewingPath, imageFiles, currentDir, viewFile])
 
   const navigateToPrevious = useCallback(() => {
     if (!viewingPath || imageFiles.length === 0) return
@@ -75,15 +68,10 @@ export function ImageViewer() {
     if (currentIndex === -1 || currentIndex === 0) return
 
     const prevFile = imageFiles[currentIndex - 1]
-    const params = new URLSearchParams(searchParams)
-    params.set('viewing', prevFile.path)
-    if (currentDir) {
-      params.set('dir', currentDir)
-    }
-    window.history.replaceState(null, '', `/?${params.toString()}`)
+    viewFile(prevFile.path, currentDir || undefined)
     setZoom('fit')
     setRotation(0)
-  }, [viewingPath, imageFiles, searchParams, currentDir, setZoom, setRotation])
+  }, [viewingPath, imageFiles, currentDir, viewFile])
 
   // Handle keyboard navigation
   useEffect(() => {

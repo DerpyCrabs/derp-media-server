@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
@@ -92,15 +92,21 @@ function SharedFolderBrowserInner({
   shareInfo,
   adminViewMode = 'list',
 }: SharedFolderBrowserProps) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const {
+    urlState,
+    navigateToFolder,
+    viewFile,
+    playFile: urlPlayFile,
+    closeViewer: urlCloseViewer,
+    closePlayer: urlClosePlayer,
+  } = useUrlState()
   const queryClient = useQueryClient()
   const shareLinkBase = useShareLinkBase()
   useFileWatcher()
 
-  const currentSubDir = searchParams.get('dir') || ''
-  const viewingPath = searchParams.get('viewing')
-  const playingPath = searchParams.get('playing')
+  const currentSubDir = urlState.dir || ''
+  const viewingPath = urlState.viewing
+  const playingPath = urlState.playing
 
   useDynamicFavicon({}, { rootName: shareInfo.name })
 
@@ -239,10 +245,7 @@ function SharedFolderBrowserInner({
       setShowCreateFile(false)
       setNewItemName('')
       if (inKb && data?.fullPath) {
-        const params = new URLSearchParams(searchParams)
-        params.set('viewing', data.fullPath)
-        params.delete('playing')
-        router.replace(`/share/${token}?${params.toString()}`, { scroll: false })
+        viewFile(data.fullPath)
       }
     },
   })
@@ -298,13 +301,10 @@ function SharedFolderBrowserInner({
 
   const handleKbResultClick = useCallback(
     (filePath: string) => {
-      const params = new URLSearchParams(searchParams)
-      params.set('viewing', filePath)
-      params.delete('playing')
       setSearchQuery('')
-      router.replace(`/share/${token}?${params.toString()}`, { scroll: false })
+      viewFile(filePath)
     },
-    [searchParams, router, token],
+    [viewFile],
   )
 
   const kbRecentUrl = useMemo(() => {
@@ -442,14 +442,9 @@ function SharedFolderBrowserInner({
 
   const navigate = useCallback(
     (subDir: string) => {
-      const params = new URLSearchParams(searchParams)
-      params.delete('viewing')
-      params.delete('playing')
-      if (subDir) params.set('dir', subDir)
-      else params.delete('dir')
-      router.push(`/share/${token}?${params.toString()}`, { scroll: false })
+      navigateToFolder(subDir || null)
     },
-    [router, token, searchParams],
+    [navigateToFolder],
   )
 
   const trackShareView = useCallback(
@@ -469,21 +464,17 @@ function SharedFolderBrowserInner({
         navigate(stripSharePrefix(file.path))
       } else {
         trackShareView(file.path)
-        const params = new URLSearchParams(searchParams)
         const ext = file.path.split('.').pop()?.toLowerCase() || ''
         const type = getMediaType(ext)
         const isMedia = type === 'audio' || type === 'video'
         if (isMedia) {
-          params.set('playing', file.path)
-          params.delete('viewing')
+          urlPlayFile(file.path)
         } else {
-          params.set('viewing', file.path)
-          params.delete('playing')
+          viewFile(file.path)
         }
-        router.replace(`/share/${token}?${params.toString()}`, { scroll: false })
       }
     },
-    [stripSharePrefix, navigate, searchParams, router, token, trackShareView],
+    [stripSharePrefix, navigate, urlPlayFile, viewFile, trackShareView],
   )
 
   const handleParentDirectory = useCallback(() => {
@@ -507,11 +498,12 @@ function SharedFolderBrowserInner({
   )
 
   const closeViewer = useCallback(() => {
-    const params = new URLSearchParams(searchParams)
-    params.delete('viewing')
-    params.delete('playing')
-    router.replace(`/share/${token}?${params.toString()}`, { scroll: false })
-  }, [searchParams, router, token])
+    urlCloseViewer()
+  }, [urlCloseViewer])
+
+  const closePlayer = useCallback(() => {
+    urlClosePlayer()
+  }, [urlClosePlayer])
 
   const handleOpenInNewTab = useCallback(
     (file: FileItem) => {
@@ -519,15 +511,12 @@ function SharedFolderBrowserInner({
       const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
       const pathNorm = file.path.replace(/\\/g, '/')
       const subPath = pathNorm === sharePathNorm ? '' : stripSharePrefix(file.path)
-      const params = new URLSearchParams(searchParams)
-      params.delete('viewing')
-      params.delete('playing')
+      const params = new URLSearchParams()
       if (subPath) params.set('dir', subPath)
-      else params.delete('dir')
       const url = `${shareLinkBase}/share/${token}?${params.toString()}`
       window.open(url, '_blank')
     },
-    [token, shareInfo.path, searchParams, stripSharePrefix, shareLinkBase],
+    [token, shareInfo.path, stripSharePrefix, shareLinkBase],
   )
 
   // Build breadcrumbs relative to share root
@@ -562,7 +551,7 @@ function SharedFolderBrowserInner({
           files={files}
           getMediaUrl={getShareMediaUrl}
           onNavigate={handleFileClick}
-          onClose={closeViewer}
+          onClose={closePlayer}
         />
       )}
 
