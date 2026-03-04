@@ -1,10 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 
 export function useFileMutations(currentPath: string, options?: { inKb?: boolean }) {
   const queryClient = useQueryClient()
-  const searchParams = useSearchParams()
-  const router = useRouter()
+  const { navigateToFolder, viewFile } = useUrlState()
   const inKb = options?.inKb ?? false
 
   // Mutation for creating folders
@@ -46,11 +45,7 @@ export function useFileMutations(currentPath: string, options?: { inKb?: boolean
     },
     onSuccess: ({ filePath }) => {
       queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-      // Open the new file for editing
-      const params = new URLSearchParams(searchParams)
-      params.set('viewing', filePath)
-      // Use replace to avoid adding file opens to browser history
-      router.replace(`/?${params.toString()}`, { scroll: false })
+      viewFile(filePath)
     },
   })
 
@@ -69,15 +64,12 @@ export function useFileMutations(currentPath: string, options?: { inKb?: boolean
       return res.json()
     },
     onSuccess: () => {
-      // Navigate to parent folder
-      const params = new URLSearchParams(searchParams)
       const pathParts = currentPath.split(/[/\\]/).filter(Boolean)
       if (pathParts.length > 1) {
-        params.set('dir', pathParts.slice(0, -1).join('/'))
+        navigateToFolder(pathParts.slice(0, -1).join('/'))
       } else {
-        params.delete('dir')
+        navigateToFolder(null)
       }
-      router.push(`/?${params.toString()}`, { scroll: false })
     },
   })
 

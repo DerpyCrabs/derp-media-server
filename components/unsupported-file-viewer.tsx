@@ -1,6 +1,6 @@
 'use client'
 
-import { useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import { useMemo } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,9 +16,9 @@ import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 
 export function UnsupportedFileViewer() {
-  const searchParams = useSearchParams()
-  const viewingPath = searchParams.get('viewing')
-  const currentDir = searchParams.get('dir') || ''
+  const { urlState, closeViewer } = useUrlState()
+  const viewingPath = urlState.viewing
+  const currentDir = urlState.dir || ''
   const { data: allFiles = [] } = useFiles(currentDir)
 
   // Find the file info from the fetched files
@@ -33,10 +33,7 @@ export function UnsupportedFileViewer() {
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
-      // Close modal - remove viewing parameter
-      const params = new URLSearchParams(searchParams)
-      params.delete('viewing')
-      window.history.replaceState(null, '', `/?${params.toString()}`)
+      closeViewer()
     }
   }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import * as icons from 'lucide-static'
 
 // Convert icon name to match lucide-static format
@@ -69,7 +69,7 @@ export function useDynamicFavicon(
   customIcons: Record<string, string>,
   options?: { rootName?: string },
 ) {
-  const searchParams = useSearchParams()
+  const { urlState } = useUrlState()
   const originalTitleRef = useRef<string>('Media Server')
   const originalFaviconRef = useRef<string>('/favicon.ico')
 
@@ -85,9 +85,9 @@ export function useDynamicFavicon(
   }, [])
 
   useEffect(() => {
-    const currentDir = searchParams.get('dir') || ''
-    const playingPath = searchParams.get('playing')
-    const viewingPath = searchParams.get('viewing')
+    const currentDir = urlState.dir || ''
+    const playingPath = urlState.playing
+    const viewingPath = urlState.viewing
 
     // Determine what to show: file being played/viewed, or current directory
     let targetPath = currentDir
@@ -132,5 +132,5 @@ export function useDynamicFavicon(
         setFavicon(originalFaviconRef.current)
       }
     }
-  }, [searchParams, customIcons, options?.rootName])
+  }, [urlState.dir, urlState.playing, urlState.viewing, customIcons, options?.rootName])
 }

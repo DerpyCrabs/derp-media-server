@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useState, useMemo, useEffect, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useUrlState } from '@/lib/use-url-state'
 import { FileItem, MediaType } from '@/lib/types'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
 import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
@@ -57,11 +57,16 @@ function FileListInner({
   initialCustomIcons = {},
   editableFolders,
 }: FileListProps) {
-  const searchParams = useSearchParams()
-  const currentPath = searchParams.get('dir') || ''
+  const { urlState, navigateToFolder, viewFile, playFile: urlPlayFile } = useUrlState()
+  const currentPath = urlState.dir || ''
   const shareLinkBase = useShareLinkBase()
   useFileWatcher()
-  const { playFile, isPlaying: mediaPlayerIsPlaying, mediaType, currentFile } = useMediaPlayer()
+  const {
+    playFile: startPlayback,
+    isPlaying: mediaPlayerIsPlaying,
+    mediaType,
+    currentFile,
+  } = useMediaPlayer()
 
   // Use React Query for files — only seed with SSR data when on the server-rendered path
   const initialData = currentPath === serverPath ? initialFiles : undefined
@@ -218,7 +223,7 @@ function FileListInner({
   // Check if current directory is editable using client-side utility
   const isEditable = !isVirtualFolder && isPathEditable(currentPath || '', editableFolders)
 
-  const playingPath = searchParams.get('playing')
+  const playingPath = urlState.playing
 
   // Use file icon hook
   const { getIcon } = useFileIcon({
@@ -258,11 +263,8 @@ function FileListInner({
   }
 
   const handleFileClick = (file: FileItem) => {
-    const params = new URLSearchParams(searchParams)
-
     if (file.isDirectory) {
-      params.set('dir', file.path)
-      window.history.pushState(null, '', `/?${params.toString()}`)
+      navigateToFolder(file.path)
     } else {
       incrementView(file.path)
 
@@ -270,56 +272,33 @@ function FileListInner({
 
       if (isMediaFile) {
         const mediaFileType = file.type === MediaType.AUDIO ? 'audio' : 'video'
-        playFile(file.path, mediaFileType)
-
-        params.delete('viewing')
-        params.set('playing', file.path)
-        params.set('dir', currentPath)
-        window.history.replaceState(null, '', `/?${params.toString()}`)
+        startPlayback(file.path, mediaFileType)
+        urlPlayFile(file.path, currentPath)
       } else {
-        params.set('viewing', file.path)
-        params.set('dir', currentPath)
-        window.history.replaceState(null, '', `/?${params.toString()}`)
+        viewFile(file.path, currentPath)
       }
     }
   }
 
   const handleKbResultClick = (filePath: string) => {
-    const params = new URLSearchParams(searchParams)
-    params.set('dir', currentPath)
-    params.set('viewing', filePath)
     setSearchQuery('')
-    window.history.replaceState(null, '', `/?${params.toString()}`)
+    viewFile(filePath, currentPath)
   }
 
   const handleBreadcrumbClick = (path: string) => {
-    const params = new URLSearchParams(searchParams)
-    if (path) {
-      params.set('dir', path)
-    } else {
-      params.delete('dir')
-    }
-    window.history.pushState(null, '', `/?${params.toString()}`)
+    navigateToFolder(path || null)
   }
 
   const handleParentDirectory = () => {
-    const params = new URLSearchParams(searchParams)
-
     if (isVirtualFolder) {
-      params.delete('dir')
-      window.history.pushState(null, '', `/?${params.toString()}`)
+      navigateToFolder(null)
       return
     }
 
     const pathParts = currentPath.split(/[/\\]/).filter(Boolean)
     if (pathParts.length > 0) {
       const parentPath = pathParts.slice(0, -1).join('/')
-      if (parentPath) {
-        params.set('dir', parentPath)
-      } else {
-        params.delete('dir')
-      }
-      window.history.pushState(null, '', `/?${params.toString()}`)
+      navigateToFolder(parentPath || null)
     }
   }
 
