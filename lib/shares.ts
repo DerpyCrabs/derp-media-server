@@ -8,7 +8,6 @@ import {
   createDecipheriv,
   scryptSync,
 } from 'crypto'
-import { cookies } from 'next/headers'
 import { config } from '@/lib/config'
 import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
@@ -358,19 +357,32 @@ function getShareCookieName(token: string): string {
   return `share_${token.slice(0, 8)}`
 }
 
-export async function setShareSession(token: string): Promise<void> {
+export function createShareSessionValue(token: string): {
+  name: string
+  value: string
+  options: {
+    httpOnly: boolean
+    secure: boolean
+    sameSite: 'lax' | 'strict' | 'none'
+    maxAge: number
+    path: string
+  }
+} {
   const timestamp = Math.floor(Date.now() / 1000).toString()
   const signature = signShareSession(token, timestamp)
   const value = `${timestamp}.${signature}`
 
-  const cookieStore = await cookies()
-  cookieStore.set(getShareCookieName(token), value, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: SHARE_SESSION_MAX_AGE,
-    path: '/',
-  })
+  return {
+    name: getShareCookieName(token),
+    value,
+    options: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      maxAge: SHARE_SESSION_MAX_AGE,
+      path: '/',
+    },
+  }
 }
 
 export function verifyShareSessionValue(token: string, value: string | undefined): boolean {
@@ -387,10 +399,10 @@ export function verifyShareSessionValue(token: string, value: string | undefined
  * Shares without passcode are always accessible.
  * Shares with passcode require a valid session cookie.
  */
-export async function isShareAccessAuthorized(
+export function isShareAccessAuthorized(
   share: ShareLink,
   requestCookies: { get: (name: string) => { value: string } | undefined },
-): Promise<boolean> {
+): boolean {
   if (!share.passcode) return true
   const cookieValue = requestCookies.get(getShareCookieName(share.token))?.value
   return verifyShareSessionValue(share.token, cookieValue)

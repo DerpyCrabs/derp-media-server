@@ -1,7 +1,6 @@
-'use client'
-
 import { useState, useEffect, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { post } from '@/lib/api'
 import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 import { TextViewer } from '@/components/text-viewer'
 import { Download, ZoomIn, ZoomOut, RotateCw, Maximize2, ExternalLink } from 'lucide-react'
@@ -26,19 +25,14 @@ export function SharedFileViewer({ token, shareInfo }: SharedFileViewerProps) {
   useDynamicFavicon({}, { rootName: shareInfo.name })
 
   const viewTrackMutation = useMutation({
-    mutationFn: () =>
-      fetch(`/api/share/${token}/view`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      }),
+    mutationFn: (vars: { token: string }) => post(`/api/share/${vars.token}/view`, vars),
     retry: false,
   })
   const tracked = useRef(false)
   useEffect(() => {
     if (tracked.current) return
     tracked.current = true
-    viewTrackMutation.mutate()
+    viewTrackMutation.mutate({ token })
   }, [token, viewTrackMutation])
 
   const mediaUrl = `/api/share/${token}/media/.`

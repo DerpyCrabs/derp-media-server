@@ -1,7 +1,6 @@
-'use client'
-
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import { FileItem } from '@/lib/types'
 import { Folder, ArrowUp, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,8 +11,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-
-type BrowseFolder = { name: string; navPath: string }
 
 type MoveOrCopyMode = 'move' | 'copy'
 
@@ -90,34 +87,37 @@ export function MoveToDialog({
     [shareRootPath],
   )
 
-  const { data: folders = [], isLoading } = useQuery<BrowseFolder[]>({
-    queryKey: shareToken
-      ? ['move-folders', 'share', shareToken, browsePath]
-      : ['move-folders', browsePath],
-    queryFn: async () => {
-      const url = shareToken
-        ? `/api/share/${shareToken}/files?dir=${encodeURIComponent(browsePath)}`
-        : `/api/files?dir=${encodeURIComponent(browsePath)}`
-      const res = await fetch(url)
-      if (!res.ok) return []
-      const data = await res.json()
-      const files: FileItem[] = data.files || []
-      const normalizedFilePath = filePath.replace(/\\/g, '/')
-      return files
-        .filter((f) => f.isDirectory)
-        .map((f) => ({
-          name: f.name,
-          navPath: shareToken ? stripShareRoot(f.path) : f.path.replace(/\\/g, '/'),
-        }))
-        .filter((f) => {
-          if (f.navPath === normalizedFilePath) return false
-          if (f.navPath.startsWith(normalizedFilePath + '/')) return false
-          return true
-        })
-    },
-    enabled: isOpen,
+  const { data: shareFilesData, isLoading: shareLoading } = useQuery({
+    queryKey: ['share-files', shareToken, browsePath],
+    queryFn: () =>
+      api<{ files: FileItem[] }>(
+        `/api/share/${shareToken}/files?dir=${encodeURIComponent(browsePath)}`,
+      ),
+    enabled: isOpen && !!shareToken,
     staleTime: 1000 * 30,
   })
+  const { data: localFilesData, isLoading: localLoading } = useQuery({
+    queryKey: ['files', browsePath],
+    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(browsePath)}`),
+    enabled: isOpen && !shareToken,
+    staleTime: 1000 * 30,
+  })
+  const isLoading = shareToken ? shareLoading : localLoading
+  const folders = useMemo(() => {
+    const rawFiles: FileItem[] = (shareToken ? shareFilesData?.files : localFilesData?.files) || []
+    const normalizedFilePath = filePath.replace(/\\/g, '/')
+    return rawFiles
+      .filter((f) => f.isDirectory)
+      .map((f) => ({
+        name: f.name,
+        navPath: shareToken ? stripShareRoot(f.path) : f.path.replace(/\\/g, '/'),
+      }))
+      .filter((f) => {
+        if (f.navPath === normalizedFilePath) return false
+        if (f.navPath.startsWith(normalizedFilePath + '/')) return false
+        return true
+      })
+  }, [shareToken, shareFilesData, localFilesData, filePath, stripShareRoot])
 
   const canGoUp = shareToken ? !!browsePath : normalizedBrowse !== normalizedRoot
 

@@ -10,9 +10,8 @@ let editableShareUrl: string
 async function createShare(page: Page, body: Record<string, unknown>): Promise<string> {
   const res = await page.request.post('/api/shares', { data: body })
   const json = await res.json()
-  const { share } = json
-  const base = `http://localhost:5973/share/${share.token}`
-  return share.passcode ? `${base}?p=${encodeURIComponent(share.passcode)}` : base
+  const base = `http://localhost:5973/share/${json.share.token}`
+  return json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
 }
 
 test.describe('Using Shares', () => {

@@ -18,7 +18,8 @@
 /blob-report
 tests/fixtures/.auth/
 
-# next.js
+# build output
+/dist/
 /.next/
 /.next-test/
 /out/
@@ -44,7 +45,6 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # thumbnail cache
 .thumbnails

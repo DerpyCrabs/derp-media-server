@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -48,7 +46,7 @@ export function useUpload({ shareToken }: UseUploadOptions = {}) {
         setState({ isUploading: false, error: null, fileCount: 0 })
 
         if (shareToken) {
-          queryClient.invalidateQueries({ queryKey: ['share-files', shareToken] })
+          queryClient.invalidateQueries({ queryKey: ['share-files'] })
         } else {
           queryClient.invalidateQueries({ queryKey: ['files'] })
         }

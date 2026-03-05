@@ -1,8 +1,7 @@
-'use client'
-
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
+import { api, post } from '@/lib/api'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import {
@@ -191,31 +190,20 @@ function SharedFolderBrowserInner({
     [token, encodePathForUrl],
   )
 
-  const { data: files = [], isLoading } = useQuery({
+  const { data: filesData, isLoading } = useQuery({
     queryKey: ['share-files', token, currentSubDir],
-    queryFn: async () => {
-      const res = await fetch(`/api/share/${token}/files?dir=${encodeURIComponent(currentSubDir)}`)
-      if (!res.ok) throw new Error('Failed to load files')
-      const data = await res.json()
-      return data.files as FileItem[]
-    },
+    queryFn: () =>
+      api<{ files: FileItem[] }>(
+        `/api/share/${token}/files?dir=${encodeURIComponent(currentSubDir)}`,
+      ),
   })
+  const files = useMemo(() => (filesData?.files ?? []) as FileItem[], [filesData])
 
   const createFolderMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const subPath = currentSubDir ? `${currentSubDir}/${name}` : name
-      const res = await fetch(`/api/share/${token}/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'folder', path: subPath }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to create folder')
-      }
-    },
+    mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
+      post(`/api/share/${vars.token}/create`, vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] })
+      queryClient.invalidateQueries({ queryKey: ['share-files', token] })
       setShowCreateFolder(false)
       setNewItemName('')
     },
@@ -223,47 +211,17 @@ function SharedFolderBrowserInner({
 
   const inKb = shareInfo.isKnowledgeBase ?? false
   const createFileMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const defaultExt = inKb ? '.md' : '.txt'
-      const fileName = name.includes('.') ? name : `${name}${defaultExt}`
-      const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
-      const res = await fetch(`/api/share/${token}/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'file', path: subPath, content: '' }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to create file')
-      }
-      const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
-      const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
-      return { fullPath }
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] })
-      setShowCreateFile(false)
-      setNewItemName('')
-      if (inKb && data?.fullPath) {
-        viewFile(data.fullPath)
-      }
+    mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
+      post(`/api/share/${vars.token}/create`, vars),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['share-files', token] })
     },
   })
 
   const deleteItemMutation = useMutation({
-    mutationFn: async (filePath: string) => {
-      const res = await fetch(`/api/share/${token}/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: stripSharePrefix(filePath) }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to delete')
-      }
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+    mutationFn: (vars: { token: string; path: string }) =>
+      post(`/api/share/${vars.token}/delete`, vars),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
   })
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -285,19 +243,22 @@ function SharedFolderBrowserInner({
     }
   }, [searchQuery, inKb])
 
-  const { data: searchResults = [], isLoading: searchLoading } = useQuery({
-    queryKey: ['kb-search', token, currentSubDir, debouncedSearchQuery],
-    queryFn: async () => {
-      const dirParam = currentSubDir ? `&dir=${encodeURIComponent(currentSubDir)}` : ''
-      const res = await fetch(
-        `/api/share/${token}/kb/search?q=${encodeURIComponent(debouncedSearchQuery)}${dirParam}`,
+  const { data: kbSearchData, isLoading: searchLoading } = useQuery({
+    queryKey: ['share-kb-search', token, debouncedSearchQuery, currentSubDir],
+    queryFn: () => {
+      const params = new URLSearchParams({ q: debouncedSearchQuery })
+      if (currentSubDir) params.set('dir', currentSubDir)
+      return api<{ results: { path: string; name: string; snippet: string }[] }>(
+        `/api/share/${token}/kb/search?${params}`,
       )
-      if (!res.ok) return []
-      const data = await res.json()
-      return (data.results || []) as { path: string; name: string; snippet: string }[]
     },
     enabled: !!debouncedSearchQuery.trim() && inKb,
   })
+  const searchResults = (kbSearchData?.results || []) as {
+    path: string
+    name: string
+    snippet: string
+  }[]
 
   const handleKbResultClick = useCallback(
     (filePath: string) => {
@@ -307,10 +268,10 @@ function SharedFolderBrowserInner({
     [viewFile],
   )
 
-  const kbRecentUrl = useMemo(() => {
-    const dirParam = currentSubDir ? `&dir=${encodeURIComponent(currentSubDir)}` : ''
-    return `/api/share/${token}/kb/recent?root=${encodeURIComponent(shareInfo.path)}${dirParam}`
-  }, [token, shareInfo.path, currentSubDir])
+  const viewMutation = useMutation({
+    mutationFn: (vars: { token: string; filePath?: string }) =>
+      post(`/api/share/${vars.token}/view`, vars),
+  })
 
   const [showRenameDialog, setShowRenameDialog] = useState(false)
   const [renamingItem, setRenamingItem] = useState<FileItem | null>(null)
@@ -321,47 +282,15 @@ function SharedFolderBrowserInner({
   const [moveTarget, setMoveTarget] = useState<FileItem | null>(null)
 
   const renameMutation = useMutation({
-    mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
-      const relativeOld = stripSharePrefix(oldPath)
-      const parts = relativeOld.split('/').filter(Boolean)
-      const parentPath = parts.slice(0, -1).join('/')
-      const relativeNew = parentPath ? `${parentPath}/${newName}` : newName
-      const res = await fetch(`/api/share/${token}/rename`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath: relativeOld, newPath: relativeNew }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to rename')
-      }
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+    mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
+      post(`/api/share/${vars.token}/rename`, vars),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
   })
 
   const moveMutation = useMutation({
-    mutationFn: async ({
-      sourceRelative,
-      destRelative,
-    }: {
-      sourceRelative: string
-      destRelative: string
-    }) => {
-      const fileName = sourceRelative.split('/').pop()!
-      const newPath = destRelative ? `${destRelative}/${fileName}` : fileName
-      const res = await fetch(`/api/share/${token}/rename`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath: sourceRelative, newPath }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to move')
-      }
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+    mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
+      post(`/api/share/${vars.token}/rename`, vars),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
   })
 
   const [draggedPath, setDraggedPath] = useState<string | null>(null)
@@ -387,9 +316,11 @@ function SharedFolderBrowserInner({
   const handleMoveFile = useCallback(
     (sourceFullPath: string, destDir: string) => {
       const sourceRelative = stripSharePrefix(sourceFullPath)
-      moveMutation.mutate({ sourceRelative, destRelative: destDir })
+      const fileName = sourceRelative.split('/').pop()!
+      const newPath = destDir ? `${destDir}/${fileName}` : fileName
+      moveMutation.mutate({ token, oldPath: sourceRelative, newPath })
     },
-    [stripSharePrefix, moveMutation],
+    [stripSharePrefix, moveMutation, token],
   )
 
   const enableDrag = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
@@ -407,8 +338,10 @@ function SharedFolderBrowserInner({
     (destDir: string) => {
       if (!moveTarget) return
       const sourceRelative = stripSharePrefix(moveTarget.path)
+      const fileName = sourceRelative.split('/').pop()!
+      const newPath = destDir ? `${destDir}/${fileName}` : fileName
       moveMutation.mutate(
-        { sourceRelative, destRelative: destDir },
+        { token, oldPath: sourceRelative, newPath },
         {
           onSuccess: () => {
             setShowMoveDialog(false)
@@ -418,7 +351,7 @@ function SharedFolderBrowserInner({
         },
       )
     },
-    [moveTarget, stripSharePrefix, moveMutation],
+    [moveTarget, stripSharePrefix, moveMutation, token],
   )
 
   const renameTargetExists = useMemo(() => {
@@ -449,13 +382,9 @@ function SharedFolderBrowserInner({
 
   const trackShareView = useCallback(
     (filePath: string) => {
-      fetch(`/api/share/${token}/view`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: stripSharePrefix(filePath) }),
-      }).catch(() => {})
+      viewMutation.mutate({ token, filePath: stripSharePrefix(filePath) })
     },
-    [token, stripSharePrefix],
+    [token, stripSharePrefix, viewMutation],
   )
 
   const handleFileClick = useCallback(
@@ -684,7 +613,8 @@ function SharedFolderBrowserInner({
                   <KbDashboard
                     scopePath={shareInfo.path}
                     onFileClick={handleKbResultClick}
-                    fetchUrl={kbRecentUrl}
+                    shareToken={token}
+                    dir={currentSubDir || undefined}
                   />
                 )}
                 {viewMode === 'list' ? (
@@ -838,13 +768,28 @@ function SharedFolderBrowserInner({
                                           if (e.key === 'Enter') {
                                             const name = inlineName.trim()
                                             if (!name) return
-                                            createFileMutation.mutate(name, {
-                                              onSuccess: () => {
-                                                setInlineMode(null)
-                                                setInlineName('')
-                                                createFileMutation.reset()
+                                            const defaultExt = inKb ? '.md' : '.txt'
+                                            const fileName = name.includes('.')
+                                              ? name
+                                              : `${name}${defaultExt}`
+                                            const subPath = currentSubDir
+                                              ? `${currentSubDir}/${fileName}`
+                                              : fileName
+                                            const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+                                            const fullPath = sharePathNorm
+                                              ? `${sharePathNorm}/${subPath}`
+                                              : subPath
+                                            createFileMutation.mutate(
+                                              { token, type: 'file', path: subPath, content: '' },
+                                              {
+                                                onSuccess: () => {
+                                                  setInlineMode(null)
+                                                  setInlineName('')
+                                                  createFileMutation.reset()
+                                                  if (inKb) viewFile(fullPath)
+                                                },
                                               },
-                                            })
+                                            )
                                           } else if (e.key === 'Escape') {
                                             setInlineMode(null)
                                             setInlineName('')
@@ -896,13 +841,19 @@ function SharedFolderBrowserInner({
                                           if (e.key === 'Enter') {
                                             const name = inlineName.trim()
                                             if (!name) return
-                                            createFolderMutation.mutate(name, {
-                                              onSuccess: () => {
-                                                setInlineMode(null)
-                                                setInlineName('')
-                                                createFolderMutation.reset()
+                                            const subPath = currentSubDir
+                                              ? `${currentSubDir}/${name}`
+                                              : name
+                                            createFolderMutation.mutate(
+                                              { token, type: 'folder', path: subPath },
+                                              {
+                                                onSuccess: () => {
+                                                  setInlineMode(null)
+                                                  setInlineName('')
+                                                  createFolderMutation.reset()
+                                                },
                                               },
-                                            })
+                                            )
                                           } else if (e.key === 'Escape') {
                                             setInlineMode(null)
                                             setInlineName('')
@@ -1122,7 +1073,7 @@ function SharedFolderBrowserInner({
         filePath={moveTarget ? stripSharePrefix(moveTarget.path) : ''}
         onMove={handleDialogMove}
         isPending={moveMutation.isPending}
-        error={moveMutation.error}
+        error={moveMutation.error as Error | null}
         shareToken={token}
         shareRootPath={shareInfo.path}
       />
@@ -1137,13 +1088,17 @@ function SharedFolderBrowserInner({
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              createFolderMutation.mutate(newItemName, {
-                onSuccess: () => {
-                  setShowCreateFolder(false)
-                  setNewItemName('')
-                  createFolderMutation.reset()
+              const subPath = currentSubDir ? `${currentSubDir}/${newItemName}` : newItemName
+              createFolderMutation.mutate(
+                { token, type: 'folder', path: subPath },
+                {
+                  onSuccess: () => {
+                    setShowCreateFolder(false)
+                    setNewItemName('')
+                    createFolderMutation.reset()
+                  },
                 },
-              })
+              )
             }}
             className='space-y-4'
           >
@@ -1181,13 +1136,24 @@ function SharedFolderBrowserInner({
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              createFileMutation.mutate(newItemName, {
-                onSuccess: () => {
-                  setShowCreateFile(false)
-                  setNewItemName('')
-                  createFileMutation.reset()
+              const defaultExt = inKb ? '.md' : '.txt'
+              const fileName = newItemName.includes('.')
+                ? newItemName
+                : `${newItemName}${defaultExt}`
+              const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
+              const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+              const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
+              createFileMutation.mutate(
+                { token, type: 'file', path: subPath, content: '' },
+                {
+                  onSuccess: () => {
+                    setShowCreateFile(false)
+                    setNewItemName('')
+                    createFileMutation.reset()
+                    if (inKb) viewFile(fullPath)
+                  },
                 },
-              })
+              )
             }}
             className='space-y-4'
           >
@@ -1218,8 +1184,12 @@ function SharedFolderBrowserInner({
         onNewNameChange={setRenameNewName}
         onRename={() => {
           if (renamingItem) {
+            const relativeOld = stripSharePrefix(renamingItem.path)
+            const parts = relativeOld.split('/').filter(Boolean)
+            const parentPath = parts.slice(0, -1).join('/')
+            const relativeNew = parentPath ? `${parentPath}/${renameNewName}` : renameNewName
             renameMutation.mutate(
-              { oldPath: renamingItem.path, newName: renameNewName },
+              { token, oldPath: relativeOld, newPath: relativeNew },
               {
                 onSuccess: () => {
                   setShowRenameDialog(false)
@@ -1232,7 +1202,7 @@ function SharedFolderBrowserInner({
           }
         }}
         isPending={renameMutation.isPending}
-        error={renameMutation.error}
+        error={renameMutation.error as Error | null}
         nameExists={renameTargetExists}
         isDirectory={renamingItem?.isDirectory || false}
         onReset={() => {
@@ -1250,17 +1220,20 @@ function SharedFolderBrowserInner({
         item={deletingItem}
         onDelete={() => {
           if (deletingItem) {
-            deleteItemMutation.mutate(deletingItem.path, {
-              onSuccess: () => {
-                setShowDeleteDialog(false)
-                setDeletingItem(null)
-                deleteItemMutation.reset()
+            deleteItemMutation.mutate(
+              { token, path: stripSharePrefix(deletingItem.path) },
+              {
+                onSuccess: () => {
+                  setShowDeleteDialog(false)
+                  setDeletingItem(null)
+                  deleteItemMutation.reset()
+                },
               },
-            })
+            )
           }
         }}
         isPending={deleteItemMutation.isPending}
-        error={deleteItemMutation.error}
+        error={deleteItemMutation.error as Error | null}
         onReset={() => {
           setShowDeleteDialog(false)
           setDeletingItem(null)
