@@ -1,6 +1,5 @@
-'use client'
-
 import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 
 /**
  * Returns the base URL (origin) to use when building share links.
@@ -9,11 +8,7 @@ import { useQuery } from '@tanstack/react-query'
 export function useShareLinkBase(): string {
   const { data } = useQuery({
     queryKey: ['auth-config'],
-    queryFn: async () => {
-      const res = await fetch('/api/auth/config')
-      const json = await res.json()
-      return json as { enabled?: boolean; shareLinkDomain?: string }
-    },
+    queryFn: () => api<{ shareLinkDomain?: string }>('/api/auth/config'),
     staleTime: 5 * 60 * 1000,
   })
 

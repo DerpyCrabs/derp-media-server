@@ -1,7 +1,5 @@
-'use client'
-
 import { useCallback } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams } from '@/lib/router'
 
 type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly'
 

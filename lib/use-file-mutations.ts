@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { post } from '@/lib/api'
 import { useUrlState } from '@/lib/use-url-state'
 
 export function useFileMutations(currentPath: string, options?: { inKb?: boolean }) {
@@ -6,63 +7,24 @@ export function useFileMutations(currentPath: string, options?: { inKb?: boolean
   const { navigateToFolder, viewFile } = useUrlState()
   const inKb = options?.inKb ?? false
 
-  // Mutation for creating folders
-  const createFolderMutation = useMutation({
-    mutationFn: async (folderName: string) => {
-      const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName
-      const res = await fetch('/api/files/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'folder', path: folderPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to create folder')
-      }
-      return res.json()
-    },
+  const _createFolder = useMutation({
+    mutationFn: (vars: { type: 'folder'; path: string }) => post('/api/files/create', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+      queryClient.invalidateQueries({ queryKey: ['files'] })
     },
   })
 
-  // Mutation for creating files
-  const createFileMutation = useMutation({
-    mutationFn: async (fileName: string) => {
-      const filePath = currentPath ? `${currentPath}/${fileName}` : fileName
-      const defaultExt = inKb ? '.md' : '.txt'
-      const finalFilePath = filePath.includes('.') ? filePath : `${filePath}${defaultExt}`
-      const res = await fetch('/api/files/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'file', path: finalFilePath, content: '' }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to create file')
-      }
-      return { data: await res.json(), filePath: finalFilePath }
-    },
-    onSuccess: ({ filePath }) => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-      viewFile(filePath)
+  const _createFile = useMutation({
+    mutationFn: (vars: { type: 'file'; path: string; content: string }) =>
+      post('/api/files/create', vars),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['files'] })
+      viewFile(variables.path)
     },
   })
 
-  // Mutation for deleting current folder
-  const deleteFolderMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/files/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to delete folder')
-      }
-      return res.json()
-    },
+  const _deleteFolder = useMutation({
+    mutationFn: (vars: { path: string }) => post('/api/files/delete', vars),
     onSuccess: () => {
       const pathParts = currentPath.split(/[/\\]/).filter(Boolean)
       if (pathParts.length > 1) {
@@ -73,50 +35,113 @@ export function useFileMutations(currentPath: string, options?: { inKb?: boolean
     },
   })
 
-  // Mutation for deleting individual files/folders
-  const deleteItemMutation = useMutation({
-    mutationFn: async (itemPath: string) => {
-      const res = await fetch('/api/files/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: itemPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to delete')
-      }
-      return res.json()
-    },
+  const _deleteItem = useMutation({
+    mutationFn: (vars: { path: string }) => post('/api/files/delete', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+      queryClient.invalidateQueries({ queryKey: ['files'] })
     },
   })
 
-  // Mutation for renaming files/folders
-  const renameMutation = useMutation({
-    mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
+  const _rename = useMutation({
+    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files'] })
+    },
+  })
+
+  const _move = useMutation({
+    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files'] })
+    },
+  })
+
+  const _copy = useMutation({
+    mutationFn: (vars: { sourcePath: string; destinationDir: string }) =>
+      post('/api/files/copy', vars),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files'] })
+    },
+  })
+
+  const createFolderMutation = {
+    ..._createFolder,
+    mutate: (folderName: string, opts?: { onSuccess?: () => void }) => {
+      const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName
+      _createFolder.mutate({ type: 'folder' as const, path: folderPath }, opts)
+    },
+    mutateAsync: async (folderName: string) => {
+      const folderPath = currentPath ? `${currentPath}/${folderName}` : folderName
+      return _createFolder.mutateAsync({ type: 'folder' as const, path: folderPath })
+    },
+  }
+
+  const createFileMutation = {
+    ..._createFile,
+    mutate: (fileName: string, opts?: { onSuccess?: () => void }) => {
+      const filePath = currentPath ? `${currentPath}/${fileName}` : fileName
+      const defaultExt = inKb ? '.md' : '.txt'
+      const finalFilePath = filePath.includes('.') ? filePath : `${filePath}${defaultExt}`
+      _createFile.mutate({ type: 'file' as const, path: finalFilePath, content: '' }, opts)
+    },
+    mutateAsync: async (fileName: string) => {
+      const filePath = currentPath ? `${currentPath}/${fileName}` : fileName
+      const defaultExt = inKb ? '.md' : '.txt'
+      const finalFilePath = filePath.includes('.') ? filePath : `${filePath}${defaultExt}`
+      return _createFile.mutateAsync({ type: 'file' as const, path: finalFilePath, content: '' })
+    },
+  }
+
+  const deleteFolderMutation = {
+    ..._deleteFolder,
+    mutate: (_unused?: unknown, opts?: { onSuccess?: () => void }) => {
+      _deleteFolder.mutate({ path: currentPath }, opts)
+    },
+    mutateAsync: async () => {
+      return _deleteFolder.mutateAsync({ path: currentPath })
+    },
+  }
+
+  const deleteItemMutation = {
+    ..._deleteItem,
+    mutate: (itemPath: string, opts?: { onSuccess?: () => void }) => {
+      _deleteItem.mutate({ path: itemPath }, opts)
+    },
+    mutateAsync: async (itemPath: string) => {
+      return _deleteItem.mutateAsync({ path: itemPath })
+    },
+  }
+
+  const renameMutation = {
+    ..._rename,
+    mutate: (
+      { oldPath, newName }: { oldPath: string; newName: string },
+      opts?: { onSuccess?: () => void },
+    ) => {
       const pathParts = oldPath.split(/[/\\]/).filter(Boolean)
       const parentPath = pathParts.slice(0, -1).join('/')
       const newPath = parentPath ? `${parentPath}/${newName}` : newName
-
-      const res = await fetch('/api/files/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath, newPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to rename')
-      }
-      return res.json()
+      _rename.mutate({ oldPath, newPath }, opts)
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+    mutateAsync: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
+      const pathParts = oldPath.split(/[/\\]/).filter(Boolean)
+      const parentPath = pathParts.slice(0, -1).join('/')
+      const newPath = parentPath ? `${parentPath}/${newName}` : newName
+      return _rename.mutateAsync({ oldPath, newPath })
     },
-  })
+  }
 
-  const moveMutation = useMutation({
-    mutationFn: async ({
+  const moveMutation = {
+    ..._move,
+    mutate: (
+      { sourcePath, destinationDir }: { sourcePath: string; destinationDir: string },
+      opts?: { onSuccess?: () => void },
+    ) => {
+      const fileName = sourcePath.split(/[/\\]/).pop()!
+      const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
+      _move.mutate({ oldPath: sourcePath, newPath }, opts)
+    },
+    mutateAsync: async ({
       sourcePath,
       destinationDir,
     }: {
@@ -125,45 +150,11 @@ export function useFileMutations(currentPath: string, options?: { inKb?: boolean
     }) => {
       const fileName = sourcePath.split(/[/\\]/).pop()!
       const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
-      const res = await fetch('/api/files/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath: sourcePath, newPath }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to move')
-      }
-      return res.json()
+      return _move.mutateAsync({ oldPath: sourcePath, newPath })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-    },
-  })
+  }
 
-  const copyMutation = useMutation({
-    mutationFn: async ({
-      sourcePath,
-      destinationDir,
-    }: {
-      sourcePath: string
-      destinationDir: string
-    }) => {
-      const res = await fetch('/api/files/copy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourcePath, destinationDir }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to copy')
-      }
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
-    },
-  })
+  const copyMutation = _copy
 
   return {
     createFolderMutation,

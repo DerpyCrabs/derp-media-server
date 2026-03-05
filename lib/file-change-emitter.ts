@@ -1,28 +1,28 @@
+export type FileChangeCallback = (data: string) => void
+
 declare global {
   // eslint-disable-next-line no-var
-  var __fileClients: Set<ReadableStreamDefaultController> | undefined
+  var __fileClients: Set<FileChangeCallback> | undefined
 }
 
-const clients: Set<ReadableStreamDefaultController> =
-  global.__fileClients ?? (global.__fileClients = new Set())
+const clients: Set<FileChangeCallback> = global.__fileClients ?? (global.__fileClients = new Set())
 
-export function addFileClient(controller: ReadableStreamDefaultController) {
-  clients.add(controller)
+export function addFileClient(callback: FileChangeCallback) {
+  clients.add(callback)
 }
 
-export function removeFileClient(controller: ReadableStreamDefaultController) {
-  clients.delete(controller)
+export function removeFileClient(callback: FileChangeCallback) {
+  clients.delete(callback)
 }
 
 export function broadcastFileChange(directory: string) {
   if (clients.size === 0) return
   const message = `data: ${JSON.stringify({ type: 'files-changed', directory })}\n\n`
-  const encoded = new TextEncoder().encode(message)
-  clients.forEach((controller) => {
+  clients.forEach((cb) => {
     try {
-      controller.enqueue(encoded)
+      cb(message)
     } catch {
-      clients.delete(controller)
+      clients.delete(cb)
     }
   })
 }

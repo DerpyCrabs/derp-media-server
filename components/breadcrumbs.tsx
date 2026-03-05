@@ -1,5 +1,3 @@
-'use client'
-
 import { Button } from '@/components/ui/button'
 import { ChevronRight, Home, MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, useMemo, Fragment } from 'react'

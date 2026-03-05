@@ -68,7 +68,12 @@ test.describe('Folder Navigation', () => {
     await page.goto('/?dir=Documents')
     const row = page.locator('table tr').filter({ hasText: 'readme.txt' })
     await row.hover()
-    await row.locator('button[title="Add to favorites"]').click()
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      row.locator('button[title="Add to favorites"]').click(),
+    ])
 
     await page.goto('/?dir=Favorites')
     await expect(page.getByText('readme.txt')).toBeVisible()
@@ -76,11 +81,15 @@ test.describe('Folder Navigation', () => {
     // cleanup
     const favRow = page.locator('table tr').filter({ hasText: 'readme.txt' })
     await favRow.hover()
-    await favRow.locator('button[title="Remove from favorites"]').click()
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      favRow.locator('button[title="Remove from favorites"]').click(),
+    ])
   })
 
   test('tracks views and shows Most Played', async ({ page }) => {
-    // Increment view count via API
     await page.request.post('/api/stats/views', {
       data: { filePath: 'Documents/readme.txt' },
     })

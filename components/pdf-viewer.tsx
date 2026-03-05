@@ -1,5 +1,3 @@
-'use client'
-
 import { useUrlState } from '@/lib/use-url-state'
 import { X, Download, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'

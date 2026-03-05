@@ -1,6 +1,6 @@
-'use client'
-
 import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { post } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,11 +26,17 @@ export function SharePasscodeGate({
   passcodeFromUrl,
   children,
 }: SharePasscodeGateProps) {
+  const queryClient = useQueryClient()
   const [authorized, setAuthorized] = useState(false)
   const [passcode, setPasscode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(Boolean(passcodeFromUrl))
   const autoVerified = useRef(false)
+
+  const verifyMutation = useMutation({
+    mutationFn: (vars: { token: string; passcode: string }) =>
+      post(`/api/share/${vars.token}/verify`, { passcode: vars.passcode }),
+  })
 
   const verify = useCallback(
     async (code: string) => {
@@ -38,26 +44,16 @@ export function SharePasscodeGate({
       setLoading(true)
 
       try {
-        const res = await fetch(`/api/share/${token}/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ passcode: code }),
-        })
-
-        if (!res.ok) {
-          const data = await res.json()
-          setError(data.error || 'Invalid passcode')
-          return
-        }
-
+        await verifyMutation.mutateAsync({ token, passcode: code })
+        await queryClient.refetchQueries({ queryKey: ['share-info', token] })
         setAuthorized(true)
-      } catch {
-        setError('Verification failed')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Invalid passcode')
       } finally {
         setLoading(false)
       }
     },
-    [token],
+    [token, verifyMutation, queryClient],
   )
 
   useEffect(() => {

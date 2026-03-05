@@ -1,5 +1,3 @@
-'use client'
-
 import { useRef, useCallback } from 'react'
 import { Menu } from '@base-ui/react/menu'
 import { Upload, File, Folder } from 'lucide-react'

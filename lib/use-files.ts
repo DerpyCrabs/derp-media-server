@@ -1,67 +1,24 @@
-'use client'
-
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileItem } from './types'
-import { VIRTUAL_FOLDERS } from './constants'
+import { api } from '@/lib/api'
+import type { FileItem } from './types'
 
-async function fetchFiles(path: string): Promise<FileItem[]> {
-  // Handle virtual folders
-  if (path === VIRTUAL_FOLDERS.MOST_PLAYED) {
-    const response = await fetch('/api/stats/most-played')
-    if (!response.ok) {
-      throw new Error('Failed to fetch most played files')
-    }
-    const data = await response.json()
-    return data.files
-  }
-
-  if (path === VIRTUAL_FOLDERS.FAVORITES) {
-    const response = await fetch('/api/stats/favorites')
-    if (!response.ok) {
-      throw new Error('Failed to fetch favorites')
-    }
-    const data = await response.json()
-    return data.files
-  }
-
-  if (path === VIRTUAL_FOLDERS.SHARES) {
-    const response = await fetch('/api/shares/files')
-    if (!response.ok) {
-      throw new Error('Failed to fetch shares')
-    }
-    const data = await response.json()
-    return data.files
-  }
-
-  // Handle regular folders
-  const response = await fetch(`/api/files?dir=${encodeURIComponent(path)}`)
-  if (!response.ok) {
-    throw new Error('Failed to fetch files')
-  }
-  const data = await response.json()
-  return data.files
-}
-
-export function useFiles(currentPath: string, initialData?: FileItem[]) {
-  return useQuery({
+export function useFiles(currentPath: string) {
+  const { data, ...rest } = useQuery({
     queryKey: ['files', currentPath],
-    queryFn: () => fetchFiles(currentPath),
-    staleTime: 1000 * 60 * 5, // 5 min — SSE invalidation handles real-time updates
+    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentPath)}`),
+    staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 10,
-    initialData: initialData,
-    enabled: true,
-    refetchOnWindowFocus: false, // SSE handles freshness; no need to refetch on tab switch
+    refetchOnWindowFocus: false,
   })
+  return { data: data?.files, ...rest }
 }
 
-// Hook for prefetching files on hover
 export function usePrefetchFiles() {
   const queryClient = useQueryClient()
-
   return (path: string) => {
     queryClient.prefetchQuery({
       queryKey: ['files', path],
-      queryFn: () => fetchFiles(path),
+      queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(path)}`),
       staleTime: 1000 * 60 * 2,
     })
   }

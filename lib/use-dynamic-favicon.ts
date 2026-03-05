@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect, useRef } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
 import * as icons from 'lucide-static'

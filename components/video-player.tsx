@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect, useRef, useState } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
 import { Minimize2, Maximize2, X, ArrowUp, Headphones } from 'lucide-react'

@@ -45,13 +45,13 @@ export default defineConfig({
   globalSetup: './tests/fixtures/setup.ts',
   globalTeardown: './tests/fixtures/teardown.ts',
   webServer: {
-    command: 'npx next dev -p 5973',
+    command: 'bun server/index.ts',
     url: 'http://localhost:5973',
     reuseExistingServer: true,
     timeout: 120_000,
     env: {
+      PORT: '5973',
       CONFIG_PATH: 'tests/fixtures/test-config.jsonc',
-      NEXT_TEST_DIR: '.next-test',
       NO_PROXY: 'localhost,127.0.0.1',
     },
   },

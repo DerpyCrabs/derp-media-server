@@ -1,5 +1,3 @@
-'use client'
-
 import { Suspense } from 'react'
 import { AudioPlayer } from '@/components/audio-player'
 import { VideoPlayer } from '@/components/video-player'

@@ -17,9 +17,9 @@ test.describe('Knowledge Base', () => {
   test('shows recent notes', async ({ page }) => {
     await page.goto('/?dir=Notes')
     // The KB dashboard shows recently modified notes
-    // Recent notes should include our fixture files
-    await expect(page.getByText('welcome.md')).toBeVisible()
-    await expect(page.getByText('todo.md')).toBeVisible()
+    // Recent notes should include our fixture files (may appear in recent list and file list)
+    await expect(page.locator('table').getByText('welcome.md').first()).toBeVisible()
+    await expect(page.locator('table').getByText('todo.md').first()).toBeVisible()
   })
 
   test('defaults to .md extension when creating files in KB', async ({ page }) => {
@@ -33,7 +33,11 @@ test.describe('Knowledge Base', () => {
     await page.goto('/')
     await page.locator('table tr').filter({ hasText: 'SharedContent' }).click({ button: 'right' })
     // Should show "Set as Knowledge Base" since it's not a KB
-    await page.locator('[data-slot="context-menu-item"]').getByText('Set as Knowledge Base').click()
+    const setKbItem = page
+      .locator('[data-slot="context-menu-item"]')
+      .getByText('Set as Knowledge Base')
+    await expect(setKbItem).toBeVisible()
+    await setKbItem.click({ noWaitAfter: true })
 
     // Navigate into the folder — should now show search
     await page.locator('table').getByText('SharedContent', { exact: true }).click()
@@ -43,7 +47,11 @@ test.describe('Knowledge Base', () => {
     // Toggle off
     await page.goto('/')
     await page.locator('table tr').filter({ hasText: 'SharedContent' }).click({ button: 'right' })
-    await page.locator('[data-slot="context-menu-item"]').getByText('Remove Knowledge Base').click()
+    const removeKbItem = page
+      .locator('[data-slot="context-menu-item"]')
+      .getByText('Remove Knowledge Base')
+    await expect(removeKbItem).toBeVisible()
+    await removeKbItem.click({ noWaitAfter: true })
   })
 
   test('renders Obsidian-style ![[image]] embeds', async ({ page }) => {

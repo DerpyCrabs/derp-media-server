@@ -1,7 +1,6 @@
-'use client'
-
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useMutation } from '@tanstack/react-query'
+import { post } from '@/lib/api'
 import {
   Dialog,
   DialogContent,
@@ -204,15 +203,16 @@ function ShareCard({
   }, [share])
 
   const updateMutation = useMutation({
-    mutationFn: async (payload: { editable?: boolean; restrictions?: ShareRestrictions }) => {
-      const res = await fetch('/api/shares', {
-        method: 'PATCH',
+    mutationFn: (vars: {
+      token: string
+      editable: boolean
+      restrictions: Required<ShareRestrictions>
+    }) =>
+      fetch('/api/shares', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: share.token, ...payload }),
-      })
-      if (!res.ok) throw new Error('Failed to update share')
-      return res.json()
-    },
+        body: JSON.stringify(vars),
+      }).then((r) => r.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shares'] })
     },
@@ -223,12 +223,13 @@ function ShareCard({
       if (debounceRef.current) clearTimeout(debounceRef.current)
       debounceRef.current = setTimeout(() => {
         updateMutation.mutate({
+          token: share.token,
           editable: newEditable,
           restrictions: newRestrictions,
         })
       }, 500)
     },
-    [updateMutation],
+    [updateMutation, share.token],
   )
 
   const handleEditableChange = (val: boolean) => {
@@ -255,14 +256,7 @@ function ShareCard({
   }, [])
 
   const revokeMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/shares', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: share.token }),
-      })
-      if (!res.ok) throw new Error('Failed to revoke share')
-    },
+    mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shares'] })
       onRevoked()
@@ -377,7 +371,7 @@ function ShareCard({
         variant='destructive'
         size='sm'
         className='w-full'
-        onClick={() => revokeMutation.mutate()}
+        onClick={() => revokeMutation.mutate({ token: share.token })}
         disabled={revokeMutation.isPending}
       >
         <Trash2 className='h-3.5 w-3.5 mr-1.5' />
@@ -420,20 +414,12 @@ export function ShareDialog({
   }, [isOpen])
 
   const createShareMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/shares', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: filePath,
-          isDirectory,
-          editable: newEditable,
-          ...(newEditable ? { restrictions: newRestrictions } : {}),
-        }),
-      })
-      if (!res.ok) throw new Error('Failed to create share')
-      return res.json()
-    },
+    mutationFn: (vars: {
+      path: string
+      isDirectory: boolean
+      editable: boolean
+      restrictions?: Required<ShareRestrictions>
+    }) => post('/api/shares', vars),
     onSuccess: () => {
       setShowCreate(false)
       queryClient.invalidateQueries({ queryKey: ['shares'] })
@@ -496,7 +482,14 @@ export function ShareDialog({
                 <Button
                   className='flex-1'
                   size='sm'
-                  onClick={() => createShareMutation.mutate()}
+                  onClick={() =>
+                    createShareMutation.mutate({
+                      path: filePath,
+                      isDirectory,
+                      editable: newEditable,
+                      ...(newEditable ? { restrictions: newRestrictions } : {}),
+                    })
+                  }
                   disabled={createShareMutation.isPending}
                 >
                   <Link className='h-3.5 w-3.5 mr-1.5' />

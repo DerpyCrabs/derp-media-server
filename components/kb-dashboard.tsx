@@ -1,6 +1,5 @@
-'use client'
-
 import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import { FileText } from 'lucide-react'
 
 interface RecentFile {
@@ -12,15 +11,8 @@ interface RecentFile {
 interface KbDashboardProps {
   scopePath: string
   onFileClick: (path: string) => void
-  fetchUrl?: string
-}
-
-async function fetchRecent(scopePath: string, fetchUrl?: string): Promise<RecentFile[]> {
-  const url = fetchUrl || `/api/kb/recent?root=${encodeURIComponent(scopePath)}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error('Failed to fetch recent')
-  const data = await res.json()
-  return data.results || []
+  shareToken?: string
+  dir?: string
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -37,12 +29,26 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString()
 }
 
-export function KbDashboard({ scopePath, onFileClick, fetchUrl }: KbDashboardProps) {
-  const { data: recent, isLoading } = useQuery({
-    queryKey: ['kb-recent', fetchUrl || scopePath],
-    queryFn: () => fetchRecent(scopePath, fetchUrl),
+export function KbDashboard({ scopePath, onFileClick, shareToken, dir }: KbDashboardProps) {
+  const { data: directData, isLoading: directLoading } = useQuery({
+    queryKey: ['kb-recent', scopePath],
+    queryFn: () =>
+      api<{ results: RecentFile[] }>(`/api/kb/recent?root=${encodeURIComponent(scopePath)}`),
+    enabled: !shareToken,
     staleTime: 1000 * 60,
   })
+  const { data: shareData, isLoading: shareLoading } = useQuery({
+    queryKey: ['share-kb-recent', shareToken, dir],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (dir) params.set('dir', dir)
+      return api<{ results: RecentFile[] }>(`/api/share/${shareToken}/kb/recent?${params}`)
+    },
+    enabled: !!shareToken,
+    staleTime: 1000 * 60,
+  })
+  const recent = ((shareToken ? shareData : directData)?.results || []) as RecentFile[]
+  const isLoading = shareToken ? shareLoading : directLoading
 
   if (isLoading || !recent?.length) {
     return null

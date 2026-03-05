@@ -1,5 +1,3 @@
-'use client'
-
 import { useUrlState } from '@/lib/use-url-state'
 import { useMemo } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
