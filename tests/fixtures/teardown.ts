@@ -3,8 +3,14 @@ import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
 
-const TEST_MEDIA_DIR = path.resolve('test-media')
-const MEDIA_DIR_KEY = 'test-media'
+const batchId = process.env.BATCH_ID
+const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
+const dataDirName = batchId ? `test-data-${batchId}` : null
+const port = batchId ? 5974 + parseInt(batchId) : 5973
+
+const TEST_MEDIA_DIR = path.resolve(mediaDirName)
+const MEDIA_DIR_KEY = mediaDirName
+const DATA_DIR = dataDirName ? path.resolve(dataDirName) : null
 
 function cleanJsonFile(filePath: string) {
   try {
@@ -20,9 +26,9 @@ function cleanJsonFile(filePath: string) {
   }
 }
 
-function killPort(port: number) {
+function killPort(p: number) {
   try {
-    const out = execSync(`netstat -ano | findstr ":${port}" | findstr "LISTEN"`, {
+    const out = execSync(`netstat -ano | findstr ":${p}" | findstr "LISTEN"`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'ignore'],
     })
@@ -30,7 +36,7 @@ function killPort(port: number) {
       out
         .split('\n')
         .map((l) => l.trim().split(/\s+/).pop())
-        .filter((p) => p && /^\d+$/.test(p)),
+        .filter((pid) => pid && /^\d+$/.test(pid)),
     )
     for (const pid of pids) {
       try {
@@ -41,9 +47,9 @@ function killPort(port: number) {
 }
 
 export default async function teardown(_config: FullConfig) {
-  console.log('[e2e] Cleaning up test fixtures...')
+  console.log(`[e2e${batchId ? `:${batchId}` : ''}] Cleaning up test fixtures...`)
 
-  killPort(5973)
+  killPort(port)
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -56,9 +62,17 @@ export default async function teardown(_config: FullConfig) {
     }
   }
 
-  cleanJsonFile(path.resolve('settings.json'))
-  cleanJsonFile(path.resolve('shares.json'))
-  cleanJsonFile(path.resolve('stats.json'))
+  if (DATA_DIR) {
+    try {
+      if (fs.existsSync(DATA_DIR)) {
+        fs.rmSync(DATA_DIR, { recursive: true, force: true })
+      }
+    } catch {}
+  } else {
+    cleanJsonFile(path.resolve('settings.json'))
+    cleanJsonFile(path.resolve('shares.json'))
+    cleanJsonFile(path.resolve('stats.json'))
+  }
 
-  console.log('[e2e] Test fixtures cleaned up.')
+  console.log(`[e2e${batchId ? `:${batchId}` : ''}] Test fixtures cleaned up.`)
 }

@@ -1,6 +1,6 @@
 import { QueryClient, dehydrate } from '@tanstack/react-query'
 import { listDirectory, getEditableFolders } from '@/lib/file-system'
-import { config } from '@/lib/config'
+import { config, getDataFilePath } from '@/lib/config'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
@@ -14,8 +14,8 @@ import {
 } from '@/lib/shares'
 import { getKnowledgeBases, getKnowledgeBaseRootForPath } from '@/lib/knowledge-base'
 
-const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
-const STATS_FILE = path.join(process.cwd(), 'stats.json')
+const SETTINGS_FILE = getDataFilePath('settings.json')
+const STATS_FILE = getDataFilePath('stats.json')
 
 async function readSettings() {
   try {

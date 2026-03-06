@@ -1,7 +1,8 @@
 import { test, expect, Page, BrowserContext } from '@playwright/test'
 import path from 'path'
 
-const authStoragePath = path.resolve(__dirname, '../fixtures/.auth/session.json')
+const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json` : 'session.json'
+const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
 
 async function createAdminContext(
   browser: import('@playwright/test').Browser,
@@ -15,7 +16,7 @@ async function createShare(
 ): Promise<{ url: string; token: string }> {
   const res = await page.request.post('/api/shares', { data: body })
   const json = await res.json()
-  const base = `http://localhost:5973/share/${json.share.token}`
+  const base = `/share/${json.share.token}`
   const url = json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
   return { url, token: json.share.token }
 }

@@ -4,7 +4,13 @@ import path from 'path'
 process.env.NO_PROXY =
   (process.env.NO_PROXY ? process.env.NO_PROXY + ',' : '') + 'localhost,127.0.0.1'
 
-const authStoragePath = path.join(__dirname, 'tests/fixtures/.auth/session.json')
+const batchId = process.env.BATCH_ID
+const port = batchId ? 5974 + parseInt(batchId) : 5973
+const configFile = batchId
+  ? `tests/fixtures/test-config-${batchId}.jsonc`
+  : 'tests/fixtures/test-config.jsonc'
+const authSessionFile = batchId ? `session-${batchId}.json` : 'session.json'
+const authStoragePath = path.join(__dirname, 'tests/fixtures/.auth', authSessionFile)
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -16,7 +22,7 @@ export default defineConfig({
   timeout: 10_000,
   expect: { timeout: 5_000 },
   use: {
-    baseURL: 'http://localhost:5973',
+    baseURL: `http://localhost:${port}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -46,13 +52,13 @@ export default defineConfig({
   globalTeardown: './tests/fixtures/teardown.ts',
   webServer: {
     command: 'bun server/index.ts',
-    url: 'http://localhost:5973',
+    url: `http://localhost:${port}`,
     reuseExistingServer: true,
     timeout: 120_000,
     env: {
       NODE_ENV: 'test',
-      PORT: '5973',
-      CONFIG_PATH: 'tests/fixtures/test-config.jsonc',
+      PORT: String(port),
+      CONFIG_PATH: configFile,
       NO_PROXY: 'localhost,127.0.0.1',
     },
   },

@@ -4,8 +4,13 @@ import path from 'path'
 import { scryptSync, createCipheriv, randomBytes } from 'crypto'
 import { generateTestMedia } from './generate-media'
 
-const TEST_MEDIA_DIR = path.resolve('test-media')
-const MEDIA_DIR_KEY = 'test-media'
+const batchId = process.env.BATCH_ID
+const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
+const dataDirName = batchId ? `test-data-${batchId}` : null
+
+const TEST_MEDIA_DIR = path.resolve(mediaDirName)
+const MEDIA_DIR_KEY = mediaDirName
+const DATA_DIR = dataDirName ? path.resolve(dataDirName) : null
 
 function encryptPasscode(passcode: string): string {
   const key = scryptSync('test-password', 'derp-media-server-passcode-v1', 32)
@@ -27,8 +32,12 @@ function mergeJsonFile(filePath: string, data: Record<string, unknown>) {
   fs.writeFileSync(filePath, JSON.stringify(existing, null, 2))
 }
 
+function dataFilePath(filename: string): string {
+  return DATA_DIR ? path.join(DATA_DIR, filename) : path.resolve(filename)
+}
+
 export default async function setup(_config: FullConfig) {
-  console.log('[e2e] Setting up test fixtures...')
+  console.log(`[e2e${batchId ? `:${batchId}` : ''}] Setting up test fixtures...`)
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -38,13 +47,17 @@ export default async function setup(_config: FullConfig) {
       break
     } catch {
       if (attempt < 2) await new Promise((r) => setTimeout(r, 1000))
-      else throw new Error(`Failed to clean test-media directory after 3 attempts`)
+      else throw new Error(`Failed to clean ${mediaDirName} directory after 3 attempts`)
     }
   }
 
   generateTestMedia(TEST_MEDIA_DIR)
 
-  mergeJsonFile(path.resolve('settings.json'), {
+  if (DATA_DIR) {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+  }
+
+  mergeJsonFile(dataFilePath('settings.json'), {
     [MEDIA_DIR_KEY]: {
       viewModes: {},
       favorites: [],
@@ -54,7 +67,7 @@ export default async function setup(_config: FullConfig) {
     },
   })
 
-  mergeJsonFile(path.resolve('shares.json'), {
+  mergeJsonFile(dataFilePath('shares.json'), {
     [MEDIA_DIR_KEY]: {
       shares: [
         {
@@ -69,9 +82,9 @@ export default async function setup(_config: FullConfig) {
     },
   })
 
-  mergeJsonFile(path.resolve('stats.json'), {
+  mergeJsonFile(dataFilePath('stats.json'), {
     [MEDIA_DIR_KEY]: { views: {}, shareViews: {} },
   })
 
-  console.log('[e2e] Test fixtures ready.')
+  console.log(`[e2e${batchId ? `:${batchId}` : ''}] Test fixtures ready.`)
 }

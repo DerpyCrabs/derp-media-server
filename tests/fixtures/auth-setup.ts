@@ -2,8 +2,10 @@ import { test as setup, expect } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
 
+const batchId = process.env.BATCH_ID
 const authDir = path.join(__dirname, '.auth')
-const storageStatePath = path.join(authDir, 'session.json')
+const sessionFile = batchId ? `session-${batchId}.json` : 'session.json'
+const storageStatePath = path.join(authDir, sessionFile)
 
 setup('authenticate', async ({ page }) => {
   fs.mkdirSync(authDir, { recursive: true })

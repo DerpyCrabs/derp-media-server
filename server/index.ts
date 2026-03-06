@@ -62,11 +62,23 @@ async function start() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: isTest ? { port: 5974 } : undefined,
-        watch: { ignored: ['**/test-media/**'] },
+        hmr: isTest ? { port: PORT + 1000 } : undefined,
+        watch: {
+          ignored: [
+            '**/test-media/**',
+            '**/test-media-*/**',
+            '**/test-data-*/**',
+            '**/tests/fixtures/.auth/**',
+            '**/tests/fixtures/test-config-*',
+            '**/test-results/**',
+            '**/playwright-report/**',
+          ],
+        },
       },
       appType: 'custom',
-      cacheDir: isTest ? 'node_modules/.vite-test' : undefined,
+      cacheDir: isTest
+        ? `node_modules/.vite-test${process.env.BATCH_ID ? `-${process.env.BATCH_ID}` : ''}`
+        : undefined,
     })
     app.use(vite.middlewares)
 

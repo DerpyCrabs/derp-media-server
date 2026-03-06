@@ -1,14 +1,15 @@
 import { test, expect, Page } from '@playwright/test'
 import path from 'path'
 
-const authStoragePath = path.resolve(__dirname, '../fixtures/.auth/session.json')
+const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json` : 'session.json'
+const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
 
 let folderShareUrl: string
 
 async function createShare(page: Page, body: Record<string, unknown>): Promise<string> {
   const res = await page.request.post('/api/shares', { data: body })
   const json = await res.json()
-  const base = `http://localhost:5973/share/${json.share.token}`
+  const base = `/share/${json.share.token}`
   return json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
 }
 

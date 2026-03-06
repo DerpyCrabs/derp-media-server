@@ -8,7 +8,7 @@ import {
   createDecipheriv,
   scryptSync,
 } from 'crypto'
-import { config } from '@/lib/config'
+import { config, getDataFilePath } from '@/lib/config'
 import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
@@ -63,7 +63,7 @@ interface SharesFile {
   [mediaDir: string]: SharesData
 }
 
-const SHARES_FILE = path.join(process.cwd(), 'shares.json')
+const SHARES_FILE = getDataFilePath('shares.json')
 const SHARE_SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
 
 // One mutex per shares file to serialise all read-modify-write operations.

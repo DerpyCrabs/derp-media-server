@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import path from 'path'
 import fs from 'fs'
 
+const batchId = process.env.BATCH_ID
+const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
 const UPLOAD_DIR = 'SharedContent'
 
 test.describe('File Upload', () => {
@@ -25,7 +27,7 @@ test.describe('File Upload', () => {
   test('uploads a file via file picker', async ({ page }) => {
     await page.goto(`/?dir=${UPLOAD_DIR}`)
 
-    const tmpFile = path.resolve('test-media', 'upload-test-file.txt')
+    const tmpFile = path.resolve(mediaDir, 'upload-test-file.txt')
     fs.writeFileSync(tmpFile, 'uploaded content for testing')
 
     try {
@@ -52,14 +54,16 @@ test.describe('File Upload', () => {
       .filter({ hasText: 'upload-test-file.txt' })
       .click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-    await page.getByRole('button', { name: /Delete/i }).click()
+    const confirmBtn = page.getByRole('alertdialog').getByRole('button', { name: /Delete/i })
+    await confirmBtn.waitFor({ state: 'visible' })
+    await confirmBtn.click()
     await expect(page.locator('table').getByText('upload-test-file.txt')).not.toBeVisible()
   })
 
   test('shows uploading progress toast', async ({ page }) => {
     await page.goto(`/?dir=${UPLOAD_DIR}`)
 
-    const tmpFile = path.resolve('test-media', 'progress-test.txt')
+    const tmpFile = path.resolve(mediaDir, 'progress-test.txt')
     fs.writeFileSync(tmpFile, 'testing progress indicator')
 
     try {
