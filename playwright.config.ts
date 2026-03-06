@@ -50,6 +50,7 @@ export default defineConfig({
     reuseExistingServer: true,
     timeout: 120_000,
     env: {
+      NODE_ENV: 'test',
       PORT: '5973',
       CONFIG_PATH: 'tests/fixtures/test-config.jsonc',
       NO_PROXY: 'localhost,127.0.0.1',

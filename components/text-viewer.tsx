@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { post } from '@/lib/api'
@@ -14,6 +14,7 @@ import {
 import { TextContent } from '@/components/text-content'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
 import { useSettings } from '@/lib/use-settings'
+import { useMediaUrl } from '@/lib/use-media-url'
 
 export interface ShareInfoForViewer {
   token: string
@@ -41,11 +42,36 @@ interface TextViewerProps {
     filePath?: string
     onClose?: () => void
   }
+  shareContext?: {
+    token: string
+    shareInfo: ShareInfoForViewer
+  }
 }
 
-export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps) {
+export function TextViewer({
+  editableFolders = [],
+  shareMode: shareModeProp,
+  shareContext,
+}: TextViewerProps) {
   const { urlState, closeViewer: urlCloseViewer } = useUrlState()
   const queryClient = useQueryClient()
+
+  const { getMediaUrl, getDownloadUrl } = useMediaUrl()
+  const viewingPathFromUrl = urlState.viewing
+
+  const autoShareMode = useMemo(() => {
+    if (shareModeProp || !shareContext || !viewingPathFromUrl) return undefined
+    return {
+      token: shareContext.token,
+      shareInfo: shareContext.shareInfo,
+      mediaUrl: getMediaUrl(viewingPathFromUrl),
+      downloadUrl: getDownloadUrl(viewingPathFromUrl),
+      filePath: viewingPathFromUrl,
+      onClose: urlCloseViewer,
+    }
+  }, [shareModeProp, shareContext, viewingPathFromUrl, getMediaUrl, getDownloadUrl, urlCloseViewer])
+
+  const shareMode = shareModeProp ?? autoShareMode
   const isShareMode = !!shareMode
   const viewingPath = isShareMode
     ? (shareMode!.filePath ?? shareMode!.shareInfo.path)

@@ -7,6 +7,7 @@ import AdmZip from 'adm-zip'
 import path from 'path'
 import { getFilePath, validatePath, isPathEditable, writeBinaryFile } from '@/lib/file-system'
 import { getMimeType, formatFileSize } from '@/lib/media-utils'
+import { extractAudioMetadata, extractAudioTrack } from '@/server/lib/audio-helpers'
 import {
   getShare,
   isShareAccessAuthorized,
@@ -381,6 +382,61 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
       return reply
         .status(500)
         .send({ error: error instanceof Error ? error.message : 'Upload failed' })
+    }
+  })
+
+  // ── Audio metadata for shared files ────────────────────────────────
+  app.get('/api/share/:token/audio/metadata/*', async (request, reply) => {
+    try {
+      const { token } = request.params as { token: string }
+      const filePath = (request.params as { '*': string })['*']
+
+      const share = await getShare(token)
+      if (!share) return reply.status(404).send({ error: 'Share not found' })
+      if (!validateShareAccessHTTP(request, share, reply)) return reply
+
+      const resolved = share.isDirectory
+        ? resolveSharePathHTTP(share, filePath)
+        : filePath === '.'
+          ? share.path
+          : null
+      if (resolved === null) return reply.status(403).send({ error: 'Invalid path' })
+
+      const fullPath = getFilePath(resolved)
+      const metadata = await extractAudioMetadata(fullPath)
+      return reply.send(metadata)
+    } catch (error) {
+      console.error('Error reading shared audio metadata:', error)
+      return reply.status(500).send({ error: 'Failed to read audio metadata' })
+    }
+  })
+
+  // ── Extract audio from shared video ───────────────────────────────
+  app.get('/api/share/:token/audio/extract/*', async (request, reply) => {
+    try {
+      const { token } = request.params as { token: string }
+      const filePath = (request.params as { '*': string })['*']
+
+      const share = await getShare(token)
+      if (!share) return reply.status(404).send({ error: 'Share not found' })
+      if (!validateShareAccessHTTP(request, share, reply)) return reply
+
+      const resolved = share.isDirectory
+        ? resolveSharePathHTTP(share, filePath)
+        : filePath === '.'
+          ? share.path
+          : null
+      if (resolved === null) return reply.status(403).send({ error: 'Invalid path' })
+
+      const fullPath = getFilePath(resolved)
+      return await extractAudioTrack(fullPath, request, reply)
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('ENOENT')) {
+        return reply.status(501).send({
+          error: 'FFmpeg not found. Please install ffmpeg on the server.',
+        })
+      }
+      return reply.status(500).send({ error: 'Audio extraction failed' })
     }
   })
 
