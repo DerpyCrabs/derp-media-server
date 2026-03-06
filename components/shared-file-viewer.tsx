@@ -1,13 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { post } from '@/lib/api'
 import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
-import { useUrlState } from '@/lib/use-url-state'
-import { useMediaPlayer } from '@/lib/use-media-player'
 import { MediaPlayers } from '@/components/media-players'
 import { TextViewer } from '@/components/text-viewer'
 import { Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
 interface ShareInfo {
   token: string
@@ -22,18 +23,23 @@ interface ShareInfo {
 interface SharedFileViewerProps {
   token: string
   shareInfo: ShareInfo
+  session?: NavigationSession
 }
 
-export function SharedFileViewer({ token, shareInfo }: SharedFileViewerProps) {
-  useDynamicFavicon({}, { rootName: shareInfo.name })
+export function SharedFileViewer({
+  token,
+  shareInfo,
+  session: sessionProp,
+}: SharedFileViewerProps) {
+  const session = useNavigationSession(sessionProp)
+  const mediaContext: SourceContext = useMemo(
+    () => ({ shareToken: token, sharePath: shareInfo.path }),
+    [token, shareInfo.path],
+  )
 
-  const { viewFile, playFile } = useUrlState()
-  const { setShareContext, clearShareContext } = useMediaPlayer()
+  useDynamicFavicon({}, { rootName: shareInfo.name, state: session.state })
 
-  useEffect(() => {
-    setShareContext(token, shareInfo.path)
-    return () => clearShareContext()
-  }, [token, shareInfo.path, setShareContext, clearShareContext])
+  const { viewFile, playFile } = session
 
   const viewTrackMutation = useMutation({
     mutationFn: (vars: { token: string }) => post(`/api/share/${vars.token}/view`, vars),
@@ -67,8 +73,15 @@ export function SharedFileViewer({ token, shareInfo }: SharedFileViewerProps) {
   if (shareInfo.mediaType === 'text') {
     return (
       <>
-        <MediaPlayers editableFolders={[]} shareContext={shareCtx} />
+        <MediaPlayers
+          editableFolders={[]}
+          session={session}
+          mediaContext={mediaContext}
+          shareContext={shareCtx}
+        />
         <TextViewer
+          session={session}
+          mediaContext={mediaContext}
           shareMode={{
             token,
             shareInfo,
@@ -89,14 +102,24 @@ export function SharedFileViewer({ token, shareInfo }: SharedFileViewerProps) {
   if (isHandledByPlayers) {
     return (
       <div className='min-h-screen'>
-        <MediaPlayers editableFolders={[]} shareContext={shareCtx} />
+        <MediaPlayers
+          editableFolders={[]}
+          session={session}
+          mediaContext={mediaContext}
+          shareContext={shareCtx}
+        />
       </div>
     )
   }
 
   return (
     <div className='min-h-screen flex flex-col items-center justify-center p-8'>
-      <MediaPlayers editableFolders={[]} shareContext={shareCtx} />
+      <MediaPlayers
+        editableFolders={[]}
+        session={session}
+        mediaContext={mediaContext}
+        shareContext={shareCtx}
+      />
       <div className='max-w-md w-full space-y-6 text-center'>
         <h2 className='text-2xl font-medium'>{shareInfo.name}</h2>
         <p className='text-muted-foreground'>This file type cannot be previewed.</p>

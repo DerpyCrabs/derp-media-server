@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { useUrlState } from '@/lib/use-url-state'
 import { Play, Pause, Volume2, VolumeX, StepBack, StepForward, Repeat, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -9,9 +8,18 @@ import { useMediaUrl } from '@/lib/use-media-url'
 import { useAudioMetadata } from '@/lib/use-audio-metadata'
 import { useViewStats } from '@/lib/use-view-stats'
 import { useFiles } from '@/lib/use-files'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
-export function AudioPlayer() {
-  const { urlState, playFile: urlPlayFile, setAudioOnly } = useUrlState()
+interface AudioPlayerProps {
+  session?: NavigationSession
+  mediaContext?: SourceContext
+}
+
+export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerProps = {}) {
+  const session = useNavigationSession(sessionProp)
+  const { state, playFile: urlPlayFile, setAudioOnly } = session
   const audioRef = useRef<HTMLAudioElement>(null)
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
@@ -33,10 +41,10 @@ export function AudioPlayer() {
 
   const { incrementView } = useViewStats()
   const { getMediaUrl, getAudioExtractUrl, getAudioMetadataUrl, shareToken, sharePath } =
-    useMediaUrl()
+    useMediaUrl(mediaContext)
 
-  const playingPath = urlState.playing
-  const currentDir = urlState.dir || ''
+  const playingPath = state.playing
+  const currentDir = state.dir || ''
   const fileName = (playingPath || '').split('/').pop() || ''
 
   const extension = (playingPath || '').split('.').pop()?.toLowerCase()
@@ -44,7 +52,7 @@ export function AudioPlayer() {
   const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
   const isAudioFile = playingPath && audioExtensions.includes(extension || '')
   const isVideoFile = playingPath && videoExtensions.includes(extension || '')
-  const isAudioOnly = urlState.audioOnly
+  const isAudioOnly = state.audioOnly
   const shouldHandleAudio = !!(isAudioFile || (isVideoFile && isAudioOnly))
 
   const dirToFetch = useMemo(() => {

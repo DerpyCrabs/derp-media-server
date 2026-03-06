@@ -37,14 +37,19 @@ test.describe('Text Editor', () => {
   test('saves edits and persists changes', async ({ page }) => {
     await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
     const textarea = page.locator('textarea')
+    const closeButton = page.locator('button[title="Close"]')
     await expect(textarea).toBeVisible()
     await textarea.fill('# Updated Todo\n\n- Brand new item\n')
-    // Blur triggers immediate auto-save
-    await page.locator('button[title="Close"]').focus()
-    await page.waitForTimeout(500)
+    // Blur triggers immediate auto-save; wait for the save request instead of sleeping.
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
+      ),
+      closeButton.focus(),
+    ])
 
     // Close and reopen
-    await page.locator('button[title="Close"]').click()
+    await closeButton.click()
     await page.locator('table').getByText('todo.md').click()
     await expect(page.locator('textarea')).toBeVisible()
     const content = await page.locator('textarea').inputValue()
@@ -55,8 +60,12 @@ test.describe('Text Editor', () => {
     await page
       .locator('textarea')
       .fill('# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n')
-    await page.locator('button[title="Close"]').focus()
-    await page.waitForTimeout(500)
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
+      ),
+      closeButton.focus(),
+    ])
   })
 
   test('closes text viewer returns to file list', async ({ page }) => {

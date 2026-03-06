@@ -1,14 +1,11 @@
-import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { useUrlState } from '@/lib/use-url-state'
+import { Suspense, useState, useMemo, useCallback } from 'react'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
 import { api, post } from '@/lib/api'
 import { FileItem, MediaType } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
-import { useMediaPlayer } from '@/lib/use-media-player'
 import { MediaPlayers } from '@/components/media-players'
-import { FolderPlus, FilePlus, List, LayoutGrid, ChevronRight, Folder } from 'lucide-react'
+import { FolderPlus, FilePlus, ChevronRight, Folder } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -32,6 +29,13 @@ import { useUpload } from '@/lib/use-upload'
 import { UploadDropZone } from '@/components/upload-drop-zone'
 import { UploadProgress } from '@/components/upload-progress'
 import { UploadMenuButton } from '@/components/upload-menu-button'
+import { useFiles } from '@/lib/use-files'
+import { useDebouncedValue } from '@/lib/use-debounced-value'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import { BrowserPane } from '@/components/browser-pane'
+import { BrowserPaneContent } from '@/components/browser-pane-content'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
 interface ShareRestrictions {
   allowDelete: boolean
@@ -57,6 +61,7 @@ interface SharedFolderBrowserProps {
   shareInfo: ShareInfo
   searchParams: { dir?: string; viewing?: string; playing?: string }
   adminViewMode?: 'list' | 'grid'
+  session?: NavigationSession
 }
 
 export function SharedFolderBrowser(props: SharedFolderBrowserProps) {
@@ -73,22 +78,21 @@ function SharedFolderBrowserInner({
   token,
   shareInfo,
   adminViewMode = 'list',
+  session: sessionProp,
 }: SharedFolderBrowserProps) {
-  const { urlState, navigateToFolder, viewFile, playFile: urlPlayFile } = useUrlState()
+  const session = useNavigationSession(sessionProp)
+  const { state, navigateToFolder, viewFile, playFile: urlPlayFile } = session
   const queryClient = useQueryClient()
   const shareLinkBase = useShareLinkBase()
   useFileWatcher()
-  const { setShareContext, clearShareContext } = useMediaPlayer()
+  const currentSubDir = state.dir || ''
+  const playingPath = state.playing
+  const mediaContext: SourceContext = useMemo(
+    () => ({ shareToken: token, sharePath: shareInfo.path }),
+    [token, shareInfo.path],
+  )
 
-  useEffect(() => {
-    setShareContext(token, shareInfo.path)
-    return () => clearShareContext()
-  }, [token, shareInfo.path, setShareContext, clearShareContext])
-
-  const currentSubDir = urlState.dir || ''
-  const playingPath = urlState.playing
-
-  useDynamicFavicon({}, { rootName: shareInfo.name })
+  useDynamicFavicon({}, { rootName: shareInfo.name, state })
 
   const canUpload = shareInfo.editable && shareInfo.restrictions?.allowUpload !== false
   const canEdit = shareInfo.editable && shareInfo.restrictions?.allowEdit !== false
@@ -155,14 +159,13 @@ function SharedFolderBrowserInner({
     [stripSharePrefix],
   )
 
-  const { data: filesData, isLoading } = useQuery({
-    queryKey: ['share-files', token, currentSubDir],
-    queryFn: () =>
-      api<{ files: FileItem[] }>(
-        `/api/share/${token}/files?dir=${encodeURIComponent(currentSubDir)}`,
-      ),
-  })
-  const files = useMemo(() => (filesData?.files ?? []) as FileItem[], [filesData])
+  const currentPath = useMemo(() => {
+    const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+    return currentSubDir ? `${sharePathNorm}/${currentSubDir}` : sharePathNorm
+  }, [shareInfo.path, currentSubDir])
+
+  const { data: filesData = [], isLoading } = useFiles(currentPath, mediaContext)
+  const files = useMemo(() => filesData as FileItem[], [filesData])
 
   const createFolderMutation = useMutation({
     mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
@@ -190,23 +193,8 @@ function SharedFolderBrowserInner({
   })
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (!searchQuery.trim() || !inKb) {
-      setDebouncedSearchQuery('')
-      return
-    }
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    searchDebounceRef.current = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery)
-      searchDebounceRef.current = null
-    }, 300)
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    }
-  }, [searchQuery, inKb])
+  const debouncedSearchValue = useDebouncedValue(searchQuery, 300)
+  const debouncedSearchQuery = !searchQuery.trim() || !inKb ? '' : debouncedSearchValue
 
   const { data: kbSearchData, isLoading: searchLoading } = useQuery({
     queryKey: ['share-kb-search', token, debouncedSearchQuery, currentSubDir],
@@ -409,8 +397,8 @@ function SharedFolderBrowserInner({
     if (!playingPath) return false
     const ext = playingPath.split('.').pop()?.toLowerCase() || ''
     const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
-    return audioExtensions.includes(ext) || urlState.audioOnly
-  }, [playingPath, urlState.audioOnly])
+    return audioExtensions.includes(ext) || state.audioOnly
+  }, [playingPath, state.audioOnly])
 
   const handleInlineCreateFile = useCallback(
     (name: string) => {
@@ -447,206 +435,8 @@ function SharedFolderBrowserInner({
     [token, currentSubDir, createFolderMutation],
   )
 
-  const currentPath = useMemo(() => {
-    const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
-    return currentSubDir ? `${sharePathNorm}/${currentSubDir}` : sharePathNorm
-  }, [shareInfo.path, currentSubDir])
-
   return (
-    <div className={`min-h-screen ${isAudioPlaying ? 'pb-12' : ''}`}>
-      <MediaPlayers editableFolders={[]} shareContext={{ token, shareInfo }} />
-
-      <div className='container mx-auto lg:p-4'>
-        <Card className='py-0 gap-0 rounded-none lg:rounded-xl'>
-          {/* Toolbar */}
-          <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
-            <div className='flex flex-wrap items-center justify-between gap-1.5 lg:gap-2'>
-              {/* Breadcrumbs */}
-              <div className='flex items-center gap-1 lg:gap-2 flex-wrap min-w-0 flex-1'>
-                {breadcrumbs.map((crumb, index) => {
-                  const fullPath = crumb.path
-                    ? `${shareInfo.path.replace(/\\/g, '/')}/${crumb.path}`
-                    : shareInfo.path.replace(/\\/g, '/')
-                  const folderItem: FileItem = {
-                    name: crumb.name,
-                    path: fullPath,
-                    type: MediaType.FOLDER,
-                    size: 0,
-                    extension: '',
-                    isDirectory: true,
-                    isVirtual: false,
-                  }
-                  const button = (
-                    <Button
-                      variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
-                      size='sm'
-                      onClick={() => navigate(crumb.path)}
-                      className='gap-1.5 text-sm h-8 px-2.5'
-                    >
-                      {index === 0 && <Folder className='h-4 w-4' />}
-                      {crumb.name}
-                    </Button>
-                  )
-                  return (
-                    <div key={crumb.path} className='flex items-center gap-2'>
-                      {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
-                      <FileContextMenu
-                        file={folderItem}
-                        onDownload={handleDownload}
-                        onOpenInNewTab={handleOpenInNewTab}
-                      >
-                        {button}
-                      </FileContextMenu>
-                    </div>
-                  )
-                })}
-              </div>
-              {inKb && (
-                <div className='w-full md:w-auto md:flex-1 md:min-w-0 md:max-w-[200px] lg:max-w-[260px] basis-full md:basis-auto order-last md:order-0'>
-                  <Input
-                    type='search'
-                    placeholder='Search notes...'
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className='h-8 w-full'
-                  />
-                </div>
-              )}
-              <div className='flex gap-1 items-center'>
-                {canUpload && (
-                  <>
-                    <Button
-                      variant='outline'
-                      size='icon'
-                      onClick={() => {
-                        setNewItemName('')
-                        setShowCreateFolder(true)
-                      }}
-                      title='Create new folder'
-                      className='h-8 w-8'
-                    >
-                      <FolderPlus className='h-4 w-4' />
-                    </Button>
-                    <Button
-                      variant='outline'
-                      size='icon'
-                      onClick={() => {
-                        setNewItemName('')
-                        setShowCreateFile(true)
-                      }}
-                      title='Create new file'
-                      className='h-8 w-8'
-                    >
-                      <FilePlus className='h-4 w-4' />
-                    </Button>
-                    <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
-                    <div className='w-px h-6 bg-border mx-1' />
-                  </>
-                )}
-                <Button
-                  variant={viewMode === 'list' ? 'default' : 'ghost'}
-                  size='sm'
-                  onClick={() => handleViewModeChange('list')}
-                  className='h-8 w-8 p-0'
-                >
-                  <List className='h-4 w-4' />
-                </Button>
-                <Button
-                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                  size='sm'
-                  onClick={() => handleViewModeChange('grid')}
-                  className='h-8 w-8 p-0'
-                >
-                  <LayoutGrid className='h-4 w-4' />
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* File list or KB search results */}
-          <UploadDropZone enabled={canUpload} onUpload={handleUploadFiles}>
-            {searchQuery.trim() ? (
-              <KbSearchResults
-                results={searchResults}
-                query={searchQuery}
-                isLoading={searchLoading}
-                currentPath={currentPath}
-                onResultClick={handleKbResultClick}
-              />
-            ) : isLoading ? (
-              <div className='flex items-center justify-center py-12 text-muted-foreground'>
-                Loading...
-              </div>
-            ) : (
-              <>
-                {inKb && (
-                  <KbDashboard
-                    scopePath={shareInfo.path}
-                    onFileClick={handleKbResultClick}
-                    shareToken={token}
-                    dir={currentSubDir || undefined}
-                  />
-                )}
-                {viewMode === 'list' ? (
-                  <FileListView
-                    files={files}
-                    currentPath={currentSubDir}
-                    playingPath={playingPath}
-                    onFileClick={handleFileClick}
-                    onParentDirectory={handleParentDirectory}
-                    getIcon={getIcon}
-                    isEditable={canEdit}
-                    onMoveFile={canEdit ? handleMoveFile : undefined}
-                    showDownloadButton
-                    onContextDownload={handleDownload}
-                    onContextRename={canEdit ? handleContextRename : undefined}
-                    onContextDelete={canDelete ? handleContextDelete : undefined}
-                    onContextMove={canEdit ? handleContextMoveFile : undefined}
-                    onContextOpenInNewTab={handleOpenInNewTab}
-                    showInlineCreate={inKb && canUpload}
-                    onInlineCreateFile={handleInlineCreateFile}
-                    onInlineCreateFolder={handleInlineCreateFolder}
-                    onInlineCreateCancel={() => {
-                      createFileMutation.reset()
-                      createFolderMutation.reset()
-                    }}
-                    createFilePending={createFileMutation.isPending}
-                    createFolderPending={createFolderMutation.isPending}
-                    createFileError={createFileMutation.error as Error | null}
-                    createFolderError={createFolderMutation.error as Error | null}
-                  />
-                ) : (
-                  <FileGridView
-                    files={files}
-                    currentPath={currentSubDir}
-                    playingPath={playingPath}
-                    onFileClick={handleFileClick}
-                    onParentDirectory={handleParentDirectory}
-                    getIcon={getIcon}
-                    isEditable={canEdit}
-                    onMoveFile={canEdit ? handleMoveFile : undefined}
-                    getThumbnailUrl={getThumbnailUrl}
-                    getImagePreviewUrl={getImagePreviewUrl}
-                    onContextDownload={handleDownload}
-                    onContextRename={canEdit ? handleContextRename : undefined}
-                    onContextDelete={canDelete ? handleContextDelete : undefined}
-                    onContextMove={canEdit ? handleContextMoveFile : undefined}
-                    onContextOpenInNewTab={handleOpenInNewTab}
-                  />
-                )}
-              </>
-            )}
-          </UploadDropZone>
-        </Card>
-      </div>
-
-      <UploadProgress
-        isUploading={isUploading}
-        error={uploadError}
-        fileCount={uploadFileCount}
-        onDismiss={resetUpload}
-      />
-
+    <div>
       {/* Move To Dialog */}
       <MoveToDialog
         isOpen={showMoveDialog}
@@ -826,6 +616,182 @@ function SharedFolderBrowserInner({
           deleteItemMutation.reset()
         }}
       />
+
+      <BrowserPane
+        mediaPlayers={
+          <MediaPlayers
+            editableFolders={[]}
+            session={session}
+            mediaContext={mediaContext}
+            shareContext={{ token, shareInfo }}
+          />
+        }
+        progress={
+          <UploadProgress
+            isUploading={isUploading}
+            error={uploadError}
+            fileCount={uploadFileCount}
+            onDismiss={resetUpload}
+          />
+        }
+        rootClassName={`min-h-screen ${isAudioPlaying ? 'pb-12' : ''}`}
+        breadcrumbs={
+          <div className='flex items-center gap-1 lg:gap-2 flex-wrap min-w-0 flex-1'>
+            {breadcrumbs.map((crumb, index) => {
+              const fullPath = crumb.path
+                ? `${shareInfo.path.replace(/\\/g, '/')}/${crumb.path}`
+                : shareInfo.path.replace(/\\/g, '/')
+              const folderItem: FileItem = {
+                name: crumb.name,
+                path: fullPath,
+                type: MediaType.FOLDER,
+                size: 0,
+                extension: '',
+                isDirectory: true,
+                isVirtual: false,
+              }
+              const button = (
+                <Button
+                  variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
+                  size='sm'
+                  onClick={() => navigate(crumb.path)}
+                  className='gap-1.5 text-sm h-8 px-2.5'
+                >
+                  {index === 0 && <Folder className='h-4 w-4' />}
+                  {crumb.name}
+                </Button>
+              )
+              return (
+                <div key={crumb.path} className='flex items-center gap-2'>
+                  {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
+                  <FileContextMenu
+                    file={folderItem}
+                    onDownload={handleDownload}
+                    onOpenInNewTab={handleOpenInNewTab}
+                  >
+                    {button}
+                  </FileContextMenu>
+                </div>
+              )
+            })}
+          </div>
+        }
+        search={{
+          visible: inKb,
+          placeholder: 'Search notes...',
+          value: searchQuery,
+          onChange: setSearchQuery,
+        }}
+        actions={
+          canUpload ? (
+            <>
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={() => {
+                  setNewItemName('')
+                  setShowCreateFolder(true)
+                }}
+                title='Create new folder'
+                className='h-8 w-8'
+              >
+                <FolderPlus className='h-4 w-4' />
+              </Button>
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={() => {
+                  setNewItemName('')
+                  setShowCreateFile(true)
+                }}
+                title='Create new file'
+                className='h-8 w-8'
+              >
+                <FilePlus className='h-4 w-4' />
+              </Button>
+              <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
+              <div className='w-px h-6 bg-border mx-1' />
+            </>
+          ) : null
+        }
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
+      >
+        <UploadDropZone enabled={canUpload} onUpload={handleUploadFiles}>
+          <BrowserPaneContent
+            searchQuery={searchQuery}
+            searchResults={
+              <KbSearchResults
+                results={searchResults}
+                query={searchQuery}
+                isLoading={searchLoading}
+                currentPath={currentPath}
+                onResultClick={handleKbResultClick}
+              />
+            }
+            loading={isLoading}
+            dashboard={
+              inKb ? (
+                <KbDashboard
+                  scopePath={shareInfo.path}
+                  onFileClick={handleKbResultClick}
+                  shareToken={token}
+                  dir={currentSubDir || undefined}
+                />
+              ) : null
+            }
+            viewMode={viewMode}
+            listView={
+              <FileListView
+                files={files}
+                currentPath={currentSubDir}
+                playingPath={playingPath}
+                onFileClick={handleFileClick}
+                onParentDirectory={handleParentDirectory}
+                getIcon={getIcon}
+                isEditable={canEdit}
+                onMoveFile={canEdit ? handleMoveFile : undefined}
+                showDownloadButton
+                onContextDownload={handleDownload}
+                onContextRename={canEdit ? handleContextRename : undefined}
+                onContextDelete={canDelete ? handleContextDelete : undefined}
+                onContextMove={canEdit ? handleContextMoveFile : undefined}
+                onContextOpenInNewTab={handleOpenInNewTab}
+                showInlineCreate={inKb && canUpload}
+                onInlineCreateFile={handleInlineCreateFile}
+                onInlineCreateFolder={handleInlineCreateFolder}
+                onInlineCreateCancel={() => {
+                  createFileMutation.reset()
+                  createFolderMutation.reset()
+                }}
+                createFilePending={createFileMutation.isPending}
+                createFolderPending={createFolderMutation.isPending}
+                createFileError={createFileMutation.error as Error | null}
+                createFolderError={createFolderMutation.error as Error | null}
+              />
+            }
+            gridView={
+              <FileGridView
+                files={files}
+                currentPath={currentSubDir}
+                playingPath={playingPath}
+                onFileClick={handleFileClick}
+                onParentDirectory={handleParentDirectory}
+                getIcon={getIcon}
+                isEditable={canEdit}
+                onMoveFile={canEdit ? handleMoveFile : undefined}
+                getThumbnailUrl={getThumbnailUrl}
+                getImagePreviewUrl={getImagePreviewUrl}
+                onContextDownload={handleDownload}
+                onContextRename={canEdit ? handleContextRename : undefined}
+                onContextDelete={canDelete ? handleContextDelete : undefined}
+                onContextMove={canEdit ? handleContextMoveFile : undefined}
+                onContextOpenInNewTab={handleOpenInNewTab}
+              />
+            }
+          />
+        </UploadDropZone>
+      </BrowserPane>
     </div>
   )
 }

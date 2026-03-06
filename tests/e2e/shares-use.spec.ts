@@ -91,14 +91,22 @@ test.describe('Using Shares', () => {
     await page.goto(editableShareUrl)
     await page.locator('table').getByText('public-doc.txt').click()
     const textarea = page.locator('textarea')
+    const closeButton = page.locator('button[title="Close"]')
     await expect(textarea).toBeVisible()
 
     await textarea.fill('Edited via share.\n')
-    await page.locator('button[title="Close"]').focus()
-    await page.waitForTimeout(500)
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          resp.url().includes('/api/share/') &&
+          resp.url().endsWith('/edit') &&
+          resp.status() === 200,
+      ),
+      closeButton.focus(),
+    ])
 
     // Close and reopen to verify persistence
-    await page.locator('button[title="Close"]').click()
+    await closeButton.click()
     await expect(page.locator('[role="dialog"]')).not.toBeVisible()
     await page.locator('table').getByText('public-doc.txt').click()
     await expect(page.locator('textarea')).toBeVisible()
@@ -107,9 +115,16 @@ test.describe('Using Shares', () => {
 
     // Restore original content
     await page.locator('textarea').fill('This is a public document for share testing.\n')
-    await page.locator('button[title="Close"]').focus()
-    await page.waitForTimeout(500)
-    await page.locator('button[title="Close"]').click()
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          resp.url().includes('/api/share/') &&
+          resp.url().endsWith('/edit') &&
+          resp.status() === 200,
+      ),
+      closeButton.focus(),
+    ])
+    await closeButton.click()
   })
 
   test('creates a file in editable share', async ({ page }) => {

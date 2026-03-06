@@ -1,10 +1,8 @@
-import { Suspense, useState, useMemo, useEffect, useRef } from 'react'
-import { useUrlState } from '@/lib/use-url-state'
+import { Suspense, useState, useMemo, useEffect } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
-import { FolderPlus, FilePlus, List, LayoutGrid } from 'lucide-react'
+import { FolderPlus, FilePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
 import { useFiles, usePrefetchFiles } from '@/lib/use-files'
@@ -38,6 +36,11 @@ import { useUpload } from '@/lib/use-upload'
 import { UploadDropZone } from '@/components/upload-drop-zone'
 import { UploadProgress } from '@/components/upload-progress'
 import { UploadMenuButton } from '@/components/upload-menu-button'
+import { useDebouncedValue } from '@/lib/use-debounced-value'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import { BrowserPane } from '@/components/browser-pane'
+import { BrowserPaneContent } from '@/components/browser-pane-content'
+import type { NavigationSession } from '@/lib/navigation-session'
 
 interface FileListProps {
   files: FileItem[]
@@ -45,6 +48,7 @@ interface FileListProps {
   initialFavorites?: string[]
   initialCustomIcons?: Record<string, string>
   editableFolders: string[]
+  session?: NavigationSession
 }
 
 function FileListInner({
@@ -52,9 +56,11 @@ function FileListInner({
   initialFavorites = [],
   initialCustomIcons = {},
   editableFolders,
+  session: sessionProp,
 }: FileListProps) {
-  const { urlState, navigateToFolder, viewFile, playFile: urlPlayFile } = useUrlState()
-  const currentPath = urlState.dir || ''
+  const session = useNavigationSession(sessionProp)
+  const { state, navigateToFolder, viewFile, playFile: urlPlayFile } = session
+  const currentPath = state.dir || ''
   const shareLinkBase = useShareLinkBase()
   useFileWatcher()
   const {
@@ -112,7 +118,11 @@ function FileListInner({
     renameMutation,
     moveMutation,
     copyMutation,
-  } = useFileMutations(currentPath, { inKb })
+  } = useFileMutations(currentPath, {
+    inKb,
+    onNavigateToFolder: navigateToFolder,
+    onViewFile: viewFile,
+  })
 
   const {
     uploadFiles,
@@ -162,27 +172,11 @@ function FileListInner({
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
 
   useEffect(() => {
     setSearchQuery('')
   }, [currentPath])
-
-  useEffect(() => {
-    if (!searchQuery.trim() || !kbRoot) {
-      setDebouncedSearchQuery('')
-      return
-    }
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    searchDebounceRef.current = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery)
-      searchDebounceRef.current = null
-    }, 300)
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-    }
-  }, [searchQuery, kbRoot])
 
   const { data: kbSearchData, isLoading: searchLoading } = useQuery({
     queryKey: ['kb-search', kbRoot, debouncedSearchQuery],
@@ -207,7 +201,7 @@ function FileListInner({
   // Check if current directory is editable using client-side utility
   const isEditable = !isVirtualFolder && isPathEditable(currentPath || '', editableFolders)
 
-  const playingPath = urlState.playing
+  const playingPath = state.playing
 
   // Use file icon hook
   const { getIcon } = useFileIcon({
@@ -306,7 +300,7 @@ function FileListInner({
   }, [newItemName, files, editingItem, renameMutation.isPending])
 
   // Update favicon and title based on URL params
-  useDynamicFavicon(customIcons)
+  useDynamicFavicon(customIcons, { state })
 
   const handleSaveIcon = (iconName: string | null) => {
     if (!editingItem) return
@@ -429,9 +423,8 @@ function FileListInner({
     return shares.filter((s) => s.path === path)
   }
 
-  return (
-    <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
-      {/* Icon Editor Dialog */}
+  const dialogs = (
+    <>
       <IconEditorDialog
         key={`${showIconEditor}`}
         isOpen={showIconEditor}
@@ -444,7 +437,6 @@ function FileListInner({
         onSave={handleSaveIcon}
       />
 
-      {/* Delete Confirmation Dialog */}
       <DeleteConfirmDialog
         isOpen={showDeleteConfirm}
         onOpenChange={setShowDeleteConfirm}
@@ -496,7 +488,6 @@ function FileListInner({
         isRevokeShare={!!itemToDelete?.shareToken}
       />
 
-      {/* Create Folder Dialog */}
       <CreateFolderDialog
         isOpen={showCreateFolder}
         onOpenChange={setShowCreateFolder}
@@ -521,7 +512,6 @@ function FileListInner({
         }}
       />
 
-      {/* Create File Dialog */}
       <CreateFileDialog
         isOpen={showCreateFile}
         onOpenChange={setShowCreateFile}
@@ -547,7 +537,6 @@ function FileListInner({
         }}
       />
 
-      {/* Rename Dialog */}
       <RenameDialog
         isOpen={showRenameDialog}
         onOpenChange={setShowRenameDialog}
@@ -593,7 +582,6 @@ function FileListInner({
         onClose={closePasteDialog}
       />
 
-      {/* Move To Dialog */}
       <MoveToDialog
         isOpen={showMoveDialog}
         onClose={() => {
@@ -609,7 +597,6 @@ function FileListInner({
         editableFolders={editableFolders}
       />
 
-      {/* Copy To Dialog */}
       <MoveToDialog
         mode='copy'
         isOpen={showCopyDialog}
@@ -638,7 +625,6 @@ function FileListInner({
         editableFolders={editableFolders}
       />
 
-      {/* Share Dialog */}
       <ShareDialog
         isOpen={showShareDialog}
         onClose={() => {
@@ -651,10 +637,140 @@ function FileListInner({
         isEditable={shareTarget ? isPathEditable(shareTarget.path, editableFolders) : false}
         existingShares={shareTarget ? getSharesForPath(shareTarget.path) : []}
       />
+    </>
+  )
 
-      {/* Breadcrumb Navigation with Toolbar */}
-      <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
-        <div className='flex flex-wrap items-center justify-between gap-1.5 lg:gap-2'>
+  const toolbarActions = isEditable ? (
+    <>
+      <Button
+        variant='outline'
+        size='icon'
+        onClick={() => {
+          setNewItemName('')
+          createFolderMutation.reset()
+          setShowCreateFolder(true)
+        }}
+        title='Create new folder'
+        className='h-8 w-8'
+      >
+        <FolderPlus className='h-4 w-4' />
+      </Button>
+      <Button
+        variant='outline'
+        size='icon'
+        onClick={() => {
+          setNewItemName('')
+          createFileMutation.reset()
+          setShowCreateFile(true)
+        }}
+        title='Create new file'
+        className='h-8 w-8'
+      >
+        <FilePlus className='h-4 w-4' />
+      </Button>
+      <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
+      <div className='w-px h-6 bg-border mx-1' />
+    </>
+  ) : null
+
+  const listView = (
+    <FileListView
+      files={files}
+      currentPath={currentPath}
+      favorites={favorites}
+      playingPath={playingPath}
+      isVirtualFolder={isVirtualFolder}
+      editableFolders={editableFolders}
+      onFileClick={handleFileClick}
+      onFolderHover={handleFolderHover}
+      onParentDirectory={handleParentDirectory}
+      onFavoriteToggle={handleFavoriteToggle}
+      onContextSetIcon={handleContextSetIcon}
+      onContextRename={handleContextRename}
+      onContextDelete={handleContextDelete}
+      onContextDownload={handleContextDownload}
+      onContextToggleFavorite={handleContextToggleFavorite}
+      onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
+      onContextShare={handleContextShare}
+      onContextCopyShareLink={handleContextCopyShareLink}
+      onContextMove={handleContextMove}
+      onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
+      onContextOpenInNewTab={handleContextOpenInNewTab}
+      hasEditableFolders={editableFolders.length > 0}
+      onMoveFile={handleMoveFile}
+      shares={shares}
+      knowledgeBases={knowledgeBases}
+      getViewCount={getViewCount}
+      getShareViewCount={getShareViewCount}
+      getIcon={getIcon}
+      showInlineCreate={isEditable && inKb}
+      onInlineCreateFile={(name) =>
+        createFileMutation.mutate(name, {
+          onSuccess: () => createFileMutation.reset(),
+        })
+      }
+      onInlineCreateFolder={(name) =>
+        createFolderMutation.mutate(name, {
+          onSuccess: () => createFolderMutation.reset(),
+        })
+      }
+      onInlineCreateCancel={() => {
+        createFileMutation.reset()
+        createFolderMutation.reset()
+      }}
+      createFilePending={createFileMutation.isPending}
+      createFolderPending={createFolderMutation.isPending}
+      createFileError={createFileMutation.error}
+      createFolderError={createFolderMutation.error}
+    />
+  )
+
+  const gridView = (
+    <FileGridView
+      files={files}
+      currentPath={currentPath}
+      favorites={favorites}
+      playingPath={playingPath}
+      isVirtualFolder={isVirtualFolder}
+      editableFolders={editableFolders}
+      onFileClick={handleFileClick}
+      onFolderHover={handleFolderHover}
+      onParentDirectory={handleParentDirectory}
+      onFavoriteToggle={handleFavoriteToggle}
+      onContextSetIcon={handleContextSetIcon}
+      onContextRename={handleContextRename}
+      onContextDelete={handleContextDelete}
+      onContextDownload={handleContextDownload}
+      onContextToggleFavorite={handleContextToggleFavorite}
+      onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
+      onContextShare={handleContextShare}
+      onContextCopyShareLink={handleContextCopyShareLink}
+      onContextMove={handleContextMove}
+      onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
+      onContextOpenInNewTab={handleContextOpenInNewTab}
+      hasEditableFolders={editableFolders.length > 0}
+      onMoveFile={handleMoveFile}
+      shares={shares}
+      knowledgeBases={knowledgeBases}
+      getViewCount={getViewCount}
+      getShareViewCount={getShareViewCount}
+      getIcon={getIcon}
+    />
+  )
+
+  return (
+    <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
+      <BrowserPane
+        dialogs={dialogs}
+        progress={
+          <UploadProgress
+            isUploading={isUploading}
+            error={uploadError}
+            fileCount={uploadFileCount}
+            onDismiss={resetUpload}
+          />
+        }
+        breadcrumbs={
           <Breadcrumbs
             currentPath={currentPath}
             onNavigate={handleBreadcrumbClick}
@@ -671,181 +787,44 @@ function FileListInner({
             editableFolders={editableFolders}
             shares={shares}
           />
-          {inKb && (
-            <div className='w-full md:w-auto md:flex-1 md:min-w-0 md:max-w-[200px] lg:max-w-[260px] basis-full md:basis-auto order-last md:order-0'>
-              <Input
-                type='search'
-                placeholder='Search notes...'
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className='h-8 w-full'
-              />
-            </div>
-          )}
-          <div className='flex gap-1 items-center'>
-            {isEditable && (
-              <>
-                <Button
-                  variant='outline'
-                  size='icon'
-                  onClick={() => {
-                    setNewItemName('')
-                    createFolderMutation.reset()
-                    setShowCreateFolder(true)
-                  }}
-                  title='Create new folder'
-                  className='h-8 w-8'
-                >
-                  <FolderPlus className='h-4 w-4' />
-                </Button>
-                <Button
-                  variant='outline'
-                  size='icon'
-                  onClick={() => {
-                    setNewItemName('')
-                    createFileMutation.reset()
-                    setShowCreateFile(true)
-                  }}
-                  title='Create new file'
-                  className='h-8 w-8'
-                >
-                  <FilePlus className='h-4 w-4' />
-                </Button>
-                <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
-                <div className='w-px h-6 bg-border mx-1' />
-              </>
-            )}
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'ghost'}
-              size='sm'
-              onClick={() => handleViewModeChange('list')}
-              className='h-8 w-8 p-0'
-            >
-              <List className='h-4 w-4' />
-            </Button>
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'ghost'}
-              size='sm'
-              onClick={() => handleViewModeChange('grid')}
-              className='h-8 w-8 p-0'
-            >
-              <LayoutGrid className='h-4 w-4' />
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* File List or Grid View, or KB Search Results */}
-      <UploadDropZone
-        enabled={isEditable}
-        onUpload={handleUploadFiles}
-        className='flex flex-col min-h-0 flex-1 overflow-hidden'
+        }
+        search={{
+          visible: inKb,
+          placeholder: 'Search notes...',
+          value: searchQuery,
+          onChange: setSearchQuery,
+        }}
+        actions={toolbarActions}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
       >
-        {searchQuery.trim() ? (
-          <KbSearchResults
-            results={searchResults}
-            query={searchQuery}
-            isLoading={searchLoading}
-            currentPath={currentPath}
-            onResultClick={handleKbResultClick}
+        <UploadDropZone
+          enabled={isEditable}
+          onUpload={handleUploadFiles}
+          className='flex flex-col min-h-0 flex-1 overflow-hidden'
+        >
+          <BrowserPaneContent
+            searchQuery={searchQuery}
+            searchResults={
+              <KbSearchResults
+                results={searchResults}
+                query={searchQuery}
+                isLoading={searchLoading}
+                currentPath={currentPath}
+                onResultClick={handleKbResultClick}
+              />
+            }
+            dashboard={
+              inKb && currentPath ? (
+                <KbDashboard scopePath={currentPath} onFileClick={handleKbResultClick} />
+              ) : null
+            }
+            viewMode={viewMode}
+            listView={listView}
+            gridView={gridView}
           />
-        ) : (
-          <>
-            {inKb && currentPath && (
-              <KbDashboard scopePath={currentPath} onFileClick={handleKbResultClick} />
-            )}
-            {viewMode === 'list' ? (
-              <FileListView
-                files={files}
-                currentPath={currentPath}
-                favorites={favorites}
-                playingPath={playingPath}
-                isVirtualFolder={isVirtualFolder}
-                editableFolders={editableFolders}
-                onFileClick={handleFileClick}
-                onFolderHover={handleFolderHover}
-                onParentDirectory={handleParentDirectory}
-                onFavoriteToggle={handleFavoriteToggle}
-                onContextSetIcon={handleContextSetIcon}
-                onContextRename={handleContextRename}
-                onContextDelete={handleContextDelete}
-                onContextDownload={handleContextDownload}
-                onContextToggleFavorite={handleContextToggleFavorite}
-                onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
-                onContextShare={handleContextShare}
-                onContextCopyShareLink={handleContextCopyShareLink}
-                onContextMove={handleContextMove}
-                onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
-                onContextOpenInNewTab={handleContextOpenInNewTab}
-                hasEditableFolders={editableFolders.length > 0}
-                onMoveFile={handleMoveFile}
-                shares={shares}
-                knowledgeBases={knowledgeBases}
-                getViewCount={getViewCount}
-                getShareViewCount={getShareViewCount}
-                getIcon={getIcon}
-                showInlineCreate={isEditable && inKb}
-                onInlineCreateFile={(name) =>
-                  createFileMutation.mutate(name, {
-                    onSuccess: () => createFileMutation.reset(),
-                  })
-                }
-                onInlineCreateFolder={(name) =>
-                  createFolderMutation.mutate(name, {
-                    onSuccess: () => createFolderMutation.reset(),
-                  })
-                }
-                onInlineCreateCancel={() => {
-                  createFileMutation.reset()
-                  createFolderMutation.reset()
-                }}
-                createFilePending={createFileMutation.isPending}
-                createFolderPending={createFolderMutation.isPending}
-                createFileError={createFileMutation.error}
-                createFolderError={createFolderMutation.error}
-              />
-            ) : (
-              <FileGridView
-                files={files}
-                currentPath={currentPath}
-                favorites={favorites}
-                playingPath={playingPath}
-                isVirtualFolder={isVirtualFolder}
-                editableFolders={editableFolders}
-                onFileClick={handleFileClick}
-                onFolderHover={handleFolderHover}
-                onParentDirectory={handleParentDirectory}
-                onFavoriteToggle={handleFavoriteToggle}
-                onContextSetIcon={handleContextSetIcon}
-                onContextRename={handleContextRename}
-                onContextDelete={handleContextDelete}
-                onContextDownload={handleContextDownload}
-                onContextToggleFavorite={handleContextToggleFavorite}
-                onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
-                onContextShare={handleContextShare}
-                onContextCopyShareLink={handleContextCopyShareLink}
-                onContextMove={handleContextMove}
-                onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
-                onContextOpenInNewTab={handleContextOpenInNewTab}
-                hasEditableFolders={editableFolders.length > 0}
-                onMoveFile={handleMoveFile}
-                shares={shares}
-                knowledgeBases={knowledgeBases}
-                getViewCount={getViewCount}
-                getShareViewCount={getShareViewCount}
-                getIcon={getIcon}
-              />
-            )}
-          </>
-        )}
-      </UploadDropZone>
-
-      <UploadProgress
-        isUploading={isUploading}
-        error={uploadError}
-        fileCount={uploadFileCount}
-        onDismiss={resetUpload}
-      />
+        </UploadDropZone>
+      </BrowserPane>
     </div>
   )
 }

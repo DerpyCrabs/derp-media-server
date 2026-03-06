@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { useUrlState } from '@/lib/use-url-state'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { post } from '@/lib/api'
 import { X, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle, Download } from 'lucide-react'
@@ -15,6 +14,9 @@ import { TextContent } from '@/components/text-content'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
 import { useSettings } from '@/lib/use-settings'
 import { useMediaUrl } from '@/lib/use-media-url'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
 export interface ShareInfoForViewer {
   token: string
@@ -34,6 +36,8 @@ export interface ShareInfoForViewer {
 
 interface TextViewerProps {
   editableFolders?: string[]
+  session?: NavigationSession
+  mediaContext?: SourceContext
   shareMode?: {
     token: string
     shareInfo: ShareInfoForViewer
@@ -50,14 +54,17 @@ interface TextViewerProps {
 
 export function TextViewer({
   editableFolders = [],
+  session: sessionProp,
+  mediaContext,
   shareMode: shareModeProp,
   shareContext,
 }: TextViewerProps) {
-  const { urlState, closeViewer: urlCloseViewer } = useUrlState()
+  const session = useNavigationSession(sessionProp)
+  const { state, closeViewer: urlCloseViewer } = session
   const queryClient = useQueryClient()
 
-  const { getMediaUrl, getDownloadUrl } = useMediaUrl()
-  const viewingPathFromUrl = urlState.viewing
+  const { getMediaUrl, getDownloadUrl } = useMediaUrl(mediaContext)
+  const viewingPathFromUrl = state.viewing
 
   const autoShareMode = useMemo(() => {
     if (shareModeProp || !shareContext || !viewingPathFromUrl) return undefined
@@ -75,7 +82,7 @@ export function TextViewer({
   const isShareMode = !!shareMode
   const viewingPath = isShareMode
     ? (shareMode!.filePath ?? shareMode!.shareInfo.path)
-    : urlState.viewing
+    : state.viewing
   const [copied, setCopied] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState<string>('')

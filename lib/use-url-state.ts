@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useSearchParams } from '@/lib/router'
+import type { NavigationSession, NavigationState } from '@/lib/navigation-session'
 
 type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly'
 
@@ -32,10 +33,10 @@ function applyUpdates(updates: ParamUpdates, mode: 'push' | 'replace') {
  * first so concurrent updates from different components never
  * silently overwrite each other.
  */
-export function useUrlState() {
+export function useUrlState(): NavigationSession & { urlState: NavigationState } {
   const searchParams = useSearchParams()
 
-  const urlState = {
+  const state = {
     dir: searchParams.get('dir'),
     viewing: searchParams.get('viewing'),
     playing: searchParams.get('playing'),
@@ -70,5 +71,14 @@ export function useUrlState() {
     applyUpdates({ audioOnly: enabled ? 'true' : null }, 'replace')
   }, [])
 
-  return { urlState, navigateToFolder, viewFile, playFile, closeViewer, closePlayer, setAudioOnly }
+  return {
+    state,
+    urlState: state,
+    navigateToFolder,
+    viewFile,
+    playFile,
+    closeViewer,
+    closePlayer,
+    setAudioOnly,
+  }
 }

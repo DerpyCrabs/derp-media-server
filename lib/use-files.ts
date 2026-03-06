@@ -1,27 +1,25 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { FileItem } from './types'
-
-function stripSharePrefix(filePath: string, sharePath: string): string {
-  const norm = filePath.replace(/\\/g, '/')
-  const base = sharePath.replace(/\\/g, '/')
-  if (norm === base) return ''
-  return norm.startsWith(base + '/') ? norm.slice(base.length + 1) : norm
-}
+import { resolveSourceContext, stripSharePrefix, type SourceContext } from '@/lib/source-context'
 
 export function useFiles(
   currentPath: string,
-  shareToken?: string | null,
+  sourceOrToken?: SourceContext | string | null,
   sharePath?: string | null,
 ) {
-  const dir = shareToken && sharePath ? stripSharePrefix(currentPath, sharePath) : currentPath
+  const source = resolveSourceContext(sourceOrToken, sharePath)
+  const shareToken = source.shareToken ?? null
+  const resolvedSharePath = source.sharePath ?? null
+  const currentDir =
+    shareToken && resolvedSharePath ? stripSharePrefix(currentPath, resolvedSharePath) : currentPath
 
   const { data, ...rest } = useQuery({
-    queryKey: shareToken ? ['share-files', shareToken, dir] : ['files', currentPath],
+    queryKey: shareToken ? ['share-files', shareToken, currentDir] : ['files', currentPath],
     queryFn: () =>
       shareToken
         ? api<{ files: FileItem[] }>(
-            `/api/share/${shareToken}/files?dir=${encodeURIComponent(dir)}`,
+            `/api/share/${shareToken}/files?dir=${encodeURIComponent(currentDir)}`,
           )
         : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentPath)}`),
     staleTime: 1000 * 60 * 5,
