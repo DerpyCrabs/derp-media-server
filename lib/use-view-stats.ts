@@ -1,9 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { resolveSourceContext, stripSharePrefix, type SourceContext } from '@/lib/source-context'
 
-export function useViewStats() {
+interface UseViewStatsOptions {
+  includeCounts?: boolean
+}
+
+export function useViewStats(
+  sourceContext?: SourceContext | null,
+  { includeCounts = true }: UseViewStatsOptions = {},
+) {
   const queryClient = useQueryClient()
+  const resolvedSource = resolveSourceContext(sourceContext ?? undefined)
+  const shareToken = resolvedSource.shareToken ?? null
+  const sharePath = resolvedSource.sharePath ?? null
 
   const { data } = useQuery({
     queryKey: queryKeys.stats(),
@@ -13,12 +24,20 @@ export function useViewStats() {
       ),
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 10,
+    enabled: includeCounts && !shareToken,
   })
 
   const incrementMutation = useMutation({
-    mutationFn: (vars: { filePath: string }) => post('/api/stats/views', vars),
+    mutationFn: (vars: { filePath: string }) =>
+      shareToken
+        ? post(`/api/share/${shareToken}/view`, {
+            filePath: stripSharePrefix(vars.filePath, sharePath),
+          })
+        : post('/api/stats/views', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.stats() })
+      if (includeCounts && !shareToken) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.stats() })
+      }
     },
   })
 

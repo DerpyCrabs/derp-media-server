@@ -23,7 +23,13 @@ async function createShare(
 
 async function gotoWithSSE(page: Page, url: string) {
   const sseConnected = page.waitForEvent('console', {
-    predicate: (msg) => msg.text().includes('[Files SSE] Connected'),
+    predicate: (msg) => {
+      const text = msg.text()
+      return (
+        text.includes('[Files SSE] Connected') ||
+        text.includes('[Share SSE] Connected to share stream')
+      )
+    },
     timeout: 10000,
   })
   await page.goto(url)

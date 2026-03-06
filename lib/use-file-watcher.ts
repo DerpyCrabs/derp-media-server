@@ -53,13 +53,14 @@ function disconnectFromSSE() {
   }
 }
 
-export function useFileWatcher() {
+export function useFileWatcher(enabled = true) {
   const queryClient = useQueryClient()
 
   useEffect(() => {
+    if (!enabled) return
     connectToSSE(queryClient)
     return () => {
       disconnectFromSSE()
     }
-  }, [queryClient])
+  }, [queryClient, enabled])
 }

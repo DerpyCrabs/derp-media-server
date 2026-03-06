@@ -39,7 +39,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
     toggleRepeat,
   } = useMediaPlayer()
 
-  const { incrementView } = useViewStats()
+  const { incrementView } = useViewStats(mediaContext, { includeCounts: false })
   const { getMediaUrl, getAudioExtractUrl, getAudioMetadataUrl, shareToken, sharePath } =
     useMediaUrl(mediaContext)
 

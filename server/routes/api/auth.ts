@@ -1,7 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { config } from '@/lib/config'
 import { getEditableFolders } from '@/lib/file-system'
-import { createAuthSessionValue, verifyPassword, SESSION_COOKIE } from '@/lib/auth'
+import {
+  createAuthSessionValue,
+  verifyPassword,
+  verifySessionValue,
+  SESSION_COOKIE,
+} from '@/lib/auth'
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>()
 const MAX_ATTEMPTS = 10
@@ -40,8 +45,14 @@ function getRequestHost(req: FastifyRequest): string {
 }
 
 export function registerAuthApiRoutes(app: FastifyInstance) {
-  app.get('/api/auth/config', async (_request, reply) => {
+  app.get('/api/auth/config', async (request, reply) => {
     const enabled = config.auth?.enabled ?? false
+    if (enabled) {
+      const sessionValue = (request.cookies as Record<string, string | undefined>)?.[SESSION_COOKIE]
+      if (!verifySessionValue(sessionValue)) {
+        return reply.code(401).send({ error: 'Unauthorized' })
+      }
+    }
     const shareLinkDomain = config.shareLinkDomain ?? undefined
     const editableFolders = getEditableFolders()
     return reply.send({ enabled, shareLinkDomain, editableFolders })

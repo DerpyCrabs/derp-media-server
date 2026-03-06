@@ -80,6 +80,7 @@ export function TextViewer({
   }, [shareModeProp, shareContext, viewingPathFromUrl, getMediaUrl, getDownloadUrl, urlCloseViewer])
 
   const shareMode = shareModeProp ?? autoShareMode
+  const isShareSession = !!(shareModeProp || shareContext)
   const isShareMode = !!shareMode
   const viewingPath = isShareMode
     ? (shareMode!.filePath ?? shareMode!.shareInfo.path)
@@ -136,7 +137,7 @@ export function TextViewer({
     mutationFn: (vars: { path: string; content: string }) => post('/api/files/edit', vars),
   })
 
-  const { settings, setAutoSave } = useSettings('', !isShareMode)
+  const { settings, setAutoSave } = useSettings('', !isShareSession)
   const knowledgeBases = settings.knowledgeBases || []
   const autoSaveEnabled = isShareMode
     ? shareSettings.enabled

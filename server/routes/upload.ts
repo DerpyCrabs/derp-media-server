@@ -25,7 +25,7 @@ export function registerUploadRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'No files provided' })
       }
 
-      const broadcastDirs = new Set<string>()
+      const broadcastEvents = new Map<string, string>()
       let uploadedCount = 0
 
       for (const file of files) {
@@ -41,7 +41,7 @@ export function registerUploadRoutes(app: FastifyInstance) {
         await fs.mkdir(path.dirname(fullPath), { recursive: true })
         await fs.writeFile(fullPath, file.data)
 
-        broadcastDirs.add(normalizedParent)
+        broadcastEvents.set(normalizedParent, relativePath.replace(/\\/g, '/'))
         uploadedCount++
       }
 
@@ -51,7 +51,7 @@ export function registerUploadRoutes(app: FastifyInstance) {
           .send({ error: 'No files were uploaded — target path is not editable' })
       }
 
-      broadcastDirs.forEach((dir) => broadcastFileChange(dir))
+      broadcastEvents.forEach((changedPath, dir) => broadcastFileChange(dir, changedPath))
 
       return reply.send({ success: true, uploaded: uploadedCount })
     } catch (error) {
