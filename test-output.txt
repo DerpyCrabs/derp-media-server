@@ -1,0 +1,356 @@
+$ playwright test
+[e2e] Setting up test fixtures...
+[e2e] Test fixtures ready.
+
+Running 125 tests using 1 worker
+
+[1A[2K[1/125] [auth-setup] › tests\fixtures\auth-setup.ts:8:6 › authenticate
+[1A[2K[2/125] [login] › tests\e2e\login.spec.ts:6:7 › Login & Auth › unauthenticated visit to / redirects to /login
+[1A[2K[3/125] [login] › tests\e2e\login.spec.ts:11:7 › Login & Auth › login page shows password input and sign-in button
+[1A[2K[4/125] [login] › tests\e2e\login.spec.ts:18:7 › Login & Auth › wrong password shows error message
+[1A[2K[5/125] [login] › tests\e2e\login.spec.ts:25:7 › Login & Auth › correct password redirects to /
+[1A[2K[6/125] [login] › tests\e2e\login.spec.ts:32:7 › Login & Auth › share pages remain accessible without login
+[1A[2K[7/125] [chromium] › tests\e2e\audio-player.spec.ts:8:7 › Audio Player › opens audio player bar when clicking an audio file
+[1A[2K[8/125] [chromium] › tests\e2e\audio-player.spec.ts:15:7 › Audio Player › shows play/pause controls
+[1A[2K[9/125] [chromium] › tests\e2e\audio-player.spec.ts:22:7 › Audio Player › shows next/previous buttons
+[1A[2K[10/125] [chromium] › tests\e2e\audio-player.spec.ts:28:7 › Audio Player › shows volume control on desktop
+[1A[2K[11/125] [chromium] › tests\e2e\audio-player.spec.ts:34:7 › Audio Player › displays cover art from folder
+[1A[2K[12/125] [chromium] › tests\e2e\audio-player.spec.ts:39:7 › Audio Player › reflects playing audio in URL
+[1A[2K[13/125] [chromium] › tests\e2e\audio-player.spec.ts:45:7 › Audio Player › shows "Show video" button when video plays in audio-only mode
+[1A[2K[14/125] [chromium] › tests\e2e\audio-player.spec.ts:50:7 › Audio Player › switches back to video from audio-only mode
+[1A[2K[15/125] [chromium] › tests\e2e\audio-player.spec.ts:57:7 › Audio Player › repeat button toggles
+[1A[2K[16/125] [chromium] › tests\e2e\download.spec.ts:4:7 › File Download › context menu shows Download for files
+[1A[2K[17/125] [chromium] › tests\e2e\download.spec.ts:12:7 › File Download › downloads a single file via context menu
+[1A[2K  1) [chromium] › tests\e2e\download.spec.ts:12:7 › File Download › downloads a single file via context menu 
+
+    [31mTest timeout of 10000ms exceeded.[39m
+
+    Error: page.waitForEvent: Test timeout of 10000ms exceeded.
+    =========================== logs ===========================
+    waiting for event "download"
+    ============================================================
+
+      13 |     await page.goto('/?dir=Documents')
+      14 |
+    > 15 |     const downloadPromise = page.waitForEvent('download')
+         |                                  ^
+      16 |     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
+      17 |     await page
+      18 |       .locator('[data-slot="context-menu-item"]')
+        at C:\Users\crab\derp-media-server\tests\e2e\download.spec.ts:15:34
+
+    Error: locator.click: Test timeout of 10000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('[data-slot="context-menu-item"]').getByText('Download', { exact: true })[22m
+    [2m    - locator resolved to <div tabindex="-1" role="menuitem" id="base-ui-_r_1t_" data-variant="default" data-slot="context-menu-item" class="focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:text-destructive focus:*:[svg]:text-accent-foreground group/context-menu-item relative flex cursor-default …>…</div>[22m
+    [2m  - attempting click action[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is not stable[22m
+    [2m    - retrying click action[22m
+    [2m    - waiting 20ms[22m
+    [2m  - element was detached from the DOM, retrying[22m
+    [2m    - waiting for" http://localhost:5973/?dir=Documents" navigation to finish...[22m
+    [2m    - navigated to "http://localhost:5973/?dir=Documents"[22m
+
+
+      18 |       .locator('[data-slot="context-menu-item"]')
+      19 |       .getByText('Download', { exact: true })
+    > 20 |       .click()
+         |        ^
+      21 |     const download = await downloadPromise
+      22 |
+      23 |     expect(download.suggestedFilename()).toBe('readme.txt')
+        at C:\Users\crab\derp-media-server\tests\e2e\download.spec.ts:20:8
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\download-File-Download-dow-9c287-ingle-file-via-context-menu-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\download-File-Download-dow-9c287-ingle-file-via-context-menu-chromium\error-context.md
+
+
+[1A[2K[18/125] [chromium] › tests\e2e\download.spec.ts:26:7 › File Download › context menu shows "Download as ZIP" for folders
+[1A[2K[19/125] [chromium] › tests\e2e\download.spec.ts:34:7 › File Download › downloads a folder as ZIP via context menu
+[1A[2K[20/125] [chromium] › tests\e2e\drag-drop.spec.ts:4:7 › Drag and Drop File Moving › drags a file into a folder
+[1A[2K[21/125] [chromium] › tests\e2e\drag-drop.spec.ts:35:7 › Drag and Drop File Moving › drag is not available in non-editable folders
+[1A[2K[22/125] [chromium] › tests\e2e\editable-folders.spec.ts:4:7 › Editable Folders › creates a new folder via dialog
+[1A[2K[23/125] [chromium] › tests\e2e\editable-folders.spec.ts:12:7 › Editable Folders › creates a new file via dialog
+[1A[2K[24/125] [chromium] › tests\e2e\editable-folders.spec.ts:20:7 › Editable Folders › renames a file via context menu
+[1A[2K[25/125] [chromium] › tests\e2e\editable-folders.spec.ts:41:7 › Editable Folders › renames a folder via context menu
+[1A[2K[26/125] [chromium] › tests\e2e\editable-folders.spec.ts:54:7 › Editable Folders › deletes a file via context menu
+[1A[2K[27/125] [chromium] › tests\e2e\editable-folders.spec.ts:64:7 › Editable Folders › deletes a folder via context menu
+[1A[2K[28/125] [chromium] › tests\e2e\editable-folders.spec.ts:73:7 › Editable Folders › moves a file via context menu
+[1A[2K[29/125] [chromium] › tests\e2e\editable-folders.spec.ts:97:7 › Editable Folders › copies a file via context menu
+[1A[2K  2) [chromium] › tests\e2e\editable-folders.spec.ts:97:7 › Editable Folders › copies a file via context menu 
+
+    [31mTest timeout of 10000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 10000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('[data-slot="context-menu-item"]').getByText('Copy to...')[22m
+    [2m    - locator resolved to <div tabindex="-1" role="menuitem" id="base-ui-_r_24_" data-variant="default" data-slot="context-menu-item" class="focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:text-destructive focus:*:[svg]:text-accent-foreground group/context-menu-item relative flex cursor-default …>…</div>[22m
+    [2m  - attempting click action[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is not stable[22m
+    [2m    - retrying click action[22m
+    [2m    - waiting 20ms[22m
+    [2m  - element was detached from the DOM, retrying[22m
+    [2m    - waiting for" http://localhost:5973/?dir=SharedContent" navigation to finish...[22m
+    [2m    - navigated to "http://localhost:5973/?dir=SharedContent"[22m
+
+
+       98 |     await page.goto('/?dir=SharedContent')
+       99 |     await page.locator('table tr').filter({ hasText: 'public-doc.txt' }).click({ button: 'right' })
+    > 100 |     await page.locator('[data-slot="context-menu-item"]').getByText('Copy to...').click()
+          |                                                                                   ^
+      101 |
+      102 |     await page.locator('[role="dialog"]').getByText('subfolder').click()
+      103 |     await page.getByRole('button', { name: /Copy/i }).click()
+        at C:\Users\crab\derp-media-server\tests\e2e\editable-folders.spec.ts:100:83
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\editable-folders-Editable--e0016-ies-a-file-via-context-menu-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\editable-folders-Editable--e0016-ies-a-file-via-context-menu-chromium\error-context.md
+
+
+[1A[2K[30/125] [chromium] › tests\e2e\editable-folders.spec.ts:113:7 › Editable Folders › does not show edit options in non-editable folders
+[1A[2K[31/125] [chromium] › tests\e2e\image-viewer.spec.ts:4:7 › Image Viewer › opens image viewer when clicking an image file
+[1A[2K[32/125] [chromium] › tests\e2e\image-viewer.spec.ts:10:7 › Image Viewer › reflects viewing image in URL
+[1A[2K[33/125] [chromium] › tests\e2e\image-viewer.spec.ts:16:7 › Image Viewer › shows zoom controls
+[1A[2K[34/125] [chromium] › tests\e2e\image-viewer.spec.ts:23:7 › Image Viewer › zooms in and out on button click
+[1A[2K[35/125] [chromium] › tests\e2e\image-viewer.spec.ts:34:7 › Image Viewer › rotates image via rotate button
+[1A[2K[36/125] [chromium] › tests\e2e\image-viewer.spec.ts:44:7 › Image Viewer › fit-to-screen button resets zoom and rotation
+[1A[2K[37/125] [chromium] › tests\e2e\image-viewer.spec.ts:59:7 › Image Viewer › navigates to next image with ArrowRight key
+[1A[2K[38/125] [chromium] › tests\e2e\image-viewer.spec.ts:72:7 › Image Viewer › navigates to previous image with ArrowLeft key
+[1A[2K[39/125] [chromium] › tests\e2e\image-viewer.spec.ts:83:7 › Image Viewer › shows image counter
+[1A[2K[40/125] [chromium] › tests\e2e\image-viewer.spec.ts:88:7 › Image Viewer › closing viewer returns to file list
+[1A[2K[41/125] [chromium] › tests\e2e\knowledge-base.spec.ts:4:7 › Knowledge Base › shows search input in KB folders
+[1A[2K[42/125] [chromium] › tests\e2e\knowledge-base.spec.ts:9:7 › Knowledge Base › searches notes and shows results
+[1A[2K[43/125] [chromium] › tests\e2e\knowledge-base.spec.ts:17:7 › Knowledge Base › shows recent notes
+[1A[2K[44/125] [chromium] › tests\e2e\knowledge-base.spec.ts:25:7 › Knowledge Base › defaults to .md extension when creating files in KB
+[1A[2K[45/125] [chromium] › tests\e2e\knowledge-base.spec.ts:32:7 › Knowledge Base › toggles KB on a folder via context menu
+[1A[2K  3) [chromium] › tests\e2e\knowledge-base.spec.ts:32:7 › Knowledge Base › toggles KB on a folder via context menu 
+
+    [31mTest timeout of 10000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 10000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+      38 |     // Navigate into the folder — should now show search
+      39 |     await page.locator('table').getByText('SharedContent', { exact: true }).click()
+    > 40 |     await page.waitForURL(/dir=SharedContent/)
+         |                ^
+      41 |     await expect(page.locator('input[type="search"][placeholder*="Search"]')).toBeVisible()
+      42 |
+      43 |     // Toggle off
+        at C:\Users\crab\derp-media-server\tests\e2e\knowledge-base.spec.ts:40:16
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\knowledge-base-Knowledge-B-8cc05-n-a-folder-via-context-menu-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\knowledge-base-Knowledge-B-8cc05-n-a-folder-via-context-menu-chromium\error-context.md
+
+
+[1A[2K[46/125] [chromium] › tests\e2e\knowledge-base.spec.ts:49:7 › Knowledge Base › renders Obsidian-style ![[image]] embeds
+[1A[2K[47/125] [chromium] › tests\e2e\knowledge-base.spec.ts:62:7 › Knowledge Base › sets a custom icon on a folder
+[1A[2K[48/125] [chromium] › tests\e2e\navigation.spec.ts:4:7 › Folder Navigation › shows all top-level folders at root
+[1A[2K[49/125] [chromium] › tests\e2e\navigation.spec.ts:20:7 › Folder Navigation › navigates into a folder on click
+[1A[2K[50/125] [chromium] › tests\e2e\navigation.spec.ts:27:7 › Folder Navigation › navigates back via breadcrumbs
+[1A[2K[51/125] [chromium] › tests\e2e\navigation.spec.ts:35:7 › Folder Navigation › navigates to parent using ".." row
+[1A[2K[52/125] [chromium] › tests\e2e\navigation.spec.ts:41:7 › Folder Navigation › navigates into nested folders
+[1A[2K[53/125] [chromium] › tests\e2e\navigation.spec.ts:48:7 › Folder Navigation › switches to grid view and back
+[1A[2K[54/125] [chromium] › tests\e2e\navigation.spec.ts:60:7 › Folder Navigation › shows empty state for empty folder
+[1A[2K[55/125] [chromium] › tests\e2e\navigation.spec.ts:67:7 › Folder Navigation › favorites a file and sees it in Favorites virtual folder
+[1A[2K[56/125] [chromium] › tests\e2e\navigation.spec.ts:92:7 › Folder Navigation › tracks views and shows Most Played
+[1A[2K[57/125] [chromium] › tests\e2e\navigation.spec.ts:101:7 › Folder Navigation › loads folder from direct URL
+[1A[2K[58/125] [chromium] › tests\e2e\navigation.spec.ts:106:7 › Folder Navigation › shows file metadata in list view
+[1A[2K[59/125] [chromium] › tests\e2e\navigation.spec.ts:114:7 › Folder Navigation › shows virtual folders at root
+[1A[2K[60/125] [chromium] › tests\e2e\passcode-shares.spec.ts:7:7 › Passcode-Protected Shares › shows passcode gate for protected share
+[1A[2K[61/125] [chromium] › tests\e2e\passcode-shares.spec.ts:14:7 › Passcode-Protected Shares › rejects wrong passcode
+[1A[2K[62/125] [chromium] › tests\e2e\passcode-shares.spec.ts:22:7 › Passcode-Protected Shares › accepts correct passcode and shows content
+[1A[2K[63/125] [chromium] › tests\e2e\passcode-shares.spec.ts:31:7 › Passcode-Protected Shares › passcode in URL auto-authenticates
+[1A[2K[64/125] [chromium] › tests\e2e\pdf-viewer.spec.ts:4:7 › PDF Viewer › opens PDF viewer when clicking a PDF file
+[1A[2K[65/125] [chromium] › tests\e2e\pdf-viewer.spec.ts:10:7 › PDF Viewer › shows PDF filename in header
+[1A[2K[66/125] [chromium] › tests\e2e\pdf-viewer.spec.ts:15:7 › PDF Viewer › shows download button
+[1A[2K[67/125] [chromium] › tests\e2e\pdf-viewer.spec.ts:20:7 › PDF Viewer › shows open-in-new-tab button
+[1A[2K[68/125] [chromium] › tests\e2e\pdf-viewer.spec.ts:25:7 › PDF Viewer › closing viewer returns to file list
+[1A[2K[69/125] [chromium] › tests\e2e\shares-manage.spec.ts:4:7 › Managing Shares › creates a share for a file
+[1A[2K  4) [chromium] › tests\e2e\shares-manage.spec.ts:4:7 › Managing Shares › creates a share for a file 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveValue[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator: locator('input[readonly]').first()
+    Expected pattern: [32m/\/share\//[39m
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toHaveValue" with timeout 5000ms[22m
+    [2m  - waiting for locator('input[readonly]').first()[22m
+
+
+      16 |     }
+      17 |
+    > 18 |     await expect(page.locator('input[readonly]').first()).toHaveValue(/\/share\//)
+         |                                                           ^
+      19 |   })
+      20 |
+      21 |   test('creates a share for a folder', async ({ page }) => {
+        at C:\Users\crab\derp-media-server\tests\e2e\shares-manage.spec.ts:18:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\shares-manage-Managing-Shares-creates-a-share-for-a-file-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\shares-manage-Managing-Shares-creates-a-share-for-a-file-chromium\error-context.md
+
+
+[1A[2K[70/125] [chromium] › tests\e2e\shares-manage.spec.ts:21:7 › Managing Shares › creates a share for a folder
+[1A[2K[71/125] [chromium] › tests\e2e\shares-manage.spec.ts:37:7 › Managing Shares › creates an editable share with restriction options
+[1A[2K[72/125] [chromium] › tests\e2e\shares-manage.spec.ts:61:7 › Managing Shares › share link is displayed and copyable
+[1A[2K[73/125] [chromium] › tests\e2e\shares-manage.spec.ts:79:7 › Managing Shares › views shares in Shares virtual folder
+[1A[2K[74/125] [chromium] › tests\e2e\shares-manage.spec.ts:86:7 › Managing Shares › revokes a share
+[1A[2K  5) [chromium] › tests\e2e\shares-manage.spec.ts:86:7 › Managing Shares › revokes a share ─────────
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeFalsy[2m()[22m
+
+    Received: [31mtrue[39m
+
+      103 |
+      104 |     const shareRes = await page.request.get(`/api/share/${share.token}/info`)
+    > 105 |     expect(shareRes.ok()).toBeFalsy()
+          |                           ^
+      106 |   })
+      107 |
+      108 |   test('share restrictions disable delete option', async ({ page }) => {
+        at C:\Users\crab\derp-media-server\tests\e2e\shares-manage.spec.ts:105:27
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\shares-manage-Managing-Shares-revokes-a-share-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\shares-manage-Managing-Shares-revokes-a-share-chromium\error-context.md
+
+
+[1A[2K[75/125] [chromium] › tests\e2e\shares-manage.spec.ts:108:7 › Managing Shares › share restrictions disable delete option
+[1A[2K[76/125] [chromium] › tests\e2e\shares-use.spec.ts:43:7 › Using Shares › views a shared text file page
+[1A[2K[77/125] [chromium] › tests\e2e\shares-use.spec.ts:49:7 › Using Shares › shared file page shows download button
+[1A[2K[78/125] [chromium] › tests\e2e\shares-use.spec.ts:56:7 › Using Shares › browses a shared folder
+[1A[2K[79/125] [chromium] › tests\e2e\shares-use.spec.ts:62:7 › Using Shares › navigates into subfolder within shared folder
+[1A[2K[80/125] [chromium] › tests\e2e\shares-use.spec.ts:69:7 › Using Shares › uses breadcrumbs to navigate within share
+[1A[2K[81/125] [chromium] › tests\e2e\shares-use.spec.ts:78:7 › Using Shares › plays video in shared folder
+[1A[2K[82/125] [chromium] › tests\e2e\shares-use.spec.ts:84:7 › Using Shares › views text file in shared folder
+[1A[2K[83/125] [chromium] › tests\e2e\shares-use.spec.ts:90:7 › Using Shares › edits a file in editable share
+[1A[2K[84/125] [chromium] › tests\e2e\shares-use.spec.ts:115:7 › Using Shares › creates a file in editable share
+[1A[2K[85/125] [chromium] › tests\e2e\shares-use.spec.ts:125:7 › Using Shares › creates a folder in editable share
+[1A[2K[86/125] [chromium] › tests\e2e\shares-use.spec.ts:133:7 › Using Shares › deletes a file in editable share
+[1A[2K[87/125] [chromium] › tests\e2e\shares-use.spec.ts:147:7 › Using Shares › non-editable share hides edit controls
+[1A[2K[88/125] [chromium] › tests\e2e\sse-live-updates.spec.ts:53:7 › SSE Live Updates › admin renames file in shared folder -> share view updates
+[1A[2K[89/125] [chromium] › tests\e2e\sse-live-updates.spec.ts:86:7 › SSE Live Updates › admin changes are seen by another admin user
+[1A[2K[90/125] [chromium] › tests\e2e\sse-live-updates.spec.ts:111:7 › SSE Live Updates › editable share changes are seen by admin user
+[1A[2K[91/125] [chromium] › tests\e2e\sse-live-updates.spec.ts:147:7 › SSE Live Updates › editable share changes are seen by another share user
+[1A[2K  6) [chromium] › tests\e2e\sse-live-updates.spec.ts:147:7 › SSE Live Updates › editable share changes are seen by another share user 
+
+    [31mTest timeout of 10000ms exceeded.[39m
+
+    Error: locator.click: Test ended.
+    Call log:
+    [2m  - waiting for locator('table tr').filter({ hasText: 'sse-share-to-share.txt' })[22m
+    [2m    - locator resolved to <tr draggable="true" data-slot="context-menu-trigger" class="data-[state=selected]:bg-muted border-b transition-colors cursor-pointer hover:bg-muted/50 select-none">…</tr>[22m
+    [2m  - attempting click action[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <h2 id="base-ui-_r_1h_" data-slot="dialog-title" class="leading-none font-medium">Create File</h2> from <div id="_r_1g_" data-base-ui-portal="" data-slot="dialog-portal">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m    - waiting 20ms[22m
+    [2m    2 × waiting for element to be visible, enabled and stable[22m
+    [2m      - element is visible, enabled and stable[22m
+    [2m      - scrolling into view if needed[22m
+    [2m      - done scrolling[22m
+    [2m      - <h2 id="base-ui-_r_1h_" data-slot="dialog-title" class="leading-none font-medium">Create File</h2> from <div id="_r_1g_" data-base-ui-portal="" data-slot="dialog-portal">…</div> subtree intercepts pointer events[22m
+    [2m    - retrying click action[22m
+    [2m      - waiting 100ms[22m
+    [2m    16 × waiting for element to be visible, enabled and stable[22m
+    [2m       - element is visible, enabled and stable[22m
+    [2m       - scrolling into view if needed[22m
+    [2m       - done scrolling[22m
+    [2m       - <h2 id="base-ui-_r_1h_" data-slot="dialog-title" class="leading-none font-medium">Create File</h2> from <div id="_r_1g_" data-base-ui-portal="" data-slot="dialog-portal">…</div> subtree intercepts pointer events[22m
+    [2m     - retrying click action[22m
+    [2m       - waiting 500ms[22m
+    [2m    - waiting for element to be visible, enabled and stable[22m
+
+
+      178 |       .locator('table tr')
+      179 |       .filter({ hasText: 'sse-share-to-share.txt' })
+    > 180 |       .click({ button: 'right' })
+          |        ^
+      181 |     await share1.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
+      182 |     await share1.getByRole('button', { name: /Delete/i }).click()
+      183 |
+        at C:\Users\crab\derp-media-server\tests\e2e\sse-live-updates.spec.ts:180:8
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\sse-live-updates-SSE-Live--f4a69--seen-by-another-share-user-chromium\test-failed-2.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\sse-live-updates-SSE-Live--f4a69--seen-by-another-share-user-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\sse-live-updates-SSE-Live--f4a69--seen-by-another-share-user-chromium\test-failed-3.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K[92/125] [chromium] › tests\e2e\text-editor.spec.ts:4:7 › Text Editor › opens text viewer when clicking a text file
+[1A[2K[93/125] [chromium] › tests\e2e\text-editor.spec.ts:11:7 › Text Editor › renders markdown headings and formatting
+[1A[2K[94/125] [chromium] › tests\e2e\text-editor.spec.ts:18:7 › Text Editor › does not show edit button for non-editable folders
+[1A[2K[95/125] [chromium] › tests\e2e\text-editor.spec.ts:24:7 › Text Editor › auto-enters edit mode in editable folders
+[1A[2K[96/125] [chromium] › tests\e2e\text-editor.spec.ts:30:7 › Text Editor › shows textarea with file content in edit mode
+[1A[2K[97/125] [chromium] › tests\e2e\text-editor.spec.ts:37:7 › Text Editor › saves edits and persists changes
+[1A[2K[98/125] [chromium] › tests\e2e\text-editor.spec.ts:62:7 › Text Editor › closes text viewer returns to file list
+[1A[2K[99/125] [chromium] › tests\e2e\text-editor.spec.ts:70:7 › Text Editor › displays JSON files
+[1A[2K[100/125] [chromium] › tests\e2e\text-editor.spec.ts:76:7 › Text Editor › copy-to-clipboard button exists
+[1A[2K[101/125] [chromium] › tests\e2e\text-editor.spec.ts:81:7 › Text Editor › switches between edit and read-only mode
+[1A[2K[102/125] [chromium] › tests\e2e\upload.spec.ts:8:7 › File Upload › upload button is visible in editable folders
+[1A[2K[103/125] [chromium] › tests\e2e\upload.spec.ts:13:7 › File Upload › upload button is hidden in non-editable folders
+[1A[2K[104/125] [chromium] › tests\e2e\upload.spec.ts:18:7 › File Upload › upload menu shows file and folder options
+[1A[2K[105/125] [chromium] › tests\e2e\upload.spec.ts:25:7 › File Upload › uploads a file via file picker
+[1A[2K[106/125] [chromium] › tests\e2e\upload.spec.ts:45:7 › File Upload › uploaded file appears in file list
+[1A[2K[107/125] [chromium] › tests\e2e\upload.spec.ts:59:7 › File Upload › shows uploading progress toast
+[1A[2K[108/125] [chromium] › tests\e2e\url-state.spec.ts:11:7 › URL State – Main Page › viewing a file preserves playing param
+[1A[2K[109/125] [chromium] › tests\e2e\url-state.spec.ts:18:7 › URL State – Main Page › navigating to a folder preserves playing param
+[1A[2K[110/125] [chromium] › tests\e2e\url-state.spec.ts:25:7 › URL State – Main Page › closing viewer preserves playing param
+[1A[2K[111/125] [chromium] › tests\e2e\url-state.spec.ts:35:7 › URL State – Main Page › closing player preserves viewing param
+[1A[2K[112/125] [chromium] › tests\e2e\url-state.spec.ts:72:7 › URL State – Share Page › viewing a file preserves playing param
+[1A[2K[113/125] [chromium] › tests\e2e\url-state.spec.ts:82:7 › URL State – Share Page › navigating to subfolder preserves playing param
+[1A[2K[114/125] [chromium] › tests\e2e\url-state.spec.ts:92:7 › URL State – Share Page › closing viewer preserves playing param
+[1A[2K[115/125] [chromium] › tests\e2e\url-state.spec.ts:104:7 › URL State – Share Page › closing player preserves viewing param
+[1A[2K[116/125] [chromium] › tests\e2e\video-player.spec.ts:7:7 › Video Player › opens video player when clicking a video file
+[1A[2K[117/125] [chromium] › tests\e2e\video-player.spec.ts:14:7 › Video Player › video element has native controls
+[1A[2K[118/125] [chromium] › tests\e2e\video-player.spec.ts:21:7 › Video Player › shows audio-only mode toggle
+[1A[2K[119/125] [chromium] › tests\e2e\video-player.spec.ts:26:7 › Video Player › switches to audio-only mode
+[1A[2K[120/125] [chromium] › tests\e2e\video-player.spec.ts:33:7 › Video Player › closes video player
+[1A[2K[121/125] [chromium] › tests\e2e\video-player.spec.ts:43:7 › Video Player › minimizes video player
+[1A[2K[122/125] [chromium] › tests\e2e\video-player.spec.ts:51:7 › Video Player › reflects playing file in URL
+[1A[2K[123/125] [chromium] › tests\e2e\video-player.spec.ts:57:7 › Video Player › video loads with a valid source
+[1A[2K[124/125] [chromium] › tests\e2e\video-player.spec.ts:64:7 › Video Player › video thumbnails appear in grid view
+[1A[2K[125/125] [chromium] › tests\e2e\video-player.spec.ts:72:7 › Video Player › maximize restores from minimized state
+[e2e] Cleaning up test fixtures...
+[e2e] Test fixtures cleaned up.
+[1A[2K  6 failed
+    [chromium] › tests\e2e\download.spec.ts:12:7 › File Download › downloads a single file via context menu 
+    [chromium] › tests\e2e\editable-folders.spec.ts:97:7 › Editable Folders › copies a file via context menu 
+    [chromium] › tests\e2e\knowledge-base.spec.ts:32:7 › Knowledge Base › toggles KB on a folder via context menu 
+    [chromium] › tests\e2e\shares-manage.spec.ts:4:7 › Managing Shares › creates a share for a file 
+    [chromium] › tests\e2e\shares-manage.spec.ts:86:7 › Managing Shares › revokes a share ──────────
+    [chromium] › tests\e2e\sse-live-updates.spec.ts:147:7 › SSE Live Updates › editable share changes are seen by another share user 
+  119 passed (2.7m)
+error: script "test" exited with code 1

@@ -1,38 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server'
 import { getShare, isShareAccessAuthorized, resolveShareSubPath, type ShareLink } from './shares'
+
+export class HttpError extends Error {
+  constructor(
+    public statusCode: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
 
 interface ShareAccess {
   share: ShareLink
 }
 
-/**
- * Validates share token and authorization, returning the share or an error response.
- */
 export async function validateShareAccess(
-  request: NextRequest,
+  cookies: { [key: string]: string | undefined },
   token: string,
-): Promise<ShareAccess | NextResponse> {
+): Promise<ShareAccess> {
   const share = await getShare(token)
-  if (!share) {
-    return NextResponse.json({ error: 'Share not found' }, { status: 404 })
-  }
-
-  const authorized = await isShareAccessAuthorized(share, request.cookies)
-  if (!authorized) {
-    return NextResponse.json({ error: 'Passcode required' }, { status: 401 })
-  }
-
+  if (!share) throw new HttpError(404, 'Share not found')
+  const authorized = isShareAccessAuthorized(share, {
+    get: (name: string) => (cookies[name] ? { value: cookies[name]! } : undefined),
+  })
+  if (!authorized) throw new HttpError(401, 'Passcode required')
   return { share }
 }
 
-/**
- * Resolves and validates a sub-path within a share.
- * Returns the full relative path (from mediaDir) or an error response.
- */
-export function resolveSharePath(share: ShareLink, subPath: string): string | NextResponse {
+export function resolveSharePath(share: ShareLink, subPath: string): string {
   const resolved = resolveShareSubPath(share, subPath)
-  if (resolved === null) {
-    return NextResponse.json({ error: 'Path outside share boundary' }, { status: 403 })
-  }
+  if (resolved === null) throw new HttpError(403, 'Path outside share boundary')
   return resolved
 }

@@ -1,5 +1,3 @@
-'use client'
-
 import { Suspense, useState, useMemo, useEffect, useRef } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
 import { FileItem, MediaType } from '@/lib/types'
@@ -32,7 +30,8 @@ import { ShareDialog } from '@/components/share-dialog'
 import { MoveToDialog } from '@/components/move-to-dialog'
 import { KbSearchResults } from '@/components/kb-search-results'
 import { KbDashboard } from '@/components/kb-dashboard'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
+import { api, post } from '@/lib/api'
 import type { ShareLink } from '@/lib/shares'
 import { useShareLinkBase } from '@/lib/use-share-link-base'
 import { useUpload } from '@/lib/use-upload'
@@ -42,7 +41,6 @@ import { UploadMenuButton } from '@/components/upload-menu-button'
 
 interface FileListProps {
   files: FileItem[]
-  currentPath: string
   initialViewMode: 'list' | 'grid'
   initialFavorites?: string[]
   initialCustomIcons?: Record<string, string>
@@ -50,8 +48,6 @@ interface FileListProps {
 }
 
 function FileListInner({
-  files: initialFiles,
-  currentPath: serverPath,
   initialViewMode,
   initialFavorites = [],
   initialCustomIcons = {},
@@ -68,9 +64,7 @@ function FileListInner({
     currentFile,
   } = useMediaPlayer()
 
-  // Use React Query for files — only seed with SSR data when on the server-rendered path
-  const initialData = currentPath === serverPath ? initialFiles : undefined
-  const { data: filesData } = useFiles(currentPath, initialData)
+  const { data: filesData } = useFiles(currentPath)
   const prefetchFiles = usePrefetchFiles()
 
   // Use view stats hook
@@ -136,14 +130,7 @@ function FileListInner({
 
   // Revoke share mutation (for Shares virtual folder)
   const revokeShareMutation = useMutation({
-    mutationFn: async (token: string) => {
-      const res = await fetch('/api/shares', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      })
-      if (!res.ok) throw new Error('Failed to revoke share')
-    },
+    mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shares'] })
       queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
@@ -153,11 +140,7 @@ function FileListInner({
   // Fetch shares for indicators
   const { data: sharesData } = useQuery({
     queryKey: ['shares'],
-    queryFn: async () => {
-      const res = await fetch('/api/shares')
-      if (!res.ok) return { shares: [] }
-      return res.json() as Promise<{ shares: ShareLink[] }>
-    },
+    queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 10,
   })
@@ -201,18 +184,19 @@ function FileListInner({
     }
   }, [searchQuery, kbRoot])
 
-  const { data: searchResults = [], isLoading: searchLoading } = useQuery({
+  const { data: kbSearchData, isLoading: searchLoading } = useQuery({
     queryKey: ['kb-search', kbRoot, debouncedSearchQuery],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/kb/search?q=${encodeURIComponent(debouncedSearchQuery)}&root=${encodeURIComponent(kbRoot!)}`,
-      )
-      if (!res.ok) return []
-      const data = await res.json()
-      return (data.results || []) as { path: string; name: string; snippet: string }[]
-    },
+    queryFn: () =>
+      api<{ results: { path: string; name: string; snippet: string }[] }>(
+        `/api/kb/search?root=${encodeURIComponent(kbRoot!)}&q=${encodeURIComponent(debouncedSearchQuery)}`,
+      ),
     enabled: !!debouncedSearchQuery.trim() && !!kbRoot,
   })
+  const searchResults = (kbSearchData?.results || []) as {
+    path: string
+    name: string
+    snippet: string
+  }[]
 
   // Check if we're in a virtual folder
   const isVirtualFolder =
@@ -251,13 +235,7 @@ function FileListInner({
     if (getKnowledgeBaseRoot(folderPath, knowledgeBases)) {
       queryClient.prefetchQuery({
         queryKey: ['kb-recent', folderPath],
-        queryFn: async () => {
-          const res = await fetch(`/api/kb/recent?root=${encodeURIComponent(folderPath)}`)
-          if (!res.ok) throw new Error('Failed to fetch recent')
-          const data = await res.json()
-          return data.results || []
-        },
-        staleTime: 1000 * 60,
+        queryFn: () => api(`/api/kb/recent?root=${encodeURIComponent(folderPath)}`),
       })
     }
   }
@@ -474,13 +452,16 @@ function FileListInner({
         currentFolderName={currentFolderName}
         onDelete={() => {
           if (itemToDelete?.shareToken) {
-            revokeShareMutation.mutate(itemToDelete.shareToken, {
-              onSuccess: () => {
-                setShowDeleteConfirm(false)
-                setItemToDelete(null)
-                revokeShareMutation.reset()
+            revokeShareMutation.mutate(
+              { token: itemToDelete.shareToken },
+              {
+                onSuccess: () => {
+                  setShowDeleteConfirm(false)
+                  setItemToDelete(null)
+                  revokeShareMutation.reset()
+                },
               },
-            })
+            )
           } else if (itemToDelete) {
             deleteItemMutation.mutate(itemToDelete.path, {
               onSuccess: () => {

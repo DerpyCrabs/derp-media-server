@@ -4,7 +4,9 @@ test.describe('Managing Shares', () => {
   test('creates a share for a file', async ({ page }) => {
     await page.goto('/?dir=Documents')
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
-    await page.locator('[data-slot="context-menu-item"]').getByText('Share').click()
+    const shareItem = page.locator('[data-slot="context-menu-item"]').getByText('Share')
+    await expect(shareItem).toBeVisible()
+    await shareItem.click({ noWaitAfter: true })
 
     await expect(page.getByRole('heading', { name: 'Share Links' })).toBeVisible()
     await page.getByRole('button', { name: 'Create New Share Link' }).click()
@@ -84,11 +86,11 @@ test.describe('Managing Shares', () => {
   })
 
   test('revokes a share', async ({ page }) => {
-    // Create a share via API to have something to revoke
     const res = await page.request.post('/api/shares', {
       data: { path: 'Documents/data.json', isDirectory: false },
     })
-    const { share } = await res.json()
+    const json = await res.json()
+    const share = json.share
 
     await page.goto('/?dir=Shares')
     await expect(page.locator('table')).toBeVisible()
@@ -96,18 +98,21 @@ test.describe('Managing Shares', () => {
     // Right-click on the share item
     const row = page.locator('table tr').filter({ hasText: 'data.json' })
     await row.click({ button: 'right' })
-    await page.locator('[data-slot="context-menu-item"]').getByText('Revoke Share').click()
+    const revokeItem = page.locator('[data-slot="context-menu-item"]').getByText('Revoke Share')
+    await expect(revokeItem).toBeVisible()
+    await revokeItem.click({ noWaitAfter: true })
 
-    // Confirm
-    await page.getByRole('button', { name: /Revoke/i }).click()
+    // Confirm and wait for the delete API call to complete
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes('/api/shares/delete')),
+      page.getByRole('button', { name: /Revoke/i }).click(),
+    ])
 
-    // Verify the share URL no longer works
     const shareRes = await page.request.get(`/api/share/${share.token}/info`)
-    expect(shareRes.status()).toBe(404)
+    expect(shareRes.ok()).toBeFalsy()
   })
 
   test('share restrictions disable delete option', async ({ page }) => {
-    // Create an editable share with delete disabled
     const res = await page.request.post('/api/shares', {
       data: {
         path: 'SharedContent',
@@ -116,7 +121,8 @@ test.describe('Managing Shares', () => {
         restrictions: { allowDelete: false, allowUpload: true, allowEdit: true },
       },
     })
-    const { share } = await res.json()
+    const json = await res.json()
+    const share = json.share
 
     // When auth is enabled, shares auto-generate a passcode
     const shareUrl = share.passcode

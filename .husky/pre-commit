@@ -1,2 +1,2 @@
-pnpm run format
+bun run format
 git add -u

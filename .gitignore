@@ -13,12 +13,16 @@
 # testing
 /coverage
 /test-media
+/test-media-*
+/test-data-*
 /test-results
 /playwright-report
 /blob-report
 tests/fixtures/.auth/
+tests/fixtures/test-config-*.jsonc
 
-# next.js
+# build output
+/dist/
 /.next/
 /.next-test/
 /out/
@@ -44,7 +48,6 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # thumbnail cache
 .thumbnails

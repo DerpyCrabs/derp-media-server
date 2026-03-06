@@ -1,39 +1,20 @@
-'use client'
-
 import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
+import { api, post } from '@/lib/api'
 import { FileItem, MediaType } from '@/lib/types'
-import { formatFileSize, getMediaType } from '@/lib/media-utils'
-import {
-  FolderPlus,
-  FilePlus,
-  List,
-  LayoutGrid,
-  ArrowUp,
-  Download,
-  ChevronRight,
-  Folder,
-  X,
-  ZoomIn,
-  ZoomOut,
-  RotateCw,
-  Maximize2,
-  ExternalLink,
-  AlertCircle,
-} from 'lucide-react'
+import { getMediaType } from '@/lib/media-utils'
+import { useMediaPlayer } from '@/lib/use-media-player'
+import { MediaPlayers } from '@/components/media-players'
+import { FolderPlus, FilePlus, List, LayoutGrid, ChevronRight, Folder } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
+import { Card } from '@/components/ui/card'
 import {
   Dialog,
-  DialogPortal,
-  DialogOverlay,
-  DialogPopup,
-  DialogTitle,
   DialogContent,
   DialogHeader,
   DialogDescription,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useFileIcon } from '@/lib/use-file-icon'
@@ -43,7 +24,8 @@ import { useShareLinkBase } from '@/lib/use-share-link-base'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
 import { MoveToDialog } from '@/components/move-to-dialog'
-import { TextViewer } from '@/components/text-viewer'
+import { FileListView } from '@/components/file-list-view'
+import { FileGridView } from '@/components/file-grid-view'
 import { KbSearchResults } from '@/components/kb-search-results'
 import { KbDashboard } from '@/components/kb-dashboard'
 import { useUpload } from '@/lib/use-upload'
@@ -92,20 +74,18 @@ function SharedFolderBrowserInner({
   shareInfo,
   adminViewMode = 'list',
 }: SharedFolderBrowserProps) {
-  const {
-    urlState,
-    navigateToFolder,
-    viewFile,
-    playFile: urlPlayFile,
-    closeViewer: urlCloseViewer,
-    closePlayer: urlClosePlayer,
-  } = useUrlState()
+  const { urlState, navigateToFolder, viewFile, playFile: urlPlayFile } = useUrlState()
   const queryClient = useQueryClient()
   const shareLinkBase = useShareLinkBase()
   useFileWatcher()
+  const { setShareContext, clearShareContext } = useMediaPlayer()
+
+  useEffect(() => {
+    setShareContext(token, shareInfo.path)
+    return () => clearShareContext()
+  }, [token, shareInfo.path, setShareContext, clearShareContext])
 
   const currentSubDir = urlState.dir || ''
-  const viewingPath = urlState.viewing
   const playingPath = urlState.playing
 
   useDynamicFavicon({}, { rootName: shareInfo.name })
@@ -136,10 +116,6 @@ function SharedFolderBrowserInner({
   const [showCreateFile, setShowCreateFile] = useState(false)
   const [newItemName, setNewItemName] = useState('')
 
-  const [inlineMode, setInlineMode] = useState<'file' | 'folder' | null>(null)
-  const [inlineName, setInlineName] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const folderInputRef = useRef<HTMLInputElement>(null)
   const {
     uploadFiles,
     isUploading,
@@ -154,11 +130,6 @@ function SharedFolderBrowserInner({
     },
     [uploadFiles, currentSubDir],
   )
-
-  useEffect(() => {
-    if (inlineMode === 'file') fileInputRef.current?.focus()
-    else if (inlineMode === 'folder') folderInputRef.current?.focus()
-  }, [inlineMode])
 
   const { getIcon } = useFileIcon({
     customIcons: {},
@@ -184,38 +155,20 @@ function SharedFolderBrowserInner({
     [stripSharePrefix],
   )
 
-  const getShareMediaUrl = useCallback(
-    (filePath: string) => {
-      return `/api/share/${token}/media/${encodePathForUrl(filePath)}`
-    },
-    [token, encodePathForUrl],
-  )
-
-  const { data: files = [], isLoading } = useQuery({
+  const { data: filesData, isLoading } = useQuery({
     queryKey: ['share-files', token, currentSubDir],
-    queryFn: async () => {
-      const res = await fetch(`/api/share/${token}/files?dir=${encodeURIComponent(currentSubDir)}`)
-      if (!res.ok) throw new Error('Failed to load files')
-      const data = await res.json()
-      return data.files as FileItem[]
-    },
+    queryFn: () =>
+      api<{ files: FileItem[] }>(
+        `/api/share/${token}/files?dir=${encodeURIComponent(currentSubDir)}`,
+      ),
   })
+  const files = useMemo(() => (filesData?.files ?? []) as FileItem[], [filesData])
 
   const createFolderMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const subPath = currentSubDir ? `${currentSubDir}/${name}` : name
-      const res = await fetch(`/api/share/${token}/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'folder', path: subPath }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to create folder')
-      }
-    },
+    mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
+      post(`/api/share/${vars.token}/create`, vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] })
+      queryClient.invalidateQueries({ queryKey: ['share-files', token] })
       setShowCreateFolder(false)
       setNewItemName('')
     },
@@ -223,47 +176,17 @@ function SharedFolderBrowserInner({
 
   const inKb = shareInfo.isKnowledgeBase ?? false
   const createFileMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const defaultExt = inKb ? '.md' : '.txt'
-      const fileName = name.includes('.') ? name : `${name}${defaultExt}`
-      const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
-      const res = await fetch(`/api/share/${token}/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'file', path: subPath, content: '' }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to create file')
-      }
-      const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
-      const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
-      return { fullPath }
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] })
-      setShowCreateFile(false)
-      setNewItemName('')
-      if (inKb && data?.fullPath) {
-        viewFile(data.fullPath)
-      }
+    mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
+      post(`/api/share/${vars.token}/create`, vars),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['share-files', token] })
     },
   })
 
   const deleteItemMutation = useMutation({
-    mutationFn: async (filePath: string) => {
-      const res = await fetch(`/api/share/${token}/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: stripSharePrefix(filePath) }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to delete')
-      }
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+    mutationFn: (vars: { token: string; path: string }) =>
+      post(`/api/share/${vars.token}/delete`, vars),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
   })
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -285,19 +208,22 @@ function SharedFolderBrowserInner({
     }
   }, [searchQuery, inKb])
 
-  const { data: searchResults = [], isLoading: searchLoading } = useQuery({
-    queryKey: ['kb-search', token, currentSubDir, debouncedSearchQuery],
-    queryFn: async () => {
-      const dirParam = currentSubDir ? `&dir=${encodeURIComponent(currentSubDir)}` : ''
-      const res = await fetch(
-        `/api/share/${token}/kb/search?q=${encodeURIComponent(debouncedSearchQuery)}${dirParam}`,
+  const { data: kbSearchData, isLoading: searchLoading } = useQuery({
+    queryKey: ['share-kb-search', token, debouncedSearchQuery, currentSubDir],
+    queryFn: () => {
+      const params = new URLSearchParams({ q: debouncedSearchQuery })
+      if (currentSubDir) params.set('dir', currentSubDir)
+      return api<{ results: { path: string; name: string; snippet: string }[] }>(
+        `/api/share/${token}/kb/search?${params}`,
       )
-      if (!res.ok) return []
-      const data = await res.json()
-      return (data.results || []) as { path: string; name: string; snippet: string }[]
     },
     enabled: !!debouncedSearchQuery.trim() && inKb,
   })
+  const searchResults = (kbSearchData?.results || []) as {
+    path: string
+    name: string
+    snippet: string
+  }[]
 
   const handleKbResultClick = useCallback(
     (filePath: string) => {
@@ -307,10 +233,10 @@ function SharedFolderBrowserInner({
     [viewFile],
   )
 
-  const kbRecentUrl = useMemo(() => {
-    const dirParam = currentSubDir ? `&dir=${encodeURIComponent(currentSubDir)}` : ''
-    return `/api/share/${token}/kb/recent?root=${encodeURIComponent(shareInfo.path)}${dirParam}`
-  }, [token, shareInfo.path, currentSubDir])
+  const viewMutation = useMutation({
+    mutationFn: (vars: { token: string; filePath?: string }) =>
+      post(`/api/share/${vars.token}/view`, vars),
+  })
 
   const [showRenameDialog, setShowRenameDialog] = useState(false)
   const [renamingItem, setRenamingItem] = useState<FileItem | null>(null)
@@ -321,78 +247,27 @@ function SharedFolderBrowserInner({
   const [moveTarget, setMoveTarget] = useState<FileItem | null>(null)
 
   const renameMutation = useMutation({
-    mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
-      const relativeOld = stripSharePrefix(oldPath)
-      const parts = relativeOld.split('/').filter(Boolean)
-      const parentPath = parts.slice(0, -1).join('/')
-      const relativeNew = parentPath ? `${parentPath}/${newName}` : newName
-      const res = await fetch(`/api/share/${token}/rename`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath: relativeOld, newPath: relativeNew }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to rename')
-      }
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+    mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
+      post(`/api/share/${vars.token}/rename`, vars),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
   })
 
   const moveMutation = useMutation({
-    mutationFn: async ({
-      sourceRelative,
-      destRelative,
-    }: {
-      sourceRelative: string
-      destRelative: string
-    }) => {
-      const fileName = sourceRelative.split('/').pop()!
-      const newPath = destRelative ? `${destRelative}/${fileName}` : fileName
-      const res = await fetch(`/api/share/${token}/rename`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPath: sourceRelative, newPath }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.error || 'Failed to move')
-      }
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['share-files', token, currentSubDir] }),
+    mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
+      post(`/api/share/${vars.token}/rename`, vars),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
   })
-
-  const [draggedPath, setDraggedPath] = useState<string | null>(null)
-  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
-
-  const parentSubDir = useMemo(() => {
-    if (!currentSubDir) return ''
-    const parts = currentSubDir.split('/').filter(Boolean)
-    return parts.slice(0, -1).join('/')
-  }, [currentSubDir])
-
-  const canDropOnParent = canEdit && !!currentSubDir
-
-  const canDropOn = useCallback(
-    (targetPath: string) => {
-      if (!draggedPath || draggedPath === targetPath) return false
-      if (targetPath.startsWith(draggedPath + '/')) return false
-      return true
-    },
-    [draggedPath],
-  )
 
   const handleMoveFile = useCallback(
     (sourceFullPath: string, destDir: string) => {
       const sourceRelative = stripSharePrefix(sourceFullPath)
-      moveMutation.mutate({ sourceRelative, destRelative: destDir })
+      const fileName = sourceRelative.split('/').pop()!
+      const destRelative = stripSharePrefix(destDir)
+      const newPath = destRelative ? `${destRelative}/${fileName}` : fileName
+      moveMutation.mutate({ token, oldPath: sourceRelative, newPath })
     },
-    [stripSharePrefix, moveMutation],
+    [stripSharePrefix, moveMutation, token],
   )
-
-  const enableDrag = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches
 
   const handleContextMoveFile = useCallback(
     (file: FileItem) => {
@@ -407,8 +282,10 @@ function SharedFolderBrowserInner({
     (destDir: string) => {
       if (!moveTarget) return
       const sourceRelative = stripSharePrefix(moveTarget.path)
+      const fileName = sourceRelative.split('/').pop()!
+      const newPath = destDir ? `${destDir}/${fileName}` : fileName
       moveMutation.mutate(
-        { sourceRelative, destRelative: destDir },
+        { token, oldPath: sourceRelative, newPath },
         {
           onSuccess: () => {
             setShowMoveDialog(false)
@@ -418,7 +295,7 @@ function SharedFolderBrowserInner({
         },
       )
     },
-    [moveTarget, stripSharePrefix, moveMutation],
+    [moveTarget, stripSharePrefix, moveMutation, token],
   )
 
   const renameTargetExists = useMemo(() => {
@@ -449,13 +326,9 @@ function SharedFolderBrowserInner({
 
   const trackShareView = useCallback(
     (filePath: string) => {
-      fetch(`/api/share/${token}/view`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: stripSharePrefix(filePath) }),
-      }).catch(() => {})
+      viewMutation.mutate({ token, filePath: stripSharePrefix(filePath) })
     },
-    [token, stripSharePrefix],
+    [token, stripSharePrefix, viewMutation],
   )
 
   const handleFileClick = useCallback(
@@ -497,14 +370,6 @@ function SharedFolderBrowserInner({
     [token, stripSharePrefix],
   )
 
-  const closeViewer = useCallback(() => {
-    urlCloseViewer()
-  }, [urlCloseViewer])
-
-  const closePlayer = useCallback(() => {
-    urlClosePlayer()
-  }, [urlClosePlayer])
-
   const handleOpenInNewTab = useCallback(
     (file: FileItem) => {
       if (!file.isDirectory || file.isVirtual) return
@@ -519,7 +384,16 @@ function SharedFolderBrowserInner({
     [token, shareInfo.path, stripSharePrefix, shareLinkBase],
   )
 
-  // Build breadcrumbs relative to share root
+  const getThumbnailUrl = useCallback(
+    (file: FileItem) => `/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`,
+    [token, encodePathForUrl],
+  )
+
+  const getImagePreviewUrl = useCallback(
+    (file: FileItem) => `/api/share/${token}/media/${encodePathForUrl(file.path)}`,
+    [token, encodePathForUrl],
+  )
+
   const breadcrumbs = useMemo(() => {
     const parts = currentSubDir ? currentSubDir.split('/').filter(Boolean) : []
     return [
@@ -531,29 +405,56 @@ function SharedFolderBrowserInner({
     ]
   }, [currentSubDir, shareInfo.name])
 
+  const isAudioPlaying = useMemo(() => {
+    if (!playingPath) return false
+    const ext = playingPath.split('.').pop()?.toLowerCase() || ''
+    const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
+    return audioExtensions.includes(ext) || urlState.audioOnly
+  }, [playingPath, urlState.audioOnly])
+
+  const handleInlineCreateFile = useCallback(
+    (name: string) => {
+      const defaultExt = inKb ? '.md' : '.txt'
+      const fileName = name.includes('.') ? name : `${name}${defaultExt}`
+      const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
+      const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+      const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
+      createFileMutation.mutate(
+        { token, type: 'file', path: subPath, content: '' },
+        {
+          onSuccess: () => {
+            createFileMutation.reset()
+            if (inKb) viewFile(fullPath)
+          },
+        },
+      )
+    },
+    [token, currentSubDir, shareInfo.path, inKb, createFileMutation, viewFile],
+  )
+
+  const handleInlineCreateFolder = useCallback(
+    (name: string) => {
+      const subPath = currentSubDir ? `${currentSubDir}/${name}` : name
+      createFolderMutation.mutate(
+        { token, type: 'folder', path: subPath },
+        {
+          onSuccess: () => {
+            createFolderMutation.reset()
+          },
+        },
+      )
+    },
+    [token, currentSubDir, createFolderMutation],
+  )
+
+  const currentPath = useMemo(() => {
+    const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+    return currentSubDir ? `${sharePathNorm}/${currentSubDir}` : sharePathNorm
+  }, [shareInfo.path, currentSubDir])
+
   return (
-    <div className='min-h-screen'>
-      {/* Viewers for playing/viewing files */}
-      {viewingPath && (
-        <ShareInlineViewer
-          token={token}
-          shareInfo={shareInfo}
-          filePath={viewingPath}
-          files={files}
-          getMediaUrl={getShareMediaUrl}
-          onNavigate={handleFileClick}
-          onClose={closeViewer}
-        />
-      )}
-      {playingPath && (
-        <ShareMediaPlayer
-          filePath={playingPath}
-          files={files}
-          getMediaUrl={getShareMediaUrl}
-          onNavigate={handleFileClick}
-          onClose={closePlayer}
-        />
-      )}
+    <div className={`min-h-screen ${isAudioPlaying ? 'pb-12' : ''}`}>
+      <MediaPlayers editableFolders={[]} shareContext={{ token, shareInfo }} />
 
       <div className='container mx-auto lg:p-4'>
         <Card className='py-0 gap-0 rounded-none lg:rounded-xl'>
@@ -669,9 +570,7 @@ function SharedFolderBrowserInner({
                 results={searchResults}
                 query={searchQuery}
                 isLoading={searchLoading}
-                currentPath={
-                  shareInfo.path.replace(/\\/g, '/') + (currentSubDir ? `/${currentSubDir}` : '')
-                }
+                currentPath={currentPath}
                 onResultClick={handleKbResultClick}
               />
             ) : isLoading ? (
@@ -684,418 +583,56 @@ function SharedFolderBrowserInner({
                   <KbDashboard
                     scopePath={shareInfo.path}
                     onFileClick={handleKbResultClick}
-                    fetchUrl={kbRecentUrl}
+                    shareToken={token}
+                    dir={currentSubDir || undefined}
                   />
                 )}
                 {viewMode === 'list' ? (
-                  <div className='sm:px-4 py-2'>
-                    <Table>
-                      <TableBody>
-                        {currentSubDir && (
-                          <TableRow
-                            className={`cursor-pointer hover:bg-muted/50 select-none ${
-                              dragOverPath === '__parent__' ? 'bg-primary/20' : ''
-                            }`}
-                            onClick={handleParentDirectory}
-                            onDragOver={(e) => {
-                              if (!canDropOnParent || !draggedPath) return
-                              e.preventDefault()
-                              e.dataTransfer.dropEffect = 'move'
-                              setDragOverPath('__parent__')
-                            }}
-                            onDragLeave={(e) => {
-                              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                                setDragOverPath(null)
-                              }
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault()
-                              setDragOverPath(null)
-                              if (draggedPath) {
-                                handleMoveFile(draggedPath, parentSubDir)
-                              }
-                            }}
-                          >
-                            <TableCell className='w-12'>
-                              <ArrowUp className='h-5 w-5 text-muted-foreground' />
-                            </TableCell>
-                            <TableCell className='font-medium'>..</TableCell>
-                            <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
-                          </TableRow>
-                        )}
-                        {files.map((file) => {
-                          const row = (
-                            <TableRow
-                              key={file.path}
-                              className={`cursor-pointer hover:bg-muted/50 select-none ${playingPath === file.path ? 'bg-primary/10' : ''} ${
-                                draggedPath === file.path ? 'opacity-50' : ''
-                              } ${file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''}`}
-                              draggable={canEdit && enableDrag}
-                              onClick={() => handleFileClick(file)}
-                              onDragStart={(e) => {
-                                if (!canEdit) return
-                                e.dataTransfer.setData('text/plain', file.path)
-                                e.dataTransfer.effectAllowed = 'move'
-                                setDraggedPath(file.path)
-                              }}
-                              onDragEnd={() => {
-                                setDraggedPath(null)
-                                setDragOverPath(null)
-                              }}
-                              onDragOver={(e) => {
-                                if (!file.isDirectory || !canEdit || !draggedPath) return
-                                if (!canDropOn(file.path)) return
-                                e.preventDefault()
-                                e.dataTransfer.dropEffect = 'move'
-                                setDragOverPath(file.path)
-                              }}
-                              onDragLeave={(e) => {
-                                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                                  if (dragOverPath === file.path) setDragOverPath(null)
-                                }
-                              }}
-                              onDrop={(e) => {
-                                e.preventDefault()
-                                setDragOverPath(null)
-                                if (
-                                  draggedPath &&
-                                  file.isDirectory &&
-                                  canEdit &&
-                                  canDropOn(file.path)
-                                ) {
-                                  handleMoveFile(draggedPath, stripSharePrefix(file.path))
-                                }
-                              }}
-                            >
-                              <TableCell className='w-12'>
-                                <div className='flex items-center justify-center'>
-                                  {getIcon(
-                                    file.type,
-                                    file.path,
-                                    file.type === MediaType.AUDIO,
-                                    file.type === MediaType.VIDEO,
-                                    file.isVirtual,
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className='font-medium'>
-                                <span className='truncate block'>{file.name}</span>
-                              </TableCell>
-                              <TableCell className='w-48 text-right text-muted-foreground'>
-                                <div className='flex items-center justify-end gap-2'>
-                                  <Button
-                                    variant='ghost'
-                                    size='icon'
-                                    className='h-7 w-7'
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleDownload(file)
-                                    }}
-                                    title='Download'
-                                  >
-                                    <Download className='h-3.5 w-3.5' />
-                                  </Button>
-                                  <span className='w-20'>
-                                    {file.isDirectory ? '' : formatFileSize(file.size)}
-                                  </span>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )
-                          return shareInfo.editable ? (
-                            <FileContextMenu
-                              key={file.path}
-                              file={file}
-                              isEditable
-                              onDownload={handleDownload}
-                              onRename={canEdit ? handleContextRename : undefined}
-                              onDelete={canDelete ? handleContextDelete : undefined}
-                              onMove={canEdit ? handleContextMoveFile : undefined}
-                              onOpenInNewTab={file.isDirectory ? handleOpenInNewTab : undefined}
-                            >
-                              {row}
-                            </FileContextMenu>
-                          ) : (
-                            row
-                          )
-                        })}
-                        {inKb && canUpload && (
-                          <TableRow
-                            className='border-t bg-muted/20 hover:bg-muted/30'
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <TableCell colSpan={3} className='p-0'>
-                              <div className='grid grid-cols-2 gap-px p-2'>
-                                <div className='w-full min-w-0 flex flex-col gap-1'>
-                                  {inlineMode === 'file' ? (
-                                    <>
-                                      <Input
-                                        ref={fileInputRef}
-                                        value={inlineName}
-                                        onChange={(e) => setInlineName(e.target.value)}
-                                        placeholder={`File name (e.g. notes.${inKb ? 'md' : 'txt'})`}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            const name = inlineName.trim()
-                                            if (!name) return
-                                            createFileMutation.mutate(name, {
-                                              onSuccess: () => {
-                                                setInlineMode(null)
-                                                setInlineName('')
-                                                createFileMutation.reset()
-                                              },
-                                            })
-                                          } else if (e.key === 'Escape') {
-                                            setInlineMode(null)
-                                            setInlineName('')
-                                          }
-                                        }}
-                                        onBlur={() => {
-                                          setInlineMode(null)
-                                          setInlineName('')
-                                          createFileMutation.reset()
-                                        }}
-                                        disabled={createFileMutation.isPending}
-                                        className={`h-8 text-sm ${
-                                          createFileMutation.error
-                                            ? 'border-destructive ring-2 ring-destructive/30'
-                                            : ''
-                                        }`}
-                                        onClick={(e) => e.stopPropagation()}
-                                      />
-                                      {createFileMutation.error && (
-                                        <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
-                                          <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
-                                          <span>{createFileMutation.error.message}</span>
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <button
-                                      type='button'
-                                      onClick={() => {
-                                        setInlineMode('file')
-                                        setInlineName('')
-                                      }}
-                                      className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
-                                    >
-                                      <FilePlus className='h-4 w-4' />
-                                      New file
-                                    </button>
-                                  )}
-                                </div>
-                                <div className='w-full min-w-0 flex flex-col gap-1'>
-                                  {inlineMode === 'folder' ? (
-                                    <>
-                                      <Input
-                                        ref={folderInputRef}
-                                        value={inlineName}
-                                        onChange={(e) => setInlineName(e.target.value)}
-                                        placeholder='Folder name'
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            const name = inlineName.trim()
-                                            if (!name) return
-                                            createFolderMutation.mutate(name, {
-                                              onSuccess: () => {
-                                                setInlineMode(null)
-                                                setInlineName('')
-                                                createFolderMutation.reset()
-                                              },
-                                            })
-                                          } else if (e.key === 'Escape') {
-                                            setInlineMode(null)
-                                            setInlineName('')
-                                          }
-                                        }}
-                                        onBlur={() => {
-                                          setInlineMode(null)
-                                          setInlineName('')
-                                          createFolderMutation.reset()
-                                        }}
-                                        disabled={createFolderMutation.isPending}
-                                        className={`h-8 text-sm ${
-                                          createFolderMutation.error
-                                            ? 'border-destructive ring-2 ring-destructive/30'
-                                            : ''
-                                        }`}
-                                        onClick={(e) => e.stopPropagation()}
-                                      />
-                                      {createFolderMutation.error && (
-                                        <div className='flex items-start gap-1.5 rounded bg-destructive/10 border border-destructive/50 px-2 py-1.5 text-xs text-destructive'>
-                                          <AlertCircle className='h-3.5 w-3.5 mt-0.5 shrink-0' />
-                                          <span>{createFolderMutation.error.message}</span>
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <button
-                                      type='button'
-                                      onClick={() => {
-                                        setInlineMode('folder')
-                                        setInlineName('')
-                                      }}
-                                      className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
-                                    >
-                                      <FolderPlus className='h-4 w-4' />
-                                      New folder
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  <FileListView
+                    files={files}
+                    currentPath={currentSubDir}
+                    playingPath={playingPath}
+                    onFileClick={handleFileClick}
+                    onParentDirectory={handleParentDirectory}
+                    getIcon={getIcon}
+                    isEditable={canEdit}
+                    onMoveFile={canEdit ? handleMoveFile : undefined}
+                    showDownloadButton
+                    onContextDownload={handleDownload}
+                    onContextRename={canEdit ? handleContextRename : undefined}
+                    onContextDelete={canDelete ? handleContextDelete : undefined}
+                    onContextMove={canEdit ? handleContextMoveFile : undefined}
+                    onContextOpenInNewTab={handleOpenInNewTab}
+                    showInlineCreate={inKb && canUpload}
+                    onInlineCreateFile={handleInlineCreateFile}
+                    onInlineCreateFolder={handleInlineCreateFolder}
+                    onInlineCreateCancel={() => {
+                      createFileMutation.reset()
+                      createFolderMutation.reset()
+                    }}
+                    createFilePending={createFileMutation.isPending}
+                    createFolderPending={createFolderMutation.isPending}
+                    createFileError={createFileMutation.error as Error | null}
+                    createFolderError={createFolderMutation.error as Error | null}
+                  />
                 ) : (
-                  <div className='py-4 px-4'>
-                    <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
-                      {currentSubDir && (
-                        <Card
-                          className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
-                            dragOverPath === '__parent__' ? 'ring-2 ring-primary bg-primary/10' : ''
-                          }`}
-                          onClick={handleParentDirectory}
-                          onDragOver={(e) => {
-                            if (!canDropOnParent || !draggedPath) return
-                            e.preventDefault()
-                            e.dataTransfer.dropEffect = 'move'
-                            setDragOverPath('__parent__')
-                          }}
-                          onDragLeave={(e) => {
-                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                              setDragOverPath(null)
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault()
-                            setDragOverPath(null)
-                            if (draggedPath) {
-                              handleMoveFile(draggedPath, parentSubDir)
-                            }
-                          }}
-                        >
-                          <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
-                            <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
-                            <p className='text-sm font-medium text-center'>..</p>
-                            <p className='text-xs text-muted-foreground text-center'>
-                              Parent Folder
-                            </p>
-                          </CardContent>
-                        </Card>
-                      )}
-                      {files.map((file) => {
-                        const card = (
-                          <Card
-                            key={file.path}
-                            className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${playingPath === file.path ? 'ring-2 ring-primary' : ''} ${
-                              draggedPath === file.path ? 'opacity-50' : ''
-                            } ${
-                              file.isDirectory && dragOverPath === file.path
-                                ? 'ring-2 ring-primary bg-primary/10'
-                                : ''
-                            }`}
-                            draggable={canEdit && enableDrag}
-                            onClick={() => handleFileClick(file)}
-                            onDragStart={(e) => {
-                              if (!canEdit) return
-                              e.dataTransfer.setData('text/plain', file.path)
-                              e.dataTransfer.effectAllowed = 'move'
-                              setDraggedPath(file.path)
-                            }}
-                            onDragEnd={() => {
-                              setDraggedPath(null)
-                              setDragOverPath(null)
-                            }}
-                            onDragOver={(e) => {
-                              if (!file.isDirectory || !canEdit || !draggedPath) return
-                              if (!canDropOn(file.path)) return
-                              e.preventDefault()
-                              e.dataTransfer.dropEffect = 'move'
-                              setDragOverPath(file.path)
-                            }}
-                            onDragLeave={(e) => {
-                              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                                if (dragOverPath === file.path) setDragOverPath(null)
-                              }
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault()
-                              setDragOverPath(null)
-                              if (
-                                draggedPath &&
-                                file.isDirectory &&
-                                canEdit &&
-                                canDropOn(file.path)
-                              ) {
-                                handleMoveFile(draggedPath, stripSharePrefix(file.path))
-                              }
-                            }}
-                          >
-                            <CardContent className='p-0 flex flex-col h-full'>
-                              <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg'>
-                                {file.type === MediaType.VIDEO ? (
-                                  <img
-                                    src={`/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`}
-                                    alt={file.name}
-                                    className='w-full h-full object-cover rounded-t-lg'
-                                    onError={(e) => {
-                                      e.currentTarget.style.display = 'none'
-                                    }}
-                                  />
-                                ) : file.type === MediaType.IMAGE ? (
-                                  <img
-                                    src={getShareMediaUrl(file.path)}
-                                    alt={file.name}
-                                    className='w-full h-full object-cover rounded-t-lg'
-                                    onError={(e) => {
-                                      e.currentTarget.style.display = 'none'
-                                    }}
-                                  />
-                                ) : (
-                                  <div className='scale-[2.5]'>
-                                    {getIcon(
-                                      file.type,
-                                      file.path,
-                                      file.type === MediaType.AUDIO,
-                                      false,
-                                      file.isVirtual,
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                              <div className='p-3 flex flex-col gap-1'>
-                                <p className='text-sm font-medium truncate' title={file.name}>
-                                  {file.name}
-                                </p>
-                                <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                                  <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        )
-                        return shareInfo.editable ? (
-                          <FileContextMenu
-                            key={file.path}
-                            file={file}
-                            isEditable
-                            onDownload={handleDownload}
-                            onRename={canEdit ? handleContextRename : undefined}
-                            onDelete={canDelete ? handleContextDelete : undefined}
-                            onMove={canEdit ? handleContextMoveFile : undefined}
-                            onOpenInNewTab={file.isDirectory ? handleOpenInNewTab : undefined}
-                          >
-                            {card}
-                          </FileContextMenu>
-                        ) : (
-                          card
-                        )
-                      })}
-                    </div>
-                  </div>
+                  <FileGridView
+                    files={files}
+                    currentPath={currentSubDir}
+                    playingPath={playingPath}
+                    onFileClick={handleFileClick}
+                    onParentDirectory={handleParentDirectory}
+                    getIcon={getIcon}
+                    isEditable={canEdit}
+                    onMoveFile={canEdit ? handleMoveFile : undefined}
+                    getThumbnailUrl={getThumbnailUrl}
+                    getImagePreviewUrl={getImagePreviewUrl}
+                    onContextDownload={handleDownload}
+                    onContextRename={canEdit ? handleContextRename : undefined}
+                    onContextDelete={canDelete ? handleContextDelete : undefined}
+                    onContextMove={canEdit ? handleContextMoveFile : undefined}
+                    onContextOpenInNewTab={handleOpenInNewTab}
+                  />
                 )}
               </>
             )}
@@ -1122,7 +659,7 @@ function SharedFolderBrowserInner({
         filePath={moveTarget ? stripSharePrefix(moveTarget.path) : ''}
         onMove={handleDialogMove}
         isPending={moveMutation.isPending}
-        error={moveMutation.error}
+        error={moveMutation.error as Error | null}
         shareToken={token}
         shareRootPath={shareInfo.path}
       />
@@ -1137,13 +674,17 @@ function SharedFolderBrowserInner({
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              createFolderMutation.mutate(newItemName, {
-                onSuccess: () => {
-                  setShowCreateFolder(false)
-                  setNewItemName('')
-                  createFolderMutation.reset()
+              const subPath = currentSubDir ? `${currentSubDir}/${newItemName}` : newItemName
+              createFolderMutation.mutate(
+                { token, type: 'folder', path: subPath },
+                {
+                  onSuccess: () => {
+                    setShowCreateFolder(false)
+                    setNewItemName('')
+                    createFolderMutation.reset()
+                  },
                 },
-              })
+              )
             }}
             className='space-y-4'
           >
@@ -1181,13 +722,24 @@ function SharedFolderBrowserInner({
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              createFileMutation.mutate(newItemName, {
-                onSuccess: () => {
-                  setShowCreateFile(false)
-                  setNewItemName('')
-                  createFileMutation.reset()
+              const defaultExt = inKb ? '.md' : '.txt'
+              const fileName = newItemName.includes('.')
+                ? newItemName
+                : `${newItemName}${defaultExt}`
+              const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
+              const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+              const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
+              createFileMutation.mutate(
+                { token, type: 'file', path: subPath, content: '' },
+                {
+                  onSuccess: () => {
+                    setShowCreateFile(false)
+                    setNewItemName('')
+                    createFileMutation.reset()
+                    if (inKb) viewFile(fullPath)
+                  },
                 },
-              })
+              )
             }}
             className='space-y-4'
           >
@@ -1218,8 +770,12 @@ function SharedFolderBrowserInner({
         onNewNameChange={setRenameNewName}
         onRename={() => {
           if (renamingItem) {
+            const relativeOld = stripSharePrefix(renamingItem.path)
+            const parts = relativeOld.split('/').filter(Boolean)
+            const parentPath = parts.slice(0, -1).join('/')
+            const relativeNew = parentPath ? `${parentPath}/${renameNewName}` : renameNewName
             renameMutation.mutate(
-              { oldPath: renamingItem.path, newName: renameNewName },
+              { token, oldPath: relativeOld, newPath: relativeNew },
               {
                 onSuccess: () => {
                   setShowRenameDialog(false)
@@ -1232,7 +788,7 @@ function SharedFolderBrowserInner({
           }
         }}
         isPending={renameMutation.isPending}
-        error={renameMutation.error}
+        error={renameMutation.error as Error | null}
         nameExists={renameTargetExists}
         isDirectory={renamingItem?.isDirectory || false}
         onReset={() => {
@@ -1250,394 +806,26 @@ function SharedFolderBrowserInner({
         item={deletingItem}
         onDelete={() => {
           if (deletingItem) {
-            deleteItemMutation.mutate(deletingItem.path, {
-              onSuccess: () => {
-                setShowDeleteDialog(false)
-                setDeletingItem(null)
-                deleteItemMutation.reset()
+            deleteItemMutation.mutate(
+              { token, path: stripSharePrefix(deletingItem.path) },
+              {
+                onSuccess: () => {
+                  setShowDeleteDialog(false)
+                  setDeletingItem(null)
+                  deleteItemMutation.reset()
+                },
               },
-            })
+            )
           }
         }}
         isPending={deleteItemMutation.isPending}
-        error={deleteItemMutation.error}
+        error={deleteItemMutation.error as Error | null}
         onReset={() => {
           setShowDeleteDialog(false)
           setDeletingItem(null)
           deleteItemMutation.reset()
         }}
       />
-    </div>
-  )
-}
-
-// Inline viewer for text/images/PDFs within the shared folder
-function ShareInlineViewer({
-  token,
-  shareInfo,
-  filePath,
-  files,
-  getMediaUrl,
-  onNavigate,
-  onClose,
-}: {
-  token: string
-  shareInfo: ShareInfo
-  filePath: string
-  files: FileItem[]
-  getMediaUrl: (path: string) => string
-  onNavigate: (file: FileItem) => void
-  onClose: () => void
-}) {
-  const ext = filePath.split('.').pop()?.toLowerCase() || ''
-  const type = getMediaType(ext)
-  const fileName = filePath.split(/[/\\]/).pop() || ''
-  const mediaUrl = getMediaUrl(filePath)
-
-  if (type === 'image') {
-    const imageFiles = files.filter((f) => !f.isDirectory && getMediaType(f.extension) === 'image')
-    return (
-      <InlineImageViewer
-        fileName={fileName}
-        mediaUrl={mediaUrl}
-        filePath={filePath}
-        imageFiles={imageFiles}
-        onNavigate={onNavigate}
-        onClose={onClose}
-      />
-    )
-  }
-
-  if (type === 'pdf') {
-    return <InlinePdfViewer fileName={fileName} mediaUrl={mediaUrl} onClose={onClose} />
-  }
-
-  if (type === 'text') {
-    const shareFwd = shareInfo.path.replace(/\\/g, '/')
-    const fileFwd = filePath.replace(/\\/g, '/')
-    const relative = fileFwd.startsWith(shareFwd + '/')
-      ? fileFwd.slice(shareFwd.length + 1)
-      : fileFwd
-    const downloadUrl = `/api/share/${token}/download?path=${encodeURIComponent(relative)}`
-    return (
-      <TextViewer
-        shareMode={{
-          token,
-          shareInfo,
-          mediaUrl,
-          downloadUrl,
-          filePath,
-          onClose,
-        }}
-      />
-    )
-  }
-
-  // For other types, just trigger download
-  const a = document.createElement('a')
-  const shareFwd = shareInfo.path.replace(/\\/g, '/')
-  const fileFwd = filePath.replace(/\\/g, '/')
-  const relative = fileFwd.startsWith(shareFwd + '/') ? fileFwd.slice(shareFwd.length + 1) : fileFwd
-  a.href = `/api/share/${token}/download?path=${encodeURIComponent(relative)}`
-  a.download = fileName
-  a.click()
-  onClose()
-  return null
-}
-
-function InlineImageViewer({
-  fileName,
-  mediaUrl,
-  filePath,
-  imageFiles,
-  onNavigate,
-  onClose,
-}: {
-  fileName: string
-  mediaUrl: string
-  filePath: string
-  imageFiles: FileItem[]
-  onNavigate: (file: FileItem) => void
-  onClose: () => void
-}) {
-  const [zoom, setZoom] = useState<number | 'fit'>('fit')
-  const [rotation, setRotation] = useState(0)
-
-  const currentIndex = imageFiles.findIndex((f) => f.path === filePath)
-  const hasPrev = currentIndex > 0
-  const hasNext = currentIndex < imageFiles.length - 1
-
-  const goNext = useCallback(() => {
-    if (!hasNext) return
-    setZoom('fit')
-    setRotation(0)
-    onNavigate(imageFiles[currentIndex + 1])
-  }, [hasNext, currentIndex, imageFiles, onNavigate])
-
-  const goPrev = useCallback(() => {
-    if (!hasPrev) return
-    setZoom('fit')
-    setRotation(0)
-    onNavigate(imageFiles[currentIndex - 1])
-  }, [hasPrev, currentIndex, imageFiles, onNavigate])
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        goPrev()
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        goNext()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [goNext, goPrev])
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogPortal>
-        <DialogOverlay className='bg-black/95' />
-        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
-          <span className='sr-only'>
-            <DialogTitle>{fileName}</DialogTitle>
-          </span>
-          <div className='flex items-center justify-between p-4 bg-black/50 backdrop-blur-sm'>
-            <h2 className='text-white text-lg font-medium truncate flex-1'>{fileName}</h2>
-            {imageFiles.length > 1 && (
-              <span className='text-white text-sm shrink-0 px-4'>
-                {currentIndex + 1} of {imageFiles.length}
-              </span>
-            )}
-            <div className='flex items-center gap-2'>
-              <Button
-                variant='ghost'
-                size='icon'
-                onClick={() => setZoom((z) => Math.max((z === 'fit' ? 100 : z) - 25, 25))}
-                className='text-white hover:bg-white/10'
-              >
-                <ZoomOut className='h-5 w-5' />
-              </Button>
-              <span className='text-white text-sm min-w-16 text-center'>
-                {zoom === 'fit' ? 'Fit' : `${zoom}%`}
-              </span>
-              <Button
-                variant='ghost'
-                size='icon'
-                onClick={() => setZoom((z) => Math.min((z === 'fit' ? 100 : z) + 25, 400))}
-                className='text-white hover:bg-white/10'
-              >
-                <ZoomIn className='h-5 w-5' />
-              </Button>
-              <Button
-                variant='ghost'
-                size='icon'
-                onClick={() => {
-                  setZoom('fit')
-                  setRotation(0)
-                }}
-                className='text-white hover:bg-white/10'
-              >
-                <Maximize2 className='h-5 w-5' />
-              </Button>
-              <Button
-                variant='ghost'
-                size='icon'
-                onClick={() => setRotation((r) => (r + 90) % 360)}
-                className='text-white hover:bg-white/10'
-              >
-                <RotateCw className='h-5 w-5' />
-              </Button>
-              <div className='w-px h-6 bg-white/20 mx-2' />
-              <Button
-                variant='ghost'
-                size='icon'
-                onClick={onClose}
-                className='text-white hover:bg-white/10'
-              >
-                <X className='h-5 w-5' />
-              </Button>
-            </div>
-          </div>
-          <div className='flex-1 flex items-center justify-center overflow-auto p-4 relative'>
-            {hasPrev && (
-              <div
-                className='absolute left-0 top-0 bottom-0 w-[30%] cursor-pointer z-10'
-                onClick={goPrev}
-              />
-            )}
-            {hasNext && (
-              <div
-                className='absolute right-0 top-0 bottom-0 w-[30%] cursor-pointer z-10'
-                onClick={goNext}
-              />
-            )}
-            <img
-              src={mediaUrl}
-              alt={fileName}
-              className='transition-transform duration-200 pointer-events-none'
-              style={{
-                ...(zoom === 'fit'
-                  ? { width: '100%', height: '100%', objectFit: 'contain' as const }
-                  : {
-                      maxWidth: '100%',
-                      maxHeight: '100%',
-                      width: 'auto',
-                      height: 'auto',
-                      objectFit: 'none' as const,
-                    }),
-                transform: `scale(${zoom === 'fit' ? 1 : zoom / 100}) rotate(${rotation}deg)`,
-              }}
-            />
-          </div>
-        </DialogPopup>
-      </DialogPortal>
-    </Dialog>
-  )
-}
-
-function InlinePdfViewer({
-  fileName,
-  mediaUrl,
-  onClose,
-}: {
-  fileName: string
-  mediaUrl: string
-  onClose: () => void
-}) {
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogPortal>
-        <DialogOverlay className='bg-black/95' />
-        <DialogPopup className='fixed inset-0 z-50 flex flex-col'>
-          <span className='sr-only'>
-            <DialogTitle>{fileName}</DialogTitle>
-          </span>
-          <div className='flex items-center justify-between p-4 bg-black/50 backdrop-blur-sm'>
-            <h2 className='text-white text-lg font-medium truncate flex-1'>{fileName}</h2>
-            <div className='flex items-center gap-2'>
-              <Button
-                variant='ghost'
-                size='icon'
-                onClick={() => window.open(mediaUrl, '_blank')}
-                className='text-white hover:bg-white/10'
-              >
-                <ExternalLink className='h-5 w-5' />
-              </Button>
-              <div className='w-px h-6 bg-white/20 mx-2' />
-              <Button
-                variant='ghost'
-                size='icon'
-                onClick={onClose}
-                className='text-white hover:bg-white/10'
-              >
-                <X className='h-5 w-5' />
-              </Button>
-            </div>
-          </div>
-          <div className='flex-1 overflow-hidden bg-neutral-800'>
-            <embed
-              src={`${mediaUrl}#toolbar=1`}
-              type='application/pdf'
-              className='w-full h-full'
-              title={fileName}
-            />
-          </div>
-        </DialogPopup>
-      </DialogPortal>
-    </Dialog>
-  )
-}
-
-// Simple media player for audio/video within shared folders
-function ShareMediaPlayer({
-  filePath,
-  files,
-  getMediaUrl,
-  onNavigate,
-  onClose,
-}: {
-  filePath: string
-  files: FileItem[]
-  getMediaUrl: (path: string) => string
-  onNavigate: (file: FileItem) => void
-  onClose: () => void
-}) {
-  const fileName = filePath.split(/[/\\]/).pop() || ''
-  const ext = filePath.split('.').pop()?.toLowerCase() || ''
-  const type = getMediaType(ext)
-  const mediaUrl = getMediaUrl(filePath)
-
-  const mediaFiles = useMemo(
-    () =>
-      files.filter((f) => {
-        if (f.isDirectory) return false
-        const t = getMediaType(f.extension)
-        return type === 'audio' ? t === 'audio' : t === 'video'
-      }),
-    [files, type],
-  )
-
-  const currentIndex = mediaFiles.findIndex((f) => f.path === filePath)
-
-  const playNext = useCallback(() => {
-    if (currentIndex >= 0 && currentIndex < mediaFiles.length - 1) {
-      onNavigate(mediaFiles[currentIndex + 1])
-    } else {
-      onClose()
-    }
-  }, [currentIndex, mediaFiles, onNavigate, onClose])
-
-  if (type === 'video') {
-    return (
-      <div className='w-full bg-background'>
-        <Card className='py-0 w-full rounded-none border-x-0 border-t-0'>
-          <div className='bg-black'>
-            <div className='bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between'>
-              <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
-              {mediaFiles.length > 1 && (
-                <span className='text-sm text-muted-foreground px-2'>
-                  {currentIndex + 1} of {mediaFiles.length}
-                </span>
-              )}
-              <Button variant='ghost' size='icon' onClick={onClose} className='h-8 w-8'>
-                <X className='h-4 w-4' />
-              </Button>
-            </div>
-            <video
-              controls
-              autoPlay
-              className='w-full bg-black'
-              style={{ maxHeight: '70vh', aspectRatio: '16 / 9' }}
-              src={mediaUrl}
-              onEnded={playNext}
-            >
-              Your browser does not support the video tag.
-            </video>
-          </div>
-        </Card>
-      </div>
-    )
-  }
-
-  // Audio
-  return (
-    <div className='fixed bottom-0 left-0 right-0 z-40 bg-background border-t p-3'>
-      <div className='container mx-auto flex items-center gap-4'>
-        <span className='text-sm font-medium truncate flex-1'>{fileName}</span>
-        {mediaFiles.length > 1 && (
-          <span className='text-sm text-muted-foreground shrink-0'>
-            {currentIndex + 1} of {mediaFiles.length}
-          </span>
-        )}
-        <audio controls autoPlay className='flex-1 max-w-lg' src={mediaUrl} onEnded={playNext}>
-          Your browser does not support the audio tag.
-        </audio>
-        <Button variant='ghost' size='icon' onClick={onClose} className='h-8 w-8'>
-          <X className='h-4 w-4' />
-        </Button>
-      </div>
     </div>
   )
 }
