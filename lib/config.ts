@@ -2,14 +2,14 @@ import fs from 'fs'
 import path from 'path'
 import stripJsonComments from 'strip-json-comments'
 
-export interface AuthConfig {
+interface AuthConfig {
   enabled: boolean
   /** Password required when enabled */
   password?: string
   adminAccessDomains?: string[]
 }
 
-export interface AppConfig {
+interface AppConfig {
   mediaDir: string
   editableFolders: string[]
   shareLinkDomain?: string

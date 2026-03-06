@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
 
-export interface TextContentProps {
+interface TextContentProps {
   content: string
   isEditing: boolean
   isMarkdown: boolean

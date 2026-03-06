@@ -5,9 +5,6 @@ import { getMediaType } from './media-utils'
 import { VIRTUAL_FOLDERS } from './constants'
 import { config } from './config'
 
-// Re-export VIRTUAL_FOLDERS for convenience
-export { VIRTUAL_FOLDERS }
-
 // Folders to exclude from listing
 const EXCLUDED_FOLDERS = [
   'node_modules',
@@ -65,13 +62,6 @@ export function validatePath(relativePath: string): string {
   }
 
   return resolvedPath
-}
-
-/**
- * Gets the media directory from config
- */
-export function getMediaDir(): string {
-  return config.mediaDir
 }
 
 /**
