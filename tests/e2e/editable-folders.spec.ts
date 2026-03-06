@@ -97,8 +97,11 @@ test.describe('Editable Folders', () => {
   test('copies a file via context menu', async ({ page }) => {
     await page.goto('/?dir=SharedContent')
     await page.locator('table tr').filter({ hasText: 'public-doc.txt' }).click({ button: 'right' })
-    await page.locator('[data-slot="context-menu-item"]').getByText('Copy to...').click()
+    const copyItem = page.locator('[data-slot="context-menu-item"]').getByText('Copy to...')
+    await expect(copyItem).toBeVisible()
+    await copyItem.click({ noWaitAfter: true })
 
+    await expect(page.locator('[role="dialog"]')).toBeVisible()
     await page.locator('[role="dialog"]').getByText('subfolder').click()
     await page.getByRole('button', { name: /Copy/i }).click()
 

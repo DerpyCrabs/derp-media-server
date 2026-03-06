@@ -1,5 +1,3 @@
-'use client'
-
 import { useUrlState } from '@/lib/use-url-state'
 import { useMemo } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
@@ -14,12 +12,14 @@ import {
 import { formatFileSize } from '@/lib/media-utils'
 import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
+import { useMediaUrl } from '@/lib/use-media-url'
 
 export function UnsupportedFileViewer() {
   const { urlState, closeViewer } = useUrlState()
+  const { getMediaUrl, shareToken, sharePath } = useMediaUrl()
   const viewingPath = urlState.viewing
   const currentDir = urlState.dir || ''
-  const { data: allFiles = [] } = useFiles(currentDir)
+  const { data: allFiles = [] } = useFiles(currentDir, shareToken, sharePath)
 
   // Find the file info from the fetched files
   const fileInfo = useMemo(() => {
@@ -70,10 +70,7 @@ export function UnsupportedFileViewer() {
             <Button
               variant='default'
               render={
-                <a
-                  href={`/api/media/${encodeURIComponent(fileInfo.path)}`}
-                  download={fileInfo.name}
-                >
+                <a href={getMediaUrl(fileInfo.path)} download={fileInfo.name}>
                   Download File
                 </a>
               }

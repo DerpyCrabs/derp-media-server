@@ -2,18 +2,19 @@ import fs from 'fs'
 import path from 'path'
 import stripJsonComments from 'strip-json-comments'
 
-export interface AuthConfig {
+interface AuthConfig {
   enabled: boolean
   /** Password required when enabled */
   password?: string
   adminAccessDomains?: string[]
 }
 
-export interface AppConfig {
+interface AppConfig {
   mediaDir: string
   editableFolders: string[]
   shareLinkDomain?: string
   auth?: AuthConfig
+  dataPath: string
 }
 
 const DEFAULT_CONFIG_PATH = path.join(process.cwd(), 'config.jsonc')
@@ -122,7 +123,11 @@ function loadConfigOnce(): AppConfig {
           }
         : { enabled: false }
 
-    return applyEnvOverrides({ mediaDir, editableFolders, shareLinkDomain, auth })
+    const configDir = path.dirname(configPath)
+    const dataPath =
+      typeof parsed.dataPath === 'string' ? path.resolve(configDir, parsed.dataPath) : configDir
+
+    return applyEnvOverrides({ mediaDir, editableFolders, shareLinkDomain, auth, dataPath })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
@@ -131,6 +136,7 @@ function loadConfigOnce(): AppConfig {
         editableFolders: [],
         shareLinkDomain: undefined,
         auth: { enabled: false, password: undefined },
+        dataPath: path.dirname(configPath),
       })
     }
     throw error
@@ -139,3 +145,7 @@ function loadConfigOnce(): AppConfig {
 
 /** Config loaded once when this module is first imported. */
 export const config = loadConfigOnce()
+
+export function getDataFilePath(filename: string): string {
+  return path.join(config.dataPath, filename)
+}

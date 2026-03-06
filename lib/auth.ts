@@ -1,6 +1,5 @@
 import { createHmac, scrypt, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
-import { cookies } from 'next/headers'
 import { config } from '@/lib/config'
 
 const scryptAsync = promisify(scrypt)
@@ -55,22 +54,35 @@ export async function verifyPassword(password: string): Promise<boolean> {
   return false
 }
 
-export async function setAuthSession(): Promise<void> {
+export function createAuthSessionValue(): {
+  name: string
+  value: string
+  options: {
+    httpOnly: boolean
+    secure: boolean
+    sameSite: 'lax' | 'strict' | 'none'
+    maxAge: number
+    path: string
+  }
+} | null {
   const secret = config.auth?.password
-  if (!secret) return
+  if (!secret) return null
 
   const timestamp = Math.floor(Date.now() / 1000).toString()
   const signature = signSession(secret, timestamp)
   const value = `${timestamp}.${signature}`
 
-  const cookieStore = await cookies()
-  cookieStore.set(SESSION_COOKIE, value, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: SESSION_MAX_AGE,
-    path: '/',
-  })
+  return {
+    name: SESSION_COOKIE,
+    value,
+    options: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: SESSION_MAX_AGE,
+      path: '/',
+    },
+  }
 }
 
 /** Synchronously verifies a raw cookie value without needing next/headers (for use in middleware). */
@@ -82,9 +94,4 @@ export function verifySessionValue(value: string | undefined): boolean {
   const timestamp = parseInt(value.slice(0, dot), 10)
   const now = Math.floor(Date.now() / 1000)
   return now - timestamp <= SESSION_MAX_AGE
-}
-
-export async function clearAuthSession(): Promise<void> {
-  const cookieStore = await cookies()
-  cookieStore.delete(SESSION_COOKIE)
 }

@@ -1,8 +1,7 @@
-'use client'
-
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { post } from '@/lib/api'
 import { X, Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,6 +14,7 @@ import {
 import { TextContent } from '@/components/text-content'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
 import { useSettings } from '@/lib/use-settings'
+import { useMediaUrl } from '@/lib/use-media-url'
 
 export interface ShareInfoForViewer {
   token: string
@@ -42,11 +42,36 @@ interface TextViewerProps {
     filePath?: string
     onClose?: () => void
   }
+  shareContext?: {
+    token: string
+    shareInfo: ShareInfoForViewer
+  }
 }
 
-export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps) {
+export function TextViewer({
+  editableFolders = [],
+  shareMode: shareModeProp,
+  shareContext,
+}: TextViewerProps) {
   const { urlState, closeViewer: urlCloseViewer } = useUrlState()
   const queryClient = useQueryClient()
+
+  const { getMediaUrl, getDownloadUrl } = useMediaUrl()
+  const viewingPathFromUrl = urlState.viewing
+
+  const autoShareMode = useMemo(() => {
+    if (shareModeProp || !shareContext || !viewingPathFromUrl) return undefined
+    return {
+      token: shareContext.token,
+      shareInfo: shareContext.shareInfo,
+      mediaUrl: getMediaUrl(viewingPathFromUrl),
+      downloadUrl: getDownloadUrl(viewingPathFromUrl),
+      filePath: viewingPathFromUrl,
+      onClose: urlCloseViewer,
+    }
+  }, [shareModeProp, shareContext, viewingPathFromUrl, getMediaUrl, getDownloadUrl, urlCloseViewer])
+
+  const shareMode = shareModeProp ?? autoShareMode
   const isShareMode = !!shareMode
   const viewingPath = isShareMode
     ? (shareMode!.filePath ?? shareMode!.shareInfo.path)
@@ -94,6 +119,14 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
     },
     [shareStorageKey],
   )
+
+  const shareEditMutation = useMutation({
+    mutationFn: (vars: { token: string; path: string; content: string }) =>
+      post(`/api/share/${vars.token}/edit`, vars),
+  })
+  const filesEditMutation = useMutation({
+    mutationFn: (vars: { path: string; content: string }) => post('/api/files/edit', vars),
+  })
 
   const { settings, setAutoSave } = useSettings('', !isShareMode)
   const knowledgeBases = settings.knowledgeBases || []
@@ -320,21 +353,14 @@ export function TextViewer({ editableFolders = [], shareMode }: TextViewerProps)
           ? fileFwd.slice(sharePath.length + 1)
           : fileFwd
       }
-      const res = isShareMode
-        ? await fetch(`/api/share/${shareMode!.token}/edit`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: editPath, content: editContent }),
-          })
-        : await fetch('/api/files/edit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: viewingPath, content: editContent }),
-          })
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to save file')
+      if (isShareMode) {
+        await shareEditMutation.mutateAsync({
+          token: shareMode!.token,
+          path: editPath,
+          content: editContent,
+        })
+      } else {
+        await filesEditMutation.mutateAsync({ path: viewingPath!, content: editContent })
       }
 
       const queryKey = isShareMode

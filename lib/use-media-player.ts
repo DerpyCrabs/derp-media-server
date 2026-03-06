@@ -11,6 +11,8 @@ interface MediaPlayerState {
   volume: number
   isMuted: boolean
   isRepeat: boolean
+  shareToken: string | null
+  sharePath: string | null
 
   playFile: (path: string, type: 'audio' | 'video') => void
   setCurrentFile: (path: string, type: 'audio' | 'video') => void
@@ -18,6 +20,8 @@ interface MediaPlayerState {
   setCurrentTime: (time: number) => void
   setDuration: (duration: number) => void
   toggleRepeat: () => void
+  setShareContext: (token: string, path: string) => void
+  clearShareContext: () => void
 
   reset: () => void
 }
@@ -31,6 +35,8 @@ export const useMediaPlayer = create<MediaPlayerState>((set, get) => ({
   volume: 1,
   isMuted: false,
   isRepeat: false,
+  shareToken: null,
+  sharePath: null,
 
   playFile: (path, type) => {
     const state = get()
@@ -67,6 +73,9 @@ export const useMediaPlayer = create<MediaPlayerState>((set, get) => ({
   setCurrentTime: (time) => set({ currentTime: time }),
   setDuration: (duration) => set({ duration }),
   toggleRepeat: () => set((state) => ({ isRepeat: !state.isRepeat })),
+
+  setShareContext: (token, path) => set({ shareToken: token, sharePath: path }),
+  clearShareContext: () => set({ shareToken: null, sharePath: null }),
 
   reset: () =>
     set({

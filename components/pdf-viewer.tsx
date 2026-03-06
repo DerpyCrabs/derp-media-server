@@ -1,5 +1,3 @@
-'use client'
-
 import { useUrlState } from '@/lib/use-url-state'
 import { X, Download, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,15 +8,17 @@ import {
   DialogPopup,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useMediaUrl } from '@/lib/use-media-url'
 
 export function PdfViewer() {
   const { urlState, closeViewer } = useUrlState()
+  const { getMediaUrl, getDownloadUrl } = useMediaUrl()
   const viewingPath = urlState.viewing
 
   const handleDownload = () => {
     if (!viewingPath) return
     const link = document.createElement('a')
-    link.href = `/api/media/${encodeURIComponent(viewingPath)}`
+    link.href = getDownloadUrl(viewingPath)
     link.download = viewingPath.split(/[/\\]/).pop() || 'document.pdf'
     document.body.appendChild(link)
     link.click()
@@ -27,7 +27,7 @@ export function PdfViewer() {
 
   const handleOpenInNewTab = () => {
     if (!viewingPath) return
-    window.open(`/api/media/${encodeURIComponent(viewingPath)}`, '_blank')
+    window.open(getMediaUrl(viewingPath), '_blank')
   }
 
   // Check if the current file is a PDF
@@ -86,7 +86,7 @@ export function PdfViewer() {
           {/* PDF container */}
           <div className='flex-1 flex items-center justify-center overflow-hidden bg-neutral-800'>
             <embed
-              src={`/api/media/${encodeURIComponent(viewingPath)}#toolbar=1`}
+              src={`${getMediaUrl(viewingPath)}#toolbar=1`}
               type='application/pdf'
               className='w-full h-full'
               title={fileName}

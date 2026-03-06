@@ -1,11 +1,10 @@
-'use client'
-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import { api, post } from '@/lib/api'
 
 import type { AutoSaveSettings } from './types'
 
-export type ViewMode = 'list' | 'grid'
+type ViewMode = 'list' | 'grid'
 
 interface GlobalSettings {
   viewModes: Record<string, ViewMode>
@@ -15,95 +14,6 @@ interface GlobalSettings {
   autoSave: Record<string, AutoSaveSettings>
 }
 
-// Fetch full settings file
-async function fetchAllSettings(): Promise<GlobalSettings> {
-  const response = await fetch(`/api/settings/all`)
-  if (!response.ok) {
-    // Fallback to empty settings
-    return { viewModes: {}, favorites: [], knowledgeBases: [], customIcons: {}, autoSave: {} }
-  }
-  return response.json()
-}
-
-// Save view mode
-async function saveViewMode(path: string, viewMode: ViewMode) {
-  const response = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, viewMode }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to save view mode')
-  }
-  return response.json()
-}
-
-// Toggle favorite
-async function toggleFavorite(filePath: string) {
-  const response = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'toggleFavorite', filePath }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to toggle favorite')
-  }
-  return response.json()
-}
-
-// Toggle knowledge base
-async function toggleKnowledgeBase(filePath: string) {
-  const response = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'toggleKnowledgeBase', filePath }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to toggle knowledge base')
-  }
-  return response.json()
-}
-
-// Set custom icon
-async function setCustomIcon(path: string, iconName: string) {
-  const response = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'setCustomIcon', path, iconName }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to set custom icon')
-  }
-  return response.json()
-}
-
-// Remove custom icon
-async function removeCustomIcon(path: string) {
-  const response = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'removeCustomIcon', path }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to remove custom icon')
-  }
-  return response.json()
-}
-
-// Set auto-save for file
-async function setAutoSave(filePath: string, enabled: boolean, readOnly?: boolean) {
-  const response = await fetch('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'setAutoSave', filePath, enabled, readOnly }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to set auto-save setting')
-  }
-  return response.json()
-}
-
-// Singleton EventSource to prevent multiple connections
 let globalEventSource: EventSource | null = null
 let connectionRefCount = 0
 
@@ -119,7 +29,6 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
           console.log('[Settings SSE] Connected to settings stream')
         } else if (data.type === 'settings-changed') {
           console.log('[Settings SSE] Settings changed, refetching...')
-          // Refetch all settings queries when settings change
           queryClient.invalidateQueries({ queryKey: ['settings'] })
         }
       } catch (error) {
@@ -129,12 +38,10 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
 
     globalEventSource.onerror = (error) => {
       console.warn('[Settings SSE] Connection error:', error)
-      // Close and reset
       if (globalEventSource) {
         globalEventSource.close()
         globalEventSource = null
       }
-      // Try to reconnect after 5 seconds
       setTimeout(() => {
         if (connectionRefCount > 0) {
           console.log('[Settings SSE] Reconnecting...')
@@ -155,14 +62,13 @@ function disconnectFromSSE() {
   }
 }
 
-// Hook to manage settings with SSE and optimistic updates
 export function useSettings(currentPath: string, enabled = true) {
   const queryClient = useQueryClient()
 
   const { data: globalSettings } = useQuery({
     queryKey: ['settings'],
-    queryFn: fetchAllSettings,
-    staleTime: Infinity, // Don't auto-refetch, rely on SSE
+    queryFn: () => api<GlobalSettings>('/api/settings'),
+    staleTime: Infinity,
     enabled,
   })
 
@@ -174,18 +80,12 @@ export function useSettings(currentPath: string, enabled = true) {
     }
   }, [queryClient, enabled])
 
-  // Mutation for view mode with optimistic update
   const viewModeMutation = useMutation({
-    mutationFn: ({ path, viewMode }: { path: string; viewMode: ViewMode }) =>
-      saveViewMode(path, viewMode),
+    mutationFn: (vars: { path: string; viewMode: ViewMode }) =>
+      post('/api/settings/viewMode', vars),
     onMutate: async ({ path, viewMode }) => {
-      // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: ['settings'] })
-
-      // Snapshot previous value
-      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
-
-      // Optimistically update
+      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
           return {
@@ -195,34 +95,23 @@ export function useSettings(currentPath: string, enabled = true) {
             customIcons: {},
             autoSave: {},
           }
-        return {
-          ...old,
-          viewModes: { ...old.viewModes, [path]: viewMode },
-        }
+        return { ...old, viewModes: { ...old.viewModes, [path]: viewMode } }
       })
-
-      return { previousSettings }
+      return { prev }
     },
-    onError: (_err, _variables, context) => {
-      // Rollback on error
-      if (context?.previousSettings) {
-        queryClient.setQueryData(['settings'], context.previousSettings)
-      }
+    onError: (_err, _vars, context) => {
+      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
     },
     onSettled: () => {
-      // Refetch after mutation (will be fast due to SSE)
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
   })
 
-  // Mutation for favorites with optimistic update
   const favoriteMutation = useMutation({
-    mutationFn: (filePath: string) => toggleFavorite(filePath),
-    onMutate: async (filePath) => {
+    mutationFn: (vars: { filePath: string }) => post('/api/settings/favorite', vars),
+    onMutate: async ({ filePath }) => {
       await queryClient.cancelQueries({ queryKey: ['settings'] })
-
-      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
-
+      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
           return {
@@ -232,45 +121,31 @@ export function useSettings(currentPath: string, enabled = true) {
             customIcons: {},
             autoSave: {},
           }
-
         const favorites = [...old.favorites]
         const index = favorites.indexOf(filePath)
-
         if (index > -1) {
           favorites.splice(index, 1)
         } else {
           favorites.push(filePath)
         }
-
-        return {
-          viewModes: old.viewModes,
-          favorites,
-          knowledgeBases: old.knowledgeBases || [],
-          customIcons: old.customIcons || {},
-          autoSave: old.autoSave || {},
-        }
+        return { ...old, favorites }
       })
-
-      return { previousSettings }
+      return { prev }
     },
-    onError: (_err, _variables, context) => {
-      if (context?.previousSettings) {
-        queryClient.setQueryData(['settings'], context.previousSettings)
-      }
+    onError: (_err, _vars, context) => {
+      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['files', 'Favorites'] })
     },
   })
 
-  // Mutation for toggling knowledge base with optimistic update
   const knowledgeBaseMutation = useMutation({
-    mutationFn: (filePath: string) => toggleKnowledgeBase(filePath),
-    onMutate: async (filePath) => {
+    mutationFn: (vars: { filePath: string }) => post('/api/settings/knowledgeBase', vars),
+    onMutate: async ({ filePath }) => {
       await queryClient.cancelQueries({ queryKey: ['settings'] })
-
-      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
-
+      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
           return {
@@ -280,46 +155,30 @@ export function useSettings(currentPath: string, enabled = true) {
             customIcons: {},
             autoSave: {},
           }
-
         const knowledgeBases = [...(old.knowledgeBases || [])]
         const index = knowledgeBases.indexOf(filePath)
-
         if (index > -1) {
           knowledgeBases.splice(index, 1)
         } else {
           knowledgeBases.push(filePath)
         }
-
-        return {
-          viewModes: old.viewModes,
-          favorites: old.favorites || [],
-          knowledgeBases,
-          customIcons: old.customIcons || {},
-          autoSave: old.autoSave || {},
-        }
+        return { ...old, knowledgeBases }
       })
-
-      return { previousSettings }
+      return { prev }
     },
-    onError: (_err, _variables, context) => {
-      if (context?.previousSettings) {
-        queryClient.setQueryData(['settings'], context.previousSettings)
-      }
+    onError: (_err, _vars, context) => {
+      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
   })
 
-  // Mutation for setting custom icon with optimistic update
   const setIconMutation = useMutation({
-    mutationFn: ({ path, iconName }: { path: string; iconName: string }) =>
-      setCustomIcon(path, iconName),
+    mutationFn: (vars: { path: string; iconName: string }) => post('/api/settings/icon', vars),
     onMutate: async ({ path, iconName }) => {
       await queryClient.cancelQueries({ queryKey: ['settings'] })
-
-      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
-
+      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
           return {
@@ -329,32 +188,23 @@ export function useSettings(currentPath: string, enabled = true) {
             customIcons: { [path]: iconName },
             autoSave: {},
           }
-        return {
-          ...old,
-          customIcons: { ...old.customIcons, [path]: iconName },
-        }
+        return { ...old, customIcons: { ...old.customIcons, [path]: iconName } }
       })
-
-      return { previousSettings }
+      return { prev }
     },
-    onError: (_err, _variables, context) => {
-      if (context?.previousSettings) {
-        queryClient.setQueryData(['settings'], context.previousSettings)
-      }
+    onError: (_err, _vars, context) => {
+      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
   })
 
-  // Mutation for removing custom icon with optimistic update
   const removeIconMutation = useMutation({
-    mutationFn: (path: string) => removeCustomIcon(path),
-    onMutate: async (path) => {
+    mutationFn: (vars: { path: string }) => post('/api/settings/icon/remove', vars),
+    onMutate: async ({ path }) => {
       await queryClient.cancelQueries({ queryKey: ['settings'] })
-
-      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
-
+      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
           return { viewModes: {}, favorites: [], knowledgeBases: [], customIcons: {}, autoSave: {} }
@@ -362,35 +212,22 @@ export function useSettings(currentPath: string, enabled = true) {
         delete customIcons[path]
         return { ...old, customIcons }
       })
-
-      return { previousSettings }
+      return { prev }
     },
-    onError: (_err, _variables, context) => {
-      if (context?.previousSettings) {
-        queryClient.setQueryData(['settings'], context.previousSettings)
-      }
+    onError: (_err, _vars, context) => {
+      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
   })
 
-  // Mutation for auto-save setting with optimistic update
   const autoSaveMutation = useMutation({
-    mutationFn: ({
-      filePath,
-      enabled,
-      readOnly,
-    }: {
-      filePath: string
-      enabled: boolean
-      readOnly?: boolean
-    }) => setAutoSave(filePath, enabled, readOnly),
+    mutationFn: (vars: { filePath: string; enabled: boolean; readOnly?: boolean }) =>
+      post('/api/settings/autoSave', vars),
     onMutate: async ({ filePath, enabled, readOnly }) => {
       await queryClient.cancelQueries({ queryKey: ['settings'] })
-
-      const previousSettings = queryClient.getQueryData<GlobalSettings>(['settings'])
-
+      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
       queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
         if (!old)
           return {
@@ -404,27 +241,20 @@ export function useSettings(currentPath: string, enabled = true) {
           ...old,
           autoSave: {
             ...old.autoSave,
-            [filePath]: {
-              enabled,
-              ...(readOnly !== undefined && { readOnly }),
-            },
+            [filePath]: { enabled, ...(readOnly !== undefined && { readOnly }) },
           },
         }
       })
-
-      return { previousSettings }
+      return { prev }
     },
-    onError: (_err, _variables, context) => {
-      if (context?.previousSettings) {
-        queryClient.setQueryData(['settings'], context.previousSettings)
-      }
+    onError: (_err, _vars, context) => {
+      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
   })
 
-  // Extract current path settings from global settings
   const viewMode = globalSettings?.viewModes[currentPath] || 'list'
   const favorites = globalSettings?.favorites || []
   const knowledgeBases = globalSettings?.knowledgeBases || []
@@ -434,10 +264,10 @@ export function useSettings(currentPath: string, enabled = true) {
   return {
     settings: { viewMode, favorites, knowledgeBases, customIcons, autoSave },
     setViewMode: (viewMode: ViewMode) => viewModeMutation.mutate({ path: currentPath, viewMode }),
-    toggleFavorite: (filePath: string) => favoriteMutation.mutate(filePath),
-    toggleKnowledgeBase: (filePath: string) => knowledgeBaseMutation.mutate(filePath),
+    toggleFavorite: (filePath: string) => favoriteMutation.mutate({ filePath }),
+    toggleKnowledgeBase: (filePath: string) => knowledgeBaseMutation.mutate({ filePath }),
     setCustomIcon: (path: string, iconName: string) => setIconMutation.mutate({ path, iconName }),
-    removeCustomIcon: (path: string) => removeIconMutation.mutate(path),
+    removeCustomIcon: (path: string) => removeIconMutation.mutate({ path }),
     setAutoSave: (filePath: string, enabled: boolean, readOnly?: boolean) =>
       autoSaveMutation.mutate({ filePath, enabled, readOnly }),
     isLoading: !globalSettings,

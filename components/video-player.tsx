@@ -1,11 +1,10 @@
-'use client'
-
 import { useEffect, useRef, useState } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
 import { Minimize2, Maximize2, X, ArrowUp, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useMediaUrl } from '@/lib/use-media-url'
 import {
   useVideoPlayerPosition,
   validatePosition,
@@ -30,6 +29,7 @@ export function VideoPlayer() {
 
   const { position, setPosition } = useVideoPlayerPosition()
   const { getSavedTime, saveTime } = useVideoPlaybackTime()
+  const { getMediaUrl } = useMediaUrl()
 
   const {
     currentFile,
@@ -110,8 +110,7 @@ export function VideoPlayer() {
       return
     }
 
-    // Update video source
-    const mediaUrl = `/api/media/${playingPath}`
+    const mediaUrl = getMediaUrl(playingPath)
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     // Load video (will reload when returning from audio-only mode due to isAudioOnly in deps)
@@ -175,6 +174,7 @@ export function VideoPlayer() {
     setCurrentFile,
     currentTime,
     getSavedTime,
+    getMediaUrl,
   ])
 
   // Update Media Session position state and sync with store
@@ -289,6 +289,8 @@ export function VideoPlayer() {
     const video = videoRef.current
     if (video) {
       video.pause()
+      video.removeAttribute('src')
+      video.load()
     }
     closePlayer()
   }

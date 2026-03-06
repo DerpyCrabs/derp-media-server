@@ -1,8 +1,7 @@
-import path from 'path'
 import { promises as fs } from 'fs'
-import { config } from '@/lib/config'
+import { config, getDataFilePath } from '@/lib/config'
 
-const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
+const SETTINGS_FILE = getDataFilePath('settings.json')
 
 export async function getKnowledgeBases(): Promise<string[]> {
   try {

@@ -1,5 +1,3 @@
-'use client'
-
 import { AVAILABLE_ICONS } from '@/lib/icon-utils'
 import { Button } from '@/components/ui/button'
 import { X } from 'lucide-react'

@@ -40,7 +40,7 @@ const TEXT_EXTENSIONS = [
   'sql',
 ]
 
-export const MIME_TYPES: Record<string, string> = {
+const MIME_TYPES: Record<string, string> = {
   // Video
   mp4: 'video/mp4',
   webm: 'video/webm',
@@ -144,14 +144,4 @@ export function formatFileSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
 
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
-}
-
-export function isMediaFile(extension: string): boolean {
-  const type = getMediaType(extension)
-  return (
-    type === MediaType.VIDEO ||
-    type === MediaType.AUDIO ||
-    type === MediaType.IMAGE ||
-    type === MediaType.TEXT
-  )
 }

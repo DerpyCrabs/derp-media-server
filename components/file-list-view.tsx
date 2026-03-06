@@ -1,44 +1,33 @@
-'use client'
-
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
-import { ArrowUp, Star, Eye, Link, Share2, FilePlus, FolderPlus, AlertCircle } from 'lucide-react'
+import {
+  ArrowUp,
+  Star,
+  Eye,
+  Link,
+  Share2,
+  FilePlus,
+  FolderPlus,
+  AlertCircle,
+  Download,
+} from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
 
+const noop = () => {}
+
 interface FileListViewProps {
   files: FileItem[]
   currentPath: string
-  favorites: string[]
   playingPath: string | null
-  isVirtualFolder: boolean
-  editableFolders: string[]
   onFileClick: (file: FileItem) => void
-  onFolderHover: (path: string) => void
   onParentDirectory: () => void
-  onFavoriteToggle: (path: string, e: React.MouseEvent) => void
-  onContextSetIcon: (file: FileItem) => void
-  onContextRename: (file: FileItem) => void
-  onContextDelete: (file: FileItem) => void
-  onContextDownload: (file: FileItem) => void
-  onContextToggleFavorite: (file: FileItem) => void
-  onContextToggleKnowledgeBase?: (file: FileItem) => void
-  onContextShare: (file: FileItem) => void
-  onContextCopyShareLink?: (file: FileItem) => void
-  onContextMove?: (file: FileItem) => void
-  onContextCopy?: (file: FileItem) => void
-  onContextOpenInNewTab?: (file: FileItem) => void
-  hasEditableFolders?: boolean
-  onMoveFile?: (sourcePath: string, destinationDir: string) => void
-  shares: ShareLink[]
-  knowledgeBases?: string[]
-  getViewCount: (path: string) => number
-  getShareViewCount: (path: string) => number
   getIcon: (
     type: MediaType,
     filePath: string,
@@ -46,6 +35,34 @@ interface FileListViewProps {
     isVideoFile?: boolean,
     isVirtual?: boolean,
   ) => React.ReactElement
+
+  favorites?: string[]
+  isVirtualFolder?: boolean
+  editableFolders?: string[]
+  shares?: ShareLink[]
+  knowledgeBases?: string[]
+  getViewCount?: (path: string) => number
+  getShareViewCount?: (path: string) => number
+
+  onFolderHover?: (path: string) => void
+  onFavoriteToggle?: (path: string, e: React.MouseEvent) => void
+  onContextSetIcon?: (file: FileItem) => void
+  onContextRename?: (file: FileItem) => void
+  onContextDelete?: (file: FileItem) => void
+  onContextDownload?: (file: FileItem) => void
+  onContextToggleFavorite?: (file: FileItem) => void
+  onContextToggleKnowledgeBase?: (file: FileItem) => void
+  onContextShare?: (file: FileItem) => void
+  onContextCopyShareLink?: (file: FileItem) => void
+  onContextMove?: (file: FileItem) => void
+  onContextCopy?: (file: FileItem) => void
+  onContextOpenInNewTab?: (file: FileItem) => void
+  hasEditableFolders?: boolean
+  onMoveFile?: (sourcePath: string, destinationDir: string) => void
+
+  showDownloadButton?: boolean
+  isEditable?: boolean
+
   /** When true, show inline New file / New folder row at bottom (KB + editable) */
   showInlineCreate?: boolean
   onInlineCreateFile?: (name: string) => void
@@ -60,13 +77,18 @@ interface FileListViewProps {
 export function FileListView({
   files,
   currentPath,
-  favorites,
   playingPath,
-  isVirtualFolder,
-  editableFolders,
   onFileClick,
-  onFolderHover,
   onParentDirectory,
+  getIcon,
+  favorites = [],
+  isVirtualFolder = false,
+  editableFolders = [],
+  shares = [],
+  knowledgeBases = [],
+  getViewCount,
+  getShareViewCount,
+  onFolderHover = noop,
   onFavoriteToggle,
   onContextSetIcon,
   onContextRename,
@@ -81,11 +103,8 @@ export function FileListView({
   onContextOpenInNewTab,
   hasEditableFolders = false,
   onMoveFile,
-  shares,
-  knowledgeBases = [],
-  getViewCount,
-  getShareViewCount,
-  getIcon,
+  showDownloadButton = false,
+  isEditable: isEditableProp,
   showInlineCreate = false,
   onInlineCreateFile,
   onInlineCreateFolder,
@@ -106,6 +125,10 @@ export function FileListView({
   useEffect(() => {
     setEnableDrag(window.matchMedia('(hover: hover)').matches)
   }, [])
+
+  const showFavorites = !!onFavoriteToggle
+  const showViewCounts = !!getViewCount
+  const showShareIndicators = shares.length > 0
 
   const parentParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
   const parentDir = parentParts.slice(0, -1).join('/')
@@ -192,11 +215,23 @@ export function FileListView({
     )
   }
 
+  const hasAnyContextAction =
+    onContextRename ||
+    onContextDelete ||
+    onContextDownload ||
+    onContextMove ||
+    onContextCopy ||
+    onContextSetIcon ||
+    onContextToggleFavorite ||
+    onContextShare ||
+    onContextOpenInNewTab ||
+    onContextToggleKnowledgeBase ||
+    onContextCopyShareLink
+
   return (
     <div className='sm:px-4 py-2'>
       <Table>
         <TableBody>
-          {/* Parent directory entry - only show when not at root */}
           {currentPath && (
             <TableRow
               className={`cursor-pointer hover:bg-muted/50 select-none ${
@@ -232,11 +267,148 @@ export function FileListView({
           {files.map((file) => {
             const isFavorite = favorites.includes(file.path)
             const isKnowledgeBase = file.isDirectory && knowledgeBases.includes(file.path)
-            const viewCount = getViewCount(file.path)
-            const shareViewCount = getShareViewCount(file.path)
-            const isFileEditable = isPathEditable(file.path, editableFolders)
-            const isShared = shares.some((s) => s.path === file.path)
-            return (
+            const viewCount = getViewCount?.(file.path) ?? 0
+            const shareViewCount = getShareViewCount?.(file.path) ?? 0
+            const isFileEditable =
+              isEditableProp !== undefined
+                ? isEditableProp
+                : isPathEditable(file.path, editableFolders)
+            const isShared = showShareIndicators && shares.some((s) => s.path === file.path)
+
+            const row = (
+              <TableRow
+                className={`cursor-pointer hover:bg-muted/50 select-none group ${
+                  playingPath === file.path ? 'bg-primary/10' : ''
+                } ${draggedPath === file.path ? 'opacity-50' : ''} ${
+                  file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''
+                }`}
+                draggable={isFileEditable && !!onMoveFile && enableDrag}
+                onClick={() => onFileClick(file)}
+                onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
+                onDragStart={(e) => {
+                  if (!isFileEditable || !onMoveFile) return
+                  e.dataTransfer.setData('text/plain', file.path)
+                  e.dataTransfer.effectAllowed = 'move'
+                  setDraggedPath(file.path)
+                }}
+                onDragEnd={() => {
+                  setDraggedPath(null)
+                  setDragOverPath(null)
+                }}
+                onDragOver={(e) => {
+                  if (!file.isDirectory || !onMoveFile || !draggedPath) return
+                  if (!canDropOn(file.path)) return
+                  if (isEditableProp === undefined && !isPathEditable(file.path, editableFolders))
+                    return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setDragOverPath(file.path)
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverPath === file.path) setDragOverPath(null)
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOverPath(null)
+                  if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
+                    onMoveFile(draggedPath, file.path)
+                  }
+                }}
+              >
+                <TableCell className='w-12'>
+                  <div className='flex items-center justify-center'>
+                    {getIcon(
+                      file.type,
+                      file.path,
+                      file.type === MediaType.AUDIO,
+                      file.type === MediaType.VIDEO,
+                      file.isVirtual,
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className='font-medium'>
+                  <div className='flex items-center gap-2'>
+                    {showFavorites && !file.isDirectory && (
+                      <button
+                        onClick={(e) => onFavoriteToggle!(file.path, e)}
+                        className='shrink-0 opacity-50 hover:opacity-100 transition-opacity'
+                        title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                        suppressHydrationWarning
+                      >
+                        <Star
+                          className={`h-4 w-4 ${
+                            isFavorite
+                              ? 'fill-yellow-400 text-yellow-400 opacity-100'
+                              : 'text-muted-foreground'
+                          }`}
+                          suppressHydrationWarning
+                        />
+                      </button>
+                    )}
+                    <div className='flex-1 min-w-0'>
+                      <span className='truncate block'>
+                        {file.name}
+                        {isShared && (
+                          <Link className='inline h-3 w-3 ml-1.5 text-primary opacity-70' />
+                        )}
+                      </span>
+                      {isVirtualFolder && !file.isDirectory && (
+                        <span className='text-xs text-muted-foreground truncate block'>
+                          {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell
+                  className={`${showDownloadButton ? 'w-48' : 'w-32'} text-right text-muted-foreground`}
+                >
+                  <div className='flex items-center justify-end gap-2'>
+                    {showViewCounts && !file.isDirectory && (
+                      <div
+                        className={`flex items-center gap-1 text-xs ${viewCount > 0 ? '' : 'hidden'}`}
+                        title={`${viewCount} views`}
+                        suppressHydrationWarning
+                      >
+                        <Eye className='h-3.5 w-3.5' />
+                        <span suppressHydrationWarning>{viewCount}</span>
+                      </div>
+                    )}
+                    {showViewCounts && !file.isDirectory && (
+                      <div
+                        className={`flex items-center gap-1 text-xs text-primary/70 ${shareViewCount > 0 ? '' : 'hidden'}`}
+                        title={`${shareViewCount} shared views`}
+                        suppressHydrationWarning
+                      >
+                        <Share2 className='h-3 w-3' />
+                        <span suppressHydrationWarning>{shareViewCount}</span>
+                      </div>
+                    )}
+                    {showDownloadButton && onContextDownload && (
+                      <Button
+                        variant='ghost'
+                        size='icon'
+                        className='h-7 w-7'
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onContextDownload(file)
+                        }}
+                        title='Download'
+                      >
+                        <Download className='h-3.5 w-3.5' />
+                      </Button>
+                    )}
+                    <span className='w-20'>
+                      {file.isDirectory ? '' : formatFileSize(file.size)}
+                    </span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+
+            return hasAnyContextAction ? (
               <FileContextMenu
                 key={file.shareToken ? `share-${file.shareToken}` : file.path}
                 file={file}
@@ -257,120 +429,10 @@ export function FileListView({
                 isEditable={isFileEditable}
                 isShared={isShared}
               >
-                <TableRow
-                  className={`cursor-pointer hover:bg-muted/50 select-none group ${
-                    playingPath === file.path ? 'bg-primary/10' : ''
-                  } ${draggedPath === file.path ? 'opacity-50' : ''} ${
-                    file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''
-                  }`}
-                  draggable={isFileEditable && !!onMoveFile && enableDrag}
-                  onClick={() => onFileClick(file)}
-                  onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
-                  onDragStart={(e) => {
-                    if (!isFileEditable || !onMoveFile) return
-                    e.dataTransfer.setData('text/plain', file.path)
-                    e.dataTransfer.effectAllowed = 'move'
-                    setDraggedPath(file.path)
-                  }}
-                  onDragEnd={() => {
-                    setDraggedPath(null)
-                    setDragOverPath(null)
-                  }}
-                  onDragOver={(e) => {
-                    if (!file.isDirectory || !onMoveFile || !draggedPath) return
-                    if (!canDropOn(file.path)) return
-                    if (!isPathEditable(file.path, editableFolders)) return
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'move'
-                    setDragOverPath(file.path)
-                  }}
-                  onDragLeave={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                      if (dragOverPath === file.path) setDragOverPath(null)
-                    }
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    setDragOverPath(null)
-                    if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
-                      onMoveFile(draggedPath, file.path)
-                    }
-                  }}
-                >
-                  <TableCell className='w-12'>
-                    <div className='flex items-center justify-center'>
-                      {getIcon(
-                        file.type,
-                        file.path,
-                        file.type === MediaType.AUDIO,
-                        file.type === MediaType.VIDEO,
-                        file.isVirtual,
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className='font-medium'>
-                    <div className='flex items-center gap-2'>
-                      {!file.isDirectory && (
-                        <button
-                          onClick={(e) => onFavoriteToggle(file.path, e)}
-                          className='shrink-0 opacity-50 hover:opacity-100 transition-opacity'
-                          title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                          suppressHydrationWarning
-                        >
-                          <Star
-                            className={`h-4 w-4 ${
-                              isFavorite
-                                ? 'fill-yellow-400 text-yellow-400 opacity-100'
-                                : 'text-muted-foreground'
-                            }`}
-                            suppressHydrationWarning
-                          />
-                        </button>
-                      )}
-                      <div className='flex-1 min-w-0'>
-                        <span className='truncate block'>
-                          {file.name}
-                          {isShared && (
-                            <Link className='inline h-3 w-3 ml-1.5 text-primary opacity-70' />
-                          )}
-                        </span>
-                        {isVirtualFolder && !file.isDirectory && (
-                          <span className='text-xs text-muted-foreground truncate block'>
-                            {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className='w-32 text-right text-muted-foreground'>
-                    <div className='flex items-center justify-end gap-2'>
-                      {!file.isDirectory && (
-                        <div
-                          className={`flex items-center gap-1 text-xs ${viewCount > 0 ? '' : 'hidden'}`}
-                          title={`${viewCount} views`}
-                          suppressHydrationWarning
-                        >
-                          <Eye className='h-3.5 w-3.5' />
-                          <span suppressHydrationWarning>{viewCount}</span>
-                        </div>
-                      )}
-                      {!file.isDirectory && (
-                        <div
-                          className={`flex items-center gap-1 text-xs text-primary/70 ${shareViewCount > 0 ? '' : 'hidden'}`}
-                          title={`${shareViewCount} shared views`}
-                          suppressHydrationWarning
-                        >
-                          <Share2 className='h-3 w-3' />
-                          <span suppressHydrationWarning>{shareViewCount}</span>
-                        </div>
-                      )}
-                      <span className='w-20'>
-                        {file.isDirectory ? '' : formatFileSize(file.size)}
-                      </span>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                {row}
               </FileContextMenu>
+            ) : (
+              <React.Fragment key={file.path}>{row}</React.Fragment>
             )
           })}
           {showInlineCreate && (
