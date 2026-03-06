@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { FileItem } from './types'
 import { resolveSourceContext, stripSharePrefix, type SourceContext } from '@/lib/source-context'
+import { queryKeys } from '@/lib/query-keys'
 
 export function useFiles(
   currentPath: string,
@@ -15,7 +16,9 @@ export function useFiles(
     shareToken && resolvedSharePath ? stripSharePrefix(currentPath, resolvedSharePath) : currentPath
 
   const { data, ...rest } = useQuery({
-    queryKey: shareToken ? ['share-files', shareToken, currentDir] : ['files', currentPath],
+    queryKey: shareToken
+      ? queryKeys.shareFiles(shareToken, currentDir)
+      : queryKeys.files(currentPath),
     queryFn: () =>
       shareToken
         ? api<{ files: FileItem[] }>(
@@ -33,7 +36,7 @@ export function usePrefetchFiles() {
   const queryClient = useQueryClient()
   return (path: string) => {
     queryClient.prefetchQuery({
-      queryKey: ['files', path],
+      queryKey: queryKeys.files(path),
       queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(path)}`),
       staleTime: 1000 * 60 * 2,
     })

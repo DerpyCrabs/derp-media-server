@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { FileText } from 'lucide-react'
+import { queryKeys } from '@/lib/query-keys'
 
 interface RecentFile {
   path: string
@@ -31,14 +32,14 @@ function formatRelativeTime(dateStr: string): string {
 
 export function KbDashboard({ scopePath, onFileClick, shareToken, dir }: KbDashboardProps) {
   const { data: directData, isLoading: directLoading } = useQuery({
-    queryKey: ['kb-recent', scopePath],
+    queryKey: queryKeys.kbRecent(scopePath),
     queryFn: () =>
       api<{ results: RecentFile[] }>(`/api/kb/recent?root=${encodeURIComponent(scopePath)}`),
     enabled: !shareToken,
     staleTime: 1000 * 60,
   })
   const { data: shareData, isLoading: shareLoading } = useQuery({
-    queryKey: ['share-kb-recent', shareToken, dir],
+    queryKey: shareToken ? queryKeys.shareKbRecent(shareToken, dir) : queryKeys.shareKbRecent(),
     queryFn: () => {
       const params = new URLSearchParams()
       if (dir) params.set('dir', dir)

@@ -4,6 +4,7 @@ import { FileList } from '@/components/file-list'
 import { MediaPlayers } from '@/components/media-players'
 import { Card } from '@/components/ui/card'
 import { api } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
 
 export function HomePage() {
   const { urlState } = useUrlState()
@@ -14,7 +15,7 @@ export function HomePage() {
   const isAudioPlaying = playingPath && audioExtensions.includes(extension || '')
 
   const { data: authConfig } = useQuery({
-    queryKey: ['auth-config'],
+    queryKey: queryKeys.authConfig(),
     queryFn: () =>
       api<{ enabled: boolean; shareLinkDomain?: string; editableFolders: string[] }>(
         '/api/auth/config',

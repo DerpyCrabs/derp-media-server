@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, post } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
 
 export function useViewStats() {
   const queryClient = useQueryClient()
 
   const { data } = useQuery({
-    queryKey: ['stats'],
+    queryKey: queryKeys.stats(),
     queryFn: () =>
       api<{ views: Record<string, number>; shareViews: Record<string, number> }>(
         '/api/stats/views',
@@ -17,7 +18,7 @@ export function useViewStats() {
   const incrementMutation = useMutation({
     mutationFn: (vars: { filePath: string }) => post('/api/stats/views', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats() })
     },
   })
 

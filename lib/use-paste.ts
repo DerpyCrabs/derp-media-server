@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { post } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
 
 export interface PasteData {
   type: 'text' | 'image' | 'file'
@@ -31,7 +32,7 @@ export function usePaste(currentPath: string) {
         {
           onSuccess: () => {
             setLastPastedFile(filePath)
-            queryClient.invalidateQueries({ queryKey: ['files'] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.files() })
             setShowPasteDialog(false)
             setPasteData(null)
           },

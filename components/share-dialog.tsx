@@ -14,6 +14,7 @@ import { Copy, Check, Link, Trash2, ChevronDown, ChevronUp, Plus } from 'lucide-
 import type { ShareLink, ShareRestrictions } from '@/lib/shares'
 import { formatFileSize } from '@/lib/media-utils'
 import { useShareLinkBase } from '@/lib/use-share-link-base'
+import { queryKeys } from '@/lib/query-keys'
 
 const SIZE_PRESETS = [
   { label: '500 MB', value: 500 * 1024 * 1024 },
@@ -214,7 +215,7 @@ function ShareCard({
         body: JSON.stringify(vars),
       }).then((r) => r.json()),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shares'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
     },
   })
 
@@ -258,7 +259,7 @@ function ShareCard({
   const revokeMutation = useMutation({
     mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shares'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
       onRevoked()
     },
   })
@@ -422,7 +423,7 @@ export function ShareDialog({
     }) => post('/api/shares', vars),
     onSuccess: () => {
       setShowCreate(false)
-      queryClient.invalidateQueries({ queryKey: ['shares'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
     },
   })
 

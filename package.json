@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "bun server/index.ts",
+    "dev": "bun --watch server/index.ts",
     "build": "vite build",
     "start": "bun run build && NODE_ENV=production bun server/index.ts",
     "lint": "oxlint",
