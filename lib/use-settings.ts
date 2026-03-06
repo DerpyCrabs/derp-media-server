@@ -4,7 +4,7 @@ import { api, post } from '@/lib/api'
 
 import type { AutoSaveSettings } from './types'
 
-export type ViewMode = 'list' | 'grid'
+type ViewMode = 'list' | 'grid'
 
 interface GlobalSettings {
   viewModes: Record<string, ViewMode>

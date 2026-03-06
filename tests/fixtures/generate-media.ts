@@ -29,7 +29,7 @@ const MINIMAL_PDF = Buffer.from(
     'trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF',
 )
 
-export function hasFfmpeg(): boolean {
+function hasFfmpeg(): boolean {
   try {
     execSync('ffmpeg -version', { stdio: 'ignore' })
     return true

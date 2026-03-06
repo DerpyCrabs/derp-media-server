@@ -95,13 +95,3 @@ export function verifySessionValue(value: string | undefined): boolean {
   const now = Math.floor(Date.now() / 1000)
   return now - timestamp <= SESSION_MAX_AGE
 }
-
-export function getAuthClearCookie(): {
-  name: string
-  options: { maxAge: number; path: string }
-} {
-  return {
-    name: SESSION_COOKIE,
-    options: { maxAge: 0, path: '/' },
-  }
-}
