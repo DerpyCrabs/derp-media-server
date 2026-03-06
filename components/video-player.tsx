@@ -1,24 +1,32 @@
 import { useEffect, useRef, useState } from 'react'
-import { useUrlState } from '@/lib/use-url-state'
 import { Minimize2, Maximize2, X, ArrowUp, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useMediaUrl } from '@/lib/use-media-url'
+import { useNavigationSession } from '@/lib/use-navigation-session'
 import {
   useVideoPlayerPosition,
   validatePosition,
   getDefaultPosition,
 } from '@/lib/use-video-player-position'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
 interface Position {
   x: number
   y: number
 }
 
-export function VideoPlayer() {
-  const { urlState, closePlayer, setAudioOnly } = useUrlState()
+interface VideoPlayerProps {
+  session?: NavigationSession
+  mediaContext?: SourceContext
+}
+
+export function VideoPlayer({ session: sessionProp, mediaContext }: VideoPlayerProps = {}) {
+  const session = useNavigationSession(sessionProp)
+  const { state, closePlayer, setAudioOnly } = session
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<HTMLDivElement>(null)
   const [isMinimized, setIsMinimized] = useState(false)
@@ -29,7 +37,7 @@ export function VideoPlayer() {
 
   const { position, setPosition } = useVideoPlayerPosition()
   const { getSavedTime, saveTime } = useVideoPlaybackTime()
-  const { getMediaUrl } = useMediaUrl()
+  const { getMediaUrl } = useMediaUrl(mediaContext)
 
   const {
     currentFile,
@@ -42,8 +50,8 @@ export function VideoPlayer() {
     setDuration,
   } = useMediaPlayer()
 
-  const playingPath = urlState.playing
-  const isAudioOnly = urlState.audioOnly
+  const playingPath = state.playing
+  const isAudioOnly = state.audioOnly
   const fileName = (playingPath || '').split('/').pop() || ''
 
   // Determine if we should show the player based on file type

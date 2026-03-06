@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useUrlState } from '@/lib/use-url-state'
 import { X, Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,15 +11,24 @@ import {
 import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 import { useMediaUrl } from '@/lib/use-media-url'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
-export function ImageViewer() {
-  const { urlState, viewFile, closeViewer: urlCloseViewer } = useUrlState()
-  const { getMediaUrl, getDownloadUrl, shareToken, sharePath } = useMediaUrl()
-  const viewingPath = urlState.viewing
+interface ImageViewerProps {
+  session?: NavigationSession
+  mediaContext?: SourceContext
+}
+
+export function ImageViewer({ session: sessionProp, mediaContext }: ImageViewerProps = {}) {
+  const session = useNavigationSession(sessionProp)
+  const { state, viewFile, closeViewer: urlCloseViewer } = session
+  const { getMediaUrl, getDownloadUrl } = useMediaUrl(mediaContext)
+  const viewingPath = state.viewing
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
   const [rotation, setRotation] = useState(0)
 
-  const currentDir = urlState.dir || ''
+  const currentDir = state.dir || ''
 
   const dirToFetch = useMemo(() => {
     if (!currentDir && !viewingPath) return ''
@@ -34,7 +42,7 @@ export function ImageViewer() {
     return dir
   }, [currentDir, viewingPath])
 
-  const { data: allFiles = [] } = useFiles(dirToFetch, shareToken, sharePath)
+  const { data: allFiles = [] } = useFiles(dirToFetch, mediaContext)
 
   // Filter only image files
   const imageFiles = useMemo(() => {

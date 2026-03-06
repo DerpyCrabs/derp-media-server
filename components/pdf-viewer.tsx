@@ -1,4 +1,3 @@
-import { useUrlState } from '@/lib/use-url-state'
 import { X, Download, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,11 +8,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useMediaUrl } from '@/lib/use-media-url'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
-export function PdfViewer() {
-  const { urlState, closeViewer } = useUrlState()
-  const { getMediaUrl, getDownloadUrl } = useMediaUrl()
-  const viewingPath = urlState.viewing
+interface PdfViewerProps {
+  session?: NavigationSession
+  mediaContext?: SourceContext
+}
+
+export function PdfViewer({ session: sessionProp, mediaContext }: PdfViewerProps = {}) {
+  const session = useNavigationSession(sessionProp)
+  const { state, closeViewer } = session
+  const { getMediaUrl, getDownloadUrl } = useMediaUrl(mediaContext)
+  const viewingPath = state.viewing
 
   const handleDownload = () => {
     if (!viewingPath) return

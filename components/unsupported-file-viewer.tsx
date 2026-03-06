@@ -1,4 +1,3 @@
-import { useUrlState } from '@/lib/use-url-state'
 import { useMemo } from 'react'
 import { FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -13,13 +12,25 @@ import { formatFileSize } from '@/lib/media-utils'
 import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 import { useMediaUrl } from '@/lib/use-media-url'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
 
-export function UnsupportedFileViewer() {
-  const { urlState, closeViewer } = useUrlState()
-  const { getMediaUrl, shareToken, sharePath } = useMediaUrl()
-  const viewingPath = urlState.viewing
-  const currentDir = urlState.dir || ''
-  const { data: allFiles = [] } = useFiles(currentDir, shareToken, sharePath)
+interface UnsupportedFileViewerProps {
+  session?: NavigationSession
+  mediaContext?: SourceContext
+}
+
+export function UnsupportedFileViewer({
+  session: sessionProp,
+  mediaContext,
+}: UnsupportedFileViewerProps = {}) {
+  const session = useNavigationSession(sessionProp)
+  const { state, closeViewer } = session
+  const { getMediaUrl } = useMediaUrl(mediaContext)
+  const viewingPath = state.viewing
+  const currentDir = state.dir || ''
+  const { data: allFiles = [] } = useFiles(currentDir, mediaContext)
 
   // Find the file info from the fetched files
   const fileInfo = useMemo(() => {

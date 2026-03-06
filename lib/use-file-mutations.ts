@@ -2,9 +2,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { post } from '@/lib/api'
 import { useUrlState } from '@/lib/use-url-state'
 
-export function useFileMutations(currentPath: string, options?: { inKb?: boolean }) {
+interface FileMutationOptions {
+  inKb?: boolean
+  onNavigateToFolder?: (path: string | null) => void
+  onViewFile?: (path: string) => void
+}
+
+export function useFileMutations(currentPath: string, options?: FileMutationOptions) {
   const queryClient = useQueryClient()
-  const { navigateToFolder, viewFile } = useUrlState()
+  const urlSession = useUrlState()
+  const navigateToFolder = options?.onNavigateToFolder ?? urlSession.navigateToFolder
+  const viewFile = options?.onViewFile ?? urlSession.viewFile
   const inKb = options?.inKb ?? false
 
   const _createFolder = useMutation({

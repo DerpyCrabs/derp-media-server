@@ -78,9 +78,11 @@ test.describe('File Upload', () => {
         timeout: 15_000,
       })
 
+      await expect(page.locator('table').getByText('progress-test.txt')).toBeVisible({
+        timeout: 15_000,
+      })
+
       // Cleanup
-      await page.waitForTimeout(2500)
-      await page.reload()
       await page
         .locator('table tr')
         .filter({ hasText: 'progress-test.txt' })
