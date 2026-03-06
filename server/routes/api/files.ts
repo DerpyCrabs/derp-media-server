@@ -146,7 +146,7 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
 
     if (body.type === 'folder') {
       await createDirectory(body.path)
-      broadcastFileChange(parentPath)
+      broadcastFileChange(parentPath, body.path)
       return reply.send({ success: true, message: 'Folder created' })
     }
 
@@ -159,7 +159,7 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
     } else {
       await writeFile(body.path, body.content!)
     }
-    broadcastFileChange(parentPath)
+    broadcastFileChange(parentPath, body.path)
     return reply.send({ success: true, message: 'File saved' })
   })
 
@@ -189,7 +189,7 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
     }
 
     const parentDir = normalizeParent(path.dirname(body.path))
-    broadcastFileChange(parentDir)
+    broadcastFileChange(parentDir, body.path)
     return reply.send({ success: true, message: 'File saved' })
   })
 
@@ -206,12 +206,12 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
 
     if (stats.isDirectory()) {
       await deleteDirectory(body.path)
-      broadcastFileChange(parentDir)
+      broadcastFileChange(parentDir, body.path)
       return reply.send({ success: true, message: 'Folder deleted' })
     }
 
     await deleteFile(body.path)
-    broadcastFileChange(parentDir)
+    broadcastFileChange(parentDir, body.path)
     return reply.send({ success: true, message: 'File deleted' })
   })
 
@@ -225,9 +225,9 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
     await renameFileOrDirectory(body.oldPath, body.newPath)
     const oldParent = normalizeParent(path.dirname(body.oldPath))
     const newParent = normalizeParent(path.dirname(body.newPath))
-    broadcastFileChange(oldParent)
+    broadcastFileChange(oldParent, body.oldPath)
     if (newParent !== oldParent) {
-      broadcastFileChange(newParent)
+      broadcastFileChange(newParent, body.newPath)
     }
     return reply.send({ success: true, message: 'Renamed successfully' })
   })
@@ -241,7 +241,10 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
 
     await copyFileOrDirectory(body.sourcePath, body.destinationDir)
     const destParent = body.destinationDir.replace(/\\/g, '/')
-    broadcastFileChange(destParent === '' ? '' : destParent)
+    const normalizedDestParent = destParent === '' ? '' : destParent
+    const sourceName = body.sourcePath.replace(/\\/g, '/').split('/').pop() || ''
+    const createdPath = normalizedDestParent ? `${normalizedDestParent}/${sourceName}` : sourceName
+    broadcastFileChange(normalizedDestParent, createdPath)
     return reply.send({ success: true, message: 'Copied successfully' })
   })
 }

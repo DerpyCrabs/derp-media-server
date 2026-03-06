@@ -294,7 +294,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
 
     if (body.type === 'folder') {
       await createDirectory(resolved)
-      broadcastFileChange(parentDir)
+      broadcastFileChange(parentDir, resolved)
       return reply.send({ success: true, message: 'Folder created' })
     }
 
@@ -315,7 +315,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     }
 
     if (contentSize > 0) await addShareUsedBytes(token, contentSize)
-    broadcastFileChange(parentDir)
+    broadcastFileChange(parentDir, resolved)
     return reply.send({ success: true, message: 'File saved' })
   })
 
@@ -362,7 +362,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
 
     if (contentSize > 0) await addShareUsedBytes(token, contentSize)
     const parentDir = normalizeParent(path.dirname(resolved))
-    broadcastFileChange(parentDir)
+    broadcastFileChange(parentDir, resolved)
     return reply.send({ success: true, message: 'File saved' })
   })
 
@@ -393,12 +393,12 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
 
     if (stats.isDirectory()) {
       await deleteDirectory(resolved)
-      broadcastFileChange(parentDir)
+      broadcastFileChange(parentDir, resolved)
       return reply.send({ success: true, message: 'Folder deleted' })
     }
 
     await deleteFile(resolved)
-    broadcastFileChange(parentDir)
+    broadcastFileChange(parentDir, resolved)
     return reply.send({ success: true, message: 'File deleted' })
   })
 
@@ -423,9 +423,9 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     await renameFileOrDirectory(resolvedOld, resolvedNew)
     const oldParent = normalizeParent(path.dirname(resolvedOld))
     const newParent = normalizeParent(path.dirname(resolvedNew))
-    broadcastFileChange(oldParent)
+    broadcastFileChange(oldParent, resolvedOld)
     if (newParent !== oldParent) {
-      broadcastFileChange(newParent)
+      broadcastFileChange(newParent, resolvedNew)
     }
     return reply.send({ success: true, message: 'Renamed successfully' })
   })

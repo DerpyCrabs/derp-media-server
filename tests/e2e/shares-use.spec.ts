@@ -15,6 +15,46 @@ async function createShare(page: Page, body: Record<string, unknown>): Promise<s
   return json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
 }
 
+function watchShareRequests(page: Page) {
+  const requests: string[] = []
+  page.on('request', (request) => {
+    requests.push(request.url())
+  })
+  return requests
+}
+
+function getShareToken(shareUrl: string): string {
+  return new URL(shareUrl, 'http://localhost').pathname.split('/')[2]
+}
+
+function expectNoAdminShareLeaks(requests: string[]) {
+  const forbiddenAdminPaths = new Set([
+    '/api/auth/config',
+    '/api/settings',
+    '/api/stats/views',
+    '/api/shares',
+    '/api/files',
+    '/api/files/stream',
+  ])
+
+  const adminLeaks = requests.filter((url) => {
+    const pathname = new URL(url).pathname
+    return forbiddenAdminPaths.has(pathname)
+  })
+  expect(adminLeaks).toEqual([])
+
+  const unscopedLeaks = requests.filter((url) => {
+    if (!url.includes('/api/share/')) return false
+    return (
+      url.includes('SharedContent%2F') ||
+      url.includes('/SharedContent/') ||
+      url.includes('dir=SharedContent') ||
+      url.includes('path=SharedContent')
+    )
+  })
+  expect(unscopedLeaks).toEqual([])
+}
+
 test.describe('Using Shares', () => {
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: authStoragePath })
@@ -55,9 +95,69 @@ test.describe('Using Shares', () => {
   })
 
   test('browses a shared folder', async ({ page }) => {
+    const requests = watchShareRequests(page)
+
     await page.goto(folderShareUrl)
     await expect(page.getByText('public-doc.txt')).toBeVisible()
     await expect(page.getByText('subfolder')).toBeVisible()
+    expectNoAdminShareLeaks(requests)
+  })
+
+  test('share interactions stay scoped to share APIs', async ({ page }) => {
+    const requests = watchShareRequests(page)
+    const token = getShareToken(folderShareUrl)
+
+    await page.goto(folderShareUrl)
+    await expect(page.getByText('public-doc.txt')).toBeVisible()
+
+    await page.getByText('public-doc.txt').click()
+    await expect(page.getByText('public document for share testing')).toBeVisible()
+    await page.getByRole('button', { name: 'Close' }).click()
+
+    await page.getByText('subfolder').first().click()
+    await page.waitForURL(/dir=subfolder/)
+    await expect(page.getByText('nested.txt')).toBeVisible()
+
+    await page.getByRole('button', { name: 'SharedContent' }).click()
+    await expect(page.getByText('public-video.mp4')).toBeVisible()
+
+    await page.getByText('public-video.mp4').click()
+    await expect(page.locator('video')).toBeVisible()
+
+    expect(
+      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`),
+    ).toBeTruthy()
+    expectNoAdminShareLeaks(requests)
+  })
+
+  test('share receives live updates through scoped stream', async ({ page }) => {
+    const requests = watchShareRequests(page)
+    const token = getShareToken(editableShareUrl)
+    const liveFileName = `live-share-update-${Date.now()}.txt`
+
+    await page.goto(editableShareUrl)
+    await expect(page.getByText('public-doc.txt')).toBeVisible()
+
+    const createResponse = await page.request.post(`/api/share/${token}/create`, {
+      data: {
+        type: 'file',
+        path: liveFileName,
+        content: 'live update',
+      },
+    })
+    expect(createResponse.ok()).toBeTruthy()
+
+    await expect(page.locator('table').getByText(liveFileName)).toBeVisible()
+    expect(
+      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`),
+    ).toBeTruthy()
+    expectNoAdminShareLeaks(requests)
+
+    const deleteResponse = await page.request.post(`/api/share/${token}/delete`, {
+      data: { path: liveFileName },
+    })
+    expect(deleteResponse.ok()).toBeTruthy()
+    await expect(page.locator('table').getByText(liveFileName)).not.toBeVisible()
   })
 
   test('navigates into subfolder within shared folder', async ({ page }) => {

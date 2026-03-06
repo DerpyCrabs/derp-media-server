@@ -15,9 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useFileIcon } from '@/lib/use-file-icon'
-import { useFileWatcher } from '@/lib/use-file-watcher'
 import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
-import { useShareLinkBase } from '@/lib/use-share-link-base'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { RenameDialog, DeleteConfirmDialog } from '@/components/file-dialogs'
 import { MoveToDialog } from '@/components/move-to-dialog'
@@ -32,6 +30,7 @@ import { UploadMenuButton } from '@/components/upload-menu-button'
 import { useFiles } from '@/lib/use-files'
 import { useDebouncedValue } from '@/lib/use-debounced-value'
 import { useNavigationSession } from '@/lib/use-navigation-session'
+import { useShareFileWatcher } from '@/lib/use-share-file-watcher'
 import { BrowserPane } from '@/components/browser-pane'
 import { BrowserPaneContent } from '@/components/browser-pane-content'
 import type { NavigationSession } from '@/lib/navigation-session'
@@ -84,8 +83,7 @@ function SharedFolderBrowserInner({
   const session = useNavigationSession(sessionProp)
   const { state, navigateToFolder, viewFile, playFile: urlPlayFile } = session
   const queryClient = useQueryClient()
-  const shareLinkBase = useShareLinkBase()
-  useFileWatcher()
+  useShareFileWatcher(token)
   const currentSubDir = state.dir || ''
   const playingPath = state.playing
   const mediaContext: SourceContext = useMemo(
@@ -367,10 +365,11 @@ function SharedFolderBrowserInner({
       const subPath = pathNorm === sharePathNorm ? '' : stripSharePrefix(file.path)
       const params = new URLSearchParams()
       if (subPath) params.set('dir', subPath)
-      const url = `${shareLinkBase}/share/${token}?${params.toString()}`
+      const query = params.toString()
+      const url = query ? `/share/${token}?${query}` : `/share/${token}`
       window.open(url, '_blank')
     },
-    [token, shareInfo.path, stripSharePrefix, shareLinkBase],
+    [token, shareInfo.path, stripSharePrefix],
   )
 
   const getThumbnailUrl = useCallback(

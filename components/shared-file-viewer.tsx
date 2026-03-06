@@ -7,6 +7,7 @@ import { TextViewer } from '@/components/text-viewer'
 import { Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useNavigationSession } from '@/lib/use-navigation-session'
+import { useShareFileWatcher } from '@/lib/use-share-file-watcher'
 import type { NavigationSession } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 
@@ -32,6 +33,7 @@ export function SharedFileViewer({
   session: sessionProp,
 }: SharedFileViewerProps) {
   const session = useNavigationSession(sessionProp)
+  useShareFileWatcher(token)
   const mediaContext: SourceContext = useMemo(
     () => ({ shareToken: token, sharePath: shareInfo.path }),
     [token, shareInfo.path],

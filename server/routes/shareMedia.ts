@@ -353,7 +353,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
         })
       }
 
-      const broadcastDirs = new Set<string>()
+      const broadcastEvents = new Map<string, string>()
       let uploadedCount = 0
 
       for (const file of files) {
@@ -366,7 +366,8 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
         await fs.writeFile(fullPath, file.data)
 
         const parentDir = path.dirname(resolved).replace(/\\/g, '/')
-        broadcastDirs.add(parentDir === '.' ? '' : parentDir)
+        const normalizedParent = parentDir === '.' ? '' : parentDir
+        broadcastEvents.set(normalizedParent, resolved)
         uploadedCount++
       }
 
@@ -374,7 +375,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
         await addShareUsedBytes(token, totalBytes)
       }
 
-      broadcastDirs.forEach((dir) => broadcastFileChange(dir))
+      broadcastEvents.forEach((changedPath, dir) => broadcastFileChange(dir, changedPath))
 
       return reply.send({ success: true, uploaded: uploadedCount })
     } catch (error) {
@@ -502,7 +503,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
       await addShareUsedBytes(token, contentSize)
 
       const parentDir = path.dirname(imagePath).replace(/\\/g, '/')
-      broadcastFileChange(parentDir === '.' ? '' : parentDir)
+      broadcastFileChange(parentDir === '.' ? '' : parentDir, imagePath)
 
       return reply.send({ success: true, path: imagePath })
     } catch (error) {

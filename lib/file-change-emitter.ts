@@ -1,4 +1,9 @@
-export type FileChangeCallback = (data: string) => void
+export interface FileChangeEvent {
+  directory: string
+  path?: string
+}
+
+export type FileChangeCallback = (event: FileChangeEvent) => void
 
 declare global {
   // eslint-disable-next-line no-var
@@ -15,12 +20,20 @@ export function removeFileClient(callback: FileChangeCallback) {
   clients.delete(callback)
 }
 
-export function broadcastFileChange(directory: string) {
+function normalizeBroadcastPath(value: string): string {
+  const normalized = value.replace(/\\/g, '/')
+  return normalized === '.' ? '' : normalized
+}
+
+export function broadcastFileChange(directory: string, changedPath?: string) {
   if (clients.size === 0) return
-  const message = `data: ${JSON.stringify({ type: 'files-changed', directory })}\n\n`
+  const event: FileChangeEvent = {
+    directory: normalizeBroadcastPath(directory),
+    ...(changedPath !== undefined ? { path: normalizeBroadcastPath(changedPath) } : {}),
+  }
   clients.forEach((cb) => {
     try {
-      cb(message)
+      cb(event)
     } catch {
       clients.delete(cb)
     }
