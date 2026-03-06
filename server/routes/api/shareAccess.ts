@@ -23,12 +23,12 @@ import {
 import { broadcastFileChange } from '@/lib/file-change-emitter'
 import { getKnowledgeBases, getKnowledgeBaseRootForPath } from '@/lib/knowledge-base'
 import { getMediaType } from '@/lib/media-utils'
-import { config } from '@/lib/config'
+import { config, getDataFilePath } from '@/lib/config'
 import { Mutex } from '@/lib/mutex'
 import { promises as fs } from 'fs'
 import path from 'path'
 
-const STATS_FILE = path.join(process.cwd(), 'stats.json')
+const STATS_FILE = getDataFilePath('stats.json')
 const statsMutex = new Mutex()
 
 const verifyAttempts = new Map<string, { count: number; resetAt: number }>()
@@ -147,7 +147,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     let adminViewMode: 'list' | 'grid' = 'list'
     if (share.isDirectory) {
       try {
-        const settingsData = await fs.readFile(path.join(process.cwd(), 'settings.json'), 'utf-8')
+        const settingsData = await fs.readFile(getDataFilePath('settings.json'), 'utf-8')
         const allSettings = JSON.parse(settingsData)
         const settings = allSettings[config.mediaDir]
         adminViewMode = settings?.viewModes?.[share.path] || 'list'

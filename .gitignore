@@ -13,10 +13,13 @@
 # testing
 /coverage
 /test-media
+/test-media-*
+/test-data-*
 /test-results
 /playwright-report
 /blob-report
 tests/fixtures/.auth/
+tests/fixtures/test-config-*.jsonc
 
 # build output
 /dist/

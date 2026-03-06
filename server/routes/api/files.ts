@@ -18,12 +18,12 @@ import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
-import { config } from '@/lib/config'
+import { config, getDataFilePath } from '@/lib/config'
 import { promises as fs } from 'fs'
 import path from 'path'
 
-const STATS_FILE = path.join(process.cwd(), 'stats.json')
-const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
+const STATS_FILE = getDataFilePath('stats.json')
+const SETTINGS_FILE = getDataFilePath('settings.json')
 
 async function getMostPlayedFiles(): Promise<FileItem[]> {
   try {

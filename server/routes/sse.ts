@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { addFileClient, removeFileClient, type FileChangeCallback } from '@/lib/file-change-emitter'
+import { getDataFilePath } from '@/lib/config'
 import { promises as fs } from 'fs'
-import path from 'path'
 
-const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
+const SETTINGS_FILE = getDataFilePath('settings.json')
 
 // ── Settings watcher (shared across all SSE clients) ─────────────────
 type SettingsCallback = (data: string) => void

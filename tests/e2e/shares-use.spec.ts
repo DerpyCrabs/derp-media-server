@@ -1,7 +1,8 @@
 import { test, expect, Page } from '@playwright/test'
 import path from 'path'
 
-const authStoragePath = path.resolve(__dirname, '../fixtures/.auth/session.json')
+const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json` : 'session.json'
+const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
 
 let fileShareUrl: string
 let folderShareUrl: string
@@ -10,7 +11,7 @@ let editableShareUrl: string
 async function createShare(page: Page, body: Record<string, unknown>): Promise<string> {
   const res = await page.request.post('/api/shares', { data: body })
   const json = await res.json()
-  const base = `http://localhost:5973/share/${json.share.token}`
+  const base = `/share/${json.share.token}`
   return json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
 }
 
@@ -67,9 +68,8 @@ test.describe('Using Shares', () => {
   })
 
   test('uses breadcrumbs to navigate within share', async ({ page }) => {
-    const url = new URL(folderShareUrl)
-    url.searchParams.set('dir', 'subfolder')
-    await page.goto(url.toString())
+    const sep = folderShareUrl.includes('?') ? '&' : '?'
+    await page.goto(`${folderShareUrl}${sep}dir=subfolder`)
     await expect(page.getByText('nested.txt')).toBeVisible()
     await page.getByRole('button', { name: 'SharedContent' }).click()
     await expect(page.getByText('public-doc.txt')).toBeVisible()

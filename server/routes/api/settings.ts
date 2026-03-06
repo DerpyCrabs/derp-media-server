@@ -1,11 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'fs'
-import path from 'path'
 import type { AutoSaveSettings } from '@/lib/types'
-import { config } from '@/lib/config'
+import { config, getDataFilePath } from '@/lib/config'
 import { Mutex } from '@/lib/mutex'
 
-const SETTINGS_FILE = path.join(process.cwd(), 'settings.json')
+const SETTINGS_FILE = getDataFilePath('settings.json')
 const settingsMutex = new Mutex()
 
 interface Settings {

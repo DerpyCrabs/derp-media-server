@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { promises as fs } from 'fs'
-import path from 'path'
-import { config } from '@/lib/config'
+import { config, getDataFilePath } from '@/lib/config'
 
-const STATS_FILE = path.join(process.cwd(), 'stats.json')
+const STATS_FILE = getDataFilePath('stats.json')
 
 interface ViewStats {
   views: Record<string, number>
