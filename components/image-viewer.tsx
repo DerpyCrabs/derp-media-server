@@ -11,30 +11,30 @@ import {
 } from '@/components/ui/dialog'
 import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
+import { useMediaUrl } from '@/lib/use-media-url'
 
 export function ImageViewer() {
   const { urlState, viewFile, closeViewer: urlCloseViewer } = useUrlState()
+  const { getMediaUrl, getDownloadUrl, shareToken, sharePath } = useMediaUrl()
   const viewingPath = urlState.viewing
   const [zoom, setZoom] = useState<number | 'fit'>('fit')
   const [rotation, setRotation] = useState(0)
 
   const currentDir = urlState.dir || ''
 
-  // Extract directory from viewing path if no dir param
   const dirToFetch = useMemo(() => {
     if (!currentDir && !viewingPath) return ''
 
     let dir = currentDir
     if (!dir && viewingPath) {
       const pathParts = viewingPath.split(/[/\\]/)
-      pathParts.pop() // Remove filename
+      pathParts.pop()
       dir = pathParts.join('/')
     }
     return dir
   }, [currentDir, viewingPath])
 
-  // Fetch files in the current directory using React Query
-  const { data: allFiles = [] } = useFiles(dirToFetch)
+  const { data: allFiles = [] } = useFiles(dirToFetch, shareToken, sharePath)
 
   // Filter only image files
   const imageFiles = useMemo(() => {
@@ -92,7 +92,7 @@ export function ImageViewer() {
   const handleDownload = () => {
     if (!viewingPath) return
     const link = document.createElement('a')
-    link.href = `/api/media/${encodeURIComponent(viewingPath)}`
+    link.href = getDownloadUrl(viewingPath)
     link.download = viewingPath.split(/[/\\]/).pop() || 'image'
     document.body.appendChild(link)
     link.click()
@@ -226,7 +226,7 @@ export function ImageViewer() {
               onClick={navigateToNext}
             />
             <img
-              src={`/api/media/${encodeURIComponent(viewingPath)}`}
+              src={getMediaUrl(viewingPath)}
               alt={fileName}
               className='transition-transform duration-200 pointer-events-none'
               style={{

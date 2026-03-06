@@ -102,8 +102,11 @@ test.describe('Managing Shares', () => {
     await expect(revokeItem).toBeVisible()
     await revokeItem.click({ noWaitAfter: true })
 
-    // Confirm
-    await page.getByRole('button', { name: /Revoke/i }).click()
+    // Confirm and wait for the delete API call to complete
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes('/api/shares/delete')),
+      page.getByRole('button', { name: /Revoke/i }).click(),
+    ])
 
     const shareRes = await page.request.get(`/api/share/${share.token}/info`)
     expect(shareRes.ok()).toBeFalsy()

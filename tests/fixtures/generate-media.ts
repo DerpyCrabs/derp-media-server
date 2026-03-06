@@ -132,11 +132,16 @@ export function generateTestMedia(baseDir: string) {
     path.join(sharedDir, 'subfolder', 'nested.txt'),
     'Nested file in shared content.\n',
   )
+  fs.writeFileSync(path.join(sharedDir, 'photo.jpg'), MINIMAL_JPEG)
+  fs.writeFileSync(path.join(sharedDir, 'photo.png'), MINIMAL_PNG)
+  fs.writeFileSync(path.join(sharedDir, 'sample.pdf'), MINIMAL_PDF)
+  fs.writeFileSync(path.join(sharedDir, 'cover.jpg'), MINIMAL_JPEG)
   if (ff) {
     run(
       'ffmpeg -y -f lavfi -i color=black:s=320x240:d=2 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac public-video.mp4',
       sharedDir,
     )
+    run('ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 2 -c:a libmp3lame track.mp3', sharedDir)
   }
 
   // --- EmptyFolder ---

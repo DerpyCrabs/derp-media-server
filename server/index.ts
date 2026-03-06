@@ -20,6 +20,7 @@ import path from 'path'
 import fs from 'fs'
 
 const isDev = process.env.NODE_ENV !== 'production'
+const isTest = process.env.NODE_ENV === 'test'
 const PORT = Number(process.env.PORT) || 3000
 
 async function start() {
@@ -59,8 +60,13 @@ async function start() {
     await app.register(import('@fastify/middie'))
     const { createServer: createViteServer } = await import('vite')
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: isTest ? { port: 5974 } : undefined,
+        watch: { ignored: ['**/test-media/**'] },
+      },
       appType: 'custom',
+      cacheDir: isTest ? 'node_modules/.vite-test' : undefined,
     })
     app.use(vite.middlewares)
 

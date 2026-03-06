@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { FileItem, MediaType } from '@/lib/types'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useMediaUrl } from '@/lib/use-media-url'
 import { useAudioMetadata } from '@/lib/use-audio-metadata'
 import { useViewStats } from '@/lib/use-view-stats'
 import { useFiles } from '@/lib/use-files'
@@ -31,6 +32,8 @@ export function AudioPlayer() {
   } = useMediaPlayer()
 
   const { incrementView } = useViewStats()
+  const { getMediaUrl, getAudioExtractUrl, getAudioMetadataUrl, shareToken, sharePath } =
+    useMediaUrl()
 
   const playingPath = urlState.playing
   const currentDir = urlState.dir || ''
@@ -42,6 +45,7 @@ export function AudioPlayer() {
   const isAudioFile = playingPath && audioExtensions.includes(extension || '')
   const isVideoFile = playingPath && videoExtensions.includes(extension || '')
   const isAudioOnly = urlState.audioOnly
+  const shouldHandleAudio = !!(isAudioFile || (isVideoFile && isAudioOnly))
 
   const dirToFetch = useMemo(() => {
     if (!currentDir && !playingPath) return ''
@@ -55,7 +59,7 @@ export function AudioPlayer() {
     return dir
   }, [currentDir, playingPath])
 
-  const { data: allFiles = [] } = useFiles(dirToFetch)
+  const { data: allFiles = [] } = useFiles(dirToFetch, shareToken, sharePath)
 
   const audioFiles = useMemo(() => {
     return allFiles.filter(
@@ -70,12 +74,14 @@ export function AudioPlayer() {
       const nameWithoutExt = name.substring(0, name.lastIndexOf('.'))
       return nameWithoutExt === 'cover'
     })
-    return coverFile ? `/api/media/${coverFile.path}` : null
-  }, [allFiles])
+    return coverFile ? getMediaUrl(coverFile.path) : null
+  }, [allFiles, getMediaUrl])
 
+  const metadataUrl = playingPath ? getAudioMetadataUrl(playingPath) : null
   const { data: audioMetadata, isLoading: isLoadingMetadata } = useAudioMetadata(
     playingPath,
     !!isAudioFile,
+    metadataUrl,
   )
 
   // Stable refs for values used inside effects — prevents effect re-runs
@@ -234,14 +240,24 @@ export function AudioPlayer() {
     }
   }, [setIsPlaying, setCurrentTime, setDuration])
 
+  // Stop and release audio when the player should no longer be active
+  useEffect(() => {
+    if (shouldHandleAudio) return
+    const audio = audioRef.current
+    if (!audio || !audio.src) return
+    audio.pause()
+    audio.removeAttribute('src')
+    audio.load()
+  }, [shouldHandleAudio])
+
   // Load audio when the playing path actually changes
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || !playingPath || (!isAudioFile && !isVideoFile)) {
+    if (!audio || !playingPath || !shouldHandleAudio) {
       return
     }
 
-    const mediaUrl = isVideoFile ? `/api/audio/extract/${playingPath}` : `/api/media/${playingPath}`
+    const mediaUrl = isVideoFile ? getAudioExtractUrl(playingPath) : getMediaUrl(playingPath)
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     if (audio.src !== fullUrl) {
@@ -293,18 +309,28 @@ export function AudioPlayer() {
         })
       }
     }
-  }, [playingPath, isAudioFile, isVideoFile, currentFile, mediaType, setCurrentFile])
+  }, [
+    playingPath,
+    shouldHandleAudio,
+    isVideoFile,
+    currentFile,
+    mediaType,
+    setCurrentFile,
+    getMediaUrl,
+    getAudioExtractUrl,
+  ])
 
   // Update Media Session metadata when metadata loads
   useEffect(() => {
-    if (!playingPath || (!isAudioFile && !isVideoFile) || !('mediaSession' in navigator)) {
+    if (!playingPath || !shouldHandleAudio || !('mediaSession' in navigator)) {
       return
     }
 
+    const isVideoAudio = isVideoFile && isAudioOnly
     const metadata: MediaMetadataInit = {
-      title: isVideoFile ? `${fileName} (Audio)` : audioMetadata?.title || fileName,
-      artist: isVideoFile ? 'Video Audio' : audioMetadata?.artist || 'Unknown Artist',
-      album: isVideoFile
+      title: isVideoAudio ? `${fileName} (Audio)` : audioMetadata?.title || fileName,
+      artist: isVideoAudio ? 'Video Audio' : audioMetadata?.artist || 'Unknown Artist',
+      album: isVideoAudio
         ? currentDir || 'Unknown Album'
         : audioMetadata?.album || currentDir || 'Unknown Album',
     }
@@ -323,25 +349,28 @@ export function AudioPlayer() {
     }
 
     navigator.mediaSession.metadata = new MediaMetadata(metadata)
-  }, [playingPath, isAudioFile, isVideoFile, audioMetadata, fileName, currentDir, coverArtUrl])
+  }, [
+    playingPath,
+    shouldHandleAudio,
+    isVideoFile,
+    isAudioOnly,
+    audioMetadata,
+    fileName,
+    currentDir,
+    coverArtUrl,
+  ])
 
   // React to store isPlaying changes
   useEffect(() => {
     const audio = audioRef.current
-    if (
-      !audio ||
-      (!isAudioFile && !isVideoFile) ||
-      currentFile !== playingPath ||
-      mediaType !== 'audio'
-    )
-      return
+    if (!audio || !shouldHandleAudio || currentFile !== playingPath || mediaType !== 'audio') return
 
     if (isPlaying && audio.paused) {
       audio.play().catch((err) => console.error('Play error:', err))
     } else if (!isPlaying && !audio.paused) {
       audio.pause()
     }
-  }, [isPlaying, currentFile, playingPath, mediaType, isAudioFile, isVideoFile])
+  }, [isPlaying, currentFile, playingPath, mediaType, shouldHandleAudio])
 
   const handleTogglePlayPause = () => {
     if (playingPath) {
@@ -352,6 +381,7 @@ export function AudioPlayer() {
   const handleShowVideo = () => {
     const audio = audioRef.current
     if (audio && playingPath) {
+      audio.pause()
       setCurrentTime(audio.currentTime)
       setCurrentFile(playingPath, 'video')
       setAudioOnly(false)
@@ -421,15 +451,11 @@ export function AudioPlayer() {
     return false
   }, [playingPath, audioFiles])
 
-  const showPlayer = isAudioFile || (isVideoFile && isAudioOnly)
-
   return (
     <>
-      {/* Audio element lives outside the conditional UI so it is never
-          unmounted by re-renders that toggle the player chrome. */}
       <audio ref={audioRef} preload='auto' className='hidden' />
 
-      {showPlayer && (
+      {shouldHandleAudio && (
         <div className='fixed bottom-0 left-0 right-0 bg-background z-50'>
           {/* Mobile Seekbar - Top Border */}
           <div className='min-[650px]:hidden relative w-full h-1 bg-secondary'>
