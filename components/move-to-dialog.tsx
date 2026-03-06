@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { queryKeys } from '@/lib/query-keys'
 
 type MoveOrCopyMode = 'move' | 'copy'
 
@@ -88,7 +89,7 @@ export function MoveToDialog({
   )
 
   const { data: shareFilesData, isLoading: shareLoading } = useQuery({
-    queryKey: ['share-files', shareToken, browsePath],
+    queryKey: queryKeys.shareFiles(shareToken!, browsePath),
     queryFn: () =>
       api<{ files: FileItem[] }>(
         `/api/share/${shareToken}/files?dir=${encodeURIComponent(browsePath)}`,
@@ -97,7 +98,7 @@ export function MoveToDialog({
     staleTime: 1000 * 30,
   })
   const { data: localFilesData, isLoading: localLoading } = useQuery({
-    queryKey: ['files', browsePath],
+    queryKey: queryKeys.files(browsePath),
     queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(browsePath)}`),
     enabled: isOpen && !shareToken,
     staleTime: 1000 * 30,

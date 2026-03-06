@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 
 let globalEventSource: EventSource | null = null
 let connectionRefCount = 0
@@ -17,10 +18,10 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
         } else if (data.type === 'files-changed') {
           console.log('[Files SSE] Files changed in:', data.directory)
 
-          queryClient.invalidateQueries({ queryKey: ['files'] })
-          queryClient.invalidateQueries({ queryKey: ['share-files'] })
-          queryClient.invalidateQueries({ queryKey: ['kb'] })
-          queryClient.invalidateQueries({ queryKey: ['share-kb-recent'] })
+          queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+          queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
+          queryClient.invalidateQueries({ queryKey: queryKeys.kb() })
+          queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent() })
         }
       } catch (error) {
         console.error('[Files SSE] Error parsing message:', error)

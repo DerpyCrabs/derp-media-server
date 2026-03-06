@@ -1,5 +1,10 @@
 import { QueryClient, dehydrate } from '@tanstack/react-query'
-import { listDirectory, getEditableFolders } from '@/lib/file-system'
+import {
+  listDirectory,
+  getEditableFolders,
+  validatePath,
+  shouldExcludeFolder,
+} from '@/lib/file-system'
 import { config, getDataFilePath } from '@/lib/config'
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -11,11 +16,17 @@ import {
   isShareAccessAuthorized,
   getEffectiveRestrictions,
   getSharesAsFileItems,
+  getAllShares,
+  resolveShareSubPath,
+  type ShareLink,
 } from '@/lib/shares'
 import { getKnowledgeBases, getKnowledgeBaseRootForPath } from '@/lib/knowledge-base'
+import { extractAudioMetadata } from '@/server/lib/audio-helpers'
+import { queryKeys } from '@/lib/query-keys'
 
 const SETTINGS_FILE = getDataFilePath('settings.json')
 const STATS_FILE = getDataFilePath('stats.json')
+const KB_RECENT_LIMIT = 10
 
 async function readSettings() {
   try {
@@ -32,6 +43,20 @@ async function readSettings() {
     )
   } catch {
     return { viewModes: {}, favorites: [], knowledgeBases: [], customIcons: {}, autoSave: {} }
+  }
+}
+
+async function readStats() {
+  try {
+    const data = await fs.readFile(STATS_FILE, 'utf-8')
+    const allStats = JSON.parse(data)
+    const stats = allStats[config.mediaDir] || { views: {}, shareViews: {} }
+    return {
+      views: stats.views || {},
+      shareViews: stats.shareViews || {},
+    }
+  } catch {
+    return { views: {}, shareViews: {} }
   }
 }
 
@@ -111,6 +136,234 @@ async function fetchFiles(dir: string): Promise<FileItem[]> {
   return listDirectory(dir)
 }
 
+async function walkMarkdownFiles(
+  dirPath: string,
+  mediaDir: string,
+  results: { path: string; mtime: number }[],
+): Promise<void> {
+  const entries = await fs.readdir(dirPath, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name)
+    const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
+    if (entry.isDirectory()) {
+      if (shouldExcludeFolder(entry.name)) continue
+      await walkMarkdownFiles(fullPath, mediaDir, results)
+    } else if (path.extname(entry.name).toLowerCase() === '.md') {
+      const stat = await fs.stat(fullPath)
+      results.push({ path: relPath, mtime: stat.mtimeMs })
+    }
+  }
+}
+
+async function getKnowledgeBaseRecentFiles(root: string) {
+  const fullRoot = validatePath(root)
+  const files: { path: string; mtime: number }[] = []
+  await walkMarkdownFiles(fullRoot, config.mediaDir, files)
+
+  return {
+    results: files
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, KB_RECENT_LIMIT)
+      .map(({ path: relPath, mtime }) => ({
+        path: relPath,
+        name: path.basename(relPath),
+        modifiedAt: new Date(mtime).toISOString(),
+      })),
+  }
+}
+
+function normalizePath(filePath: string): string {
+  return filePath.replace(/\\/g, '/')
+}
+
+function getParentDirectory(filePath: string): string {
+  const normalized = normalizePath(filePath)
+  const parts = normalized.split('/').filter(Boolean)
+  if (parts.length <= 1) return ''
+  return parts.slice(0, -1).join('/')
+}
+
+async function getTextFileContent(filePath: string): Promise<string> {
+  return fs.readFile(validatePath(filePath), 'utf-8')
+}
+
+async function getAudioFileMetadata(filePath: string) {
+  return extractAudioMetadata(validatePath(filePath))
+}
+
+async function getSharedFiles(dir: string) {
+  const allFiles = await listDirectory(dir)
+  return { files: allFiles.filter((file) => !file.isVirtual) }
+}
+
+function resolveShareFilePath(share: ShareLink, requestedPath: string): string | null {
+  const normalizedSharePath = normalizePath(share.path)
+  const normalizedRequestedPath = normalizePath(requestedPath)
+
+  if (!share.isDirectory) {
+    return normalizedRequestedPath === normalizedSharePath ? normalizedSharePath : null
+  }
+
+  if (
+    normalizedRequestedPath === normalizedSharePath ||
+    normalizedRequestedPath.startsWith(`${normalizedSharePath}/`)
+  ) {
+    return normalizedRequestedPath
+  }
+
+  const resolved = resolveShareSubPath(share, normalizedRequestedPath)
+  return resolved ? normalizePath(resolved) : null
+}
+
+function getShareListingDir(share: ShareLink, dirParam: string | null, filePath: string): string {
+  if (dirParam !== null) return normalizePath(dirParam)
+
+  const resolvedPath = resolveShareFilePath(share, filePath)
+  if (!resolvedPath) return ''
+
+  const relativePath = resolvedPath.startsWith(`${normalizePath(share.path)}/`)
+    ? resolvedPath.slice(normalizePath(share.path).length + 1)
+    : ''
+
+  return getParentDirectory(relativePath)
+}
+
+async function prefetchDirectViewerQueries(
+  queryClient: QueryClient,
+  dirParam: string | null,
+  viewingPath: string | null,
+  playingPath: string | null,
+) {
+  const prefetchPromises: Promise<void>[] = []
+
+  if (viewingPath) {
+    const viewingExtension = path.extname(viewingPath).slice(1).toLowerCase()
+    const viewingType = getMediaType(viewingExtension)
+
+    if (viewingType === MediaType.TEXT) {
+      prefetchPromises.push(
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.textContent(viewingPath),
+          queryFn: () => getTextFileContent(viewingPath),
+        }),
+      )
+    }
+
+    const viewingDir = dirParam ?? getParentDirectory(viewingPath)
+    if (viewingDir !== null && viewingType !== MediaType.TEXT && viewingType !== MediaType.PDF) {
+      prefetchPromises.push(
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.files(viewingDir),
+          queryFn: async () => {
+            const files = await fetchFiles(viewingDir)
+            return { files }
+          },
+        }),
+      )
+    }
+  }
+
+  if (playingPath) {
+    const playingExtension = path.extname(playingPath).slice(1).toLowerCase()
+    const playingType = getMediaType(playingExtension)
+    const playingDir = dirParam ?? getParentDirectory(playingPath)
+
+    if (playingType === MediaType.AUDIO) {
+      prefetchPromises.push(
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.audioMetadata(playingPath),
+          queryFn: () => getAudioFileMetadata(playingPath),
+        }),
+      )
+    }
+
+    if (
+      playingDir !== null &&
+      (playingType === MediaType.AUDIO || playingType === MediaType.VIDEO)
+    ) {
+      prefetchPromises.push(
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.files(playingDir),
+          queryFn: async () => {
+            const files = await fetchFiles(playingDir)
+            return { files }
+          },
+        }),
+      )
+    }
+  }
+
+  await Promise.all(prefetchPromises)
+}
+
+async function prefetchShareViewerQueries(
+  queryClient: QueryClient,
+  share: ShareLink,
+  shareDirParam: string | null,
+  viewingPath: string | null,
+  playingPath: string | null,
+) {
+  const prefetchPromises: Promise<void>[] = []
+
+  if (viewingPath) {
+    const resolvedViewingPath = resolveShareFilePath(share, viewingPath)
+    const viewingExtension = path.extname(viewingPath).slice(1).toLowerCase()
+    const viewingType = getMediaType(viewingExtension)
+
+    if (resolvedViewingPath && viewingType === MediaType.TEXT) {
+      prefetchPromises.push(
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.shareText(share.token, viewingPath),
+          queryFn: () => getTextFileContent(resolvedViewingPath),
+        }),
+      )
+    }
+
+    if (share.isDirectory && viewingType !== MediaType.TEXT && viewingType !== MediaType.PDF) {
+      const viewingDir = getShareListingDir(share, shareDirParam, viewingPath)
+      const resolvedViewingDir = resolveShareSubPath(share, viewingDir)
+      if (resolvedViewingDir) {
+        prefetchPromises.push(
+          queryClient.prefetchQuery({
+            queryKey: queryKeys.shareFiles(share.token, viewingDir),
+            queryFn: () => getSharedFiles(resolvedViewingDir),
+          }),
+        )
+      }
+    }
+  }
+
+  if (playingPath) {
+    const resolvedPlayingPath = resolveShareFilePath(share, playingPath)
+    const playingExtension = path.extname(playingPath).slice(1).toLowerCase()
+    const playingType = getMediaType(playingExtension)
+
+    if (resolvedPlayingPath && playingType === MediaType.AUDIO) {
+      prefetchPromises.push(
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.audioMetadata(playingPath),
+          queryFn: () => getAudioFileMetadata(resolvedPlayingPath),
+        }),
+      )
+    }
+
+    if (share.isDirectory && (playingType === MediaType.AUDIO || playingType === MediaType.VIDEO)) {
+      const playingDir = getShareListingDir(share, shareDirParam, playingPath)
+      const resolvedPlayingDir = resolveShareSubPath(share, playingDir)
+      if (resolvedPlayingDir) {
+        prefetchPromises.push(
+          queryClient.prefetchQuery({
+            queryKey: queryKeys.shareFiles(share.token, playingDir),
+            queryFn: () => getSharedFiles(resolvedPlayingDir),
+          }),
+        )
+      }
+    }
+  }
+
+  await Promise.all(prefetchPromises)
+}
+
 export async function dehydrateForRoute(
   urlPath: string,
   searchParams: URLSearchParams,
@@ -122,15 +375,21 @@ export async function dehydrateForRoute(
 
   try {
     if (urlPath === '/' || urlPath === '') {
-      const dir = searchParams.get('dir') || ''
+      const dirParam = searchParams.get('dir')
+      const dir = dirParam || ''
+      const viewingPath = searchParams.get('viewing')
+      const playingPath = searchParams.get('playing')
       const isVirtualFolder = (Object.values(VIRTUAL_FOLDERS) as string[]).includes(dir)
+      const knowledgeBases = dir ? await getKnowledgeBases() : []
+      const isKnowledgeBase =
+        !!dir && getKnowledgeBaseRootForPath(dir.replace(/\\/g, '/'), knowledgeBases) !== null
 
       const prefetchPromises: Promise<void>[] = []
 
       if (!isVirtualFolder) {
         prefetchPromises.push(
           queryClient.prefetchQuery({
-            queryKey: ['files', dir],
+            queryKey: queryKeys.files(dir),
             queryFn: async () => {
               const files = await fetchFiles(dir)
               return { files }
@@ -141,11 +400,19 @@ export async function dehydrateForRoute(
 
       prefetchPromises.push(
         queryClient.prefetchQuery({
-          queryKey: ['settings'],
+          queryKey: queryKeys.settings(),
           queryFn: readSettings,
         }),
         queryClient.prefetchQuery({
-          queryKey: ['auth-config'],
+          queryKey: queryKeys.shares(),
+          queryFn: async () => ({ shares: await getAllShares() }),
+        }),
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.stats(),
+          queryFn: readStats,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.authConfig(),
           queryFn: () => ({
             enabled: config.auth?.enabled ?? false,
             shareLinkDomain: config.shareLinkDomain ?? undefined,
@@ -154,7 +421,17 @@ export async function dehydrateForRoute(
         }),
       )
 
+      if (isKnowledgeBase) {
+        prefetchPromises.push(
+          queryClient.prefetchQuery({
+            queryKey: queryKeys.kbRecent(dir),
+            queryFn: () => getKnowledgeBaseRecentFiles(dir),
+          }),
+        )
+      }
+
       await Promise.all(prefetchPromises)
+      await prefetchDirectViewerQueries(queryClient, dirParam, viewingPath, playingPath)
     } else {
       const shareMatch = urlPath.match(/^\/share\/([^/]+)/)
       if (shareMatch) {
@@ -186,7 +463,7 @@ export async function dehydrateForRoute(
           }
 
           await queryClient.prefetchQuery({
-            queryKey: ['share-info', token],
+            queryKey: queryKeys.shareInfo(token),
             queryFn: () => ({
               name,
               ...(authorized && { path: share.path }),
@@ -201,6 +478,42 @@ export async function dehydrateForRoute(
               adminViewMode,
             }),
           })
+
+          if (authorized) {
+            const shareDirParam = searchParams.get('dir')
+            const shareDir = shareDirParam || ''
+            const viewingPath = searchParams.get('viewing')
+            const playingPath = searchParams.get('playing')
+
+            if (share.isDirectory) {
+              const resolvedShareDir = resolveShareSubPath(share, shareDir)
+              if (resolvedShareDir) {
+                await queryClient.prefetchQuery({
+                  queryKey: queryKeys.shareFiles(token, shareDir),
+                  queryFn: () => getSharedFiles(resolvedShareDir),
+                })
+              }
+            }
+
+            if (isKnowledgeBase) {
+              const shareScopePath = shareDir
+                ? `${share.path.replace(/\\/g, '/')}/${shareDir.replace(/\\/g, '/')}`
+                : share.path.replace(/\\/g, '/')
+
+              await queryClient.prefetchQuery({
+                queryKey: queryKeys.shareKbRecent(token, shareDir || undefined),
+                queryFn: () => getKnowledgeBaseRecentFiles(shareScopePath),
+              })
+            }
+
+            await prefetchShareViewerQueries(
+              queryClient,
+              share,
+              shareDirParam,
+              viewingPath,
+              playingPath,
+            )
+          }
         }
       }
     }

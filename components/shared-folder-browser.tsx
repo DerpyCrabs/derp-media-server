@@ -36,6 +36,7 @@ import { BrowserPane } from '@/components/browser-pane'
 import { BrowserPaneContent } from '@/components/browser-pane-content'
 import type { NavigationSession } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
+import { queryKeys } from '@/lib/query-keys'
 
 interface ShareRestrictions {
   allowDelete: boolean
@@ -171,7 +172,7 @@ function SharedFolderBrowserInner({
     mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
       post(`/api/share/${vars.token}/create`, vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['share-files', token] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
       setShowCreateFolder(false)
       setNewItemName('')
     },
@@ -182,14 +183,14 @@ function SharedFolderBrowserInner({
     mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
       post(`/api/share/${vars.token}/create`, vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['share-files', token] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
     },
   })
 
   const deleteItemMutation = useMutation({
     mutationFn: (vars: { token: string; path: string }) =>
       post(`/api/share/${vars.token}/delete`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -197,7 +198,7 @@ function SharedFolderBrowserInner({
   const debouncedSearchQuery = !searchQuery.trim() || !inKb ? '' : debouncedSearchValue
 
   const { data: kbSearchData, isLoading: searchLoading } = useQuery({
-    queryKey: ['share-kb-search', token, debouncedSearchQuery, currentSubDir],
+    queryKey: queryKeys.shareKbSearch(token, debouncedSearchQuery, currentSubDir),
     queryFn: () => {
       const params = new URLSearchParams({ q: debouncedSearchQuery })
       if (currentSubDir) params.set('dir', currentSubDir)
@@ -237,13 +238,13 @@ function SharedFolderBrowserInner({
   const renameMutation = useMutation({
     mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
       post(`/api/share/${vars.token}/rename`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const moveMutation = useMutation({
     mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
       post(`/api/share/${vars.token}/rename`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['share-files', token] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const handleMoveFile = useCallback(

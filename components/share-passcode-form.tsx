@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { post } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,7 +46,7 @@ export function SharePasscodeGate({
 
       try {
         await verifyMutation.mutateAsync({ token, passcode: code })
-        await queryClient.refetchQueries({ queryKey: ['share-info', token] })
+        await queryClient.refetchQueries({ queryKey: queryKeys.shareInfo(token) })
         setAuthorized(true)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Invalid passcode')

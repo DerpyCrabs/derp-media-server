@@ -41,6 +41,7 @@ import { useNavigationSession } from '@/lib/use-navigation-session'
 import { BrowserPane } from '@/components/browser-pane'
 import { BrowserPaneContent } from '@/components/browser-pane-content'
 import type { NavigationSession } from '@/lib/navigation-session'
+import { queryKeys } from '@/lib/query-keys'
 
 interface FileListProps {
   files: FileItem[]
@@ -142,14 +143,14 @@ function FileListInner({
   const revokeShareMutation = useMutation({
     mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shares'] })
-      queryClient.invalidateQueries({ queryKey: ['files', currentPath] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.files(currentPath) })
     },
   })
 
   // Fetch shares for indicators
   const { data: sharesData } = useQuery({
-    queryKey: ['shares'],
+    queryKey: queryKeys.shares(),
     queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 10,
@@ -179,7 +180,7 @@ function FileListInner({
   }, [currentPath])
 
   const { data: kbSearchData, isLoading: searchLoading } = useQuery({
-    queryKey: ['kb-search', kbRoot, debouncedSearchQuery],
+    queryKey: queryKeys.kbSearch(kbRoot!, debouncedSearchQuery),
     queryFn: () =>
       api<{ results: { path: string; name: string; snippet: string }[] }>(
         `/api/kb/search?root=${encodeURIComponent(kbRoot!)}&q=${encodeURIComponent(debouncedSearchQuery)}`,
@@ -228,7 +229,7 @@ function FileListInner({
     prefetchFiles(folderPath)
     if (getKnowledgeBaseRoot(folderPath, knowledgeBases)) {
       queryClient.prefetchQuery({
-        queryKey: ['kb-recent', folderPath],
+        queryKey: queryKeys.kbRecent(folderPath),
         queryFn: () => api(`/api/kb/recent?root=${encodeURIComponent(folderPath)}`),
       })
     }

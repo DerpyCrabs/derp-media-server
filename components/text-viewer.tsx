@@ -17,6 +17,7 @@ import { useMediaUrl } from '@/lib/use-media-url'
 import { useNavigationSession } from '@/lib/use-navigation-session'
 import type { NavigationSession } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
+import { queryKeys } from '@/lib/query-keys'
 
 export interface ShareInfoForViewer {
   token: string
@@ -192,8 +193,8 @@ export function TextViewer({
   const isText = viewingPath && textExtensions.includes(fileExtension)
 
   const textQueryKey = isShareMode
-    ? (['share-text', shareMode!.token, viewingPath] as const)
-    : (['text-content', viewingPath] as const)
+    ? queryKeys.shareText(shareMode!.token, viewingPath!)
+    : queryKeys.textContent(viewingPath!)
 
   const {
     data: content = '',
@@ -371,8 +372,8 @@ export function TextViewer({
       }
 
       const queryKey = isShareMode
-        ? ['share-text', shareMode!.token, viewingPath]
-        : ['text-content', viewingPath]
+        ? queryKeys.shareText(shareMode!.token, viewingPath!)
+        : queryKeys.textContent(viewingPath!)
       queryClient.setQueryData(queryKey, editContent)
       if (!skipStateUpdate) setIsEditing(false)
       await queryClient.invalidateQueries({ queryKey })
@@ -433,8 +434,8 @@ export function TextViewer({
           const data = await res.json()
           throw new Error(data.error || 'Failed to save image')
         }
-        queryClient.invalidateQueries({ queryKey: ['files', kbRoot] })
-        queryClient.invalidateQueries({ queryKey: ['files', `${kbRoot}/images`] })
+        queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
+        queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
         return imagePath
       } catch (err) {
         console.error('Failed to paste image:', err)

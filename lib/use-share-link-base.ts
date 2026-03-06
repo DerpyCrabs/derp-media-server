@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
 
 /**
  * Returns the base URL (origin) to use when building share links.
@@ -7,7 +8,7 @@ import { api } from '@/lib/api'
  */
 export function useShareLinkBase(): string {
   const { data } = useQuery({
-    queryKey: ['auth-config'],
+    queryKey: queryKeys.authConfig(),
     queryFn: () => api<{ shareLinkDomain?: string }>('/api/auth/config'),
     staleTime: 5 * 60 * 1000,
   })

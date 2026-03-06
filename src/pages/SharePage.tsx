@@ -7,6 +7,7 @@ import { SharedFolderBrowser } from '@/components/shared-folder-browser'
 import { SharePasscodeGate } from '@/components/share-passcode-form'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
+import { queryKeys } from '@/lib/query-keys'
 
 interface ShareRestrictions {
   allowDelete: boolean
@@ -49,7 +50,7 @@ export function SharePage({ token }: SharePageProps) {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ['share-info', token],
+    queryKey: queryKeys.shareInfo(token),
     queryFn: () => api<ShareInfo>(`/api/share/${token}/info`),
   })
 

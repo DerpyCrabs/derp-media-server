@@ -1,8 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { api, post } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
 
 import type { AutoSaveSettings } from './types'
+import { VIRTUAL_FOLDERS } from './constants'
 
 type ViewMode = 'list' | 'grid'
 
@@ -29,7 +31,7 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
           console.log('[Settings SSE] Connected to settings stream')
         } else if (data.type === 'settings-changed') {
           console.log('[Settings SSE] Settings changed, refetching...')
-          queryClient.invalidateQueries({ queryKey: ['settings'] })
+          queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
         }
       } catch (error) {
         console.error('[Settings SSE] Error parsing message:', error)
@@ -66,7 +68,7 @@ export function useSettings(currentPath: string, enabled = true) {
   const queryClient = useQueryClient()
 
   const { data: globalSettings } = useQuery({
-    queryKey: ['settings'],
+    queryKey: queryKeys.settings(),
     queryFn: () => api<GlobalSettings>('/api/settings'),
     staleTime: Infinity,
     enabled,
@@ -84,9 +86,9 @@ export function useSettings(currentPath: string, enabled = true) {
     mutationFn: (vars: { path: string; viewMode: ViewMode }) =>
       post('/api/settings/viewMode', vars),
     onMutate: async ({ path, viewMode }) => {
-      await queryClient.cancelQueries({ queryKey: ['settings'] })
-      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
-      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+      const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
+      queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return {
             viewModes: { [path]: viewMode },
@@ -100,19 +102,19 @@ export function useSettings(currentPath: string, enabled = true) {
       return { prev }
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
+      if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
   const favoriteMutation = useMutation({
     mutationFn: (vars: { filePath: string }) => post('/api/settings/favorite', vars),
     onMutate: async ({ filePath }) => {
-      await queryClient.cancelQueries({ queryKey: ['settings'] })
-      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
-      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+      const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
+      queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return {
             viewModes: {},
@@ -133,20 +135,20 @@ export function useSettings(currentPath: string, enabled = true) {
       return { prev }
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
+      if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      queryClient.invalidateQueries({ queryKey: ['files', 'Favorites'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES) })
     },
   })
 
   const knowledgeBaseMutation = useMutation({
     mutationFn: (vars: { filePath: string }) => post('/api/settings/knowledgeBase', vars),
     onMutate: async ({ filePath }) => {
-      await queryClient.cancelQueries({ queryKey: ['settings'] })
-      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
-      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+      const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
+      queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return {
             viewModes: {},
@@ -167,19 +169,19 @@ export function useSettings(currentPath: string, enabled = true) {
       return { prev }
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
+      if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
   const setIconMutation = useMutation({
     mutationFn: (vars: { path: string; iconName: string }) => post('/api/settings/icon', vars),
     onMutate: async ({ path, iconName }) => {
-      await queryClient.cancelQueries({ queryKey: ['settings'] })
-      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
-      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+      const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
+      queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return {
             viewModes: {},
@@ -193,19 +195,19 @@ export function useSettings(currentPath: string, enabled = true) {
       return { prev }
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
+      if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
   const removeIconMutation = useMutation({
     mutationFn: (vars: { path: string }) => post('/api/settings/icon/remove', vars),
     onMutate: async ({ path }) => {
-      await queryClient.cancelQueries({ queryKey: ['settings'] })
-      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
-      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+      const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
+      queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return { viewModes: {}, favorites: [], knowledgeBases: [], customIcons: {}, autoSave: {} }
         const customIcons = { ...old.customIcons }
@@ -215,10 +217,10 @@ export function useSettings(currentPath: string, enabled = true) {
       return { prev }
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
+      if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
@@ -226,9 +228,9 @@ export function useSettings(currentPath: string, enabled = true) {
     mutationFn: (vars: { filePath: string; enabled: boolean; readOnly?: boolean }) =>
       post('/api/settings/autoSave', vars),
     onMutate: async ({ filePath, enabled, readOnly }) => {
-      await queryClient.cancelQueries({ queryKey: ['settings'] })
-      const prev = queryClient.getQueryData<GlobalSettings>(['settings'])
-      queryClient.setQueryData<GlobalSettings>(['settings'], (old) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+      const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
+      queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return {
             viewModes: {},
@@ -248,10 +250,10 @@ export function useSettings(currentPath: string, enabled = true) {
       return { prev }
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) queryClient.setQueryData(['settings'], context.prev)
+      if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 

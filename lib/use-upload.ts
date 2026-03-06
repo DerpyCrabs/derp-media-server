@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 
 interface UploadState {
   isUploading: boolean
@@ -46,9 +47,9 @@ export function useUpload({ shareToken }: UseUploadOptions = {}) {
         setState({ isUploading: false, error: null, fileCount: 0 })
 
         if (shareToken) {
-          queryClient.invalidateQueries({ queryKey: ['share-files'] })
+          queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
         } else {
-          queryClient.invalidateQueries({ queryKey: ['files'] })
+          queryClient.invalidateQueries({ queryKey: queryKeys.files() })
         }
       } catch (err) {
         setState((s) => ({
