@@ -123,6 +123,11 @@ interface UseWorkspaceResult {
     offsetBounds?: NonNullable<WorkspaceWindowLayout['bounds']>,
   ) => void
   addTabToGroup: (sourceWindowId: string) => string
+  openInNewTab: (
+    sourceWindowId: string,
+    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+    currentPath: string,
+  ) => string
   setActiveTab: (tabGroupId: string, windowId: string) => void
   updateWindowNavigationState: (windowId: string, state: Partial<NavigationState>) => void
   requestPlay: (options: RequestPlayOptions) => void
@@ -283,53 +288,133 @@ function createFullscreenBounds(): NonNullable<WorkspaceWindowLayout['bounds']> 
 }
 
 export function snapZoneToBounds(zone: SnapZone): NonNullable<WorkspaceWindowLayout['bounds']> {
+  return snapZoneToBoundsWithOccupied(zone, [])
+}
+
+const LEFT_SIDE_ZONES: SnapZone[] = [
+  'left',
+  'top-left',
+  'bottom-left',
+  'left-third',
+  'left-two-thirds',
+  'top-left-third',
+  'bottom-left-third',
+]
+const RIGHT_SIDE_ZONES: SnapZone[] = [
+  'right',
+  'top-right',
+  'bottom-right',
+  'right-third',
+  'right-two-thirds',
+  'top-right-third',
+  'bottom-right-third',
+]
+const TOP_SIDE_ZONES: SnapZone[] = [
+  'top-left',
+  'top-right',
+  'top-left-third',
+  'top-center-third',
+  'top-right-third',
+]
+const BOTTOM_SIDE_ZONES: SnapZone[] = [
+  'bottom-left',
+  'bottom-right',
+  'bottom-left-third',
+  'bottom-center-third',
+  'bottom-right-third',
+]
+
+export function snapZoneToBoundsWithOccupied(
+  zone: SnapZone,
+  occupied: ReadonlyArray<{
+    bounds: NonNullable<WorkspaceWindowLayout['bounds']>
+    snapZone: SnapZone
+  }>,
+): NonNullable<WorkspaceWindowLayout['bounds']> {
   const viewport = getViewportSize()
   const halfW = Math.round(viewport.width / 2)
   const halfH = Math.round(viewport.height / 2)
   const thirdW = Math.round(viewport.width / 3)
   const twoThirdW = Math.round((viewport.width * 2) / 3)
 
-  switch (zone) {
-    case 'left':
-      return { x: 0, y: 0, width: halfW, height: viewport.height }
-    case 'right':
-      return { x: halfW, y: 0, width: viewport.width - halfW, height: viewport.height }
-    case 'top-left':
-      return { x: 0, y: 0, width: halfW, height: halfH }
-    case 'top-right':
-      return { x: halfW, y: 0, width: viewport.width - halfW, height: halfH }
-    case 'bottom-left':
-      return { x: 0, y: halfH, width: halfW, height: viewport.height - halfH }
-    case 'bottom-right':
-      return { x: halfW, y: halfH, width: viewport.width - halfW, height: viewport.height - halfH }
-    case 'left-third':
-      return { x: 0, y: 0, width: thirdW, height: viewport.height }
-    case 'center-third':
-      return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: viewport.height }
-    case 'right-third':
-      return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: viewport.height }
-    case 'left-two-thirds':
-      return { x: 0, y: 0, width: twoThirdW, height: viewport.height }
-    case 'right-two-thirds':
-      return { x: thirdW, y: 0, width: viewport.width - thirdW, height: viewport.height }
-    case 'top-left-third':
-      return { x: 0, y: 0, width: thirdW, height: halfH }
-    case 'top-center-third':
-      return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: halfH }
-    case 'top-right-third':
-      return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: halfH }
-    case 'bottom-left-third':
-      return { x: 0, y: halfH, width: thirdW, height: viewport.height - halfH }
-    case 'bottom-center-third':
-      return { x: thirdW, y: halfH, width: twoThirdW - thirdW, height: viewport.height - halfH }
-    case 'bottom-right-third':
-      return {
-        x: twoThirdW,
-        y: halfH,
-        width: viewport.width - twoThirdW,
-        height: viewport.height - halfH,
-      }
+  const defaultBounds: NonNullable<WorkspaceWindowLayout['bounds']> = (() => {
+    switch (zone) {
+      case 'left':
+        return { x: 0, y: 0, width: halfW, height: viewport.height }
+      case 'right':
+        return { x: halfW, y: 0, width: viewport.width - halfW, height: viewport.height }
+      case 'top-left':
+        return { x: 0, y: 0, width: halfW, height: halfH }
+      case 'top-right':
+        return { x: halfW, y: 0, width: viewport.width - halfW, height: halfH }
+      case 'bottom-left':
+        return { x: 0, y: halfH, width: halfW, height: viewport.height - halfH }
+      case 'bottom-right':
+        return {
+          x: halfW,
+          y: halfH,
+          width: viewport.width - halfW,
+          height: viewport.height - halfH,
+        }
+      case 'left-third':
+        return { x: 0, y: 0, width: thirdW, height: viewport.height }
+      case 'center-third':
+        return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: viewport.height }
+      case 'right-third':
+        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: viewport.height }
+      case 'left-two-thirds':
+        return { x: 0, y: 0, width: twoThirdW, height: viewport.height }
+      case 'right-two-thirds':
+        return { x: thirdW, y: 0, width: viewport.width - thirdW, height: viewport.height }
+      case 'top-left-third':
+        return { x: 0, y: 0, width: thirdW, height: halfH }
+      case 'top-center-third':
+        return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: halfH }
+      case 'top-right-third':
+        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: halfH }
+      case 'bottom-left-third':
+        return { x: 0, y: halfH, width: thirdW, height: viewport.height - halfH }
+      case 'bottom-center-third':
+        return { x: thirdW, y: halfH, width: twoThirdW - thirdW, height: viewport.height - halfH }
+      case 'bottom-right-third':
+        return {
+          x: twoThirdW,
+          y: halfH,
+          width: viewport.width - twoThirdW,
+          height: viewport.height - halfH,
+        }
+    }
+  })()
+
+  if (occupied.length === 0) return defaultBounds
+
+  const leftOccupied = occupied.filter((o) => LEFT_SIDE_ZONES.includes(o.snapZone))
+  const rightOccupied = occupied.filter((o) => RIGHT_SIDE_ZONES.includes(o.snapZone))
+  const topOccupied = occupied.filter((o) => TOP_SIDE_ZONES.includes(o.snapZone))
+  const bottomOccupied = occupied.filter((o) => BOTTOM_SIDE_ZONES.includes(o.snapZone))
+
+  let { x, y, width, height } = defaultBounds
+
+  if (RIGHT_SIDE_ZONES.includes(zone) && leftOccupied.length > 0) {
+    const leftEdge = Math.max(...leftOccupied.map((o) => o.bounds.x + o.bounds.width))
+    x = leftEdge
+    width = viewport.width - leftEdge
   }
+  if (LEFT_SIDE_ZONES.includes(zone) && rightOccupied.length > 0) {
+    const rightEdge = Math.min(...rightOccupied.map((o) => o.bounds.x))
+    width = rightEdge
+  }
+  if (BOTTOM_SIDE_ZONES.includes(zone) && topOccupied.length > 0) {
+    const topEdge = Math.max(...topOccupied.map((o) => o.bounds.y + o.bounds.height))
+    y = topEdge
+    height = viewport.height - topEdge
+  }
+  if (TOP_SIDE_ZONES.includes(zone) && bottomOccupied.length > 0) {
+    const bottomEdge = Math.min(...bottomOccupied.map((o) => o.bounds.y))
+    height = bottomEdge - y
+  }
+
+  return { x, y, width, height }
 }
 
 function createWindowLayout(
@@ -858,26 +943,32 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
     [playbackSession],
   )
 
-  const snapWindowFn = useCallback(
-    (windowId: string, zone: SnapZone) => {
-      const zIndex = nextZIndexRef.current++
-      const snapBounds = snapZoneToBounds(zone)
-      updateWindow(windowId, (w) => ({
-        ...w,
-        layout: {
-          ...w.layout,
-          fullscreen: false,
-          snapZone: zone,
-          minimized: false,
-          zIndex,
-          bounds: snapBounds,
-          restoreBounds: w.layout?.restoreBounds ?? w.layout?.bounds ?? null,
-        },
-      }))
-      setActiveWindowId(windowId)
-    },
-    [updateWindow],
-  )
+  const snapWindowFn = useCallback((windowId: string, zone: SnapZone) => {
+    const zIndex = nextZIndexRef.current++
+    setWindows((current) => {
+      const occupied = current
+        .filter((w) => w.id !== windowId && w.layout?.snapZone && w.layout?.bounds)
+        .map((w) => ({ bounds: w.layout!.bounds!, snapZone: w.layout!.snapZone! }))
+      const snapBounds = snapZoneToBoundsWithOccupied(zone, occupied)
+      return current.map((w) =>
+        w.id === windowId
+          ? {
+              ...w,
+              layout: {
+                ...w.layout,
+                fullscreen: false,
+                snapZone: zone,
+                minimized: false,
+                zIndex,
+                bounds: snapBounds,
+                restoreBounds: w.layout?.restoreBounds ?? w.layout?.bounds ?? null,
+              },
+            }
+          : w,
+      )
+    })
+    setActiveWindowId(windowId)
+  }, [])
 
   const unsnapWindow = useCallback(
     (windowId: string, dropPosition?: { x: number; y: number }) => {
@@ -1072,6 +1163,11 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
     [windows],
   )
 
+  const setActiveTab = useCallback((tabGroupId: string, windowId: string) => {
+    setActiveTabMap((prev) => ({ ...prev, [tabGroupId]: windowId }))
+    setActiveWindowId(windowId)
+  }, [])
+
   const addTabToGroup = useCallback(
     (sourceWindowId: string) => {
       const sourceWindow = windows.find((w) => w.id === sourceWindowId)
@@ -1120,10 +1216,47 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
     [windows],
   )
 
-  const setActiveTab = useCallback((tabGroupId: string, windowId: string) => {
-    setActiveTabMap((prev) => ({ ...prev, [tabGroupId]: windowId }))
-    setActiveWindowId(windowId)
-  }, [])
+  const openInNewTab = useCallback(
+    (
+      sourceWindowId: string,
+      file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+      currentPath: string,
+    ) => {
+      const sourceWindow = windows.find((w) => w.id === sourceWindowId)
+      if (!sourceWindow || file.isVirtual) return sourceWindowId
+      const groupId = sourceWindow.tabGroupId || sourceWindowId
+      const layout = sourceWindow.layout
+        ? {
+            ...sourceWindow.layout,
+            minimized: false,
+            zIndex: sourceWindow.layout.zIndex ?? nextZIndexRef.current++,
+          }
+        : undefined
+
+      let newWindowId: string
+      if (file.isDirectory) {
+        newWindowId = openBrowserWindow({
+          source: sourceWindow.source,
+          initialState: { dir: file.path },
+          tabGroupId: groupId,
+          layout,
+        })
+      } else {
+        const dir = file.path.split(/[/\\]/).slice(0, -1).join('/') || currentPath
+        const title = file.path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer'
+        newWindowId = openViewerWindow({
+          source: sourceWindow.source,
+          title,
+          initialState: { dir, viewing: file.path },
+          tabGroupId: groupId,
+          layout,
+        })
+      }
+      setActiveTab(groupId, newWindowId)
+      return newWindowId
+    },
+    [windows, openBrowserWindow, openViewerWindow, setActiveTab],
+  )
 
   const updateWindowNavigationState = useCallback(
     (windowId: string, navState: Partial<NavigationState>) => {
@@ -1164,6 +1297,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
       mergeWindowIntoGroup,
       splitWindowFromGroup,
       addTabToGroup,
+      openInNewTab,
       setActiveTab,
       updateWindowNavigationState,
       requestPlay,
@@ -1189,6 +1323,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
       mergeWindowIntoGroup,
       splitWindowFromGroup,
       addTabToGroup,
+      openInNewTab,
       setActiveTab,
       updateWindowNavigationState,
       requestPlay,

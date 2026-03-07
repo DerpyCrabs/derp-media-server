@@ -576,7 +576,7 @@ export function AudioPlayer({
         </div>
 
         {detailsOpen ? (
-          <div className='absolute right-0 bottom-full mb-2 w-80 border border-white/8 bg-neutral-900 shadow-2xl'>
+          <div className='absolute right-0 bottom-full z-10001 mb-2 w-80 border border-white/8 bg-neutral-900 shadow-2xl'>
             <div className='space-y-3 p-3'>
               <div className='flex items-center gap-3'>
                 <div className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden bg-neutral-800'>

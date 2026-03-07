@@ -46,9 +46,14 @@ import { queryKeys } from '@/lib/query-keys'
 interface FileBrowserProps {
   editableFolders: string[]
   session: NavigationSession
+  onOpenInNewTabInSameWindow?: (file: FileItem) => void
 }
 
-function FileBrowserInner({ editableFolders, session: sessionProp }: FileBrowserProps) {
+function FileBrowserInner({
+  editableFolders,
+  session: sessionProp,
+  onOpenInNewTabInSameWindow,
+}: FileBrowserProps) {
   const session = useNavigationSession(sessionProp)
   const { state, navigateToFolder, viewFile, playFile: urlPlayFile } = session
   const currentPath = state.dir || ''
@@ -342,7 +347,12 @@ function FileBrowserInner({ editableFolders, session: sessionProp }: FileBrowser
   }
 
   const handleContextOpenInNewTab = (file: FileItem) => {
-    if (!file.isDirectory || file.isVirtual) return
+    if (file.isVirtual) return
+    if (onOpenInNewTabInSameWindow) {
+      onOpenInNewTabInSameWindow(file)
+      return
+    }
+    if (!file.isDirectory) return
     const params = new URLSearchParams()
     if (file.path) params.set('dir', file.path)
     const url = `${window.location.origin}${window.location.pathname || '/'}?${params.toString()}`
@@ -656,6 +666,7 @@ function FileBrowserInner({ editableFolders, session: sessionProp }: FileBrowser
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -708,6 +719,7 @@ function FileBrowserInner({ editableFolders, session: sessionProp }: FileBrowser
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -747,6 +759,7 @@ function FileBrowserInner({ editableFolders, session: sessionProp }: FileBrowser
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
+            showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
             favorites={favorites}
             editableFolders={editableFolders}
             shares={shares}

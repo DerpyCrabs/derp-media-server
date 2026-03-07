@@ -36,6 +36,8 @@ interface FileContextMenuProps {
   onMove?: (file: FileItem) => void
   onCopy?: (file: FileItem) => void
   onOpenInNewTab?: (file: FileItem) => void
+  /** When true, show "Open in new tab" for files too (workspace only). Default: false (folders only). */
+  showOpenInNewTabForFiles?: boolean
   hasEditableFolders?: boolean
   isFavorite?: boolean
   isKnowledgeBase?: boolean
@@ -57,6 +59,7 @@ export function FileContextMenu({
   onMove,
   onCopy,
   onOpenInNewTab,
+  showOpenInNewTabForFiles = false,
   hasEditableFolders = false,
   isFavorite = false,
   isKnowledgeBase = false,
@@ -151,7 +154,7 @@ export function FileContextMenu({
             Set icon
           </ContextMenuItem>
         )}
-        {file.isDirectory && !file.isVirtual && onOpenInNewTab && (
+        {onOpenInNewTab && !file.isVirtual && (file.isDirectory || showOpenInNewTabForFiles) && (
           <ContextMenuItem onClick={handleOpenInNewTab}>
             <ExternalLink className='mr-2 h-4 w-4' />
             Open in new tab

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { FolderKanban, X } from 'lucide-react'
+import { FolderOpen, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -35,16 +35,16 @@ export function Layout({
         {items.length > 0 ? children : emptyState}
       </div>
 
-      <div className='border-t border-white/8 bg-black/70 px-3 backdrop-blur supports-backdrop-filter:bg-black/55'>
+      <div className='relative z-[10000] border-t border-white/8 bg-black/70 px-3 backdrop-blur supports-backdrop-filter:bg-black/55'>
         <div className='flex h-10 items-center gap-2'>
           <Button
             variant='ghost'
-            size='icon-xs'
+            size='icon-sm'
             onClick={onNewBrowser}
             title='Open browser window'
-            className='rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
+            className='rounded-none text-amber-500 hover:bg-amber-500/15 hover:text-amber-400'
           >
-            <FolderKanban className='h-4 w-4' />
+            <FolderOpen className='h-6 w-6' strokeWidth={1.75} />
           </Button>
 
           <div className='flex min-w-0 flex-1 items-center gap-0 overflow-x-auto'>
@@ -53,7 +53,7 @@ export function Layout({
                 <div
                   key={item.id}
                   className={cn(
-                    'flex h-10 min-w-[120px] flex-[0_1_250px] items-center gap-1 overflow-hidden border-r border-white/6 bg-white/4 px-2 text-muted-foreground',
+                    'flex h-10 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-white/6 bg-white/4 px-2 text-muted-foreground',
                     item.active && 'bg-white/10 text-foreground',
                   )}
                 >

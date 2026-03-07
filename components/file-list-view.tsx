@@ -57,6 +57,7 @@ interface FileListViewProps {
   onContextMove?: (file: FileItem) => void
   onContextCopy?: (file: FileItem) => void
   onContextOpenInNewTab?: (file: FileItem) => void
+  showOpenInNewTabForFiles?: boolean
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
 
@@ -101,6 +102,7 @@ export function FileListView({
   onContextMove,
   onContextCopy,
   onContextOpenInNewTab,
+  showOpenInNewTabForFiles = false,
   hasEditableFolders = false,
   onMoveFile,
   showDownloadButton = false,
@@ -261,7 +263,7 @@ export function FileListView({
                 <ArrowUp className='h-5 w-5 text-muted-foreground' />
               </TableCell>
               <TableCell className='font-medium'>..</TableCell>
-              <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
+              <TableCell className='text-right text-muted-foreground'></TableCell>
             </TableRow>
           )}
           {files.map((file) => {
@@ -362,9 +364,7 @@ export function FileListView({
                     </div>
                   </div>
                 </TableCell>
-                <TableCell
-                  className={`${showDownloadButton ? 'w-48' : 'w-32'} text-right text-muted-foreground`}
-                >
+                <TableCell className='text-right text-muted-foreground'>
                   <div className='flex items-center justify-end gap-2'>
                     {showViewCounts && !file.isDirectory && (
                       <div
@@ -372,7 +372,7 @@ export function FileListView({
                         title={`${viewCount} views`}
                         suppressHydrationWarning
                       >
-                        <Eye className='h-3.5 w-3.5' />
+                        <Eye className='h-3.5 w-3.5 shrink-0' />
                         <span suppressHydrationWarning>{viewCount}</span>
                       </div>
                     )}
@@ -382,7 +382,7 @@ export function FileListView({
                         title={`${shareViewCount} shared views`}
                         suppressHydrationWarning
                       >
-                        <Share2 className='h-3 w-3' />
+                        <Share2 className='h-3 w-3 shrink-0' />
                         <span suppressHydrationWarning>{shareViewCount}</span>
                       </div>
                     )}
@@ -400,7 +400,7 @@ export function FileListView({
                         <Download className='h-3.5 w-3.5' />
                       </Button>
                     )}
-                    <span className='w-20'>
+                    <span className='w-20 text-right shrink-0'>
                       {file.isDirectory ? '' : formatFileSize(file.size)}
                     </span>
                   </div>
@@ -423,6 +423,7 @@ export function FileListView({
                 onMove={onContextMove}
                 onCopy={onContextCopy}
                 onOpenInNewTab={onContextOpenInNewTab}
+                showOpenInNewTabForFiles={showOpenInNewTabForFiles}
                 hasEditableFolders={hasEditableFolders}
                 isFavorite={isFavorite}
                 isKnowledgeBase={isKnowledgeBase}

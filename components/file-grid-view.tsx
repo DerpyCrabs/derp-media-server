@@ -45,6 +45,7 @@ interface FileGridViewProps {
   onContextMove?: (file: FileItem) => void
   onContextCopy?: (file: FileItem) => void
   onContextOpenInNewTab?: (file: FileItem) => void
+  showOpenInNewTabForFiles?: boolean
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
 
@@ -80,6 +81,7 @@ export function FileGridView({
   onContextMove,
   onContextCopy,
   onContextOpenInNewTab,
+  showOpenInNewTabForFiles = false,
   hasEditableFolders = false,
   onMoveFile,
   isEditable: isEditableProp,
@@ -398,6 +400,7 @@ export function FileGridView({
               onMove={onContextMove}
               onCopy={onContextCopy}
               onOpenInNewTab={onContextOpenInNewTab}
+              showOpenInNewTabForFiles={showOpenInNewTabForFiles}
               hasEditableFolders={hasEditableFolders}
               isFavorite={isFavorite}
               isKnowledgeBase={isKnowledgeBase}
