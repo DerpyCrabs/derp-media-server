@@ -1,0 +1,386 @@
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { post } from '@/lib/api'
+import { Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle, Download } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { TextContent } from '@/components/text-content'
+import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
+import { useSettings } from '@/lib/use-settings'
+import { useMediaUrl } from '@/lib/use-media-url'
+import { useNavigationSession } from '@/lib/use-navigation-session'
+import type { NavigationSession } from '@/lib/navigation-session'
+import type { SourceContext } from '@/lib/source-context'
+import { queryKeys } from '@/lib/query-keys'
+
+interface TextViewerProps {
+  editableFolders?: string[]
+  session?: NavigationSession
+  mediaContext?: SourceContext
+}
+
+export function TextViewer({
+  editableFolders = [],
+  session: sessionProp,
+  mediaContext,
+}: TextViewerProps) {
+  const session = useNavigationSession(sessionProp)
+  const { state } = session
+  const queryClient = useQueryClient()
+  const { getDownloadUrl } = useMediaUrl(mediaContext)
+  const viewingPath = state.viewing
+
+  const [copied, setCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState<string>('')
+  const [saving, setSaving] = useState(false)
+  const [autoSaveError, setAutoSaveError] = useState<string | null>(null)
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastServerContentRef = useRef<string | null>(null)
+  const prevViewingPathRef = useRef<string | null>(null)
+
+  const filesEditMutation = useMutation({
+    mutationFn: (vars: { path: string; content: string }) => post('/api/files/edit', vars),
+  })
+
+  const { settings, setAutoSave } = useSettings('')
+  const knowledgeBases = settings.knowledgeBases || []
+  const autoSaveEnabled = viewingPath ? (settings.autoSave[viewingPath]?.enabled ?? true) : true
+  const isReadOnly = viewingPath ? settings.autoSave[viewingPath]?.readOnly || false : false
+  const isEditable = isPathEditable(viewingPath || '', editableFolders)
+
+  const fileExtension = viewingPath?.split('.').pop()?.toLowerCase() || ''
+  const isMarkdown = fileExtension === 'md'
+  const textExtensions = [
+    'txt',
+    'md',
+    'json',
+    'xml',
+    'csv',
+    'log',
+    'yaml',
+    'yml',
+    'ini',
+    'conf',
+    'sh',
+    'bat',
+    'ps1',
+    'js',
+    'ts',
+    'jsx',
+    'tsx',
+    'css',
+    'scss',
+    'html',
+    'py',
+    'java',
+    'c',
+    'cpp',
+    'h',
+    'cs',
+    'go',
+    'rs',
+    'php',
+    'rb',
+    'swift',
+    'kt',
+    'sql',
+  ]
+  const isText = viewingPath && textExtensions.includes(fileExtension)
+
+  const textQueryKey = queryKeys.textContent(viewingPath!)
+
+  const {
+    data: content = '',
+    isLoading: loading,
+    error,
+  } = useQuery({
+    queryKey: textQueryKey,
+    queryFn: async () => {
+      if (!viewingPath) return ''
+      const url = `/api/media/${encodeURIComponent(viewingPath)}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('Failed to load file')
+      return await res.text()
+    },
+    enabled: !!isText,
+    staleTime: 0,
+    gcTime: 1000 * 60 * 10,
+    refetchOnMount: 'always',
+  })
+
+  useEffect(() => {
+    if (!viewingPath || loading) return
+
+    if (prevViewingPathRef.current !== viewingPath) {
+      prevViewingPathRef.current = viewingPath
+      lastServerContentRef.current = null
+      setIsEditing(false)
+    }
+
+    const fileReadOnly = settings.autoSave[viewingPath]?.readOnly || false
+    const fileEditable = isPathEditable(viewingPath, editableFolders)
+
+    if (fileEditable && !fileReadOnly) {
+      const prevContent = lastServerContentRef.current
+      lastServerContentRef.current = content
+
+      if (!isEditing) {
+        setEditContent(content)
+        setIsEditing(true)
+      } else if (prevContent !== null && content !== prevContent && editContent === prevContent) {
+        setEditContent(content)
+      }
+    } else {
+      setIsEditing(false)
+    }
+  }, [viewingPath, content, loading, editContent, isEditing, editableFolders, settings.autoSave])
+
+  const handleCopy = async () => {
+    if (!content) return
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }
+
+  const handleContentChange = (newContent: string) => {
+    setEditContent(newContent)
+  }
+
+  const handleSave = async (skipStateUpdate = false) => {
+    if (!viewingPath) return
+    const saveState = skipStateUpdate ? () => {} : setSaving
+    saveState(true)
+    if (skipStateUpdate) setAutoSaveError(null)
+
+    try {
+      await filesEditMutation.mutateAsync({ path: viewingPath, content: editContent })
+      const queryKey = queryKeys.textContent(viewingPath)
+      queryClient.setQueryData(queryKey, editContent)
+      if (!skipStateUpdate) setIsEditing(false)
+      await queryClient.invalidateQueries({ queryKey })
+    } catch (err) {
+      console.error('Failed to save:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save file'
+      if (skipStateUpdate) {
+        setAutoSaveError(errorMessage)
+        setTimeout(() => setAutoSaveError(null), 5000)
+      } else {
+        alert(errorMessage)
+      }
+    } finally {
+      saveState(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isEditing || !autoSaveEnabled || !viewingPath) return
+    if (editContent === content) return
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = setTimeout(() => {
+      if (editContent !== content) handleSave(true)
+    }, 2000)
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editContent, isEditing, autoSaveEnabled, content, viewingPath])
+
+  const handleBlur = () => {
+    if (autoSaveEnabled && editContent !== content) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+      handleSave(true)
+    }
+  }
+
+  const toggleAutoSave = () => {
+    if (viewingPath) setAutoSave(viewingPath, !autoSaveEnabled)
+  }
+
+  const toggleReadOnly = () => {
+    const newReadOnly = !isReadOnly
+    if (newReadOnly) {
+      setIsEditing(false)
+      setEditContent('')
+    } else {
+      setEditContent(content)
+      setIsEditing(true)
+    }
+    if (viewingPath) setAutoSave(viewingPath, autoSaveEnabled, newReadOnly)
+  }
+
+  const handleDownload = () => {
+    if (!viewingPath) return
+    const link = document.createElement('a')
+    link.href = getDownloadUrl(viewingPath)
+    link.download = viewingPath.split(/[/\\]/).pop() || 'file'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const knowledgeBasesRef = useRef(knowledgeBases)
+  knowledgeBasesRef.current = knowledgeBases
+
+  const handleImagePaste = useCallback(
+    async (base64: string, mimeType: string): Promise<string | null> => {
+      if (!viewingPath) return null
+      const kbRoot = getKnowledgeBaseRoot(viewingPath, knowledgeBasesRef.current)
+      if (!kbRoot) return null
+
+      const ext = mimeType.split('/')[1] || 'png'
+      const safeExt = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext) ? ext : 'png'
+      const fileName = `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`
+      const imagePath = `${kbRoot}/images/${fileName}`
+
+      try {
+        const res = await fetch('/api/files/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'file', path: imagePath, base64Content: base64 }),
+        })
+        if (!res.ok) {
+          const data = await res.json()
+          throw new Error(data.error || 'Failed to save image')
+        }
+        queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
+        queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
+        return imagePath
+      } catch (err) {
+        console.error('Failed to paste image:', err)
+        return null
+      }
+    },
+    [viewingPath, queryClient],
+  )
+
+  const resolveImageUrl = useCallback(
+    (src: string): string | null => {
+      try {
+        src = decodeURIComponent(src)
+      } catch {}
+      if (!src.startsWith('http://') && !src.startsWith('https://') && !src.includes('/')) {
+        const kbRoot = getKnowledgeBaseRoot(viewingPath || '', knowledgeBasesRef.current)
+        if (kbRoot) src = `${kbRoot}/images/${src}`
+      }
+      return `/api/media/${src.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
+    },
+    [viewingPath],
+  )
+
+  if (!isText) return null
+
+  const fileName = viewingPath?.split(/[/\\]/).pop() || ''
+
+  return (
+    <div className='flex h-full min-h-0 flex-col'>
+      <div className='flex items-center justify-between gap-4 border-b p-4 shrink-0'>
+        <div className='flex-1 min-w-0'>
+          <h2 className='text-lg font-medium truncate'>{fileName}</h2>
+          <p className='text-sm text-muted-foreground'>
+            {fileExtension.toUpperCase()} File{' '}
+            {content ? `• ${content.split('\n').length} lines` : ''}
+          </p>
+        </div>
+        <div className='flex items-center gap-2 shrink-0'>
+          {isEditing ? (
+            <>
+              {isEditable && (
+                <div className='flex items-center gap-2 mr-2 border-r pr-3'>
+                  <Button
+                    variant={autoSaveEnabled ? 'default' : 'outline'}
+                    size='sm'
+                    onClick={toggleAutoSave}
+                    className='gap-2'
+                    title={autoSaveEnabled ? 'Auto-save enabled' : 'Auto-save disabled'}
+                  >
+                    {autoSaveEnabled ? (
+                      <>
+                        <Zap className='h-4 w-4' />
+                        <span>Auto-save</span>
+                      </>
+                    ) : (
+                      <>
+                        <ZapOff className='h-4 w-4' />
+                        <span>Auto-save</span>
+                      </>
+                    )}
+                  </Button>
+                  {autoSaveError && (
+                    <div
+                      className='flex items-center gap-1 text-sm text-destructive'
+                      title={autoSaveError}
+                    >
+                      <AlertCircle className='h-4 w-4' />
+                      <span>Save failed</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={toggleReadOnly}
+                disabled={saving}
+                title='Switch to read-only mode'
+              >
+                Read only
+              </Button>
+              {!autoSaveEnabled && (
+                <Button
+                  variant='default'
+                  size='sm'
+                  onClick={() => handleSave(false)}
+                  disabled={saving}
+                  title='Save changes'
+                  className='gap-2'
+                >
+                  <Save className='h-4 w-4' />
+                  {saving ? 'Saving...' : 'Save'}
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              {isEditable && (
+                <Button variant='default' size='sm' onClick={toggleReadOnly} title='Edit file'>
+                  <Edit2 className='h-4 w-4' />
+                  <span className='ml-2'>Edit</span>
+                </Button>
+              )}
+              <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
+                {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
+              </Button>
+            </>
+          )}
+          <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
+            <Download className='h-5 w-5' />
+          </Button>
+        </div>
+      </div>
+      <div className='flex-1 overflow-hidden'>
+        <TextContent
+          content={content}
+          isEditing={isEditing}
+          isMarkdown={isMarkdown}
+          editContent={editContent}
+          onContentChange={handleContentChange}
+          onBlur={handleBlur}
+          onImagePaste={
+            getKnowledgeBaseRoot(viewingPath || '', knowledgeBases) ? handleImagePaste : undefined
+          }
+          resolveImageUrl={resolveImageUrl}
+          loading={loading}
+          error={error}
+          className='h-full'
+        />
+      </div>
+    </div>
+  )
+}
