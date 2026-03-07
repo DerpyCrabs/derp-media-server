@@ -72,6 +72,7 @@ async function start() {
             '**/tests/fixtures/test-config-*',
             '**/test-results/**',
             '**/playwright-report/**',
+            '**/tests/**',
           ],
         },
       },
