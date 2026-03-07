@@ -26,6 +26,10 @@ const BATCHES = [
     id: '3',
     tests: ['shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates', 'url-state'],
   },
+  {
+    id: '4',
+    tests: ['workspace-windows'],
+  },
 ]
 
 const ROOT = path.resolve(__dirname, '..')
