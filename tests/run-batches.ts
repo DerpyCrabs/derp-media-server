@@ -4,15 +4,15 @@ import path from 'path'
 
 const BATCHES = [
   {
-    id: '0',
+    id: '1',
     tests: ['audio-player', 'video-player', 'pdf-viewer', 'image-viewer', 'download'],
   },
   {
-    id: '1',
+    id: '2',
     tests: ['navigation', 'login', 'share-viewers'],
   },
   {
-    id: '2',
+    id: '3',
     tests: [
       'editable-folders',
       'drag-drop',
@@ -23,12 +23,16 @@ const BATCHES = [
     ],
   },
   {
-    id: '3',
+    id: '4',
     tests: ['shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates', 'url-state'],
   },
   {
-    id: '4',
-    tests: ['workspace-windows'],
+    id: '5',
+    tests: ['workspace-layout'],
+  },
+  {
+    id: '6',
+    tests: ['workspace-controls'],
   },
 ]
 

@@ -56,6 +56,11 @@ export interface WindowGroupProps {
   onSelectTab: (tabGroupId: string, windowId: string) => void
   onCloseTab: (windowId: string) => void
   onAddTab: (sourceWindowId: string) => void
+  onOpenInNewTabInSameWindow?: (
+    sourceWindowId: string,
+    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+    currentPath: string,
+  ) => string
   onDetachTab: (windowId: string, clientX: number, clientY: number) => void
   onRestoreDrag: (windowId: string, clientX: number, clientY: number) => void
 }
@@ -118,6 +123,7 @@ interface TabContentProps {
   onNavigationStateChange: WindowGroupProps['onNavigationStateChange']
   onRequestPlay: WindowGroupProps['onRequestPlay']
   onRequestView: WindowGroupProps['onRequestView']
+  onOpenInNewTabInSameWindow: WindowGroupProps['onOpenInNewTabInSameWindow']
 }
 
 function TabContent({
@@ -129,6 +135,7 @@ function TabContent({
   onNavigationStateChange,
   onRequestPlay,
   onRequestView,
+  onOpenInNewTabInSameWindow,
 }: TabContentProps) {
   const localSession = useInMemoryNavigationSession(win.initialState)
   const mergedWindowSession = useWorkspaceWindowSession(
@@ -231,7 +238,15 @@ function TabContent({
       ) : win.source.kind === 'share' ? (
         <WorkspaceSharePlaceholder title={resolvedTitle} />
       ) : (
-        <FileBrowser editableFolders={editableFolders} session={windowSession} />
+        <FileBrowser
+          editableFolders={editableFolders}
+          session={windowSession}
+          onOpenInNewTabInSameWindow={
+            onOpenInNewTabInSameWindow
+              ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
+              : undefined
+          }
+        />
       )}
     </div>
   )
@@ -398,6 +413,7 @@ export function WindowGroup({
   onSelectTab,
   onCloseTab,
   onAddTab,
+  onOpenInNewTabInSameWindow,
   onDetachTab,
   onRestoreDrag,
 }: WindowGroupProps) {
@@ -587,7 +603,7 @@ export function WindowGroup({
       disableDragging={false}
       enableResizing={isFullscreen ? false : snapResizeHandles}
       dragHandleClassName='workspace-window-drag-handle'
-      cancel='.workspace-window-content, input, textarea, select, a, audio, video, [data-no-window-drag]'
+      cancel='.workspace-window-content, input, textarea, select, a, audio, video, [data-no-window-drag], .workspace-window-buttons'
       style={{ zIndex: leader.layout?.zIndex ?? 1 }}
       onDragStart={handleDragStart}
       onDrag={handleDrag}
@@ -629,65 +645,63 @@ export function WindowGroup({
         )}
         onMouseDown={() => onFocus(visibleTab.id)}
       >
-        <div className='workspace-window-drag-handle flex h-8 cursor-grab items-center border-b border-white/8 bg-neutral-900 active:cursor-grabbing'>
-          {hasTabs ? (
-            <TabStrip
-              tabs={tabs}
-              visibleTabId={visibleTabId}
-              groupId={groupId}
-              getIcon={getIcon}
-              onSelectTab={onSelectTab}
-              onFocus={onFocus}
-              onCloseTab={onCloseTab}
-              onTabDragDetach={handleTabDragDetach}
-            />
-          ) : (
-            <div className='flex min-w-0 flex-1 items-center gap-1.5 px-2'>
-              <div className='flex h-5 w-5 items-center justify-center text-muted-foreground'>
-                {getTabIcon(leader, getIcon)}
+        <div className='flex h-8 items-stretch border-b border-white/8 bg-neutral-900'>
+          <div className='workspace-window-drag-handle flex min-w-[60px] flex-1 cursor-grab items-center active:cursor-grabbing'>
+            {hasTabs ? (
+              <TabStrip
+                tabs={tabs}
+                visibleTabId={visibleTabId}
+                groupId={groupId}
+                getIcon={getIcon}
+                onSelectTab={onSelectTab}
+                onFocus={onFocus}
+                onCloseTab={onCloseTab}
+                onTabDragDetach={handleTabDragDetach}
+              />
+            ) : (
+              <div className='flex min-w-0 flex-1 items-center gap-1.5 px-2'>
+                <div className='flex h-5 w-5 items-center justify-center text-muted-foreground'>
+                  {getTabIcon(leader, getIcon)}
+                </div>
+                <div className='min-w-0 flex-1 truncate text-[11px] font-medium text-foreground'>
+                  {getWorkspaceWindowTitle(leader)}
+                </div>
               </div>
-              <div className='min-w-0 flex-1 truncate text-[11px] font-medium text-foreground'>
-                {getWorkspaceWindowTitle(leader)}
-              </div>
-            </div>
-          )}
-          <div className='flex shrink-0 items-center'>
+            )}
+          </div>
+          <div
+            data-no-window-drag
+            className='workspace-window-buttons flex h-full shrink-0 items-stretch gap-0 self-stretch pl-3'
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <Button
               variant='ghost'
-              size='icon-xs'
-              className='shrink-0 rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onAddTab(leader.id))}
             >
-              <Plus className='h-3 w-3' />
+              <Plus />
             </Button>
             <Button
               variant='ghost'
-              size='icon-xs'
-              className='shrink-0 rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onMinimize(leader.id))}
             >
-              <Minus className='h-3.5 w-3.5' />
+              <Minus />
             </Button>
             <Button
               variant='ghost'
-              size='icon-xs'
-              className='shrink-0 rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onToggleMaximize(leader.id))}
               onContextMenu={handleMaximizeContextMenu}
             >
-              {isFullscreen ? (
-                <Minimize2 className='h-3.5 w-3.5' />
-              ) : (
-                <Maximize2 className='h-3.5 w-3.5' />
-              )}
+              {isFullscreen ? <Minimize2 /> : <Maximize2 />}
             </Button>
             <Button
               variant='ghost'
-              size='icon-xs'
-              className='shrink-0 rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onClose(leader.id))}
             >
-              <X className='h-3.5 w-3.5' />
+              <X />
             </Button>
           </div>
         </div>
@@ -703,6 +717,7 @@ export function WindowGroup({
             onNavigationStateChange={onNavigationStateChange}
             onRequestPlay={onRequestPlay}
             onRequestView={onRequestView}
+            onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
           />
         ))}
       </div>

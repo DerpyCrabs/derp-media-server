@@ -5,6 +5,11 @@ const EDGE_THRESHOLD = 36
 
 export type SnapDetectResult = SnapZone | 'top'
 
+export interface UseSnapZonesOptions {
+  /** When provided, used for preview bounds instead of default zone bounds (e.g. to show remaining space when other windows are snapped) */
+  getZoneBounds?: (zone: SnapZone) => { x: number; y: number; width: number; height: number }
+}
+
 export function detectSnapZone(
   cursorX: number,
   cursorY: number,
@@ -27,9 +32,11 @@ export function detectSnapZone(
   return null
 }
 
-export function useSnapZones() {
+export function useSnapZones(options?: UseSnapZonesOptions) {
   const zoneRef = useRef<SnapDetectResult | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
+  const getZoneBoundsRef = useRef(options?.getZoneBounds)
+  getZoneBoundsRef.current = options?.getZoneBounds
 
   const updatePreview = useCallback((zone: SnapDetectResult | null, container: HTMLElement) => {
     if (!previewRef.current) {
@@ -53,7 +60,7 @@ export function useSnapZones() {
       return
     }
 
-    const bounds = snapZoneToBounds(zone)
+    const bounds = getZoneBoundsRef.current?.(zone) ?? snapZoneToBounds(zone)
     el.style.display = 'block'
     el.style.left = `${bounds.x}px`
     el.style.top = `${bounds.y}px`

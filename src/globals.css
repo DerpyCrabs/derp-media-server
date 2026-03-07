@@ -118,7 +118,7 @@
 
 html,
 body {
-  overflow: hidden !important;
+  overflow: auto;
 }
 
 @layer base {
