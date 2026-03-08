@@ -35,7 +35,7 @@ export function Layout({
         {items.length > 0 ? children : emptyState}
       </div>
 
-      <div className='relative z-[10000] border-t border-white/8 bg-black/70 px-3 backdrop-blur supports-backdrop-filter:bg-black/55'>
+      <div className='relative z-10000 border-t border-white/8 bg-black/70 px-3 backdrop-blur supports-backdrop-filter:bg-black/55'>
         <div className='flex h-10 items-center gap-2'>
           <Button
             variant='ghost'

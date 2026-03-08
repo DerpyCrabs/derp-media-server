@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Headphones,
   Monitor,
-  MoreHorizontal,
   Pause,
   Play,
   Repeat,
@@ -494,15 +493,21 @@ export function AudioPlayer({
 
       <div ref={rootRef} className='relative'>
         <div className='flex h-10 items-center gap-1 border-l border-white/6 bg-white/4 px-2 text-muted-foreground'>
-          <div className='hidden min-[1150px]:flex items-center gap-1.5 pr-1'>
-            <div className='flex h-6 w-6 items-center justify-center rounded bg-white/8'>
+          <button
+            type='button'
+            className='hidden min-[1150px]:flex items-center gap-1.5 pr-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity text-left'
+            onClick={() => setDetailsOpen((open) => !open)}
+            aria-label='Open audio controls'
+            aria-expanded={detailsOpen}
+          >
+            <div className='flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/8'>
               <Headphones className='h-3.5 w-3.5 text-muted-foreground' />
             </div>
-            <div className='max-w-40 min-w-0'>
-              <div className='truncate text-[11px] font-medium leading-none text-foreground'>
+            <div className='max-w-52 min-w-52'>
+              <div className='truncate text-[12px] font-medium leading-none text-foreground'>
                 {playingPath ? audioMetadata?.title || fileName : 'Audio idle'}
               </div>
-              <div className='truncate text-[10px] leading-none text-muted-foreground'>
+              <div className='truncate text-[11px] leading-none text-muted-foreground'>
                 {playingPath
                   ? audioMetadata?.artist ||
                     currentDir ||
@@ -510,69 +515,7 @@ export function AudioPlayer({
                   : 'Play audio to pin controls here'}
               </div>
             </div>
-          </div>
-
-          <Button
-            variant='ghost'
-            size='icon-xs'
-            className='rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
-            onClick={playPreviousAudio}
-            disabled={!hasPreviousAudio}
-            aria-label='Previous track'
-          >
-            <StepBack className='h-3.5 w-3.5' />
-          </Button>
-          <Button
-            variant='default'
-            size='icon-xs'
-            onClick={handleTogglePlayPause}
-            disabled={!playingPath}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-            className='rounded-none shadow-none'
-          >
-            {isPlaying &&
-            currentFile === playingPath &&
-            mediaType === (canControlVideoFromTaskbar ? 'video' : 'audio') ? (
-              <Pause className='h-3.5 w-3.5' />
-            ) : (
-              <Play className='h-3.5 w-3.5' />
-            )}
-          </Button>
-          <Button
-            variant='ghost'
-            size='icon-xs'
-            className='rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
-            onClick={playNextAudio}
-            disabled={!hasNextAudio}
-            aria-label='Next track'
-          >
-            <StepForward className='h-3.5 w-3.5' />
-          </Button>
-
-          {isVideoFile && isAudioOnly && (
-            <Button
-              variant='ghost'
-              size='icon-xs'
-              className='rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
-              onClick={handleShowVideo}
-              aria-label='Show video window'
-              title='Show video'
-            >
-              <Monitor className='h-3.5 w-3.5' />
-            </Button>
-          )}
-
-          <Button
-            variant='ghost'
-            size='icon-xs'
-            className='rounded-none text-muted-foreground hover:bg-white/8 hover:text-foreground'
-            onClick={() => setDetailsOpen((open) => !open)}
-            aria-label='Open audio controls'
-            aria-expanded={detailsOpen}
-            title='Open audio controls'
-          >
-            <MoreHorizontal className='h-3.5 w-3.5' />
-          </Button>
+          </button>
         </div>
 
         {detailsOpen ? (
