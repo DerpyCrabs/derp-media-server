@@ -34,7 +34,7 @@ function expectNoAdminShareLeaks(requests: string[]) {
     '/api/stats/views',
     '/api/shares',
     '/api/files',
-    '/api/files/stream',
+    '/api/events/stream',
   ])
 
   const adminLeaks = requests.filter((url) => {

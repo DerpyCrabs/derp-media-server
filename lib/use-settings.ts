@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { useAdminEventsStream } from '@/lib/use-admin-events-stream'
 
 import type { AutoSaveSettings } from './types'
 import { VIRTUAL_FOLDERS } from './constants'
@@ -16,56 +16,10 @@ interface GlobalSettings {
   autoSave: Record<string, AutoSaveSettings>
 }
 
-let globalEventSource: EventSource | null = null
-let connectionRefCount = 0
-
-function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
-  if (!globalEventSource) {
-    console.log('[Settings SSE] Connecting to settings stream...')
-    globalEventSource = new EventSource('/api/settings/stream')
-
-    globalEventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'connected') {
-          console.log('[Settings SSE] Connected to settings stream')
-        } else if (data.type === 'settings-changed') {
-          console.log('[Settings SSE] Settings changed, refetching...')
-          queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-        }
-      } catch (error) {
-        console.error('[Settings SSE] Error parsing message:', error)
-      }
-    }
-
-    globalEventSource.onerror = (error) => {
-      console.warn('[Settings SSE] Connection error:', error)
-      if (globalEventSource) {
-        globalEventSource.close()
-        globalEventSource = null
-      }
-      setTimeout(() => {
-        if (connectionRefCount > 0) {
-          console.log('[Settings SSE] Reconnecting...')
-          connectToSSE(queryClient)
-        }
-      }, 5000)
-    }
-  }
-  connectionRefCount++
-}
-
-function disconnectFromSSE() {
-  connectionRefCount--
-  if (connectionRefCount === 0 && globalEventSource) {
-    console.log('[Settings SSE] Closing connection')
-    globalEventSource.close()
-    globalEventSource = null
-  }
-}
-
 export function useSettings(currentPath: string, enabled = true) {
   const queryClient = useQueryClient()
+
+  useAdminEventsStream(enabled)
 
   const { data: globalSettings } = useQuery({
     queryKey: queryKeys.settings(),
@@ -73,14 +27,6 @@ export function useSettings(currentPath: string, enabled = true) {
     staleTime: Infinity,
     enabled,
   })
-
-  useEffect(() => {
-    if (!enabled) return
-    connectToSSE(queryClient)
-    return () => {
-      disconnectFromSSE()
-    }
-  }, [queryClient, enabled])
 
   const viewModeMutation = useMutation({
     mutationFn: (vars: { path: string; viewMode: ViewMode }) =>

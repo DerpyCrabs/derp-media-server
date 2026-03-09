@@ -112,13 +112,16 @@ function scopeShareChange(
 }
 
 export function registerSSERoutes(app: FastifyInstance) {
-  // ── File change events ─────────────────────────────────────────────
-  app.get('/api/files/stream', async (request, reply) => {
+  app.get('/api/events/stream', async (request, reply) => {
     initSSE(reply)
 
-    const cb: FileChangeCallback = (event) =>
+    const fileCb: FileChangeCallback = (event) =>
       writeSSE(reply, encodeSSE({ type: 'files-changed', ...event, timestamp: Date.now() }))
-    addFileClient(cb)
+    addFileClient(fileCb)
+
+    const settingsCb: SettingsCallback = (message) => writeSSE(reply, message)
+    settingsClients.add(settingsCb)
+    startSettingsWatch()
 
     writeSSE(reply, encodeSSE({ type: 'connected', timestamp: Date.now() }))
 
@@ -131,7 +134,9 @@ export function registerSSERoutes(app: FastifyInstance) {
     }, 30000)
 
     request.raw.on('close', () => {
-      removeFileClient(cb)
+      removeFileClient(fileCb)
+      settingsClients.delete(settingsCb)
+      stopSettingsWatch()
       clearInterval(keepAlive)
     })
 
@@ -176,33 +181,6 @@ export function registerSSERoutes(app: FastifyInstance) {
     request.raw.on('close', () => {
       removeFileClient(cb)
       clearInterval(keepAlive)
-    })
-
-    return reply
-  })
-
-  // ── Settings change events ─────────────────────────────────────────
-  app.get('/api/settings/stream', async (request, reply) => {
-    initSSE(reply)
-
-    const cb: SettingsCallback = (message) => writeSSE(reply, message)
-    settingsClients.add(cb)
-    startSettingsWatch()
-
-    writeSSE(reply, encodeSSE({ type: 'connected', timestamp: Date.now() }))
-
-    const keepAlive = setInterval(() => {
-      try {
-        writeSSE(reply, ': keep-alive\n\n')
-      } catch {
-        clearInterval(keepAlive)
-      }
-    }, 30000)
-
-    request.raw.on('close', () => {
-      settingsClients.delete(cb)
-      clearInterval(keepAlive)
-      stopSettingsWatch()
     })
 
     return reply

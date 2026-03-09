@@ -79,13 +79,8 @@ test.describe('Share Security', () => {
 })
 
 test.describe('Auth - Protected Stream Endpoints', () => {
-  test('unauthenticated /api/files/stream returns 401', async ({ baseURL }) => {
-    const res = await fetch(`${baseURL}/api/files/stream`)
-    expect(res.status).toBe(401)
-  })
-
-  test('unauthenticated /api/settings/stream returns 401', async ({ baseURL }) => {
-    const res = await fetch(`${baseURL}/api/settings/stream`)
+  test('unauthenticated /api/events/stream returns 401', async ({ baseURL }) => {
+    const res = await fetch(`${baseURL}/api/events/stream`)
     expect(res.status).toBe(401)
   })
 })
