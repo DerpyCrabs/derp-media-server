@@ -24,7 +24,14 @@ const BATCHES = [
   },
   {
     id: '4',
-    tests: ['shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates', 'url-state'],
+    tests: [
+      'shares-manage',
+      'shares-use',
+      'share-audio-api',
+      'sse-live-updates',
+      'url-state',
+      'share-security',
+    ],
   },
   {
     id: '5',
@@ -68,7 +75,7 @@ function cleanupBatchConfig(batchId: string) {
 }
 
 function runBatch(batch: (typeof BATCHES)[number]): Promise<number> {
-  const port = 5974 + parseInt(batch.id)
+  const port = 9200 + parseInt(batch.id)
   generateBatchConfig(batch.id, port)
 
   const hasLoginTests = batch.tests.includes('login')

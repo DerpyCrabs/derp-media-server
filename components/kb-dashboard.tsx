@@ -36,7 +36,6 @@ export function KbDashboard({ scopePath, onFileClick, shareToken, dir }: KbDashb
     queryFn: () =>
       api<{ results: RecentFile[] }>(`/api/kb/recent?root=${encodeURIComponent(scopePath)}`),
     enabled: !shareToken,
-    staleTime: 1000 * 60,
   })
   const { data: shareData, isLoading: shareLoading } = useQuery({
     queryKey: shareToken ? queryKeys.shareKbRecent(shareToken, dir) : queryKeys.shareKbRecent(),
@@ -46,7 +45,6 @@ export function KbDashboard({ scopePath, onFileClick, shareToken, dir }: KbDashb
       return api<{ results: RecentFile[] }>(`/api/share/${shareToken}/kb/recent?${params}`)
     },
     enabled: !!shareToken,
-    staleTime: 1000 * 60,
   })
   const recent = ((shareToken ? shareData : directData)?.results || []) as RecentFile[]
   const isLoading = shareToken ? shareLoading : directLoading

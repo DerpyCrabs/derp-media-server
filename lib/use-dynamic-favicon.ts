@@ -3,6 +3,10 @@ import { useUrlState } from '@/lib/use-url-state'
 import * as icons from 'lucide-static'
 import type { NavigationState } from '@/lib/navigation-session'
 
+// Default favicon as data URL - avoids favicon.ico requests on every pushState (Chrome behavior)
+const DEFAULT_FAVICON_DATA_URL =
+  "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2'><path d='M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z'/></svg>"
+
 // Convert icon name to match lucide-static format
 function getIconSvg(iconName: string): string | null {
   const iconKey = iconName as keyof typeof icons
@@ -71,16 +75,15 @@ export function useDynamicFavicon(
   const { state: urlState } = useUrlState()
   const navigationState = options?.state ?? urlState
   const originalTitleRef = useRef<string>('Media Server')
-  const originalFaviconRef = useRef<string>('/favicon.ico')
+  const originalFaviconRef = useRef<string | null>(null)
+  const currentFaviconRef = useRef<'default' | string>('default')
 
   useEffect(() => {
     // Store original title and favicon on first mount
     if (originalTitleRef.current === 'Media Server') {
       originalTitleRef.current = document.title
       const existingFavicon = document.querySelector("link[rel*='icon']") as HTMLLinkElement
-      if (existingFavicon) {
-        originalFaviconRef.current = existingFavicon.href
-      }
+      originalFaviconRef.current = existingFavicon?.href ?? DEFAULT_FAVICON_DATA_URL
     }
   }, [])
 
@@ -109,7 +112,7 @@ export function useDynamicFavicon(
     const folderName = currentDir ? currentDir.split(/[/\\]/).pop() : (options?.rootName ?? 'Home')
     document.title = folderName ? `${folderName} - Media Server` : 'Media Server'
 
-    // Update favicon if there's a custom icon
+    // Only update favicon when the desired state actually changes
     if (shouldUpdateFavicon) {
       const customIconName = customIcons[targetPath]
       const svgString = getIconSvg(customIconName)
@@ -118,18 +121,31 @@ export function useDynamicFavicon(
         const color = isDark ? '#ffffff' : '#000000'
 
         generateFaviconFromSvg(svgString, color).then((data) => {
-          if (data) setFavicon(data)
+          if (data && data !== currentFaviconRef.current) {
+            setFavicon(data)
+            currentFaviconRef.current = data
+          }
         })
+      } else if (currentFaviconRef.current !== 'default') {
+        const defaultHref = originalFaviconRef.current ?? DEFAULT_FAVICON_DATA_URL
+        setFavicon(defaultHref)
+        currentFaviconRef.current = 'default'
       }
     } else {
-      // Reset to default favicon
-      setFavicon(originalFaviconRef.current)
+      // Only reset to default if we're not already showing it
+      if (currentFaviconRef.current !== 'default') {
+        const defaultHref = originalFaviconRef.current ?? DEFAULT_FAVICON_DATA_URL
+        setFavicon(defaultHref)
+        currentFaviconRef.current = 'default'
+      }
     }
 
     return () => {
-      // Cleanup
-      if (shouldUpdateFavicon) {
-        setFavicon(originalFaviconRef.current)
+      // Cleanup: restore default only when we had a custom icon
+      if (shouldUpdateFavicon && currentFaviconRef.current !== 'default') {
+        const defaultHref = originalFaviconRef.current ?? DEFAULT_FAVICON_DATA_URL
+        setFavicon(defaultHref)
+        currentFaviconRef.current = 'default'
       }
     }
   }, [

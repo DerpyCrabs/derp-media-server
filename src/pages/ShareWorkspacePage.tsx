@@ -4,7 +4,7 @@ import { useSearchParams } from '@/lib/router'
 import { navigate } from '@/lib/router'
 import { SharePasscodeGate } from '@/components/share-passcode-form'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { queryKeys } from '@/lib/query-keys'
 import { ShareWorkspaceContext, type ShareWorkspaceInfo } from '@/lib/share-workspace-context'
 import { WorkspacePage } from './WorkspacePage'
@@ -49,7 +49,13 @@ export function ShareWorkspacePage({ token }: ShareWorkspacePageProps) {
     queryFn: () => api<ShareInfo>(`/api/share/${token}/info`),
   })
 
-  if (isLoading) return null
+  if (isLoading) {
+    return (
+      <div className='min-h-screen flex items-center justify-center'>
+        <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
+      </div>
+    )
+  }
 
   if (error || !shareInfo) {
     return (

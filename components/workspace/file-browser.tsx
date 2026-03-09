@@ -14,7 +14,7 @@ import { formatFileSize } from '@/lib/media-utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
-import { useFiles, usePrefetchFiles } from '@/lib/use-files'
+import { useFiles } from '@/lib/use-files'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useViewStats } from '@/lib/use-view-stats'
 import { IconEditorDialog } from '@/components/icon-editor-dialog'
@@ -75,8 +75,6 @@ function FileBrowserInner({
   } = useMediaPlayer()
 
   const { data: filesData } = useFiles(currentPath)
-  const prefetchFiles = usePrefetchFiles()
-
   const { incrementView, getViewCount, getShareViewCount } = useViewStats()
 
   const files = useMemo(() => (Array.isArray(filesData) ? filesData : []), [filesData])
@@ -146,8 +144,6 @@ function FileBrowserInner({
   const { data: sharesData } = useQuery({
     queryKey: queryKeys.shares(),
     queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
-    staleTime: 1000 * 60 * 2,
-    gcTime: 1000 * 60 * 10,
   })
   const shares = sharesData?.shares || []
 
@@ -211,16 +207,6 @@ function FileBrowserInner({
   const handleFavoriteToggle = async (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation()
     updateFavorite(filePath)
-  }
-
-  const handleFolderHover = (folderPath: string) => {
-    prefetchFiles(folderPath)
-    if (getKnowledgeBaseRoot(folderPath, knowledgeBases)) {
-      queryClient.prefetchQuery({
-        queryKey: queryKeys.kbRecent(folderPath),
-        queryFn: () => api(`/api/kb/recent?root=${encodeURIComponent(folderPath)}`),
-      })
-    }
   }
 
   const handleFileClick = (file: FileItem) => {
@@ -700,7 +686,6 @@ function FileBrowserInner({
       isVirtualFolder={isVirtualFolder}
       editableFolders={editableFolders}
       onFileClick={handleFileClick}
-      onFolderHover={handleFolderHover}
       onParentDirectory={handleParentDirectory}
       onFavoriteToggle={handleFavoriteToggle}
       onContextSetIcon={handleContextSetIcon}
@@ -753,7 +738,6 @@ function FileBrowserInner({
       isVirtualFolder={isVirtualFolder}
       editableFolders={editableFolders}
       onFileClick={handleFileClick}
-      onFolderHover={handleFolderHover}
       onParentDirectory={handleParentDirectory}
       onFavoriteToggle={handleFavoriteToggle}
       onContextSetIcon={handleContextSetIcon}
@@ -799,7 +783,6 @@ function FileBrowserInner({
           <Breadcrumbs
             currentPath={currentPath}
             onNavigate={handleBreadcrumbClick}
-            onFolderHover={handleFolderHover}
             customIcons={customIcons}
             onContextSetIcon={handleContextSetIcon}
             onContextRename={handleContextRename}

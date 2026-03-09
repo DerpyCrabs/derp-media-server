@@ -370,7 +370,7 @@ export async function dehydrateForRoute(
   cookies: Record<string, string>,
 ): Promise<string> {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { staleTime: 1000 * 60 * 5 } },
+    defaultOptions: { queries: { staleTime: Infinity } },
   })
 
   try {
@@ -498,14 +498,13 @@ export async function dehydrateForRoute(
             }
 
             if (isKnowledgeBase) {
-              const shareScopePath = shareDir
-                ? `${share.path.replace(/\\/g, '/')}/${shareDir.replace(/\\/g, '/')}`
-                : share.path.replace(/\\/g, '/')
-
-              await queryClient.prefetchQuery({
-                queryKey: queryKeys.shareKbRecent(token, shareDir || undefined),
-                queryFn: () => getKnowledgeBaseRecentFiles(shareScopePath),
-              })
+              const resolvedScopePath = resolveShareSubPath(share, shareDir)
+              if (resolvedScopePath) {
+                await queryClient.prefetchQuery({
+                  queryKey: queryKeys.shareKbRecent(token, shareDir || undefined),
+                  queryFn: () => getKnowledgeBaseRecentFiles(resolvedScopePath),
+                })
+              }
             }
 
             await prefetchShareViewerQueries(

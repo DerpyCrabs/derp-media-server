@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { getFilePath } from '@/lib/file-system'
-import AdmZip from 'adm-zip'
+import archiver from 'archiver'
 import { statSync, createReadStream } from 'fs'
 import path from 'path'
 
@@ -18,18 +18,17 @@ export function registerDownloadRoutes(app: FastifyInstance) {
 
       if (stats.isDirectory()) {
         const folderName = path.basename(fullPath)
-        const zipFileName = `${folderName}.zip`
-
-        const zip = new AdmZip()
-        zip.addLocalFolder(fullPath)
-        const zipBuffer = zip.toBuffer()
 
         reply.raw.writeHead(200, {
           'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename="${zipFileName}"`,
-          'Content-Length': zipBuffer.length,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(folderName + '.zip')}`,
         })
-        reply.raw.end(zipBuffer)
+
+        const archive = archiver('zip', { zlib: { level: 1 } })
+        archive.on('error', (err) => reply.raw.destroy(err))
+        archive.pipe(reply.raw)
+        archive.directory(fullPath, false)
+        await archive.finalize()
         return reply
       }
 
@@ -38,7 +37,7 @@ export function registerDownloadRoutes(app: FastifyInstance) {
 
       reply.raw.writeHead(200, {
         'Content-Type': 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
         'Content-Length': stats.size,
       })
       stream.pipe(reply.raw)
