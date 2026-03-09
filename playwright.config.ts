@@ -5,7 +5,7 @@ process.env.NO_PROXY =
   (process.env.NO_PROXY ? process.env.NO_PROXY + ',' : '') + 'localhost,127.0.0.1'
 
 const batchId = process.env.BATCH_ID
-const port = batchId ? 5974 + parseInt(batchId) : 5973
+const port = batchId ? 9200 + parseInt(batchId) : 5973
 const configFile = batchId
   ? `tests/fixtures/test-config-${batchId}.jsonc`
   : 'tests/fixtures/test-config.jsonc'

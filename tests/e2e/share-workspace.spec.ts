@@ -1,0 +1,245 @@
+import { test, expect, type Page } from '@playwright/test'
+import path from 'path'
+
+const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json` : 'session.json'
+const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
+
+let folderShareUrl: string
+let editableShareUrl: string
+let folderShareWorkspaceUrl: string
+let editableShareWorkspaceUrl: string
+
+async function createShare(page: Page, body: Record<string, unknown>): Promise<string> {
+  const res = await page.request.post('/api/shares', { data: body })
+  const json = await res.json()
+  const base = `/share/${json.share.token}`
+  return json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
+}
+
+function toWorkspaceUrl(shareUrl: string): string {
+  const url = new URL(shareUrl, 'http://localhost')
+  const parts = url.pathname.split('/')
+  parts.splice(3, 0, 'workspace')
+  url.pathname = parts.join('/')
+  return `${url.pathname}${url.search}`
+}
+
+function getShareToken(shareUrl: string): string {
+  return new URL(shareUrl, 'http://localhost').pathname.split('/')[2]
+}
+
+function watchRequests(page: Page) {
+  const requests: string[] = []
+  page.on('request', (req) => requests.push(req.url()))
+  return requests
+}
+
+function expectNoAdminShareLeaks(requests: string[]) {
+  const forbiddenAdminPaths = new Set([
+    '/api/auth/config',
+    '/api/settings',
+    '/api/stats/views',
+    '/api/shares',
+    '/api/files',
+    '/api/files/stream',
+  ])
+
+  const adminLeaks = requests.filter((url) => {
+    const pathname = new URL(url).pathname
+    return forbiddenAdminPaths.has(pathname)
+  })
+  expect(adminLeaks).toEqual([])
+
+  const unscopedLeaks = requests.filter((url) => {
+    if (!url.includes('/api/share/')) return false
+    return (
+      url.includes('SharedContent%2F') ||
+      url.includes('/SharedContent/') ||
+      url.includes('dir=SharedContent') ||
+      url.includes('path=SharedContent')
+    )
+  })
+  expect(unscopedLeaks).toEqual([])
+}
+
+function getWindowGroups(page: Page) {
+  return page.locator('[data-window-group]')
+}
+
+function getBrowserContent(page: Page) {
+  return getWindowGroups(page).first().locator('.workspace-window-content')
+}
+
+async function gotoShareWorkspace(page: Page, url: string) {
+  await page.goto(url)
+  await expect(page.locator('[data-window-group]')).toBeVisible()
+}
+
+test.describe('Share Workspace', () => {
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ storageState: authStoragePath })
+    const page = await context.newPage()
+    folderShareUrl = await createShare(page, {
+      path: 'SharedContent',
+      isDirectory: true,
+    })
+    editableShareUrl = await createShare(page, {
+      path: 'SharedContent',
+      isDirectory: true,
+      editable: true,
+      restrictions: {
+        allowUpload: true,
+        allowEdit: true,
+        allowDelete: true,
+      },
+    })
+    folderShareWorkspaceUrl = toWorkspaceUrl(folderShareUrl)
+    editableShareWorkspaceUrl = toWorkspaceUrl(editableShareUrl)
+    await page.close()
+    await context.close()
+  })
+
+  test('opens share in workspace view and shows files', async ({ page }) => {
+    const requests = watchRequests(page)
+
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+    await expect(content.getByText('subfolder')).toBeVisible()
+    expectNoAdminShareLeaks(requests)
+  })
+
+  test('navigates into subfolder via workspace browser', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+
+    await content.getByText('subfolder').first().click()
+    await expect(content.getByText('nested.txt')).toBeVisible()
+  })
+
+  test('navigates back via breadcrumbs', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+
+    await content.getByText('subfolder').first().click()
+    await expect(content.getByText('nested.txt')).toBeVisible()
+
+    await content.getByRole('button', { name: 'SharedContent' }).click()
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+  })
+
+  test('opens text file in viewer window', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+
+    await content.locator('table').getByText('public-doc.txt').click()
+    await expect(getWindowGroups(page)).toHaveCount(2)
+
+    const viewerContent = getWindowGroups(page).nth(1).locator('.workspace-window-content')
+    await expect(viewerContent.getByText('public document for share testing')).toBeVisible()
+  })
+
+  test('opens image in viewer window', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+
+    await content.locator('table').getByText('photo.jpg').click()
+    await expect(getWindowGroups(page)).toHaveCount(2)
+
+    const viewerContent = getWindowGroups(page).nth(1).locator('.workspace-window-content')
+    await expect(viewerContent.locator('img')).toBeVisible()
+  })
+
+  test('plays video in workspace player', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+
+    await content.locator('table').getByText('public-video.mp4').click()
+    await expect(page.locator('video')).toBeVisible()
+  })
+
+  test('workspace share requests stay scoped to share APIs', async ({ page }) => {
+    const requests = watchRequests(page)
+    const token = getShareToken(folderShareWorkspaceUrl)
+
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await content.getByText('subfolder').first().click()
+    await expect(content.getByText('nested.txt')).toBeVisible()
+
+    expect(
+      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`),
+    ).toBeTruthy()
+    expectNoAdminShareLeaks(requests)
+  })
+
+  test('non-editable share workspace hides edit controls', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await expect(content.locator('button[title="Create new file"]')).not.toBeVisible()
+    await expect(content.locator('button[title="Create new folder"]')).not.toBeVisible()
+  })
+
+  test('editable share workspace shows edit controls', async ({ page }) => {
+    await gotoShareWorkspace(page, editableShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await expect(content.locator('button[title="Create new file"]')).toBeVisible()
+    await expect(content.locator('button[title="Create new folder"]')).toBeVisible()
+  })
+
+  test('creates and deletes a file in editable share workspace', async ({ page }) => {
+    await gotoShareWorkspace(page, editableShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await content.locator('button[title="Create new file"]').click()
+    const nameInput = page.locator('[role="dialog"]').getByRole('textbox')
+    await nameInput.clear()
+    await nameInput.fill('ws-test-file.txt')
+    await page.getByRole('button', { name: 'Create' }).click()
+
+    await expect(content.locator('table').getByText('ws-test-file.txt')).toBeVisible()
+
+    // Clean up: delete via API
+    const token = getShareToken(editableShareWorkspaceUrl)
+    const deleteRes = await page.request.post(`/api/share/${token}/delete`, {
+      data: { path: 'ws-test-file.txt' },
+    })
+    expect(deleteRes.ok()).toBeTruthy()
+  })
+
+  test('creates and deletes a folder in editable share workspace', async ({ page }) => {
+    await gotoShareWorkspace(page, editableShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await content.locator('button[title="Create new folder"]').click()
+    await page.locator('input[placeholder="Folder name"]').fill('ws-test-folder')
+    await page.getByRole('button', { name: 'Create' }).click()
+
+    await expect(content.getByText('ws-test-folder')).toBeVisible()
+
+    // Clean up
+    const token = getShareToken(editableShareWorkspaceUrl)
+    const deleteRes = await page.request.post(`/api/share/${token}/delete`, {
+      data: { path: 'ws-test-folder' },
+    })
+    expect(deleteRes.ok()).toBeTruthy()
+  })
+
+  test('context menu "Open in Workspace" appears on folders in share view', async ({ page }) => {
+    await page.goto(folderShareUrl)
+    await expect(page.getByText('subfolder')).toBeVisible()
+
+    await page.locator('table tr').filter({ hasText: 'subfolder' }).click({ button: 'right' })
+    await expect(
+      page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace'),
+    ).toBeVisible()
+  })
+})

@@ -61,6 +61,7 @@ function estimateContentSize(content?: string, base64Content?: string): number {
 const TEXT_EXTENSIONS = ['.md', '.txt']
 const SNIPPET_MAX = 220
 const KB_RECENT_LIMIT = 10
+const SEARCH_RESULT_LIMIT = 50
 
 async function walkTextFiles(dirPath: string, mediaDir: string, results: string[]): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
@@ -449,10 +450,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     const trimmedQ = q.trim()
     if (!trimmedQ) return reply.send({ results: [] })
 
-    const searchRoot = dir
-      ? `${share.path.replace(/\\/g, '/')}/${dir.replace(/\\/g, '/')}`
-      : share.path.replace(/\\/g, '/')
-
+    const searchRoot = resolveSharePath(share, dir)
     const fullRoot = validatePath(searchRoot)
     const mediaDir = config.mediaDir
 
@@ -463,6 +461,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     const lowerQuery = trimmedQ.toLowerCase()
 
     for (const relPath of textFiles) {
+      if (results.length >= SEARCH_RESULT_LIMIT) break
       const fullPath = path.join(mediaDir, relPath)
       const content = await fs.readFile(fullPath, 'utf-8')
       if (!content.toLowerCase().includes(lowerQuery)) continue
@@ -493,10 +492,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Share is not a knowledge base' })
     }
 
-    const scopePath = dir
-      ? `${share.path.replace(/\\/g, '/')}/${dir.replace(/\\/g, '/')}`
-      : share.path.replace(/\\/g, '/')
-
+    const scopePath = resolveSharePath(share, dir)
     const fullRoot = validatePath(scopePath)
     const mediaDir = config.mediaDir
 

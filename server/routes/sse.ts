@@ -31,8 +31,8 @@ async function watchSettings() {
     }
 
     lastModified = currentModified
-  } catch (error) {
-    console.error('Error watching settings:', error)
+  } catch {
+    // File may not exist yet during startup
   }
 }
 

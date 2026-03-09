@@ -3,7 +3,7 @@ import { createReadStream, statSync, existsSync } from 'fs'
 import { promises as fs } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import AdmZip from 'adm-zip'
+import archiver from 'archiver'
 import path from 'path'
 import { getFilePath, validatePath, isPathEditable, writeBinaryFile } from '@/lib/file-system'
 import { getMimeType, formatFileSize } from '@/lib/media-utils'
@@ -274,16 +274,17 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
 
       if (stats.isDirectory()) {
         const folderName = path.basename(fullPath)
-        const zip = new AdmZip()
-        zip.addLocalFolder(fullPath)
-        const zipBuffer = zip.toBuffer()
 
         reply.raw.writeHead(200, {
           'Content-Type': 'application/zip',
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(folderName + '.zip')}`,
-          'Content-Length': zipBuffer.length,
         })
-        reply.raw.end(zipBuffer)
+
+        const archive = archiver('zip', { zlib: { level: 1 } })
+        archive.on('error', (err) => reply.raw.destroy(err))
+        archive.pipe(reply.raw)
+        archive.directory(fullPath, false)
+        await archive.finalize()
         return reply
       }
 
@@ -474,19 +475,22 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
 
       const knowledgeBases = await getKnowledgeBases()
       const sharePath = share.path.replace(/\\/g, '/')
-      const fileDir = path.dirname(sharePath).replace(/\\/g, '/')
       const kbRoot = getKnowledgeBaseRootForPath(sharePath, knowledgeBases)
 
       let imagesDir: string
-      if (
-        kbRoot &&
-        share.isDirectory &&
-        (sharePath === kbRoot || sharePath.startsWith(kbRoot + '/'))
-      ) {
-        imagesDir = `${kbRoot}/images`
-      } else if (kbRoot) {
-        imagesDir = `${kbRoot}/images`
+      if (kbRoot && share.isDirectory) {
+        // For directory shares at or below KB root, write images inside the share
+        if (sharePath === kbRoot) {
+          imagesDir = `${kbRoot}/images`
+        } else {
+          imagesDir = `${sharePath}/images`
+        }
+      } else if (kbRoot && !share.isDirectory) {
+        // Single-file shares write to an images dir next to the file
+        const fileDir = path.dirname(sharePath).replace(/\\/g, '/')
+        imagesDir = `${fileDir}/images`
       } else {
+        const fileDir = path.dirname(sharePath).replace(/\\/g, '/')
         imagesDir = `${fileDir}/images`
       }
 

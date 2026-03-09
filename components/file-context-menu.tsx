@@ -18,6 +18,7 @@ import {
   FolderInput,
   CopyPlus,
   ExternalLink,
+  AppWindow,
 } from 'lucide-react'
 import { FileItem } from '@/lib/types'
 import { useLongPress } from '@/lib/use-long-press'
@@ -36,6 +37,9 @@ interface FileContextMenuProps {
   onMove?: (file: FileItem) => void
   onCopy?: (file: FileItem) => void
   onOpenInNewTab?: (file: FileItem) => void
+  onOpenInWorkspace?: (file: FileItem) => void
+  /** When true, show "Open in new tab" for files too (workspace only). Default: false (folders only). */
+  showOpenInNewTabForFiles?: boolean
   hasEditableFolders?: boolean
   isFavorite?: boolean
   isKnowledgeBase?: boolean
@@ -57,6 +61,8 @@ export function FileContextMenu({
   onMove,
   onCopy,
   onOpenInNewTab,
+  onOpenInWorkspace,
+  showOpenInNewTabForFiles = false,
   hasEditableFolders = false,
   isFavorite = false,
   isKnowledgeBase = false,
@@ -138,6 +144,10 @@ export function FileContextMenu({
     if (onOpenInNewTab) onOpenInNewTab(file)
   }
 
+  const handleOpenInWorkspace = () => {
+    if (onOpenInWorkspace) onOpenInWorkspace(file)
+  }
+
   // Clone the child element and add the long press handlers
   const childWithHandlers = React.cloneElement(children, longPressHandlers)
 
@@ -151,10 +161,16 @@ export function FileContextMenu({
             Set icon
           </ContextMenuItem>
         )}
-        {file.isDirectory && !file.isVirtual && onOpenInNewTab && (
+        {onOpenInNewTab && !file.isVirtual && (file.isDirectory || showOpenInNewTabForFiles) && (
           <ContextMenuItem onClick={handleOpenInNewTab}>
             <ExternalLink className='mr-2 h-4 w-4' />
             Open in new tab
+          </ContextMenuItem>
+        )}
+        {onOpenInWorkspace && file.isDirectory && !file.isVirtual && (
+          <ContextMenuItem onClick={handleOpenInWorkspace}>
+            <AppWindow className='mr-2 h-4 w-4' />
+            Open in Workspace
           </ContextMenuItem>
         )}
         {file.isDirectory && (

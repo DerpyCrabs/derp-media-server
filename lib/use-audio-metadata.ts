@@ -19,8 +19,6 @@ export function useAudioMetadata(
   return useQuery({
     queryKey: queryKeys.audioMetadata(filePath!),
     queryFn: () => fetchAudioMetadata(url!),
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 15,
     enabled: enabled && !!filePath && !!url,
     refetchOnWindowFocus: false,
   })
