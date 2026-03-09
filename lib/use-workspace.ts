@@ -543,6 +543,26 @@ export function useWorkspace({
   }
 
   const [windows, setWindows] = useState<WorkspaceWindowDefinition[]>(() => {
+    // When opening with an explicit folder (e.g. "Open in Workspace"), use a fresh
+    // single-window layout for that folder instead of restoring the saved layout.
+    const hasExplicitFolder = initialDir != null && initialDir !== ''
+    if (hasExplicitFolder) {
+      return [
+        {
+          id: 'workspace-window-1',
+          type: 'browser',
+          title: 'Browser 1',
+          iconName: null,
+          iconPath: initialDir,
+          iconType: MediaType.FOLDER,
+          iconIsVirtual: false,
+          source: defaultSource,
+          initialState: { dir: initialDir },
+          tabGroupId: null,
+          layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
+        } satisfies WorkspaceWindowDefinition,
+      ]
+    }
     const persisted = getPersistedState()
     if (persisted) {
       const maxId = persisted.windows.reduce((max, w) => {
@@ -560,22 +580,26 @@ export function useWorkspace({
         type: 'browser',
         title: 'Browser 1',
         iconName: null,
-        iconPath: initialDir ?? '',
+        iconPath: '',
         iconType: MediaType.FOLDER,
         iconIsVirtual: false,
         source: defaultSource,
-        initialState: initialDir ? { dir: initialDir } : {},
+        initialState: {},
         tabGroupId: null,
         layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
       } satisfies WorkspaceWindowDefinition,
     ]
   })
-  const [activeWindowId, setActiveWindowId] = useState<string | null>(
-    () => getPersistedState()?.activeWindowId ?? 'workspace-window-1',
-  )
-  const [activeTabMap, setActiveTabMap] = useState<Record<string, string>>(
-    () => getPersistedState()?.activeTabMap ?? {},
-  )
+  const [activeWindowId, setActiveWindowId] = useState<string | null>(() => {
+    const hasExplicitFolder = initialDir != null && initialDir !== ''
+    if (hasExplicitFolder) return 'workspace-window-1'
+    return getPersistedState()?.activeWindowId ?? 'workspace-window-1'
+  })
+  const [activeTabMap, setActiveTabMap] = useState<Record<string, string>>(() => {
+    const hasExplicitFolder = initialDir != null && initialDir !== ''
+    if (hasExplicitFolder) return {}
+    return getPersistedState()?.activeTabMap ?? {}
+  })
   const [playbackSource, setPlaybackSource] = useState<WorkspaceSource | null>(defaultSource)
 
   useEffect(() => {
