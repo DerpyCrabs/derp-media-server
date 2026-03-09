@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Download, ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { WorkspaceViewerToolbar } from '@/components/workspace/viewer-toolbar'
 import { FileItem, MediaType } from '@/lib/types'
 import { useFiles } from '@/lib/use-files'
 import { useMediaUrl } from '@/lib/use-media-url'
@@ -108,43 +109,42 @@ export function ImageViewer({ session: sessionProp, mediaContext }: ImageViewerP
 
   if (!isImage) return null
 
-  const fileName = viewingPath.split(/[/\\]/).pop() || ''
   const currentImageIndex = imageFiles.findIndex((file) => file.path === viewingPath)
   const currentImageNumber = currentImageIndex !== -1 ? currentImageIndex + 1 : 1
   const totalImages = imageFiles.length
 
   return (
     <div className='flex h-full min-h-0 flex-col bg-black'>
-      <div className='flex items-center justify-between gap-4 border-b border-white/10 bg-neutral-950 px-4 py-3'>
-        <div className='min-w-0 flex-1'>
-          <h2 className='truncate text-base font-medium'>{fileName}</h2>
-        </div>
-        {totalImages > 0 && (
-          <div className='shrink-0 px-2 text-sm text-muted-foreground'>
-            {currentImageNumber} of {totalImages}
-          </div>
-        )}
-        <div className='flex flex-1 items-center justify-end gap-2'>
-          <Button variant='ghost' size='icon' onClick={handleZoomOut}>
-            <ZoomOut className='h-5 w-5' />
-          </Button>
-          <span className='min-w-16 text-center text-sm'>
-            {zoom === 'fit' ? 'Fit' : `${zoom}%`}
-          </span>
-          <Button variant='ghost' size='icon' onClick={handleZoomIn}>
-            <ZoomIn className='h-5 w-5' />
-          </Button>
-          <Button variant='ghost' size='icon' onClick={handleFitToScreen} title='Fit to screen'>
-            <Maximize2 className='h-5 w-5' />
-          </Button>
-          <Button variant='ghost' size='icon' onClick={handleRotate}>
-            <RotateCw className='h-5 w-5' />
-          </Button>
-          <Button variant='ghost' size='icon' onClick={handleDownload}>
-            <Download className='h-5 w-5' />
-          </Button>
-        </div>
-      </div>
+      <WorkspaceViewerToolbar
+        center={totalImages > 0 ? `${currentImageNumber} of ${totalImages}` : undefined}
+        right={
+          <>
+            <Button variant='ghost' onClick={handleZoomOut} className='h-7 w-7 p-0'>
+              <ZoomOut className='h-3.5 w-3.5' />
+            </Button>
+            <span className='min-w-12 text-center text-xs text-muted-foreground'>
+              {zoom === 'fit' ? 'Fit' : `${zoom}%`}
+            </span>
+            <Button variant='ghost' onClick={handleZoomIn} className='h-7 w-7 p-0'>
+              <ZoomIn className='h-3.5 w-3.5' />
+            </Button>
+            <Button
+              variant='ghost'
+              onClick={handleFitToScreen}
+              title='Fit to screen'
+              className='h-7 w-7 p-0'
+            >
+              <Maximize2 className='h-3.5 w-3.5' />
+            </Button>
+            <Button variant='ghost' onClick={handleRotate} className='h-7 w-7 p-0'>
+              <RotateCw className='h-3.5 w-3.5' />
+            </Button>
+            <Button variant='ghost' onClick={handleDownload} className='h-7 w-7 p-0'>
+              <Download className='h-3.5 w-3.5' />
+            </Button>
+          </>
+        }
+      />
       <div className='relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-4'>
         <button
           type='button'
@@ -160,7 +160,7 @@ export function ImageViewer({ session: sessionProp, mediaContext }: ImageViewerP
         />
         <img
           src={getMediaUrl(viewingPath)}
-          alt={fileName}
+          alt={viewingPath.split(/[/\\]/).pop() || ''}
           className='pointer-events-none transition-transform duration-200'
           style={{
             ...(zoom === 'fit'

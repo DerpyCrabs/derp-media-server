@@ -6,7 +6,6 @@ import { FileBrowser } from '@/components/workspace/file-browser'
 import { ImageViewer } from '@/components/workspace/image-viewer'
 import { PdfViewer } from '@/components/workspace/pdf-viewer'
 import { TextViewer } from '@/components/workspace/text-viewer'
-import { UnsupportedViewer } from '@/components/workspace/unsupported-viewer'
 import { VideoPlayer } from '@/components/workspace/video-player'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { useInMemoryNavigationSession, type NavigationSession } from '@/lib/navigation-session'
@@ -233,7 +232,6 @@ function TabContent({
             session={windowSession}
             mediaContext={mediaContext}
           />
-          <UnsupportedViewer session={windowSession} mediaContext={mediaContext} />
         </>
       ) : win.source.kind === 'share' ? (
         <WorkspaceSharePlaceholder title={resolvedTitle} />

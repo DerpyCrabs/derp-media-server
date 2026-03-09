@@ -1,5 +1,6 @@
 import { Download, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { WorkspaceViewerToolbar } from '@/components/workspace/viewer-toolbar'
 import { useMediaUrl } from '@/lib/use-media-url'
 import { useNavigationSession } from '@/lib/use-navigation-session'
 import type { NavigationSession } from '@/lib/navigation-session'
@@ -36,29 +37,36 @@ export function PdfViewer({ session: sessionProp, mediaContext }: PdfViewerProps
 
   if (!isPdf) return null
 
-  const fileName = viewingPath.split(/[/\\]/).pop() || ''
-
   return (
     <div className='flex h-full min-h-0 flex-col'>
-      <div className='flex items-center justify-between gap-4 border-b px-4 py-3'>
-        <div className='min-w-0 flex-1'>
-          <h2 className='truncate text-base font-medium'>{fileName}</h2>
-        </div>
-        <div className='flex items-center gap-2'>
-          <Button variant='ghost' size='icon' onClick={handleOpenInNewTab} title='Open in new tab'>
-            <ExternalLink className='h-5 w-5' />
-          </Button>
-          <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
-            <Download className='h-5 w-5' />
-          </Button>
-        </div>
-      </div>
+      <WorkspaceViewerToolbar
+        right={
+          <>
+            <Button
+              variant='ghost'
+              onClick={handleOpenInNewTab}
+              title='Open in new tab'
+              className='h-7 w-7 p-0'
+            >
+              <ExternalLink className='h-3.5 w-3.5' />
+            </Button>
+            <Button
+              variant='ghost'
+              onClick={handleDownload}
+              title='Download'
+              className='h-7 w-7 p-0'
+            >
+              <Download className='h-3.5 w-3.5' />
+            </Button>
+          </>
+        }
+      />
       <div className='flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-neutral-800'>
         <embed
           src={`${getMediaUrl(viewingPath)}#toolbar=1`}
           type='application/pdf'
           className='h-full w-full'
-          title={fileName}
+          title={viewingPath.split(/[/\\]/).pop() || ''}
         />
       </div>
     </div>
