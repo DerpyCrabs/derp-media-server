@@ -26,7 +26,7 @@ async function gotoWithSSE(page: Page, url: string) {
     predicate: (msg) => {
       const text = msg.text()
       return (
-        text.includes('[Files SSE] Connected') ||
+        text.includes('[Admin SSE] Connected') ||
         text.includes('[Share SSE] Connected to share stream')
       )
     },

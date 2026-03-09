@@ -14,7 +14,7 @@ import { usePaste } from '@/lib/use-paste'
 import { PasteDialog } from '@/components/paste-dialog'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { useFileMutations } from '@/lib/use-file-mutations'
-import { useFileWatcher } from '@/lib/use-file-watcher'
+import { useAdminEventsStream } from '@/lib/use-admin-events-stream'
 import { useFileIcon } from '@/lib/use-file-icon'
 import { FileListView } from '@/components/file-list-view'
 import { FileGridView } from '@/components/file-grid-view'
@@ -63,7 +63,7 @@ function FileListInner({
   const { state, navigateToFolder, viewFile, playFile: urlPlayFile } = session
   const currentPath = state.dir || ''
   const shareLinkBase = useShareLinkBase()
-  useFileWatcher()
+  useAdminEventsStream()
   const {
     playFile: startPlayback,
     isPlaying: mediaPlayerIsPlaying,
