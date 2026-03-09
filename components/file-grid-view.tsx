@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
@@ -7,8 +7,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
-
-const noop = () => {}
 
 interface FileGridViewProps {
   files: FileItem[]
@@ -32,7 +30,6 @@ interface FileGridViewProps {
   getViewCount?: (path: string) => number
   getShareViewCount?: (path: string) => number
 
-  onFolderHover?: (path: string) => void
   onFavoriteToggle?: (path: string, e: React.MouseEvent) => void
   onContextSetIcon?: (file: FileItem) => void
   onContextRename?: (file: FileItem) => void
@@ -69,7 +66,6 @@ export function FileGridView({
   knowledgeBases = [],
   getViewCount,
   getShareViewCount,
-  onFolderHover = noop,
   onFavoriteToggle,
   onContextSetIcon,
   onContextRename,
@@ -100,6 +96,12 @@ export function FileGridView({
   const showFavorites = !!onFavoriteToggle
   const showViewCounts = !!getViewCount
   const showShareIndicators = shares.length > 0
+
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites])
+  const sharedPathSet = useMemo(
+    () => (showShareIndicators ? new Set(shares.map((s) => s.path)) : new Set<string>()),
+    [shares, showShareIndicators],
+  )
 
   const defaultThumbnailUrl = (file: FileItem) => `/api/thumbnail/${encodeURIComponent(file.path)}`
   const defaultImagePreviewUrl = (file: FileItem) => `/api/media/${encodeURIComponent(file.path)}`
@@ -211,7 +213,7 @@ export function FileGridView({
           </Card>
         )}
         {files.map((file) => {
-          const isFavorite = favorites.includes(file.path)
+          const isFavorite = favoriteSet.has(file.path)
           const isKnowledgeBase = file.isDirectory && knowledgeBases.includes(file.path)
           const viewCount = getViewCount?.(file.path) ?? 0
           const shareViewCount = getShareViewCount?.(file.path) ?? 0
@@ -219,7 +221,7 @@ export function FileGridView({
             isEditableProp !== undefined
               ? isEditableProp
               : isPathEditable(file.path, editableFolders)
-          const isShared = showShareIndicators && shares.some((s) => s.path === file.path)
+          const isShared = sharedPathSet.has(file.path)
 
           const card = (
             <Card
@@ -232,7 +234,6 @@ export function FileGridView({
               }`}
               draggable={isFileEditable && !!onMoveFile && enableDrag}
               onClick={() => onFileClick(file)}
-              onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
               onDragStart={(e) => {
                 if (!isFileEditable || !onMoveFile) return
                 e.dataTransfer.setData('text/plain', file.path)
@@ -321,6 +322,7 @@ export function FileGridView({
                     <img
                       src={resolveThumbnailUrl(file)}
                       alt={file.name}
+                      loading='lazy'
                       className='w-full h-full object-cover rounded-t-lg'
                       onError={(e) => {
                         e.currentTarget.style.display = 'none'
@@ -337,6 +339,7 @@ export function FileGridView({
                     <img
                       src={resolveImagePreviewUrl(file)}
                       alt={file.name}
+                      loading='lazy'
                       className='w-full h-full object-cover rounded-t-lg'
                       onError={(e) => {
                         e.currentTarget.style.display = 'none'

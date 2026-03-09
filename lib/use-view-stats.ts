@@ -22,8 +22,6 @@ export function useViewStats(
       api<{ views: Record<string, number>; shareViews: Record<string, number> }>(
         '/api/stats/views',
       ),
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 10,
     enabled: includeCounts && !shareToken,
   })
 

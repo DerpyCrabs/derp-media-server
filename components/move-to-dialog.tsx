@@ -95,13 +95,11 @@ export function MoveToDialog({
         `/api/share/${shareToken}/files?dir=${encodeURIComponent(browsePath)}`,
       ),
     enabled: isOpen && !!shareToken,
-    staleTime: 1000 * 30,
   })
   const { data: localFilesData, isLoading: localLoading } = useQuery({
     queryKey: queryKeys.files(browsePath),
     queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(browsePath)}`),
     enabled: isOpen && !shareToken,
-    staleTime: 1000 * 30,
   })
   const isLoading = shareToken ? shareLoading : localLoading
   const folders = useMemo(() => {

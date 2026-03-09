@@ -128,8 +128,8 @@ function generatePasscode(): string {
 
 async function readSharesFile(): Promise<SharesFile> {
   try {
-    const data = await fs.readFile(SHARES_FILE, 'utf-8')
-    return JSON.parse(data)
+    const raw = await fs.readFile(SHARES_FILE, 'utf-8')
+    return JSON.parse(raw)
   } catch {
     return {}
   }

@@ -6,7 +6,7 @@ import { SharedFileViewer } from '@/components/shared-file-viewer'
 import { SharedFolderBrowser } from '@/components/shared-folder-browser'
 import { SharePasscodeGate } from '@/components/share-passcode-form'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { queryKeys } from '@/lib/query-keys'
 
 interface ShareRestrictions {
@@ -54,7 +54,13 @@ export function SharePage({ token }: SharePageProps) {
     queryFn: () => api<ShareInfo>(`/api/share/${token}/info`),
   })
 
-  if (isLoading) return null
+  if (isLoading) {
+    return (
+      <div className='min-h-screen flex items-center justify-center'>
+        <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
+      </div>
+    )
+  }
 
   if (error || !shareInfo) {
     return (

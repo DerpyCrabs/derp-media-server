@@ -12,11 +12,10 @@ export class Mutex {
         if (!this.locked) {
           this.locked = true
           resolve(() => {
+            this.locked = false
             if (this.queue.length > 0) {
               const next = this.queue.shift()!
               next()
-            } else {
-              this.locked = false
             }
           })
         } else {

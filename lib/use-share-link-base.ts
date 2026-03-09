@@ -10,7 +10,6 @@ export function useShareLinkBase(): string {
   const { data } = useQuery({
     queryKey: queryKeys.authConfig(),
     queryFn: () => api<{ shareLinkDomain?: string }>('/api/auth/config'),
-    staleTime: 5 * 60 * 1000,
   })
 
   if (typeof data?.shareLinkDomain === 'string' && data.shareLinkDomain.trim()) {

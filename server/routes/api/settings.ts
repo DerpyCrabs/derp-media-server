@@ -29,8 +29,8 @@ const DEFAULT_SETTINGS: Settings = {
 
 async function readAllSettings(): Promise<SettingsFile> {
   try {
-    const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
-    return JSON.parse(data)
+    const raw = await fs.readFile(SETTINGS_FILE, 'utf-8')
+    return JSON.parse(raw)
   } catch {
     return {}
   }
