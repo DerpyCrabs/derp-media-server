@@ -48,7 +48,11 @@ function groupWindowsByTab(windows: WorkspaceWindowDefinition[]): WindowTabGroup
   return order.map((gid) => ({ groupId: gid, windows: groups.get(gid)! }))
 }
 
-export function WorkspacePage() {
+interface WorkspacePageProps {
+  shareConfig?: { token: string; sharePath: string } | null
+}
+
+export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
   const {
     windows,
     activeWindowId,
@@ -77,6 +81,7 @@ export function WorkspacePage() {
   } = useWorkspace({
     initialDir:
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('dir') : null,
+    shareConfig,
   })
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -417,11 +422,14 @@ export function WorkspacePage() {
       api<{ enabled: boolean; shareLinkDomain?: string; editableFolders: string[] }>(
         '/api/auth/config',
       ),
+    enabled: !shareConfig,
   })
 
-  const editableFolders = authConfig?.editableFolders ?? []
+  const editableFolders = shareConfig
+    ? [shareConfig.sharePath]
+    : (authConfig?.editableFolders ?? [])
   const playbackContext = workspaceSourceToMediaContext(playbackSource)
-  const { settings } = useSettings('', true)
+  const { settings } = useSettings('', !shareConfig)
   const currentMediaFile = useMediaPlayer((state) => state.currentFile)
   const currentMediaType = useMediaPlayer((state) => state.mediaType)
   const mediaPlayerIsPlaying = useMediaPlayer((state) => state.isPlaying)

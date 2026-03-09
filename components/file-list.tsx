@@ -381,13 +381,20 @@ function FileListInner({
     }
   }
 
-  // Handle context menu action for opening folder in new tab
   const handleContextOpenInNewTab = (file: FileItem) => {
     if (!file.isDirectory || file.isVirtual) return
     const params = new URLSearchParams()
     if (file.path) params.set('dir', file.path)
     const url = `${window.location.origin}${window.location.pathname || '/'}?${params.toString()}`
     window.open(url, '_blank')
+  }
+
+  const handleContextOpenInWorkspace = (file: FileItem) => {
+    if (!file.isDirectory || file.isVirtual) return
+    const params = new URLSearchParams()
+    if (file.path) params.set('dir', file.path)
+    const query = params.toString()
+    window.open(query ? `/workspace?${query}` : '/workspace', '_blank')
   }
 
   const handleMoveFile = (sourcePath: string, destinationDir: string) => {
@@ -697,6 +704,7 @@ function FileListInner({
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      onContextOpenInWorkspace={handleContextOpenInWorkspace}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -749,6 +757,7 @@ function FileListInner({
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      onContextOpenInWorkspace={handleContextOpenInWorkspace}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -784,6 +793,7 @@ function FileListInner({
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
+            onContextOpenInWorkspace={handleContextOpenInWorkspace}
             favorites={favorites}
             editableFolders={editableFolders}
             shares={shares}

@@ -3,6 +3,7 @@ import { Rnd } from 'react-rnd'
 import { Maximize2, Minimize2, Minus, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FileBrowser } from '@/components/workspace/file-browser'
+import { ShareFileBrowser } from '@/components/workspace/share-file-browser'
 import { ImageViewer } from '@/components/workspace/image-viewer'
 import { PdfViewer } from '@/components/workspace/pdf-viewer'
 import { TextViewer } from '@/components/workspace/text-viewer'
@@ -102,14 +103,6 @@ function useWorkspaceWindowSession(
       setAudioOnly: playbackSession.setAudioOnly,
     }),
     [mergedState, localSession, playbackSession, source, onRequestPlay, onRequestView],
-  )
-}
-
-function WorkspaceSharePlaceholder({ title }: { title: string }) {
-  return (
-    <div className='flex h-full min-h-64 items-center justify-center border-t border-white/8 bg-neutral-950 p-6 text-center text-sm text-muted-foreground'>
-      {title} is ready for a share-backed source, but share workspace windows are not enabled yet.
-    </div>
   )
 }
 
@@ -234,7 +227,14 @@ function TabContent({
           />
         </>
       ) : win.source.kind === 'share' ? (
-        <WorkspaceSharePlaceholder title={resolvedTitle} />
+        <ShareFileBrowser
+          session={windowSession}
+          onOpenInNewTabInSameWindow={
+            onOpenInNewTabInSameWindow
+              ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
+              : undefined
+          }
+        />
       ) : (
         <FileBrowser
           editableFolders={editableFolders}

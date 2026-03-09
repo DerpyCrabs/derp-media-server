@@ -71,8 +71,14 @@ interface OpenWorkspaceWindowOptions {
   layout?: WorkspaceWindowLayout
 }
 
+interface ShareConfig {
+  token: string
+  sharePath: string
+}
+
 interface UseWorkspaceOptions {
   initialDir?: string | null
+  shareConfig?: ShareConfig | null
 }
 
 interface RequestPlayOptions {
@@ -175,20 +181,20 @@ interface PersistedWorkspaceState {
   nextWindowId: number
 }
 
-function saveWorkspaceState(state: PersistedWorkspaceState) {
+function saveWorkspaceState(state: PersistedWorkspaceState, key: string = STORAGE_KEY) {
   try {
     const serializable = {
       ...state,
       windows: state.windows.filter((w) => w.id !== PLAYER_WINDOW_ID),
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable))
+    localStorage.setItem(key, JSON.stringify(serializable))
   } catch {}
 }
 
-function loadWorkspaceState(): PersistedWorkspaceState | null {
+function loadWorkspaceState(key: string = STORAGE_KEY): PersistedWorkspaceState | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw) as PersistedWorkspaceState
     if (!Array.isArray(parsed.windows) || parsed.windows.length === 0) return null
@@ -509,7 +515,20 @@ export function getWorkspaceWindowTitle(
     : getSourceLabel(window.source)
 }
 
-export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): UseWorkspaceResult {
+export function useWorkspace({
+  initialDir = null,
+  shareConfig = null,
+}: UseWorkspaceOptions = {}): UseWorkspaceResult {
+  const storageKey = shareConfig ? `${STORAGE_KEY}-share-${shareConfig.token}` : STORAGE_KEY
+
+  const defaultSource: WorkspaceSource = useMemo(
+    () =>
+      shareConfig
+        ? { kind: 'share', token: shareConfig.token, sharePath: shareConfig.sharePath }
+        : DEFAULT_WORKSPACE_SOURCE,
+    [shareConfig],
+  )
+
   const playbackSession = useInMemoryNavigationSession()
   const nextWindowIdRef = useRef(2)
   const nextZIndexRef = useRef(2)
@@ -518,7 +537,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
 
   function getPersistedState() {
     if (persistedRef.current === undefined) {
-      persistedRef.current = loadWorkspaceState()
+      persistedRef.current = loadWorkspaceState(storageKey)
     }
     return persistedRef.current
   }
@@ -544,7 +563,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
         iconPath: initialDir ?? '',
         iconType: MediaType.FOLDER,
         iconIsVirtual: false,
-        source: DEFAULT_WORKSPACE_SOURCE,
+        source: defaultSource,
         initialState: initialDir ? { dir: initialDir } : {},
         tabGroupId: null,
         layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
@@ -557,24 +576,25 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
   const [activeTabMap, setActiveTabMap] = useState<Record<string, string>>(
     () => getPersistedState()?.activeTabMap ?? {},
   )
-  const [playbackSource, setPlaybackSource] = useState<WorkspaceSource | null>(
-    DEFAULT_WORKSPACE_SOURCE,
-  )
+  const [playbackSource, setPlaybackSource] = useState<WorkspaceSource | null>(defaultSource)
 
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
-      saveWorkspaceState({
-        windows,
-        activeWindowId,
-        activeTabMap,
-        nextWindowId: nextWindowIdRef.current,
-      })
+      saveWorkspaceState(
+        {
+          windows,
+          activeWindowId,
+          activeTabMap,
+          nextWindowId: nextWindowIdRef.current,
+        },
+        storageKey,
+      )
     }, SAVE_DEBOUNCE_MS)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [windows, activeWindowId, activeTabMap])
+  }, [windows, activeWindowId, activeTabMap, storageKey])
 
   const updateWindow = useCallback(
     (
@@ -600,7 +620,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
       type: WorkspaceWindowDefinition['type'],
       {
         title,
-        source = DEFAULT_WORKSPACE_SOURCE,
+        source = defaultSource,
         initialState = {},
         tabGroupId = null,
         layout = {},
@@ -630,7 +650,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
       setActiveWindowId(id)
       return id
     },
-    [windows],
+    [windows, defaultSource],
   )
 
   const openBrowserWindow = useCallback(
@@ -662,7 +682,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
       }
 
       const existing = windows.find((window) => window.id === PLAYER_WINDOW_ID)
-      const source = options?.source ?? playbackSource ?? DEFAULT_WORKSPACE_SOURCE
+      const source = options?.source ?? playbackSource ?? defaultSource
       const zIndex = nextZIndexRef.current++
 
       if (existing) {
@@ -702,7 +722,7 @@ export function useWorkspace({ initialDir = null }: UseWorkspaceOptions = {}): U
       setActiveWindowId(PLAYER_WINDOW_ID)
       return PLAYER_WINDOW_ID
     },
-    [playbackSession.state.playing, playbackSource, updateWindow, windows],
+    [playbackSession.state.playing, playbackSource, defaultSource, updateWindow, windows],
   )
 
   const openViewerWindow = useCallback(
