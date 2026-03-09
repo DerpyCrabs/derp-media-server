@@ -416,6 +416,26 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     [windows, closeWindow, playbackSession, activeTabMap, setActiveTab],
   )
 
+  const handleDropFileToTabBar = useCallback(
+    (
+      targetWindowId: string,
+      data: {
+        path: string
+        isDirectory: boolean
+        source: import('@/lib/use-workspace').WorkspaceSource
+      },
+    ) => {
+      const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
+      openInNewTab(
+        targetWindowId,
+        { path: data.path, isDirectory: data.isDirectory },
+        dir,
+        data.source,
+      )
+    },
+    [openInNewTab],
+  )
+
   const { data: authConfig } = useQuery({
     queryKey: ['auth-config'],
     queryFn: () =>
@@ -568,6 +588,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
             onOpenInNewTabInSameWindow={openInNewTab}
             onDetachTab={handleDetachTab}
             onRestoreDrag={handleRestoreDrag}
+            onDropFileToTabBar={handleDropFileToTabBar}
           />
         ))}
         {layoutPicker && (

@@ -7,6 +7,12 @@ import { Card, CardContent } from '@/components/ui/card'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
+import {
+  setFileDragData,
+  hasFileDragData,
+  getFileDragData,
+  isCompatibleSource,
+} from '@/lib/file-drag-data'
 
 interface FileGridViewProps {
   files: FileItem[]
@@ -48,6 +54,8 @@ interface FileGridViewProps {
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
 
   isEditable?: boolean
+  dragSourceKind?: 'local' | 'share'
+  dragSourceToken?: string
   getThumbnailUrl?: (file: FileItem) => string
   getImagePreviewUrl?: (file: FileItem) => string
 }
@@ -83,6 +91,8 @@ export function FileGridView({
   hasEditableFolders = false,
   onMoveFile,
   isEditable: isEditableProp,
+  dragSourceKind,
+  dragSourceToken,
   getThumbnailUrl,
   getImagePreviewUrl,
 }: FileGridViewProps) {
@@ -114,9 +124,10 @@ export function FileGridView({
   const canDropOnParent =
     !!onMoveFile && !!currentPath && isPathEditable(parentDir || '', editableFolders)
 
-  const canDropOn = (targetPath: string) => {
-    if (!draggedPath || draggedPath === targetPath) return false
-    if (targetPath.startsWith(draggedPath + '/')) return false
+  const canDropOn = (targetPath: string, sourcePath?: string) => {
+    const src = sourcePath ?? draggedPath
+    if (!src || src === targetPath) return false
+    if (targetPath.startsWith(src + '/')) return false
     return true
   }
 
@@ -187,7 +198,8 @@ export function FileGridView({
             }`}
             onClick={onParentDirectory}
             onDragOver={(e) => {
-              if (!canDropOnParent || !draggedPath) return
+              if (!canDropOnParent) return
+              if (!draggedPath && !hasFileDragData(e.dataTransfer)) return
               e.preventDefault()
               e.dataTransfer.dropEffect = 'move'
               setDragOverPath('__parent__')
@@ -202,6 +214,19 @@ export function FileGridView({
               setDragOverPath(null)
               if (draggedPath && onMoveFile) {
                 onMoveFile(draggedPath, parentDir)
+              } else if (!draggedPath && onMoveFile) {
+                const data = getFileDragData(e.dataTransfer)
+                if (
+                  data &&
+                  dragSourceKind &&
+                  isCompatibleSource(
+                    { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
+                    data,
+                  ) &&
+                  canDropOn(parentDir, data.path)
+                ) {
+                  onMoveFile(data.path, parentDir)
+                }
               }
             }}
           >
@@ -232,12 +257,21 @@ export function FileGridView({
                   ? 'ring-2 ring-primary bg-primary/10'
                   : ''
               }`}
-              draggable={isFileEditable && !!onMoveFile && enableDrag}
+              draggable={enableDrag && isFileEditable && !!onMoveFile}
               onClick={() => onFileClick(file)}
               onDragStart={(e) => {
                 if (!isFileEditable || !onMoveFile) return
-                e.dataTransfer.setData('text/plain', file.path)
-                e.dataTransfer.effectAllowed = 'move'
+                if (dragSourceKind) {
+                  setFileDragData(e.dataTransfer, {
+                    path: file.path,
+                    isDirectory: file.isDirectory,
+                    sourceKind: dragSourceKind,
+                    sourceToken: dragSourceToken,
+                  })
+                } else {
+                  e.dataTransfer.setData('text/plain', file.path)
+                }
+                e.dataTransfer.effectAllowed = 'copyMove'
                 setDraggedPath(file.path)
               }}
               onDragEnd={() => {
@@ -245,8 +279,10 @@ export function FileGridView({
                 setDragOverPath(null)
               }}
               onDragOver={(e) => {
-                if (!file.isDirectory || !onMoveFile || !draggedPath) return
-                if (!canDropOn(file.path)) return
+                if (!file.isDirectory || !onMoveFile) return
+                const hasCrossDrag = !draggedPath && hasFileDragData(e.dataTransfer)
+                if (!draggedPath && !hasCrossDrag) return
+                if (draggedPath && !canDropOn(file.path)) return
                 if (isEditableProp === undefined && !isPathEditable(file.path, editableFolders))
                   return
                 e.preventDefault()
@@ -263,6 +299,19 @@ export function FileGridView({
                 setDragOverPath(null)
                 if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
                   onMoveFile(draggedPath, file.path)
+                } else if (!draggedPath && file.isDirectory && onMoveFile) {
+                  const data = getFileDragData(e.dataTransfer)
+                  if (
+                    data &&
+                    dragSourceKind &&
+                    isCompatibleSource(
+                      { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
+                      data,
+                    ) &&
+                    canDropOn(file.path, data.path)
+                  ) {
+                    onMoveFile(data.path, file.path)
+                  }
                 }
               }}
             >

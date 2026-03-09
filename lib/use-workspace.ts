@@ -133,6 +133,7 @@ interface UseWorkspaceResult {
     sourceWindowId: string,
     file: { path: string; isDirectory: boolean; isVirtual?: boolean },
     currentPath: string,
+    sourceOverride?: WorkspaceSource,
   ) => string
   setActiveTab: (tabGroupId: string, windowId: string) => void
   updateWindowNavigationState: (windowId: string, state: Partial<NavigationState>) => void
@@ -1265,6 +1266,7 @@ export function useWorkspace({
       sourceWindowId: string,
       file: { path: string; isDirectory: boolean; isVirtual?: boolean },
       currentPath: string,
+      sourceOverride?: WorkspaceSource,
     ) => {
       const sourceWindow = windows.find((w) => w.id === sourceWindowId)
       if (!sourceWindow || file.isVirtual) return sourceWindowId
@@ -1276,11 +1278,12 @@ export function useWorkspace({
             zIndex: sourceWindow.layout.zIndex ?? nextZIndexRef.current++,
           }
         : undefined
+      const source = sourceOverride ?? sourceWindow.source
 
       let newWindowId: string
       if (file.isDirectory) {
         newWindowId = openBrowserWindow({
-          source: sourceWindow.source,
+          source,
           initialState: { dir: file.path },
           tabGroupId: groupId,
           layout,
@@ -1289,7 +1292,7 @@ export function useWorkspace({
         const dir = file.path.split(/[/\\]/).slice(0, -1).join('/') || currentPath
         const title = file.path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer'
         newWindowId = openViewerWindow({
-          source: sourceWindow.source,
+          source,
           title,
           initialState: { dir, viewing: file.path },
           tabGroupId: groupId,

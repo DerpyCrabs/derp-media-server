@@ -585,6 +585,8 @@ function ShareFileBrowserInner({
       onContextMove={canEdit ? handleContextMoveFile : undefined}
       onContextOpenInNewTab={handleOpenInNewTab}
       showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
+      dragSourceKind='share'
+      dragSourceToken={token}
       showInlineCreate={inKb && canUpload}
       onInlineCreateFile={handleInlineCreateFile}
       onInlineCreateFolder={handleInlineCreateFolder}
@@ -615,6 +617,8 @@ function ShareFileBrowserInner({
       onContextMove={canEdit ? handleContextMoveFile : undefined}
       onContextOpenInNewTab={handleOpenInNewTab}
       showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
+      dragSourceKind='share'
+      dragSourceToken={token}
     />
   )
 
