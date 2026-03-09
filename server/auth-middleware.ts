@@ -2,14 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify'
 import { config } from '@/lib/config'
 import { verifySessionValue, SESSION_COOKIE } from '@/lib/auth'
 
-const PUBLIC_PREFIXES = [
-  '/login',
-  '/api/auth/',
-  '/share',
-  '/api/share/',
-  '/api/files/stream',
-  '/api/settings/stream',
-]
+const PUBLIC_PREFIXES = ['/login', '/api/auth/', '/share', '/api/share/']
 
 function isAssetRequest(pathname: string): boolean {
   if (pathname.startsWith('/@') || pathname.startsWith('/node_modules/')) return true

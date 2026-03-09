@@ -8,6 +8,7 @@ import { config } from '@/lib/config'
 const TEXT_EXTENSIONS = ['.md', '.txt']
 const SNIPPET_MAX = 220
 const RECENT_LIMIT = 10
+const SEARCH_RESULT_LIMIT = 50
 
 async function walkTextFiles(dirPath: string, mediaDir: string, results: string[]): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
@@ -88,6 +89,7 @@ export function registerKbApiRoutes(app: FastifyInstance) {
     const lowerQuery = q.trim().toLowerCase()
 
     for (const relPath of textFiles) {
+      if (results.length >= SEARCH_RESULT_LIMIT) break
       const fullPath = path.join(mediaDir, relPath)
       const content = await fs.readFile(fullPath, 'utf-8')
       if (!content.toLowerCase().includes(lowerQuery)) continue

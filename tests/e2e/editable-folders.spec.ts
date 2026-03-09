@@ -14,6 +14,8 @@ test.describe('Editable Folders', () => {
     await page.locator('button[title="Create new file"]').click()
     await page.locator('input[placeholder*="File name"]').fill('test-note.md')
     await page.getByRole('button', { name: 'Create' }).click()
+    // Close auto-opened text viewer
+    await page.locator('button[title="Close"]').click()
     await expect(page.locator('table').getByText('test-note.md')).toBeVisible()
   })
 
@@ -56,7 +58,6 @@ test.describe('Editable Folders', () => {
     await page.locator('table tr').filter({ hasText: 'renamed-file.md' }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
 
-    // Confirm deletion in alert dialog
     await page.getByRole('button', { name: /Delete/i }).click()
     await expect(page.locator('table').getByText('renamed-file.md')).not.toBeVisible()
   })
@@ -82,14 +83,11 @@ test.describe('Editable Folders', () => {
     await page.locator('table tr').filter({ hasText: 'move-me.txt' }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Move to...').click()
 
-    // Select destination in dialog
     await page.locator('[role="dialog"]').getByText('subfolder').click()
     await page.getByRole('button', { name: /Move/i }).click()
 
-    // File should no longer be at current level
     await expect(page.locator('table').getByText('move-me.txt')).not.toBeVisible()
 
-    // Verify it's in the subfolder
     await page.locator('table').getByText('subfolder').first().click()
     await expect(page.locator('table').getByText('move-me.txt')).toBeVisible()
   })
@@ -105,10 +103,8 @@ test.describe('Editable Folders', () => {
     await page.locator('[role="dialog"]').getByText('subfolder').click()
     await page.getByRole('button', { name: /Copy/i }).click()
 
-    // Original still exists
     await expect(page.locator('table').getByText('public-doc.txt')).toBeVisible()
 
-    // Copy exists in subfolder
     await page.locator('table').getByText('subfolder').first().click()
     await expect(page.locator('table').getByText('public-doc.txt')).toBeVisible()
   })

@@ -4,15 +4,15 @@ import path from 'path'
 
 const BATCHES = [
   {
-    id: '0',
+    id: '1',
     tests: ['audio-player', 'video-player', 'pdf-viewer', 'image-viewer', 'download'],
   },
   {
-    id: '1',
+    id: '2',
     tests: ['navigation', 'login', 'share-viewers'],
   },
   {
-    id: '2',
+    id: '3',
     tests: [
       'editable-folders',
       'drag-drop',
@@ -23,8 +23,31 @@ const BATCHES = [
     ],
   },
   {
-    id: '3',
-    tests: ['shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates', 'url-state'],
+    id: '4',
+    tests: [
+      'shares-manage',
+      'shares-use',
+      'share-audio-api',
+      'sse-live-updates',
+      'url-state',
+      'share-security',
+    ],
+  },
+  {
+    id: '5',
+    tests: ['workspace-layout'],
+  },
+  {
+    id: '6',
+    tests: ['workspace-controls'],
+  },
+  {
+    id: '7',
+    tests: ['workspace-viewers'],
+  },
+  {
+    id: '8',
+    tests: ['share-workspace'],
   },
 ]
 
@@ -52,7 +75,7 @@ function cleanupBatchConfig(batchId: string) {
 }
 
 function runBatch(batch: (typeof BATCHES)[number]): Promise<number> {
-  const port = 5974 + parseInt(batch.id)
+  const port = 9200 + parseInt(batch.id)
   generateBatchConfig(batch.id, port)
 
   const hasLoginTests = batch.tests.includes('login')

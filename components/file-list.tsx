@@ -5,7 +5,7 @@ import { FolderPlus, FilePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
-import { useFiles, usePrefetchFiles } from '@/lib/use-files'
+import { useFiles } from '@/lib/use-files'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useViewStats } from '@/lib/use-view-stats'
 import { IconEditorDialog } from '@/components/icon-editor-dialog'
@@ -72,8 +72,6 @@ function FileListInner({
   } = useMediaPlayer()
 
   const { data: filesData } = useFiles(currentPath)
-  const prefetchFiles = usePrefetchFiles()
-
   // Use view stats hook
   const { incrementView, getViewCount, getShareViewCount } = useViewStats()
 
@@ -152,8 +150,6 @@ function FileListInner({
   const { data: sharesData } = useQuery({
     queryKey: queryKeys.shares(),
     queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
-    staleTime: 1000 * 60 * 2,
-    gcTime: 1000 * 60 * 10,
   })
   const shares = sharesData?.shares || []
 
@@ -222,17 +218,6 @@ function FileListInner({
   const handleFavoriteToggle = async (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation() // Prevent file click
     updateFavorite(filePath)
-  }
-
-  // Prefetch folder contents and KB recent on hover
-  const handleFolderHover = (folderPath: string) => {
-    prefetchFiles(folderPath)
-    if (getKnowledgeBaseRoot(folderPath, knowledgeBases)) {
-      queryClient.prefetchQuery({
-        queryKey: queryKeys.kbRecent(folderPath),
-        queryFn: () => api(`/api/kb/recent?root=${encodeURIComponent(folderPath)}`),
-      })
-    }
   }
 
   const handleFileClick = (file: FileItem) => {
@@ -381,13 +366,20 @@ function FileListInner({
     }
   }
 
-  // Handle context menu action for opening folder in new tab
   const handleContextOpenInNewTab = (file: FileItem) => {
     if (!file.isDirectory || file.isVirtual) return
     const params = new URLSearchParams()
     if (file.path) params.set('dir', file.path)
     const url = `${window.location.origin}${window.location.pathname || '/'}?${params.toString()}`
     window.open(url, '_blank')
+  }
+
+  const handleContextOpenInWorkspace = (file: FileItem) => {
+    if (!file.isDirectory || file.isVirtual) return
+    const params = new URLSearchParams()
+    if (file.path) params.set('dir', file.path)
+    const query = params.toString()
+    window.open(query ? `/workspace?${query}` : '/workspace', '_blank')
   }
 
   const handleMoveFile = (sourcePath: string, destinationDir: string) => {
@@ -683,7 +675,6 @@ function FileListInner({
       isVirtualFolder={isVirtualFolder}
       editableFolders={editableFolders}
       onFileClick={handleFileClick}
-      onFolderHover={handleFolderHover}
       onParentDirectory={handleParentDirectory}
       onFavoriteToggle={handleFavoriteToggle}
       onContextSetIcon={handleContextSetIcon}
@@ -697,6 +688,7 @@ function FileListInner({
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      onContextOpenInWorkspace={handleContextOpenInWorkspace}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -735,7 +727,6 @@ function FileListInner({
       isVirtualFolder={isVirtualFolder}
       editableFolders={editableFolders}
       onFileClick={handleFileClick}
-      onFolderHover={handleFolderHover}
       onParentDirectory={handleParentDirectory}
       onFavoriteToggle={handleFavoriteToggle}
       onContextSetIcon={handleContextSetIcon}
@@ -749,6 +740,7 @@ function FileListInner({
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      onContextOpenInWorkspace={handleContextOpenInWorkspace}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -775,7 +767,6 @@ function FileListInner({
           <Breadcrumbs
             currentPath={currentPath}
             onNavigate={handleBreadcrumbClick}
-            onFolderHover={handleFolderHover}
             customIcons={customIcons}
             onContextSetIcon={handleContextSetIcon}
             onContextRename={handleContextRename}
@@ -784,6 +775,7 @@ function FileListInner({
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
+            onContextOpenInWorkspace={handleContextOpenInWorkspace}
             favorites={favorites}
             editableFolders={editableFolders}
             shares={shares}

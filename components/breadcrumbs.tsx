@@ -11,7 +11,6 @@ import type { ShareLink } from '@/lib/shares'
 interface BreadcrumbsProps {
   currentPath: string
   onNavigate: (path: string) => void
-  onFolderHover: (path: string) => void
   customIcons?: Record<string, string>
   onContextSetIcon?: (file: FileItem) => void
   onContextRename?: (file: FileItem) => void
@@ -20,6 +19,7 @@ interface BreadcrumbsProps {
   onContextToggleFavorite?: (file: FileItem) => void
   onContextShare?: (file: FileItem) => void
   onContextOpenInNewTab?: (file: FileItem) => void
+  onContextOpenInWorkspace?: (file: FileItem) => void
   favorites?: string[]
   editableFolders?: string[]
   shares?: ShareLink[]
@@ -28,7 +28,6 @@ interface BreadcrumbsProps {
 export function Breadcrumbs({
   currentPath,
   onNavigate,
-  onFolderHover,
   customIcons = {},
   onContextSetIcon,
   onContextRename,
@@ -37,6 +36,7 @@ export function Breadcrumbs({
   onContextToggleFavorite,
   onContextShare,
   onContextOpenInNewTab,
+  onContextOpenInWorkspace,
   favorites = [],
   editableFolders = [],
   shares = [],
@@ -187,7 +187,6 @@ export function Breadcrumbs({
         variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
         size='sm'
         onClick={() => onNavigate(crumb.path)}
-        onMouseEnter={() => onFolderHover(crumb.path)}
         className='gap-1.5 text-sm h-8 px-2.5'
         disabled={!isVisible}
       >
@@ -210,6 +209,7 @@ export function Breadcrumbs({
         onToggleFavorite={onContextToggleFavorite}
         onShare={onContextShare}
         onOpenInNewTab={onContextOpenInNewTab}
+        onOpenInWorkspace={onContextOpenInWorkspace}
         isFavorite={favorites.includes(crumb.path)}
         isEditable={isPathEditable(crumb.path, editableFolders)}
         isShared={shares.some((s) => s.path === crumb.path)}

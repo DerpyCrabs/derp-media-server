@@ -370,11 +370,11 @@ export async function dehydrateForRoute(
   cookies: Record<string, string>,
 ): Promise<string> {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { staleTime: 1000 * 60 * 5 } },
+    defaultOptions: { queries: { staleTime: Infinity } },
   })
 
   try {
-    if (urlPath === '/' || urlPath === '') {
+    if (urlPath === '/' || urlPath === '' || urlPath === '/workspace') {
       const dirParam = searchParams.get('dir')
       const dir = dirParam || ''
       const viewingPath = searchParams.get('viewing')
@@ -386,7 +386,7 @@ export async function dehydrateForRoute(
 
       const prefetchPromises: Promise<void>[] = []
 
-      if (!isVirtualFolder) {
+      if ((urlPath === '/' || urlPath === '') && !isVirtualFolder) {
         prefetchPromises.push(
           queryClient.prefetchQuery({
             queryKey: queryKeys.files(dir),
@@ -421,7 +421,7 @@ export async function dehydrateForRoute(
         }),
       )
 
-      if (isKnowledgeBase) {
+      if ((urlPath === '/' || urlPath === '') && isKnowledgeBase) {
         prefetchPromises.push(
           queryClient.prefetchQuery({
             queryKey: queryKeys.kbRecent(dir),
@@ -431,7 +431,9 @@ export async function dehydrateForRoute(
       }
 
       await Promise.all(prefetchPromises)
-      await prefetchDirectViewerQueries(queryClient, dirParam, viewingPath, playingPath)
+      if (urlPath === '/' || urlPath === '') {
+        await prefetchDirectViewerQueries(queryClient, dirParam, viewingPath, playingPath)
+      }
     } else {
       const shareMatch = urlPath.match(/^\/share\/([^/]+)/)
       if (shareMatch) {
@@ -496,14 +498,13 @@ export async function dehydrateForRoute(
             }
 
             if (isKnowledgeBase) {
-              const shareScopePath = shareDir
-                ? `${share.path.replace(/\\/g, '/')}/${shareDir.replace(/\\/g, '/')}`
-                : share.path.replace(/\\/g, '/')
-
-              await queryClient.prefetchQuery({
-                queryKey: queryKeys.shareKbRecent(token, shareDir || undefined),
-                queryFn: () => getKnowledgeBaseRecentFiles(shareScopePath),
-              })
+              const resolvedScopePath = resolveShareSubPath(share, shareDir)
+              if (resolvedScopePath) {
+                await queryClient.prefetchQuery({
+                  queryKey: queryKeys.shareKbRecent(token, shareDir || undefined),
+                  queryFn: () => getKnowledgeBaseRecentFiles(resolvedScopePath),
+                })
+              }
             }
 
             await prefetchShareViewerQueries(

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
@@ -19,8 +19,6 @@ import { Button } from '@/components/ui/button'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
-
-const noop = () => {}
 
 interface FileListViewProps {
   files: FileItem[]
@@ -44,7 +42,6 @@ interface FileListViewProps {
   getViewCount?: (path: string) => number
   getShareViewCount?: (path: string) => number
 
-  onFolderHover?: (path: string) => void
   onFavoriteToggle?: (path: string, e: React.MouseEvent) => void
   onContextSetIcon?: (file: FileItem) => void
   onContextRename?: (file: FileItem) => void
@@ -57,6 +54,8 @@ interface FileListViewProps {
   onContextMove?: (file: FileItem) => void
   onContextCopy?: (file: FileItem) => void
   onContextOpenInNewTab?: (file: FileItem) => void
+  onContextOpenInWorkspace?: (file: FileItem) => void
+  showOpenInNewTabForFiles?: boolean
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
 
@@ -88,7 +87,6 @@ export function FileListView({
   knowledgeBases = [],
   getViewCount,
   getShareViewCount,
-  onFolderHover = noop,
   onFavoriteToggle,
   onContextSetIcon,
   onContextRename,
@@ -101,6 +99,8 @@ export function FileListView({
   onContextMove,
   onContextCopy,
   onContextOpenInNewTab,
+  onContextOpenInWorkspace,
+  showOpenInNewTabForFiles = false,
   hasEditableFolders = false,
   onMoveFile,
   showDownloadButton = false,
@@ -129,6 +129,12 @@ export function FileListView({
   const showFavorites = !!onFavoriteToggle
   const showViewCounts = !!getViewCount
   const showShareIndicators = shares.length > 0
+
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites])
+  const sharedPathSet = useMemo(
+    () => (showShareIndicators ? new Set(shares.map((s) => s.path)) : new Set<string>()),
+    [shares, showShareIndicators],
+  )
 
   const parentParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
   const parentDir = parentParts.slice(0, -1).join('/')
@@ -225,6 +231,7 @@ export function FileListView({
     onContextToggleFavorite ||
     onContextShare ||
     onContextOpenInNewTab ||
+    onContextOpenInWorkspace ||
     onContextToggleKnowledgeBase ||
     onContextCopyShareLink
 
@@ -261,11 +268,11 @@ export function FileListView({
                 <ArrowUp className='h-5 w-5 text-muted-foreground' />
               </TableCell>
               <TableCell className='font-medium'>..</TableCell>
-              <TableCell className='w-32 text-right text-muted-foreground'></TableCell>
+              <TableCell className='text-right text-muted-foreground'></TableCell>
             </TableRow>
           )}
           {files.map((file) => {
-            const isFavorite = favorites.includes(file.path)
+            const isFavorite = favoriteSet.has(file.path)
             const isKnowledgeBase = file.isDirectory && knowledgeBases.includes(file.path)
             const viewCount = getViewCount?.(file.path) ?? 0
             const shareViewCount = getShareViewCount?.(file.path) ?? 0
@@ -273,7 +280,7 @@ export function FileListView({
               isEditableProp !== undefined
                 ? isEditableProp
                 : isPathEditable(file.path, editableFolders)
-            const isShared = showShareIndicators && shares.some((s) => s.path === file.path)
+            const isShared = sharedPathSet.has(file.path)
 
             const row = (
               <TableRow
@@ -284,7 +291,6 @@ export function FileListView({
                 }`}
                 draggable={isFileEditable && !!onMoveFile && enableDrag}
                 onClick={() => onFileClick(file)}
-                onMouseEnter={() => file.isDirectory && onFolderHover(file.path)}
                 onDragStart={(e) => {
                   if (!isFileEditable || !onMoveFile) return
                   e.dataTransfer.setData('text/plain', file.path)
@@ -362,9 +368,7 @@ export function FileListView({
                     </div>
                   </div>
                 </TableCell>
-                <TableCell
-                  className={`${showDownloadButton ? 'w-48' : 'w-32'} text-right text-muted-foreground`}
-                >
+                <TableCell className='text-right text-muted-foreground'>
                   <div className='flex items-center justify-end gap-2'>
                     {showViewCounts && !file.isDirectory && (
                       <div
@@ -372,7 +376,7 @@ export function FileListView({
                         title={`${viewCount} views`}
                         suppressHydrationWarning
                       >
-                        <Eye className='h-3.5 w-3.5' />
+                        <Eye className='h-3.5 w-3.5 shrink-0' />
                         <span suppressHydrationWarning>{viewCount}</span>
                       </div>
                     )}
@@ -382,7 +386,7 @@ export function FileListView({
                         title={`${shareViewCount} shared views`}
                         suppressHydrationWarning
                       >
-                        <Share2 className='h-3 w-3' />
+                        <Share2 className='h-3 w-3 shrink-0' />
                         <span suppressHydrationWarning>{shareViewCount}</span>
                       </div>
                     )}
@@ -400,7 +404,7 @@ export function FileListView({
                         <Download className='h-3.5 w-3.5' />
                       </Button>
                     )}
-                    <span className='w-20'>
+                    <span className='w-20 text-right shrink-0'>
                       {file.isDirectory ? '' : formatFileSize(file.size)}
                     </span>
                   </div>
@@ -423,6 +427,8 @@ export function FileListView({
                 onMove={onContextMove}
                 onCopy={onContextCopy}
                 onOpenInNewTab={onContextOpenInNewTab}
+                onOpenInWorkspace={onContextOpenInWorkspace}
+                showOpenInNewTabForFiles={showOpenInNewTabForFiles}
                 hasEditableFolders={hasEditableFolders}
                 isFavorite={isFavorite}
                 isKnowledgeBase={isKnowledgeBase}

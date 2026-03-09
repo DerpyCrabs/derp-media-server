@@ -5,8 +5,8 @@ const SETTINGS_FILE = getDataFilePath('settings.json')
 
 export async function getKnowledgeBases(): Promise<string[]> {
   try {
-    const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
-    const parsed = JSON.parse(data)
+    const raw = await fs.readFile(SETTINGS_FILE, 'utf-8')
+    const parsed: Record<string, { knowledgeBases?: string[] }> = JSON.parse(raw)
     const settings = parsed[config.mediaDir] || {}
     return settings.knowledgeBases || []
   } catch {
@@ -35,10 +35,15 @@ export function isKnowledgeBaseImagePath(
   knowledgeBases: string[],
 ): boolean {
   const normalized = requestedPath.replace(/\\/g, '/')
+  if (normalized.includes('..')) return false
   const kbRoot = getKnowledgeBaseRootForPath(sharePath, knowledgeBases)
   if (!kbRoot) return false
   const imagesDir = `${kbRoot.replace(/\\/g, '/')}/images/`
   if (!normalized.startsWith(imagesDir)) return false
   const relativeToImages = normalized.slice(imagesDir.length)
-  return !relativeToImages.includes('/') && !relativeToImages.includes('\\')
+  return (
+    relativeToImages.length > 0 &&
+    !relativeToImages.includes('/') &&
+    !relativeToImages.includes('\\')
+  )
 }

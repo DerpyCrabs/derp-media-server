@@ -13,6 +13,7 @@ interface TextContentProps {
   loading?: boolean
   error?: Error | null
   className?: string
+  compact?: boolean
 }
 
 export function TextContent({
@@ -27,6 +28,7 @@ export function TextContent({
   loading = false,
   error = null,
   className = '',
+  compact = false,
 }: TextContentProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -101,7 +103,7 @@ export function TextContent({
 
   if (isEditing) {
     return (
-      <div className={`h-full p-4 ${className}`}>
+      <div className={`h-full ${compact ? '' : 'p-4'} ${className}`}>
         <textarea
           ref={textareaRef}
           value={editContent}
@@ -122,7 +124,11 @@ export function TextContent({
               e.stopPropagation()
             }
           }}
-          className='w-full h-full font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
+          className={
+            compact
+              ? 'w-full h-full font-mono text-sm px-3 py-2 bg-transparent resize-none focus:outline-none scrollbar-thin'
+              : 'w-full h-full font-mono text-sm p-4 bg-background border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary'
+          }
           placeholder='Enter text...'
           spellCheck={false}
         />
@@ -132,8 +138,16 @@ export function TextContent({
 
   if (isMarkdown) {
     return (
-      <div className={`h-full p-4 overflow-auto ${className}`}>
-        <div className='w-full p-4 bg-background border rounded-lg min-h-full'>
+      <div
+        className={`h-full overflow-auto ${compact ? 'scrollbar-thin' : ''} ${compact ? '' : 'p-4'} ${className}`}
+      >
+        <div
+          className={
+            compact
+              ? 'w-full px-3 py-2 min-h-full'
+              : 'w-full p-4 bg-background border rounded-lg min-h-full'
+          }
+        >
           <MarkdownRenderer content={content} resolveImageUrl={resolveImageUrl} />
         </div>
       </div>
@@ -141,8 +155,14 @@ export function TextContent({
   }
 
   return (
-    <div className={`h-full p-4 ${className}`}>
-      <div className='w-full h-full p-4 bg-background border rounded-lg overflow-auto'>
+    <div className={`h-full ${compact ? '' : 'p-4'} ${className}`}>
+      <div
+        className={
+          compact
+            ? 'w-full h-full px-3 py-2 overflow-auto scrollbar-thin'
+            : 'w-full h-full p-4 bg-background border rounded-lg overflow-auto'
+        }
+      >
         <pre className='font-mono text-sm whitespace-pre-wrap wrap-break-word'>{content}</pre>
       </div>
     </div>
