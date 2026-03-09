@@ -2,8 +2,10 @@ import type { ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ViewModeToggle } from '@/components/view-mode-toggle'
+import { cn } from '@/lib/utils'
 
 interface BrowserPaneProps {
+  compact?: boolean
   dialogs?: ReactNode
   mediaPlayers?: ReactNode
   progress?: ReactNode
@@ -24,6 +26,7 @@ interface BrowserPaneProps {
 }
 
 export function BrowserPane({
+  compact,
   dialogs,
   mediaPlayers,
   progress,
@@ -39,8 +42,20 @@ export function BrowserPane({
 }: BrowserPaneProps) {
   const paneContent = (
     <>
-      <div className='p-1.5 lg:p-2 border-b border-border bg-muted/30 shrink-0'>
-        <div className='flex flex-wrap items-center justify-between gap-1.5 lg:gap-2'>
+      <div
+        className={cn(
+          'shrink-0 border-b',
+          compact
+            ? 'border-white/8 bg-neutral-900/40 px-2 py-1'
+            : 'border-border bg-muted/30 p-1.5 lg:p-2',
+        )}
+      >
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between',
+            compact ? 'gap-1' : 'gap-1.5 lg:gap-2',
+          )}
+        >
           {breadcrumbs}
           {search?.visible && (
             <div className='w-full md:w-auto md:flex-1 md:min-w-0 md:max-w-[200px] lg:max-w-[260px] basis-full md:basis-auto order-last md:order-0'>

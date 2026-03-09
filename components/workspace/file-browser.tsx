@@ -1,8 +1,16 @@
 import { Suspense, useState, useMemo, useEffect } from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
-import { FolderPlus, FilePlus } from 'lucide-react'
+import { FolderPlus, FilePlus, FileQuestion, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { formatFileSize } from '@/lib/media-utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Breadcrumbs } from '@/components/breadcrumbs'
 import { useSettings } from '@/lib/use-settings'
@@ -154,6 +162,7 @@ function FileBrowserInner({
   const [moveTarget, setMoveTarget] = useState<FileItem | null>(null)
   const [showCopyDialog, setShowCopyDialog] = useState(false)
   const [copyTarget, setCopyTarget] = useState<FileItem | null>(null)
+  const [unsupportedFile, setUnsupportedFile] = useState<FileItem | null>(null)
   const [editingItem, setEditingItem] = useState<{ path: string; name: string } | null>(null)
   const [itemToDelete, setItemToDelete] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState('')
@@ -220,12 +229,12 @@ function FileBrowserInner({
     } else {
       incrementView(file.path)
 
-      const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
-
-      if (isMediaFile) {
+      if (file.type === MediaType.AUDIO || file.type === MediaType.VIDEO) {
         const mediaFileType = file.type === MediaType.AUDIO ? 'audio' : 'video'
         startPlayback(file.path, mediaFileType)
         urlPlayFile(file.path, currentPath)
+      } else if (file.type === MediaType.OTHER) {
+        setUnsupportedFile(file)
       } else {
         viewFile(file.path, currentPath)
       }
@@ -607,6 +616,45 @@ function FileBrowserInner({
         isEditable={shareTarget ? isPathEditable(shareTarget.path, editableFolders) : false}
         existingShares={shareTarget ? getSharesForPath(shareTarget.path) : []}
       />
+
+      <Dialog open={!!unsupportedFile} onOpenChange={(open) => !open && setUnsupportedFile(null)}>
+        <DialogContent className='sm:max-w-sm'>
+          <DialogHeader>
+            <div className='flex items-center gap-3'>
+              <FileQuestion className='h-6 w-6 shrink-0 text-yellow-500' />
+              <div className='min-w-0 text-left'>
+                <DialogTitle className='truncate text-base'>{unsupportedFile?.name}</DialogTitle>
+                <DialogDescription className='text-xs'>
+                  {unsupportedFile?.extension
+                    ? `.${unsupportedFile.extension.toUpperCase()}`
+                    : 'Unknown'}{' '}
+                  file &middot; {formatFileSize(unsupportedFile?.size ?? 0)}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className='flex flex-col items-center gap-3 rounded-lg bg-muted/50 p-6 text-center'>
+            <FileText className='h-10 w-10 text-muted-foreground opacity-50' />
+            <p className='text-sm text-muted-foreground'>This file type cannot be previewed.</p>
+            <Button
+              variant='default'
+              size='sm'
+              render={
+                unsupportedFile ? (
+                  <a
+                    href={`/api/files/download?path=${encodeURIComponent(unsupportedFile.path)}`}
+                    download={unsupportedFile.name}
+                  >
+                    Download File
+                  </a>
+                ) : (
+                  <span>Download File</span>
+                )
+              }
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 
@@ -737,6 +785,7 @@ function FileBrowserInner({
       tabIndex={-1}
     >
       <BrowserPane
+        compact
         dialogs={dialogs}
         progress={
           <UploadProgress
@@ -759,7 +808,6 @@ function FileBrowserInner({
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
-            showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
             favorites={favorites}
             editableFolders={editableFolders}
             shares={shares}

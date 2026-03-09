@@ -4,6 +4,7 @@ import { post } from '@/lib/api'
 import { Copy, Check, Edit2, Save, Zap, ZapOff, AlertCircle, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { TextContent } from '@/components/text-content'
+import { WorkspaceViewerToolbar } from '@/components/workspace/viewer-toolbar'
 import { isPathEditable, getKnowledgeBaseRoot } from '@/lib/utils'
 import { useSettings } from '@/lib/use-settings'
 import { useMediaUrl } from '@/lib/use-media-url'
@@ -276,96 +277,109 @@ export function TextViewer({
 
   if (!isText) return null
 
-  const fileName = viewingPath?.split(/[/\\]/).pop() || ''
+  const lineCount = content ? content.split('\n').length : 0
+
+  const editingActions = (
+    <>
+      {isEditable && (
+        <>
+          <Button
+            variant='ghost'
+            onClick={toggleAutoSave}
+            className='h-7 gap-1 px-2 text-xs'
+            title={autoSaveEnabled ? 'Auto-save enabled' : 'Auto-save disabled'}
+          >
+            {autoSaveEnabled ? (
+              <Zap className='h-3.5 w-3.5 text-emerald-400' />
+            ) : (
+              <ZapOff className='h-3.5 w-3.5 text-muted-foreground' />
+            )}
+            <span className={autoSaveEnabled ? 'text-emerald-400' : 'text-muted-foreground'}>
+              Auto-save
+            </span>
+          </Button>
+          {autoSaveError && (
+            <div className='flex items-center gap-1 text-xs text-destructive' title={autoSaveError}>
+              <AlertCircle className='h-3.5 w-3.5' />
+            </div>
+          )}
+          <div className='mx-0.5 h-4 w-px bg-white/8' />
+        </>
+      )}
+      <Button
+        variant='ghost'
+        onClick={toggleReadOnly}
+        disabled={saving}
+        title='Switch to read-only mode'
+        className='h-7 px-2 text-xs'
+      >
+        Read only
+      </Button>
+      {!autoSaveEnabled && (
+        <Button
+          variant='default'
+          onClick={() => handleSave(false)}
+          disabled={saving}
+          title='Save changes'
+          className='h-7 gap-1 px-2 text-xs'
+        >
+          <Save className='h-3.5 w-3.5' />
+          {saving ? 'Saving...' : 'Save'}
+        </Button>
+      )}
+    </>
+  )
+
+  const readOnlyActions = (
+    <>
+      {isEditable && (
+        <Button
+          variant='default'
+          onClick={toggleReadOnly}
+          title='Edit file'
+          className='h-7 gap-1 px-2 text-xs'
+        >
+          <Edit2 className='h-3.5 w-3.5' />
+          Edit
+        </Button>
+      )}
+      <Button
+        variant='ghost'
+        onClick={handleCopy}
+        title='Copy to clipboard'
+        className='h-7 w-7 p-0'
+      >
+        {copied ? <Check className='h-3.5 w-3.5' /> : <Copy className='h-3.5 w-3.5' />}
+      </Button>
+    </>
+  )
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
-      <div className='flex items-center justify-between gap-4 border-b p-4 shrink-0'>
-        <div className='flex-1 min-w-0'>
-          <h2 className='text-lg font-medium truncate'>{fileName}</h2>
-          <p className='text-sm text-muted-foreground'>
-            {fileExtension.toUpperCase()} File{' '}
-            {content ? `• ${content.split('\n').length} lines` : ''}
-          </p>
-        </div>
-        <div className='flex items-center gap-2 shrink-0'>
-          {isEditing ? (
-            <>
-              {isEditable && (
-                <div className='flex items-center gap-2 mr-2 border-r pr-3'>
-                  <Button
-                    variant={autoSaveEnabled ? 'default' : 'outline'}
-                    size='sm'
-                    onClick={toggleAutoSave}
-                    className='gap-2'
-                    title={autoSaveEnabled ? 'Auto-save enabled' : 'Auto-save disabled'}
-                  >
-                    {autoSaveEnabled ? (
-                      <>
-                        <Zap className='h-4 w-4' />
-                        <span>Auto-save</span>
-                      </>
-                    ) : (
-                      <>
-                        <ZapOff className='h-4 w-4' />
-                        <span>Auto-save</span>
-                      </>
-                    )}
-                  </Button>
-                  {autoSaveError && (
-                    <div
-                      className='flex items-center gap-1 text-sm text-destructive'
-                      title={autoSaveError}
-                    >
-                      <AlertCircle className='h-4 w-4' />
-                      <span>Save failed</span>
-                    </div>
-                  )}
-                </div>
-              )}
-              <Button
-                variant='ghost'
-                size='sm'
-                onClick={toggleReadOnly}
-                disabled={saving}
-                title='Switch to read-only mode'
-              >
-                Read only
-              </Button>
-              {!autoSaveEnabled && (
-                <Button
-                  variant='default'
-                  size='sm'
-                  onClick={() => handleSave(false)}
-                  disabled={saving}
-                  title='Save changes'
-                  className='gap-2'
-                >
-                  <Save className='h-4 w-4' />
-                  {saving ? 'Saving...' : 'Save'}
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              {isEditable && (
-                <Button variant='default' size='sm' onClick={toggleReadOnly} title='Edit file'>
-                  <Edit2 className='h-4 w-4' />
-                  <span className='ml-2'>Edit</span>
-                </Button>
-              )}
-              <Button variant='ghost' size='icon' onClick={handleCopy} title='Copy to clipboard'>
-                {copied ? <Check className='h-5 w-5' /> : <Copy className='h-5 w-5' />}
-              </Button>
-            </>
-          )}
-          <Button variant='ghost' size='icon' onClick={handleDownload} title='Download'>
-            <Download className='h-5 w-5' />
-          </Button>
-        </div>
-      </div>
+      <WorkspaceViewerToolbar
+        left={
+          <span className='text-xs text-muted-foreground'>
+            {fileExtension.toUpperCase()}
+            {lineCount > 0 && <> &middot; {lineCount} lines</>}
+          </span>
+        }
+        right={
+          <>
+            {isEditing ? editingActions : readOnlyActions}
+            <Button
+              variant='ghost'
+              onClick={handleDownload}
+              title='Download'
+              className='h-7 w-7 p-0'
+            >
+              <Download className='h-3.5 w-3.5' />
+            </Button>
+          </>
+        }
+      />
       <div className='flex-1 overflow-hidden'>
         <TextContent
+          compact
           content={content}
           isEditing={isEditing}
           isMarkdown={isMarkdown}
