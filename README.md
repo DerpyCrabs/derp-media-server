@@ -2,10 +2,11 @@
 
 > **Warning:** This project is 90% vibe coded. Proceed with caution and manage expectations accordingly.
 
-A modern Next.js-based media server with a web UI for browsing, playing, and managing your media files. Supports authentication, share links, knowledge bases, and real-time sync across clients.
+A media server with a web UI for browsing, playing, and managing your media files. Built with Vite, React, and Fastify, running on Bun. Supports authentication, share links, workspaces, knowledge bases, and real-time sync across clients.
 
 ## Features
 
+- **Workspaces** - Multi-window layout with file browsers, viewers (image, video, PDF, text), and audio player. Windows snap to zones, and layout persists across sessions. Available in admin and share views.
 - **Authentication** - Optional password auth with session cookies, rate limiting, and admin domain restrictions
 - **Share Links** - Share files and folders via token-based links with optional passcodes, upload quotas, and granular permissions
 - **Knowledge Base** - Designate folders as knowledge bases with search, recent files, and Obsidian-style markdown support
@@ -19,14 +20,13 @@ A modern Next.js-based media server with a web UI for browsing, playing, and man
 - **Text Editing** - Edit text files in editable folders, create new files and folders inline
 - **Live Sync** - Server-Sent Events keep all connected clients in sync automatically
 - **Search** - Full-text search within knowledge base folders
-- **Modern UI** - Built with Base UI and Tailwind CSS, responsive on desktop and mobile
+- **Modern UI** - Built with Base UI and Tailwind CSS v4, responsive on desktop and mobile
 
 ## Setup
 
 ### Prerequisites
 
-- **Node.js** 18+
-- **pnpm**
+- **Bun**
 - **FFmpeg** (optional, for video thumbnails in grid view)
 
 ### Installation
@@ -34,7 +34,7 @@ A modern Next.js-based media server with a web UI for browsing, playing, and man
 1. Install dependencies:
 
    ```bash
-   pnpm install
+   bun install
    ```
 
 2. Configure the server by editing `config.jsonc`:
@@ -57,7 +57,7 @@ A modern Next.js-based media server with a web UI for browsing, playing, and man
 3. Run the server:
 
    ```bash
-   pnpm dev
+   bun run dev
    ```
 
 4. Open [http://localhost:3000](http://localhost:3000)
@@ -76,6 +76,7 @@ Configuration lives in `config.jsonc` at the project root (JSONC supports commen
 | `auth.enabled`            | `AUTH_ENABLED`              | Enable password authentication (`true` / `1`)                                             |
 | `auth.password`           | `AUTH_PASSWORD`             | Password for login                                                                        |
 | `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Restrict admin access to specific hostnames. Comma-separated in env                       |
+| `dataPath`                | `DATA_PATH`                 | Directory for data files (shares, settings, stats). Defaults to the config file directory |
 
 The config file path itself can be changed with `CONFIG_PATH` env var or `--config-path` CLI argument. Falls back to `config.json` if `config.jsonc` is not found.
 
@@ -124,8 +125,8 @@ All changes broadcast via SSE so every connected client updates in real time.
 ## Production
 
 ```bash
-pnpm build
-pnpm start
+bun run build
+bun run start
 ```
 
 The production server listens on `0.0.0.0` by default.
@@ -141,14 +142,17 @@ The production server listens on `0.0.0.0` by default.
 
 ## Technology Stack
 
-- **Next.js 16** - React framework with App Router
-- **React 19** - Server and client components
+- **Vite** - Build tool and dev server
+- **React 19** - UI framework
+- **Fastify** - HTTP server
+- **Bun** - JavaScript runtime
 - **Base UI** - Accessible UI primitives
-- **Tailwind CSS** - Utility-first styling
-- **TanStack Query** - Data fetching and cache invalidation
+- **Tailwind CSS v4** - Utility-first styling
+- **TanStack Query** - Data fetching and cache
 - **Zustand** - Client state management
+- **Playwright** - E2E testing
 - **TypeScript** - Type-safe development
-- **oxlint** - Linting
+- **oxlint / oxfmt** - Linting and formatting
 
 ## License
 
