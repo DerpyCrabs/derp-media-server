@@ -38,6 +38,10 @@ const BATCHES = [
     id: '7',
     tests: ['workspace-viewers'],
   },
+  {
+    id: '8',
+    tests: ['share-workspace'],
+  },
 ]
 
 const ROOT = path.resolve(__dirname, '..')

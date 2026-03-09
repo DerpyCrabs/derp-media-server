@@ -27,7 +27,7 @@ export function TextViewer({
   const session = useNavigationSession(sessionProp)
   const { state } = session
   const queryClient = useQueryClient()
-  const { getDownloadUrl } = useMediaUrl(mediaContext)
+  const { getMediaUrl, getDownloadUrl, shareToken, sharePath } = useMediaUrl(mediaContext)
   const viewingPath = state.viewing
 
   const [copied, setCopied] = useState(false)
@@ -40,7 +40,22 @@ export function TextViewer({
   const prevViewingPathRef = useRef<string | null>(null)
 
   const filesEditMutation = useMutation({
-    mutationFn: (vars: { path: string; content: string }) => post('/api/files/edit', vars),
+    mutationFn: (vars: { path: string; content: string }) => {
+      if (shareToken) {
+        const relative = sharePath
+          ? vars.path
+              .replace(/\\/g, '/')
+              .replace(
+                new RegExp(
+                  `^${sharePath.replace(/\\/g, '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/?`,
+                ),
+                '',
+              )
+          : vars.path
+        return post(`/api/share/${shareToken}/edit`, { path: relative, content: vars.content })
+      }
+      return post('/api/files/edit', vars)
+    },
   })
 
   const { settings, setAutoSave } = useSettings('')
@@ -98,7 +113,7 @@ export function TextViewer({
     queryKey: textQueryKey,
     queryFn: async () => {
       if (!viewingPath) return ''
-      const url = `/api/media/${encodeURIComponent(viewingPath)}`
+      const url = getMediaUrl(viewingPath)
       const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to load file')
       return await res.text()
@@ -241,24 +256,32 @@ export function TextViewer({
       const imagePath = `${kbRoot}/images/${fileName}`
 
       try {
-        const res = await fetch('/api/files/create', {
+        const url = shareToken ? `/api/share/${shareToken}/upload-image` : '/api/files/create'
+        const body = shareToken
+          ? { path: `images/${fileName}`, base64Content: base64 }
+          : { type: 'file', path: imagePath, base64Content: base64 }
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'file', path: imagePath, base64Content: base64 }),
+          body: JSON.stringify(body),
         })
         if (!res.ok) {
           const data = await res.json()
           throw new Error(data.error || 'Failed to save image')
         }
-        queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
-        queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
+        if (shareToken) {
+          queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(shareToken) })
+        } else {
+          queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
+          queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
+        }
         return imagePath
       } catch (err) {
         console.error('Failed to paste image:', err)
         return null
       }
     },
-    [viewingPath, queryClient],
+    [viewingPath, queryClient, shareToken],
   )
 
   const resolveImageUrl = useCallback(
@@ -270,9 +293,9 @@ export function TextViewer({
         const kbRoot = getKnowledgeBaseRoot(viewingPath || '', knowledgeBasesRef.current)
         if (kbRoot) src = `${kbRoot}/images/${src}`
       }
-      return `/api/media/${src.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
+      return getMediaUrl(src)
     },
-    [viewingPath],
+    [viewingPath, getMediaUrl],
   )
 
   if (!isText) return null

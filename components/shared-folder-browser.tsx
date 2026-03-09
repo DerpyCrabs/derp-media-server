@@ -372,6 +372,23 @@ function SharedFolderBrowserInner({
     [token, shareInfo.path, stripSharePrefix],
   )
 
+  const handleOpenInWorkspace = useCallback(
+    (file: FileItem) => {
+      if (!file.isDirectory || file.isVirtual) return
+      const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+      const pathNorm = file.path.replace(/\\/g, '/')
+      const subPath = pathNorm === sharePathNorm ? '' : stripSharePrefix(file.path)
+      const params = new URLSearchParams()
+      if (subPath) params.set('dir', subPath)
+      const query = params.toString()
+      window.open(
+        query ? `/share/${token}/workspace?${query}` : `/share/${token}/workspace`,
+        '_blank',
+      )
+    },
+    [token, shareInfo.path, stripSharePrefix],
+  )
+
   const getThumbnailUrl = useCallback(
     (file: FileItem) => `/api/share/${token}/thumbnail/${encodePathForUrl(file.path)}`,
     [token, encodePathForUrl],
@@ -668,6 +685,7 @@ function SharedFolderBrowserInner({
                     file={folderItem}
                     onDownload={handleDownload}
                     onOpenInNewTab={handleOpenInNewTab}
+                    onOpenInWorkspace={handleOpenInWorkspace}
                   >
                     {button}
                   </FileContextMenu>
@@ -757,6 +775,7 @@ function SharedFolderBrowserInner({
                 onContextDelete={canDelete ? handleContextDelete : undefined}
                 onContextMove={canEdit ? handleContextMoveFile : undefined}
                 onContextOpenInNewTab={handleOpenInNewTab}
+                onContextOpenInWorkspace={handleOpenInWorkspace}
                 showInlineCreate={inKb && canUpload}
                 onInlineCreateFile={handleInlineCreateFile}
                 onInlineCreateFolder={handleInlineCreateFolder}
@@ -787,6 +806,7 @@ function SharedFolderBrowserInner({
                 onContextDelete={canDelete ? handleContextDelete : undefined}
                 onContextMove={canEdit ? handleContextMoveFile : undefined}
                 onContextOpenInNewTab={handleOpenInNewTab}
+                onContextOpenInWorkspace={handleOpenInWorkspace}
               />
             }
           />
