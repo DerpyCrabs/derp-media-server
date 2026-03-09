@@ -19,6 +19,12 @@ import { Button } from '@/components/ui/button'
 import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
+import {
+  setFileDragData,
+  hasFileDragData,
+  getFileDragData,
+  isCompatibleSource,
+} from '@/lib/file-drag-data'
 
 interface FileListViewProps {
   files: FileItem[]
@@ -61,6 +67,8 @@ interface FileListViewProps {
 
   showDownloadButton?: boolean
   isEditable?: boolean
+  dragSourceKind?: 'local' | 'share'
+  dragSourceToken?: string
 
   /** When true, show inline New file / New folder row at bottom (KB + editable) */
   showInlineCreate?: boolean
@@ -105,6 +113,8 @@ export function FileListView({
   onMoveFile,
   showDownloadButton = false,
   isEditable: isEditableProp,
+  dragSourceKind,
+  dragSourceToken,
   showInlineCreate = false,
   onInlineCreateFile,
   onInlineCreateFolder,
@@ -141,9 +151,10 @@ export function FileListView({
   const canDropOnParent =
     !!onMoveFile && !!currentPath && isPathEditable(parentDir || '', editableFolders)
 
-  const canDropOn = (targetPath: string) => {
-    if (!draggedPath || draggedPath === targetPath) return false
-    if (targetPath.startsWith(draggedPath + '/')) return false
+  const canDropOn = (targetPath: string, sourcePath?: string) => {
+    const src = sourcePath ?? draggedPath
+    if (!src || src === targetPath) return false
+    if (targetPath.startsWith(src + '/')) return false
     return true
   }
 
@@ -246,7 +257,8 @@ export function FileListView({
               }`}
               onClick={onParentDirectory}
               onDragOver={(e) => {
-                if (!canDropOnParent || !draggedPath) return
+                if (!canDropOnParent) return
+                if (!draggedPath && !hasFileDragData(e.dataTransfer)) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
                 setDragOverPath('__parent__')
@@ -261,6 +273,19 @@ export function FileListView({
                 setDragOverPath(null)
                 if (draggedPath && onMoveFile) {
                   onMoveFile(draggedPath, parentDir)
+                } else if (!draggedPath && onMoveFile) {
+                  const data = getFileDragData(e.dataTransfer)
+                  if (
+                    data &&
+                    dragSourceKind &&
+                    isCompatibleSource(
+                      { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
+                      data,
+                    ) &&
+                    canDropOn(parentDir, data.path)
+                  ) {
+                    onMoveFile(data.path, parentDir)
+                  }
                 }
               }}
             >
@@ -289,12 +314,21 @@ export function FileListView({
                 } ${draggedPath === file.path ? 'opacity-50' : ''} ${
                   file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''
                 }`}
-                draggable={isFileEditable && !!onMoveFile && enableDrag}
+                draggable={enableDrag && isFileEditable && !!onMoveFile}
                 onClick={() => onFileClick(file)}
                 onDragStart={(e) => {
                   if (!isFileEditable || !onMoveFile) return
-                  e.dataTransfer.setData('text/plain', file.path)
-                  e.dataTransfer.effectAllowed = 'move'
+                  if (dragSourceKind) {
+                    setFileDragData(e.dataTransfer, {
+                      path: file.path,
+                      isDirectory: file.isDirectory,
+                      sourceKind: dragSourceKind,
+                      sourceToken: dragSourceToken,
+                    })
+                  } else {
+                    e.dataTransfer.setData('text/plain', file.path)
+                  }
+                  e.dataTransfer.effectAllowed = 'copyMove'
                   setDraggedPath(file.path)
                 }}
                 onDragEnd={() => {
@@ -302,8 +336,10 @@ export function FileListView({
                   setDragOverPath(null)
                 }}
                 onDragOver={(e) => {
-                  if (!file.isDirectory || !onMoveFile || !draggedPath) return
-                  if (!canDropOn(file.path)) return
+                  if (!file.isDirectory || !onMoveFile) return
+                  const hasCrossDrag = !draggedPath && hasFileDragData(e.dataTransfer)
+                  if (!draggedPath && !hasCrossDrag) return
+                  if (draggedPath && !canDropOn(file.path)) return
                   if (isEditableProp === undefined && !isPathEditable(file.path, editableFolders))
                     return
                   e.preventDefault()
@@ -320,6 +356,19 @@ export function FileListView({
                   setDragOverPath(null)
                   if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
                     onMoveFile(draggedPath, file.path)
+                  } else if (!draggedPath && file.isDirectory && onMoveFile) {
+                    const data = getFileDragData(e.dataTransfer)
+                    if (
+                      data &&
+                      dragSourceKind &&
+                      isCompatibleSource(
+                        { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
+                        data,
+                      ) &&
+                      canDropOn(file.path, data.path)
+                    ) {
+                      onMoveFile(data.path, file.path)
+                    }
                   }
                 }}
               >

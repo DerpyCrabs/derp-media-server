@@ -22,6 +22,7 @@ import {
   workspaceSourceToMediaContext,
 } from '@/lib/use-workspace'
 import { cn } from '@/lib/utils'
+import { hasFileDragData, getFileDragData, type FileDragData } from '@/lib/file-drag-data'
 
 type Bounds = { x: number; y: number; width: number; height: number }
 
@@ -63,6 +64,10 @@ export interface WindowGroupProps {
   ) => string
   onDetachTab: (windowId: string, clientX: number, clientY: number) => void
   onRestoreDrag: (windowId: string, clientX: number, clientY: number) => void
+  onDropFileToTabBar?: (
+    targetWindowId: string,
+    data: { path: string; isDirectory: boolean; source: WorkspaceSource },
+  ) => void
 }
 
 function useWorkspaceWindowSession(
@@ -274,6 +279,7 @@ interface TabStripProps {
   onFocus: (windowId: string) => void
   onCloseTab: (windowId: string) => void
   onTabDragDetach: (tabId: string, e: React.MouseEvent) => void
+  onDropFile?: (data: FileDragData) => void
 }
 
 function TabStrip({
@@ -285,9 +291,11 @@ function TabStrip({
   onFocus,
   onCloseTab,
   onTabDragDetach,
+  onDropFile,
 }: TabStripProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [overflow, setOverflow] = useState({ left: false, right: false })
+  const [fileDragOver, setFileDragOver] = useState(false)
 
   const checkOverflow = useCallback(() => {
     const el = scrollRef.current
@@ -316,7 +324,34 @@ function TabStrip({
   }, [])
 
   return (
-    <div className='workspace-tab-strip relative flex min-w-0 flex-1 items-center'>
+    <div
+      className={cn(
+        'workspace-tab-strip relative flex min-w-0 flex-1 items-center',
+        fileDragOver && 'ring-1 ring-inset ring-primary bg-primary/10',
+      )}
+      data-tab-drop-target
+      onDragOver={(e) => {
+        if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'copy'
+        setFileDragOver(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setFileDragOver(false)
+        }
+      }}
+      onDrop={(e) => {
+        setFileDragOver(false)
+        if (!onDropFile) return
+        const data = getFileDragData(e.dataTransfer)
+        if (!data) return
+        e.preventDefault()
+        e.stopPropagation()
+        onDropFile(data)
+      }}
+    >
       {overflow.left && (
         <button
           type='button'
@@ -389,6 +424,56 @@ function TabStrip({
   )
 }
 
+function SingleTabHeader({
+  leader,
+  getIcon,
+  onDropFile,
+}: {
+  leader: WorkspaceWindowDefinition
+  getIcon: ReturnType<typeof useFileIcon>['getIcon']
+  onDropFile?: (data: FileDragData) => void
+}) {
+  const [fileDragOver, setFileDragOver] = useState(false)
+
+  return (
+    <div
+      className={cn(
+        'flex min-w-0 flex-1 items-center gap-1.5 px-2',
+        fileDragOver && 'ring-1 ring-inset ring-primary bg-primary/10',
+      )}
+      data-tab-drop-target
+      onDragOver={(e) => {
+        if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'copy'
+        setFileDragOver(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setFileDragOver(false)
+        }
+      }}
+      onDrop={(e) => {
+        setFileDragOver(false)
+        if (!onDropFile) return
+        const data = getFileDragData(e.dataTransfer)
+        if (!data) return
+        e.preventDefault()
+        e.stopPropagation()
+        onDropFile(data)
+      }}
+    >
+      <div className='flex h-5 w-5 items-center justify-center text-muted-foreground'>
+        {getTabIcon(leader, getIcon)}
+      </div>
+      <div className='min-w-0 flex-1 truncate text-[11px] font-medium text-foreground'>
+        {getWorkspaceWindowTitle(leader)}
+      </div>
+    </div>
+  )
+}
+
 export function WindowGroup({
   tabs,
   activeTabId,
@@ -414,6 +499,7 @@ export function WindowGroup({
   onOpenInNewTabInSameWindow,
   onDetachTab,
   onRestoreDrag,
+  onDropFileToTabBar,
 }: WindowGroupProps) {
   const leader = tabs[0] as WorkspaceWindowDefinition | undefined
   const leaderId = leader?.id ?? ''
@@ -559,6 +645,22 @@ export function WindowGroup({
     [onOpenLayoutPicker, leaderId],
   )
 
+  const handleFileDrop = useCallback(
+    (data: FileDragData) => {
+      if (!onDropFileToTabBar) return
+      const source: WorkspaceSource =
+        data.sourceKind === 'share'
+          ? { kind: 'share', token: data.sourceToken }
+          : { kind: 'local', rootPath: null }
+      onDropFileToTabBar(leaderId, {
+        path: data.path,
+        isDirectory: data.isDirectory,
+        source,
+      })
+    },
+    [onDropFileToTabBar, leaderId],
+  )
+
   const handleTabDragDetach = useCallback(
     (tabId: string, e: React.MouseEvent) => {
       if (tabs.length <= 1) return
@@ -655,16 +757,14 @@ export function WindowGroup({
                 onFocus={onFocus}
                 onCloseTab={onCloseTab}
                 onTabDragDetach={handleTabDragDetach}
+                onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
               />
             ) : (
-              <div className='flex min-w-0 flex-1 items-center gap-1.5 px-2'>
-                <div className='flex h-5 w-5 items-center justify-center text-muted-foreground'>
-                  {getTabIcon(leader, getIcon)}
-                </div>
-                <div className='min-w-0 flex-1 truncate text-[11px] font-medium text-foreground'>
-                  {getWorkspaceWindowTitle(leader)}
-                </div>
-              </div>
+              <SingleTabHeader
+                leader={leader}
+                getIcon={getIcon}
+                onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
+              />
             )}
           </div>
           <div

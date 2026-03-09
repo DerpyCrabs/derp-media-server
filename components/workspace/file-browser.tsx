@@ -707,6 +707,7 @@ function FileBrowserInner({
       getViewCount={getViewCount}
       getShareViewCount={getShareViewCount}
       getIcon={getIcon}
+      dragSourceKind='local'
       showInlineCreate={isEditable && inKb}
       onInlineCreateFile={(name) =>
         createFileMutation.mutate(name, {
@@ -759,6 +760,7 @@ function FileBrowserInner({
       getViewCount={getViewCount}
       getShareViewCount={getShareViewCount}
       getIcon={getIcon}
+      dragSourceKind='local'
     />
   )
 
