@@ -5,6 +5,7 @@ import { Separator } from '@/components/ui/separator'
 import { FileItem, MediaType } from '@/lib/types'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useMediaUrl } from '@/lib/use-media-url'
+import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useAudioMetadata } from '@/lib/use-audio-metadata'
 import { useViewStats } from '@/lib/use-view-stats'
 import { useFiles } from '@/lib/use-files'
@@ -40,8 +41,15 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
   } = useMediaPlayer()
 
   const { incrementView } = useViewStats(mediaContext, { includeCounts: false })
-  const { getMediaUrl, getAudioExtractUrl, getAudioMetadataUrl, shareToken, sharePath } =
-    useMediaUrl(mediaContext)
+  const {
+    getMediaUrl,
+    getAudioExtractUrl,
+    getAudioMetadataUrl,
+    getThumbnailUrl,
+    shareToken,
+    sharePath,
+  } = useMediaUrl(mediaContext)
+  const { getSavedTime, saveTime } = useVideoPlaybackTime()
 
   const playingPath = state.playing
   const currentDir = state.dir || ''
@@ -86,17 +94,31 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
   }, [allFiles, getMediaUrl])
 
   const metadataUrl = playingPath ? getAudioMetadataUrl(playingPath) : null
+  const needMetadata = !!isAudioFile || (!!isVideoFile && !!isAudioOnly)
   const { data: audioMetadata, isLoading: isLoadingMetadata } = useAudioMetadata(
     playingPath,
-    !!isAudioFile,
+    needMetadata,
     metadataUrl,
   )
+
+  const displayImageUrl = useMemo(() => {
+    if (isVideoFile && isAudioOnly && playingPath) {
+      return getThumbnailUrl(playingPath)
+    }
+    return audioMetadata?.coverArt || coverArtUrl
+  }, [isVideoFile, isAudioOnly, playingPath, getThumbnailUrl, audioMetadata?.coverArt, coverArtUrl])
+
+  const displayDuration =
+    isVideoFile && isAudioOnly && audioMetadata?.duration != null && audioMetadata.duration > 0
+      ? audioMetadata.duration
+      : duration
 
   // Stable refs for values used inside effects — prevents effect re-runs
   // when React Query refetches cause new callback/value references.
   const playNextAudioRef = useRef<() => void>(() => {})
   const playPreviousAudioRef = useRef<() => void>(() => {})
   const isRepeatRef = useRef(isRepeat)
+  const pendingSeekRef = useRef(false)
 
   useEffect(() => {
     isRepeatRef.current = isRepeat
@@ -178,7 +200,10 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
 
     const handleTimeUpdate = () => {
       setCurrentTime(audio.currentTime)
-      if ('mediaSession' in navigator && !isNaN(audio.duration) && !audio.paused) {
+      if (playingPath && isVideoFile && isAudioOnly && displayDuration > 0) {
+        saveTime(playingPath, audio.currentTime, displayDuration)
+      }
+      if ('mediaSession' in navigator && Number.isFinite(audio.duration) && !audio.paused) {
         navigator.mediaSession.setPositionState({
           duration: audio.duration,
           playbackRate: audio.playbackRate,
@@ -186,12 +211,20 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
         })
       }
     }
-    const handleDurationChange = () => setDuration(audio.duration)
+    const handleDurationChange = () => {
+      const d = audio.duration
+      if (Number.isFinite(d) && !Number.isNaN(d) && d > 0) {
+        setDuration(d)
+      }
+    }
     const handleLoadedMetadata = () => {
-      setDuration(audio.duration)
-      if ('mediaSession' in navigator && !isNaN(audio.duration)) {
+      const d = audio.duration
+      if (Number.isFinite(d) && !Number.isNaN(d) && d > 0) {
+        setDuration(d)
+      }
+      if ('mediaSession' in navigator && Number.isFinite(d) && !Number.isNaN(d) && d > 0) {
         navigator.mediaSession.setPositionState({
-          duration: audio.duration,
+          duration: d,
           playbackRate: audio.playbackRate,
           position: audio.currentTime,
         })
@@ -207,7 +240,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
       setIsPlaying(false)
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused'
-        if (!isNaN(audio.duration)) {
+        if (Number.isFinite(audio.duration) && !Number.isNaN(audio.duration)) {
           navigator.mediaSession.setPositionState({
             duration: audio.duration,
             playbackRate: audio.playbackRate,
@@ -246,7 +279,28 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
       audio.removeEventListener('ended', handleEnded)
       audio.removeEventListener('error', handleError)
     }
-  }, [setIsPlaying, setCurrentTime, setDuration])
+  }, [
+    displayDuration,
+    isAudioOnly,
+    isVideoFile,
+    playingPath,
+    saveTime,
+    setIsPlaying,
+    setCurrentTime,
+    setDuration,
+  ])
+
+  useEffect(() => {
+    if (
+      isVideoFile &&
+      isAudioOnly &&
+      audioMetadata?.duration != null &&
+      audioMetadata.duration > 0 &&
+      duration <= 0
+    ) {
+      setDuration(audioMetadata.duration)
+    }
+  }, [audioMetadata?.duration, duration, isAudioOnly, isVideoFile, setDuration])
 
   // Stop and release audio when the player should no longer be active
   useEffect(() => {
@@ -270,6 +324,9 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
 
     if (audio.src !== fullUrl) {
       const isSameFile = currentFile === playingPath
+      const storedTime = useMediaPlayer.getState().currentTime
+      const savedTime = isVideoFile ? getSavedTime(playingPath) : null
+      const timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
 
       if (currentFile !== playingPath || mediaType !== 'audio') {
         setCurrentFile(playingPath, 'audio')
@@ -278,15 +335,19 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
       audio.src = fullUrl
       audio.load()
 
-      if (isSameFile) {
-        const storedTime = useMediaPlayer.getState().currentTime
-        if (storedTime > 0) {
-          const seekToPosition = () => {
-            audio.currentTime = storedTime
-            audio.removeEventListener('loadedmetadata', seekToPosition)
+      if ((isSameFile || isVideoFile) && timeToRestore > 0) {
+        pendingSeekRef.current = true
+        const seekAndMaybePlay = () => {
+          pendingSeekRef.current = false
+          audio.currentTime = timeToRestore
+          audio.removeEventListener('loadedmetadata', seekAndMaybePlay)
+          audio.removeEventListener('canplay', seekAndMaybePlay)
+          if (useMediaPlayer.getState().isPlaying) {
+            void audio.play().catch((err) => console.error('Play error:', err))
           }
-          audio.addEventListener('loadedmetadata', seekToPosition)
         }
+        audio.addEventListener('loadedmetadata', seekAndMaybePlay)
+        audio.addEventListener('canplay', seekAndMaybePlay)
       }
 
       if ('mediaSession' in navigator) {
@@ -326,6 +387,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
     setCurrentFile,
     getMediaUrl,
     getAudioExtractUrl,
+    getSavedTime,
   ])
 
   // Update Media Session metadata when metadata loads
@@ -343,7 +405,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
         : audioMetadata?.album || currentDir || 'Unknown Album',
     }
 
-    const artworkUrl = audioMetadata?.coverArt || coverArtUrl
+    const artworkUrl = displayImageUrl
     if (artworkUrl) {
       const fullArtworkUrl = artworkUrl.startsWith('data:')
         ? artworkUrl
@@ -365,13 +427,14 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
     audioMetadata,
     fileName,
     currentDir,
-    coverArtUrl,
+    displayImageUrl,
   ])
 
   // React to store isPlaying changes
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !shouldHandleAudio || currentFile !== playingPath || mediaType !== 'audio') return
+    if (pendingSeekRef.current) return
 
     if (isPlaying && audio.paused) {
       audio.play().catch((err) => console.error('Play error:', err))
@@ -427,7 +490,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
   }
 
   const formatTime = (time: number) => {
-    if (isNaN(time)) return '0:00'
+    if (!Number.isFinite(time) || Number.isNaN(time)) return '0:00'
     const minutes = Math.floor(time / 60)
     const seconds = Math.floor(time % 60)
     return `${minutes}:${seconds.toString().padStart(2, '0')}`
@@ -469,12 +532,14 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
           <div className='min-[650px]:hidden relative w-full h-1 bg-secondary'>
             <div
               className='absolute top-0 left-0 h-full bg-white transition-all duration-100'
-              style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+              style={{
+                width: `${displayDuration > 0 ? (currentTime / displayDuration) * 100 : 0}%`,
+              }}
             />
             <input
               type='range'
               min='0'
-              max={duration || 0}
+              max={displayDuration || 0}
               value={currentTime}
               onChange={handleSeek}
               className='absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer'
@@ -545,13 +610,13 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
                 <input
                   type='range'
                   min='0'
-                  max={duration || 0}
+                  max={displayDuration || 0}
                   value={currentTime}
                   onChange={handleSeek}
                   className='flex-1 h-2 bg-secondary rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary'
                   disabled={!playingPath}
                 />
-                <span className='text-sm tabular-nums'>{formatTime(duration)}</span>
+                <span className='text-sm tabular-nums'>{formatTime(displayDuration)}</span>
               </div>
 
               <Separator orientation='vertical' className='h-8 hidden min-[650px]:block' />
@@ -577,9 +642,9 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
               {/* Now Playing Info */}
               <div className='w-[200px] lg:w-[280px] flex items-center gap-3'>
                 <div className='shrink-0 w-12 h-12 rounded overflow-hidden bg-secondary'>
-                  {(audioMetadata?.coverArt || coverArtUrl) && (
+                  {displayImageUrl && (
                     <img
-                      src={audioMetadata?.coverArt || coverArtUrl || ''}
+                      src={displayImageUrl}
                       alt='Album art'
                       className='w-full h-full object-cover'
                     />

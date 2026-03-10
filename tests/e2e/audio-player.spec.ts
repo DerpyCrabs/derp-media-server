@@ -47,6 +47,13 @@ test.describe('Audio Player', () => {
     await expect(page.locator('button[aria-label="Show video"]')).toBeVisible()
   })
 
+  test('displays video thumbnail when playing video in audio-only mode', async ({ page }) => {
+    await page.goto(`/?playing=${encodeURIComponent(VIDEO_FILE)}&audioOnly=true`)
+    const albumArt = page.locator('img[alt="Album art"]')
+    await expect(albumArt).toBeVisible()
+    await expect(albumArt).toHaveAttribute('src', /\/api\/thumbnail\//)
+  })
+
   test('switches back to video from audio-only mode', async ({ page }) => {
     await page.goto(`/?playing=${encodeURIComponent(VIDEO_FILE)}&audioOnly=true`)
     await page.locator('button[aria-label="Show video"]').click()

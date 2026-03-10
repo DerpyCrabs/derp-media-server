@@ -66,7 +66,7 @@ export function VideoPlayer({
       video.load()
 
       const savedTime = getSavedTime(playingPath)
-      const timeToRestore = savedTime ?? (currentTime > 0 ? currentTime : 0)
+      const timeToRestore = currentTime > 0 ? currentTime : (savedTime ?? 0)
       if (timeToRestore > 0) {
         const seekToPosition = () => {
           video.currentTime = timeToRestore
