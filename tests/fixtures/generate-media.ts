@@ -98,6 +98,10 @@ export function generateTestMedia(baseDir: string) {
     '# Test Notes\n\nThis is a **markdown** file with [a link](https://example.com).\n\n## Section Two\n\nMore content here.\n',
   )
   fs.writeFileSync(
+    path.join(docsDir, 'image-note.md'),
+    '# Image Note\n\n![photo](Images/photo.jpg)\n',
+  )
+  fs.writeFileSync(
     path.join(docsDir, 'data.json'),
     JSON.stringify({ name: 'test', items: [1, 2, 3] }, null, 2),
   )

@@ -15,6 +15,15 @@ test.describe('Text Editor', () => {
     await expect(page.locator('a[href="https://example.com"]')).toBeVisible()
   })
 
+  test('markdown image click opens fullscreen overlay', async ({ page }) => {
+    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/image-note.md')}`)
+    const img = page.locator('img[alt="photo"]')
+    await expect(img).toBeVisible()
+    await img.click()
+    const overlay = page.locator('[role="dialog"][aria-label="View image fullscreen"]')
+    await expect(overlay).toBeVisible()
+  })
+
   test('does not show edit button for non-editable folders', async ({ page }) => {
     await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
     await expect(page.getByText('This is a test readme file')).toBeVisible()
