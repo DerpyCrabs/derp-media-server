@@ -63,6 +63,7 @@ async function start() {
       server: {
         middlewareMode: true,
         hmr: isTest ? { port: PORT + 1000 } : undefined,
+        forwardConsole: false,
         watch: {
           ignored: [
             '**/test-media/**',
