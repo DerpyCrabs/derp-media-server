@@ -135,6 +135,19 @@ test.describe('Share Viewers & Players', () => {
     await expect(page.locator('button[aria-label="Show video"]')).toBeVisible()
   })
 
+  test('audio player displays video thumbnail when playing video in audio-only mode in share', async ({
+    page,
+  }) => {
+    await page.goto(folderShareUrl)
+    await page.locator('table').getByText('public-video.mp4').click()
+    await page.waitForURL(/playing=/)
+    await page.locator('button[aria-label="Audio only mode"]').click()
+    await page.waitForURL(/audioOnly=true/)
+    const albumArt = page.locator('img[alt="Album art"]')
+    await expect(albumArt).toBeVisible()
+    await expect(albumArt).toHaveAttribute('src', /\/api\/share\/.*\/thumbnail\//)
+  })
+
   // ── Image Viewer in Share ───────────────────────────────────────────
 
   test('opens image viewer when clicking an image in shared folder', async ({ page }) => {

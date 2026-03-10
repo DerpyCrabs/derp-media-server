@@ -62,11 +62,12 @@ export const useMediaPlayer = create<MediaPlayerState>((set, get) => ({
 
     // Only update if different, don't change isPlaying
     if (state.currentFile !== path || state.mediaType !== type) {
+      // When switching video<->audio for same file, preserve position and duration
+      const samePath = state.currentFile === path
       set({
         currentFile: path,
         mediaType: type,
-        currentTime: 0,
-        duration: 0,
+        ...(samePath ? {} : { currentTime: 0, duration: 0 }),
       })
     }
   },

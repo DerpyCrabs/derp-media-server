@@ -133,7 +133,7 @@ export function VideoPlayer({ session: sessionProp, mediaContext }: VideoPlayerP
 
       // Restore saved playback position or seek to stored position from audio player
       const savedTime = getSavedTime(playingPath)
-      const timeToRestore = savedTime ?? (currentTime > 0 ? currentTime : 0)
+      const timeToRestore = currentTime > 0 ? currentTime : (savedTime ?? 0)
 
       if (timeToRestore > 0) {
         const seekToPosition = () => {
