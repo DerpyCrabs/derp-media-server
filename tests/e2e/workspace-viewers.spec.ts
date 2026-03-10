@@ -244,6 +244,46 @@ test.describe('Workspace Text Viewer', () => {
     await expect(viewer.locator('strong:has-text("markdown")')).toBeVisible()
   })
 
+  test('markdown image click opens fullscreen overlay within window', async ({ page }) => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Documents', 'image-note.md')
+    const img = viewer.locator('img[alt="photo"]')
+    await expect(img).toBeVisible()
+    await img.click()
+    const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
+    await expect(overlay).toBeVisible()
+  })
+
+  test('markdown image fullscreen closes on Escape', async ({ page }) => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Documents', 'image-note.md')
+    await viewer.locator('img[alt="photo"]').click()
+    const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
+    await expect(overlay).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(overlay).not.toBeVisible()
+  })
+
+  test('markdown image fullscreen closes on backdrop click', async ({ page }) => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Documents', 'image-note.md')
+    await viewer.locator('img[alt="photo"]').click()
+    const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
+    await expect(overlay).toBeVisible()
+    await overlay.click({ position: { x: 10, y: 10 } })
+    await expect(overlay).not.toBeVisible()
+  })
+
+  test('markdown image fullscreen closes on close button', async ({ page }) => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Documents', 'image-note.md')
+    await viewer.locator('img[alt="photo"]').click()
+    const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
+    await expect(overlay).toBeVisible()
+    await overlay.getByRole('button', { name: 'Close' }).click()
+    await expect(overlay).not.toBeVisible()
+  })
+
   test('auto-enters edit mode in editable folders', async ({ page }) => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')

@@ -218,7 +218,7 @@ function TabContent({
   if (!visible) return null
 
   return (
-    <div className='workspace-window-content min-h-0 flex-1 overflow-hidden'>
+    <div className='workspace-window-content relative min-h-0 flex-1 overflow-hidden'>
       {win.type === 'player' ? (
         <VideoPlayer session={playbackSession} mediaContext={mediaContext} />
       ) : win.type === 'viewer' ? (
@@ -703,7 +703,7 @@ export function WindowGroup({
       disableDragging={false}
       enableResizing={isFullscreen ? false : snapResizeHandles}
       dragHandleClassName='workspace-window-drag-handle'
-      cancel='.workspace-window-content, input, textarea, select, a, audio, video, [data-no-window-drag], .workspace-window-buttons'
+      cancel='.workspace-window-content, input, textarea, select, a, audio, video, img, [data-no-window-drag], .workspace-window-buttons'
       style={{ zIndex: leader.layout?.zIndex ?? 1 }}
       onDragStart={handleDragStart}
       onDrag={handleDrag}
