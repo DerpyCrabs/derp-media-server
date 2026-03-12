@@ -136,10 +136,6 @@ export function AudioPlayer({
   const pendingSeekRef = useRef(false)
 
   useEffect(() => {
-    isRepeatRef.current = isRepeat
-  }, [isRepeat])
-
-  useEffect(() => {
     if (!detailsOpen) return
 
     const handlePointerDown = (event: MouseEvent) => {
@@ -216,14 +212,6 @@ export function AudioPlayer({
     urlPlayFile(previousFile.path, currentDir)
     playFile(previousFile.path, 'audio')
   }, [audioFiles, currentDir, incrementView, playFile, playingPath, urlPlayFile])
-
-  useEffect(() => {
-    playNextAudioRef.current = playNextAudio
-  }, [playNextAudio])
-
-  useEffect(() => {
-    playPreviousAudioRef.current = playPreviousAudio
-  }, [playPreviousAudio])
 
   useEffect(() => {
     const audio = audioRef.current

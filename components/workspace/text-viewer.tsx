@@ -162,48 +162,54 @@ export function TextViewer({
     }
   }
 
-  const handleContentChange = (newContent: string) => {
-    setEditContent(newContent)
-  }
+  const editContentRef = useRef(editContent)
+  editContentRef.current = editContent
 
-  const handleSave = async (skipStateUpdate = false) => {
-    if (!viewingPath) return
-    const saveState = skipStateUpdate ? () => {} : setSaving
-    saveState(true)
-    if (skipStateUpdate) setAutoSaveError(null)
+  const handleSave = useCallback(
+    async (skipStateUpdate = false, contentToSave?: string) => {
+      if (!viewingPath) return
+      const contentForSave = contentToSave ?? editContent
+      const saveState = skipStateUpdate ? () => {} : setSaving
+      saveState(true)
+      if (skipStateUpdate) setAutoSaveError(null)
 
-    try {
-      await filesEditMutation.mutateAsync({ path: viewingPath, content: editContent })
-      const queryKey = queryKeys.textContent(viewingPath)
-      queryClient.setQueryData(queryKey, editContent)
-      if (!skipStateUpdate) setIsEditing(false)
-      await queryClient.invalidateQueries({ queryKey })
-    } catch (err) {
-      console.error('Failed to save:', err)
-      const errorMessage = err instanceof Error ? err.message : 'Failed to save file'
-      if (skipStateUpdate) {
-        setAutoSaveError(errorMessage)
-        setTimeout(() => setAutoSaveError(null), 5000)
-      } else {
-        alert(errorMessage)
+      try {
+        await filesEditMutation.mutateAsync({ path: viewingPath, content: contentForSave })
+        const queryKey = queryKeys.textContent(viewingPath)
+        queryClient.setQueryData(queryKey, contentForSave)
+        if (!skipStateUpdate) setIsEditing(false)
+        await queryClient.invalidateQueries({ queryKey })
+      } catch (err) {
+        console.error('Failed to save:', err)
+        const errorMessage = err instanceof Error ? err.message : 'Failed to save file'
+        if (skipStateUpdate) {
+          setAutoSaveError(errorMessage)
+          setTimeout(() => setAutoSaveError(null), 5000)
+        } else {
+          alert(errorMessage)
+        }
+      } finally {
+        saveState(false)
       }
-    } finally {
-      saveState(false)
-    }
-  }
+    },
+    [viewingPath, editContent, filesEditMutation, queryClient],
+  )
+  const handleSaveRef = useRef(handleSave)
+  handleSaveRef.current = handleSave
 
-  useEffect(() => {
-    if (!isEditing || !autoSaveEnabled || !viewingPath) return
-    if (editContent === content) return
+  const scheduleAutoSave = useCallback(() => {
+    if (!viewingPath || !autoSaveEnabled || !isEditing) return
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
-      if (editContent !== content) handleSave(true)
+      const toSave = editContentRef.current
+      if (toSave !== content) handleSaveRef.current(true, toSave)
     }, 2000)
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editContent, isEditing, autoSaveEnabled, content, viewingPath])
+  }, [viewingPath, autoSaveEnabled, isEditing, content])
+
+  const handleContentChange = (newContent: string) => {
+    setEditContent(newContent)
+    scheduleAutoSave()
+  }
 
   const handleBlur = () => {
     if (autoSaveEnabled && editContent !== content) {

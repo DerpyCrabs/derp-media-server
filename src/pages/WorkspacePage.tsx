@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { AudioPlayer } from '@/components/workspace/audio-player'
@@ -109,9 +109,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
 
   const { onDragMove, onDragEnd } = useSnapZones({ getZoneBounds })
 
-  useEffect(() => {
-    windowsRef.current = windows
-  }, [windows])
+  windowsRef.current = windows
 
   const windowGroups = useMemo(() => groupWindowsByTab(windows), [windows])
 
