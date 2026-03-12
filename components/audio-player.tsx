@@ -120,10 +120,6 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
   const isRepeatRef = useRef(isRepeat)
   const pendingSeekRef = useRef(false)
 
-  useEffect(() => {
-    isRepeatRef.current = isRepeat
-  }, [isRepeat])
-
   const playNextAudio = useCallback(() => {
     if (!playingPath || audioFiles.length === 0) return
 
@@ -184,13 +180,9 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
     playFile(previousFile.path, 'audio')
   }, [playingPath, audioFiles, currentDir, playFile, incrementView, urlPlayFile])
 
-  // Keep callback refs in sync without causing effect re-runs
-  useEffect(() => {
-    playNextAudioRef.current = playNextAudio
-  }, [playNextAudio])
-  useEffect(() => {
-    playPreviousAudioRef.current = playPreviousAudio
-  }, [playPreviousAudio])
+  isRepeatRef.current = isRepeat
+  playNextAudioRef.current = playNextAudio
+  playPreviousAudioRef.current = playPreviousAudio
 
   // Setup event listeners — deps are all stable Zustand setters, so this
   // effect runs once and never tears down during playback.

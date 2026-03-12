@@ -131,10 +131,9 @@ export function FileListView({
 
   const [draggedPath, setDraggedPath] = useState<string | null>(null)
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
-  const [enableDrag, setEnableDrag] = useState(false)
-  useEffect(() => {
-    setEnableDrag(window.matchMedia('(hover: hover)').matches)
-  }, [])
+  const [enableDrag] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(hover: hover)').matches : false,
+  )
 
   const showFavorites = !!onFavoriteToggle
   const showViewCounts = !!getViewCount

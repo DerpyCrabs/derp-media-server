@@ -191,17 +191,18 @@ function ShareCard({
   const shareLinkBase = useShareLinkBase()
   const [copiedLink, setCopiedLink] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [editable, setEditable] = useState(share.editable)
-  const [restrictions, setRestrictions] = useState<Required<ShareRestrictions>>(
+  const [editable, setEditable] = useState(() => share.editable)
+  const [restrictions, setRestrictions] = useState<Required<ShareRestrictions>>(() =>
     extractRestrictions(share),
   )
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const initializedRef = useRef(false)
+  const prevShareRef = useRef(share)
 
-  useEffect(() => {
+  if (prevShareRef.current !== share) {
+    prevShareRef.current = share
     setEditable(share.editable)
     setRestrictions(extractRestrictions(share))
-  }, [share])
+  }
 
   const updateMutation = useMutation({
     mutationFn: (vars: {
@@ -242,13 +243,6 @@ function ShareCard({
     setRestrictions(r)
     scheduleUpdate(editable, r)
   }
-
-  useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true
-      return
-    }
-  }, [editable, restrictions])
 
   useEffect(() => {
     return () => {
