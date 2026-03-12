@@ -20,6 +20,7 @@ interface BrowserPaneProps {
     onChange: (value: string) => void
   }
   actions?: ReactNode
+  trailingSlot?: ReactNode
   viewMode: 'list' | 'grid'
   onViewModeChange: (mode: 'list' | 'grid') => void
   children: ReactNode
@@ -36,6 +37,7 @@ export function BrowserPane({
   breadcrumbs,
   search,
   actions,
+  trailingSlot,
   viewMode,
   onViewModeChange,
   children,
@@ -46,7 +48,7 @@ export function BrowserPane({
         className={cn(
           'shrink-0 border-b',
           compact
-            ? 'border-white/8 bg-neutral-900/40 px-2 py-1'
+            ? 'border-border bg-muted/50 px-2 py-1'
             : 'border-border bg-muted/30 p-1.5 lg:p-2',
         )}
       >
@@ -71,6 +73,7 @@ export function BrowserPane({
           <div className='flex gap-1 items-center'>
             {actions}
             <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} />
+            {trailingSlot}
           </div>
         </div>
       </div>

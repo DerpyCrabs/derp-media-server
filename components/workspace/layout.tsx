@@ -30,12 +30,12 @@ export function Layout({
   taskbarRightSlot,
 }: WorkspaceLayoutProps) {
   return (
-    <div className={cn('fixed inset-0 flex flex-col overflow-hidden bg-neutral-950', className)}>
+    <div className={cn('fixed inset-0 flex flex-col overflow-hidden bg-background', className)}>
       <div className='relative min-h-0 flex-1 overflow-hidden'>
         {items.length > 0 ? children : emptyState}
       </div>
 
-      <div className='relative z-10000 border-t border-white/8 bg-black/70 px-3 backdrop-blur supports-backdrop-filter:bg-black/55'>
+      <div className='relative z-10000 border-t border-border bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/90'>
         <div className='flex h-10 items-center gap-2'>
           <Button
             variant='ghost'
@@ -53,8 +53,8 @@ export function Layout({
                 <div
                   key={item.id}
                   className={cn(
-                    'flex h-10 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-white/6 bg-white/4 px-2 text-muted-foreground',
-                    item.active && 'bg-white/10 text-foreground',
+                    'flex h-10 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border bg-muted/50 px-2 text-muted-foreground',
+                    item.active && 'bg-muted text-foreground',
                   )}
                 >
                   <button
@@ -68,7 +68,7 @@ export function Layout({
                   <button
                     type='button'
                     onClick={item.onClose}
-                    className='shrink-0 p-0.5 text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground'
+                    className='shrink-0 p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
                     aria-label={`Close ${item.label}`}
                   >
                     <X className='h-3 w-3' />
@@ -82,7 +82,9 @@ export function Layout({
             )}
           </div>
 
-          {taskbarRightSlot ? <div className='shrink-0'>{taskbarRightSlot}</div> : null}
+          {taskbarRightSlot ? (
+            <div className='flex h-10 shrink-0 items-center gap-0'>{taskbarRightSlot}</div>
+          ) : null}
         </div>
       </div>
     </div>

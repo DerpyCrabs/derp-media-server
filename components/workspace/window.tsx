@@ -356,7 +356,7 @@ function TabStrip({
         <button
           type='button'
           data-no-window-drag
-          className='absolute left-0 z-10 flex h-8 w-5 items-center justify-center bg-linear-to-r from-neutral-900 to-transparent text-muted-foreground'
+          className='absolute left-0 z-10 flex h-8 w-5 items-center justify-center bg-linear-to-r from-muted to-transparent text-muted-foreground'
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => scrollBy(-120)}
         >
@@ -378,8 +378,8 @@ function TabStrip({
               key={tab.id}
               data-no-window-drag
               className={cn(
-                'flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-white/6 px-2',
-                isActiveTab ? 'bg-neutral-950' : 'bg-neutral-900 hover:bg-neutral-800',
+                'flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2',
+                isActiveTab ? 'bg-background' : 'bg-muted/50 hover:bg-muted',
               )}
               onMouseDown={(e) => {
                 e.stopPropagation()
@@ -396,7 +396,7 @@ function TabStrip({
               </span>
               <button
                 type='button'
-                className='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-white/8 hover:text-foreground'
+                className='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -413,7 +413,7 @@ function TabStrip({
         <button
           type='button'
           data-no-window-drag
-          className='absolute right-0 z-10 flex h-8 w-5 items-center justify-center bg-linear-to-l from-neutral-900 to-transparent text-muted-foreground'
+          className='absolute right-0 z-10 flex h-8 w-5 items-center justify-center bg-linear-to-l from-muted to-transparent text-muted-foreground'
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => scrollBy(120)}
         >
@@ -740,12 +740,12 @@ export function WindowGroup({
       <div
         data-window-group={groupId}
         className={cn(
-          'flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-white/8 bg-neutral-950 shadow-2xl',
-          isActive && 'border-white/12 shadow-black/60',
+          'flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl',
+          isActive && 'border-border shadow-black/20',
         )}
         onMouseDown={() => onFocus(visibleTab.id)}
       >
-        <div className='flex h-8 items-stretch border-b border-white/8 bg-neutral-900'>
+        <div className='flex h-8 items-stretch border-b border-border bg-muted'>
           <div className='workspace-window-drag-handle flex min-w-[60px] flex-1 cursor-grab items-center active:cursor-grabbing'>
             {hasTabs ? (
               <TabStrip
@@ -774,21 +774,21 @@ export function WindowGroup({
           >
             <Button
               variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onAddTab(leader.id))}
             >
               <Plus />
             </Button>
             <Button
               variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onMinimize(leader.id))}
             >
               <Minus />
             </Button>
             <Button
               variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onToggleMaximize(leader.id))}
               onContextMenu={handleMaximizeContextMenu}
             >
@@ -796,7 +796,7 @@ export function WindowGroup({
             </Button>
             <Button
               variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-white/8 hover:text-foreground [&_svg]:size-3.5'
+              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
               onClick={() => guardClick(() => onClose(leader.id))}
             >
               <X />

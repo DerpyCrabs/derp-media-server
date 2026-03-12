@@ -222,7 +222,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(tabs).toHaveCount(2)
 
     await tabs.first().click()
-    await expect(tabs.first()).toHaveClass(/bg-neutral-950/)
+    await expect(tabs.first()).toHaveClass(/bg-background/)
   })
 
   test('closing one tab keeps the other', async ({ page }) => {
@@ -309,7 +309,7 @@ test.describe('Taskbar', () => {
     const firstTaskbarItem = firstCloseBtn.locator('..')
     await firstTaskbarItem.locator('button').first().click()
 
-    await expect(firstTaskbarItem).toHaveClass(/bg-white\/10/)
+    await expect(firstTaskbarItem).toHaveClass(/bg-muted/)
   })
 
   test('restores minimized window from taskbar', async ({ page }) => {
