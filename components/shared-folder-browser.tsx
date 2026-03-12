@@ -33,6 +33,7 @@ import { useNavigationSession } from '@/lib/use-navigation-session'
 import { useShareFileWatcher } from '@/lib/use-share-file-watcher'
 import { BrowserPane } from '@/components/browser-pane'
 import { BrowserPaneContent } from '@/components/browser-pane-content'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 import type { NavigationSession } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 import { queryKeys } from '@/lib/query-keys'
@@ -732,6 +733,7 @@ function SharedFolderBrowserInner({
             </>
           ) : null
         }
+        trailingSlot={<ThemeSwitcher variant='header' />}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
       >

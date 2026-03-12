@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 import { AudioPlayer } from '@/components/workspace/audio-player'
 import { Layout } from '@/components/workspace/layout'
 import { SnapPreview } from '@/components/workspace/snap-preview'
@@ -518,18 +519,21 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       items={taskbarItems}
       onNewBrowser={() => openBrowserWindow()}
       taskbarRightSlot={
-        <AudioPlayer
-          session={playbackSession}
-          mediaContext={playbackContext}
-          onShowVideo={() => {
-            playbackSession.setAudioOnly(false)
-            openPlayerWindow()
-          }}
-        />
+        <>
+          <AudioPlayer
+            session={playbackSession}
+            mediaContext={playbackContext}
+            onShowVideo={() => {
+              playbackSession.setAudioOnly(false)
+              openPlayerWindow()
+            }}
+          />
+          <ThemeSwitcher variant='taskbar' />
+        </>
       }
       emptyState={
         <div className='flex h-full items-center justify-center p-6'>
-          <div className='w-full max-w-md rounded-xl border border-white/10 bg-black/55 p-8 text-center shadow-2xl backdrop-blur'>
+          <div className='w-full max-w-md rounded-xl border border-border bg-card/95 p-8 text-center shadow-2xl backdrop-blur'>
             <div className='space-y-3'>
               <div className='text-lg font-medium'>No windows are open</div>
               <div className='text-sm text-muted-foreground'>
@@ -543,7 +547,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     >
       <div
         ref={containerRef}
-        className='relative h-full w-full overflow-hidden bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.035),transparent_28%),linear-gradient(to_bottom,rgba(255,255,255,0.02),transparent)]'
+        className='relative h-full w-full overflow-hidden bg-[radial-gradient(circle_at_top,var(--color-foreground)/0.03,transparent_28%),linear-gradient(to_bottom,var(--color-foreground)/0.02,transparent)]'
       >
         <SnapPreview />
         {windowGroups.map((group) => (

@@ -556,7 +556,7 @@ export function AudioPlayer({
       <audio ref={audioRef} preload='auto' className='hidden' />
 
       <div ref={rootRef} className='relative'>
-        <div className='flex h-10 items-center gap-1 border-l border-white/6 bg-white/4 px-2 text-muted-foreground'>
+        <div className='flex h-10 items-center gap-1 border-l border-border bg-muted/50 px-2 text-muted-foreground'>
           <button
             type='button'
             className='hidden min-[1150px]:flex items-center gap-1.5 pr-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity text-left'
@@ -564,7 +564,7 @@ export function AudioPlayer({
             aria-label='Open audio controls'
             aria-expanded={detailsOpen}
           >
-            <div className='flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/8'>
+            <div className='flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted'>
               <Headphones className='h-3.5 w-3.5 text-muted-foreground' />
             </div>
             <div className='max-w-52 min-w-52'>
@@ -583,7 +583,7 @@ export function AudioPlayer({
         </div>
 
         {detailsOpen ? (
-          <div className='absolute right-0 bottom-full z-10001 mb-2 w-80 border border-white/8 bg-neutral-900 shadow-2xl'>
+          <div className='absolute right-0 bottom-full z-10001 mb-2 w-80 border border-border bg-popover shadow-2xl'>
             <div className='space-y-3 p-3'>
               <div className='flex items-center gap-3'>
                 <div className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden bg-neutral-800'>

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useUrlState } from '@/lib/use-url-state'
+import { useTheme } from '@/lib/use-theme'
 import * as icons from 'lucide-static'
 import type { NavigationState } from '@/lib/navigation-session'
 
@@ -73,6 +74,7 @@ export function useDynamicFavicon(
   options?: { rootName?: string; state?: NavigationState },
 ) {
   const { state: urlState } = useUrlState()
+  const { resolved: theme } = useTheme()
   const navigationState = options?.state ?? urlState
   const originalTitleRef = useRef<string>('Media Server')
   const originalFaviconRef = useRef<string | null>(null)
@@ -117,7 +119,7 @@ export function useDynamicFavicon(
       const customIconName = customIcons[targetPath]
       const svgString = getIconSvg(customIconName)
       if (svgString) {
-        const isDark = document.documentElement.classList.contains('dark')
+        const isDark = document.documentElement.getAttribute('data-theme')?.endsWith('-dark')
         const color = isDark ? '#ffffff' : '#000000'
 
         generateFaviconFromSvg(svgString, color).then((data) => {
@@ -154,5 +156,6 @@ export function useDynamicFavicon(
     navigationState.viewing,
     customIcons,
     options?.rootName,
+    theme,
   ])
 }

@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { post } from '@/lib/api'
 import { useDynamicFavicon } from '@/lib/use-dynamic-favicon'
 import { MediaPlayers } from '@/components/media-players'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 import { TextViewer } from '@/components/text-viewer'
 import { Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -75,6 +76,7 @@ export function SharedFileViewer({
   if (shareInfo.mediaType === 'text') {
     return (
       <>
+        <ThemeSwitcher variant='floating' />
         <MediaPlayers
           editableFolders={[]}
           session={session}
@@ -103,40 +105,46 @@ export function SharedFileViewer({
 
   if (isHandledByPlayers) {
     return (
-      <div className='min-h-screen'>
+      <>
+        <ThemeSwitcher variant='floating' />
+        <div className='min-h-screen'>
+          <MediaPlayers
+            editableFolders={[]}
+            session={session}
+            mediaContext={mediaContext}
+            shareContext={shareCtx}
+          />
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <ThemeSwitcher variant='floating' />
+      <div className='min-h-screen flex flex-col items-center justify-center p-8'>
         <MediaPlayers
           editableFolders={[]}
           session={session}
           mediaContext={mediaContext}
           shareContext={shareCtx}
         />
+        <div className='max-w-md w-full space-y-6 text-center'>
+          <h2 className='text-2xl font-medium'>{shareInfo.name}</h2>
+          <p className='text-muted-foreground'>This file type cannot be previewed.</p>
+          <Button
+            onClick={() => {
+              const a = document.createElement('a')
+              a.href = downloadUrl
+              a.download = shareInfo.name
+              a.click()
+            }}
+          >
+            <Download className='h-4 w-4 mr-2' />
+            Download File
+          </Button>
+        </div>
       </div>
-    )
-  }
-
-  return (
-    <div className='min-h-screen flex flex-col items-center justify-center p-8'>
-      <MediaPlayers
-        editableFolders={[]}
-        session={session}
-        mediaContext={mediaContext}
-        shareContext={shareCtx}
-      />
-      <div className='max-w-md w-full space-y-6 text-center'>
-        <h2 className='text-2xl font-medium'>{shareInfo.name}</h2>
-        <p className='text-muted-foreground'>This file type cannot be previewed.</p>
-        <Button
-          onClick={() => {
-            const a = document.createElement('a')
-            a.href = downloadUrl
-            a.download = shareInfo.name
-            a.click()
-          }}
-        >
-          <Download className='h-4 w-4 mr-2' />
-          Download File
-        </Button>
-      </div>
-    </div>
+    </>
   )
 }

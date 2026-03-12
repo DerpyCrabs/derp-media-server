@@ -326,7 +326,7 @@ export function TextViewer({
               <AlertCircle className='h-3.5 w-3.5' />
             </div>
           )}
-          <div className='mx-0.5 h-4 w-px bg-white/8' />
+          <div className='mx-0.5 h-4 w-px bg-border' />
         </>
       )}
       <Button

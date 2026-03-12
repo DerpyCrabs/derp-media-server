@@ -665,18 +665,18 @@ test.describe('Window Z-Ordering and Focus', () => {
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
 
-    await expect(groups.nth(1)).toHaveClass(/border-white\/12/)
+    await expect(groups.nth(1)).toHaveClass(/shadow-black\/20/)
   })
 
   test('active window has distinct border', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    await expect(groups.first()).toHaveClass(/border-white\/12/)
+    await expect(groups.first()).toHaveClass(/border-border/)
 
     await openBrowserWindow(page)
     const updatedGroups = getWindowGroups(page)
-    await expect(updatedGroups.first()).not.toHaveClass(/border-white\/12/)
-    await expect(updatedGroups.nth(1)).toHaveClass(/border-white\/12/)
+    await expect(updatedGroups.first()).not.toHaveClass(/shadow-black\/20/)
+    await expect(updatedGroups.nth(1)).toHaveClass(/shadow-black\/20/)
   })
 })
 

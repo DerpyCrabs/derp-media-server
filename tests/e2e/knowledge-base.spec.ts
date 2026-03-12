@@ -72,11 +72,14 @@ test.describe('Knowledge Base', () => {
     await page.locator('table tr').filter({ hasText: 'Notes' }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Set icon').click()
 
-    // Icon editor dialog should appear
-    await expect(page.getByText('Set Custom Icon')).toBeVisible()
+    // Icon editor dialog should appear (use data-slot to avoid matching ThemeSwitcher's button[title])
+    const dialog = page
+      .locator('[data-slot="dialog-content"]')
+      .filter({ hasText: 'Set Custom Icon' })
+    await expect(dialog).toBeVisible()
 
-    // Pick an icon
-    const iconButton = page.locator('button[title]').filter({ hasText: '' }).first()
+    // Pick an icon — scoped to dialog
+    const iconButton = dialog.locator('button[title]').first()
     await iconButton.click()
 
     await page.getByRole('button', { name: 'Save' }).click()

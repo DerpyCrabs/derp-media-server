@@ -142,7 +142,7 @@ export function TilingLayoutPicker({
   return (
     <div
       ref={pickerRef}
-      className='absolute z-9999 rounded-lg border border-white/10 bg-neutral-900/95 p-3 shadow-2xl backdrop-blur'
+      className='absolute z-9999 rounded-lg border border-border bg-popover/95 p-3 shadow-2xl backdrop-blur'
       style={{ left, top }}
     >
       <div className='mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground'>
@@ -180,12 +180,12 @@ function LayoutTemplatePreview({
   onSlotClick: (zone: SnapZone | 'full') => void
 }) {
   return (
-    <div className='grid h-12 w-16 grid-cols-6 grid-rows-4 gap-0.5 rounded border border-white/6 bg-black/40 p-0.5'>
+    <div className='grid h-12 w-16 grid-cols-6 grid-rows-4 gap-0.5 rounded border border-border bg-muted/50 p-0.5'>
       {template.grid.map((slot) => (
         <button
           key={slot.zone}
           type='button'
-          className={cn('rounded-[2px] bg-white/8 transition-colors hover:bg-blue-500/40')}
+          className={cn('rounded-[2px] bg-muted transition-colors hover:bg-primary/40')}
           style={{ gridColumn: slot.col, gridRow: slot.row }}
           onClick={() => onSlotClick(slot.zone)}
         />

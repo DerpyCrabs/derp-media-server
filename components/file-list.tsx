@@ -40,6 +40,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value'
 import { useNavigationSession } from '@/lib/use-navigation-session'
 import { BrowserPane } from '@/components/browser-pane'
 import { BrowserPaneContent } from '@/components/browser-pane-content'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 import type { NavigationSession } from '@/lib/navigation-session'
 import { queryKeys } from '@/lib/query-keys'
 
@@ -788,6 +789,7 @@ function FileListInner({
           onChange: setSearchQuery,
         }}
         actions={toolbarActions}
+        trailingSlot={<ThemeSwitcher variant='header' />}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
       >
