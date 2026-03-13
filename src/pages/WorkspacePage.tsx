@@ -500,7 +500,17 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
                 MediaType.VIDEO,
               displayWindow.iconIsVirtual ?? false,
             ),
-            onSelect: () => focusWindow(window.id),
+            onSelect: () => {
+              const isMinimized = window.layout?.minimized ?? false
+              const isActive = groupWindows.some((w) => w.id === activeWindowId)
+              if (isMinimized) {
+                focusWindow(window.id)
+              } else if (isActive) {
+                setWindowMinimized(window.id, true)
+              } else {
+                focusWindow(window.id)
+              }
+            },
             onClose: () => {
               for (const w of groupWindows) {
                 if (w.type === 'player') playbackSession.closePlayer()
@@ -509,7 +519,16 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
             },
           }
         }),
-    [windows, activeWindowId, activeTabMap, focusWindow, getIcon, playbackSession, closeWindow],
+    [
+      windows,
+      activeWindowId,
+      activeTabMap,
+      focusWindow,
+      setWindowMinimized,
+      getIcon,
+      playbackSession,
+      closeWindow,
+    ],
   )
 
   return (

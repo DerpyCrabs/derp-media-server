@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useRef } from 'react'
 import { FolderOpen, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -29,13 +29,18 @@ export function Layout({
   className,
   taskbarRightSlot,
 }: WorkspaceLayoutProps) {
+  const handledByMouseDownRef = useRef(false)
+
   return (
     <div className={cn('fixed inset-0 flex flex-col overflow-hidden bg-background', className)}>
       <div className='relative min-h-0 flex-1 overflow-hidden'>
         {items.length > 0 ? children : emptyState}
       </div>
 
-      <div className='relative z-10000 border-t border-border bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/90'>
+      <div
+        className='relative border-t border-border bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/90'
+        style={{ zIndex: 999999 }}
+      >
         <div className='flex h-10 items-center gap-2'>
           <Button
             variant='ghost'
@@ -59,8 +64,20 @@ export function Layout({
                 >
                   <button
                     type='button'
-                    onClick={item.onSelect}
-                    className='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left text-xs'
+                    onMouseDown={(e) => {
+                      if (e.button === 0) {
+                        handledByMouseDownRef.current = true
+                        item.onSelect()
+                      }
+                    }}
+                    onClick={() => {
+                      if (handledByMouseDownRef.current) {
+                        handledByMouseDownRef.current = false
+                        return
+                      }
+                      item.onSelect()
+                    }}
+                    className='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left text-xs touch-manipulation'
                   >
                     <span className='shrink-0 text-muted-foreground'>{item.icon}</span>
                     <span className='min-w-0 truncate'>{item.label}</span>
