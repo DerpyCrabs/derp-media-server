@@ -535,6 +535,7 @@ export function useWorkspace({
   const nextZIndexRef = useRef(2)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const persistedRef = useRef<PersistedWorkspaceState | null | undefined>(undefined)
+  const windowsRef = useRef<WorkspaceWindowDefinition[]>([])
 
   function getPersistedState() {
     if (persistedRef.current === undefined) {
@@ -620,6 +621,8 @@ export function useWorkspace({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
   }, [windows, activeWindowId, activeTabMap, storageKey])
+
+  windowsRef.current = windows
 
   const updateWindow = useCallback(
     (
@@ -825,7 +828,30 @@ export function useWorkspace({
           minimized,
         },
       }))
-      setActiveWindowId((current) => (current === windowId && minimized ? null : windowId))
+      setActiveWindowId((current) => {
+        if (current !== windowId || !minimized) return windowId
+        const ws = windowsRef.current
+        const minimizingW = ws.find((w) => w.id === windowId)
+        const minimizingGroupId = minimizingW?.tabGroupId ?? minimizingW?.id ?? windowId
+
+        let nextId: string | null = null
+        let maxZ = -1
+        const seen = new Set<string>()
+        for (const w of ws) {
+          const gid = w.tabGroupId ?? w.id
+          if (gid === minimizingGroupId) continue
+          if (seen.has(gid)) continue
+          seen.add(gid)
+          const leader = ws.find((x) => (x.tabGroupId ?? x.id) === gid)
+          if (!leader?.layout || leader.layout.minimized) continue
+          const z = leader.layout.zIndex ?? 0
+          if (z > maxZ) {
+            maxZ = z
+            nextId = leader.id
+          }
+        }
+        return nextId ?? null
+      })
     },
     [updateWindow],
   )

@@ -312,6 +312,17 @@ test.describe('Taskbar', () => {
     await expect(firstTaskbarItem).toHaveClass(/bg-muted/)
   })
 
+  test('clicking focused window in taskbar minimizes it', async ({ page }) => {
+    await gotoWorkspace(page)
+    await expect(getWindowGroups(page)).toHaveCount(1)
+
+    const taskbarItems = page.locator('button[aria-label^="Close "]')
+    const firstTaskbarItem = taskbarItems.first().locator('..')
+    await firstTaskbarItem.locator('button').first().click()
+
+    await expect(getWindowGroups(page)).toHaveCount(0)
+  })
+
   test('restores minimized window from taskbar', async ({ page }) => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
@@ -326,6 +337,33 @@ test.describe('Taskbar', () => {
     await firstTaskbarItem.locator('button').first().click()
 
     await expect(getWindowGroups(page)).toHaveCount(1)
+  })
+
+  test('minimizing focused window focuses the next window', async ({ page }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    await expect(getWindowGroups(page)).toHaveCount(2)
+
+    const taskbarItems = page.locator('button[aria-label^="Close "]')
+    const firstTaskbarItem = taskbarItems.first().locator('..')
+    await firstTaskbarItem.locator('button').first().click()
+    await page.waitForTimeout(100)
+
+    const groups = getWindowGroups(page)
+    const firstContent = groups.first().locator('.workspace-window-content')
+    await firstContent.getByText('Documents', { exact: true }).click()
+    await page.waitForTimeout(200)
+
+    const secondTaskbarItem = taskbarItems.nth(1).locator('..')
+    await secondTaskbarItem.locator('button').first().click()
+    await page.waitForTimeout(100)
+
+    const secondGroup = groups.nth(1)
+    const minimizeBtn = secondGroup.locator('button:has(.lucide-minus)')
+    await minimizeBtn.click()
+
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    await expect(groups.first().locator('.workspace-window-content')).toContainText('Documents')
   })
 
   test('closes window from taskbar', async ({ page }) => {

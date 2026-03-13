@@ -215,6 +215,20 @@ test.describe('Edge Snapping', () => {
     expect(bounds.height).toBeGreaterThan(containerH - 10)
   })
 
+  test('minimize button works on first click after snapping window', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    await expect(groups).toHaveCount(1)
+
+    const handle = getDragHandle(groups.first())
+    await dragToEdge(page, handle, 'left')
+
+    const minimizeBtn = groups.first().locator('button:has(.lucide-minus)')
+    await minimizeBtn.click()
+
+    await expect(getWindowGroups(page)).toHaveCount(0)
+  })
+
   test('shows snap preview while dragging near edge', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)

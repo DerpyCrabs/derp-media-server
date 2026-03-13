@@ -542,6 +542,7 @@ export function WindowGroup({
 
   const handleDragStop = useCallback(
     (event: unknown, data: { x: number; y: number }) => {
+      dragOccurredRef.current = false
       if (bounds) {
         const ev = event as { clientX?: number; clientY?: number }
         onDragStopProp(
