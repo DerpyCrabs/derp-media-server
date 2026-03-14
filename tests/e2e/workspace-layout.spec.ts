@@ -367,6 +367,134 @@ test.describe('Resizing Snapped Windows', () => {
     expect(newBottomBounds.y).toBeGreaterThan(bottomBounds.y)
   })
 
+  test('resizes shared edge between third layout windows (top-left-third and top-center-third)', async ({
+    page,
+  }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+
+    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+
+    const templates = page.locator('.grid.h-12.w-16')
+    const thirdsTemplate = templates.nth(5)
+    await thirdsTemplate.locator('button').first().click()
+    await page.waitForTimeout(100)
+
+    await groups.nth(1).dispatchEvent('mousedown')
+    await page.waitForTimeout(50)
+
+    const maximizeBtn2 = groups.nth(1).locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn2.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+
+    const templates2 = page.locator('.grid.h-12.w-16')
+    const thirdsTemplate2 = templates2.nth(5)
+    await thirdsTemplate2.locator('button').nth(1).click()
+    await page.waitForTimeout(100)
+
+    const boundsA = await getWindowBounds(groups.first())
+    const boundsB = await getWindowBounds(groups.nth(1))
+    const leftWindow = boundsA.x < boundsB.x ? groups.first() : groups.nth(1)
+    const rightWindow = boundsA.x < boundsB.x ? groups.nth(1) : groups.first()
+
+    const leftBounds = boundsA.x < boundsB.x ? boundsA : boundsB
+    const rightBounds = boundsA.x < boundsB.x ? boundsB : boundsA
+
+    expect(leftBounds.x).toBeLessThanOrEqual(5)
+    expect(rightBounds.x).toBeGreaterThan(leftBounds.width - 20)
+
+    const leftRnd = getRndWrapper(leftWindow)
+    const resizeHandle = leftRnd.locator('div[style*="col-resize"]').first()
+    await expect(resizeHandle).toBeAttached()
+
+    const handleBox = await resizeHandle.boundingBox()
+    if (!handleBox) throw new Error('Resize handle not found')
+
+    const startX = handleBox.x + handleBox.width / 2
+    const startY = handleBox.y + handleBox.height / 2
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX + 80, startY, { steps: 10 })
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+
+    const newLeftBounds = await getWindowBounds(leftWindow)
+    const newRightBounds = await getWindowBounds(rightWindow)
+
+    expect(newLeftBounds.width).toBeGreaterThan(leftBounds.width)
+    expect(newRightBounds.x).toBeGreaterThan(rightBounds.x)
+  })
+
+  test('resizes shared edge between left-third and right-two-thirds (1/3 + 2/3 layout)', async ({
+    page,
+  }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+
+    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+
+    const templates = page.locator('.grid.h-12.w-16')
+    const oneThirdTwoThirdsTemplate = templates.nth(6)
+    await oneThirdTwoThirdsTemplate.locator('button').first().click()
+    await page.waitForTimeout(100)
+
+    await groups.nth(1).dispatchEvent('mousedown')
+    await page.waitForTimeout(50)
+
+    const maximizeBtn2 = groups.nth(1).locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn2.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+
+    const templates2 = page.locator('.grid.h-12.w-16')
+    const oneThirdTwoThirdsTemplate2 = templates2.nth(6)
+    await oneThirdTwoThirdsTemplate2.locator('button').nth(1).click()
+    await page.waitForTimeout(100)
+
+    const boundsA = await getWindowBounds(groups.first())
+    const boundsB = await getWindowBounds(groups.nth(1))
+    const leftWindow = boundsA.x < boundsB.x ? groups.first() : groups.nth(1)
+    const rightWindow = boundsA.x < boundsB.x ? groups.nth(1) : groups.first()
+
+    const leftBounds = boundsA.x < boundsB.x ? boundsA : boundsB
+    const rightBounds = boundsA.x < boundsB.x ? boundsB : boundsA
+
+    const viewport = page.viewportSize()!
+    const thirdW = Math.round(viewport.width / 3)
+    expect(leftBounds.x).toBeLessThanOrEqual(5)
+    expect(leftBounds.width).toBeGreaterThan(thirdW - 50)
+    expect(leftBounds.width).toBeLessThan(thirdW + 50)
+    expect(rightBounds.x).toBeGreaterThan(leftBounds.width - 20)
+
+    const leftRnd = getRndWrapper(leftWindow)
+    const resizeHandle = leftRnd.locator('div[style*="col-resize"]').first()
+    await expect(resizeHandle).toBeAttached()
+
+    const handleBox = await resizeHandle.boundingBox()
+    if (!handleBox) throw new Error('Resize handle not found')
+
+    const startX = handleBox.x + handleBox.width / 2
+    const startY = handleBox.y + handleBox.height / 2
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX + 80, startY, { steps: 10 })
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+
+    const newLeftBounds = await getWindowBounds(leftWindow)
+    const newRightBounds = await getWindowBounds(rightWindow)
+
+    expect(newLeftBounds.width).toBeGreaterThan(leftBounds.width)
+    expect(newRightBounds.x).toBeGreaterThan(rightBounds.x)
+  })
+
   test('snapping second window to right half fills remaining space after left is resized', async ({
     page,
   }) => {
