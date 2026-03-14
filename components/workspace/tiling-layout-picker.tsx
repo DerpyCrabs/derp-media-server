@@ -2,6 +2,10 @@ import { type RefObject, useCallback, useEffect, useRef } from 'react'
 import type { SnapZone } from '@/lib/use-workspace'
 import { cn } from '@/lib/utils'
 
+/** Approx picker width: 4×64px templates + gaps + padding */
+const PICKER_APPROX_WIDTH = 320
+const PICKER_APPROX_HEIGHT = 180
+
 interface LayoutTemplate {
   id: string
   zones: (SnapZone | 'full')[]
@@ -107,6 +111,21 @@ export function TilingLayoutPicker({
 }: TilingLayoutPickerProps) {
   const pickerRef = useRef<HTMLDivElement>(null)
 
+  const containerRect = containerRef.current?.getBoundingClientRect()
+  let left = containerRect ? anchorRect.left - containerRect.left : 0
+  let top = containerRect ? anchorRect.bottom - containerRect.top + 4 : 0
+
+  if (containerRect) {
+    if (left + PICKER_APPROX_WIDTH > containerRect.width) {
+      left = containerRect.width - PICKER_APPROX_WIDTH
+    }
+    if (left < 0) left = 0
+    if (top + PICKER_APPROX_HEIGHT > containerRect.height) {
+      top = containerRect.height - PICKER_APPROX_HEIGHT
+    }
+    if (top < 0) top = 0
+  }
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
@@ -123,10 +142,6 @@ export function TilingLayoutPicker({
       document.removeEventListener('keydown', handleEscape)
     }
   }, [onClose])
-
-  const containerRect = containerRef.current?.getBoundingClientRect()
-  const left = anchorRect.left - (containerRect?.left ?? 0)
-  const top = anchorRect.bottom - (containerRect?.top ?? 0) + 4
 
   const handleSlotClick = useCallback(
     (zone: SnapZone | 'full') => {
