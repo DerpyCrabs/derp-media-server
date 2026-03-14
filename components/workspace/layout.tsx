@@ -37,19 +37,16 @@ export function Layout({
         {items.length > 0 ? children : emptyState}
       </div>
 
-      <div
-        className='relative border-t border-border bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/90'
-        style={{ zIndex: 999999 }}
-      >
-        <div className='flex h-10 items-center gap-2'>
+      <div className='relative bg-background px-3' style={{ zIndex: 999999 }}>
+        <div className='flex h-8 items-center gap-2'>
           <Button
             variant='ghost'
             size='icon-sm'
             onClick={onNewBrowser}
             title='Open browser window'
-            className='rounded-none text-amber-500 hover:bg-amber-500/15 hover:text-amber-400'
+            className='h-7 w-7 shrink-0 rounded-none text-amber-500 hover:bg-amber-500/15 hover:text-amber-400'
           >
-            <FolderOpen className='h-6 w-6' strokeWidth={1.75} />
+            <FolderOpen className='h-5 w-5' strokeWidth={1.75} />
           </Button>
 
           <div className='flex min-w-0 flex-1 items-center gap-0 overflow-x-auto'>
@@ -58,7 +55,7 @@ export function Layout({
                 <div
                   key={item.id}
                   className={cn(
-                    'flex h-10 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border bg-muted/50 px-2 text-muted-foreground',
+                    'flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border bg-muted/50 px-2 text-muted-foreground',
                     item.active && 'bg-muted text-foreground',
                   )}
                 >
@@ -85,10 +82,10 @@ export function Layout({
                   <button
                     type='button'
                     onClick={item.onClose}
-                    className='shrink-0 p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                    className='flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
                     aria-label={`Close ${item.label}`}
                   >
-                    <X className='h-3 w-3' />
+                    <X className='h-4 w-4' strokeWidth={2} />
                   </button>
                 </div>
               ))
@@ -100,7 +97,7 @@ export function Layout({
           </div>
 
           {taskbarRightSlot ? (
-            <div className='flex h-10 shrink-0 items-center gap-0'>{taskbarRightSlot}</div>
+            <div className='flex h-8 shrink-0 items-center gap-0'>{taskbarRightSlot}</div>
           ) : null}
         </div>
       </div>

@@ -142,7 +142,7 @@ interface UseWorkspaceResult {
 
 const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 const PLAYER_WINDOW_ID = 'workspace-player-window'
-const TASKBAR_HEIGHT = 44
+const TASKBAR_HEIGHT = 32
 const PLAYER_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
 
 export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
