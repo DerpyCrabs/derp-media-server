@@ -544,7 +544,7 @@ export function AudioPlayer({
       <audio ref={audioRef} preload='auto' className='hidden' />
 
       <div ref={rootRef} className='relative'>
-        <div className='flex h-10 items-center gap-1 border-l border-border bg-muted/50 px-2 text-muted-foreground'>
+        <div className='flex h-8 items-center gap-1 border-l border-border bg-muted/50 px-2 text-muted-foreground'>
           <button
             type='button'
             className='hidden min-[1150px]:flex items-center gap-1.5 pr-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity text-left'
