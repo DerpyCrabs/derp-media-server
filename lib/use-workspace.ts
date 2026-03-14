@@ -144,7 +144,8 @@ const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: nul
 const PLAYER_WINDOW_ID = 'workspace-player-window'
 const TASKBAR_HEIGHT = 44
 const PLAYER_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
-const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
+
+export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
   left: { right: ['right', 'top-right', 'bottom-right'] },
   right: { left: ['left', 'top-left', 'bottom-left'] },
   'top-left': { right: ['top-right'], bottom: ['bottom-left'] },
@@ -395,6 +396,7 @@ export function snapZoneToBoundsWithOccupied(
 
   if (occupied.length === 0) return defaultBounds
 
+  const isThirdZone = zone.includes('third')
   const leftOccupied = occupied.filter((o) => LEFT_SIDE_ZONES.includes(o.snapZone))
   const rightOccupied = occupied.filter((o) => RIGHT_SIDE_ZONES.includes(o.snapZone))
   const topOccupied = occupied.filter((o) => TOP_SIDE_ZONES.includes(o.snapZone))
@@ -402,15 +404,20 @@ export function snapZoneToBoundsWithOccupied(
 
   let { x, y, width, height } = defaultBounds
 
-  if (RIGHT_SIDE_ZONES.includes(zone) && leftOccupied.length > 0) {
-    const leftEdge = Math.max(...leftOccupied.map((o) => o.bounds.x + o.bounds.width))
-    x = leftEdge
-    width = viewport.width - leftEdge
+  // Horizontal adjustment: skip for third zones to preserve 1/3 proportions.
+  // The "fill remaining space" logic only makes sense for half-based layouts.
+  if (!isThirdZone) {
+    if (RIGHT_SIDE_ZONES.includes(zone) && leftOccupied.length > 0) {
+      const leftEdge = Math.max(...leftOccupied.map((o) => o.bounds.x + o.bounds.width))
+      x = leftEdge
+      width = viewport.width - leftEdge
+    }
+    if (LEFT_SIDE_ZONES.includes(zone) && rightOccupied.length > 0) {
+      const rightEdge = Math.min(...rightOccupied.map((o) => o.bounds.x))
+      width = rightEdge
+    }
   }
-  if (LEFT_SIDE_ZONES.includes(zone) && rightOccupied.length > 0) {
-    const rightEdge = Math.min(...rightOccupied.map((o) => o.bounds.x))
-    width = rightEdge
-  }
+
   if (BOTTOM_SIDE_ZONES.includes(zone) && topOccupied.length > 0) {
     const topEdge = Math.max(...topOccupied.map((o) => o.bounds.y + o.bounds.height))
     y = topEdge
@@ -1076,44 +1083,78 @@ export function useWorkspace({
     ) => {
       setWindows((current) => {
         const target = current.find((w) => w.id === windowId)
-        if (!target?.layout?.snapZone || !target.layout.bounds) {
+        if (!target?.layout?.bounds) {
           return current.map((w) =>
             w.id === windowId ? { ...w, layout: { ...w.layout, bounds: newBounds } } : w,
           )
         }
 
         const oldBounds = target.layout.bounds
-        const siblings = SNAP_SIBLING_MAP[target.layout.snapZone] ?? {}
+        const siblings = (target.layout?.snapZone && SNAP_SIBLING_MAP[target.layout.snapZone]) ?? {}
         const affectedZones = new Set<SnapZone>()
         for (const zones of Object.values(siblings)) {
           for (const z of zones) affectedZones.add(z)
         }
 
-        return current.map((w) => {
+        const siblingUpdates = new Map<string, NonNullable<WorkspaceWindowLayout['bounds']>>()
+        const TOLERANCE = 5
+
+        const isSpatialRightSibling = (w: (typeof current)[0]) => {
+          const b = w.layout?.bounds
+          if (!b) return false
+          const targetRight = oldBounds.x + oldBounds.width
+          return Math.abs(b.x - targetRight) <= TOLERANCE
+        }
+        const isSpatialLeftSibling = (w: (typeof current)[0]) => {
+          const b = w.layout?.bounds
+          if (!b) return false
+          const siblingRight = b.x + b.width
+          return Math.abs(siblingRight - oldBounds.x) <= TOLERANCE
+        }
+        const isSpatialBottomSibling = (w: (typeof current)[0]) => {
+          const b = w.layout?.bounds
+          if (!b) return false
+          const targetBottom = oldBounds.y + oldBounds.height
+          return Math.abs(b.y - targetBottom) <= TOLERANCE
+        }
+        const isSpatialTopSibling = (w: (typeof current)[0]) => {
+          const b = w.layout?.bounds
+          if (!b) return false
+          const siblingBottom = b.y + b.height
+          return Math.abs(siblingBottom - oldBounds.y) <= TOLERANCE
+        }
+
+        let next = current.map((w) => {
           if (w.id === windowId) {
             return { ...w, layout: { ...w.layout, bounds: newBounds } }
           }
 
-          if (!w.layout?.snapZone || !w.layout.bounds || !affectedZones.has(w.layout.snapZone)) {
-            return w
-          }
+          const hasZoneMatch = w.layout?.snapZone && affectedZones.has(w.layout.snapZone)
+          const wb = { ...(w.layout?.bounds ?? { x: 0, y: 0, width: 0, height: 0 }) }
+          if (!w.layout?.bounds) return w
 
-          const wb = { ...w.layout.bounds }
+          let updated = false
 
           if (
             direction.includes('right') &&
             newBounds.x + newBounds.width !== oldBounds.x + oldBounds.width
           ) {
             const delta = newBounds.x + newBounds.width - (oldBounds.x + oldBounds.width)
-            if (siblings.right?.includes(w.layout.snapZone)) {
+            const isSibling = hasZoneMatch && siblings.right?.includes(w.layout.snapZone!)
+            const isSpatial = !hasZoneMatch && isSpatialRightSibling(w)
+            if (isSibling || isSpatial) {
               wb.x += delta
               wb.width -= delta
+              updated = true
             }
           }
           if (direction.includes('left') && newBounds.x !== oldBounds.x) {
             const delta = newBounds.x - oldBounds.x
-            if (siblings.left?.includes(w.layout.snapZone)) {
+            const isSibling = hasZoneMatch && siblings.left?.includes(w.layout.snapZone!)
+            const isSpatial = !hasZoneMatch && isSpatialLeftSibling(w)
+            if (isSibling || isSpatial) {
               wb.width += delta
+              updated = true
             }
           }
           if (
@@ -1121,29 +1162,60 @@ export function useWorkspace({
             newBounds.y + newBounds.height !== oldBounds.y + oldBounds.height
           ) {
             const delta = newBounds.y + newBounds.height - (oldBounds.y + oldBounds.height)
-            if (siblings.bottom?.includes(w.layout.snapZone)) {
+            const isSibling = hasZoneMatch && siblings.bottom?.includes(w.layout.snapZone!)
+            const isSpatial = !hasZoneMatch && isSpatialBottomSibling(w)
+            if (isSibling || isSpatial) {
               wb.y += delta
               wb.height -= delta
+              updated = true
             }
           }
           if (direction.includes('top') && newBounds.y !== oldBounds.y) {
             const delta = newBounds.y - oldBounds.y
-            if (siblings.top?.includes(w.layout.snapZone)) {
+            const isSibling = hasZoneMatch && siblings.top?.includes(w.layout.snapZone!)
+            const isSpatial = !hasZoneMatch && isSpatialTopSibling(w)
+            if (isSibling || isSpatial) {
               wb.height += delta
+              updated = true
             }
           }
 
           if (
-            wb.x === w.layout.bounds.x &&
-            wb.y === w.layout.bounds.y &&
-            wb.width === w.layout.bounds.width &&
-            wb.height === w.layout.bounds.height
+            !updated ||
+            (wb.x === w.layout.bounds.x &&
+              wb.y === w.layout.bounds.y &&
+              wb.width === w.layout.bounds.width &&
+              wb.height === w.layout.bounds.height)
           ) {
             return w
           }
 
+          const groupId = w.tabGroupId ?? w.id
+          siblingUpdates.set(groupId, wb)
           return { ...w, layout: { ...w.layout, bounds: wb } }
         })
+
+        if (siblingUpdates.size > 0) {
+          next = next.map((w) => {
+            const gid = w.tabGroupId ?? w.id
+            const syncBounds = siblingUpdates.get(gid)
+            if (syncBounds && w.id !== windowId) {
+              const b = w.layout?.bounds
+              if (
+                !b ||
+                b.x !== syncBounds.x ||
+                b.y !== syncBounds.y ||
+                b.width !== syncBounds.width ||
+                b.height !== syncBounds.height
+              ) {
+                return { ...w, layout: { ...w.layout, bounds: syncBounds } }
+              }
+            }
+            return w
+          })
+        }
+
+        return next
       })
     },
     [],
