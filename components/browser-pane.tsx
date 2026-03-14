@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
+import { Popover } from '@base-ui/react/popover'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ViewModeToggle } from '@/components/view-mode-toggle'
+import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BrowserPaneProps {
@@ -60,14 +62,34 @@ export function BrowserPane({
         >
           {breadcrumbs}
           {search?.visible && (
-            <div className='w-full md:w-auto md:flex-1 md:min-w-0 md:max-w-[200px] lg:max-w-[260px] basis-full md:basis-auto order-last md:order-0'>
-              <Input
-                type='search'
-                placeholder={search.placeholder}
-                value={search.value}
-                onChange={(e) => search.onChange(e.target.value)}
-                className='h-8 w-full'
-              />
+            <div className='basis-full md:basis-auto order-last md:order-0 flex items-center justify-end md:justify-start'>
+              <Popover.Root>
+                <Popover.Trigger
+                  className='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground outline-none'
+                  aria-label='Open search'
+                >
+                  <Search className='h-4 w-4' />
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Positioner
+                    className='z-50 outline-none'
+                    side='bottom'
+                    align='start'
+                    sideOffset={6}
+                  >
+                    <Popover.Popup className='w-72 rounded-md border border-border bg-popover p-2 shadow-lg outline-none'>
+                      <Input
+                        type='search'
+                        placeholder={search.placeholder}
+                        value={search.value}
+                        onChange={(e) => search.onChange(e.target.value)}
+                        className='h-9 w-full'
+                        autoFocus
+                      />
+                    </Popover.Popup>
+                  </Popover.Positioner>
+                </Popover.Portal>
+              </Popover.Root>
             </div>
           )}
           <div className='flex gap-1 items-center'>
