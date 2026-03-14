@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { FileText } from 'lucide-react'
@@ -49,19 +50,38 @@ export function KbDashboard({ scopePath, onFileClick, shareToken, dir }: KbDashb
   const recent = ((shareToken ? shareData : directData)?.results || []) as RecentFile[]
   const isLoading = shareToken ? shareLoading : directLoading
 
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const handleWheel = useCallback((e: WheelEvent) => {
+    const el = scrollRef.current
+    if (!el || el.scrollWidth <= el.clientWidth) return
+    e.preventDefault()
+    el.scrollLeft += e.deltaY
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [handleWheel])
+
   if (isLoading || !recent?.length) {
     return null
   }
 
   return (
-    <div className='border-b border-border bg-muted/20 px-1.5 py-1.5 md:px-2 md:py-2 shrink-0'>
-      <div className='flex flex-wrap gap-1 md:gap-1.5'>
+    <div
+      ref={scrollRef}
+      className='min-w-0 shrink-0 overflow-x-auto scrollbar-none border-b border-border bg-muted/20 px-1.5 py-1.5 md:px-2 md:py-2'
+    >
+      <div className='flex w-max min-w-full flex-nowrap gap-1 md:gap-1.5'>
         {recent.map((file) => (
           <button
             key={file.path}
             type='button'
             onClick={() => onFileClick(file.path)}
-            className='flex items-center gap-1 md:gap-1.5 px-1.5 py-1 md:px-2 md:py-1.5 rounded border border-border bg-background hover:bg-muted/50 transition-colors text-left min-w-0 max-w-full'
+            className='flex items-center gap-1 md:gap-1.5 px-1.5 py-1 md:px-2 md:py-1.5 rounded border border-border bg-background hover:bg-muted/50 transition-colors text-left shrink-0'
           >
             <FileText className='h-4 w-4 shrink-0 text-muted-foreground' />
             <span className='truncate text-sm font-medium'>{file.name}</span>
