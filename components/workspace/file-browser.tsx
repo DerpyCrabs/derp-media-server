@@ -54,13 +54,18 @@ import { queryKeys } from '@/lib/query-keys'
 interface FileBrowserProps {
   editableFolders: string[]
   session: NavigationSession
+  /** When set, dialogs (e.g. unsupported file) portal into this element to stay inside the window. */
+  dialogContainerRef?: React.RefObject<HTMLElement | null>
   onOpenInNewTabInSameWindow?: (file: FileItem) => void
+  onAddToTaskbar?: (file: FileItem) => void
 }
 
 function FileBrowserInner({
   editableFolders,
   session: sessionProp,
+  dialogContainerRef,
   onOpenInNewTabInSameWindow,
+  onAddToTaskbar,
 }: FileBrowserProps) {
   const session = useNavigationSession(sessionProp)
   const { state, navigateToFolder, viewFile, playFile: urlPlayFile } = session
@@ -604,7 +609,7 @@ function FileBrowserInner({
       />
 
       <Dialog open={!!unsupportedFile} onOpenChange={(open) => !open && setUnsupportedFile(null)}>
-        <DialogContent className='sm:max-w-sm'>
+        <DialogContent className='sm:max-w-sm' container={dialogContainerRef?.current ?? undefined}>
           <DialogHeader>
             <div className='flex items-center gap-3'>
               <FileQuestion className='h-6 w-6 shrink-0 text-yellow-500' />
@@ -699,6 +704,7 @@ function FileBrowserInner({
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      onContextAddToTaskbar={onAddToTaskbar}
       showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
@@ -752,6 +758,7 @@ function FileBrowserInner({
       onContextMove={handleContextMove}
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
+      onContextAddToTaskbar={onAddToTaskbar}
       showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}

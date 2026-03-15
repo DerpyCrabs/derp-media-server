@@ -2,12 +2,13 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { AudioPlayer } from '@/components/workspace/audio-player'
-import { Layout } from '@/components/workspace/layout'
+import { Layout, type PinnedTaskbarItemView } from '@/components/workspace/layout'
 import { SnapPreview } from '@/components/workspace/snap-preview'
 import { TilingLayoutPicker } from '@/components/workspace/tiling-layout-picker'
 import { WindowGroup } from '@/components/workspace/window'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
+import { getIconComponent } from '@/lib/icon-utils'
 import { useFileIcon } from '@/lib/use-file-icon'
 import { getMediaType } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
@@ -79,6 +80,9 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     setActiveTab,
     updateWindowNavigationState,
     requestPlay,
+    pinnedTaskbarItems,
+    addPinnedItem,
+    removePinnedItem,
   } = useWorkspace({
     initialDir:
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('dir') : null,
@@ -452,6 +456,25 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     [playbackSource],
   )
   const { settings } = useSettings('', !shareConfig)
+  const defaultSource = useMemo(
+    () =>
+      shareConfig
+        ? { kind: 'share' as const, token: shareConfig.token, sharePath: shareConfig.sharePath }
+        : { kind: 'local' as const, rootPath: null },
+    [shareConfig],
+  )
+  const handleAddToTaskbar = useCallback(
+    (file: { path: string; isDirectory: boolean; name: string }) => {
+      addPinnedItem({
+        path: file.path,
+        isDirectory: file.isDirectory,
+        title: file.name,
+        customIconName: settings.customIcons[file.path] ?? null,
+        source: defaultSource,
+      })
+    },
+    [addPinnedItem, defaultSource, settings.customIcons],
+  )
   const currentMediaFile = useMediaPlayer((state) => state.currentFile)
   const currentMediaType = useMediaPlayer((state) => state.mediaType)
   const mediaPlayerIsPlaying = useMediaPlayer((state) => state.isPlaying)
@@ -478,10 +501,30 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
           const activeTabId = activeTabMap[groupId] ?? window.id
           const displayWindow = groupWindows.find((w) => w.id === activeTabId) ?? window
           const tabCount = groupWindows.length
+          const path =
+            displayWindow.iconPath ??
+            (displayWindow.type === 'browser'
+              ? (displayWindow.initialState.dir ?? '')
+              : displayWindow.type === 'player'
+                ? (playbackSession.state.playing ?? '')
+                : (displayWindow.initialState.viewing ?? ''))
+          const isDir = displayWindow.type === 'browser'
+          const tooltip = path ? `${isDir ? 'Folder' : 'File'}: ${path}` : displayWindow.title
+          const dragData =
+            path && displayWindow.source
+              ? {
+                  path,
+                  isDirectory: isDir,
+                  sourceKind: displayWindow.source.kind,
+                  sourceToken: displayWindow.source.token,
+                }
+              : undefined
           return {
             id: window.id,
             label: tabCount > 1 ? `${displayWindow.title} (+${tabCount - 1})` : displayWindow.title,
             active: groupWindows.some((w) => w.id === activeWindowId),
+            tooltip,
+            dragData,
             icon: getIcon(
               displayWindow.iconType ??
                 (displayWindow.type === 'browser'
@@ -534,9 +577,75 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     ],
   )
 
+  const pinnedTaskbarItemViews = useMemo((): PinnedTaskbarItemView[] => {
+    return pinnedTaskbarItems.map((pin) => {
+      const customName = pin.customIconName ?? settings.customIcons[pin.path]
+      const mediaType = pin.isDirectory
+        ? MediaType.FOLDER
+        : getMediaType(pin.path.split('.').pop() ?? '')
+      const iconNode = customName
+        ? (() => {
+            const C = getIconComponent(customName)
+            return C ? (
+              <C className='h-5 w-5 text-muted-foreground' />
+            ) : (
+              getIcon(
+                mediaType,
+                pin.path,
+                mediaType === MediaType.AUDIO,
+                mediaType === MediaType.VIDEO,
+                false,
+              )
+            )
+          })()
+        : getIcon(
+            mediaType,
+            pin.path,
+            mediaType === MediaType.AUDIO,
+            mediaType === MediaType.VIDEO,
+            false,
+          )
+      const tooltip = `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
+      const dragData = {
+        path: pin.path,
+        isDirectory: pin.isDirectory,
+        sourceKind: pin.source.kind,
+        sourceToken: pin.source.token,
+      }
+      return {
+        id: pin.id,
+        label: pin.title,
+        icon: iconNode,
+        tooltip,
+        dragData,
+        onSelect: () => {
+          if (pin.isDirectory) {
+            openBrowserWindow({ source: pin.source, initialState: { dir: pin.path } })
+          } else {
+            const parentDir = pin.path.split(/[/\\]/).slice(0, -1).join('/')
+            openViewerWindow({
+              source: pin.source,
+              title: pin.title,
+              initialState: { dir: parentDir, viewing: pin.path },
+            })
+          }
+        },
+        onUnpin: () => removePinnedItem(pin.id),
+      }
+    })
+  }, [
+    pinnedTaskbarItems,
+    settings.customIcons,
+    getIcon,
+    openBrowserWindow,
+    openViewerWindow,
+    removePinnedItem,
+  ])
+
   return (
     <Layout
       items={taskbarItems}
+      pinnedItems={pinnedTaskbarItemViews}
       onNewBrowser={() => openBrowserWindow()}
       taskbarRightSlot={
         <>
@@ -613,6 +722,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
             onDetachTab={handleDetachTab}
             onRestoreDrag={handleRestoreDrag}
             onDropFileToTabBar={handleDropFileToTabBar}
+            onAddToTaskbar={handleAddToTaskbar}
           />
         ))}
         {layoutPicker && (

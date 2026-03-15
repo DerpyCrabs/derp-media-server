@@ -7,6 +7,7 @@ import { ShareFileBrowser } from '@/components/workspace/share-file-browser'
 import { ImageViewer } from '@/components/workspace/image-viewer'
 import { PdfViewer } from '@/components/workspace/pdf-viewer'
 import { TextViewer } from '@/components/workspace/text-viewer'
+import { UnsupportedFileViewer } from '@/components/workspace/unsupported-file-viewer'
 import { VideoPlayer } from '@/components/workspace/video-player'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { useInMemoryNavigationSession, type NavigationSession } from '@/lib/navigation-session'
@@ -62,6 +63,7 @@ export interface WindowGroupProps {
     file: { path: string; isDirectory: boolean; isVirtual?: boolean },
     currentPath: string,
   ) => string
+  onAddToTaskbar?: (file: import('@/lib/types').FileItem) => void
   onDetachTab: (windowId: string, clientX: number, clientY: number) => void
   onRestoreDrag: (windowId: string, clientX: number, clientY: number) => void
   onDropFileToTabBar?: (
@@ -116,11 +118,13 @@ interface TabContentProps {
   editableFolders: string[]
   playbackSession: NavigationSession
   visible: boolean
+  dialogContainerRef?: React.RefObject<HTMLElement | null>
   onPresentationChange: WindowGroupProps['onPresentationChange']
   onNavigationStateChange: WindowGroupProps['onNavigationStateChange']
   onRequestPlay: WindowGroupProps['onRequestPlay']
   onRequestView: WindowGroupProps['onRequestView']
   onOpenInNewTabInSameWindow: WindowGroupProps['onOpenInNewTabInSameWindow']
+  onAddToTaskbar?: WindowGroupProps['onAddToTaskbar']
 }
 
 function TabContent({
@@ -128,11 +132,13 @@ function TabContent({
   editableFolders,
   playbackSession,
   visible,
+  dialogContainerRef,
   onPresentationChange,
   onNavigationStateChange,
   onRequestPlay,
   onRequestView,
   onOpenInNewTabInSameWindow,
+  onAddToTaskbar,
 }: TabContentProps) {
   const localSession = useInMemoryNavigationSession(win.initialState)
   const mergedWindowSession = useWorkspaceWindowSession(
@@ -230,25 +236,30 @@ function TabContent({
             session={windowSession}
             mediaContext={mediaContext}
           />
+          <UnsupportedFileViewer session={windowSession} mediaContext={mediaContext} />
         </>
       ) : win.source.kind === 'share' ? (
         <ShareFileBrowser
           session={windowSession}
+          dialogContainerRef={dialogContainerRef}
           onOpenInNewTabInSameWindow={
             onOpenInNewTabInSameWindow
               ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
               : undefined
           }
+          onAddToTaskbar={onAddToTaskbar}
         />
       ) : (
         <FileBrowser
           editableFolders={editableFolders}
           session={windowSession}
+          dialogContainerRef={dialogContainerRef}
           onOpenInNewTabInSameWindow={
             onOpenInNewTabInSameWindow
               ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
               : undefined
           }
+          onAddToTaskbar={onAddToTaskbar}
         />
       )}
     </div>
@@ -521,6 +532,7 @@ export function WindowGroup({
   onCloseTab,
   onAddTab,
   onOpenInNewTabInSameWindow,
+  onAddToTaskbar,
   onDetachTab,
   onRestoreDrag,
   onDropFileToTabBar,
@@ -534,6 +546,7 @@ export function WindowGroup({
   const visibleTabId = activeTabId ?? leaderId
   const isActive = tabs.some((t) => t.id === activeWindowId)
   const groupId = leader?.tabGroupId ?? leaderId
+  const windowContentRef = useRef<HTMLDivElement>(null)
 
   const currentMediaFile = useMediaPlayer((state) => state.currentFile)
   const currentMediaType = useMediaPlayer((state) => state.mediaType)
@@ -763,9 +776,10 @@ export function WindowGroup({
       }}
     >
       <div
+        ref={windowContentRef}
         data-window-group={groupId}
         className={cn(
-          'flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl',
+          'relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl',
           isActive && 'border-border shadow-black/20',
         )}
         onMouseDown={() => onFocus(visibleTab.id)}
@@ -850,11 +864,13 @@ export function WindowGroup({
             editableFolders={editableFolders}
             playbackSession={playbackSession}
             visible={tab.id === visibleTabId}
+            dialogContainerRef={windowContentRef}
             onPresentationChange={onPresentationChange}
             onNavigationStateChange={onNavigationStateChange}
             onRequestPlay={onRequestPlay}
             onRequestView={onRequestView}
             onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
+            onAddToTaskbar={onAddToTaskbar}
           />
         ))}
       </div>

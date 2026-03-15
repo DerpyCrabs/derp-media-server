@@ -13,8 +13,17 @@ function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot='dialog-trigger' {...props} />
 }
 
-function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
-  return <DialogPrimitive.Portal data-slot='dialog-portal' {...props} />
+function DialogPortal({
+  container,
+  ...props
+}: DialogPrimitive.Portal.Props & { container?: HTMLElement | null }) {
+  return (
+    <DialogPrimitive.Portal
+      data-slot='dialog-portal'
+      {...(container ? { container } : {})}
+      {...props}
+    />
+  )
 }
 
 function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
@@ -34,12 +43,18 @@ function DialogPopup({ className, ...props }: DialogPrimitive.Popup.Props) {
   )
 }
 
-function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
+function DialogOverlay({
+  className,
+  container,
+  ...props
+}: DialogPrimitive.Backdrop.Props & { container?: HTMLElement | null }) {
+  const isContained = !!container
   return (
     <DialogPrimitive.Backdrop
       data-slot='dialog-overlay'
       className={cn(
-        'data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs',
+        'data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs',
+        isContained ? 'absolute inset-0' : 'fixed inset-0',
         className,
       )}
       {...props}
@@ -51,17 +66,24 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  container,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /** When set, the dialog portals into this element instead of document body (e.g. to contain modal inside a window). */
+  container?: HTMLElement | null
 }) {
+  const isContained = !!container
   return (
-    <DialogPortal>
-      <DialogOverlay />
+    <DialogPortal container={container ?? undefined}>
+      <DialogOverlay container={container} />
       <DialogPrimitive.Popup
         data-slot='dialog-content'
         className={cn(
-          'bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 rounded-xl p-6 text-sm ring-1 duration-100 outline-none sm:max-w-md',
+          'bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 z-50 grid w-full max-w-[calc(100%-2rem)] gap-6 rounded-xl p-6 text-sm ring-1 duration-100 outline-none sm:max-w-md',
+          isContained
+            ? 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+            : 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
           className,
         )}
         {...props}

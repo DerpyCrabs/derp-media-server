@@ -39,7 +39,7 @@ const BATCHES = [
   },
   {
     id: '6',
-    tests: ['workspace-controls', 'workspace-cross-dnd'],
+    tests: ['workspace-controls', 'workspace-cross-dnd', 'workspace-taskbar-pins'],
   },
   {
     id: '7',

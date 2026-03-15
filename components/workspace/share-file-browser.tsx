@@ -36,12 +36,16 @@ import { useShareWorkspace } from '@/lib/share-workspace-context'
 
 interface ShareFileBrowserProps {
   session: NavigationSession
+  dialogContainerRef?: React.RefObject<HTMLElement | null>
   onOpenInNewTabInSameWindow?: (file: FileItem) => void
+  onAddToTaskbar?: (file: FileItem) => void
 }
 
 function ShareFileBrowserInner({
   session: sessionProp,
+  dialogContainerRef: _dialogContainerRef,
   onOpenInNewTabInSameWindow,
+  onAddToTaskbar,
 }: ShareFileBrowserProps) {
   const shareCtx = useShareWorkspace()
   if (!shareCtx) throw new Error('ShareFileBrowser requires ShareWorkspaceContext')
@@ -584,6 +588,7 @@ function ShareFileBrowserInner({
       onContextDelete={canDelete ? handleContextDelete : undefined}
       onContextMove={canEdit ? handleContextMoveFile : undefined}
       onContextOpenInNewTab={handleOpenInNewTab}
+      onContextAddToTaskbar={onAddToTaskbar}
       showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
       dragSourceKind='share'
       dragSourceToken={token}
@@ -616,6 +621,7 @@ function ShareFileBrowserInner({
       onContextDelete={canDelete ? handleContextDelete : undefined}
       onContextMove={canEdit ? handleContextMoveFile : undefined}
       onContextOpenInNewTab={handleOpenInNewTab}
+      onContextAddToTaskbar={onAddToTaskbar}
       showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
       dragSourceKind='share'
       dragSourceToken={token}
