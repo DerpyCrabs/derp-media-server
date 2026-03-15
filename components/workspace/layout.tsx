@@ -42,7 +42,6 @@ interface WorkspaceLayoutProps {
 }
 
 function PinnedTaskbarIcon({
-  id,
   icon,
   tooltip,
   onSelect,
@@ -197,36 +196,45 @@ export function Layout({
             <FolderOpen className='h-5 w-5' strokeWidth={1.75} />
           </Button>
 
-          <div className='flex min-w-0 flex-1 items-center gap-2 overflow-x-auto'>
+          <div className='flex min-w-0 flex-1 items-center overflow-x-auto'>
             {hasAnyTaskbarItems ? (
               <>
-                {pinnedItems.map((pin) => (
-                  <PinnedTaskbarIcon
-                    key={pin.id}
-                    id={pin.id}
-                    icon={pin.icon}
-                    tooltip={pin.tooltip}
-                    onSelect={pin.onSelect}
-                    onUnpin={pin.onUnpin}
-                    dragData={pin.dragData}
-                  />
-                ))}
-                {items.map((item) => (
-                  <TaskbarButton
-                    key={item.id}
-                    id={item.id}
-                    label={item.label}
-                    icon={item.icon}
-                    tooltip={item.tooltip ?? item.label}
-                    onSelect={item.onSelect}
-                    onClose={item.onClose}
-                    closeLabel={`Close ${item.label}`}
-                    closeIcon={X}
-                    active={item.active}
-                    dragData={item.dragData}
-                    handledByMouseDownRef={handledByMouseDownRef}
-                  />
-                ))}
+                {pinnedItems.length > 0 ? (
+                  <div className='flex shrink-0 items-center gap-2'>
+                    {pinnedItems.map((pin) => (
+                      <PinnedTaskbarIcon
+                        key={pin.id}
+                        id={pin.id}
+                        icon={pin.icon}
+                        tooltip={pin.tooltip}
+                        onSelect={pin.onSelect}
+                        onUnpin={pin.onUnpin}
+                        dragData={pin.dragData}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {pinnedItems.length > 0 && items.length > 0 ? (
+                  <div className='w-2 shrink-0' aria-hidden />
+                ) : null}
+                <div className='flex min-w-0 flex-1 items-center gap-0 overflow-x-auto'>
+                  {items.map((item) => (
+                    <TaskbarButton
+                      key={item.id}
+                      id={item.id}
+                      label={item.label}
+                      icon={item.icon}
+                      tooltip={item.tooltip ?? item.label}
+                      onSelect={item.onSelect}
+                      onClose={item.onClose}
+                      closeLabel={`Close ${item.label}`}
+                      closeIcon={X}
+                      active={item.active}
+                      dragData={item.dragData}
+                      handledByMouseDownRef={handledByMouseDownRef}
+                    />
+                  ))}
+                </div>
               </>
             ) : (
               <div className='text-sm text-muted-foreground'>

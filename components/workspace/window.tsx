@@ -378,7 +378,7 @@ function TabStrip({
       )}
       <div
         ref={scrollRef}
-        className='scrollbar-none flex min-w-0 flex-1 items-center overflow-x-scroll'
+        className='scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto'
         onWheel={(e) => {
           e.stopPropagation()
           scrollRef.current?.scrollBy({ left: e.deltaY || e.deltaX, behavior: 'instant' })
