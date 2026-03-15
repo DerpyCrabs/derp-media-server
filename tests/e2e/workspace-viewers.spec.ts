@@ -326,7 +326,7 @@ test.describe('Workspace Text Viewer', () => {
       page.waitForResponse(
         (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
       ),
-      viewerWindow.locator('.workspace-window-drag-handle').click(),
+      viewerWindow.locator('[data-testid="window-drag-handle"]').click(),
     ])
 
     // Close the viewer window and reopen the file
@@ -352,7 +352,7 @@ test.describe('Workspace Text Viewer', () => {
       page.waitForResponse(
         (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
       ),
-      getWindowGroups(page).nth(1).locator('.workspace-window-drag-handle').click(),
+      getWindowGroups(page).nth(1).locator('[data-testid="window-drag-handle"]').click(),
     ])
   })
 })

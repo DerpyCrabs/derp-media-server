@@ -34,7 +34,12 @@ test.describe('Editable Folders', () => {
     const nameInput = page.locator('input[placeholder="New name"]')
     await nameInput.clear()
     await nameInput.fill('renamed-file.md')
-    await page.getByRole('button', { name: 'Rename' }).click()
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/files/rename') && resp.status() === 200,
+      ),
+      page.getByRole('button', { name: 'Rename' }).click(),
+    ])
 
     await expect(page.locator('table').getByText('renamed-file.md')).toBeVisible()
     await expect(page.locator('table').getByText('rename-me.md')).not.toBeVisible()

@@ -22,7 +22,7 @@ function getRndWrapper(windowGroup: Locator) {
 }
 
 function getDragHandle(windowGroup: Locator) {
-  return windowGroup.locator('.workspace-window-drag-handle')
+  return windowGroup.locator('[data-testid="window-drag-handle"]')
 }
 
 async function getWindowBounds(windowGroup: Locator) {

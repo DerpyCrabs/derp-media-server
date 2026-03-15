@@ -747,7 +747,10 @@ export function WindowGroup({
         onMouseDown={() => onFocus(visibleTab.id)}
       >
         <div className='flex h-8 items-stretch border-b border-border bg-muted'>
-          <div className='workspace-window-drag-handle flex min-w-[60px] flex-1 cursor-grab items-center active:cursor-grabbing'>
+          <div
+            data-testid='window-drag-handle'
+            className='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center active:cursor-grabbing'
+          >
             {hasTabs ? (
               <TabStrip
                 tabs={tabs}
@@ -768,6 +771,10 @@ export function WindowGroup({
               />
             )}
           </div>
+          <div
+            className='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
+            aria-hidden
+          />
           <div
             data-no-window-drag
             className='workspace-window-buttons flex h-full shrink-0 items-stretch gap-0 self-stretch pl-3'
