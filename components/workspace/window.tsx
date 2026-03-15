@@ -274,6 +274,7 @@ interface TabStripProps {
   tabs: WorkspaceWindowDefinition[]
   visibleTabId: string
   groupId: string
+  isWindowActive: boolean
   getIcon: ReturnType<typeof useFileIcon>['getIcon']
   onSelectTab: (tabGroupId: string, windowId: string) => void
   onFocus: (windowId: string) => void
@@ -286,6 +287,7 @@ function TabStrip({
   tabs,
   visibleTabId,
   groupId,
+  isWindowActive,
   getIcon,
   onSelectTab,
   onFocus,
@@ -388,10 +390,20 @@ function TabStrip({
                 onTabDragDetach(tab.id, e)
               }}
             >
-              <div className='flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground'>
+              <div
+                className={cn(
+                  'flex h-4 w-4 shrink-0 items-center justify-center',
+                  isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+                )}
+              >
                 {getTabIcon(tab, getIcon)}
               </div>
-              <span className='min-w-0 truncate text-[11px] font-medium text-foreground'>
+              <span
+                className={cn(
+                  'min-w-0 truncate text-[11px] font-medium',
+                  isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+                )}
+              >
                 {getWorkspaceWindowTitle(tab)}
               </span>
               <button
@@ -426,10 +438,12 @@ function TabStrip({
 
 function SingleTabHeader({
   leader,
+  isWindowActive,
   getIcon,
   onDropFile,
 }: {
   leader: WorkspaceWindowDefinition
+  isWindowActive: boolean
   getIcon: ReturnType<typeof useFileIcon>['getIcon']
   onDropFile?: (data: FileDragData) => void
 }) {
@@ -464,10 +478,20 @@ function SingleTabHeader({
         onDropFile(data)
       }}
     >
-      <div className='flex h-5 w-5 items-center justify-center text-muted-foreground'>
+      <div
+        className={cn(
+          'flex h-5 w-5 items-center justify-center',
+          isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
         {getTabIcon(leader, getIcon)}
       </div>
-      <div className='min-w-0 flex-1 truncate text-[11px] font-medium text-foreground'>
+      <div
+        className={cn(
+          'min-w-0 flex-1 truncate text-[11px] font-medium',
+          isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
         {getWorkspaceWindowTitle(leader)}
       </div>
     </div>
@@ -746,7 +770,12 @@ export function WindowGroup({
         )}
         onMouseDown={() => onFocus(visibleTab.id)}
       >
-        <div className='flex h-8 items-stretch border-b border-border bg-muted'>
+        <div
+          className={cn(
+            'flex h-8 items-stretch border-b border-border',
+            isActive ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground',
+          )}
+        >
           <div
             data-testid='window-drag-handle'
             className='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center active:cursor-grabbing'
@@ -756,6 +785,7 @@ export function WindowGroup({
                 tabs={tabs}
                 visibleTabId={visibleTabId}
                 groupId={groupId}
+                isWindowActive={isActive}
                 getIcon={getIcon}
                 onSelectTab={onSelectTab}
                 onFocus={onFocus}
@@ -766,6 +796,7 @@ export function WindowGroup({
             ) : (
               <SingleTabHeader
                 leader={leader}
+                isWindowActive={isActive}
                 getIcon={getIcon}
                 onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
               />
