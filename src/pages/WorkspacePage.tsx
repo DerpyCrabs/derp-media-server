@@ -447,7 +447,10 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
   const editableFolders = shareConfig
     ? [shareConfig.sharePath]
     : (authConfig?.editableFolders ?? [])
-  const playbackContext = workspaceSourceToMediaContext(playbackSource)
+  const playbackContext = useMemo(
+    () => workspaceSourceToMediaContext(playbackSource),
+    [playbackSource],
+  )
   const { settings } = useSettings('', !shareConfig)
   const currentMediaFile = useMediaPlayer((state) => state.currentFile)
   const currentMediaType = useMediaPlayer((state) => state.mediaType)
