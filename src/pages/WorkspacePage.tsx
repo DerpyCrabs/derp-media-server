@@ -621,6 +621,9 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
         onSelect: () => {
           if (pin.isDirectory) {
             openBrowserWindow({ source: pin.source, initialState: { dir: pin.path } })
+          } else if (mediaType === MediaType.VIDEO || mediaType === MediaType.AUDIO) {
+            const parentDir = pin.path.split(/[/\\]/).slice(0, -1).join('/')
+            requestPlay({ source: pin.source, path: pin.path, dir: parentDir })
           } else {
             const parentDir = pin.path.split(/[/\\]/).slice(0, -1).join('/')
             openViewerWindow({
@@ -639,6 +642,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     getIcon,
     openBrowserWindow,
     openViewerWindow,
+    requestPlay,
     removePinnedItem,
   ])
 

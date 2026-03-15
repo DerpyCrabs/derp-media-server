@@ -539,7 +539,7 @@ test.describe('Window Buttons', () => {
     await maximizeBtn.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const pickerSlots = page.locator('.grid.h-12.w-16 button')
+    const pickerSlots = page.locator('[data-snap-layout-template] button')
     await pickerSlots.first().click()
     await page.waitForTimeout(100)
 

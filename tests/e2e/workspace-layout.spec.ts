@@ -48,7 +48,16 @@ async function dragFromTo(
 async function dragToEdge(
   page: Page,
   handle: Locator,
-  target: 'left' | 'right' | 'top' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+  target:
+    | 'left'
+    | 'right'
+    | 'top'
+    | 'top-left'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-right'
+    | 'top-half'
+    | 'bottom-half',
 ) {
   const viewport = page.viewportSize()!
   const box = await handle.boundingBox()
@@ -73,6 +82,14 @@ async function dragToEdge(
     case 'top':
       endX = viewport.width / 2
       endY = 5
+      break
+    case 'top-half':
+      endX = viewport.width * 0.2
+      endY = 5
+      break
+    case 'bottom-half':
+      endX = viewport.width / 2
+      endY = containerHeight - 5
       break
     case 'top-left':
       endX = 5
@@ -379,7 +396,7 @@ test.describe('Resizing Snapped Windows', () => {
     await maximizeBtn.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const templates = page.locator('.grid.h-12.w-16')
+    const templates = page.locator('[data-snap-layout-template]')
     const thirdsTemplate = templates.nth(5)
     await thirdsTemplate.locator('button').first().click()
     await page.waitForTimeout(100)
@@ -391,7 +408,7 @@ test.describe('Resizing Snapped Windows', () => {
     await maximizeBtn2.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const templates2 = page.locator('.grid.h-12.w-16')
+    const templates2 = page.locator('[data-snap-layout-template]')
     const thirdsTemplate2 = templates2.nth(5)
     await thirdsTemplate2.locator('button').nth(1).click()
     await page.waitForTimeout(100)
@@ -441,7 +458,7 @@ test.describe('Resizing Snapped Windows', () => {
     await maximizeBtn.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const templates = page.locator('.grid.h-12.w-16')
+    const templates = page.locator('[data-snap-layout-template]')
     const oneThirdTwoThirdsTemplate = templates.nth(6)
     await oneThirdTwoThirdsTemplate.locator('button').first().click()
     await page.waitForTimeout(100)
@@ -453,7 +470,7 @@ test.describe('Resizing Snapped Windows', () => {
     await maximizeBtn2.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const templates2 = page.locator('.grid.h-12.w-16')
+    const templates2 = page.locator('[data-snap-layout-template]')
     const oneThirdTwoThirdsTemplate2 = templates2.nth(6)
     await oneThirdTwoThirdsTemplate2.locator('button').nth(1).click()
     await page.waitForTimeout(100)
@@ -593,7 +610,7 @@ test.describe('Tiling Layout Picker', () => {
     await maximizeBtn.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const templates = page.locator('.grid.h-12.w-16')
+    const templates = page.locator('[data-snap-layout-template]')
     const fullTemplate = templates.first()
     await fullTemplate.locator('button').first().click()
     await page.waitForTimeout(100)
@@ -614,7 +631,7 @@ test.describe('Tiling Layout Picker', () => {
     await maximizeBtn.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const templates = page.locator('.grid.h-12.w-16')
+    const templates = page.locator('[data-snap-layout-template]')
     const leftRightTemplate = templates.nth(1)
     await leftRightTemplate.locator('button').first().click()
     await page.waitForTimeout(100)
@@ -636,7 +653,7 @@ test.describe('Tiling Layout Picker', () => {
     await maximizeBtn.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()
 
-    const templates = page.locator('.grid.h-12.w-16')
+    const templates = page.locator('[data-snap-layout-template]')
     const quartersTemplate = templates.nth(4)
     await quartersTemplate.locator('button').first().click()
     await page.waitForTimeout(100)
@@ -779,6 +796,142 @@ test.describe('Window Minimum Size', () => {
     const newBounds = await getWindowBounds(groups.first())
     expect(newBounds.width).toBeGreaterThanOrEqual(360)
     expect(newBounds.height).toBeGreaterThanOrEqual(260)
+  })
+})
+
+test.describe('Vertical viewport (portrait)', () => {
+  test.use({ viewport: { width: 700, height: 1100 } })
+
+  test('default window uses most of width and is not slim', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    await expect(groups).toHaveCount(1)
+
+    const bounds = await getWindowBounds(groups.first())
+    const viewport = page.viewportSize()!
+    const minExpectedWidth = viewport.width * 0.8
+
+    expect(bounds.width).toBeGreaterThanOrEqual(minExpectedWidth)
+    expect(bounds.height).toBeLessThan(viewport.height - TASKBAR_HEIGHT)
+  })
+
+  test('layout picker shows vertical row with vertical thirds, half-top-two-quarters-bottom, top+bottom options', async ({
+    page,
+  }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+
+    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+
+    const templates = page.locator('[data-snap-layout-template]')
+    await expect(templates).toHaveCount(12)
+    const firstRowGrids = page
+      .locator('div.flex.flex-col.gap-2 > div.flex.gap-2')
+      .first()
+      .locator('[data-snap-layout-template]')
+    await expect(firstRowGrids).toHaveCount(4)
+  })
+
+  test('snapping to top-half via picker fills top half of viewport', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+
+    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+
+    const templates = page.locator('[data-snap-layout-template]')
+    const topBottomStackTemplate = templates.nth(3)
+    await topBottomStackTemplate.locator('button').first().click()
+    await page.waitForTimeout(100)
+
+    const bounds = await getWindowBounds(groups.first())
+    const viewport = page.viewportSize()!
+    const containerH = viewport.height - TASKBAR_HEIGHT
+    const halfH = Math.round(containerH / 2)
+
+    expect(bounds.x).toBeLessThanOrEqual(2)
+    expect(bounds.y).toBeLessThanOrEqual(2)
+    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
+    expect(bounds.height).toBeGreaterThan(halfH - 20)
+    expect(bounds.height).toBeLessThan(halfH + 20)
+  })
+
+  test('snapping to bottom-half via picker fills bottom half of viewport', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+
+    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+
+    const templates = page.locator('[data-snap-layout-template]')
+    const topBottomStackTemplate = templates.nth(3)
+    await topBottomStackTemplate.locator('button').nth(1).click()
+    await page.waitForTimeout(100)
+
+    const bounds = await getWindowBounds(groups.first())
+    const viewport = page.viewportSize()!
+    const containerH = viewport.height - TASKBAR_HEIGHT
+    const halfH = Math.round(containerH / 2)
+
+    expect(bounds.x).toBeLessThanOrEqual(2)
+    expect(bounds.y).toBeGreaterThan(halfH - 20)
+    expect(bounds.y).toBeLessThan(halfH + 20)
+    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
+    expect(bounds.height).toBeGreaterThan(halfH - 20)
+  })
+
+  test('dragging to top edge (off center) snaps to top-half', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const handle = getDragHandle(groups.first())
+    await dragToEdge(page, handle, 'top-half')
+
+    const bounds = await getWindowBounds(groups.first())
+    const viewport = page.viewportSize()!
+    const containerH = viewport.height - TASKBAR_HEIGHT
+    const halfH = Math.round(containerH / 2)
+
+    expect(bounds.y).toBeLessThanOrEqual(2)
+    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
+    expect(bounds.height).toBeGreaterThan(halfH - 20)
+    expect(bounds.height).toBeLessThan(halfH + 20)
+  })
+
+  test('dragging to bottom edge snaps to bottom-half', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const handle = getDragHandle(groups.first())
+    await dragToEdge(page, handle, 'bottom-half')
+
+    const bounds = await getWindowBounds(groups.first())
+    const viewport = page.viewportSize()!
+    const containerH = viewport.height - TASKBAR_HEIGHT
+    const halfH = Math.round(containerH / 2)
+
+    expect(bounds.y).toBeGreaterThan(halfH - 20)
+    expect(bounds.y).toBeLessThan(halfH + 20)
+    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
+    expect(bounds.height).toBeGreaterThan(halfH - 20)
+  })
+
+  test('dragging to center of top edge maximizes window', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const handle = getDragHandle(groups.first())
+    await dragToEdge(page, handle, 'top')
+
+    const bounds = await getWindowBounds(groups.first())
+    const viewport = page.viewportSize()!
+    const containerH = viewport.height - TASKBAR_HEIGHT
+
+    expect(bounds.x).toBeLessThanOrEqual(2)
+    expect(bounds.y).toBeLessThanOrEqual(2)
+    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
+    expect(bounds.height).toBeGreaterThan(containerH - 10)
   })
 })
 

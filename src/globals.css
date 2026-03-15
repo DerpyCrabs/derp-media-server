@@ -424,3 +424,11 @@ body {
   outline: 2px solid oklch(0.7 0.15 250 / 0.6);
   outline-offset: -2px;
 }
+
+/* Override global scrollbar for .scrollbar-none (unlayered so it wins) */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

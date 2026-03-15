@@ -18,6 +18,11 @@ export type SnapZone =
   | 'top-right'
   | 'bottom-left'
   | 'bottom-right'
+  | 'top-half'
+  | 'bottom-half'
+  | 'top-third'
+  | 'middle-third'
+  | 'bottom-third'
   | 'left-third'
   | 'center-third'
   | 'right-third'
@@ -162,8 +167,8 @@ export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
   right: { left: ['left', 'top-left', 'bottom-left'] },
   'top-left': { right: ['top-right'], bottom: ['bottom-left'] },
   'top-right': { left: ['top-left'], bottom: ['bottom-right'] },
-  'bottom-left': { right: ['bottom-right'], top: ['top-left'] },
-  'bottom-right': { left: ['bottom-left'], top: ['top-right'] },
+  'bottom-left': { right: ['bottom-right'], top: ['top-left', 'top-half'] },
+  'bottom-right': { left: ['bottom-left'], top: ['top-right', 'top-half'] },
   'left-third': { right: ['center-third', 'right-two-thirds'] },
   'center-third': { left: ['left-third'], right: ['right-third'] },
   'right-third': { left: ['center-third', 'left-two-thirds'] },
@@ -183,6 +188,11 @@ export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
     top: ['top-center-third'],
   },
   'bottom-right-third': { left: ['bottom-center-third'], top: ['top-right-third'] },
+  'top-half': { bottom: ['bottom-half', 'bottom-left', 'bottom-right'] },
+  'bottom-half': { top: ['top-half'] },
+  'top-third': { bottom: ['middle-third'] },
+  'middle-third': { top: ['top-third'], bottom: ['bottom-third'] },
+  'bottom-third': { top: ['middle-third'] },
 }
 
 const STORAGE_KEY = 'workspace-state'
@@ -241,19 +251,21 @@ function loadWorkspaceState(key: string = STORAGE_KEY): PersistedWorkspaceState 
         (w): w is WorkspaceWindowDefinition =>
           !!w && typeof w.id === 'string' && typeof w.type === 'string' && !!w.source,
       )
-      .map((w) => {
-        if (!w.layout?.bounds) return w
-        const b = w.layout.bounds
-        return {
-          ...w,
-          layout: {
-            ...w.layout,
-            bounds: {
+      .map((w, i) => {
+        const b = w.layout?.bounds
+        const bounds = b
+          ? {
               x: Math.max(0, Math.min(b.x, viewport.width - 100)),
               y: Math.max(0, Math.min(b.y, viewport.height - 100)),
               width: Math.min(b.width, viewport.width),
               height: Math.min(b.height, viewport.height),
-            },
+            }
+          : createDefaultBounds(i, w.type)
+        return {
+          ...w,
+          layout: {
+            ...w.layout,
+            bounds,
           },
         }
       })
@@ -297,6 +309,7 @@ function createDefaultBounds(
   const viewport = getViewportSize()
   const maxWidth = Math.max(viewport.width - 48, 420)
   const maxHeight = Math.max(viewport.height - 48, 320)
+  const isVertical = viewport.height > viewport.width
 
   if (type === 'player') {
     const width = Math.min(Math.max(Math.round(viewport.width * 0.62), 720), maxWidth)
@@ -310,10 +323,17 @@ function createDefaultBounds(
     }
   }
 
-  const width = Math.min(Math.max(Math.round(viewport.width * 0.34), 420), maxWidth)
-  const height = Math.min(Math.max(Math.round(viewport.height * 0.58), 360), maxHeight)
-  const offset = index * 28
+  let width: number
+  let height: number
+  if (isVertical) {
+    width = Math.min(Math.max(Math.round(viewport.width * 0.9), 360), maxWidth)
+    height = Math.min(Math.max(Math.round(viewport.height * 0.55), 360), maxHeight)
+  } else {
+    width = Math.min(Math.max(Math.round(viewport.width * 0.34), 420), maxWidth)
+    height = Math.min(Math.max(Math.round(viewport.height * 0.58), 360), maxHeight)
+  }
 
+  const offset = index * 28
   return {
     x: Math.min(24 + offset, Math.max(viewport.width - width - 16, 16)),
     y: Math.min(24 + offset, Math.max(viewport.height - height - 16, 16)),
@@ -358,6 +378,9 @@ const RIGHT_SIDE_ZONES: SnapZone[] = [
 const TOP_SIDE_ZONES: SnapZone[] = [
   'top-left',
   'top-right',
+  'top-half',
+  'top-third',
+  'middle-third',
   'top-left-third',
   'top-center-third',
   'top-right-third',
@@ -365,6 +388,9 @@ const TOP_SIDE_ZONES: SnapZone[] = [
 const BOTTOM_SIDE_ZONES: SnapZone[] = [
   'bottom-left',
   'bottom-right',
+  'bottom-half',
+  'middle-third',
+  'bottom-third',
   'bottom-left-third',
   'bottom-center-third',
   'bottom-right-third',
@@ -382,6 +408,8 @@ export function snapZoneToBoundsWithOccupied(
   const halfH = Math.round(viewport.height / 2)
   const thirdW = Math.round(viewport.width / 3)
   const twoThirdW = Math.round((viewport.width * 2) / 3)
+  const thirdH = Math.round(viewport.height / 3)
+  const twoThirdH = Math.round((viewport.height * 2) / 3)
 
   const defaultBounds: NonNullable<WorkspaceWindowLayout['bounds']> = (() => {
     switch (zone) {
@@ -402,6 +430,16 @@ export function snapZoneToBoundsWithOccupied(
           width: viewport.width - halfW,
           height: viewport.height - halfH,
         }
+      case 'top-half':
+        return { x: 0, y: 0, width: viewport.width, height: halfH }
+      case 'bottom-half':
+        return { x: 0, y: halfH, width: viewport.width, height: viewport.height - halfH }
+      case 'top-third':
+        return { x: 0, y: 0, width: viewport.width, height: thirdH }
+      case 'middle-third':
+        return { x: 0, y: thirdH, width: viewport.width, height: twoThirdH - thirdH }
+      case 'bottom-third':
+        return { x: 0, y: twoThirdH, width: viewport.width, height: viewport.height - twoThirdH }
       case 'left-third':
         return { x: 0, y: 0, width: thirdW, height: viewport.height }
       case 'center-third':
@@ -1313,6 +1351,7 @@ export function useWorkspace({
 
         const groupId = w.tabGroupId
         const groupWindows = current.filter((win) => win.tabGroupId === groupId)
+        const groupLayout = w.layout
         const defaultBounds =
           offsetBounds ??
           (() => {
@@ -1325,16 +1364,36 @@ export function useWorkspace({
             return {
               ...win,
               tabGroupId: null,
-              layout: { ...win.layout, bounds: defaultBounds, zIndex: nextZIndexRef.current++ },
+              layout: {
+                ...win.layout,
+                bounds: defaultBounds,
+                snapZone: null,
+                fullscreen: false,
+                restoreBounds: win.layout?.bounds ?? win.layout?.restoreBounds ?? null,
+                zIndex: nextZIndexRef.current++,
+              },
             }
           }
           return win
         })
 
         if (groupWindows.length === 2) {
-          return nextWindows.map((win) =>
-            win.tabGroupId === groupId ? { ...win, tabGroupId: null } : win,
-          )
+          return nextWindows.map((win) => {
+            if (win.tabGroupId !== groupId) return win
+            const fallbackBounds = createDefaultBounds(0, win.type)
+            return {
+              ...win,
+              tabGroupId: null,
+              layout: groupLayout
+                ? {
+                    ...groupLayout,
+                    bounds: groupLayout.bounds ?? win.layout?.bounds ?? fallbackBounds,
+                    snapZone: groupLayout.snapZone ?? null,
+                    restoreBounds: groupLayout.restoreBounds ?? groupLayout.bounds ?? null,
+                  }
+                : win.layout,
+            }
+          })
         }
 
         return nextWindows

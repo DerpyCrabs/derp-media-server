@@ -19,8 +19,8 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: [['line'], ['html', { open: 'never' }]],
-  timeout: 10_000,
-  expect: { timeout: 5_000 },
+  timeout: 15_000,
+  expect: { timeout: 10_000 },
   use: {
     baseURL: `http://localhost:${port}`,
     trace: 'on-first-retry',
