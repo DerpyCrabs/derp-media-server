@@ -85,13 +85,12 @@ export function AudioPlayer({
   const dirToFetch = useMemo(() => {
     if (!currentDir && !playingPath) return ''
 
-    let dir = currentDir
-    if (!dir && playingPath) {
+    if (playingPath) {
       const pathParts = playingPath.split(/[/\\]/)
       pathParts.pop()
-      dir = pathParts.join('/')
+      return pathParts.join('/')
     }
-    return dir
+    return currentDir
   }, [currentDir, playingPath])
 
   const { data: allFiles = [] } = useFiles(dirToFetch, shareToken, sharePath)
@@ -134,6 +133,8 @@ export function AudioPlayer({
   const playPreviousAudioRef = useRef<() => void>(() => {})
   const isRepeatRef = useRef(isRepeat)
   const pendingSeekRef = useRef(false)
+  const detailsOpenRef = useRef(detailsOpen)
+  detailsOpenRef.current = detailsOpen
 
   useEffect(() => {
     if (!detailsOpen) return
@@ -218,7 +219,10 @@ export function AudioPlayer({
     if (!audio) return
 
     const handleTimeUpdate = () => {
-      setCurrentTime(audio.currentTime)
+      // Only update store when details are open to avoid flooding re-renders in collapsed taskbar
+      if (detailsOpenRef.current) {
+        setCurrentTime(audio.currentTime)
+      }
       if (playingPath && isVideoFile && isAudioOnly && displayDuration > 0) {
         saveTime(playingPath, audio.currentTime, displayDuration)
       }
@@ -547,15 +551,26 @@ export function AudioPlayer({
         <div className='flex h-8 items-center gap-1 border-l border-border bg-muted/50 px-2 text-muted-foreground'>
           <button
             type='button'
-            className='hidden min-[1150px]:flex items-center gap-1.5 pr-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity text-left'
+            className='flex items-center gap-1.5 pr-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity text-left'
             onClick={() => setDetailsOpen((open) => !open)}
             aria-label='Open audio controls'
             aria-expanded={detailsOpen}
           >
-            <div className='flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted'>
-              <Headphones className='h-3.5 w-3.5 text-muted-foreground' />
+            <div className='flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded bg-muted'>
+              {displayImageUrl ? (
+                <img
+                  key={playingPath ?? 'idle'}
+                  src={displayImageUrl}
+                  alt=''
+                  className='block size-full object-cover object-center'
+                  loading='eager'
+                  decoding='async'
+                />
+              ) : (
+                <Headphones className='h-3.5 w-3.5 shrink-0 text-muted-foreground' />
+              )}
             </div>
-            <div className='max-w-52 min-w-52'>
+            <div className='hidden min-[1150px]:block max-w-52 min-w-52'>
               <div className='truncate text-[12px] font-medium leading-none text-foreground'>
                 {playingPath ? audioMetadata?.title || fileName : 'Audio idle'}
               </div>
@@ -574,12 +589,13 @@ export function AudioPlayer({
           <div className='absolute right-0 bottom-full z-10001 mb-2 w-80 border border-border bg-popover shadow-2xl'>
             <div className='space-y-3 p-3'>
               <div className='flex items-center gap-3'>
-                <div className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden bg-neutral-800'>
+                <div className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-neutral-800'>
                   {displayImageUrl ? (
                     <img
+                      key={playingPath ?? 'idle'}
                       src={displayImageUrl}
                       alt='Album art'
-                      className='h-full w-full object-cover'
+                      className='h-full w-full object-cover object-center'
                     />
                   ) : (
                     <Headphones className='h-5 w-5 text-muted-foreground' />
