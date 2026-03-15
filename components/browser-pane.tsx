@@ -7,7 +7,7 @@ import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BrowserPaneProps {
-  compact?: boolean
+  mode?: 'MediaServer' | 'Workspace'
   dialogs?: ReactNode
   mediaPlayers?: ReactNode
   progress?: ReactNode
@@ -29,7 +29,7 @@ interface BrowserPaneProps {
 }
 
 export function BrowserPane({
-  compact,
+  mode = 'MediaServer',
   dialogs,
   mediaPlayers,
   progress,
@@ -48,16 +48,16 @@ export function BrowserPane({
     <>
       <div
         className={cn(
-          'shrink-0 border-b',
-          compact
-            ? 'border-border bg-muted/50 px-2 py-1'
+          'shrink-0 border-b flex items-center',
+          mode === 'Workspace'
+            ? 'h-9 border-border bg-muted/50 px-2 py-0'
             : 'border-border bg-muted/30 p-1.5 lg:p-2',
         )}
       >
         <div
           className={cn(
-            'flex flex-wrap items-center justify-between',
-            compact ? 'gap-1' : 'gap-1.5 lg:gap-2',
+            'flex flex-wrap items-center justify-between w-full',
+            mode === 'Workspace' ? 'gap-1' : 'gap-1.5 lg:gap-2',
           )}
         >
           {breadcrumbs}
@@ -65,7 +65,10 @@ export function BrowserPane({
             <div className='basis-full md:basis-auto order-last md:order-0 flex items-center justify-end md:justify-start'>
               <Popover.Root>
                 <Popover.Trigger
-                  className='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground outline-none'
+                  className={cn(
+                    'inline-flex shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground outline-none',
+                    mode === 'Workspace' ? 'h-7 w-7' : 'h-8 w-8',
+                  )}
                   aria-label='Open search'
                 >
                   <Search className='h-4 w-4' />
@@ -94,7 +97,7 @@ export function BrowserPane({
           )}
           <div className='flex gap-1 items-center'>
             {actions}
-            <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} />
+            <ViewModeToggle viewMode={viewMode} onChange={onViewModeChange} mode={mode} />
             {trailingSlot}
           </div>
         </div>

@@ -2,13 +2,20 @@ import { useRef, useCallback } from 'react'
 import { Menu } from '@base-ui/react/menu'
 import { Upload, File, Folder } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 interface UploadMenuButtonProps {
   disabled?: boolean
   onUpload: (files: File[]) => void
+  mode?: 'MediaServer' | 'Workspace'
 }
 
-export function UploadMenuButton({ disabled, onUpload }: UploadMenuButtonProps) {
+export function UploadMenuButton({
+  disabled,
+  onUpload,
+  mode = 'MediaServer',
+}: UploadMenuButtonProps) {
+  const isWorkspace = mode === 'Workspace'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
 
@@ -47,10 +54,14 @@ export function UploadMenuButton({ disabled, onUpload }: UploadMenuButtonProps) 
       <Menu.Root>
         <Menu.Trigger
           disabled={disabled}
-          className={buttonVariants({ variant: 'outline', size: 'icon-sm' }) + ' cursor-pointer'}
+          className={cn(
+            buttonVariants({ variant: 'outline', size: 'icon-sm' }),
+            'cursor-pointer',
+            isWorkspace && 'h-7 w-7',
+          )}
           title='Upload'
         >
-          <Upload className='h-4 w-4' />
+          <Upload className={isWorkspace ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
         </Menu.Trigger>
         <Menu.Portal>
           <Menu.Positioner

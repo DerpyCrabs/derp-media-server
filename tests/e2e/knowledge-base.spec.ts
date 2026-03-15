@@ -3,11 +3,13 @@ import { test, expect } from '@playwright/test'
 test.describe('Knowledge Base', () => {
   test('shows search input in KB folders', async ({ page }) => {
     await page.goto('/?dir=Notes')
+    await page.getByRole('button', { name: 'Open search' }).click()
     await expect(page.locator('input[type="search"][placeholder*="Search"]')).toBeVisible()
   })
 
   test('searches notes and shows results', async ({ page }) => {
     await page.goto('/?dir=Notes')
+    await page.getByRole('button', { name: 'Open search' }).click()
     const searchInput = page.locator('input[type="search"][placeholder*="Search"]')
     await searchInput.fill('welcome')
     // Wait for search results to appear
@@ -42,6 +44,7 @@ test.describe('Knowledge Base', () => {
     // Navigate into the folder — should now show search
     await page.locator('table').getByText('SharedContent', { exact: true }).click()
     await page.waitForURL(/dir=SharedContent/)
+    await page.getByRole('button', { name: 'Open search' }).click()
     await expect(page.locator('input[type="search"][placeholder*="Search"]')).toBeVisible()
 
     // Toggle off

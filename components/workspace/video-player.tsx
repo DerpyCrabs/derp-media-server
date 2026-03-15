@@ -227,11 +227,16 @@ export function VideoPlayer({
   }
 
   return (
-    <div className='relative h-full w-full bg-black'>
-      <div className='absolute top-3 right-3 z-10'>
-        <Button variant='secondary' size='sm' onClick={() => setAudioOnly(true)}>
+    <div className='group relative h-full w-full bg-black'>
+      <div className='absolute top-2 right-2 z-10 opacity-0 transition-opacity group-hover:opacity-100'>
+        <Button
+          variant='secondary'
+          size='icon'
+          className='h-7 w-7'
+          onClick={() => setAudioOnly(true)}
+          title='Listen only'
+        >
           <Headphones className='h-4 w-4' />
-          Listen only
         </Button>
       </div>
       <video ref={videoRef} controls className='h-full w-full bg-black object-contain'>
