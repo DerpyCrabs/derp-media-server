@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/context-menu'
 import {
   Pencil,
+  Pin,
   Trash2,
   Edit3,
   Download,
@@ -38,6 +39,7 @@ interface FileContextMenuProps {
   onCopy?: (file: FileItem) => void
   onOpenInNewTab?: (file: FileItem) => void
   onOpenInWorkspace?: (file: FileItem) => void
+  onAddToTaskbar?: (file: FileItem) => void
   /** When true, show "Open in new tab" for files too (workspace only). Default: false (folders only). */
   showOpenInNewTabForFiles?: boolean
   hasEditableFolders?: boolean
@@ -62,6 +64,7 @@ export function FileContextMenu({
   onCopy,
   onOpenInNewTab,
   onOpenInWorkspace,
+  onAddToTaskbar,
   showOpenInNewTabForFiles = false,
   hasEditableFolders = false,
   isFavorite = false,
@@ -148,6 +151,10 @@ export function FileContextMenu({
     if (onOpenInWorkspace) onOpenInWorkspace(file)
   }
 
+  const handleAddToTaskbar = () => {
+    if (onAddToTaskbar) onAddToTaskbar(file)
+  }
+
   // Clone the child element and add the long press handlers
   const childWithHandlers = React.cloneElement(children, longPressHandlers)
 
@@ -171,6 +178,12 @@ export function FileContextMenu({
           <ContextMenuItem onClick={handleOpenInWorkspace}>
             <AppWindow className='mr-2 h-4 w-4' />
             Open in Workspace
+          </ContextMenuItem>
+        )}
+        {onAddToTaskbar && !file.isVirtual && (
+          <ContextMenuItem onClick={handleAddToTaskbar}>
+            <Pin className='mr-2 h-4 w-4' />
+            Add to taskbar
           </ContextMenuItem>
         )}
         {file.isDirectory && (

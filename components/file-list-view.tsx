@@ -61,6 +61,7 @@ interface FileListViewProps {
   onContextCopy?: (file: FileItem) => void
   onContextOpenInNewTab?: (file: FileItem) => void
   onContextOpenInWorkspace?: (file: FileItem) => void
+  onContextAddToTaskbar?: (file: FileItem) => void
   showOpenInNewTabForFiles?: boolean
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
@@ -108,6 +109,7 @@ export function FileListView({
   onContextCopy,
   onContextOpenInNewTab,
   onContextOpenInWorkspace,
+  onContextAddToTaskbar,
   showOpenInNewTabForFiles = false,
   hasEditableFolders = false,
   onMoveFile,
@@ -242,6 +244,7 @@ export function FileListView({
     onContextShare ||
     onContextOpenInNewTab ||
     onContextOpenInWorkspace ||
+    onContextAddToTaskbar ||
     onContextToggleKnowledgeBase ||
     onContextCopyShareLink
 
@@ -476,6 +479,7 @@ export function FileListView({
                 onCopy={onContextCopy}
                 onOpenInNewTab={onContextOpenInNewTab}
                 onOpenInWorkspace={onContextOpenInWorkspace}
+                onAddToTaskbar={onContextAddToTaskbar}
                 showOpenInNewTabForFiles={showOpenInNewTabForFiles}
                 hasEditableFolders={hasEditableFolders}
                 isFavorite={isFavorite}

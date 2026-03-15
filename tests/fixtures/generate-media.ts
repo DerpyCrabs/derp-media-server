@@ -106,6 +106,8 @@ export function generateTestMedia(baseDir: string) {
     JSON.stringify({ name: 'test', items: [1, 2, 3] }, null, 2),
   )
   fs.writeFileSync(path.join(docsDir, 'sample.pdf'), MINIMAL_PDF)
+  // Unsupported type for workspace "modal inside window" e2e test
+  fs.writeFileSync(path.join(docsDir, 'unsupported.xyz'), Buffer.from('test'))
 
   // --- Notes (editable + KB) ---
   const notesDir = path.join(baseDir, 'Notes')

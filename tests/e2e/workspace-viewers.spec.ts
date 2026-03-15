@@ -98,6 +98,19 @@ test.describe('Workspace File Browser', () => {
     await expect(row).toBeVisible()
     await expect(row).toContainText(/\d+\s*(B|KB|MB)/)
   })
+
+  test('unsupported file dialog is contained inside file browser window', async ({ page }) => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    await content.getByText('Documents', { exact: true }).click()
+    await content.locator('table').getByText('unsupported.xyz').click()
+    await page.waitForTimeout(200)
+
+    const dialogMessage = page.getByText('This file type cannot be previewed.')
+    await expect(dialogMessage).toBeVisible()
+    const windowGroup = getWindowGroups(page).first()
+    await expect(windowGroup.locator('text=This file type cannot be previewed.')).toBeVisible()
+  })
 })
 
 test.describe('Workspace Image Viewer', () => {

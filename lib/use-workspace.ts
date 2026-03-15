@@ -63,6 +63,15 @@ export interface WorkspaceWindowDefinition {
   layout?: WorkspaceWindowLayout
 }
 
+export interface PinnedTaskbarItem {
+  id: string
+  path: string
+  isDirectory: boolean
+  title: string
+  customIconName?: string | null
+  source: WorkspaceSource
+}
+
 interface OpenWorkspaceWindowOptions {
   title?: string
   source?: WorkspaceSource
@@ -138,6 +147,9 @@ interface UseWorkspaceResult {
   setActiveTab: (tabGroupId: string, windowId: string) => void
   updateWindowNavigationState: (windowId: string, state: Partial<NavigationState>) => void
   requestPlay: (options: RequestPlayOptions) => void
+  pinnedTaskbarItems: PinnedTaskbarItem[]
+  addPinnedItem: (item: Omit<PinnedTaskbarItem, 'id'>) => void
+  removePinnedItem: (id: string) => void
 }
 
 const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
@@ -181,6 +193,27 @@ interface PersistedWorkspaceState {
   activeWindowId: string | null
   activeTabMap: Record<string, string>
   nextWindowId: number
+  pinnedTaskbarItems: PinnedTaskbarItem[]
+}
+
+function isValidSource(s: unknown): s is WorkspaceSource {
+  if (!s || typeof s !== 'object' || !('kind' in s)) return false
+  const k = (s as WorkspaceSource).kind
+  if (k === 'local') return true
+  if (k === 'share') return typeof (s as WorkspaceSource).token === 'string'
+  return false
+}
+
+function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
+  return (
+    !!p &&
+    typeof p === 'object' &&
+    typeof (p as PinnedTaskbarItem).id === 'string' &&
+    typeof (p as PinnedTaskbarItem).path === 'string' &&
+    typeof (p as PinnedTaskbarItem).isDirectory === 'boolean' &&
+    typeof (p as PinnedTaskbarItem).title === 'string' &&
+    isValidSource((p as PinnedTaskbarItem).source)
+  )
 }
 
 function saveWorkspaceState(state: PersistedWorkspaceState, key: string = STORAGE_KEY) {
@@ -188,6 +221,7 @@ function saveWorkspaceState(state: PersistedWorkspaceState, key: string = STORAG
     const serializable = {
       ...state,
       windows: state.windows.filter((w) => w.id !== PLAYER_WINDOW_ID),
+      pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
     }
     localStorage.setItem(key, JSON.stringify(serializable))
   } catch {}
@@ -226,11 +260,15 @@ function loadWorkspaceState(key: string = STORAGE_KEY): PersistedWorkspaceState 
 
     if (validatedWindows.length === 0) return null
 
+    const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
+    const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
+
     return {
       windows: validatedWindows,
       activeWindowId: parsed.activeWindowId,
       activeTabMap: parsed.activeTabMap ?? {},
       nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
+      pinnedTaskbarItems,
     }
   } catch {
     return null
@@ -610,6 +648,10 @@ export function useWorkspace({
     return getPersistedState()?.activeTabMap ?? {}
   })
   const [playbackSource, setPlaybackSource] = useState<WorkspaceSource | null>(defaultSource)
+  const [pinnedTaskbarItems, setPinnedTaskbarItems] = useState<PinnedTaskbarItem[]>(() => {
+    const persisted = getPersistedState()
+    return persisted?.pinnedTaskbarItems ?? []
+  })
 
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
@@ -620,6 +662,7 @@ export function useWorkspace({
           activeWindowId,
           activeTabMap,
           nextWindowId: nextWindowIdRef.current,
+          pinnedTaskbarItems,
         },
         storageKey,
       )
@@ -627,7 +670,7 @@ export function useWorkspace({
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [windows, activeWindowId, activeTabMap, storageKey])
+  }, [windows, activeWindowId, activeTabMap, pinnedTaskbarItems, storageKey])
 
   windowsRef.current = windows
 
@@ -944,22 +987,33 @@ export function useWorkspace({
     return () => window.removeEventListener('resize', syncWindowBounds)
   }, [])
 
-  const closeWindow = useCallback(
-    (windowId: string) => {
-      setWindows((current) => {
-        const nextWindows = current.filter((window) => window.id !== windowId)
-        setActiveWindowId((currentActive) => {
-          if (currentActive !== windowId) {
-            return currentActive
-          }
+  const closeWindow = useCallback((windowId: string) => {
+    setWindows((current) => {
+      const nextWindows = current.filter((window) => window.id !== windowId)
+      const closedW = current.find((w) => w.id === windowId)
+      const groupId = closedW?.tabGroupId
 
-          return nextWindows.at(-1)?.id ?? null
-        })
-        return nextWindows
+      if (groupId) {
+        const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
+        const nextTabId = remainingInGroup[0]?.id
+        setActiveTabMap((prev) =>
+          nextTabId && prev[groupId] === windowId ? { ...prev, [groupId]: nextTabId } : prev,
+        )
+      }
+
+      setActiveWindowId((currentActive) => {
+        if (currentActive !== windowId) {
+          return currentActive
+        }
+        if (groupId) {
+          const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
+          return remainingInGroup[0]?.id ?? nextWindows.at(-1)?.id ?? null
+        }
+        return nextWindows.at(-1)?.id ?? null
       })
-    },
-    [setWindows],
-  )
+      return nextWindows
+    })
+  }, [])
 
   const requestPlay = useCallback(
     ({ source, path, dir }: RequestPlayOptions) => {
@@ -1420,6 +1474,20 @@ export function useWorkspace({
     [updateWindow],
   )
 
+  const addPinnedItem = useCallback((item: Omit<PinnedTaskbarItem, 'id'>) => {
+    setPinnedTaskbarItems((prev) => {
+      const key = (p: PinnedTaskbarItem) => `${p.path}:${p.source.kind}:${p.source.token ?? ''}`
+      const newKey = `${item.path}:${item.source.kind}:${item.source.token ?? ''}`
+      if (prev.some((p) => key(p) === newKey)) return prev
+      const id = `pinned-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      return [...prev, { ...item, id }]
+    })
+  }, [])
+
+  const removePinnedItem = useCallback((id: string) => {
+    setPinnedTaskbarItems((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
   return useMemo(
     () => ({
       windows,
@@ -1446,6 +1514,9 @@ export function useWorkspace({
       setActiveTab,
       updateWindowNavigationState,
       requestPlay,
+      pinnedTaskbarItems,
+      addPinnedItem,
+      removePinnedItem,
     }),
     [
       windows,
@@ -1472,6 +1543,9 @@ export function useWorkspace({
       setActiveTab,
       updateWindowNavigationState,
       requestPlay,
+      pinnedTaskbarItems,
+      addPinnedItem,
+      removePinnedItem,
     ],
   )
 }

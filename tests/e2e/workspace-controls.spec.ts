@@ -251,6 +251,51 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
   })
 
+  test('closing second (active) tab returns to first tab content', async ({ page }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+    const handleB = getDragHandle(groups.nth(1))
+    const boxB = await handleB.boundingBox()
+    const boxA = await getDragHandle(groups.first()).boundingBox()
+    if (!boxB || !boxA) throw new Error('Handles not visible')
+
+    await dragFromTo(
+      page,
+      boxB.x + boxB.width / 2,
+      boxB.y + boxB.height / 2,
+      boxA.x + boxA.width / 2,
+      boxA.y + boxA.height / 4,
+    )
+    await page.waitForTimeout(200)
+
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    const mergedWindow = getWindowGroups(page).first()
+    const tabStrip = mergedWindow.locator('.workspace-tab-strip')
+    const tabs = tabStrip
+      .locator('[data-no-window-drag]')
+      .filter({ hasNotText: '◂' })
+      .filter({ hasNotText: '▸' })
+    await expect(tabs).toHaveCount(2)
+
+    await tabs.first().click()
+    await page.waitForTimeout(100)
+    const content = mergedWindow.locator('.workspace-window-content')
+    await content.getByText('Documents', { exact: true }).click()
+    await page.waitForTimeout(200)
+    await tabs.nth(1).click()
+    await page.waitForTimeout(100)
+
+    const closeButtons = tabStrip.locator('button:has(.lucide-x)')
+    await closeButtons.nth(1).click()
+    await page.waitForTimeout(300)
+
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    const visibleContent = getWindowGroups(page).first().locator('.workspace-window-content')
+    await expect(visibleContent.getByText('readme.txt')).toBeVisible({ timeout: 10000 })
+  })
+
   test('closing window with multiple tabs closes all tabs', async ({ page }) => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
