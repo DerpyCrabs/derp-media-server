@@ -351,6 +351,38 @@ body {
   overflow: auto;
 }
 
+/* Themed scrollbars — use CSS variables so they adapt to all themes */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -370,7 +402,7 @@ body {
 
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: oklch(0.4 0 0 / 0.5) transparent;
+    scrollbar-color: var(--border) transparent;
     &::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -379,11 +411,11 @@ body {
       background: transparent;
     }
     &::-webkit-scrollbar-thumb {
-      background: oklch(0.4 0 0 / 0.5);
+      background: var(--border);
       border-radius: 3px;
     }
     &::-webkit-scrollbar-thumb:hover {
-      background: oklch(0.5 0 0 / 0.6);
+      background: var(--muted);
     }
   }
 }
