@@ -11,6 +11,7 @@ import type { ShareLink } from '@/lib/shares'
 interface BreadcrumbsProps {
   currentPath: string
   onNavigate: (path: string) => void
+  mode?: 'MediaServer' | 'Workspace'
   customIcons?: Record<string, string>
   onContextSetIcon?: (file: FileItem) => void
   onContextRename?: (file: FileItem) => void
@@ -28,6 +29,7 @@ interface BreadcrumbsProps {
 export function Breadcrumbs({
   currentPath,
   onNavigate,
+  mode = 'MediaServer',
   customIcons = {},
   onContextSetIcon,
   onContextRename,
@@ -41,6 +43,8 @@ export function Breadcrumbs({
   editableFolders = [],
   shares = [],
 }: BreadcrumbsProps) {
+  const isWorkspace = mode === 'Workspace'
+  const btnClass = isWorkspace ? 'h-7 px-2 text-xs gap-1' : 'h-8 px-2.5 text-sm gap-1.5'
   const hasContextMenu = Boolean(onContextSetIcon)
   // Build breadcrumb path
   const breadcrumbs = useMemo(() => {
@@ -187,7 +191,7 @@ export function Breadcrumbs({
         variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
         size='sm'
         onClick={() => onNavigate(crumb.path)}
-        className='gap-1.5 text-sm h-8 px-2.5'
+        className={btnClass}
         disabled={!isVisible}
       >
         {CustomIcon ? (
@@ -252,7 +256,12 @@ export function Breadcrumbs({
         {/* Measure ellipsis button too */}
         <div className='flex items-center gap-2'>
           <ChevronRight className='h-4 w-4 text-muted-foreground' />
-          <Button variant='ghost' size='sm' className='h-8 px-2.5' disabled>
+          <Button
+            variant='ghost'
+            size='sm'
+            className={isWorkspace ? 'h-7 px-2' : 'h-8 px-2.5'}
+            disabled
+          >
             <MoreHorizontal className='h-4 w-4' />
           </Button>
         </div>
@@ -277,7 +286,7 @@ export function Breadcrumbs({
                     <Button
                       variant='ghost'
                       size='sm'
-                      className='h-8 px-2.5'
+                      className={isWorkspace ? 'h-7 px-2' : 'h-8 px-2.5'}
                       onClick={handleEllipsisClick}
                     >
                       <MoreHorizontal className='h-4 w-4' />
@@ -304,7 +313,7 @@ export function Breadcrumbs({
             <Button
               variant='ghost'
               size='sm'
-              className='h-8 px-2.5'
+              className={isWorkspace ? 'h-7 px-2' : 'h-8 px-2.5'}
               onClick={handleEllipsisClick}
               title='Collapse breadcrumbs'
             >

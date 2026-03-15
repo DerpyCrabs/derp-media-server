@@ -655,9 +655,9 @@ function FileBrowserInner({
           setShowCreateFolder(true)
         }}
         title='Create new folder'
-        className='h-8 w-8'
+        className='h-7 w-7'
       >
-        <FolderPlus className='h-4 w-4' />
+        <FolderPlus className='h-3.5 w-3.5' />
       </Button>
       <Button
         variant='outline'
@@ -668,12 +668,12 @@ function FileBrowserInner({
           setShowCreateFile(true)
         }}
         title='Create new file'
-        className='h-8 w-8'
+        className='h-7 w-7'
       >
-        <FilePlus className='h-4 w-4' />
+        <FilePlus className='h-3.5 w-3.5' />
       </Button>
-      <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
-      <div className='w-px h-6 bg-border mx-1' />
+      <UploadMenuButton mode='Workspace' disabled={isUploading} onUpload={handleUploadFiles} />
+      <div className='w-px h-5 bg-border mx-1' />
     </>
   ) : null
 
@@ -771,7 +771,7 @@ function FileBrowserInner({
       tabIndex={-1}
     >
       <BrowserPane
-        compact
+        mode='Workspace'
         dialogs={dialogs}
         progress={
           <UploadProgress
@@ -785,6 +785,7 @@ function FileBrowserInner({
           <Breadcrumbs
             currentPath={currentPath}
             onNavigate={handleBreadcrumbClick}
+            mode='Workspace'
             customIcons={customIcons}
             onContextSetIcon={handleContextSetIcon}
             onContextRename={handleContextRename}
