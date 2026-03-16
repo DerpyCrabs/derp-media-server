@@ -487,86 +487,81 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
   })
   const taskbarItems = useMemo(
     () =>
-      windows
-        .filter((w) => {
-          if (!w.tabGroupId) return true
-          const group = windows.filter((win) => win.tabGroupId === w.tabGroupId)
-          return group[0]?.id === w.id
-        })
-        .map((window) => {
-          const groupWindows = window.tabGroupId
-            ? windows.filter((w) => w.tabGroupId === window.tabGroupId)
-            : [window]
-          const groupId = window.tabGroupId ?? window.id
-          const activeTabId = activeTabMap[groupId] ?? window.id
-          const displayWindow = groupWindows.find((w) => w.id === activeTabId) ?? window
-          const tabCount = groupWindows.length
-          const path =
+      windowGroups.map((group) => {
+        const groupWindows = group.windows
+        const groupId = group.groupId
+        const leader = groupWindows[0]
+        const activeTabId = activeTabMap[groupId] ?? leader?.id
+        const displayWindow =
+          groupWindows.find((w) => w.id === activeTabId) ?? leader ?? groupWindows[0]
+        const tabCount = groupWindows.length
+        const path =
+          displayWindow.iconPath ??
+          (displayWindow.type === 'browser'
+            ? (displayWindow.initialState.dir ?? '')
+            : displayWindow.type === 'player'
+              ? (playbackSession.state.playing ?? '')
+              : (displayWindow.initialState.viewing ?? ''))
+        const isDir = displayWindow.type === 'browser'
+        const tooltip = path ? `${isDir ? 'Folder' : 'File'}: ${path}` : displayWindow.title
+        const dragData =
+          path && displayWindow.source
+            ? {
+                path,
+                isDirectory: isDir,
+                sourceKind: displayWindow.source.kind,
+                sourceToken: displayWindow.source.token,
+              }
+            : undefined
+        return {
+          id: groupId,
+          label: tabCount > 1 ? `${displayWindow.title} (+${tabCount - 1})` : displayWindow.title,
+          active: groupWindows.some((w) => w.id === activeWindowId),
+          tooltip,
+          dragData,
+          icon: getIcon(
+            displayWindow.iconType ??
+              (displayWindow.type === 'browser'
+                ? MediaType.FOLDER
+                : displayWindow.type === 'player'
+                  ? MediaType.VIDEO
+                  : displayWindow.initialState.viewing
+                    ? getMediaType(displayWindow.initialState.viewing.split('.').pop() ?? '')
+                    : MediaType.OTHER),
             displayWindow.iconPath ??
-            (displayWindow.type === 'browser'
-              ? (displayWindow.initialState.dir ?? '')
-              : displayWindow.type === 'player'
-                ? (playbackSession.state.playing ?? '')
-                : (displayWindow.initialState.viewing ?? ''))
-          const isDir = displayWindow.type === 'browser'
-          const tooltip = path ? `${isDir ? 'Folder' : 'File'}: ${path}` : displayWindow.title
-          const dragData =
-            path && displayWindow.source
-              ? {
-                  path,
-                  isDirectory: isDir,
-                  sourceKind: displayWindow.source.kind,
-                  sourceToken: displayWindow.source.token,
-                }
-              : undefined
-          return {
-            id: window.id,
-            label: tabCount > 1 ? `${displayWindow.title} (+${tabCount - 1})` : displayWindow.title,
-            active: groupWindows.some((w) => w.id === activeWindowId),
-            tooltip,
-            dragData,
-            icon: getIcon(
-              displayWindow.iconType ??
-                (displayWindow.type === 'browser'
-                  ? MediaType.FOLDER
-                  : displayWindow.type === 'player'
-                    ? MediaType.VIDEO
-                    : displayWindow.initialState.viewing
-                      ? getMediaType(displayWindow.initialState.viewing.split('.').pop() ?? '')
-                      : MediaType.OTHER),
-              displayWindow.iconPath ??
-                (displayWindow.type === 'browser'
-                  ? (displayWindow.initialState.dir ?? '')
-                  : displayWindow.type === 'player'
-                    ? (playbackSession.state.playing ?? '')
-                    : (displayWindow.initialState.viewing ?? '')),
-              (displayWindow.iconType ?? MediaType.OTHER) === MediaType.AUDIO,
-              (displayWindow.iconType ??
-                (displayWindow.type === 'player' ? MediaType.VIDEO : MediaType.OTHER)) ===
-                MediaType.VIDEO,
-              displayWindow.iconIsVirtual ?? false,
-            ),
-            onSelect: () => {
-              const isMinimized = window.layout?.minimized ?? false
-              const isActive = groupWindows.some((w) => w.id === activeWindowId)
-              if (isMinimized) {
-                focusWindow(window.id)
-              } else if (isActive) {
-                setWindowMinimized(window.id, true)
-              } else {
-                focusWindow(window.id)
-              }
-            },
-            onClose: () => {
-              for (const w of groupWindows) {
-                if (w.type === 'player') playbackSession.closePlayer()
-                closeWindow(w.id)
-              }
-            },
-          }
-        }),
+              (displayWindow.type === 'browser'
+                ? (displayWindow.initialState.dir ?? '')
+                : displayWindow.type === 'player'
+                  ? (playbackSession.state.playing ?? '')
+                  : (displayWindow.initialState.viewing ?? '')),
+            (displayWindow.iconType ?? MediaType.OTHER) === MediaType.AUDIO,
+            (displayWindow.iconType ??
+              (displayWindow.type === 'player' ? MediaType.VIDEO : MediaType.OTHER)) ===
+              MediaType.VIDEO,
+            displayWindow.iconIsVirtual ?? false,
+          ),
+          onSelect: () => {
+            const leaderId = leader?.id ?? groupWindows[0]?.id
+            const isMinimized = leader?.layout?.minimized ?? false
+            const isActive = groupWindows.some((w) => w.id === activeWindowId)
+            if (isMinimized) {
+              focusWindow(leaderId)
+            } else if (isActive) {
+              setWindowMinimized(leaderId, true)
+            } else {
+              focusWindow(leaderId)
+            }
+          },
+          onClose: () => {
+            for (const w of groupWindows) {
+              if (w.type === 'player') playbackSession.closePlayer()
+              closeWindow(w.id)
+            }
+          },
+        }
+      }),
     [
-      windows,
+      windowGroups,
       activeWindowId,
       activeTabMap,
       focusWindow,
