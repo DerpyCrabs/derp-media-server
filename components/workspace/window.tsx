@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import { Maximize2, Minimize2, Minus, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,17 +22,17 @@ import {
   type WorkspaceWindowDefinition,
   workspaceSourceToMediaContext,
 } from '@/lib/use-workspace'
+import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import { cn } from '@/lib/utils'
 import { hasFileDragData, getFileDragData, type FileDragData } from '@/lib/file-drag-data'
 
 type Bounds = { x: number; y: number; width: number; height: number }
 
 export interface WindowGroupProps {
+  storageKey: string
   tabs: WorkspaceWindowDefinition[]
-  activeTabId: string | null
   editableFolders: string[]
   playbackSession: NavigationSession
-  activeWindowId: string | null
   onFocus: (windowId: string) => void
   onMinimize: (windowId: string) => void
   onToggleMaximize: (windowId: string) => void
@@ -126,10 +126,10 @@ interface TabContentProps {
   onRequestView: WindowGroupProps['onRequestView']
   onOpenInNewTabInSameWindow: WindowGroupProps['onOpenInNewTabInSameWindow']
   onAddToTaskbar?: WindowGroupProps['onAddToTaskbar']
-  onFocusWindow?: () => void
+  onFocus: (windowId: string) => void
 }
 
-function TabContent({
+const TabContent = memo(function TabContent({
   window: win,
   editableFolders,
   playbackSession,
@@ -141,7 +141,7 @@ function TabContent({
   onRequestView,
   onOpenInNewTabInSameWindow,
   onAddToTaskbar,
-  onFocusWindow,
+  onFocus,
 }: TabContentProps) {
   const localSession = useInMemoryNavigationSession(win.initialState)
   const mergedWindowSession = useWorkspaceWindowSession(
@@ -229,7 +229,7 @@ function TabContent({
   return (
     <div
       className='workspace-window-content relative min-h-0 flex-1 overflow-hidden'
-      onMouseDownCapture={onFocusWindow}
+      onMouseDownCapture={() => onFocus(win.id)}
     >
       {win.type === 'player' ? (
         <VideoPlayer session={playbackSession} mediaContext={mediaContext} />
@@ -270,7 +270,7 @@ function TabContent({
       )}
     </div>
   )
-}
+})
 
 function getTabIcon(
   tab: WorkspaceWindowDefinition,
@@ -636,12 +636,11 @@ function SingleTabHeader({
   )
 }
 
-export function WindowGroup({
+function WindowGroupInner({
+  storageKey,
   tabs,
-  activeTabId,
   editableFolders,
   playbackSession,
-  activeWindowId,
   onFocus,
   onMinimize,
   onToggleMaximize,
@@ -666,13 +665,34 @@ export function WindowGroup({
 }: WindowGroupProps) {
   const leader = tabs[0] as WorkspaceWindowDefinition | undefined
   const leaderId = leader?.id ?? ''
+  const groupId = leader?.tabGroupId ?? leaderId
+
+  const isActive = useWorkspaceFocusStore(
+    useCallback(
+      (s) => tabs.some((t) => t.id === (s.byKey[storageKey]?.activeWindowId ?? null)),
+      [storageKey, tabs],
+    ),
+  )
+  const activeTabIdFromStore = useWorkspaceFocusStore(
+    useCallback(
+      (s) => s.byKey[storageKey]?.activeTabMap[groupId] ?? leaderId,
+      [storageKey, groupId, leaderId],
+    ),
+  )
+  const visibleTabId = activeTabIdFromStore ?? leaderId
+
+  const layoutOverlay = useWorkspaceFocusStore(
+    useCallback(
+      (s) => (leaderId ? s.byKey[storageKey]?.layoutByWindowId?.[leaderId] : undefined),
+      [storageKey, leaderId],
+    ),
+  )
   const bounds = leader?.layout?.bounds
+  const effectiveZIndex = layoutOverlay?.zIndex ?? leader?.layout?.zIndex ?? 1
+  const effectiveMinimized = layoutOverlay?.minimized ?? leader?.layout?.minimized ?? false
   const isSnapped = !!leader?.layout?.snapZone
   const isFullscreen = !!leader?.layout?.fullscreen
   const hasTabs = tabs.length > 1
-  const visibleTabId = activeTabId ?? leaderId
-  const isActive = tabs.some((t) => t.id === activeWindowId)
-  const groupId = leader?.tabGroupId ?? leaderId
   const windowContentRef = useRef<HTMLDivElement>(null)
 
   const currentMediaFile = useMediaPlayer((state) => state.currentFile)
@@ -857,15 +877,14 @@ export function WindowGroup({
     [tabs.length, onDetachTab],
   )
 
-  if (!leader || !bounds || leader.layout?.minimized) {
+  if (!leader || !bounds || effectiveMinimized) {
     return null
   }
 
   const visibleTab = tabs.find((t) => t.id === visibleTabId) ?? leader
-  const zIndex = leader.layout?.zIndex ?? 1
 
   return (
-    <div className='relative' style={{ zIndex }}>
+    <div className='relative' style={{ zIndex: effectiveZIndex }}>
       <Rnd
         size={{ width: bounds.width, height: bounds.height }}
         position={{ x: bounds.x, y: bounds.y }}
@@ -1004,7 +1023,7 @@ export function WindowGroup({
               onRequestView={onRequestView}
               onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
               onAddToTaskbar={onAddToTaskbar}
-              onFocusWindow={() => onFocus(tab.id)}
+              onFocus={onFocus}
             />
           ))}
         </div>
@@ -1012,3 +1031,5 @@ export function WindowGroup({
     </div>
   )
 }
+
+export const WindowGroup = memo(WindowGroupInner)

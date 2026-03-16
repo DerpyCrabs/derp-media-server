@@ -15,12 +15,13 @@ import { useMediaPlayer } from '@/lib/use-media-player'
 import { useSettings } from '@/lib/use-settings'
 import { useSnapZones } from '@/lib/use-snap-zones'
 import { MediaType } from '@/lib/types'
-import type { SnapZone, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import type { SnapZone, WorkspaceSource, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
   useWorkspace,
   workspaceSourceToMediaContext,
   snapZoneToBoundsWithOccupied,
 } from '@/lib/use-workspace'
+import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 
 interface LayoutPickerState {
   windowId: string
@@ -56,6 +57,7 @@ interface WorkspacePageProps {
 
 export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
   const {
+    storageKey,
     windows,
     activeWindowId,
     playbackSource,
@@ -92,10 +94,60 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [layoutPicker, setLayoutPicker] = useState<LayoutPickerState | null>(null)
   const windowsRef = useRef(windows)
+  const playbackSessionRef = useRef(playbackSession)
   const mergeHighlightRef = useRef<string | null>(null)
   const draggedWindowIdRef = useRef<string | null>(null)
   const mergeThrottleLastRef = useRef(0)
   const MERGE_HIGHLIGHT_THROTTLE_MS = 50
+
+  windowsRef.current = windows
+  playbackSessionRef.current = playbackSession
+
+  const setWindowMinimizedRef = useRef(setWindowMinimized)
+  const requestPlayRef = useRef(requestPlay)
+  const openViewerWindowRef = useRef(openViewerWindow)
+  const setLayoutPickerRef = useRef(setLayoutPicker)
+  const closeWindowRef = useRef(closeWindow)
+  const addTabToGroupRef = useRef(addTabToGroup)
+  const openInNewTabRef = useRef(openInNewTab)
+  const setActiveTabRef = useRef(setActiveTab)
+  setWindowMinimizedRef.current = setWindowMinimized
+  requestPlayRef.current = requestPlay
+  openViewerWindowRef.current = openViewerWindow
+  setLayoutPickerRef.current = setLayoutPicker
+  closeWindowRef.current = closeWindow
+  addTabToGroupRef.current = addTabToGroup
+  openInNewTabRef.current = openInNewTab
+  setActiveTabRef.current = setActiveTab
+
+  const handleMinimize = useCallback((windowId: string) => {
+    setWindowMinimizedRef.current(windowId, true)
+  }, [])
+  const handleRequestPlay = useCallback((source: WorkspaceSource, path: string, dir?: string) => {
+    requestPlayRef.current({ source, path, dir })
+  }, [])
+  const handleRequestView = useCallback((source: WorkspaceSource, path: string, dir: string) => {
+    openViewerWindowRef.current({
+      title: path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer',
+      source,
+      initialState: { dir, viewing: path },
+    })
+  }, [])
+  const handleOpenLayoutPicker = useCallback((windowId: string, anchorRect: DOMRect) => {
+    setLayoutPickerRef.current({ windowId, anchorRect })
+  }, [])
+
+  const handleCloseWindowGroup = useCallback((windowId: string) => {
+    const ws = windowsRef.current
+    const w = ws.find((win) => win.id === windowId)
+    if (!w) return
+    const groupId = w.tabGroupId ?? w.id
+    const groupWindows = ws.filter((win) => (win.tabGroupId ?? win.id) === groupId)
+    for (const win of groupWindows) {
+      if (win.type === 'player') playbackSessionRef.current.closePlayer()
+      closeWindowRef.current(win.id)
+    }
+  }, [])
 
   const getZoneBounds = useCallback((zone: SnapZone) => {
     const ws = windowsRef.current
@@ -215,7 +267,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     [onDragMove, findMergeTarget, updateMergeHighlight, clearMergeHighlight],
   )
 
-  const handleDragStop = useCallback(
+  const handleDragStopImpl = useCallback(
     (
       windowId: string,
       finalBounds: { x: number; y: number; width: number; height: number },
@@ -264,8 +316,19 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       clearMergeHighlight,
     ],
   )
+  const handleDragStopRef = useRef(handleDragStopImpl)
+  handleDragStopRef.current = handleDragStopImpl
+  const handleDragStop = useCallback(
+    (
+      windowId: string,
+      finalBounds: { x: number; y: number; width: number; height: number },
+      clientX: number,
+      clientY: number,
+    ) => handleDragStopRef.current(windowId, finalBounds, clientX, clientY),
+    [],
+  )
 
-  const handleDetachTab = useCallback(
+  const handleDetachTabImpl = useCallback(
     (windowId: string, clientX: number, clientY: number) => {
       const w = windowsRef.current.find((win) => win.id === windowId)
       if (!w) return
@@ -376,6 +439,13 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       clearMergeHighlight,
     ],
   )
+  const handleDetachTabRef = useRef(handleDetachTabImpl)
+  handleDetachTabRef.current = handleDetachTabImpl
+  const handleDetachTab = useCallback(
+    (windowId: string, clientX: number, clientY: number) =>
+      handleDetachTabRef.current(windowId, clientX, clientY),
+    [],
+  )
 
   const handleRestoreDrag = useCallback(
     (windowId: string, clientX: number, _clientY: number) => {
@@ -427,32 +497,37 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     [updateWindowNavigationState],
   )
 
-  const handleCloseTab = useCallback(
+  const handleCloseTabImpl = useCallback(
     (windowId: string) => {
-      const w = windows.find((win) => win.id === windowId)
+      const ws = windowsRef.current
+      const w = ws.find((win) => win.id === windowId)
       if (w?.type === 'player') {
-        playbackSession.closePlayer()
+        playbackSessionRef.current.closePlayer()
       }
 
       if (w?.tabGroupId) {
         const groupId = w.tabGroupId
-        const isActive = activeTabMap[groupId] === windowId
+        const focusState = useWorkspaceFocusStore.getState().getFocusState(storageKey)
+        const isActive = focusState.activeTabMap[groupId] === windowId
         if (isActive) {
-          const groupTabs = windows.filter((win) => win.tabGroupId === groupId)
+          const groupTabs = ws.filter((win) => win.tabGroupId === groupId)
           const idx = groupTabs.findIndex((t) => t.id === windowId)
           const next = groupTabs[idx - 1] ?? groupTabs[idx + 1]
           if (next) {
-            setActiveTab(groupId, next.id)
+            setActiveTabRef.current(groupId, next.id)
           }
         }
       }
 
-      closeWindow(windowId)
+      closeWindowRef.current(windowId)
     },
-    [windows, closeWindow, playbackSession, activeTabMap, setActiveTab],
+    [storageKey],
   )
+  const handleCloseTabRef = useRef(handleCloseTabImpl)
+  handleCloseTabRef.current = handleCloseTabImpl
+  const handleCloseTab = useCallback((windowId: string) => handleCloseTabRef.current(windowId), [])
 
-  const handleDropFileToTabBar = useCallback(
+  const handleDropFileToTabBarImpl = useCallback(
     (
       targetWindowId: string,
       data: {
@@ -463,7 +538,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       insertIndex?: number,
     ) => {
       const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
-      openInNewTab(
+      openInNewTabRef.current(
         targetWindowId,
         { path: data.path, isDirectory: data.isDirectory },
         dir,
@@ -471,7 +546,36 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
         insertIndex,
       )
     },
-    [openInNewTab],
+    [],
+  )
+  const handleDropFileToTabBarRef = useRef(handleDropFileToTabBarImpl)
+  handleDropFileToTabBarRef.current = handleDropFileToTabBarImpl
+  const handleDropFileToTabBar = useCallback(
+    (
+      targetWindowId: string,
+      data: {
+        path: string
+        isDirectory: boolean
+        source: import('@/lib/use-workspace').WorkspaceSource
+      },
+      insertIndex?: number,
+    ) => handleDropFileToTabBarRef.current(targetWindowId, data, insertIndex),
+    [],
+  )
+
+  const handleAddTab = useCallback((sourceWindowId: string) => {
+    addTabToGroupRef.current(sourceWindowId)
+  }, [])
+
+  const handleOpenInNewTabInSameWindow = useCallback(
+    (
+      sourceWindowId: string,
+      file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+      currentPath: string,
+      sourceOverride?: import('@/lib/use-workspace').WorkspaceSource,
+      insertIndex?: number,
+    ) => openInNewTabRef.current(sourceWindowId, file, currentPath, sourceOverride, insertIndex),
+    [],
   )
 
   const { data: authConfig } = useQuery({
@@ -483,9 +587,10 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     enabled: !shareConfig,
   })
 
-  const editableFolders = shareConfig
-    ? [shareConfig.sharePath]
-    : (authConfig?.editableFolders ?? [])
+  const editableFolders = useMemo(
+    () => (shareConfig ? [shareConfig.sharePath] : (authConfig?.editableFolders ?? [])),
+    [shareConfig, authConfig?.editableFolders],
+  )
   const playbackContext = useMemo(
     () => workspaceSourceToMediaContext(playbackSource),
     [playbackSource],
@@ -716,43 +821,27 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
         {windowGroups.map((group) => (
           <WindowGroup
             key={group.groupId}
+            storageKey={storageKey}
             tabs={group.windows}
-            activeTabId={activeTabMap[group.groupId] ?? null}
             editableFolders={editableFolders}
             playbackSession={playbackSession}
-            activeWindowId={activeWindowId}
             onFocus={focusWindow}
-            onMinimize={(windowId) => setWindowMinimized(windowId, true)}
+            onMinimize={handleMinimize}
             onToggleMaximize={toggleWindowFullscreen}
-            onClose={(windowId) => {
-              const w = windows.find((win) => win.id === windowId)
-              if (!w) return
-              const groupId = w.tabGroupId ?? w.id
-              const groupWindows = windows.filter((win) => (win.tabGroupId ?? win.id) === groupId)
-              for (const win of groupWindows) {
-                if (win.type === 'player') playbackSession.closePlayer()
-                closeWindow(win.id)
-              }
-            }}
+            onClose={handleCloseWindowGroup}
             onUpdateBounds={updateWindowBounds}
             onResizeSnapped={resizeSnappedWindow}
             onDragMove={handleDragMove}
             onDragStop={handleDragStop}
             onPresentationChange={updateWindowPresentation}
             onNavigationStateChange={handleNavigationStateChange}
-            onRequestPlay={(source, path, dir) => requestPlay({ source, path, dir })}
-            onRequestView={(source, path, dir) =>
-              openViewerWindow({
-                title: path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer',
-                source,
-                initialState: { dir, viewing: path },
-              })
-            }
-            onOpenLayoutPicker={(windowId, anchorRect) => setLayoutPicker({ windowId, anchorRect })}
+            onRequestPlay={handleRequestPlay}
+            onRequestView={handleRequestView}
+            onOpenLayoutPicker={handleOpenLayoutPicker}
             onSelectTab={setActiveTab}
             onCloseTab={handleCloseTab}
-            onAddTab={addTabToGroup}
-            onOpenInNewTabInSameWindow={openInNewTab}
+            onAddTab={handleAddTab}
+            onOpenInNewTabInSameWindow={handleOpenInNewTabInSameWindow}
             onDetachTab={handleDetachTab}
             onRestoreDrag={handleRestoreDrag}
             onDropFileToTabBar={handleDropFileToTabBar}
