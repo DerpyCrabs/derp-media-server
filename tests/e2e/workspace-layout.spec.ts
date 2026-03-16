@@ -943,15 +943,39 @@ test.describe('Window Z-Ordering and Focus', () => {
 
     const rndA = getRndWrapper(groups.first())
     const rndB = getRndWrapper(groups.nth(1))
+    const getZ = (el: HTMLElement) =>
+      parseInt((el.parentElement as HTMLElement)?.style?.zIndex || '0', 10)
 
-    const zB = await rndB.evaluate((el) => parseInt(el.style.zIndex || '0'))
-    const zA = await rndA.evaluate((el) => parseInt(el.style.zIndex || '0'))
+    const zB = await rndB.evaluate(getZ)
+    const zA = await rndA.evaluate(getZ)
     expect(zB).toBeGreaterThan(zA)
 
     await groups.first().dispatchEvent('mousedown')
     await page.waitForTimeout(100)
 
-    const newZA = await rndA.evaluate((el) => parseInt(el.style.zIndex || '0'))
+    const newZA = await rndA.evaluate(getZ)
+    expect(newZA).toBeGreaterThan(zB)
+  })
+
+  test('clicking window content brings it to front', async ({ page }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    const groups = getWindowGroups(page)
+
+    const rndA = getRndWrapper(groups.first())
+    const rndB = getRndWrapper(groups.nth(1))
+    const getZ = (el: HTMLElement) =>
+      parseInt((el.parentElement as HTMLElement)?.style?.zIndex || '0', 10)
+
+    const zB = await rndB.evaluate(getZ)
+    const zA = await rndA.evaluate(getZ)
+    expect(zB).toBeGreaterThan(zA)
+
+    const contentA = groups.first().locator('.workspace-window-content')
+    await contentA.click({ position: { x: 10, y: 50 } })
+    await page.waitForTimeout(100)
+
+    const newZA = await rndA.evaluate(getZ)
     expect(newZA).toBeGreaterThan(zB)
   })
 

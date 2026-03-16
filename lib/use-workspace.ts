@@ -774,21 +774,31 @@ export function useWorkspace({
     [createWindow],
   )
 
-  const focusWindow = useCallback(
-    (windowId: string) => {
-      const zIndex = nextZIndexRef.current++
-      updateWindow(windowId, (window) => ({
-        ...window,
-        layout: {
-          ...window.layout,
-          minimized: false,
-          zIndex,
-        },
-      }))
-      setActiveWindowId(windowId)
-    },
-    [updateWindow],
-  )
+  const focusWindow = useCallback((windowId: string) => {
+    const zIndex = nextZIndexRef.current++
+    setWindows((current) => {
+      const focused = current.find((w) => w.id === windowId)
+      const groupId = focused ? (focused.tabGroupId ?? focused.id) : null
+      if (groupId == null) return current
+      let changed = false
+      const next = current.map((w) => {
+        const inGroup = (w.tabGroupId ?? w.id) === groupId
+        if (!inGroup) return w
+        if ((w.layout?.zIndex ?? 0) === zIndex && !w.layout?.minimized) return w
+        changed = true
+        return {
+          ...w,
+          layout: {
+            ...w.layout,
+            minimized: false,
+            zIndex,
+          },
+        }
+      })
+      return changed ? next : current
+    })
+    setActiveWindowId(windowId)
+  }, [])
 
   const openPlayerWindow = useCallback(
     (options?: Pick<RequestPlayOptions, 'source' | 'path'>) => {
