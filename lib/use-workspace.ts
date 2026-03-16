@@ -3,6 +3,7 @@ import { getMediaType } from '@/lib/media-utils'
 import { useInMemoryNavigationSession, type NavigationState } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 import { MediaType } from '@/lib/types'
+import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 
 export interface WorkspaceSource {
   kind: 'local' | 'share'
@@ -125,6 +126,7 @@ interface RequestPlayOptions {
 }
 
 interface UseWorkspaceResult {
+  storageKey: string
   windows: WorkspaceWindowDefinition[]
   activeWindowId: string | null
   playbackSource: WorkspaceSource | null
@@ -656,6 +658,10 @@ export function useWorkspace({
     // single-window layout for that folder instead of restoring the saved layout.
     const hasExplicitFolder = initialDir != null && initialDir !== ''
     if (hasExplicitFolder) {
+      useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
+        activeWindowId: 'workspace-window-1',
+        activeTabMap: {},
+      })
       return [
         {
           id: 'workspace-window-1',
@@ -674,6 +680,20 @@ export function useWorkspace({
     }
     const persisted = getPersistedState()
     if (persisted) {
+      const layoutByWindowId: Record<string, { zIndex?: number; minimized?: boolean }> = {}
+      for (const w of persisted.windows) {
+        if (w.layout && (w.layout.zIndex != null || w.layout.minimized != null)) {
+          layoutByWindowId[w.id] = {
+            ...(w.layout.zIndex != null && { zIndex: w.layout.zIndex }),
+            ...(w.layout.minimized != null && { minimized: w.layout.minimized }),
+          }
+        }
+      }
+      useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
+        activeWindowId: persisted.activeWindowId,
+        activeTabMap: persisted.activeTabMap ?? {},
+        layoutByWindowId: Object.keys(layoutByWindowId).length > 0 ? layoutByWindowId : undefined,
+      })
       const maxId = persisted.windows.reduce((max, w) => {
         const match = w.id.match(/workspace-window-(\d+)/)
         return match ? Math.max(max, Number(match[1])) : max
@@ -683,6 +703,10 @@ export function useWorkspace({
       nextZIndexRef.current = maxZ + 1
       return persisted.windows
     }
+    useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
+      activeWindowId: 'workspace-window-1',
+      activeTabMap: {},
+    })
     return [
       {
         id: 'workspace-window-1',
@@ -699,16 +723,25 @@ export function useWorkspace({
       } satisfies WorkspaceWindowDefinition,
     ]
   })
-  const [activeWindowId, setActiveWindowId] = useState<string | null>(() => {
-    const hasExplicitFolder = initialDir != null && initialDir !== ''
-    if (hasExplicitFolder) return 'workspace-window-1'
-    return getPersistedState()?.activeWindowId ?? 'workspace-window-1'
-  })
-  const [activeTabMap, setActiveTabMap] = useState<Record<string, string>>(() => {
-    const hasExplicitFolder = initialDir != null && initialDir !== ''
-    if (hasExplicitFolder) return {}
-    return getPersistedState()?.activeTabMap ?? {}
-  })
+
+  const focusState = useWorkspaceFocusStore((s) => s.byKey[storageKey] ?? null)
+  const activeWindowId = focusState?.activeWindowId ?? null
+  const activeTabMap = useMemo(() => focusState?.activeTabMap ?? {}, [focusState?.activeTabMap])
+
+  const setFocusStoreActiveWindowId = useCallback(
+    (id: string | null) => useWorkspaceFocusStore.getState().setActiveWindowId(storageKey, id),
+    [storageKey],
+  )
+  const setFocusStoreActiveTab = useCallback(
+    (tabGroupId: string, windowId: string) =>
+      useWorkspaceFocusStore.getState().setActiveTab(storageKey, tabGroupId, windowId),
+    [storageKey],
+  )
+  const setFocusStoreActiveTabMap = useCallback(
+    (updater: (prev: Record<string, string>) => Record<string, string>) =>
+      useWorkspaceFocusStore.getState().setActiveTabMap(storageKey, updater),
+    [storageKey],
+  )
   const [playbackSource, setPlaybackSource] = useState<WorkspaceSource | null>(defaultSource)
   const [pinnedTaskbarItems, setPinnedTaskbarItems] = useState<PinnedTaskbarItem[]>(() => {
     const persisted = getPersistedState()
@@ -718,11 +751,17 @@ export function useWorkspace({
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
+      const focus = useWorkspaceFocusStore.getState().getFocusState(storageKey)
+      const layoutOverlay = focus.layoutByWindowId ?? {}
+      const windowsToSave = windows.map((w) => ({
+        ...w,
+        layout: w.layout ? { ...w.layout, ...layoutOverlay[w.id] } : undefined,
+      }))
       saveWorkspaceState(
         {
-          windows,
-          activeWindowId,
-          activeTabMap,
+          windows: windowsToSave,
+          activeWindowId: focus.activeWindowId,
+          activeTabMap: focus.activeTabMap,
           nextWindowId: nextWindowIdRef.current,
           pinnedTaskbarItems,
         },
@@ -732,7 +771,7 @@ export function useWorkspace({
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [windows, activeWindowId, activeTabMap, pinnedTaskbarItems, storageKey])
+  }, [windows, pinnedTaskbarItems, storageKey, focusState])
 
   windowsRef.current = windows
 
@@ -793,10 +832,10 @@ export function useWorkspace({
         }
         return [...current, nextWindow]
       })
-      setActiveWindowId(id)
+      setFocusStoreActiveWindowId(id)
       return id
     },
-    [windows, defaultSource],
+    [windows, defaultSource, setFocusStoreActiveWindowId],
   )
 
   const openBrowserWindow = useCallback(
@@ -804,31 +843,23 @@ export function useWorkspace({
     [createWindow],
   )
 
-  const focusWindow = useCallback((windowId: string) => {
-    const zIndex = nextZIndexRef.current++
-    setWindows((current) => {
+  const focusWindow = useCallback(
+    (windowId: string) => {
+      const zIndex = nextZIndexRef.current++
+      const current = windowsRef.current
       const focused = current.find((w) => w.id === windowId)
       const groupId = focused ? (focused.tabGroupId ?? focused.id) : null
-      if (groupId == null) return current
-      let changed = false
-      const next = current.map((w) => {
-        const inGroup = (w.tabGroupId ?? w.id) === groupId
-        if (!inGroup) return w
-        if ((w.layout?.zIndex ?? 0) === zIndex && !w.layout?.minimized) return w
-        changed = true
-        return {
-          ...w,
-          layout: {
-            ...w.layout,
-            minimized: false,
-            zIndex,
-          },
-        }
-      })
-      return changed ? next : current
-    })
-    setActiveWindowId(windowId)
-  }, [])
+      if (groupId != null) {
+        const windowIds = current.filter((w) => (w.tabGroupId ?? w.id) === groupId).map((w) => w.id)
+        useWorkspaceFocusStore.getState().setGroupLayoutOverlay(storageKey, windowIds, {
+          zIndex,
+          minimized: false,
+        })
+      }
+      setFocusStoreActiveWindowId(windowId)
+    },
+    [storageKey, setFocusStoreActiveWindowId],
+  )
 
   const openPlayerWindow = useCallback(
     (options?: Pick<RequestPlayOptions, 'source' | 'path'>) => {
@@ -852,7 +883,7 @@ export function useWorkspace({
             zIndex,
           },
         }))
-        setActiveWindowId(PLAYER_WINDOW_ID)
+        setFocusStoreActiveWindowId(PLAYER_WINDOW_ID)
         return PLAYER_WINDOW_ID
       }
 
@@ -875,10 +906,17 @@ export function useWorkspace({
       }
 
       setWindows((current) => [...current, nextWindow])
-      setActiveWindowId(PLAYER_WINDOW_ID)
+      setFocusStoreActiveWindowId(PLAYER_WINDOW_ID)
       return PLAYER_WINDOW_ID
     },
-    [playbackSession.state.playing, playbackSource, defaultSource, updateWindow, windows],
+    [
+      playbackSession.state.playing,
+      playbackSource,
+      defaultSource,
+      updateWindow,
+      windows,
+      setFocusStoreActiveWindowId,
+    ],
   )
 
   const openViewerWindow = useCallback(
@@ -949,39 +987,39 @@ export function useWorkspace({
 
   const setWindowMinimized = useCallback(
     (windowId: string, minimized: boolean) => {
-      updateWindow(windowId, (window) => ({
-        ...window,
-        layout: {
-          ...window.layout,
-          minimized,
-        },
-      }))
-      setActiveWindowId((current) => {
-        if (current !== windowId || !minimized) return windowId
-        const ws = windowsRef.current
-        const minimizingW = ws.find((w) => w.id === windowId)
-        const minimizingGroupId = minimizingW?.tabGroupId ?? minimizingW?.id ?? windowId
+      useWorkspaceFocusStore.getState().setWindowLayoutOverlay(storageKey, windowId, { minimized })
+      const current = useWorkspaceFocusStore.getState().getFocusState(storageKey).activeWindowId
+      if (current !== windowId || !minimized) {
+        setFocusStoreActiveWindowId(windowId)
+        return
+      }
+      const ws = windowsRef.current
+      const minimizingW = ws.find((w) => w.id === windowId)
+      const minimizingGroupId = minimizingW?.tabGroupId ?? minimizingW?.id ?? windowId
+      const layoutMap =
+        useWorkspaceFocusStore.getState().getFocusState(storageKey).layoutByWindowId ?? {}
 
-        let nextId: string | null = null
-        let maxZ = -1
-        const seen = new Set<string>()
-        for (const w of ws) {
-          const gid = w.tabGroupId ?? w.id
-          if (gid === minimizingGroupId) continue
-          if (seen.has(gid)) continue
-          seen.add(gid)
-          const leader = ws.find((x) => (x.tabGroupId ?? x.id) === gid)
-          if (!leader?.layout || leader.layout.minimized) continue
-          const z = leader.layout.zIndex ?? 0
-          if (z > maxZ) {
-            maxZ = z
-            nextId = leader.id
-          }
+      let nextId: string | null = null
+      let maxZ = -1
+      const seen = new Set<string>()
+      for (const w of ws) {
+        const gid = w.tabGroupId ?? w.id
+        if (gid === minimizingGroupId) continue
+        if (seen.has(gid)) continue
+        seen.add(gid)
+        const leader = ws.find((x) => (x.tabGroupId ?? x.id) === gid)
+        if (!leader?.layout) continue
+        const effectiveMinimized = layoutMap[leader.id]?.minimized ?? leader.layout.minimized
+        if (effectiveMinimized) continue
+        const z = layoutMap[leader.id]?.zIndex ?? leader.layout.zIndex ?? 0
+        if (z > maxZ) {
+          maxZ = z
+          nextId = leader.id
         }
-        return nextId ?? null
-      })
+      }
+      setFocusStoreActiveWindowId(nextId)
     },
-    [updateWindow],
+    [storageKey, setFocusStoreActiveWindowId],
   )
 
   const toggleWindowFullscreen = useCallback(
@@ -1006,9 +1044,9 @@ export function useWorkspace({
           },
         }
       })
-      setActiveWindowId(windowId)
+      setFocusStoreActiveWindowId(windowId)
     },
-    [updateWindow],
+    [updateWindow, setFocusStoreActiveWindowId],
   )
 
   useEffect(() => {
@@ -1065,33 +1103,39 @@ export function useWorkspace({
     return () => window.removeEventListener('resize', syncWindowBounds)
   }, [])
 
-  const closeWindow = useCallback((windowId: string) => {
-    setWindows((current) => {
-      const nextWindows = current.filter((window) => window.id !== windowId)
-      const closedW = current.find((w) => w.id === windowId)
-      const groupId = closedW?.tabGroupId
+  const closeWindow = useCallback(
+    (windowId: string) => {
+      setWindows((current) => {
+        const nextWindows = current.filter((window) => window.id !== windowId)
+        const closedW = current.find((w) => w.id === windowId)
+        const groupId = closedW?.tabGroupId
 
-      if (groupId) {
-        const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
-        const nextTabId = remainingInGroup[0]?.id
-        setActiveTabMap((prev) =>
-          nextTabId && prev[groupId] === windowId ? { ...prev, [groupId]: nextTabId } : prev,
-        )
-      }
-
-      setActiveWindowId((currentActive) => {
-        if (currentActive !== windowId) {
-          return currentActive
-        }
         if (groupId) {
           const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
-          return remainingInGroup[0]?.id ?? nextWindows.at(-1)?.id ?? null
+          const nextTabId = remainingInGroup[0]?.id
+          setFocusStoreActiveTabMap((prev) =>
+            nextTabId && prev[groupId] === windowId ? { ...prev, [groupId]: nextTabId } : prev,
+          )
         }
-        return nextWindows.at(-1)?.id ?? null
+
+        const currentActive = useWorkspaceFocusStore
+          .getState()
+          .getFocusState(storageKey).activeWindowId
+        if (currentActive === windowId) {
+          let nextActive: string | null
+          if (groupId) {
+            const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
+            nextActive = remainingInGroup[0]?.id ?? nextWindows.at(-1)?.id ?? null
+          } else {
+            nextActive = nextWindows.at(-1)?.id ?? null
+          }
+          setFocusStoreActiveWindowId(nextActive)
+        }
+        return nextWindows
       })
-      return nextWindows
-    })
-  }, [])
+    },
+    [storageKey, setFocusStoreActiveWindowId, setFocusStoreActiveTabMap],
+  )
 
   const requestPlay = useCallback(
     ({ source, path, dir }: RequestPlayOptions) => {
@@ -1143,42 +1187,50 @@ export function useWorkspace({
               : window,
           )
         })
-        setActiveWindowId(PLAYER_WINDOW_ID)
+        setFocusStoreActiveWindowId(PLAYER_WINDOW_ID)
         return
       }
 
       setWindows((current) => current.filter((window) => window.id !== PLAYER_WINDOW_ID))
-      setActiveWindowId((current) => (current === PLAYER_WINDOW_ID ? null : current))
+      const currentActive = useWorkspaceFocusStore
+        .getState()
+        .getFocusState(storageKey).activeWindowId
+      if (currentActive === PLAYER_WINDOW_ID) {
+        setFocusStoreActiveWindowId(null)
+      }
     },
-    [playbackSession],
+    [playbackSession, storageKey, setFocusStoreActiveWindowId],
   )
 
-  const snapWindowFn = useCallback((windowId: string, zone: SnapZone) => {
-    const zIndex = nextZIndexRef.current++
-    setWindows((current) => {
-      const occupied = current
-        .filter((w) => w.id !== windowId && w.layout?.snapZone && w.layout?.bounds)
-        .map((w) => ({ bounds: w.layout!.bounds!, snapZone: w.layout!.snapZone! }))
-      const snapBounds = snapZoneToBoundsWithOccupied(zone, occupied)
-      return current.map((w) =>
-        w.id === windowId
-          ? {
-              ...w,
-              layout: {
-                ...w.layout,
-                fullscreen: false,
-                snapZone: zone,
-                minimized: false,
-                zIndex,
-                bounds: snapBounds,
-                restoreBounds: w.layout?.restoreBounds ?? w.layout?.bounds ?? null,
-              },
-            }
-          : w,
-      )
-    })
-    setActiveWindowId(windowId)
-  }, [])
+  const snapWindowFn = useCallback(
+    (windowId: string, zone: SnapZone) => {
+      const zIndex = nextZIndexRef.current++
+      setWindows((current) => {
+        const occupied = current
+          .filter((w) => w.id !== windowId && w.layout?.snapZone && w.layout?.bounds)
+          .map((w) => ({ bounds: w.layout!.bounds!, snapZone: w.layout!.snapZone! }))
+        const snapBounds = snapZoneToBoundsWithOccupied(zone, occupied)
+        return current.map((w) =>
+          w.id === windowId
+            ? {
+                ...w,
+                layout: {
+                  ...w.layout,
+                  fullscreen: false,
+                  snapZone: zone,
+                  minimized: false,
+                  zIndex,
+                  bounds: snapBounds,
+                  restoreBounds: w.layout?.restoreBounds ?? w.layout?.bounds ?? null,
+                },
+              }
+            : w,
+        )
+      })
+      setFocusStoreActiveWindowId(windowId)
+    },
+    [setFocusStoreActiveWindowId],
+  )
 
   const unsnapWindow = useCallback(
     (windowId: string, dropPosition?: { x: number; y: number }) => {
@@ -1384,13 +1436,13 @@ export function useWorkspace({
         const withoutMoved = withTabGroup.filter((w) => w.id !== windowId)
         return insertWindowAtGroupIndex(withoutMoved, updatedMoved, groupId, insertIndex)
       })
-      setActiveTabMap((prev) => {
+      setFocusStoreActiveTabMap((prev) => {
         const target = windows.find((w) => w.id === targetWindowId)
         const groupId = target?.tabGroupId || targetWindowId
         return { ...prev, [groupId]: windowId }
       })
     },
-    [windows],
+    [windows, setFocusStoreActiveTabMap],
   )
 
   const splitWindowFromGroup = useCallback(
@@ -1449,7 +1501,7 @@ export function useWorkspace({
         return nextWindows
       })
 
-      setActiveTabMap((prev) => {
+      setFocusStoreActiveTabMap((prev) => {
         const w = windows.find((win) => win.id === windowId)
         if (!w?.tabGroupId) return prev
         const groupId = w.tabGroupId
@@ -1464,15 +1516,18 @@ export function useWorkspace({
         return prev
       })
 
-      setActiveWindowId(windowId)
+      setFocusStoreActiveWindowId(windowId)
     },
-    [windows],
+    [windows, setFocusStoreActiveTabMap, setFocusStoreActiveWindowId],
   )
 
-  const setActiveTab = useCallback((tabGroupId: string, windowId: string) => {
-    setActiveTabMap((prev) => ({ ...prev, [tabGroupId]: windowId }))
-    setActiveWindowId(windowId)
-  }, [])
+  const setActiveTab = useCallback(
+    (tabGroupId: string, windowId: string) => {
+      setFocusStoreActiveTab(tabGroupId, windowId)
+      setFocusStoreActiveWindowId(windowId)
+    },
+    [setFocusStoreActiveTab, setFocusStoreActiveWindowId],
+  )
 
   const addTabToGroup = useCallback(
     (sourceWindowId: string) => {
@@ -1515,11 +1570,11 @@ export function useWorkspace({
         return [...updated, newWindow]
       })
 
-      setActiveTabMap((prev) => ({ ...prev, [groupId]: id }))
-      setActiveWindowId(id)
+      setFocusStoreActiveTabMap((prev) => ({ ...prev, [groupId]: id }))
+      setFocusStoreActiveWindowId(id)
       return id
     },
-    [windows],
+    [windows, setFocusStoreActiveTabMap, setFocusStoreActiveWindowId],
   )
 
   const openInNewTab = useCallback(
@@ -1602,6 +1657,7 @@ export function useWorkspace({
 
   return useMemo(
     () => ({
+      storageKey,
       windows,
       activeWindowId,
       playbackSource,
@@ -1631,11 +1687,12 @@ export function useWorkspace({
       removePinnedItem,
     }),
     [
+      storageKey,
       windows,
       activeWindowId,
+      activeTabMap,
       playbackSource,
       playbackSession,
-      activeTabMap,
       focusWindow,
       closeWindow,
       openBrowserWindow,
