@@ -1047,7 +1047,7 @@ test.describe('State Persistence', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(600)
     await expect(getWindowGroups(page)).toHaveCount(1)

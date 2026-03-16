@@ -70,7 +70,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 
@@ -94,14 +94,14 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
     const tabStrip = page.locator('.workspace-tab-strip')
     const tabs = tabStrip
-      .locator('[data-no-window-drag]')
+      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
       .filter({ hasNotText: '◂' })
       .filter({ hasNotText: '▸' })
     const secondTab = tabs.nth(1)
@@ -120,6 +120,95 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
+  test('detach tab then drag back onto tab bar merges at chosen place', async ({ page }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+    const handleB = getDragHandle(groups.nth(1))
+    const boxB = await handleB.boundingBox()
+    const boxA = await getDragHandle(groups.first()).boundingBox()
+    if (!boxB || !boxA) throw new Error('Handles not visible')
+
+    await dragFromTo(
+      page,
+      boxB.x + boxB.width / 2,
+      boxB.y + boxB.height / 2,
+      boxA.x + boxA.width / 2,
+      boxA.y + 16,
+    )
+    await page.waitForTimeout(200)
+    await expect(getWindowGroups(page)).toHaveCount(1)
+
+    const tabStrip = page.locator('.workspace-tab-strip')
+    const tabs = tabStrip
+      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
+      .filter({ hasNotText: '◂' })
+      .filter({ hasNotText: '▸' })
+    const secondTab = tabs.nth(1)
+    const tabBox = await secondTab.boundingBox()
+    if (!tabBox) throw new Error('Tab not visible')
+
+    await dragFromTo(
+      page,
+      tabBox.x + tabBox.width / 2,
+      tabBox.y + tabBox.height / 2,
+      tabBox.x + tabBox.width / 2,
+      tabBox.y + tabBox.height / 2 + 60,
+    )
+    await page.waitForTimeout(200)
+    await expect(getWindowGroups(page)).toHaveCount(2)
+
+    const detachedGroup = getWindowGroups(page).nth(1)
+    const detachedHandle = getDragHandle(detachedGroup)
+    const detachedBox = await detachedHandle.boundingBox()
+    const firstGroup = getWindowGroups(page).first()
+    const targetHandleBox = await getDragHandle(firstGroup).boundingBox()
+    if (!detachedBox || !targetHandleBox) throw new Error('Handles not visible')
+
+    await dragFromTo(
+      page,
+      detachedBox.x + detachedBox.width / 2,
+      detachedBox.y + 16,
+      targetHandleBox.x + targetHandleBox.width / 2,
+      targetHandleBox.y + 16,
+    )
+    await page.waitForTimeout(200)
+
+    await expect(getWindowGroups(page)).toHaveCount(1)
+  })
+
+  test('merge at slot inserts tab at chosen position', async ({ page }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    const groups = getWindowGroups(page)
+    await expect(groups).toHaveCount(2)
+
+    const groupA = groups.first()
+    const firstSlot = groupA.locator('[data-tab-drop-slot]').first()
+    await expect(firstSlot).toBeVisible()
+    const slotBox = await firstSlot.boundingBox()
+    const handleB = getDragHandle(groups.nth(1))
+    const boxB = await handleB.boundingBox()
+    if (!slotBox || !boxB) throw new Error('Handles not visible')
+
+    await dragFromTo(
+      page,
+      boxB.x + boxB.width / 2,
+      boxB.y + boxB.height / 2,
+      slotBox.x + slotBox.width / 2,
+      slotBox.y + slotBox.height / 2,
+    )
+    await page.waitForTimeout(200)
+
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    const tabStrip = page.locator('.workspace-tab-strip')
+    const tabs = tabStrip
+      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
+      .filter({ has: page.locator('span') })
+    await expect(tabs.first()).toBeVisible()
+  })
+
   test('shows correct tab count in taskbar after merge', async ({ page }) => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
@@ -135,7 +224,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 
@@ -166,14 +255,14 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')
     const tabs = tabStrip
-      .locator('[data-no-window-drag]')
+      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
       .filter({ hasNotText: '◂' })
       .filter({ hasNotText: '▸' })
     await expect(tabs).toHaveCount(2)
@@ -210,13 +299,13 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 
     const tabStrip = page.locator('.workspace-tab-strip')
     const tabs = tabStrip
-      .locator('[data-no-window-drag]')
+      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
       .filter({ hasNotText: '◂' })
       .filter({ hasNotText: '▸' })
     await expect(tabs).toHaveCount(2)
@@ -240,7 +329,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 
@@ -266,7 +355,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 
@@ -274,7 +363,7 @@ test.describe('Tab Merging and Splitting', () => {
     const mergedWindow = getWindowGroups(page).first()
     const tabStrip = mergedWindow.locator('.workspace-tab-strip')
     const tabs = tabStrip
-      .locator('[data-no-window-drag]')
+      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
       .filter({ hasNotText: '◂' })
       .filter({ hasNotText: '▸' })
     await expect(tabs).toHaveCount(2)
@@ -311,7 +400,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 
@@ -499,7 +588,7 @@ test.describe('Window Buttons', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
     await expect(getWindowGroups(page)).toHaveCount(1)

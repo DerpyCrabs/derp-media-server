@@ -83,6 +83,29 @@ interface OpenWorkspaceWindowOptions {
   initialState?: Partial<NavigationState>
   tabGroupId?: string | null
   layout?: WorkspaceWindowLayout
+  insertIndex?: number
+}
+
+function insertWindowAtGroupIndex(
+  current: WorkspaceWindowDefinition[],
+  windowToInsert: WorkspaceWindowDefinition,
+  groupId: string,
+  insertIndex: number,
+): WorkspaceWindowDefinition[] {
+  const groupIndices: number[] = []
+  current.forEach((w, i) => {
+    const gid = w.tabGroupId ?? w.id
+    if (gid === groupId) groupIndices.push(i)
+  })
+  const targetGlobalIndex =
+    insertIndex >= groupIndices.length
+      ? (groupIndices[groupIndices.length - 1] ?? -1) + 1
+      : groupIndices[insertIndex]
+  return [
+    ...current.slice(0, targetGlobalIndex),
+    windowToInsert,
+    ...current.slice(targetGlobalIndex),
+  ]
 }
 
 interface ShareConfig {
@@ -137,7 +160,7 @@ interface UseWorkspaceResult {
     newBounds: NonNullable<WorkspaceWindowLayout['bounds']>,
     direction: string,
   ) => void
-  mergeWindowIntoGroup: (windowId: string, targetWindowId: string) => void
+  mergeWindowIntoGroup: (windowId: string, targetWindowId: string, insertIndex?: number) => void
   splitWindowFromGroup: (
     windowId: string,
     offsetBounds?: NonNullable<WorkspaceWindowLayout['bounds']>,
@@ -148,6 +171,7 @@ interface UseWorkspaceResult {
     file: { path: string; isDirectory: boolean; isVirtual?: boolean },
     currentPath: string,
     sourceOverride?: WorkspaceSource,
+    insertIndex?: number,
   ) => string
   setActiveTab: (tabGroupId: string, windowId: string) => void
   updateWindowNavigationState: (windowId: string, state: Partial<NavigationState>) => void
@@ -740,6 +764,7 @@ export function useWorkspace({
         initialState = {},
         tabGroupId = null,
         layout = {},
+        insertIndex,
       }: OpenWorkspaceWindowOptions,
     ) => {
       const id = `workspace-window-${nextWindowIdRef.current++}`
@@ -762,7 +787,12 @@ export function useWorkspace({
         layout: createWindowLayout(layout, createDefaultBounds(windows.length, type), zIndex),
       }
 
-      setWindows((current) => [...current, nextWindow])
+      setWindows((current) => {
+        if (tabGroupId != null && insertIndex != null) {
+          return insertWindowAtGroupIndex(current, nextWindow, tabGroupId, insertIndex)
+        }
+        return [...current, nextWindow]
+      })
       setActiveWindowId(id)
       return id
     },
@@ -1324,25 +1354,35 @@ export function useWorkspace({
   )
 
   const mergeWindowIntoGroup = useCallback(
-    (windowId: string, targetWindowId: string) => {
+    (windowId: string, targetWindowId: string, insertIndex?: number) => {
       setWindows((current) => {
         const target = current.find((w) => w.id === targetWindowId)
-        if (!target) return current
+        const moved = current.find((w) => w.id === windowId)
+        if (!target || !moved) return current
 
         const groupId = target.tabGroupId || targetWindowId
-        return current.map((w) => {
-          if (w.id === targetWindowId && !w.tabGroupId) {
-            return { ...w, tabGroupId: groupId }
-          }
-          if (w.id === windowId) {
-            return {
-              ...w,
-              tabGroupId: groupId,
-              layout: { ...w.layout, bounds: target.layout?.bounds, zIndex: target.layout?.zIndex },
-            }
-          }
+        const updatedMoved: WorkspaceWindowDefinition = {
+          ...moved,
+          tabGroupId: groupId,
+          layout: {
+            ...moved.layout,
+            bounds: target.layout?.bounds ?? moved.layout?.bounds,
+            zIndex: target.layout?.zIndex ?? moved.layout?.zIndex,
+          },
+        }
+        if (insertIndex == null) {
+          return current.map((w) => {
+            if (w.id === targetWindowId && !w.tabGroupId) return { ...w, tabGroupId: groupId }
+            if (w.id === windowId) return updatedMoved
+            return w
+          })
+        }
+        const withTabGroup = current.map((w) => {
+          if (w.id === targetWindowId && !w.tabGroupId) return { ...w, tabGroupId: groupId }
           return w
         })
+        const withoutMoved = withTabGroup.filter((w) => w.id !== windowId)
+        return insertWindowAtGroupIndex(withoutMoved, updatedMoved, groupId, insertIndex)
       })
       setActiveTabMap((prev) => {
         const target = windows.find((w) => w.id === targetWindowId)
@@ -1488,6 +1528,7 @@ export function useWorkspace({
       file: { path: string; isDirectory: boolean; isVirtual?: boolean },
       currentPath: string,
       sourceOverride?: WorkspaceSource,
+      insertIndex?: number,
     ) => {
       const sourceWindow = windows.find((w) => w.id === sourceWindowId)
       if (!sourceWindow || file.isVirtual) return sourceWindowId
@@ -1508,6 +1549,7 @@ export function useWorkspace({
           initialState: { dir: file.path },
           tabGroupId: groupId,
           layout,
+          insertIndex,
         })
       } else {
         const dir = file.path.split(/[/\\]/).slice(0, -1).join('/') || currentPath
@@ -1518,6 +1560,7 @@ export function useWorkspace({
           initialState: { dir, viewing: file.path },
           tabGroupId: groupId,
           layout,
+          insertIndex,
         })
       }
       setActiveTab(groupId, newWindowId)
