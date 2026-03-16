@@ -179,7 +179,12 @@ export function Layout({
   const hasAnyTaskbarItems = items.length > 0 || pinnedItems.length > 0
 
   return (
-    <div className={cn('fixed inset-0 flex flex-col overflow-hidden bg-background', className)}>
+    <div
+      className={cn(
+        'workspace-layout select-none fixed inset-0 flex flex-col overflow-hidden bg-background',
+        className,
+      )}
+    >
       <div className='relative min-h-0 flex-1 overflow-hidden'>
         {items.length > 0 ? children : emptyState}
       </div>
