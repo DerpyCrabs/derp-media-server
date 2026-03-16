@@ -125,6 +125,7 @@ interface TabContentProps {
   onRequestView: WindowGroupProps['onRequestView']
   onOpenInNewTabInSameWindow: WindowGroupProps['onOpenInNewTabInSameWindow']
   onAddToTaskbar?: WindowGroupProps['onAddToTaskbar']
+  onFocusWindow?: () => void
 }
 
 function TabContent({
@@ -139,6 +140,7 @@ function TabContent({
   onRequestView,
   onOpenInNewTabInSameWindow,
   onAddToTaskbar,
+  onFocusWindow,
 }: TabContentProps) {
   const localSession = useInMemoryNavigationSession(win.initialState)
   const mergedWindowSession = useWorkspaceWindowSession(
@@ -224,7 +226,10 @@ function TabContent({
   if (!visible) return null
 
   return (
-    <div className='workspace-window-content relative min-h-0 flex-1 overflow-hidden'>
+    <div
+      className='workspace-window-content relative min-h-0 flex-1 overflow-hidden'
+      onMouseDownCapture={onFocusWindow}
+    >
       {win.type === 'player' ? (
         <VideoPlayer session={playbackSession} mediaContext={mediaContext} />
       ) : win.type === 'viewer' ? (
@@ -731,149 +736,152 @@ export function WindowGroup({
   }
 
   const visibleTab = tabs.find((t) => t.id === visibleTabId) ?? leader
+  const zIndex = leader.layout?.zIndex ?? 1
 
   return (
-    <Rnd
-      size={{ width: bounds.width, height: bounds.height }}
-      position={{ x: bounds.x, y: bounds.y }}
-      minWidth={360}
-      minHeight={260}
-      disableDragging={false}
-      enableResizing={isFullscreen ? false : snapResizeHandles}
-      dragHandleClassName='workspace-window-drag-handle'
-      cancel='.workspace-window-content, input, textarea, select, a, audio, video, img, [data-no-window-drag], .workspace-window-buttons'
-      style={{ zIndex: leader.layout?.zIndex ?? 1 }}
-      onDragStart={handleDragStart}
-      onDrag={handleDrag}
-      onResizeStart={() => onFocus(leader.id)}
-      onDragStop={handleDragStop}
-      onResize={(_event, direction, ref, _delta, position) => {
-        if (isSnapped) {
-          onResizeSnapped(
-            leader.id,
-            {
-              x: position.x,
-              y: position.y,
-              width: ref.offsetWidth,
-              height: ref.offsetHeight,
-            },
-            direction,
-          )
-        }
-      }}
-      onResizeStop={(_event, direction, ref, _delta, position) => {
-        const newBounds = {
-          x: position.x,
-          y: position.y,
-          width: ref.offsetWidth,
-          height: ref.offsetHeight,
-        }
-        if (isSnapped) {
-          onResizeSnapped(leader.id, newBounds, direction)
-        } else {
-          onUpdateBounds(leader.id, newBounds)
-        }
-      }}
-    >
-      <div
-        ref={windowContentRef}
-        data-window-group={groupId}
-        className={cn(
-          'relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl',
-          isActive && 'border-border shadow-black/20',
-        )}
-        onMouseDown={() => onFocus(visibleTab.id)}
+    <div className='relative' style={{ zIndex }}>
+      <Rnd
+        size={{ width: bounds.width, height: bounds.height }}
+        position={{ x: bounds.x, y: bounds.y }}
+        minWidth={360}
+        minHeight={260}
+        disableDragging={false}
+        enableResizing={isFullscreen ? false : snapResizeHandles}
+        dragHandleClassName='workspace-window-drag-handle'
+        cancel='.workspace-window-content, input, textarea, select, a, audio, video, img, [data-no-window-drag], .workspace-window-buttons'
+        onDragStart={handleDragStart}
+        onDrag={handleDrag}
+        onResizeStart={() => onFocus(leader.id)}
+        onDragStop={handleDragStop}
+        onResize={(_event, direction, ref, _delta, position) => {
+          if (isSnapped) {
+            onResizeSnapped(
+              leader.id,
+              {
+                x: position.x,
+                y: position.y,
+                width: ref.offsetWidth,
+                height: ref.offsetHeight,
+              },
+              direction,
+            )
+          }
+        }}
+        onResizeStop={(_event, direction, ref, _delta, position) => {
+          const newBounds = {
+            x: position.x,
+            y: position.y,
+            width: ref.offsetWidth,
+            height: ref.offsetHeight,
+          }
+          if (isSnapped) {
+            onResizeSnapped(leader.id, newBounds, direction)
+          } else {
+            onUpdateBounds(leader.id, newBounds)
+          }
+        }}
       >
         <div
+          ref={windowContentRef}
+          data-window-group={groupId}
           className={cn(
-            'flex h-8 items-stretch border-b border-border',
-            isActive ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground',
+            'relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl',
+            isActive && 'border-border shadow-black/20',
           )}
+          onMouseDownCapture={() => onFocus(visibleTab.id)}
         >
           <div
-            data-testid='window-drag-handle'
-            className='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center active:cursor-grabbing'
-          >
-            {hasTabs ? (
-              <TabStrip
-                tabs={tabs}
-                visibleTabId={visibleTabId}
-                groupId={groupId}
-                isWindowActive={isActive}
-                getIcon={getIcon}
-                onSelectTab={onSelectTab}
-                onFocus={onFocus}
-                onCloseTab={onCloseTab}
-                onTabDragDetach={handleTabDragDetach}
-                onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
-              />
-            ) : (
-              <SingleTabHeader
-                leader={leader}
-                isWindowActive={isActive}
-                getIcon={getIcon}
-                onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
-              />
+            className={cn(
+              'flex h-8 items-stretch border-b border-border',
+              isActive ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground',
             )}
-          </div>
-          <div
-            className='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
-            aria-hidden
-          />
-          <div
-            data-no-window-drag
-            className='workspace-window-buttons flex h-full shrink-0 items-stretch gap-0 self-stretch pl-3'
-            onMouseDown={(e) => e.stopPropagation()}
           >
-            <Button
-              variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-              onClick={() => guardClick(() => onAddTab(leader.id))}
+            <div
+              data-testid='window-drag-handle'
+              className='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center active:cursor-grabbing'
             >
-              <Plus />
-            </Button>
-            <Button
-              variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-              onClick={() => guardClick(() => onMinimize(leader.id))}
+              {hasTabs ? (
+                <TabStrip
+                  tabs={tabs}
+                  visibleTabId={visibleTabId}
+                  groupId={groupId}
+                  isWindowActive={isActive}
+                  getIcon={getIcon}
+                  onSelectTab={onSelectTab}
+                  onFocus={onFocus}
+                  onCloseTab={onCloseTab}
+                  onTabDragDetach={handleTabDragDetach}
+                  onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
+                />
+              ) : (
+                <SingleTabHeader
+                  leader={leader}
+                  isWindowActive={isActive}
+                  getIcon={getIcon}
+                  onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
+                />
+              )}
+            </div>
+            <div
+              className='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
+              aria-hidden
+            />
+            <div
+              data-no-window-drag
+              className='workspace-window-buttons flex h-full shrink-0 items-stretch gap-0 self-stretch pl-3'
+              onMouseDown={(e) => e.stopPropagation()}
             >
-              <Minus />
-            </Button>
-            <Button
-              variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-              onClick={() => guardClick(() => onToggleMaximize(leader.id))}
-              onContextMenu={handleMaximizeContextMenu}
-            >
-              {isFullscreen ? <Minimize2 /> : <Maximize2 />}
-            </Button>
-            <Button
-              variant='ghost'
-              className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-              onClick={() => guardClick(() => onClose(leader.id))}
-            >
-              <X />
-            </Button>
+              <Button
+                variant='ghost'
+                className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
+                onClick={() => guardClick(() => onAddTab(leader.id))}
+              >
+                <Plus />
+              </Button>
+              <Button
+                variant='ghost'
+                className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
+                onClick={() => guardClick(() => onMinimize(leader.id))}
+              >
+                <Minus />
+              </Button>
+              <Button
+                variant='ghost'
+                className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
+                onClick={() => guardClick(() => onToggleMaximize(leader.id))}
+                onContextMenu={handleMaximizeContextMenu}
+              >
+                {isFullscreen ? <Minimize2 /> : <Maximize2 />}
+              </Button>
+              <Button
+                variant='ghost'
+                className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
+                onClick={() => guardClick(() => onClose(leader.id))}
+              >
+                <X />
+              </Button>
+            </div>
           </div>
-        </div>
 
-        {tabs.map((tab) => (
-          <TabContent
-            key={tab.id}
-            window={tab}
-            editableFolders={editableFolders}
-            playbackSession={playbackSession}
-            visible={tab.id === visibleTabId}
-            dialogContainerRef={windowContentRef}
-            onPresentationChange={onPresentationChange}
-            onNavigationStateChange={onNavigationStateChange}
-            onRequestPlay={onRequestPlay}
-            onRequestView={onRequestView}
-            onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
-            onAddToTaskbar={onAddToTaskbar}
-          />
-        ))}
-      </div>
-    </Rnd>
+          {tabs.map((tab) => (
+            <TabContent
+              key={tab.id}
+              window={tab}
+              editableFolders={editableFolders}
+              playbackSession={playbackSession}
+              visible={tab.id === visibleTabId}
+              dialogContainerRef={windowContentRef}
+              onPresentationChange={onPresentationChange}
+              onNavigationStateChange={onNavigationStateChange}
+              onRequestPlay={onRequestPlay}
+              onRequestView={onRequestView}
+              onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
+              onAddToTaskbar={onAddToTaskbar}
+              onFocusWindow={() => onFocus(tab.id)}
+            />
+          ))}
+        </div>
+      </Rnd>
+    </div>
   )
 }
