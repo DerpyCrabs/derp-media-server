@@ -3,51 +3,33 @@ import fs from 'fs'
 import path from 'path'
 
 const BATCHES = [
-  {
-    id: '1',
-    tests: ['audio-player', 'video-player', 'pdf-viewer', 'image-viewer', 'download'],
-  },
+  { id: '1', tests: ['workspace-layout'] },
   {
     id: '2',
-    tests: ['navigation', 'login', 'share-viewers'],
+    tests: ['workspace-controls', 'workspace-cross-dnd', 'workspace-taskbar-pins'],
   },
-  {
-    id: '3',
-    tests: [
-      'editable-folders',
-      'drag-drop',
-      'upload',
-      'text-editor',
-      'knowledge-base',
-      'passcode-shares',
-    ],
-  },
+  { id: '3', tests: ['workspace-viewers', 'share-workspace'] },
   {
     id: '4',
-    tests: [
-      'shares-manage',
-      'shares-use',
-      'share-audio-api',
-      'sse-live-updates',
-      'url-state',
-      'share-security',
-    ],
+    tests: ['editable-folders', 'navigation', 'upload', 'share-security', 'url-state', 'login'],
   },
   {
     id: '5',
-    tests: ['workspace-layout'],
+    tests: ['audio-player', 'shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates'],
   },
   {
     id: '6',
-    tests: ['workspace-controls', 'workspace-cross-dnd', 'workspace-taskbar-pins'],
-  },
-  {
-    id: '7',
-    tests: ['workspace-viewers'],
-  },
-  {
-    id: '8',
-    tests: ['share-workspace'],
+    tests: [
+      'video-player',
+      'image-viewer',
+      'pdf-viewer',
+      'download',
+      'text-editor',
+      'knowledge-base',
+      'drag-drop',
+      'passcode-shares',
+      'share-viewers',
+    ],
   },
 ]
 
@@ -74,7 +56,56 @@ function cleanupBatchConfig(batchId: string) {
   } catch {}
 }
 
-function runBatch(batch: (typeof BATCHES)[number]): Promise<number> {
+type JsonReport = {
+  suites?: Array<{
+    file?: string
+    specs?: Array<{
+      file?: string
+      tests?: Array<{ results?: Array<{ duration?: number }> }>
+    }>
+    suites?: JsonReport['suites']
+  }>
+}
+
+function extractFileTimesFromJsonReport(jsonPath: string): Record<string, number> {
+  const out: Record<string, number> = {}
+  let data: JsonReport
+  try {
+    data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
+  } catch {
+    return out
+  }
+
+  function visit(suites: JsonReport['suites']) {
+    if (!suites) return
+    for (const suite of suites) {
+      if (suite.specs) {
+        for (const spec of suite.specs) {
+          const file = spec.file ?? suite.file
+          if (!file) continue
+          const base = path.basename(file)
+          const name = base.replace(/\.(spec\.)?ts$/, '')
+          let total = 0
+          for (const t of spec.tests ?? []) {
+            for (const r of t.results ?? []) {
+              if (typeof r.duration === 'number') total += r.duration
+            }
+          }
+          if (total > 0) out[name] = (out[name] ?? 0) + total
+        }
+      }
+      visit(suite.suites)
+    }
+  }
+  visit(data.suites)
+  return out
+}
+
+function runBatch(batch: (typeof BATCHES)[number]): Promise<{
+  code: number
+  elapsedMs: number
+  fileTimes: Record<string, number>
+}> {
   const port = 9200 + parseInt(batch.id)
   generateBatchConfig(batch.id, port)
 
@@ -85,9 +116,18 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<number> {
 
   const testFiles = batch.tests.map((t) => `tests/e2e/${t}.spec.ts`)
 
-  const args = ['playwright', 'test', ...testFiles, ...projects]
+  const jsonOutputPath = path.join(FIXTURES_DIR, `batch-${batch.id}-results.json`)
+  const args = [
+    'playwright',
+    'test',
+    ...testFiles,
+    ...projects,
+    '--reporter=line',
+    '--reporter=json',
+  ]
 
   const prefix = `[batch:${batch.id}]`
+  const startMs = Date.now()
 
   return new Promise((resolve) => {
     const child = spawn('bunx', args, {
@@ -95,6 +135,7 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<number> {
       env: {
         ...process.env,
         BATCH_ID: batch.id,
+        PLAYWRIGHT_JSON_OUTPUT_NAME: jsonOutputPath,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,
@@ -113,7 +154,12 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<number> {
     })
 
     child.on('close', (code) => {
-      resolve(code ?? 1)
+      const elapsedMs = Date.now() - startMs
+      const fileTimes = extractFileTimesFromJsonReport(jsonOutputPath)
+      try {
+        fs.unlinkSync(jsonOutputPath)
+      } catch {}
+      resolve({ code: code ?? 1, elapsedMs, fileTimes })
     })
   })
 }
@@ -131,10 +177,19 @@ async function main() {
 
     let allPassed = true
     for (let i = 0; i < BATCHES.length; i++) {
-      const status = results[i] === 0 ? 'PASS' : 'FAIL'
-      if (results[i] !== 0) allPassed = false
-      const testList = BATCHES[i].tests.join(', ')
-      console.log(`  Batch ${BATCHES[i].id}: ${status}  (${testList})`)
+      const { code, elapsedMs, fileTimes } = results[i]
+      const status = code === 0 ? 'PASS' : 'FAIL'
+      if (code !== 0) allPassed = false
+      const names =
+        fileTimes['auth-setup'] != null ? ['auth-setup', ...BATCHES[i].tests] : BATCHES[i].tests
+      const testListWithTimes = names
+        .map((t) => {
+          const sec = fileTimes[t] != null ? (fileTimes[t] / 1000).toFixed(1) : '?'
+          return `${t} ${sec}s`
+        })
+        .join(', ')
+      const elapsedSec = (elapsedMs / 1000).toFixed(1)
+      console.log(`  Batch ${BATCHES[i].id}: ${status}  ${elapsedSec}s  (${testListWithTimes})`)
     }
 
     console.log(`${'─'.repeat(60)}`)
