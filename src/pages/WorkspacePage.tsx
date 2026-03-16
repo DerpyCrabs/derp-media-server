@@ -94,6 +94,8 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
   const windowsRef = useRef(windows)
   const mergeHighlightRef = useRef<string | null>(null)
   const draggedWindowIdRef = useRef<string | null>(null)
+  const mergeThrottleLastRef = useRef(0)
+  const MERGE_HIGHLIGHT_THROTTLE_MS = 50
 
   const getZoneBounds = useCallback((zone: SnapZone) => {
     const ws = windowsRef.current
@@ -117,13 +119,28 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
 
   const windowGroups = useMemo(() => groupWindowsByTab(windows), [windows])
 
+  type MergeTarget = { groupId: string; insertIndex: number }
+
   const findMergeTarget = useCallback(
-    (clientX: number, clientY: number, draggedWindowId: string): string | null => {
+    (clientX: number, clientY: number, draggedWindowId: string): MergeTarget | null => {
       const ws = windowsRef.current
       const draggedW = ws.find((w) => w.id === draggedWindowId)
       const draggedGroupId = draggedW?.tabGroupId ?? draggedWindowId
 
       const elements = document.elementsFromPoint(clientX, clientY)
+      for (const el of elements) {
+        const slotEl =
+          el.closest?.('[data-tab-drop-slot]') ??
+          (el.hasAttribute?.('data-tab-drop-slot') ? el : null)
+        if (slotEl && slotEl instanceof HTMLElement) {
+          const slot = slotEl.getAttribute('data-tab-drop-slot')
+          if (!slot) continue
+          const [gid, indexStr] = slot.split(':')
+          const insertIndex = parseInt(indexStr, 10)
+          if (!gid || gid === draggedGroupId || Number.isNaN(insertIndex)) continue
+          return { groupId: gid, insertIndex }
+        }
+      }
       for (const el of elements) {
         const groupEl = el.closest('[data-window-group]')
         if (!groupEl) continue
@@ -132,8 +149,8 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
 
         const rect = groupEl.getBoundingClientRect()
         if (clientY >= rect.top && clientY <= rect.top + 32) {
-          const targetW = ws.find((w) => (w.tabGroupId ?? w.id) === gid)
-          return targetW?.id ?? null
+          const groupWindows = ws.filter((w) => (w.tabGroupId ?? w.id) === gid)
+          return { groupId: gid, insertIndex: groupWindows.length }
         }
         return null
       }
@@ -147,20 +164,19 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       const container = containerRef.current
       if (!container) return
 
-      const targetId = findMergeTarget(clientX, clientY, draggedWindowId)
-      const targetW = targetId ? windowsRef.current.find((w) => w.id === targetId) : null
-      const gid = targetW ? (targetW.tabGroupId ?? targetId) : null
-      if (gid === mergeHighlightRef.current) return
+      const target = findMergeTarget(clientX, clientY, draggedWindowId)
+      const slotKey = target ? `${target.groupId}:${target.insertIndex}` : null
+      if (slotKey === mergeHighlightRef.current) return
 
       if (mergeHighlightRef.current) {
-        const prev = container.querySelector(`[data-window-group="${mergeHighlightRef.current}"]`)
+        const prev = container.querySelector(`[data-tab-drop-slot="${mergeHighlightRef.current}"]`)
         prev?.removeAttribute('data-merge-highlight')
       }
 
-      mergeHighlightRef.current = gid
+      mergeHighlightRef.current = slotKey
 
-      if (gid) {
-        const el = container.querySelector(`[data-window-group="${gid}"]`)
+      if (slotKey) {
+        const el = container.querySelector(`[data-tab-drop-slot="${slotKey}"]`)
         el?.setAttribute('data-merge-highlight', '')
       }
     },
@@ -171,7 +187,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     if (!mergeHighlightRef.current) return
     const container = containerRef.current
     if (container) {
-      const prev = container.querySelector(`[data-window-group="${mergeHighlightRef.current}"]`)
+      const prev = container.querySelector(`[data-tab-drop-slot="${mergeHighlightRef.current}"]`)
       prev?.removeAttribute('data-merge-highlight')
     }
     mergeHighlightRef.current = null
@@ -180,6 +196,13 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
   const handleDragMove = useCallback(
     (clientX: number, clientY: number, windowId: string) => {
       draggedWindowIdRef.current = windowId
+      const now = Date.now()
+      const throttled = now - mergeThrottleLastRef.current < MERGE_HIGHLIGHT_THROTTLE_MS
+      if (throttled && containerRef.current) {
+        onDragMove(clientX, clientY, containerRef.current, mergeHighlightRef.current !== null)
+        return
+      }
+      mergeThrottleLastRef.current = now
       const mergeTarget = findMergeTarget(clientX, clientY, windowId)
       if (mergeTarget) {
         if (containerRef.current) onDragMove(clientX, clientY, containerRef.current, true)
@@ -201,11 +224,16 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     ) => {
       clearMergeHighlight()
 
-      const hitTargetId = findMergeTarget(clientX, clientY, windowId)
-      if (hitTargetId) {
-        onDragEnd(containerRef.current)
-        mergeWindowIntoGroup(windowId, hitTargetId)
-        return
+      const hitTarget = findMergeTarget(clientX, clientY, windowId)
+      if (hitTarget) {
+        const targetWindow = windowsRef.current.find(
+          (w) => (w.tabGroupId ?? w.id) === hitTarget.groupId,
+        )
+        if (targetWindow) {
+          onDragEnd(containerRef.current)
+          mergeWindowIntoGroup(windowId, targetWindow.id, hitTarget.insertIndex)
+          return
+        }
       }
 
       const zone = onDragEnd(containerRef.current)
@@ -296,11 +324,16 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
         clearMergeHighlight()
         if (rafId) cancelAnimationFrame(rafId)
 
-        const hitId = findMergeTarget(e.clientX, e.clientY, windowId)
-        if (hitId) {
-          onDragEnd(container)
-          mergeWindowIntoGroup(windowId, hitId)
-          return
+        const hitTarget = findMergeTarget(e.clientX, e.clientY, windowId)
+        if (hitTarget) {
+          const targetWindow = windowsRef.current.find(
+            (w) => (w.tabGroupId ?? w.id) === hitTarget.groupId,
+          )
+          if (targetWindow) {
+            onDragEnd(container)
+            mergeWindowIntoGroup(windowId, targetWindow.id, hitTarget.insertIndex)
+            return
+          }
         }
 
         const snapZone = onDragEnd(container)
@@ -427,6 +460,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
         isDirectory: boolean
         source: import('@/lib/use-workspace').WorkspaceSource
       },
+      insertIndex?: number,
     ) => {
       const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
       openInNewTab(
@@ -434,6 +468,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
         { path: data.path, isDirectory: data.isDirectory },
         dir,
         data.source,
+        insertIndex,
       )
     },
     [openInNewTab],

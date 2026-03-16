@@ -165,7 +165,7 @@ test.describe('Drop File onto Tab Bar', () => {
     await navigateToSharedContent(contentA)
 
     const folderRow = contentA.locator('tr').filter({ hasText: 'subfolder' }).first()
-    const headerB = groups.nth(1).locator('[data-tab-drop-target]')
+    const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
 
     await html5DragDrop(folderRow, headerB)
     await page.waitForTimeout(300)
@@ -188,7 +188,7 @@ test.describe('Drop File onto Tab Bar', () => {
     await navigateToSharedContent(contentA)
 
     const fileRow = contentA.locator('tr').filter({ hasText: 'public-doc.txt' })
-    const headerB = groups.nth(1).locator('[data-tab-drop-target]')
+    const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
 
     await html5DragDrop(fileRow, headerB)
     await page.waitForTimeout(300)
@@ -216,7 +216,7 @@ test.describe('Window Merge Still Works', () => {
       boxB.x + boxB.width / 2,
       boxB.y + boxB.height / 2,
       boxA.x + boxA.width / 2,
-      boxA.y + boxA.height / 4,
+      boxA.y + 16,
     )
     await page.waitForTimeout(200)
 

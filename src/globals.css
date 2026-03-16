@@ -420,9 +420,10 @@ body {
   }
 }
 
-[data-merge-highlight] {
-  outline: 2px solid oklch(0.7 0.15 250 / 0.6);
-  outline-offset: -2px;
+/* Drop slot highlight: vertical bar between tabs */
+[data-tab-drop-slot][data-merge-highlight] {
+  background: oklch(0.65 0.2 250 / 0.85);
+  min-width: 4px;
 }
 
 /* Override global scrollbar for .scrollbar-none (unlayered so it wins) */

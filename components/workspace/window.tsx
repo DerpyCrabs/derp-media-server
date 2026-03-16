@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Rnd } from 'react-rnd'
 import { Maximize2, Minimize2, Minus, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -69,6 +69,7 @@ export interface WindowGroupProps {
   onDropFileToTabBar?: (
     targetWindowId: string,
     data: { path: string; isDirectory: boolean; source: WorkspaceSource },
+    insertIndex?: number,
   ) => void
 }
 
@@ -296,7 +297,7 @@ interface TabStripProps {
   onFocus: (windowId: string) => void
   onCloseTab: (windowId: string) => void
   onTabDragDetach: (tabId: string, e: React.MouseEvent) => void
-  onDropFile?: (data: FileDragData) => void
+  onDropFile?: (data: FileDragData, insertIndex?: number) => void
 }
 
 function TabStrip({
@@ -314,6 +315,9 @@ function TabStrip({
   const scrollRef = useRef<HTMLDivElement>(null)
   const [overflow, setOverflow] = useState({ left: false, right: false })
   const [fileDragOver, setFileDragOver] = useState(false)
+  const [dropSlotIndex, setDropSlotIndex] = useState<number | null>(null)
+  const dropSlotIndexRef = useRef<number | null>(null)
+  dropSlotIndexRef.current = dropSlotIndex
 
   const checkOverflow = useCallback(() => {
     const el = scrollRef.current
@@ -341,33 +345,51 @@ function TabStrip({
     scrollRef.current?.scrollBy({ left: delta, behavior: 'smooth' })
   }, [])
 
+  const handleSlotDragOver = useCallback(
+    (e: React.DragEvent, index: number) => {
+      if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+      if (dropSlotIndexRef.current !== index) {
+        setDropSlotIndex(index)
+      }
+      setFileDragOver(true)
+    },
+    [onDropFile],
+  )
+
+  const handleSlotDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDropSlotIndex(null)
+    }
+  }, [])
+
+  const handleSlotDrop = useCallback(
+    (e: React.DragEvent, index: number) => {
+      setFileDragOver(false)
+      setDropSlotIndex(null)
+      if (!onDropFile) return
+      const data = getFileDragData(e.dataTransfer)
+      if (!data) return
+      e.preventDefault()
+      e.stopPropagation()
+      onDropFile(data, index)
+    },
+    [onDropFile],
+  )
+
   return (
     <div
       className={cn(
         'workspace-tab-strip relative flex min-w-0 flex-1 items-center',
         fileDragOver && 'ring-1 ring-inset ring-primary bg-primary/10',
       )}
-      data-tab-drop-target
-      onDragOver={(e) => {
-        if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
-        e.preventDefault()
-        e.stopPropagation()
-        e.dataTransfer.dropEffect = 'copy'
-        setFileDragOver(true)
-      }}
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
           setFileDragOver(false)
+          setDropSlotIndex(null)
         }
-      }}
-      onDrop={(e) => {
-        setFileDragOver(false)
-        if (!onDropFile) return
-        const data = getFileDragData(e.dataTransfer)
-        if (!data) return
-        e.preventDefault()
-        e.stopPropagation()
-        onDropFile(data)
       }}
     >
       {overflow.left && (
@@ -388,16 +410,49 @@ function TabStrip({
           e.stopPropagation()
           scrollRef.current?.scrollBy({ left: e.deltaY || e.deltaX, behavior: 'instant' })
         }}
+        onDragOver={
+          onDropFile
+            ? (e) => {
+                if (!hasFileDragData(e.dataTransfer)) return
+                e.preventDefault()
+                e.stopPropagation()
+                e.dataTransfer.dropEffect = 'copy'
+                setFileDragOver(true)
+              }
+            : undefined
+        }
+        onDrop={
+          onDropFile
+            ? (e) => {
+                const data = getFileDragData(e.dataTransfer)
+                if (!data) return
+                e.preventDefault()
+                e.stopPropagation()
+                onDropFile(data, tabs.length)
+              }
+            : undefined
+        }
       >
-        {tabs.map((tab) => {
-          const isActiveTab = tab.id === visibleTabId
-          return (
+        {tabs.map((tab, idx) => (
+          <Fragment key={tab.id}>
             <div
-              key={tab.id}
+              data-tab-drop-slot={`${groupId}:${idx}`}
+              data-no-window-drag
+              className={cn(
+                'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
+                dropSlotIndex === idx && 'bg-primary/80',
+              )}
+              onDragOver={onDropFile ? (e) => handleSlotDragOver(e, idx) : undefined}
+              onDragLeave={handleSlotDragLeave}
+              onDrop={onDropFile ? (e) => handleSlotDrop(e, idx) : undefined}
+            />
+            <div
               data-no-window-drag
               className={cn(
                 'flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2',
-                isActiveTab ? 'bg-background' : 'bg-muted/50 hover:bg-muted',
+                tabs.find((t) => t.id === visibleTabId)?.id === tab.id
+                  ? 'bg-background'
+                  : 'bg-muted/50 hover:bg-muted',
               )}
               onMouseDown={(e) => {
                 e.stopPropagation()
@@ -434,8 +489,19 @@ function TabStrip({
                 <X className='h-2.5 w-2.5' />
               </button>
             </div>
-          )
-        })}
+          </Fragment>
+        ))}
+        <div
+          data-tab-drop-slot={`${groupId}:${tabs.length}`}
+          data-no-window-drag
+          className={cn(
+            'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
+            dropSlotIndex === tabs.length && 'bg-primary/80',
+          )}
+          onDragOver={onDropFile ? (e) => handleSlotDragOver(e, tabs.length) : undefined}
+          onDragLeave={handleSlotDragLeave}
+          onDrop={onDropFile ? (e) => handleSlotDrop(e, tabs.length) : undefined}
+        />
       </div>
       {overflow.right && (
         <button
@@ -454,62 +520,118 @@ function TabStrip({
 
 function SingleTabHeader({
   leader,
+  groupId,
   isWindowActive,
   getIcon,
   onDropFile,
 }: {
   leader: WorkspaceWindowDefinition
+  groupId: string
   isWindowActive: boolean
   getIcon: ReturnType<typeof useFileIcon>['getIcon']
-  onDropFile?: (data: FileDragData) => void
+  onDropFile?: (data: FileDragData, insertIndex?: number) => void
 }) {
-  const [fileDragOver, setFileDragOver] = useState(false)
+  const [dropSlotIndex, setDropSlotIndex] = useState<number | null>(null)
+  const dropSlotIndexRef = useRef<number | null>(null)
+  dropSlotIndexRef.current = dropSlotIndex
+
+  const handleSlotDragOver = useCallback(
+    (e: React.DragEvent, index: number) => {
+      if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+      if (dropSlotIndexRef.current !== index) {
+        setDropSlotIndex(index)
+      }
+    },
+    [onDropFile],
+  )
+
+  const handleSlotDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDropSlotIndex(null)
+    }
+  }, [])
+
+  const handleSlotDrop = useCallback(
+    (e: React.DragEvent, index: number) => {
+      setDropSlotIndex(null)
+      if (!onDropFile) return
+      const data = getFileDragData(e.dataTransfer)
+      if (!data) return
+      e.preventDefault()
+      e.stopPropagation()
+      onDropFile(data, index)
+    },
+    [onDropFile],
+  )
 
   return (
     <div
-      className={cn(
-        'flex min-w-0 flex-1 items-center gap-1.5 px-2',
-        fileDragOver && 'ring-1 ring-inset ring-primary bg-primary/10',
-      )}
-      data-tab-drop-target
-      onDragOver={(e) => {
-        if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
-        e.preventDefault()
-        e.stopPropagation()
-        e.dataTransfer.dropEffect = 'copy'
-        setFileDragOver(true)
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          setFileDragOver(false)
-        }
-      }}
-      onDrop={(e) => {
-        setFileDragOver(false)
-        if (!onDropFile) return
-        const data = getFileDragData(e.dataTransfer)
-        if (!data) return
-        e.preventDefault()
-        e.stopPropagation()
-        onDropFile(data)
-      }}
+      className='flex min-w-0 flex-1 items-center'
+      onDragOver={
+        onDropFile
+          ? (e) => {
+              if (!hasFileDragData(e.dataTransfer)) return
+              e.preventDefault()
+              e.stopPropagation()
+              e.dataTransfer.dropEffect = 'copy'
+            }
+          : undefined
+      }
+      onDrop={
+        onDropFile
+          ? (e) => {
+              const data = getFileDragData(e.dataTransfer)
+              if (!data) return
+              e.preventDefault()
+              e.stopPropagation()
+              onDropFile(data, 1)
+            }
+          : undefined
+      }
     >
       <div
+        data-tab-drop-slot={`${groupId}:0`}
+        data-no-window-drag
         className={cn(
-          'flex h-5 w-5 items-center justify-center',
-          isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+          'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
+          dropSlotIndex === 0 && 'bg-primary/80',
         )}
-      >
-        {getTabIcon(leader, getIcon)}
+        onDragOver={onDropFile ? (e) => handleSlotDragOver(e, 0) : undefined}
+        onDragLeave={handleSlotDragLeave}
+        onDrop={onDropFile ? (e) => handleSlotDrop(e, 0) : undefined}
+      />
+      <div className='flex min-w-0 flex-1 items-center gap-1.5 px-2'>
+        <div
+          className={cn(
+            'flex h-5 w-5 items-center justify-center',
+            isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {getTabIcon(leader, getIcon)}
+        </div>
+        <div
+          className={cn(
+            'min-w-0 flex-1 truncate text-[11px] font-medium',
+            isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {getWorkspaceWindowTitle(leader)}
+        </div>
       </div>
       <div
+        data-tab-drop-slot={`${groupId}:1`}
+        data-no-window-drag
         className={cn(
-          'min-w-0 flex-1 truncate text-[11px] font-medium',
-          isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+          'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
+          dropSlotIndex === 1 && 'bg-primary/80',
         )}
-      >
-        {getWorkspaceWindowTitle(leader)}
-      </div>
+        onDragOver={onDropFile ? (e) => handleSlotDragOver(e, 1) : undefined}
+        onDragLeave={handleSlotDragLeave}
+        onDrop={onDropFile ? (e) => handleSlotDrop(e, 1) : undefined}
+      />
     </div>
   )
 }
@@ -689,17 +811,21 @@ export function WindowGroup({
   )
 
   const handleFileDrop = useCallback(
-    (data: FileDragData) => {
+    (data: FileDragData, insertIndex?: number) => {
       if (!onDropFileToTabBar) return
       const source: WorkspaceSource =
         data.sourceKind === 'share'
           ? { kind: 'share', token: data.sourceToken }
           : { kind: 'local', rootPath: null }
-      onDropFileToTabBar(leaderId, {
-        path: data.path,
-        isDirectory: data.isDirectory,
-        source,
-      })
+      onDropFileToTabBar(
+        leaderId,
+        {
+          path: data.path,
+          isDirectory: data.isDirectory,
+          source,
+        },
+        insertIndex,
+      )
     },
     [onDropFileToTabBar, leaderId],
   )
@@ -816,6 +942,7 @@ export function WindowGroup({
               ) : (
                 <SingleTabHeader
                   leader={leader}
+                  groupId={groupId}
                   isWindowActive={isActive}
                   getIcon={getIcon}
                   onDropFile={onDropFileToTabBar ? handleFileDrop : undefined}
