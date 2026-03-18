@@ -17,6 +17,11 @@ function getWindowGroups(page: Page) {
   return page.locator('[data-window-group]')
 }
 
+/** Visible tab content only (one per window when tabs exist). */
+function getVisibleContent(windowGroup: Locator) {
+  return windowGroup.locator('[data-testid="workspace-window-visible-content"]')
+}
+
 function getRndWrapper(windowGroup: Locator) {
   return windowGroup.locator('..')
 }
@@ -249,7 +254,7 @@ test.describe('Tab Merging and Splitting', () => {
   test('taskbar shows title and icon of current tab, not first', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Documents', { exact: true }).click()
     await page.waitForTimeout(150)
@@ -383,7 +388,7 @@ test.describe('Tab Merging and Splitting', () => {
 
     await tabs.first().click()
     await page.waitForTimeout(50)
-    const content = mergedWindow.locator('.workspace-window-content')
+    const content = getVisibleContent(mergedWindow)
     await content.getByText('Documents', { exact: true }).click()
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
     await tabs.nth(1).click()
@@ -394,7 +399,7 @@ test.describe('Tab Merging and Splitting', () => {
     await page.waitForTimeout(150)
 
     await expect(getWindowGroups(page)).toHaveCount(1)
-    const visibleContent = getWindowGroups(page).first().locator('.workspace-window-content')
+    const visibleContent = getVisibleContent(getWindowGroups(page).first())
     await expect(visibleContent.getByText('readme.txt')).toBeVisible({ timeout: 10000 })
   })
 
@@ -497,7 +502,7 @@ test.describe('Taskbar', () => {
     await page.waitForTimeout(50)
 
     const groups = getWindowGroups(page)
-    const firstContent = groups.first().locator('.workspace-window-content')
+    const firstContent = getVisibleContent(groups.first())
     await firstContent.getByText('Documents', { exact: true }).click()
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
@@ -510,7 +515,7 @@ test.describe('Taskbar', () => {
     await minimizeBtn.click()
 
     await expect(getWindowGroups(page)).toHaveCount(1)
-    await expect(groups.first().locator('.workspace-window-content')).toContainText('Documents')
+    await expect(getVisibleContent(groups.first())).toContainText('Documents')
   })
 
   test('closes window from taskbar', async ({ page }) => {
@@ -658,7 +663,7 @@ test.describe('File Browsing and Viewers', () => {
   test('workspace browser shows root folders', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     for (const folder of ['Videos', 'Music', 'Images', 'Documents']) {
       await expect(content.getByText(folder, { exact: true })).toBeVisible()
@@ -668,7 +673,7 @@ test.describe('File Browsing and Viewers', () => {
   test('navigating into a folder updates browser content', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Videos', { exact: true }).click()
 
@@ -679,7 +684,7 @@ test.describe('File Browsing and Viewers', () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Documents', { exact: true }).click()
     await expect(content.getByText('readme.txt')).toBeVisible()
@@ -693,7 +698,7 @@ test.describe('File Browsing and Viewers', () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Images', { exact: true }).click()
     await expect(content.getByText('photo.jpg')).toBeVisible()
@@ -706,7 +711,7 @@ test.describe('File Browsing and Viewers', () => {
   test('"Open in new tab" for folder opens in same window as new tab', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Videos', { exact: true }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Open in new tab').click()
@@ -718,7 +723,7 @@ test.describe('File Browsing and Viewers', () => {
   test('"Open in new tab" for file opens in same window as new tab', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Documents', { exact: true }).click()
     await expect(content.getByText('readme.txt')).toBeVisible()
@@ -735,7 +740,7 @@ test.describe('Player Window Reuse', () => {
   test('playing a video creates a player window', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Videos', { exact: true }).click()
     await expect(content.getByText('sample.mp4')).toBeVisible()
@@ -748,7 +753,7 @@ test.describe('Player Window Reuse', () => {
   test('playing the same video again reuses the player window', async ({ page }) => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Videos', { exact: true }).click()
     await expect(content.getByText('sample.mp4')).toBeVisible()
@@ -758,7 +763,7 @@ test.describe('Player Window Reuse', () => {
     await expect(videos).toHaveCount(1)
     const windowCountAfterFirst = await getWindowGroups(page).count()
 
-    const browserContent = groups.first().locator('.workspace-window-content')
+    const browserContent = getVisibleContent(groups.first())
     await browserContent.getByText('sample.mp4').click()
 
     await expect(page.locator('[data-window-group] video')).toHaveCount(1)

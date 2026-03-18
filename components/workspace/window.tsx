@@ -122,7 +122,6 @@ interface TabContentProps {
   editableFolders: string[]
   playbackSession: NavigationSession
   visible: boolean
-  dialogContainerRef?: React.RefObject<HTMLElement | null>
   onPresentationChange: WindowGroupProps['onPresentationChange']
   onNavigationStateChange: WindowGroupProps['onNavigationStateChange']
   onRequestPlay: WindowGroupProps['onRequestPlay']
@@ -137,7 +136,6 @@ const TabContent = memo(function TabContent({
   editableFolders,
   playbackSession,
   visible,
-  dialogContainerRef,
   onPresentationChange,
   onNavigationStateChange,
   onRequestPlay,
@@ -146,6 +144,7 @@ const TabContent = memo(function TabContent({
   onAddToTaskbar,
   onFocus,
 }: TabContentProps) {
+  const tabContentRef = useRef<HTMLDivElement>(null)
   const localSession = useInMemoryNavigationSession(win.initialState)
   const mergedWindowSession = useWorkspaceWindowSession(
     localSession,
@@ -231,11 +230,15 @@ const TabContent = memo(function TabContent({
     localSession.state.viewing,
   ])
 
-  if (!visible) return null
-
   return (
     <div
-      className='workspace-window-content relative min-h-0 flex-1 overflow-hidden'
+      ref={tabContentRef}
+      className={cn(
+        'workspace-window-content relative min-h-0 flex-1 overflow-hidden',
+        !visible && 'hidden',
+      )}
+      aria-hidden={!visible}
+      {...(visible ? { 'data-testid': 'workspace-window-visible-content' } : {})}
       onMouseDownCapture={() => onFocus(win.id)}
     >
       {win.type === 'player' ? (
@@ -254,7 +257,7 @@ const TabContent = memo(function TabContent({
       ) : win.source.kind === 'share' ? (
         <ShareFileBrowser
           session={windowSession}
-          dialogContainerRef={dialogContainerRef}
+          dialogContainerRef={tabContentRef}
           onOpenInNewTabInSameWindow={
             onOpenInNewTabInSameWindow
               ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
@@ -266,7 +269,7 @@ const TabContent = memo(function TabContent({
         <FileBrowser
           editableFolders={editableFolders}
           session={windowSession}
-          dialogContainerRef={dialogContainerRef}
+          dialogContainerRef={tabContentRef}
           onOpenInNewTabInSameWindow={
             onOpenInNewTabInSameWindow
               ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
@@ -1001,7 +1004,7 @@ function WindowGroupInner({
         >
           <div
             className={cn(
-              'flex h-8 items-stretch border-b border-border',
+              'relative z-10 flex h-8 shrink-0 items-stretch border-b border-border',
               isActive ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground',
             )}
           >
@@ -1073,23 +1076,24 @@ function WindowGroupInner({
             </div>
           </div>
 
-          {tabs.map((tab) => (
-            <TabContent
-              key={tab.id}
-              window={tab}
-              editableFolders={editableFolders}
-              playbackSession={playbackSession}
-              visible={tab.id === visibleTabId}
-              dialogContainerRef={windowContentRef}
-              onPresentationChange={onPresentationChange}
-              onNavigationStateChange={onNavigationStateChange}
-              onRequestPlay={onRequestPlay}
-              onRequestView={onRequestView}
-              onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
-              onAddToTaskbar={onAddToTaskbar}
-              onFocus={onFocus}
-            />
-          ))}
+          <div className='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
+            {tabs.map((tab) => (
+              <TabContent
+                key={tab.id}
+                window={tab}
+                editableFolders={editableFolders}
+                playbackSession={playbackSession}
+                visible={tab.id === visibleTabId}
+                onPresentationChange={onPresentationChange}
+                onNavigationStateChange={onNavigationStateChange}
+                onRequestPlay={onRequestPlay}
+                onRequestView={onRequestView}
+                onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
+                onAddToTaskbar={onAddToTaskbar}
+                onFocus={onFocus}
+              />
+            ))}
+          </div>
         </div>
       </Rnd>
     </div>

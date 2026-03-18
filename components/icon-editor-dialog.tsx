@@ -17,6 +17,8 @@ interface IconEditorDialogProps {
   fileName: string
   currentIcon: string | null
   onSave: (iconName: string | null) => void
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 export function IconEditorDialog({
@@ -25,6 +27,7 @@ export function IconEditorDialog({
   fileName,
   currentIcon,
   onSave,
+  container,
 }: IconEditorDialogProps) {
   const [selectedIcon, setSelectedIcon] = useState<string | null>(currentIcon)
 
@@ -46,8 +49,11 @@ export function IconEditorDialog({
   )
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className='max-w-2xl max-h-[90vh] overflow-y-auto'>
+    <Dialog open={isOpen} onOpenChange={onClose} disablePointerDismissal={!!container}>
+      <DialogContent
+        className='max-w-2xl max-h-[90vh] overflow-y-auto'
+        container={container ?? undefined}
+      >
         <DialogHeader>
           <DialogTitle>Set Custom Icon</DialogTitle>
           <DialogDescription>

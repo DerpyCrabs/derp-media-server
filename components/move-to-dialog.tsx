@@ -28,6 +28,8 @@ interface MoveToDialogProps {
   shareRootPath?: string
   /** When 'copy', shows "Copy to" UI; destination must be editable folder */
   mode?: MoveOrCopyMode
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 export function MoveToDialog({
@@ -42,6 +44,7 @@ export function MoveToDialog({
   shareToken,
   shareRootPath,
   mode = 'move',
+  container,
 }: MoveToDialogProps) {
   const isCopy = mode === 'copy'
   const sourceDir = useMemo(() => {
@@ -142,8 +145,12 @@ export function MoveToDialog({
   }, [browsePath, normalizedBrowse, normalizedRoot, shareToken])
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='sm:max-w-md'>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => !open && onClose()}
+      disablePointerDismissal={!!container}
+    >
+      <DialogContent className='sm:max-w-md' container={container ?? undefined}>
         <DialogHeader>
           <DialogTitle className='truncate pr-6'>
             {isCopy ? 'Copy' : 'Move'} &ldquo;{fileName}&rdquo;

@@ -17,6 +17,10 @@ function getWindowGroups(page: Page) {
   return page.locator('[data-window-group]')
 }
 
+function getVisibleContent(windowGroup: Locator) {
+  return windowGroup.locator('[data-testid="workspace-window-visible-content"]')
+}
+
 function getDragHandle(windowGroup: Locator) {
   return windowGroup.locator('[data-testid="window-drag-handle"]')
 }
@@ -69,7 +73,9 @@ async function deleteFileViaContextMenu(page: Page, content: Locator, fileName: 
   await content.locator('tr').filter({ hasText: fileName }).click({ button: 'right' })
   await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
   await page.getByRole('button', { name: /Delete/i }).click()
-  await expect(content.getByText(fileName)).not.toBeVisible({ timeout: 5_000 })
+  await expect(content.locator('tr').filter({ hasText: fileName })).not.toBeVisible({
+    timeout: 5_000,
+  })
 }
 
 /**
@@ -113,8 +119,8 @@ test.describe('Cross-Window File Move', () => {
     await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
-    const contentA = groups.first().locator('.workspace-window-content')
-    const contentB = groups.nth(1).locator('.workspace-window-content')
+    const contentA = getVisibleContent(groups.first())
+    const contentB = getVisibleContent(groups.nth(1))
 
     await navigateToSharedContent(contentA)
     await navigateToSharedContent(contentB)
@@ -139,7 +145,7 @@ test.describe('Cross-Window File Move', () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = getVisibleContent(groups.first())
 
     await content.getByText('Documents', { exact: true }).click()
     await expect(content.getByText('readme.txt')).toBeVisible({ timeout: 5_000 })
@@ -162,7 +168,7 @@ test.describe('Drop File onto Tab Bar', () => {
     await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
-    const contentA = groups.first().locator('.workspace-window-content')
+    const contentA = getVisibleContent(groups.first())
     await expect(contentA.getByText('SharedContent', { exact: true })).toBeVisible()
     await navigateToSharedContent(contentA)
 
@@ -186,7 +192,7 @@ test.describe('Drop File onto Tab Bar', () => {
     await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
-    const contentA = groups.first().locator('.workspace-window-content')
+    const contentA = getVisibleContent(groups.first())
     await navigateToSharedContent(contentA)
 
     const fileRow = contentA.locator('tr').filter({ hasText: 'public-doc.txt' })

@@ -21,6 +21,8 @@ interface PasteDialogProps {
   existingFiles: string[]
   onPaste: (fileName: string) => void
   onClose: () => void
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 export function PasteDialog({
@@ -31,6 +33,7 @@ export function PasteDialog({
   existingFiles,
   onPaste,
   onClose,
+  container,
 }: PasteDialogProps) {
   const [fileName, setFileName] = useState('')
 
@@ -158,8 +161,8 @@ export function PasteDialog({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className='max-w-2xl'>
+    <Dialog open={isOpen} onOpenChange={handleClose} disablePointerDismissal={!!container}>
+      <DialogContent className='max-w-2xl' container={container ?? undefined}>
         <DialogHeader>
           <DialogTitle>Paste {getContentTypeLabel()}</DialogTitle>
         </DialogHeader>
