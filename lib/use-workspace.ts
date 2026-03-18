@@ -328,6 +328,63 @@ function getViewportSize() {
   }
 }
 
+export type WorkspaceBounds = NonNullable<WorkspaceWindowLayout['bounds']>
+
+/** Height of the player window title bar (drag handle + border). Must match workspace window header. */
+const PLAYER_WINDOW_HEADER_HEIGHT = 33
+
+/**
+ * Computes player window bounds that fit the viewport and match the given aspect ratio (width/height).
+ * Accounts for the window title bar so the video content area has the correct aspect ratio.
+ * Preserves window center when currentBounds is provided.
+ */
+export function getPlayerBoundsForAspectRatio(
+  aspectRatio: number,
+  currentBounds: WorkspaceBounds | null,
+): WorkspaceBounds {
+  const viewport = getViewportSize()
+  const maxWidth = Math.max(viewport.width - 48, 420)
+  const maxWindowHeight = Math.max(viewport.height - 48, 320)
+  const maxContentHeight = maxWindowHeight - PLAYER_WINDOW_HEADER_HEIGHT
+  const minWidth = 360
+  const minWindowHeight = 240
+
+  let contentWidth: number
+  let contentHeight: number
+  if (maxContentHeight * aspectRatio <= maxWidth) {
+    contentHeight = maxContentHeight
+    contentWidth = Math.round(contentHeight * aspectRatio)
+  } else {
+    contentWidth = maxWidth
+    contentHeight = Math.round(contentWidth / aspectRatio)
+  }
+  let width = Math.max(minWidth, Math.min(maxWidth, contentWidth))
+  let height = Math.round(width / aspectRatio) + PLAYER_WINDOW_HEADER_HEIGHT
+  if (height > maxWindowHeight) {
+    height = maxWindowHeight
+    width = Math.round((height - PLAYER_WINDOW_HEADER_HEIGHT) * aspectRatio)
+    width = Math.max(minWidth, Math.min(maxWidth, width))
+  } else if (height < minWindowHeight) {
+    height = minWindowHeight
+    width = Math.round((height - PLAYER_WINDOW_HEADER_HEIGHT) * aspectRatio)
+    width = Math.max(minWidth, Math.min(maxWidth, width))
+  }
+
+  let x: number
+  let y: number
+  if (currentBounds) {
+    x = Math.round(currentBounds.x + (currentBounds.width - width) / 2)
+    y = Math.round(currentBounds.y + (currentBounds.height - height) / 2)
+  } else {
+    x = Math.round((viewport.width - width) / 2)
+    y = Math.round((viewport.height - height) / 2)
+  }
+  x = Math.max(16, Math.min(viewport.width - width - 16, x))
+  y = Math.max(16, Math.min(viewport.height - height - 16, y))
+
+  return { x, y, width, height }
+}
+
 function createDefaultBounds(
   index: number,
   type: WorkspaceWindowDefinition['type'],
@@ -338,15 +395,7 @@ function createDefaultBounds(
   const isVertical = viewport.height > viewport.width
 
   if (type === 'player') {
-    const width = Math.min(Math.max(Math.round(viewport.width * 0.62), 720), maxWidth)
-    const height = Math.min(Math.max(Math.round(viewport.height * 0.62), 420), maxHeight)
-
-    return {
-      x: Math.max(Math.round((viewport.width - width) / 2), 16),
-      y: Math.max(Math.round((viewport.height - height) / 2), 16),
-      width,
-      height,
-    }
+    return getPlayerBoundsForAspectRatio(16 / 9, null)
   }
 
   let width: number

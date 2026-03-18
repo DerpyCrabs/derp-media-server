@@ -20,6 +20,7 @@ import {
   useWorkspace,
   workspaceSourceToMediaContext,
   snapZoneToBoundsWithOccupied,
+  getPlayerBoundsForAspectRatio,
 } from '@/lib/use-workspace'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 
@@ -152,6 +153,16 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       closeWindowRef.current(win.id)
     }
   }, [])
+
+  const handlePlayerVideoMetadataLoaded = useCallback(
+    (windowId: string, videoWidth: number, videoHeight: number) => {
+      const win = windows.find((w) => w.id === windowId)
+      const currentBounds = win?.layout?.bounds ?? null
+      const newBounds = getPlayerBoundsForAspectRatio(videoWidth / videoHeight, currentBounds)
+      updateWindowBounds(windowId, newBounds)
+    },
+    [windows, updateWindowBounds],
+  )
 
   const getZoneBounds = useCallback((zone: SnapZone) => {
     const ws = windowsRef.current
@@ -854,6 +865,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
             onRestoreDrag={handleRestoreDrag}
             onDropFileToTabBar={handleDropFileToTabBar}
             onAddToTaskbar={handleAddToTaskbar}
+            onPlayerVideoMetadataLoaded={handlePlayerVideoMetadataLoaded}
             overrideBounds={
               draggingTabBounds && group.windows.some((w) => w.id === draggingTabBounds.windowId)
                 ? draggingTabBounds.bounds
