@@ -5,7 +5,7 @@ import { AudioPlayer } from '@/components/workspace/audio-player'
 import { Layout, type PinnedTaskbarItemView } from '@/components/workspace/layout'
 import { SnapPreview } from '@/components/workspace/snap-preview'
 import { TilingLayoutPicker } from '@/components/workspace/tiling-layout-picker'
-import { WindowGroup } from '@/components/workspace/window'
+import { WindowGroup, type Bounds } from '@/components/workspace/window'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { getIconComponent } from '@/lib/icon-utils'
@@ -93,6 +93,10 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [layoutPicker, setLayoutPicker] = useState<LayoutPickerState | null>(null)
+  const [draggingTabBounds, setDraggingTabBounds] = useState<{
+    windowId: string
+    bounds: Bounds
+  } | null>(null)
   const windowsRef = useRef(windows)
   const playbackSessionRef = useRef(playbackSession)
   const mergeHighlightRef = useRef<string | null>(null)
@@ -372,11 +376,14 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
         if (!rafId) {
           rafId = requestAnimationFrame(() => {
             rafId = 0
-            updateWindowBounds(windowId, {
-              x: lastX - oX - dragOffsetX,
-              y: Math.max(0, lastY - oY - dragOffsetY),
-              width,
-              height,
+            setDraggingTabBounds({
+              windowId,
+              bounds: {
+                x: lastX - oX - dragOffsetX,
+                y: Math.max(0, lastY - oY - dragOffsetY),
+                width,
+                height,
+              },
             })
           })
         }
@@ -385,6 +392,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       const onMouseUp = (e: MouseEvent) => {
         cleanup()
         clearMergeHighlight()
+        setDraggingTabBounds(null)
         if (rafId) cancelAnimationFrame(rafId)
 
         const hitTarget = findMergeTarget(e.clientX, e.clientY, windowId)
@@ -846,6 +854,11 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
             onRestoreDrag={handleRestoreDrag}
             onDropFileToTabBar={handleDropFileToTabBar}
             onAddToTaskbar={handleAddToTaskbar}
+            overrideBounds={
+              draggingTabBounds && group.windows.some((w) => w.id === draggingTabBounds.windowId)
+                ? draggingTabBounds.bounds
+                : undefined
+            }
           />
         ))}
         {layoutPicker && (
