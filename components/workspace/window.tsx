@@ -12,6 +12,7 @@ import { VideoPlayer } from '@/components/workspace/video-player'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { useInMemoryNavigationSession, type NavigationSession } from '@/lib/navigation-session'
 import { useFileIcon } from '@/lib/use-file-icon'
+import { useShallow } from 'zustand/react/shallow'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { getMediaType } from '@/lib/media-utils'
 import { useSettings } from '@/lib/use-settings'
@@ -26,7 +27,7 @@ import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import { cn } from '@/lib/utils'
 import { hasFileDragData, getFileDragData, type FileDragData } from '@/lib/file-drag-data'
 
-type Bounds = { x: number; y: number; width: number; height: number }
+export type Bounds = { x: number; y: number; width: number; height: number }
 
 export interface WindowGroupProps {
   storageKey: string
@@ -71,6 +72,8 @@ export interface WindowGroupProps {
     data: { path: string; isDirectory: boolean; source: WorkspaceSource },
     insertIndex?: number,
   ) => void
+  /** When set, overrides leader layout bounds (e.g. during tab detach drag to avoid setState every frame). */
+  overrideBounds?: Bounds | null
 }
 
 function useWorkspaceWindowSession(
@@ -193,15 +196,19 @@ const TabContent = memo(function TabContent({
       ? win.iconIsVirtual
       : (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentDir)
 
+  const presentationDebounceMs = 150
   useEffect(() => {
     if (win.type !== 'browser' && win.type !== 'viewer') return
-    onPresentationChange(win.id, {
-      title: resolvedTitle,
-      iconName: resolvedIconName,
-      iconPath: resolvedIconPath,
-      iconType: resolvedIconType,
-      iconIsVirtual: resolvedIconIsVirtual,
-    })
+    const id = setTimeout(() => {
+      onPresentationChange(win.id, {
+        title: resolvedTitle,
+        iconName: resolvedIconName,
+        iconPath: resolvedIconPath,
+        iconType: resolvedIconType,
+        iconIsVirtual: resolvedIconIsVirtual,
+      })
+    }, presentationDebounceMs)
+    return () => clearTimeout(id)
   }, [
     onPresentationChange,
     resolvedIconIsVirtual,
@@ -662,6 +669,7 @@ function WindowGroupInner({
   onDetachTab,
   onRestoreDrag,
   onDropFileToTabBar,
+  overrideBounds,
 }: WindowGroupProps) {
   const leader = tabs[0] as WorkspaceWindowDefinition | undefined
   const leaderId = leader?.id ?? ''
@@ -688,6 +696,7 @@ function WindowGroupInner({
     ),
   )
   const bounds = leader?.layout?.bounds
+  const effectiveBounds = overrideBounds ?? bounds
   const effectiveZIndex = layoutOverlay?.zIndex ?? leader?.layout?.zIndex ?? 1
   const effectiveMinimized = layoutOverlay?.minimized ?? leader?.layout?.minimized ?? false
   const isSnapped = !!leader?.layout?.snapZone
@@ -695,9 +704,17 @@ function WindowGroupInner({
   const hasTabs = tabs.length > 1
   const windowContentRef = useRef<HTMLDivElement>(null)
 
-  const currentMediaFile = useMediaPlayer((state) => state.currentFile)
-  const currentMediaType = useMediaPlayer((state) => state.mediaType)
-  const mediaPlayerIsPlaying = useMediaPlayer((state) => state.isPlaying)
+  const {
+    currentFile: currentMediaFile,
+    mediaType: currentMediaType,
+    isPlaying: mediaPlayerIsPlaying,
+  } = useMediaPlayer(
+    useShallow((s) => ({
+      currentFile: s.currentFile,
+      mediaType: s.mediaType,
+      isPlaying: s.isPlaying,
+    })),
+  )
   const { settings } = useSettings('', false)
   const { getIcon } = useFileIcon({
     customIcons: settings.customIcons,
@@ -708,6 +725,73 @@ function WindowGroupInner({
   })
 
   const dragOccurredRef = useRef(false)
+  const resizeRafIdRef = useRef(0)
+  const pendingResizeRef = useRef<{
+    bounds: Bounds
+    direction: string
+  } | null>(null)
+
+  const flushResizeSnapped = useCallback(() => {
+    const pending = pendingResizeRef.current
+    pendingResizeRef.current = null
+    resizeRafIdRef.current = 0
+    if (pending) {
+      onResizeSnapped(leaderId, pending.bounds, pending.direction)
+    }
+  }, [leaderId, onResizeSnapped])
+
+  const handleResize = useCallback(
+    (
+      _event: unknown,
+      direction: string,
+      ref: HTMLElement,
+      _delta: unknown,
+      position: { x: number; y: number },
+    ) => {
+      if (!isSnapped) return
+      const bounds: Bounds = {
+        x: position.x,
+        y: position.y,
+        width: ref.offsetWidth,
+        height: ref.offsetHeight,
+      }
+      pendingResizeRef.current = { bounds, direction }
+      if (resizeRafIdRef.current === 0) {
+        resizeRafIdRef.current = requestAnimationFrame(() => {
+          flushResizeSnapped()
+        })
+      }
+    },
+    [isSnapped, flushResizeSnapped],
+  )
+
+  const handleResizeStop = useCallback(
+    (
+      _event: unknown,
+      direction: string,
+      ref: HTMLElement,
+      _delta: unknown,
+      position: { x: number; y: number },
+    ) => {
+      if (resizeRafIdRef.current !== 0) {
+        cancelAnimationFrame(resizeRafIdRef.current)
+        resizeRafIdRef.current = 0
+        pendingResizeRef.current = null
+      }
+      const newBounds: Bounds = {
+        x: position.x,
+        y: position.y,
+        width: ref.offsetWidth,
+        height: ref.offsetHeight,
+      }
+      if (isSnapped) {
+        onResizeSnapped(leaderId, newBounds, direction)
+      } else {
+        onUpdateBounds(leaderId, newBounds)
+      }
+    },
+    [isSnapped, leaderId, onResizeSnapped, onUpdateBounds],
+  )
 
   const handleDrag = useCallback(
     (e: unknown) => {
@@ -727,17 +811,22 @@ function WindowGroupInner({
   const handleDragStop = useCallback(
     (event: unknown, data: { x: number; y: number }) => {
       dragOccurredRef.current = false
-      if (bounds) {
+      if (effectiveBounds) {
         const ev = event as { clientX?: number; clientY?: number }
         onDragStopProp(
           leaderId,
-          { x: data.x, y: data.y, width: bounds.width, height: bounds.height },
+          {
+            x: data.x,
+            y: data.y,
+            width: effectiveBounds.width,
+            height: effectiveBounds.height,
+          },
           ev.clientX ?? 0,
           ev.clientY ?? 0,
         )
       }
     },
-    [bounds, leaderId, onDragStopProp],
+    [effectiveBounds, leaderId, onDragStopProp],
   )
 
   const handleDragStart = useCallback(
@@ -877,7 +966,7 @@ function WindowGroupInner({
     [tabs.length, onDetachTab],
   )
 
-  if (!leader || !bounds || effectiveMinimized) {
+  if (!leader || !effectiveBounds || effectiveMinimized) {
     return null
   }
 
@@ -886,8 +975,8 @@ function WindowGroupInner({
   return (
     <div className='relative' style={{ zIndex: effectiveZIndex }}>
       <Rnd
-        size={{ width: bounds.width, height: bounds.height }}
-        position={{ x: bounds.x, y: bounds.y }}
+        size={{ width: effectiveBounds.width, height: effectiveBounds.height }}
+        position={{ x: effectiveBounds.x, y: effectiveBounds.y }}
         minWidth={360}
         minHeight={260}
         disableDragging={false}
@@ -898,33 +987,8 @@ function WindowGroupInner({
         onDrag={handleDrag}
         onResizeStart={() => onFocus(leader.id)}
         onDragStop={handleDragStop}
-        onResize={(_event, direction, ref, _delta, position) => {
-          if (isSnapped) {
-            onResizeSnapped(
-              leader.id,
-              {
-                x: position.x,
-                y: position.y,
-                width: ref.offsetWidth,
-                height: ref.offsetHeight,
-              },
-              direction,
-            )
-          }
-        }}
-        onResizeStop={(_event, direction, ref, _delta, position) => {
-          const newBounds = {
-            x: position.x,
-            y: position.y,
-            width: ref.offsetWidth,
-            height: ref.offsetHeight,
-          }
-          if (isSnapped) {
-            onResizeSnapped(leader.id, newBounds, direction)
-          } else {
-            onUpdateBounds(leader.id, newBounds)
-          }
-        }}
+        onResize={handleResize}
+        onResizeStop={handleResizeStop}
       >
         <div
           ref={windowContentRef}
