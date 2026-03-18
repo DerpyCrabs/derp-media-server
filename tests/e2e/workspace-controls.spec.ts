@@ -31,6 +31,19 @@ async function getWindowBounds(windowGroup: Locator) {
   return box!
 }
 
+/** Wait for window bounds to stabilize after drag/resize. */
+async function waitForWindowBoundsStable(page: Page, windowGroup: Locator, timeoutMs = 400) {
+  const deadline = Date.now() + timeoutMs
+  let prev: string | null = null
+  while (Date.now() < deadline) {
+    const b = await getWindowBounds(windowGroup)
+    const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
+    if (prev === key) return
+    prev = key
+    await page.waitForTimeout(25)
+  }
+}
+
 async function dragFromTo(
   page: Page,
   fromX: number,
@@ -49,7 +62,7 @@ async function closeAllWindows(page: Page) {
   const closeBtns = page.locator('button[aria-label^="Close "]')
   while ((await closeBtns.count()) > 0) {
     await closeBtns.first().click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
   }
 }
 
@@ -72,7 +85,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')
@@ -96,7 +109,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
     await expect(getWindowGroups(page)).toHaveCount(1)
 
     const tabStrip = page.locator('.workspace-tab-strip')
@@ -115,7 +128,7 @@ test.describe('Tab Merging and Splitting', () => {
       tabBox.x + tabBox.width / 2,
       tabBox.y + tabBox.height / 2 + 60,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
@@ -137,7 +150,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
     await expect(getWindowGroups(page)).toHaveCount(1)
 
     const tabStrip = page.locator('.workspace-tab-strip')
@@ -156,7 +169,7 @@ test.describe('Tab Merging and Splitting', () => {
       tabBox.x + tabBox.width / 2,
       tabBox.y + tabBox.height / 2 + 60,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
     await expect(getWindowGroups(page)).toHaveCount(2)
 
     const detachedGroup = getWindowGroups(page).nth(1)
@@ -173,7 +186,7 @@ test.describe('Tab Merging and Splitting', () => {
       targetHandleBox.x + targetHandleBox.width / 2,
       targetHandleBox.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(1)
   })
@@ -199,7 +212,7 @@ test.describe('Tab Merging and Splitting', () => {
       slotBox.x + slotBox.width / 2,
       slotBox.y + slotBox.height / 2,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')
@@ -226,7 +239,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     const taskbarCloseBtn = page.locator('button[aria-label^="Close "]')
     const label = await taskbarCloseBtn.first().getAttribute('aria-label')
@@ -239,9 +252,9 @@ test.describe('Tab Merging and Splitting', () => {
     const content = groups.first().locator('.workspace-window-content')
 
     await content.getByText('Documents', { exact: true }).click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(150)
     await content.getByText('readme.txt').click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(150)
 
     await expect(getWindowGroups(page)).toHaveCount(2)
 
@@ -257,7 +270,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')
@@ -274,12 +287,12 @@ test.describe('Tab Merging and Splitting', () => {
     expect(labelAfterMerge).toContain('readme.txt')
 
     await tabs.first().click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
     const labelAfterFirstTab = await getTaskbarLabel()
     expect(labelAfterFirstTab).not.toContain('readme.txt')
 
     await tabs.nth(1).click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
     const labelAfterSecondTab = await getTaskbarLabel()
     expect(labelAfterSecondTab).toContain('readme.txt')
   })
@@ -301,7 +314,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     const tabStrip = page.locator('.workspace-tab-strip')
     const tabs = tabStrip
@@ -331,7 +344,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     const tabStrip = page.locator('.workspace-tab-strip')
     const closeButtons = tabStrip.locator('button:has(.lucide-x)')
@@ -357,7 +370,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const mergedWindow = getWindowGroups(page).first()
@@ -369,16 +382,16 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(tabs).toHaveCount(2)
 
     await tabs.first().click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
     const content = mergedWindow.locator('.workspace-window-content')
     await content.getByText('Documents', { exact: true }).click()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
     await tabs.nth(1).click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const closeButtons = tabStrip.locator('button:has(.lucide-x)')
     await closeButtons.nth(1).click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(150)
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const visibleContent = getWindowGroups(page).first().locator('.workspace-window-content')
@@ -402,7 +415,7 @@ test.describe('Tab Merging and Splitting', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')
@@ -481,16 +494,16 @@ test.describe('Taskbar', () => {
     const taskbarItems = page.locator('button[aria-label^="Close "]')
     const firstTaskbarItem = taskbarItems.first().locator('..')
     await firstTaskbarItem.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const groups = getWindowGroups(page)
     const firstContent = groups.first().locator('.workspace-window-content')
     await firstContent.getByText('Documents', { exact: true }).click()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     const secondTaskbarItem = taskbarItems.nth(1).locator('..')
     await secondTaskbarItem.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const secondGroup = groups.nth(1)
     const minimizeBtn = secondGroup.locator('button:has(.lucide-minus)')
@@ -529,7 +542,7 @@ test.describe('Window Buttons', () => {
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
@@ -547,11 +560,11 @@ test.describe('Window Buttons', () => {
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const restoreBtn = groups.first().locator('button:has(.lucide-minimize-2)')
     await restoreBtn.click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const restoredBounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
@@ -590,7 +603,7 @@ test.describe('Window Buttons', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
     await expect(getWindowGroups(page)).toHaveCount(1)
 
     const closeBtn = groups.first().locator('.workspace-window-buttons button:has(.lucide-x)')
@@ -630,7 +643,7 @@ test.describe('Window Buttons', () => {
 
     const pickerSlots = page.locator('[data-snap-layout-template] button')
     await pickerSlots.first().click()
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!

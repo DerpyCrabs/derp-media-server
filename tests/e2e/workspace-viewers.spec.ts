@@ -104,7 +104,7 @@ test.describe('Workspace File Browser', () => {
     const content = getBrowserContent(page)
     await content.getByText('Documents', { exact: true }).click()
     await content.locator('table').getByText('unsupported.xyz').click()
-    await page.waitForTimeout(200)
+    await page.waitForTimeout(100)
 
     const dialogMessage = page.getByText('This file type cannot be previewed.')
     await expect(dialogMessage).toBeVisible()
@@ -329,12 +329,15 @@ test.describe('Workspace Text Viewer', () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')
     const textarea = viewer.locator('textarea')
-    await expect(textarea).toBeVisible()
+    await expect(textarea).toBeVisible({ timeout: 10_000 })
 
     await textarea.fill('# Updated Todo\n\n- Brand new item\n')
 
-    // Blur triggers immediate auto-save
-    const viewerWindow = getWindowGroups(page).nth(1)
+    // Blur triggers immediate auto-save; find viewer window by content (window that has textarea) for parallel-safe ordering
+    const viewerWindow = page
+      .locator('[data-window-group]')
+      .filter({ has: page.locator('.workspace-window-content').locator('textarea') })
+      .first()
     await Promise.all([
       page.waitForResponse(
         (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
@@ -351,8 +354,12 @@ test.describe('Workspace Text Viewer', () => {
     await content.locator('table').getByText('todo.md').click()
     await expect(getWindowGroups(page)).toHaveCount(2)
 
-    const newViewer = getWindowGroups(page).nth(1).locator('.workspace-window-content')
-    await expect(newViewer.locator('textarea')).toBeVisible()
+    const newViewer = page
+      .locator('[data-window-group]')
+      .filter({ has: page.locator('.workspace-window-content textarea') })
+      .first()
+      .locator('.workspace-window-content')
+    await expect(newViewer.locator('textarea')).toBeVisible({ timeout: 10_000 })
     const saved = await newViewer.locator('textarea').inputValue()
     expect(saved).toContain('Updated Todo')
     expect(saved).toContain('Brand new item')

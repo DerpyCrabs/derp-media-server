@@ -47,10 +47,11 @@ async function dragToEdge(page: Page, handle: Locator, target: 'left' | 'right')
   const endY = containerHeight / 2
 
   await dragFromTo(page, startX, startY, endX, endY)
-  await page.waitForTimeout(100)
+  await page.waitForTimeout(30)
 }
 
 async function navigateToSharedContent(content: Locator) {
+  await expect(content.getByText('SharedContent', { exact: true })).toBeVisible()
   await content.getByText('SharedContent', { exact: true }).click()
   await expect(content.getByText('public-doc.txt')).toBeVisible({ timeout: 5_000 })
 }
@@ -109,7 +110,7 @@ test.describe('Cross-Window File Move', () => {
     const groups = getWindowGroups(page)
     await dragToEdge(page, getDragHandle(groups.first()), 'left')
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const contentA = groups.first().locator('.workspace-window-content')
@@ -158,17 +159,18 @@ test.describe('Drop File onto Tab Bar', () => {
     const groups = getWindowGroups(page)
     await dragToEdge(page, getDragHandle(groups.first()), 'left')
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const contentA = groups.first().locator('.workspace-window-content')
+    await expect(contentA.getByText('SharedContent', { exact: true })).toBeVisible()
     await navigateToSharedContent(contentA)
 
     const folderRow = contentA.locator('tr').filter({ hasText: 'subfolder' }).first()
     const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
 
     await html5DragDrop(folderRow, headerB)
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(150)
 
     const tabStrip = groups.nth(1).locator('.workspace-tab-strip')
     await expect(tabStrip).toBeVisible({ timeout: 5_000 })
@@ -181,7 +183,7 @@ test.describe('Drop File onto Tab Bar', () => {
     const groups = getWindowGroups(page)
     await dragToEdge(page, getDragHandle(groups.first()), 'left')
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const contentA = groups.first().locator('.workspace-window-content')
@@ -191,7 +193,7 @@ test.describe('Drop File onto Tab Bar', () => {
     const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
 
     await html5DragDrop(fileRow, headerB)
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(150)
 
     const tabStrip = groups.nth(1).locator('.workspace-tab-strip')
     await expect(tabStrip).toBeVisible({ timeout: 5_000 })
@@ -218,7 +220,7 @@ test.describe('Window Merge Still Works', () => {
       boxA.x + boxA.width / 2,
       boxA.y + 16,
     )
-    await page.waitForTimeout(200)
+    await page.waitForTimeout(100)
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')

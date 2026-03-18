@@ -31,6 +31,19 @@ async function getWindowBounds(windowGroup: Locator) {
   return box!
 }
 
+/** Wait for window bounds to stabilize after drag/resize (replaces fixed timeouts). */
+async function waitForWindowBoundsStable(page: Page, windowGroup: Locator, timeoutMs = 400) {
+  const deadline = Date.now() + timeoutMs
+  let prev: string | null = null
+  while (Date.now() < deadline) {
+    const b = await getWindowBounds(windowGroup)
+    const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
+    if (prev === key) return
+    prev = key
+    await page.waitForTimeout(25)
+  }
+}
+
 async function dragFromTo(
   page: Page,
   fromX: number,
@@ -288,7 +301,7 @@ test.describe('Edge Snapping', () => {
       page.viewportSize()!.width / 2,
       page.viewportSize()!.height / 3,
     )
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const restoredBounds = await getWindowBounds(groups.first())
     expect(restoredBounds.width).toBeLessThan(snappedBounds.width)
@@ -304,7 +317,7 @@ test.describe('Resizing Snapped Windows', () => {
 
     await dragToEdge(page, getDragHandle(groups.first()), 'left')
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const boundsA = await getWindowBounds(groups.first())
@@ -331,7 +344,7 @@ test.describe('Resizing Snapped Windows', () => {
     await page.mouse.down()
     await page.mouse.move(startX + 80, startY, { steps: 10 })
     await page.mouse.up()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, leftWindow)
 
     const newLeftBounds = await getWindowBounds(leftWindow)
     const newRightBounds = await getWindowBounds(rightWindow)
@@ -348,7 +361,7 @@ test.describe('Resizing Snapped Windows', () => {
 
     await dragToEdge(page, getDragHandle(groups.first()), 'top-left')
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'bottom-left')
 
     const boundsA = await getWindowBounds(groups.first())
@@ -375,7 +388,7 @@ test.describe('Resizing Snapped Windows', () => {
     await page.mouse.down()
     await page.mouse.move(startX, startY + 60, { steps: 10 })
     await page.mouse.up()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, topWindow)
 
     const newTopBounds = await getWindowBounds(topWindow)
     const newBottomBounds = await getWindowBounds(bottomWindow)
@@ -399,10 +412,10 @@ test.describe('Resizing Snapped Windows', () => {
     const templates = page.locator('[data-snap-layout-template]')
     const thirdsTemplate = templates.nth(5)
     await thirdsTemplate.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
 
     const maximizeBtn2 = groups.nth(1).locator('button:has(.lucide-maximize-2)')
     await maximizeBtn2.click({ button: 'right' })
@@ -411,7 +424,7 @@ test.describe('Resizing Snapped Windows', () => {
     const templates2 = page.locator('[data-snap-layout-template]')
     const thirdsTemplate2 = templates2.nth(5)
     await thirdsTemplate2.locator('button').nth(1).click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const boundsA = await getWindowBounds(groups.first())
     const boundsB = await getWindowBounds(groups.nth(1))
@@ -437,7 +450,7 @@ test.describe('Resizing Snapped Windows', () => {
     await page.mouse.down()
     await page.mouse.move(startX + 80, startY, { steps: 10 })
     await page.mouse.up()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, leftWindow)
 
     const newLeftBounds = await getWindowBounds(leftWindow)
     const newRightBounds = await getWindowBounds(rightWindow)
@@ -461,10 +474,10 @@ test.describe('Resizing Snapped Windows', () => {
     const templates = page.locator('[data-snap-layout-template]')
     const oneThirdTwoThirdsTemplate = templates.nth(6)
     await oneThirdTwoThirdsTemplate.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
 
     const maximizeBtn2 = groups.nth(1).locator('button:has(.lucide-maximize-2)')
     await maximizeBtn2.click({ button: 'right' })
@@ -473,7 +486,7 @@ test.describe('Resizing Snapped Windows', () => {
     const templates2 = page.locator('[data-snap-layout-template]')
     const oneThirdTwoThirdsTemplate2 = templates2.nth(6)
     await oneThirdTwoThirdsTemplate2.locator('button').nth(1).click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const boundsA = await getWindowBounds(groups.first())
     const boundsB = await getWindowBounds(groups.nth(1))
@@ -503,7 +516,7 @@ test.describe('Resizing Snapped Windows', () => {
     await page.mouse.down()
     await page.mouse.move(startX + 80, startY, { steps: 10 })
     await page.mouse.up()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, leftWindow)
 
     const newLeftBounds = await getWindowBounds(leftWindow)
     const newRightBounds = await getWindowBounds(rightWindow)
@@ -537,13 +550,13 @@ test.describe('Resizing Snapped Windows', () => {
     await page.mouse.down()
     await page.mouse.move(halfW - 150, startY, { steps: 10 })
     await page.mouse.up()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const resizedLeftBounds = await getWindowBounds(groups.first())
     const leftRightEdge = resizedLeftBounds.x + resizedLeftBounds.width
 
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const boundsA = await getWindowBounds(groups.first())
@@ -582,13 +595,13 @@ test.describe('Resizing Snapped Windows', () => {
     await page.mouse.down()
     await page.mouse.move(startX, halfH - 80, { steps: 10 })
     await page.mouse.up()
-    await page.waitForTimeout(200)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const resizedTopBounds = await getWindowBounds(groups.first())
     const topBottomEdge = resizedTopBounds.y + resizedTopBounds.height
 
     await groups.nth(1).dispatchEvent('mousedown')
-    await page.waitForTimeout(50)
+    await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'bottom-left')
 
     const boundsA = await getWindowBounds(groups.first())
@@ -613,7 +626,7 @@ test.describe('Tiling Layout Picker', () => {
     const templates = page.locator('[data-snap-layout-template]')
     const fullTemplate = templates.first()
     await fullTemplate.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
@@ -634,7 +647,7 @@ test.describe('Tiling Layout Picker', () => {
     const templates = page.locator('[data-snap-layout-template]')
     const leftRightTemplate = templates.nth(1)
     await leftRightTemplate.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
@@ -656,7 +669,7 @@ test.describe('Tiling Layout Picker', () => {
     const templates = page.locator('[data-snap-layout-template]')
     const quartersTemplate = templates.nth(4)
     await quartersTemplate.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
@@ -724,7 +737,7 @@ test.describe('Drag Restore', () => {
       page.viewportSize()!.width / 2,
       page.viewportSize()!.height / 3,
     )
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const restoredBounds = await getWindowBounds(groups.first())
     expect(restoredBounds.width).toBeGreaterThan(preBounds.width - 50)
@@ -738,7 +751,7 @@ test.describe('Drag Restore', () => {
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const maxBounds = await getWindowBounds(groups.first())
     expect(maxBounds.width).toBeGreaterThan(viewport.width - 10)
@@ -753,7 +766,7 @@ test.describe('Drag Restore', () => {
       viewport.width / 2,
       viewport.height / 3,
     )
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const restoredBounds = await getWindowBounds(groups.first())
     expect(restoredBounds.width).toBeLessThan(viewport.width - 50)
@@ -773,7 +786,7 @@ test.describe('Drag Restore', () => {
     const dropX = 600
     const dropY = 200
     await dragFromTo(page, box.x + box.width / 2, box.y + box.height / 2, dropX, dropY)
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const restoredBounds = await getWindowBounds(groups.first())
     expect(restoredBounds.x).toBeGreaterThan(dropX - restoredBounds.width)
@@ -791,7 +804,7 @@ test.describe('Window Minimum Size', () => {
     if (!box) throw new Error('Window not visible')
 
     await dragFromTo(page, box.x + box.width, box.y + box.height, box.x + 100, box.y + 100, 20)
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const newBounds = await getWindowBounds(groups.first())
     expect(newBounds.width).toBeGreaterThanOrEqual(360)
@@ -845,7 +858,7 @@ test.describe('Vertical viewport (portrait)', () => {
     const templates = page.locator('[data-snap-layout-template]')
     const topBottomStackTemplate = templates.nth(3)
     await topBottomStackTemplate.locator('button').first().click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
@@ -870,7 +883,7 @@ test.describe('Vertical viewport (portrait)', () => {
     const templates = page.locator('[data-snap-layout-template]')
     const topBottomStackTemplate = templates.nth(3)
     await topBottomStackTemplate.locator('button').nth(1).click()
-    await page.waitForTimeout(100)
+    await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
@@ -951,7 +964,7 @@ test.describe('Window Z-Ordering and Focus', () => {
     expect(zB).toBeGreaterThan(zA)
 
     await groups.first().dispatchEvent('mousedown')
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const newZA = await rndA.evaluate(getZ)
     expect(newZA).toBeGreaterThan(zB)
@@ -973,7 +986,7 @@ test.describe('Window Z-Ordering and Focus', () => {
 
     const contentA = groups.first().locator('.workspace-window-content')
     await contentA.click({ position: { x: 10, y: 50 } })
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(50)
 
     const newZA = await rndA.evaluate(getZ)
     expect(newZA).toBeGreaterThan(zB)
@@ -1005,7 +1018,8 @@ test.describe('State Persistence', () => {
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
 
-    await page.waitForTimeout(600)
+    // Wait for workspace state to persist before reload (allow debounce/save to complete)
+    await page.waitForTimeout(1500)
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expect(getWindowGroups(page).first()).toBeVisible()

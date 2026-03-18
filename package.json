@@ -13,6 +13,7 @@
     "test": "playwright test",
     "test:unit": "bun test tests/unit/",
     "test:batch": "bun tests/run-batches.ts",
+    "test:generate-media": "bun tests/fixtures/generate-media-cache.ts",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "prepare": "husky"

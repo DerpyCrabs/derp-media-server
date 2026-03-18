@@ -9,6 +9,7 @@ const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
 const dataDirName = batchId ? `test-data-${batchId}` : null
 
 const TEST_MEDIA_DIR = path.resolve(mediaDirName)
+const MEDIA_CACHE_DIR = path.resolve(__dirname, '..', '..', '.test-media-cache')
 const MEDIA_DIR_KEY = mediaDirName
 const DATA_DIR = dataDirName ? path.resolve(dataDirName) : null
 
@@ -51,7 +52,11 @@ export default async function setup(_config: FullConfig) {
     }
   }
 
-  generateTestMedia(TEST_MEDIA_DIR)
+  if (fs.existsSync(MEDIA_CACHE_DIR)) {
+    fs.cpSync(MEDIA_CACHE_DIR, TEST_MEDIA_DIR, { recursive: true })
+  } else {
+    generateTestMedia(TEST_MEDIA_DIR)
+  }
 
   if (DATA_DIR) {
     fs.mkdirSync(DATA_DIR, { recursive: true })
