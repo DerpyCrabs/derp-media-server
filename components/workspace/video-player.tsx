@@ -11,6 +11,8 @@ import type { SourceContext } from '@/lib/source-context'
 interface WorkspaceVideoPlayerProps {
   session?: NavigationSession
   mediaContext?: SourceContext
+  /** Called when video metadata is loaded so the window can be resized to match aspect ratio. */
+  onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
 }
 
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
@@ -23,6 +25,7 @@ function isVideoPath(path: string | null) {
 export function VideoPlayer({
   session: sessionProp,
   mediaContext,
+  onVideoMetadataLoaded,
 }: WorkspaceVideoPlayerProps = {}) {
   const session = useNavigationSession(sessionProp)
   const { state, setAudioOnly } = session
@@ -103,6 +106,9 @@ export function VideoPlayer({
     const handleLoadedMetadata = () => {
       setDuration(video.duration)
       updatePositionState()
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        onVideoMetadataLoaded?.(video.videoWidth, video.videoHeight)
+      }
     }
 
     const handlePlay = () => {
@@ -134,7 +140,15 @@ export function VideoPlayer({
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('ended', handleEnded)
     }
-  }, [playingPath, saveTime, setCurrentTime, setDuration, setIsPlaying, shouldShowVideo])
+  }, [
+    onVideoMetadataLoaded,
+    playingPath,
+    saveTime,
+    setCurrentTime,
+    setDuration,
+    setIsPlaying,
+    shouldShowVideo,
+  ])
 
   useEffect(() => {
     const video = videoRef.current
