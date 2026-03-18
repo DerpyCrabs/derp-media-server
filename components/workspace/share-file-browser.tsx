@@ -43,7 +43,7 @@ interface ShareFileBrowserProps {
 
 function ShareFileBrowserInner({
   session: sessionProp,
-  dialogContainerRef: _dialogContainerRef,
+  dialogContainerRef,
   onOpenInNewTabInSameWindow,
   onAddToTaskbar,
 }: ShareFileBrowserProps) {
@@ -393,10 +393,13 @@ function ShareFileBrowserInner({
     ]
   }, [currentSubDir, shareName])
 
+  const dialogContainer = dialogContainerRef?.current ?? undefined
+
   const dialogs = (
     <>
       <MoveToDialog
         isOpen={showMoveDialog}
+        container={dialogContainer}
         onClose={() => {
           setShowMoveDialog(false)
           setMoveTarget(null)
@@ -413,6 +416,7 @@ function ShareFileBrowserInner({
 
       <CreateFolderDialog
         isOpen={showCreateFolder}
+        container={dialogContainer}
         onOpenChange={setShowCreateFolder}
         folderName={newItemName}
         onFolderNameChange={setNewItemName}
@@ -441,6 +445,7 @@ function ShareFileBrowserInner({
 
       <CreateFileDialog
         isOpen={showCreateFile}
+        container={dialogContainer}
         onOpenChange={setShowCreateFile}
         fileName={newItemName}
         onFileNameChange={setNewItemName}
@@ -475,6 +480,7 @@ function ShareFileBrowserInner({
 
       <RenameDialog
         isOpen={showRenameDialog}
+        container={dialogContainer}
         onOpenChange={setShowRenameDialog}
         itemName={renamingItem?.name || ''}
         newName={renameNewName}
@@ -512,6 +518,7 @@ function ShareFileBrowserInner({
 
       <DeleteConfirmDialog
         isOpen={showDeleteDialog}
+        container={dialogContainer}
         onOpenChange={setShowDeleteDialog}
         item={deletingItem}
         onDelete={() => {

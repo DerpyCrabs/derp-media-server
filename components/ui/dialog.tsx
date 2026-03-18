@@ -46,10 +46,15 @@ function DialogPopup({ className, ...props }: DialogPrimitive.Popup.Props) {
 function DialogOverlay({
   className,
   container,
+  /** When true, overlay is rendered as Close so clicking it closes the dialog (use with disablePointerDismissal on Root). */
+  closeOnClick,
   ...props
-}: DialogPrimitive.Backdrop.Props & { container?: HTMLElement | null }) {
+}: DialogPrimitive.Backdrop.Props & {
+  container?: HTMLElement | null
+  closeOnClick?: boolean
+}) {
   const isContained = !!container
-  return (
+  const backdrop = (
     <DialogPrimitive.Backdrop
       data-slot='dialog-overlay'
       className={cn(
@@ -60,6 +65,15 @@ function DialogOverlay({
       {...props}
     />
   )
+  if (closeOnClick) {
+    return (
+      <DialogPrimitive.Close
+        data-slot='dialog-overlay-close'
+        render={backdrop as React.ReactElement}
+      />
+    )
+  }
+  return backdrop
 }
 
 function DialogContent({
@@ -76,7 +90,7 @@ function DialogContent({
   const isContained = !!container
   return (
     <DialogPortal container={container ?? undefined}>
-      <DialogOverlay container={container} />
+      <DialogOverlay container={container} closeOnClick={isContained} />
       <DialogPrimitive.Popup
         data-slot='dialog-content'
         className={cn(

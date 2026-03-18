@@ -31,6 +31,8 @@ interface CreateFolderDialogProps {
   error: Error | null
   folderExists: boolean
   onReset: () => void
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 export function CreateFolderDialog({
@@ -43,10 +45,11 @@ export function CreateFolderDialog({
   error,
   folderExists,
   onReset,
+  container,
 }: CreateFolderDialogProps) {
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={isOpen} onOpenChange={onOpenChange} disablePointerDismissal={!!container}>
+      <DialogContent container={container ?? undefined}>
         <DialogHeader>
           <DialogTitle>Create New Folder</DialogTitle>
           <DialogDescription>Enter a name for the new folder.</DialogDescription>
@@ -106,6 +109,8 @@ interface CreateFileDialogProps {
   onReset: () => void
   /** Default extension when none provided (.md for knowledge base, .txt otherwise) */
   defaultExtension?: 'txt' | 'md'
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 export function CreateFileDialog({
@@ -119,11 +124,12 @@ export function CreateFileDialog({
   fileExists,
   onReset,
   defaultExtension = 'txt',
+  container,
 }: CreateFileDialogProps) {
   const extExample = defaultExtension === 'md' ? 'notes.md' : 'notes.txt'
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={isOpen} onOpenChange={onOpenChange} disablePointerDismissal={!!container}>
+      <DialogContent container={container ?? undefined}>
         <DialogHeader>
           <DialogTitle>Create New File</DialogTitle>
           <DialogDescription>
@@ -183,6 +189,8 @@ interface RenameDialogProps {
   nameExists: boolean
   isDirectory: boolean
   onReset: () => void
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 export function RenameDialog({
@@ -197,10 +205,11 @@ export function RenameDialog({
   nameExists,
   isDirectory,
   onReset,
+  container,
 }: RenameDialogProps) {
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={isOpen} onOpenChange={onOpenChange} disablePointerDismissal={!!container}>
+      <DialogContent container={container ?? undefined}>
         <DialogHeader>
           <DialogTitle>Rename {itemName}</DialogTitle>
           <DialogDescription>
@@ -262,6 +271,8 @@ interface DeleteConfirmDialogProps {
   onReset: () => void
   /** When true, show "Revoke Share" instead of "Delete" */
   isRevokeShare?: boolean
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 export function DeleteConfirmDialog({
@@ -274,10 +285,11 @@ export function DeleteConfirmDialog({
   error,
   onReset,
   isRevokeShare = false,
+  container,
 }: DeleteConfirmDialogProps) {
   return (
     <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent container={container ?? undefined}>
         <AlertDialogHeader>
           <AlertDialogTitle>
             {isRevokeShare

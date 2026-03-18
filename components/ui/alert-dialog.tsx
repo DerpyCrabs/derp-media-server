@@ -12,16 +12,31 @@ function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
   return <AlertDialogPrimitive.Trigger data-slot='alert-dialog-trigger' {...props} />
 }
 
-function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props) {
-  return <AlertDialogPrimitive.Portal data-slot='alert-dialog-portal' {...props} />
+function AlertDialogPortal({
+  container,
+  ...props
+}: AlertDialogPrimitive.Portal.Props & { container?: HTMLElement | null }) {
+  return (
+    <AlertDialogPrimitive.Portal
+      data-slot='alert-dialog-portal'
+      {...(container ? { container } : {})}
+      {...props}
+    />
+  )
 }
 
-function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdrop.Props) {
+function AlertDialogOverlay({
+  className,
+  container,
+  ...props
+}: AlertDialogPrimitive.Backdrop.Props & { container?: HTMLElement | null }) {
+  const isContained = !!container
   return (
     <AlertDialogPrimitive.Backdrop
       data-slot='alert-dialog-overlay'
       className={cn(
-        'data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs',
+        'data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs',
+        isContained ? 'absolute inset-0' : 'fixed inset-0',
         className,
       )}
       {...props}
@@ -29,21 +44,30 @@ function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdr
   )
 }
 
+export type AlertDialogContentProps = AlertDialogPrimitive.Popup.Props & {
+  size?: 'default' | 'sm'
+  /** When set, the dialog portals into this element instead of document body (e.g. to contain modal inside a window). */
+  container?: HTMLElement | null
+}
+
 function AlertDialogContent({
   className,
   size = 'default',
+  container,
   ...props
-}: AlertDialogPrimitive.Popup.Props & {
-  size?: 'default' | 'sm'
-}) {
+}: AlertDialogContentProps) {
+  const isContained = !!container
   return (
-    <AlertDialogPortal>
-      <AlertDialogOverlay />
+    <AlertDialogPortal container={container ?? undefined}>
+      <AlertDialogOverlay container={container} />
       <AlertDialogPrimitive.Popup
         data-slot='alert-dialog-content'
         data-size={size}
         className={cn(
-          'data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 bg-background ring-foreground/10 group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 rounded-xl p-6 ring-1 duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-lg',
+          'data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 bg-background ring-foreground/10 group/alert-dialog-content z-50 grid w-full gap-6 rounded-xl p-6 ring-1 duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-lg',
+          isContained
+            ? 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+            : 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
           className,
         )}
         {...props}

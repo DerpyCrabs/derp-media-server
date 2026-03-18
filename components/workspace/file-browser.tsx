@@ -393,6 +393,8 @@ function FileBrowserInner({
     return shares.filter((s) => s.path === path)
   }
 
+  const dialogContainer = dialogContainerRef?.current ?? undefined
+
   const dialogs = (
     <>
       <IconEditorDialog
@@ -405,10 +407,12 @@ function FileBrowserInner({
         fileName={editingItem?.name || ''}
         currentIcon={editingItem ? customIcons[editingItem.path] || null : null}
         onSave={handleSaveIcon}
+        container={dialogContainer}
       />
 
       <DeleteConfirmDialog
         isOpen={showDeleteConfirm}
+        container={dialogContainer}
         onOpenChange={setShowDeleteConfirm}
         item={itemToDelete}
         currentFolderName={currentFolderName}
@@ -460,6 +464,7 @@ function FileBrowserInner({
 
       <CreateFolderDialog
         isOpen={showCreateFolder}
+        container={dialogContainer}
         onOpenChange={setShowCreateFolder}
         folderName={newItemName}
         onFolderNameChange={setNewItemName}
@@ -484,6 +489,7 @@ function FileBrowserInner({
 
       <CreateFileDialog
         isOpen={showCreateFile}
+        container={dialogContainer}
         onOpenChange={setShowCreateFile}
         fileName={newItemName}
         onFileNameChange={setNewItemName}
@@ -509,6 +515,7 @@ function FileBrowserInner({
 
       <RenameDialog
         isOpen={showRenameDialog}
+        container={dialogContainer}
         onOpenChange={setShowRenameDialog}
         itemName={editingItem?.name || ''}
         newName={newItemName}
@@ -544,6 +551,7 @@ function FileBrowserInner({
 
       <PasteDialog
         isOpen={showPasteDialog}
+        container={dialogContainer}
         pasteData={pasteData}
         isPending={pasteFileMutation.isPending}
         error={pasteFileMutation.error}
@@ -554,6 +562,7 @@ function FileBrowserInner({
 
       <MoveToDialog
         isOpen={showMoveDialog}
+        container={dialogContainer}
         onClose={() => {
           setShowMoveDialog(false)
           setMoveTarget(null)
@@ -570,6 +579,7 @@ function FileBrowserInner({
       <MoveToDialog
         mode='copy'
         isOpen={showCopyDialog}
+        container={dialogContainer}
         onClose={() => {
           setShowCopyDialog(false)
           setCopyTarget(null)
@@ -597,6 +607,7 @@ function FileBrowserInner({
 
       <ShareDialog
         isOpen={showShareDialog}
+        container={dialogContainer}
         onClose={() => {
           setShowShareDialog(false)
           setShareTarget(null)
@@ -608,8 +619,12 @@ function FileBrowserInner({
         existingShares={shareTarget ? getSharesForPath(shareTarget.path) : []}
       />
 
-      <Dialog open={!!unsupportedFile} onOpenChange={(open) => !open && setUnsupportedFile(null)}>
-        <DialogContent className='sm:max-w-sm' container={dialogContainerRef?.current ?? undefined}>
+      <Dialog
+        open={!!unsupportedFile}
+        onOpenChange={(open) => !open && setUnsupportedFile(null)}
+        disablePointerDismissal={!!dialogContainer}
+      >
+        <DialogContent className='sm:max-w-sm' container={dialogContainer}>
           <DialogHeader>
             <div className='flex items-center gap-3'>
               <FileQuestion className='h-6 w-6 shrink-0 text-yellow-500' />

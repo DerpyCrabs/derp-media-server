@@ -34,6 +34,8 @@ interface ShareDialogProps {
   isDirectory: boolean
   isEditable: boolean
   existingShares: ShareLink[]
+  /** When set, the dialog is rendered inside this element (e.g. workspace window). */
+  container?: HTMLElement | null
 }
 
 type QuotaMode = 'unlimited' | 'preset' | 'custom'
@@ -384,6 +386,7 @@ export function ShareDialog({
   isDirectory,
   isEditable,
   existingShares,
+  container,
 }: ShareDialogProps) {
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
@@ -424,8 +427,15 @@ export function ShareDialog({
   const hasShares = existingShares.length > 0
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='sm:max-w-md max-h-[85vh] overflow-y-auto'>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => !open && onClose()}
+      disablePointerDismissal={!!container}
+    >
+      <DialogContent
+        className='sm:max-w-md max-h-[85vh] overflow-y-auto'
+        container={container ?? undefined}
+      >
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <Link className='h-5 w-5' />
