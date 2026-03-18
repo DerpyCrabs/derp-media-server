@@ -15,6 +15,7 @@
 /test-media
 /test-media-*
 /test-data-*
+/.test-media-cache
 /test-results
 /playwright-report
 /blob-report

@@ -6,7 +6,7 @@ import { execSync } from 'child_process'
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
 const dataDirName = batchId ? `test-data-${batchId}` : null
-const port = batchId ? 5974 + parseInt(batchId) : 5973
+const port = batchId ? 9200 + parseInt(batchId) : 5973
 
 const TEST_MEDIA_DIR = path.resolve(mediaDirName)
 const MEDIA_DIR_KEY = mediaDirName

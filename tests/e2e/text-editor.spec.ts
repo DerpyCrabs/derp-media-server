@@ -87,6 +87,8 @@ test.describe('Text Editor', () => {
 
   test('displays JSON files', async ({ page }) => {
     await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/data.json')}`)
+    await expect(page).toHaveURL(/viewing=.*data\.json/)
+    await expect(page.locator('button[title="Close"]')).toBeVisible()
     await expect(page.getByText('"name"')).toBeVisible()
     await expect(page.getByText('"test"')).toBeVisible()
   })
