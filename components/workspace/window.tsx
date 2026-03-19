@@ -80,8 +80,6 @@ export interface WindowGroupProps {
   ) => void
   /** When set, overrides leader layout bounds (e.g. during tab detach drag to avoid setState every frame). */
   overrideBounds?: Bounds | null
-  /** Called when the player window's video loads metadata so the window can be resized to match aspect ratio. */
-  onPlayerVideoMetadataLoaded?: (windowId: string, videoWidth: number, videoHeight: number) => void
 }
 
 function useWorkspaceWindowSession(
@@ -126,6 +124,7 @@ function useWorkspaceWindowSession(
 }
 
 interface TabContentProps {
+  storageKey: string
   window: WorkspaceWindowDefinition
   editableFolders: string[]
   playbackSession: NavigationSession
@@ -137,10 +136,10 @@ interface TabContentProps {
   onOpenInNewTabInSameWindow: WindowGroupProps['onOpenInNewTabInSameWindow']
   onAddToTaskbar?: WindowGroupProps['onAddToTaskbar']
   onFocus: (windowId: string) => void
-  onPlayerVideoMetadataLoaded?: WindowGroupProps['onPlayerVideoMetadataLoaded']
 }
 
 const TabContent = memo(function TabContent({
+  storageKey,
   window: win,
   editableFolders,
   playbackSession,
@@ -152,7 +151,6 @@ const TabContent = memo(function TabContent({
   onOpenInNewTabInSameWindow,
   onAddToTaskbar,
   onFocus,
-  onPlayerVideoMetadataLoaded,
 }: TabContentProps) {
   const tabContentRef = useRef<HTMLDivElement>(null)
   const localSession = useInMemoryNavigationSession(win.initialState)
@@ -255,11 +253,8 @@ const TabContent = memo(function TabContent({
         <VideoPlayer
           session={playbackSession}
           mediaContext={mediaContext}
-          onVideoMetadataLoaded={
-            onPlayerVideoMetadataLoaded
-              ? (w, h) => onPlayerVideoMetadataLoaded(win.id, w, h)
-              : undefined
-          }
+          workspaceStorageKey={storageKey}
+          workspaceWindowId={win.id}
         />
       ) : win.type === 'viewer' ? (
         <>
@@ -691,7 +686,6 @@ function WindowGroupInner({
   onRestoreDrag,
   onDropFileToTabBar,
   overrideBounds,
-  onPlayerVideoMetadataLoaded,
 }: WindowGroupProps) {
   const tabs = useWorkspaceSessionStore(
     useShallow((s) => selectGroupTabs(s.sessions, storageKey, groupIdProp)),
@@ -1144,6 +1138,7 @@ function WindowGroupInner({
             {tabs.map((tab) => (
               <TabContent
                 key={tab.id}
+                storageKey={storageKey}
                 window={tab}
                 editableFolders={editableFolders}
                 playbackSession={playbackSession}
@@ -1155,7 +1150,6 @@ function WindowGroupInner({
                 onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
                 onAddToTaskbar={onAddToTaskbar}
                 onFocus={onFocus}
-                onPlayerVideoMetadataLoaded={onPlayerVideoMetadataLoaded}
               />
             ))}
           </div>

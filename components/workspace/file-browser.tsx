@@ -37,6 +37,7 @@ import { MoveToDialog } from '@/components/move-to-dialog'
 import { KbSearchResults } from '@/components/kb-search-results'
 import { KbDashboard } from '@/components/kb-dashboard'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
+import { useShallow } from 'zustand/react/shallow'
 import { api, post } from '@/lib/api'
 import type { ShareLink } from '@/lib/shares'
 import { useShareLinkBase } from '@/lib/use-share-link-base'
@@ -72,12 +73,18 @@ function FileBrowserInner({
   const currentPath = state.dir || ''
   const shareLinkBase = useShareLinkBase()
   useAdminEventsStream()
+  const startPlayback = useMediaPlayer((s) => s.playFile)
   const {
-    playFile: startPlayback,
-    isPlaying: mediaPlayerIsPlaying,
-    mediaType,
     currentFile,
-  } = useMediaPlayer()
+    mediaType,
+    isPlaying: mediaPlayerIsPlaying,
+  } = useMediaPlayer(
+    useShallow((s) => ({
+      currentFile: s.currentFile,
+      mediaType: s.mediaType,
+      isPlaying: s.isPlaying,
+    })),
+  )
 
   const { data: filesData } = useFiles(currentPath)
   const { incrementView, getViewCount, getShareViewCount } = useViewStats()

@@ -14,6 +14,7 @@ import {
   createDefaultBounds,
   createFullscreenBounds,
   createWindowLayout,
+  getPlayerBoundsForAspectRatio,
   getInitialWindowIcon,
   getPlaybackTitle,
   getSourceLabel,
@@ -218,6 +219,12 @@ interface WorkspaceSessionStore {
     navState: Partial<NavigationState>,
   ) => void
   toggleWindowFullscreen: (key: string, windowId: string) => void
+  resizePlayerWindowForVideo: (
+    key: string,
+    windowId: string,
+    videoWidth: number,
+    videoHeight: number,
+  ) => void
 }
 
 function bumpWindowsSlice(
@@ -401,6 +408,33 @@ export const useWorkspaceSessionStore = create<WorkspaceSessionStore>((set, get)
             ...session,
             windowsById: { ...session.windowsById, [windowId]: updated },
           },
+        },
+      }
+    })
+  },
+
+  resizePlayerWindowForVideo(key, windowId, videoWidth, videoHeight) {
+    if (videoWidth <= 0 || videoHeight <= 0) return
+    const aspect = videoWidth / videoHeight
+    get().updateWindow(key, windowId, (w) => {
+      if (w.type !== 'player') return w
+      const currentBounds = w.layout?.bounds ?? null
+      const newBounds = getPlayerBoundsForAspectRatio(aspect, currentBounds)
+      const prev = w.layout?.bounds
+      if (
+        prev &&
+        prev.x === newBounds.x &&
+        prev.y === newBounds.y &&
+        prev.width === newBounds.width &&
+        prev.height === newBounds.height
+      ) {
+        return w
+      }
+      return {
+        ...w,
+        layout: {
+          ...w.layout,
+          bounds: newBounds,
         },
       }
     })

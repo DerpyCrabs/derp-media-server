@@ -1,5 +1,6 @@
 import { Suspense, useState, useMemo, useCallback, useEffect } from 'react'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
+import { useShallow } from 'zustand/react/shallow'
 import { api, post } from '@/lib/api'
 import { FileItem } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
@@ -76,12 +77,18 @@ function ShareFileBrowserInner({
   const canDelete = editable && restrictions?.allowDelete !== false
   const inKb = isKnowledgeBase
 
+  const startPlayback = useMediaPlayer((s) => s.playFile)
   const {
-    playFile: startPlayback,
-    isPlaying: mediaPlayerIsPlaying,
-    mediaType,
     currentFile,
-  } = useMediaPlayer()
+    mediaType,
+    isPlaying: mediaPlayerIsPlaying,
+  } = useMediaPlayer(
+    useShallow((s) => ({
+      currentFile: s.currentFile,
+      mediaType: s.mediaType,
+      isPlaying: s.isPlaying,
+    })),
+  )
 
   const { getIcon } = useFileIcon({
     customIcons: {},
