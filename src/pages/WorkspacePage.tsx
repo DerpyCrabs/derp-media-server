@@ -29,7 +29,6 @@ import {
   type WorkspaceSource,
 } from '@/lib/use-workspace'
 import { selectOrderedGroupIds, useWorkspaceSessionStore } from '@/lib/workspace-session-store'
-import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import { useWorkspaceSnapLayoutVisibility } from '@/lib/use-workspace-snap-layout-visibility'
 import { useWorkspaceSessionUrl } from '@/lib/use-workspace-session-url'
 import { queryKeys } from '@/lib/query-keys'
@@ -593,32 +592,14 @@ export function WorkspacePage({
     [updateWindowNavigationState],
   )
 
-  const handleCloseTabImpl = useCallback(
-    (windowId: string) => {
-      const ws = windowsRef.current
-      const w = ws.find((win) => win.id === windowId)
-      if (w?.type === 'player') {
-        playbackSessionRef.current.closePlayer()
-      }
-
-      if (w?.tabGroupId) {
-        const groupId = w.tabGroupId
-        const focusState = useWorkspaceFocusStore.getState().getFocusState(storageKey)
-        const isActive = focusState.activeTabMap[groupId] === windowId
-        if (isActive) {
-          const groupTabs = ws.filter((win) => win.tabGroupId === groupId)
-          const idx = groupTabs.findIndex((t) => t.id === windowId)
-          const next = groupTabs[idx - 1] ?? groupTabs[idx + 1]
-          if (next) {
-            setActiveTabRef.current(groupId, next.id)
-          }
-        }
-      }
-
-      closeWindowRef.current(windowId)
-    },
-    [storageKey],
-  )
+  const handleCloseTabImpl = useCallback((windowId: string) => {
+    const ws = windowsRef.current
+    const w = ws.find((win) => win.id === windowId)
+    if (w?.type === 'player') {
+      playbackSessionRef.current.closePlayer()
+    }
+    closeWindowRef.current(windowId)
+  }, [])
   const handleCloseTabRef = useRef(handleCloseTabImpl)
   handleCloseTabRef.current = handleCloseTabImpl
   const handleCloseTab = useCallback((windowId: string) => handleCloseTabRef.current(windowId), [])
