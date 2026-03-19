@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Headphones, MonitorPlay } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useWorkspaceSessionStore } from '@/lib/workspace-session-store'
 import { useMediaUrl } from '@/lib/use-media-url'
 import { useNavigationSession } from '@/lib/use-navigation-session'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
@@ -13,6 +14,9 @@ interface WorkspaceVideoPlayerProps {
   mediaContext?: SourceContext
   /** Called when video metadata is loaded so the window can be resized to match aspect ratio. */
   onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
+  /** When set with `workspaceWindowId`, player resizes the workspace window via the session store (stable, no parent callback). */
+  workspaceStorageKey?: string
+  workspaceWindowId?: string
 }
 
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
@@ -26,6 +30,8 @@ export function VideoPlayer({
   session: sessionProp,
   mediaContext,
   onVideoMetadataLoaded,
+  workspaceStorageKey,
+  workspaceWindowId,
 }: WorkspaceVideoPlayerProps = {}) {
   const session = useNavigationSession(sessionProp)
   const { state, setAudioOnly } = session
@@ -107,7 +113,18 @@ export function VideoPlayer({
       setDuration(video.duration)
       updatePositionState()
       if (video.videoWidth > 0 && video.videoHeight > 0) {
-        onVideoMetadataLoaded?.(video.videoWidth, video.videoHeight)
+        if (workspaceStorageKey && workspaceWindowId) {
+          useWorkspaceSessionStore
+            .getState()
+            .resizePlayerWindowForVideo(
+              workspaceStorageKey,
+              workspaceWindowId,
+              video.videoWidth,
+              video.videoHeight,
+            )
+        } else {
+          onVideoMetadataLoaded?.(video.videoWidth, video.videoHeight)
+        }
       }
     }
 
@@ -148,6 +165,8 @@ export function VideoPlayer({
     setDuration,
     setIsPlaying,
     shouldShowVideo,
+    workspaceStorageKey,
+    workspaceWindowId,
   ])
 
   useEffect(() => {

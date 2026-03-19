@@ -23,7 +23,6 @@ import {
   useWorkspace,
   workspaceSourceToMediaContext,
   snapZoneToBoundsWithOccupied,
-  getPlayerBoundsForAspectRatio,
   type PinnedTaskbarItem,
   type PersistedWorkspaceState,
   type SnapZone,
@@ -227,16 +226,6 @@ export function WorkspacePage({
       closeWindowRef.current(win.id)
     }
   }, [])
-
-  const handlePlayerVideoMetadataLoaded = useCallback(
-    (windowId: string, videoWidth: number, videoHeight: number) => {
-      const win = windows.find((w) => w.id === windowId)
-      const currentBounds = win?.layout?.bounds ?? null
-      const newBounds = getPlayerBoundsForAspectRatio(videoWidth / videoHeight, currentBounds)
-      updateWindowBounds(windowId, newBounds)
-    },
-    [windows, updateWindowBounds],
-  )
 
   const getZoneBounds = useCallback((zone: SnapZone) => {
     const ws = windowsRef.current
@@ -892,7 +881,6 @@ export function WorkspacePage({
             onRestoreDrag={handleRestoreDrag}
             onDropFileToTabBar={handleDropFileToTabBar}
             onAddToTaskbar={handleAddToTaskbar}
-            onPlayerVideoMetadataLoaded={handlePlayerVideoMetadataLoaded}
             overrideBounds={draggingGroupId === groupId ? draggingTabBounds?.bounds : undefined}
           />
         ))}
