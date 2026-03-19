@@ -7,7 +7,12 @@ import {
   addShareUsedBytes,
   createShareSessionValue,
   isShareAccessAuthorized,
+  updateShareWorkspaceTaskbarPins,
 } from '@/lib/shares'
+import {
+  filterShareWorkspaceTaskbarPins,
+  parseWorkspaceTaskbarPins,
+} from '@/lib/workspace-taskbar-pins'
 import {
   listDirectory,
   createDirectory,
@@ -155,6 +160,15 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       } catch {}
     }
 
+    const workspaceTaskbarPins =
+      authorized && share.isDirectory
+        ? filterShareWorkspaceTaskbarPins(
+            share.path,
+            token,
+            parseWorkspaceTaskbarPins(share.workspaceTaskbarPins),
+          )
+        : undefined
+
     return reply.send({
       name,
       ...(authorized && { path: share.path }),
@@ -168,6 +182,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       ...(usedBytes !== undefined && { usedBytes }),
       isKnowledgeBase,
       adminViewMode,
+      ...(workspaceTaskbarPins !== undefined && { workspaceTaskbarPins }),
     })
   })
 
@@ -200,6 +215,26 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       sameSite: session.options.sameSite as 'lax',
     })
     return reply.send({ success: true })
+  })
+
+  app.post('/api/share/:token/workspaceTaskbarPins', async (request, reply) => {
+    const { token } = request.params as { token: string }
+    const body = request.body as { items?: unknown }
+
+    const cookies = request.cookies as Record<string, string | undefined>
+    const { share } = await validateShareAccess(cookies, token)
+
+    if (!share.isDirectory) {
+      return reply.code(400).send({ error: 'Share is not a directory' })
+    }
+
+    const parsed = filterShareWorkspaceTaskbarPins(
+      share.path,
+      token,
+      parseWorkspaceTaskbarPins(body.items),
+    )
+    await updateShareWorkspaceTaskbarPins(token, parsed)
+    return reply.send({ success: true, workspaceTaskbarPins: parsed })
   })
 
   app.get('/api/share/:token/files', async (request, reply) => {

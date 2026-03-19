@@ -3,6 +3,11 @@ import { promises as fs } from 'fs'
 import type { AutoSaveSettings } from '@/lib/types'
 import { config, getDataFilePath } from '@/lib/config'
 import { Mutex } from '@/lib/mutex'
+import {
+  filterAdminWorkspaceTaskbarPins,
+  parseWorkspaceTaskbarPins,
+  type WorkspaceTaskbarPin,
+} from '@/lib/workspace-taskbar-pins'
 
 const SETTINGS_FILE = getDataFilePath('settings.json')
 const settingsMutex = new Mutex()
@@ -13,6 +18,7 @@ interface Settings {
   knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
+  workspaceTaskbarPins?: WorkspaceTaskbarPin[]
 }
 
 interface SettingsFile {
@@ -25,6 +31,7 @@ const DEFAULT_SETTINGS: Settings = {
   knowledgeBases: [],
   customIcons: {},
   autoSave: {},
+  workspaceTaskbarPins: [],
 }
 
 async function readAllSettings(): Promise<SettingsFile> {
@@ -38,7 +45,13 @@ async function readAllSettings(): Promise<SettingsFile> {
 
 async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
-  return allSettings[config.mediaDir] || { ...DEFAULT_SETTINGS }
+  const raw = allSettings[config.mediaDir] || { ...DEFAULT_SETTINGS }
+  return {
+    ...raw,
+    workspaceTaskbarPins: filterAdminWorkspaceTaskbarPins(
+      parseWorkspaceTaskbarPins(raw.workspaceTaskbarPins),
+    ),
+  }
 }
 
 async function writeSettings(settings: Settings): Promise<void> {
@@ -166,5 +179,14 @@ export function registerSettingsApiRoutes(app: FastifyInstance) {
     }
     await writeSettings(settings)
     return reply.send({ success: true, autoSave: settings.autoSave })
+  })
+
+  app.post('/api/settings/workspaceTaskbarPins', async (request, reply) => {
+    const body = request.body as { items?: unknown }
+    const parsed = filterAdminWorkspaceTaskbarPins(parseWorkspaceTaskbarPins(body.items))
+    const settings = await readSettings()
+    settings.workspaceTaskbarPins = parsed
+    await writeSettings(settings)
+    return reply.send({ success: true, workspaceTaskbarPins: parsed })
   })
 }

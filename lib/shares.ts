@@ -13,6 +13,7 @@ import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { Mutex } from '@/lib/mutex'
+import type { WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 
 export interface ShareRestrictions {
   allowDelete?: boolean
@@ -30,6 +31,8 @@ export interface ShareLink {
   createdAt: number
   restrictions?: ShareRestrictions
   usedBytes?: number
+  /** Pinned taskbar items for /share/:token/workspace (paths relative to media root). */
+  workspaceTaskbarPins?: WorkspaceTaskbarPin[]
 }
 
 const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
@@ -211,6 +214,23 @@ export async function updateShare(
     data.shares[index] = share
     await writeSharesData(data)
     return decryptSharePasscode(share)
+  } finally {
+    release()
+  }
+}
+
+export async function updateShareWorkspaceTaskbarPins(
+  token: string,
+  pins: WorkspaceTaskbarPin[],
+): Promise<boolean> {
+  const release = await sharesMutex.acquire()
+  try {
+    const data = await readSharesRaw()
+    const index = data.shares.findIndex((s) => s.token === token)
+    if (index === -1) return false
+    data.shares[index] = { ...data.shares[index], workspaceTaskbarPins: pins }
+    await writeSharesData(data)
+    return true
   } finally {
     release()
   }

@@ -4,6 +4,7 @@ import { useInMemoryNavigationSession, type NavigationState } from '@/lib/naviga
 import type { SourceContext } from '@/lib/source-context'
 import { MediaType } from '@/lib/types'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
+import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 
 export interface WorkspaceSource {
   kind: 'local' | 'share'
@@ -69,14 +70,7 @@ export interface WorkspaceWindowDefinition {
   layout?: WorkspaceWindowLayout
 }
 
-export interface PinnedTaskbarItem {
-  id: string
-  path: string
-  isDirectory: boolean
-  title: string
-  customIconName?: string | null
-  source: WorkspaceSource
-}
+export type PinnedTaskbarItem = WorkspaceTaskbarPin
 
 interface OpenWorkspaceWindowOptions {
   title?: string
@@ -117,6 +111,10 @@ interface ShareConfig {
 interface UseWorkspaceOptions {
   initialDir?: string | null
   shareConfig?: ShareConfig | null
+  /** Hydrate from server after load; when unset/false, pins stay localStorage-only. */
+  serverTaskbarPins?: PinnedTaskbarItem[]
+  serverTaskbarPinsReady?: boolean
+  persistTaskbarPinsToServer?: (items: PinnedTaskbarItem[]) => void
 }
 
 interface RequestPlayOptions {
@@ -241,15 +239,7 @@ function isValidSource(s: unknown): s is WorkspaceSource {
 }
 
 function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
-  return (
-    !!p &&
-    typeof p === 'object' &&
-    typeof (p as PinnedTaskbarItem).id === 'string' &&
-    typeof (p as PinnedTaskbarItem).path === 'string' &&
-    typeof (p as PinnedTaskbarItem).isDirectory === 'boolean' &&
-    typeof (p as PinnedTaskbarItem).title === 'string' &&
-    isValidSource((p as PinnedTaskbarItem).source)
-  )
+  return parseWorkspaceTaskbarPins([p]).length === 1
 }
 
 function saveWorkspaceState(state: PersistedWorkspaceState, key: string = STORAGE_KEY) {
@@ -310,6 +300,18 @@ function loadWorkspaceState(key: string = STORAGE_KEY): PersistedWorkspaceState 
     }
   } catch {
     return null
+  }
+}
+
+export function loadPinnedTaskbarItemsOnly(key: string = STORAGE_KEY): PinnedTaskbarItem[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { pinnedTaskbarItems?: unknown }
+    return parseWorkspaceTaskbarPins(parsed.pinnedTaskbarItems)
+  } catch {
+    return []
   }
 }
 
@@ -677,6 +679,9 @@ export function getWorkspaceWindowTitle(
 export function useWorkspace({
   initialDir = null,
   shareConfig = null,
+  serverTaskbarPins = [],
+  serverTaskbarPinsReady = false,
+  persistTaskbarPinsToServer,
 }: UseWorkspaceOptions = {}): UseWorkspaceResult {
   const storageKey = shareConfig ? `${STORAGE_KEY}-share-${shareConfig.token}` : STORAGE_KEY
 
@@ -792,10 +797,44 @@ export function useWorkspace({
     [storageKey],
   )
   const [playbackSource, setPlaybackSource] = useState<WorkspaceSource | null>(defaultSource)
-  const [pinnedTaskbarItems, setPinnedTaskbarItems] = useState<PinnedTaskbarItem[]>(() => {
-    const persisted = getPersistedState()
-    return persisted?.pinnedTaskbarItems ?? []
-  })
+  const persistTaskbarPinsRef = useRef(persistTaskbarPinsToServer)
+  persistTaskbarPinsRef.current = persistTaskbarPinsToServer
+  const serverPinsHydratedRef = useRef(false)
+  const pinsServerSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [pinnedTaskbarItems, setPinnedTaskbarItems] = useState<PinnedTaskbarItem[]>(() =>
+    loadPinnedTaskbarItemsOnly(storageKey),
+  )
+
+  useEffect(() => {
+    serverPinsHydratedRef.current = false
+  }, [storageKey])
+
+  useEffect(() => {
+    if (!serverTaskbarPinsReady) return
+    if (serverPinsHydratedRef.current) return
+    const local = loadPinnedTaskbarItemsOnly(storageKey)
+    if (serverTaskbarPins.length > 0) {
+      setPinnedTaskbarItems(serverTaskbarPins)
+    } else if (local.length > 0) {
+      setPinnedTaskbarItems(local)
+      queueMicrotask(() => persistTaskbarPinsRef.current?.(local))
+    }
+    serverPinsHydratedRef.current = true
+  }, [serverTaskbarPinsReady, serverTaskbarPins, storageKey])
+
+  useEffect(() => {
+    if (!serverTaskbarPinsReady || !persistTaskbarPinsToServer || !serverPinsHydratedRef.current) {
+      return
+    }
+    if (pinsServerSaveTimerRef.current) clearTimeout(pinsServerSaveTimerRef.current)
+    pinsServerSaveTimerRef.current = setTimeout(() => {
+      persistTaskbarPinsRef.current?.(pinnedTaskbarItems)
+    }, SAVE_DEBOUNCE_MS)
+    return () => {
+      if (pinsServerSaveTimerRef.current) clearTimeout(pinsServerSaveTimerRef.current)
+    }
+  }, [pinnedTaskbarItems, serverTaskbarPinsReady, persistTaskbarPinsToServer])
 
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
