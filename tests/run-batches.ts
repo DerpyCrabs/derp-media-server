@@ -2,16 +2,26 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 
+/**
+ * Batches aim for similar wall time (~35–45s each with 4 workers): slowest spec per batch dominates.
+ * Workspace layout is split into two files so they run in parallel in batch 1.
+ */
 const BATCHES = [
-  { id: '1', tests: ['workspace-layout'] },
+  {
+    id: '1',
+    tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome'],
+  },
   {
     id: '2',
-    tests: ['workspace-controls', 'workspace-cross-dnd', 'workspace-taskbar-pins'],
+    tests: ['workspace-controls', 'navigation', 'upload'],
   },
-  { id: '3', tests: ['workspace-viewers', 'share-workspace'] },
+  {
+    id: '3',
+    tests: ['workspace-viewers', 'workspace-cross-dnd', 'workspace-taskbar-pins'],
+  },
   {
     id: '4',
-    tests: ['editable-folders', 'navigation', 'upload', 'share-security', 'url-state', 'login'],
+    tests: ['editable-folders', 'share-security', 'url-state', 'login', 'share-workspace'],
   },
   {
     id: '5',

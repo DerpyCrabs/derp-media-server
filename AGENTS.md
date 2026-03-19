@@ -9,3 +9,4 @@
 - When implementing features in admin view you need to think if they should also be added to shared view.
 - Shared view should never access admin view routes and should have their own routes scoped by shareToken.
 - When adding e2e tests try to not depend on other tests so that test files can run in parallel without changes
+- `test:batch` sets `BATCH_ID`; Playwright then uses **4 workers** (parallel **files**, `fullyParallel: false` keeps tests inside a file ordered). Local `bun run test` stays **1 worker** so it’s easier to debug.
