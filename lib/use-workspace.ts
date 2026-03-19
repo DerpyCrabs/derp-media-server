@@ -1,10 +1,36 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { getMediaType } from '@/lib/media-utils'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useInMemoryNavigationSession, type NavigationState } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 import { MediaType } from '@/lib/types'
+import { hydrateFocusFromPersisted } from '@/lib/workspace-core'
+import {
+  createDefaultBounds,
+  createFullscreenBounds,
+  createWindowLayout,
+  getPlayerBoundsForAspectRatio,
+  getSourceLabel,
+  getViewportSize,
+  isVideoPath,
+  PLAYER_WINDOW_ID,
+  snapZoneToBounds,
+} from '@/lib/workspace-geometry'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
+import {
+  buildWorkspaceSessionSlice,
+  normalizedWindowsToArray,
+  useWorkspaceSessionStore,
+  type WorkspaceSessionSlice,
+} from '@/lib/workspace-session-store'
+
+export {
+  SNAP_SIBLING_MAP,
+  getPlayerBoundsForAspectRatio,
+  snapZoneToBounds,
+  snapZoneToBoundsWithOccupied,
+} from '@/lib/workspace-geometry'
+export type { WorkspaceBounds } from '@/lib/workspace-geometry'
 
 export interface WorkspaceSource {
   kind: 'local' | 'share'
@@ -79,28 +105,6 @@ interface OpenWorkspaceWindowOptions {
   tabGroupId?: string | null
   layout?: WorkspaceWindowLayout
   insertIndex?: number
-}
-
-function insertWindowAtGroupIndex(
-  current: WorkspaceWindowDefinition[],
-  windowToInsert: WorkspaceWindowDefinition,
-  groupId: string,
-  insertIndex: number,
-): WorkspaceWindowDefinition[] {
-  const groupIndices: number[] = []
-  current.forEach((w, i) => {
-    const gid = w.tabGroupId ?? w.id
-    if (gid === groupId) groupIndices.push(i)
-  })
-  const targetGlobalIndex =
-    insertIndex >= groupIndices.length
-      ? (groupIndices[groupIndices.length - 1] ?? -1) + 1
-      : groupIndices[insertIndex]
-  return [
-    ...current.slice(0, targetGlobalIndex),
-    windowToInsert,
-    ...current.slice(targetGlobalIndex),
-  ]
 }
 
 interface ShareConfig {
@@ -199,42 +203,6 @@ interface UseWorkspaceResult {
 }
 
 const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
-const PLAYER_WINDOW_ID = 'workspace-player-window'
-const TASKBAR_HEIGHT = 32
-const PLAYER_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
-
-export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
-  left: { right: ['right', 'top-right', 'bottom-right'] },
-  right: { left: ['left', 'top-left', 'bottom-left'] },
-  'top-left': { right: ['top-right'], bottom: ['bottom-left'] },
-  'top-right': { left: ['top-left'], bottom: ['bottom-right'] },
-  'bottom-left': { right: ['bottom-right'], top: ['top-left', 'top-half'] },
-  'bottom-right': { left: ['bottom-left'], top: ['top-right', 'top-half'] },
-  'left-third': { right: ['center-third', 'right-two-thirds'] },
-  'center-third': { left: ['left-third'], right: ['right-third'] },
-  'right-third': { left: ['center-third', 'left-two-thirds'] },
-  'left-two-thirds': { right: ['right-third'] },
-  'right-two-thirds': { left: ['left-third'] },
-  'top-left-third': { right: ['top-center-third'], bottom: ['bottom-left-third'] },
-  'top-center-third': {
-    left: ['top-left-third'],
-    right: ['top-right-third'],
-    bottom: ['bottom-center-third'],
-  },
-  'top-right-third': { left: ['top-center-third'], bottom: ['bottom-right-third'] },
-  'bottom-left-third': { right: ['bottom-center-third'], top: ['top-left-third'] },
-  'bottom-center-third': {
-    left: ['bottom-left-third'],
-    right: ['bottom-right-third'],
-    top: ['top-center-third'],
-  },
-  'bottom-right-third': { left: ['bottom-center-third'], top: ['top-right-third'] },
-  'top-half': { bottom: ['bottom-half', 'bottom-left', 'bottom-right'] },
-  'bottom-half': { top: ['top-half'] },
-  'top-third': { bottom: ['middle-third'] },
-  'middle-third': { top: ['top-third'], bottom: ['bottom-third'] },
-  'bottom-third': { top: ['middle-third'] },
-}
 
 const STORAGE_KEY = 'workspace-state'
 const SAVE_DEBOUNCE_MS = 500
@@ -381,338 +349,6 @@ export function loadPinnedTaskbarItemsOnly(key: string = STORAGE_KEY): PinnedTas
   }
 }
 
-function getSourceLabel(source: WorkspaceSource): string {
-  return source.kind === 'share' ? 'Share' : 'Browser'
-}
-
-function getViewportSize() {
-  if (typeof window === 'undefined') {
-    return { width: 1280, height: 720 }
-  }
-
-  return {
-    width: window.innerWidth,
-    height: Math.max(window.innerHeight - TASKBAR_HEIGHT, 480),
-  }
-}
-
-export type WorkspaceBounds = NonNullable<WorkspaceWindowLayout['bounds']>
-
-/** Height of the player window title bar (drag handle + border). Must match workspace window header. */
-const PLAYER_WINDOW_HEADER_HEIGHT = 33
-
-/**
- * Computes player window bounds that fit the viewport and match the given aspect ratio (width/height).
- * Accounts for the window title bar so the video content area has the correct aspect ratio.
- * Preserves window center when currentBounds is provided.
- */
-export function getPlayerBoundsForAspectRatio(
-  aspectRatio: number,
-  currentBounds: WorkspaceBounds | null,
-): WorkspaceBounds {
-  const viewport = getViewportSize()
-  const maxWidth = Math.max(viewport.width - 48, 420)
-  const maxWindowHeight = Math.max(viewport.height - 48, 320)
-  const maxContentHeight = maxWindowHeight - PLAYER_WINDOW_HEADER_HEIGHT
-  const minWidth = 360
-  const minWindowHeight = 240
-
-  let contentWidth: number
-  let contentHeight: number
-  if (maxContentHeight * aspectRatio <= maxWidth) {
-    contentHeight = maxContentHeight
-    contentWidth = Math.round(contentHeight * aspectRatio)
-  } else {
-    contentWidth = maxWidth
-    contentHeight = Math.round(contentWidth / aspectRatio)
-  }
-  let width = Math.max(minWidth, Math.min(maxWidth, contentWidth))
-  let height = Math.round(width / aspectRatio) + PLAYER_WINDOW_HEADER_HEIGHT
-  if (height > maxWindowHeight) {
-    height = maxWindowHeight
-    width = Math.round((height - PLAYER_WINDOW_HEADER_HEIGHT) * aspectRatio)
-    width = Math.max(minWidth, Math.min(maxWidth, width))
-  } else if (height < minWindowHeight) {
-    height = minWindowHeight
-    width = Math.round((height - PLAYER_WINDOW_HEADER_HEIGHT) * aspectRatio)
-    width = Math.max(minWidth, Math.min(maxWidth, width))
-  }
-
-  let x: number
-  let y: number
-  if (currentBounds) {
-    x = Math.round(currentBounds.x + (currentBounds.width - width) / 2)
-    y = Math.round(currentBounds.y + (currentBounds.height - height) / 2)
-  } else {
-    x = Math.round((viewport.width - width) / 2)
-    y = Math.round((viewport.height - height) / 2)
-  }
-  x = Math.max(16, Math.min(viewport.width - width - 16, x))
-  y = Math.max(16, Math.min(viewport.height - height - 16, y))
-
-  return { x, y, width, height }
-}
-
-function createDefaultBounds(
-  index: number,
-  type: WorkspaceWindowDefinition['type'],
-): NonNullable<WorkspaceWindowLayout['bounds']> {
-  const viewport = getViewportSize()
-  const maxWidth = Math.max(viewport.width - 48, 420)
-  const maxHeight = Math.max(viewport.height - 48, 320)
-  const isVertical = viewport.height > viewport.width
-
-  if (type === 'player') {
-    return getPlayerBoundsForAspectRatio(16 / 9, null)
-  }
-
-  let width: number
-  let height: number
-  if (isVertical) {
-    width = Math.min(Math.max(Math.round(viewport.width * 0.9), 360), maxWidth)
-    height = Math.min(Math.max(Math.round(viewport.height * 0.55), 360), maxHeight)
-  } else {
-    width = Math.min(Math.max(Math.round(viewport.width * 0.34), 420), maxWidth)
-    height = Math.min(Math.max(Math.round(viewport.height * 0.58), 360), maxHeight)
-  }
-
-  const offset = index * 28
-  return {
-    x: Math.min(24 + offset, Math.max(viewport.width - width - 16, 16)),
-    y: Math.min(24 + offset, Math.max(viewport.height - height - 16, 16)),
-    width,
-    height,
-  }
-}
-
-function createFullscreenBounds(): NonNullable<WorkspaceWindowLayout['bounds']> {
-  const viewport = getViewportSize()
-
-  return {
-    x: 0,
-    y: 0,
-    width: Math.max(viewport.width, 360),
-    height: Math.max(viewport.height, 240),
-  }
-}
-
-export function snapZoneToBounds(zone: SnapZone): NonNullable<WorkspaceWindowLayout['bounds']> {
-  return snapZoneToBoundsWithOccupied(zone, [])
-}
-
-const LEFT_SIDE_ZONES: SnapZone[] = [
-  'left',
-  'top-left',
-  'bottom-left',
-  'left-third',
-  'left-two-thirds',
-  'top-left-third',
-  'bottom-left-third',
-]
-const RIGHT_SIDE_ZONES: SnapZone[] = [
-  'right',
-  'top-right',
-  'bottom-right',
-  'right-third',
-  'right-two-thirds',
-  'top-right-third',
-  'bottom-right-third',
-]
-const TOP_SIDE_ZONES: SnapZone[] = [
-  'top-left',
-  'top-right',
-  'top-half',
-  'top-third',
-  'middle-third',
-  'top-left-third',
-  'top-center-third',
-  'top-right-third',
-]
-const BOTTOM_SIDE_ZONES: SnapZone[] = [
-  'bottom-left',
-  'bottom-right',
-  'bottom-half',
-  'middle-third',
-  'bottom-third',
-  'bottom-left-third',
-  'bottom-center-third',
-  'bottom-right-third',
-]
-
-export function snapZoneToBoundsWithOccupied(
-  zone: SnapZone,
-  occupied: ReadonlyArray<{
-    bounds: NonNullable<WorkspaceWindowLayout['bounds']>
-    snapZone: SnapZone
-  }>,
-): NonNullable<WorkspaceWindowLayout['bounds']> {
-  const viewport = getViewportSize()
-  const halfW = Math.round(viewport.width / 2)
-  const halfH = Math.round(viewport.height / 2)
-  const thirdW = Math.round(viewport.width / 3)
-  const twoThirdW = Math.round((viewport.width * 2) / 3)
-  const thirdH = Math.round(viewport.height / 3)
-  const twoThirdH = Math.round((viewport.height * 2) / 3)
-
-  const defaultBounds: NonNullable<WorkspaceWindowLayout['bounds']> = (() => {
-    switch (zone) {
-      case 'left':
-        return { x: 0, y: 0, width: halfW, height: viewport.height }
-      case 'right':
-        return { x: halfW, y: 0, width: viewport.width - halfW, height: viewport.height }
-      case 'top-left':
-        return { x: 0, y: 0, width: halfW, height: halfH }
-      case 'top-right':
-        return { x: halfW, y: 0, width: viewport.width - halfW, height: halfH }
-      case 'bottom-left':
-        return { x: 0, y: halfH, width: halfW, height: viewport.height - halfH }
-      case 'bottom-right':
-        return {
-          x: halfW,
-          y: halfH,
-          width: viewport.width - halfW,
-          height: viewport.height - halfH,
-        }
-      case 'top-half':
-        return { x: 0, y: 0, width: viewport.width, height: halfH }
-      case 'bottom-half':
-        return { x: 0, y: halfH, width: viewport.width, height: viewport.height - halfH }
-      case 'top-third':
-        return { x: 0, y: 0, width: viewport.width, height: thirdH }
-      case 'middle-third':
-        return { x: 0, y: thirdH, width: viewport.width, height: twoThirdH - thirdH }
-      case 'bottom-third':
-        return { x: 0, y: twoThirdH, width: viewport.width, height: viewport.height - twoThirdH }
-      case 'left-third':
-        return { x: 0, y: 0, width: thirdW, height: viewport.height }
-      case 'center-third':
-        return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: viewport.height }
-      case 'right-third':
-        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: viewport.height }
-      case 'left-two-thirds':
-        return { x: 0, y: 0, width: twoThirdW, height: viewport.height }
-      case 'right-two-thirds':
-        return { x: thirdW, y: 0, width: viewport.width - thirdW, height: viewport.height }
-      case 'top-left-third':
-        return { x: 0, y: 0, width: thirdW, height: halfH }
-      case 'top-center-third':
-        return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: halfH }
-      case 'top-right-third':
-        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: halfH }
-      case 'bottom-left-third':
-        return { x: 0, y: halfH, width: thirdW, height: viewport.height - halfH }
-      case 'bottom-center-third':
-        return { x: thirdW, y: halfH, width: twoThirdW - thirdW, height: viewport.height - halfH }
-      case 'bottom-right-third':
-        return {
-          x: twoThirdW,
-          y: halfH,
-          width: viewport.width - twoThirdW,
-          height: viewport.height - halfH,
-        }
-    }
-  })()
-
-  if (occupied.length === 0) return defaultBounds
-
-  const isThirdZone = zone.includes('third')
-  const leftOccupied = occupied.filter((o) => LEFT_SIDE_ZONES.includes(o.snapZone))
-  const rightOccupied = occupied.filter((o) => RIGHT_SIDE_ZONES.includes(o.snapZone))
-  const topOccupied = occupied.filter((o) => TOP_SIDE_ZONES.includes(o.snapZone))
-  const bottomOccupied = occupied.filter((o) => BOTTOM_SIDE_ZONES.includes(o.snapZone))
-
-  let { x, y, width, height } = defaultBounds
-
-  // Horizontal adjustment: skip for third zones to preserve 1/3 proportions.
-  // The "fill remaining space" logic only makes sense for half-based layouts.
-  if (!isThirdZone) {
-    if (RIGHT_SIDE_ZONES.includes(zone) && leftOccupied.length > 0) {
-      const leftEdge = Math.max(...leftOccupied.map((o) => o.bounds.x + o.bounds.width))
-      x = leftEdge
-      width = viewport.width - leftEdge
-    }
-    if (LEFT_SIDE_ZONES.includes(zone) && rightOccupied.length > 0) {
-      const rightEdge = Math.min(...rightOccupied.map((o) => o.bounds.x))
-      width = rightEdge
-    }
-  }
-
-  if (BOTTOM_SIDE_ZONES.includes(zone) && topOccupied.length > 0) {
-    const topEdge = Math.max(...topOccupied.map((o) => o.bounds.y + o.bounds.height))
-    y = topEdge
-    height = viewport.height - topEdge
-  }
-  if (TOP_SIDE_ZONES.includes(zone) && bottomOccupied.length > 0) {
-    const bottomEdge = Math.min(...bottomOccupied.map((o) => o.bounds.y))
-    height = bottomEdge - y
-  }
-
-  return { x, y, width, height }
-}
-
-function createWindowLayout(
-  layout: WorkspaceWindowLayout | undefined,
-  fallbackBounds: NonNullable<WorkspaceWindowLayout['bounds']>,
-  zIndex: number,
-): WorkspaceWindowLayout {
-  return {
-    bounds: layout?.bounds ?? fallbackBounds,
-    fullscreen: layout?.fullscreen ?? false,
-    snapZone: layout?.snapZone ?? null,
-    minimized: layout?.minimized ?? false,
-    zIndex: layout?.zIndex ?? zIndex,
-    restoreBounds: layout?.restoreBounds ?? null,
-  }
-}
-
-function getPlaybackTitle(path: string | undefined) {
-  if (!path) return 'Video Player'
-
-  const normalized = path.replace(/\\/g, '/')
-  const fileName = normalized.split('/').pop()
-  return fileName || 'Video Player'
-}
-
-function isVideoPath(path: string) {
-  const extension = path.split('.').pop()?.toLowerCase()
-  return extension ? PLAYER_EXTENSIONS.has(extension) : false
-}
-
-function getInitialWindowIcon(
-  type: WorkspaceWindowDefinition['type'],
-  initialState: Partial<NavigationState>,
-): Pick<WorkspaceWindowDefinition, 'iconPath' | 'iconType' | 'iconIsVirtual'> {
-  if (type === 'browser') {
-    return {
-      iconPath: initialState.dir ?? '',
-      iconType: MediaType.FOLDER,
-      iconIsVirtual: false,
-    }
-  }
-
-  if (type === 'player') {
-    return {
-      iconPath: initialState.playing ?? '',
-      iconType: MediaType.VIDEO,
-      iconIsVirtual: false,
-    }
-  }
-
-  if (type === 'viewer' && initialState.viewing) {
-    return {
-      iconPath: initialState.viewing,
-      iconType: getMediaType(initialState.viewing.split('.').pop() ?? ''),
-      iconIsVirtual: false,
-    }
-  }
-
-  return {
-    iconPath: '',
-    iconType: MediaType.OTHER,
-    iconIsVirtual: false,
-  }
-}
-
 export function workspaceSourceToMediaContext(
   source: WorkspaceSource | null | undefined,
 ): SourceContext | undefined {
@@ -742,21 +378,146 @@ export function getWorkspaceWindowTitle(
     : getSourceLabel(window.source)
 }
 
-function hydrateFocusFromPersisted(storageKey: string, persisted: PersistedWorkspaceState) {
-  const layoutByWindowId: Record<string, { zIndex?: number; minimized?: boolean }> = {}
-  for (const w of persisted.windows) {
-    if (w.layout && (w.layout.zIndex != null || w.layout.minimized != null)) {
-      layoutByWindowId[w.id] = {
-        ...(w.layout.zIndex != null && { zIndex: w.layout.zIndex }),
-        ...(w.layout.minimized != null && { minimized: w.layout.minimized }),
+function computeInitialWorkspaceSessionSlice(ctx: {
+  storageKey: string
+  initialDir: string | null | undefined
+  defaultSource: WorkspaceSource
+  initialLayoutSnapshot: PersistedWorkspaceState | null | undefined
+  initialLayoutPresetId: string | null | undefined
+  getPersistedState: () => PersistedWorkspaceState | null
+  setPersistedRef: (p: PersistedWorkspaceState | null) => void
+}): WorkspaceSessionSlice {
+  const {
+    storageKey,
+    initialDir,
+    defaultSource,
+    initialLayoutSnapshot,
+    initialLayoutPresetId,
+    getPersistedState,
+    setPersistedRef,
+  } = ctx
+
+  let nextWindowId = 2
+  let nextZIndex = 2
+  let layoutBaselineSnapshot: PersistedWorkspaceState | null = null
+  let layoutBaselineSerialized: string | null = null
+  let layoutBaselinePresetId: string | null = null
+  let windows: WorkspaceWindowDefinition[]
+  let pinnedTaskbarItems: PinnedTaskbarItem[]
+
+  const hasExplicitFolder = initialDir != null && initialDir !== ''
+  if (hasExplicitFolder) {
+    setPersistedRef(null)
+    useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
+      activeWindowId: 'workspace-window-1',
+      activeTabMap: {},
+    })
+    windows = [
+      {
+        id: 'workspace-window-1',
+        type: 'browser',
+        title: 'Browser 1',
+        iconName: null,
+        iconPath: initialDir,
+        iconType: MediaType.FOLDER,
+        iconIsVirtual: false,
+        source: defaultSource,
+        initialState: { dir: initialDir },
+        tabGroupId: null,
+        layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
+      },
+    ]
+    pinnedTaskbarItems = loadPinnedTaskbarItemsOnly(storageKey)
+  } else {
+    const persisted = getPersistedState()
+    if (persisted) {
+      hydrateFocusFromPersisted(storageKey, persisted)
+      const maxId = persisted.windows.reduce((max, w) => {
+        const match = w.id.match(/workspace-window-(\d+)/)
+        return match ? Math.max(max, Number(match[1])) : max
+      }, 1)
+      const maxZ = persisted.windows.reduce((max, w) => Math.max(max, w.layout?.zIndex ?? 0), 1)
+      nextWindowId = Math.max(persisted.nextWindowId, maxId + 1)
+      nextZIndex = maxZ + 1
+      windows = persisted.windows
+      pinnedTaskbarItems = persisted.pinnedTaskbarItems ?? []
+    } else if (initialLayoutSnapshot) {
+      const fromPreset = normalizePersistedWorkspaceState(initialLayoutSnapshot)
+      if (fromPreset && fromPreset.windows.length > 0) {
+        setPersistedRef(fromPreset)
+        hydrateFocusFromPersisted(storageKey, fromPreset)
+        const maxId = fromPreset.windows.reduce((max, w) => {
+          const match = w.id.match(/workspace-window-(\d+)/)
+          return match ? Math.max(max, Number(match[1])) : max
+        }, 1)
+        const maxZ = fromPreset.windows.reduce((max, w) => Math.max(max, w.layout?.zIndex ?? 0), 1)
+        nextWindowId = Math.max(fromPreset.nextWindowId, maxId + 1)
+        nextZIndex = maxZ + 1
+        if (initialLayoutPresetId) {
+          layoutBaselineSnapshot = JSON.parse(JSON.stringify(fromPreset)) as PersistedWorkspaceState
+          layoutBaselineSerialized = serializeWorkspacePersistedState(fromPreset)
+          layoutBaselinePresetId = initialLayoutPresetId
+        }
+        windows = fromPreset.windows
+        pinnedTaskbarItems = fromPreset.pinnedTaskbarItems ?? []
+      } else {
+        setPersistedRef(null)
+        useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
+          activeWindowId: 'workspace-window-1',
+          activeTabMap: {},
+        })
+        windows = [
+          {
+            id: 'workspace-window-1',
+            type: 'browser',
+            title: 'Browser 1',
+            iconName: null,
+            iconPath: '',
+            iconType: MediaType.FOLDER,
+            iconIsVirtual: false,
+            source: defaultSource,
+            initialState: {},
+            tabGroupId: null,
+            layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
+          },
+        ]
+        pinnedTaskbarItems = loadPinnedTaskbarItemsOnly(storageKey)
       }
+    } else {
+      setPersistedRef(null)
+      useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
+        activeWindowId: 'workspace-window-1',
+        activeTabMap: {},
+      })
+      windows = [
+        {
+          id: 'workspace-window-1',
+          type: 'browser',
+          title: 'Browser 1',
+          iconName: null,
+          iconPath: '',
+          iconType: MediaType.FOLDER,
+          iconIsVirtual: false,
+          source: defaultSource,
+          initialState: {},
+          tabGroupId: null,
+          layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
+        },
+      ]
+      pinnedTaskbarItems = loadPinnedTaskbarItemsOnly(storageKey)
     }
   }
-  useWorkspaceFocusStore.getState().replaceFocusState(storageKey, {
-    activeWindowId: persisted.activeWindowId,
-    activeTabMap: persisted.activeTabMap ?? {},
-    layoutByWindowId: Object.keys(layoutByWindowId).length > 0 ? layoutByWindowId : undefined,
-  })
+
+  return buildWorkspaceSessionSlice(
+    windows,
+    nextWindowId,
+    nextZIndex,
+    pinnedTaskbarItems,
+    defaultSource,
+    layoutBaselinePresetId,
+    layoutBaselineSerialized,
+    layoutBaselineSnapshot,
+  )
 }
 
 export function useWorkspace({
@@ -781,13 +542,9 @@ export function useWorkspace({
   )
 
   const playbackSession = useInMemoryNavigationSession()
-  const nextWindowIdRef = useRef(2)
-  const nextZIndexRef = useRef(2)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const persistedRef = useRef<PersistedWorkspaceState | null | undefined>(undefined)
   const windowsRef = useRef<WorkspaceWindowDefinition[]>([])
-  const layoutBaselineSnapshotRef = useRef<PersistedWorkspaceState | null>(null)
-  const [layoutBaselineSerialized, setLayoutBaselineSerialized] = useState<string | null>(null)
 
   function getPersistedState() {
     if (persistedRef.current === undefined) {
@@ -797,87 +554,41 @@ export function useWorkspace({
     return persistedRef.current
   }
 
-  const [layoutBaselinePresetId, setLayoutBaselinePresetId] = useState<string | null>(null)
+  const initialSlice = useMemo(
+    (): WorkspaceSessionSlice =>
+      computeInitialWorkspaceSessionSlice({
+        storageKey,
+        initialDir,
+        defaultSource,
+        initialLayoutSnapshot,
+        initialLayoutPresetId,
+        getPersistedState,
+        setPersistedRef: (p) => {
+          persistedRef.current = p
+        },
+      }),
+    [
+      storageKey,
+      initialDir,
+      defaultSource,
+      initialLayoutSnapshot,
+      initialLayoutPresetId,
+      legacyBaseKey,
+    ],
+  )
 
-  const [windows, setWindows] = useState<WorkspaceWindowDefinition[]>(() => {
-    // When opening with an explicit folder (e.g. "Open in Workspace"), use a fresh
-    // single-window layout for that folder instead of restoring the saved layout.
-    const hasExplicitFolder = initialDir != null && initialDir !== ''
-    if (hasExplicitFolder) {
-      persistedRef.current = null
-      useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
-        activeWindowId: 'workspace-window-1',
-        activeTabMap: {},
-      })
-      return [
-        {
-          id: 'workspace-window-1',
-          type: 'browser',
-          title: 'Browser 1',
-          iconName: null,
-          iconPath: initialDir,
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: defaultSource,
-          initialState: { dir: initialDir },
-          tabGroupId: null,
-          layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
-        } satisfies WorkspaceWindowDefinition,
-      ]
-    }
-    const persisted = getPersistedState()
-    if (persisted) {
-      hydrateFocusFromPersisted(storageKey, persisted)
-      const maxId = persisted.windows.reduce((max, w) => {
-        const match = w.id.match(/workspace-window-(\d+)/)
-        return match ? Math.max(max, Number(match[1])) : max
-      }, 1)
-      const maxZ = persisted.windows.reduce((max, w) => Math.max(max, w.layout?.zIndex ?? 0), 1)
-      nextWindowIdRef.current = Math.max(persisted.nextWindowId, maxId + 1)
-      nextZIndexRef.current = maxZ + 1
-      return persisted.windows
-    }
-    if (initialLayoutSnapshot) {
-      const fromPreset = normalizePersistedWorkspaceState(initialLayoutSnapshot)
-      if (fromPreset && fromPreset.windows.length > 0) {
-        persistedRef.current = fromPreset
-        hydrateFocusFromPersisted(storageKey, fromPreset)
-        const maxId = fromPreset.windows.reduce((max, w) => {
-          const match = w.id.match(/workspace-window-(\d+)/)
-          return match ? Math.max(max, Number(match[1])) : max
-        }, 1)
-        const maxZ = fromPreset.windows.reduce((max, w) => Math.max(max, w.layout?.zIndex ?? 0), 1)
-        nextWindowIdRef.current = Math.max(fromPreset.nextWindowId, maxId + 1)
-        nextZIndexRef.current = maxZ + 1
-        if (initialLayoutPresetId) {
-          layoutBaselineSnapshotRef.current = JSON.parse(
-            JSON.stringify(fromPreset),
-          ) as PersistedWorkspaceState
-        }
-        return fromPreset.windows
-      }
-    }
-    persistedRef.current = null
-    useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
-      activeWindowId: 'workspace-window-1',
-      activeTabMap: {},
-    })
-    return [
-      {
-        id: 'workspace-window-1',
-        type: 'browser',
-        title: 'Browser 1',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: defaultSource,
-        initialState: {},
-        tabGroupId: null,
-        layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
-      } satisfies WorkspaceWindowDefinition,
-    ]
-  })
+  useLayoutEffect(() => {
+    useWorkspaceSessionStore.getState().replaceSession(storageKey, initialSlice)
+  }, [storageKey, initialSlice])
+
+  const session =
+    useWorkspaceSessionStore(useShallow((s) => s.sessions[storageKey] ?? initialSlice)) ??
+    initialSlice
+  const windows = useMemo(() => normalizedWindowsToArray(session), [session])
+  const pinnedTaskbarItems = session.pinnedTaskbarItems
+  const playbackSource = session.playbackSource
+  const layoutBaselineSerialized = session.layoutBaselineSerialized
+  const layoutBaselinePresetId = session.layoutBaselinePresetId
 
   const focusState = useWorkspaceFocusStore((s) => s.byKey[storageKey] ?? null)
   const activeWindowId = focusState?.activeWindowId ?? null
@@ -892,34 +603,10 @@ export function useWorkspace({
       useWorkspaceFocusStore.getState().setActiveTab(storageKey, tabGroupId, windowId),
     [storageKey],
   )
-  const setFocusStoreActiveTabMap = useCallback(
-    (updater: (prev: Record<string, string>) => Record<string, string>) =>
-      useWorkspaceFocusStore.getState().setActiveTabMap(storageKey, updater),
-    [storageKey],
-  )
-  const [playbackSource, setPlaybackSource] = useState<WorkspaceSource | null>(defaultSource)
   const persistTaskbarPinsRef = useRef(persistTaskbarPinsToServer)
   persistTaskbarPinsRef.current = persistTaskbarPinsToServer
   const serverPinsHydratedRef = useRef(false)
   const pinsServerSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const [pinnedTaskbarItems, setPinnedTaskbarItems] = useState<PinnedTaskbarItem[]>(() => {
-    if (initialDir != null && initialDir !== '') {
-      return loadPinnedTaskbarItemsOnly(storageKey)
-    }
-    const p = persistedRef.current
-    if (p) return p.pinnedTaskbarItems ?? []
-    return loadPinnedTaskbarItemsOnly(storageKey)
-  })
-
-  useLayoutEffect(() => {
-    if (initialLayoutPresetId && layoutBaselineSnapshotRef.current) {
-      setLayoutBaselinePresetId(initialLayoutPresetId)
-      setLayoutBaselineSerialized(
-        serializeWorkspacePersistedState(layoutBaselineSnapshotRef.current),
-      )
-    }
-  }, [initialLayoutPresetId])
 
   useEffect(() => {
     serverPinsHydratedRef.current = false
@@ -929,10 +616,11 @@ export function useWorkspace({
     if (!serverTaskbarPinsReady) return
     if (serverPinsHydratedRef.current) return
     const local = loadPinnedTaskbarItemsOnly(storageKey)
+    const store = useWorkspaceSessionStore.getState()
     if (serverTaskbarPins.length > 0) {
-      setPinnedTaskbarItems(serverTaskbarPins)
+      store.setPinnedTaskbarItems(storageKey, serverTaskbarPins)
     } else if (local.length > 0) {
-      setPinnedTaskbarItems(local)
+      store.setPinnedTaskbarItems(storageKey, local)
       queueMicrotask(() => persistTaskbarPinsRef.current?.(local))
     }
     serverPinsHydratedRef.current = true
@@ -960,12 +648,13 @@ export function useWorkspace({
         ...w,
         layout: w.layout ? { ...w.layout, ...layoutOverlay[w.id] } : undefined,
       }))
+      const sess = useWorkspaceSessionStore.getState().sessions[storageKey]
       saveWorkspaceState(
         {
           windows: windowsToSave,
           activeWindowId: focus.activeWindowId,
           activeTabMap: focus.activeTabMap,
-          nextWindowId: nextWindowIdRef.current,
+          nextWindowId: sess?.nextWindowId ?? 2,
           pinnedTaskbarItems,
         },
         storageKey,
@@ -978,67 +667,22 @@ export function useWorkspace({
 
   windowsRef.current = windows
 
+  const store = useWorkspaceSessionStore.getState
+
   const updateWindow = useCallback(
     (
       windowId: string,
       updater: (window: WorkspaceWindowDefinition) => WorkspaceWindowDefinition,
     ) => {
-      setWindows((current) => {
-        let changed = false
-        const next = current.map((w) => {
-          if (w.id !== windowId) return w
-          const updated = updater(w)
-          if (updated !== w) changed = true
-          return updated
-        })
-        return changed ? next : current
-      })
+      store().updateWindow(storageKey, windowId, updater)
     },
-    [],
+    [storageKey],
   )
 
   const createWindow = useCallback(
-    (
-      type: WorkspaceWindowDefinition['type'],
-      {
-        title,
-        source = defaultSource,
-        initialState = {},
-        tabGroupId = null,
-        layout = {},
-        insertIndex,
-      }: OpenWorkspaceWindowOptions,
-    ) => {
-      const id = `workspace-window-${nextWindowIdRef.current++}`
-      const zIndex = nextZIndexRef.current++
-      const windowCount = windows.filter((window) => window.type === type).length
-      const initialIcon = getInitialWindowIcon(type, initialState)
-      const nextWindow: WorkspaceWindowDefinition = {
-        id,
-        type,
-        title:
-          title ??
-          `${type === 'viewer' ? 'Viewer' : type === 'player' ? 'Player' : getSourceLabel(source)} ${
-            windowCount + 1
-          }`,
-        iconName: null,
-        ...initialIcon,
-        source,
-        initialState,
-        tabGroupId,
-        layout: createWindowLayout(layout, createDefaultBounds(windows.length, type), zIndex),
-      }
-
-      setWindows((current) => {
-        if (tabGroupId != null && insertIndex != null) {
-          return insertWindowAtGroupIndex(current, nextWindow, tabGroupId, insertIndex)
-        }
-        return [...current, nextWindow]
-      })
-      setFocusStoreActiveWindowId(id)
-      return id
-    },
-    [windows, defaultSource, setFocusStoreActiveWindowId],
+    (type: WorkspaceWindowDefinition['type'], options: OpenWorkspaceWindowOptions) =>
+      store().createWindow(storageKey, type, options, defaultSource),
+    [storageKey, defaultSource],
   )
 
   const openBrowserWindow = useCallback(
@@ -1048,78 +692,21 @@ export function useWorkspace({
 
   const focusWindow = useCallback(
     (windowId: string) => {
-      const zIndex = nextZIndexRef.current++
-      const current = windowsRef.current
-      const focused = current.find((w) => w.id === windowId)
-      const groupId = focused ? (focused.tabGroupId ?? focused.id) : null
-      if (groupId != null) {
-        const windowIds = current.filter((w) => (w.tabGroupId ?? w.id) === groupId).map((w) => w.id)
-        useWorkspaceFocusStore.getState().setGroupLayoutOverlay(storageKey, windowIds, {
-          zIndex,
-          minimized: false,
-        })
-      }
-      setFocusStoreActiveWindowId(windowId)
+      store().focusWindow(storageKey, windowId)
     },
-    [storageKey, setFocusStoreActiveWindowId],
+    [storageKey],
   )
 
   const openPlayerWindow = useCallback(
     (options?: Pick<RequestPlayOptions, 'source' | 'path'>) => {
-      const playingPath = options?.path ?? playbackSession.state.playing
-      if (!playingPath || !isVideoPath(playingPath)) {
-        return null
-      }
-
-      const existing = windows.find((window) => window.id === PLAYER_WINDOW_ID)
-      const source = options?.source ?? playbackSource ?? defaultSource
-      const zIndex = nextZIndexRef.current++
-
-      if (existing) {
-        updateWindow(PLAYER_WINDOW_ID, (window) => ({
-          ...window,
-          title: getPlaybackTitle(playingPath),
-          source,
-          layout: {
-            ...window.layout,
-            minimized: false,
-            zIndex,
-          },
-        }))
-        setFocusStoreActiveWindowId(PLAYER_WINDOW_ID)
-        return PLAYER_WINDOW_ID
-      }
-
-      const nextWindow: WorkspaceWindowDefinition = {
-        id: PLAYER_WINDOW_ID,
-        type: 'player',
-        title: getPlaybackTitle(playingPath),
-        iconName: null,
-        iconPath: playingPath,
-        iconType: MediaType.VIDEO,
-        iconIsVirtual: false,
-        source,
-        initialState: {},
-        tabGroupId: null,
-        layout: createWindowLayout(
-          undefined,
-          createDefaultBounds(windows.length, 'player'),
-          zIndex,
-        ),
-      }
-
-      setWindows((current) => [...current, nextWindow])
-      setFocusStoreActiveWindowId(PLAYER_WINDOW_ID)
-      return PLAYER_WINDOW_ID
+      return store().openPlayerWindow(storageKey, {
+        path: options?.path,
+        source: options?.source ?? playbackSource ?? defaultSource,
+        playingPath: options?.path ?? playbackSession.state.playing,
+        defaultSource,
+      })
     },
-    [
-      playbackSession.state.playing,
-      playbackSource,
-      defaultSource,
-      updateWindow,
-      windows,
-      setFocusStoreActiveWindowId,
-    ],
+    [storageKey, playbackSession.state.playing, playbackSource, defaultSource],
   )
 
   const openViewerWindow = useCallback(
@@ -1227,29 +814,9 @@ export function useWorkspace({
 
   const toggleWindowFullscreen = useCallback(
     (windowId: string) => {
-      const zIndex = nextZIndexRef.current++
-      updateWindow(windowId, (window) => {
-        const currentBounds = window.layout?.bounds ?? createDefaultBounds(0, window.type)
-        const isFullscreen = window.layout?.fullscreen ?? false
-
-        return {
-          ...window,
-          layout: {
-            ...window.layout,
-            fullscreen: !isFullscreen,
-            snapZone: null,
-            minimized: false,
-            zIndex,
-            bounds: isFullscreen
-              ? (window.layout?.restoreBounds ?? currentBounds)
-              : createFullscreenBounds(),
-            restoreBounds: isFullscreen ? null : currentBounds,
-          },
-        }
-      })
-      setFocusStoreActiveWindowId(windowId)
+      store().toggleWindowFullscreen(storageKey, windowId)
     },
-    [updateWindow, setFocusStoreActiveWindowId],
+    [storageKey],
   )
 
   useEffect(() => {
@@ -1258,208 +825,40 @@ export function useWorkspace({
     }
 
     const syncWindowBounds = () => {
-      const fsBounds = createFullscreenBounds()
-
-      setWindows((current) => {
-        let hasChanges = false
-
-        const nextWindows = current.map((w) => {
-          if (w.layout?.fullscreen) {
-            const cur = w.layout.bounds
-            if (
-              cur &&
-              cur.x === fsBounds.x &&
-              cur.y === fsBounds.y &&
-              cur.width === fsBounds.width &&
-              cur.height === fsBounds.height
-            ) {
-              return w
-            }
-            hasChanges = true
-            return { ...w, layout: { ...w.layout, bounds: fsBounds } }
-          }
-
-          if (w.layout?.snapZone) {
-            const snapBounds = snapZoneToBounds(w.layout.snapZone)
-            const cur = w.layout.bounds
-            if (
-              cur &&
-              cur.x === snapBounds.x &&
-              cur.y === snapBounds.y &&
-              cur.width === snapBounds.width &&
-              cur.height === snapBounds.height
-            ) {
-              return w
-            }
-            hasChanges = true
-            return { ...w, layout: { ...w.layout, bounds: snapBounds } }
-          }
-
-          return w
-        })
-
-        return hasChanges ? nextWindows : current
-      })
+      store().syncWindowBoundsFromViewport(storageKey)
     }
 
     window.addEventListener('resize', syncWindowBounds)
     return () => window.removeEventListener('resize', syncWindowBounds)
-  }, [])
+  }, [storageKey])
 
   const closeWindow = useCallback(
     (windowId: string) => {
-      setWindows((current) => {
-        const nextWindows = current.filter((window) => window.id !== windowId)
-        const closedW = current.find((w) => w.id === windowId)
-        const groupId = closedW?.tabGroupId
-
-        if (groupId) {
-          const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
-          const nextTabId = remainingInGroup[0]?.id
-          setFocusStoreActiveTabMap((prev) =>
-            nextTabId && prev[groupId] === windowId ? { ...prev, [groupId]: nextTabId } : prev,
-          )
-        }
-
-        const currentActive = useWorkspaceFocusStore
-          .getState()
-          .getFocusState(storageKey).activeWindowId
-        if (currentActive === windowId) {
-          let nextActive: string | null
-          if (groupId) {
-            const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
-            nextActive = remainingInGroup[0]?.id ?? nextWindows.at(-1)?.id ?? null
-          } else {
-            nextActive = nextWindows.at(-1)?.id ?? null
-          }
-          setFocusStoreActiveWindowId(nextActive)
-        }
-        return nextWindows
-      })
+      store().closeWindow(storageKey, windowId)
     },
-    [storageKey, setFocusStoreActiveWindowId, setFocusStoreActiveTabMap],
+    [storageKey],
   )
 
   const requestPlay = useCallback(
     ({ source, path, dir }: RequestPlayOptions) => {
-      setPlaybackSource(source)
       playbackSession.playFile(path, dir)
-
-      if (isVideoPath(path)) {
-        const zIndex = nextZIndexRef.current++
-        setWindows((current) => {
-          const existing = current.find((window) => window.id === PLAYER_WINDOW_ID)
-          if (!existing) {
-            return [
-              ...current,
-              {
-                id: PLAYER_WINDOW_ID,
-                type: 'player',
-                title: getPlaybackTitle(path),
-                iconName: null,
-                iconPath: path,
-                iconType: MediaType.VIDEO,
-                iconIsVirtual: false,
-                source,
-                initialState: {},
-                tabGroupId: null,
-                layout: createWindowLayout(
-                  undefined,
-                  createDefaultBounds(current.length, 'player'),
-                  zIndex,
-                ),
-              },
-            ]
-          }
-
-          return current.map((window) =>
-            window.id === PLAYER_WINDOW_ID
-              ? {
-                  ...window,
-                  title: getPlaybackTitle(path),
-                  iconPath: path,
-                  iconType: MediaType.VIDEO,
-                  iconIsVirtual: false,
-                  source,
-                  layout: {
-                    ...window.layout,
-                    minimized: false,
-                    zIndex,
-                  },
-                }
-              : window,
-          )
-        })
-        setFocusStoreActiveWindowId(PLAYER_WINDOW_ID)
-        return
-      }
-
-      setWindows((current) => current.filter((window) => window.id !== PLAYER_WINDOW_ID))
-      const currentActive = useWorkspaceFocusStore
-        .getState()
-        .getFocusState(storageKey).activeWindowId
-      if (currentActive === PLAYER_WINDOW_ID) {
-        setFocusStoreActiveWindowId(null)
-      }
+      store().requestPlay(storageKey, { source, path, isVideo: isVideoPath(path) })
     },
-    [playbackSession, storageKey, setFocusStoreActiveWindowId],
+    [playbackSession, storageKey],
   )
 
   const snapWindowFn = useCallback(
     (windowId: string, zone: SnapZone) => {
-      const zIndex = nextZIndexRef.current++
-      setWindows((current) => {
-        const occupied = current
-          .filter((w) => w.id !== windowId && w.layout?.snapZone && w.layout?.bounds)
-          .map((w) => ({ bounds: w.layout!.bounds!, snapZone: w.layout!.snapZone! }))
-        const snapBounds = snapZoneToBoundsWithOccupied(zone, occupied)
-        return current.map((w) =>
-          w.id === windowId
-            ? {
-                ...w,
-                layout: {
-                  ...w.layout,
-                  fullscreen: false,
-                  snapZone: zone,
-                  minimized: false,
-                  zIndex,
-                  bounds: snapBounds,
-                  restoreBounds: w.layout?.restoreBounds ?? w.layout?.bounds ?? null,
-                },
-              }
-            : w,
-        )
-      })
-      setFocusStoreActiveWindowId(windowId)
+      store().snapWindow(storageKey, windowId, zone)
     },
-    [setFocusStoreActiveWindowId],
+    [storageKey],
   )
 
   const unsnapWindow = useCallback(
     (windowId: string, dropPosition?: { x: number; y: number }) => {
-      updateWindow(windowId, (w) => {
-        const restored = w.layout?.restoreBounds ?? w.layout?.bounds
-        return {
-          ...w,
-          layout: {
-            ...w.layout,
-            snapZone: null,
-            fullscreen: false,
-            bounds:
-              dropPosition && restored
-                ? {
-                    x: dropPosition.x,
-                    y: dropPosition.y,
-                    width: restored.width,
-                    height: restored.height,
-                  }
-                : (restored ?? null),
-            restoreBounds: null,
-          },
-        }
-      })
+      store().unsnapWindow(storageKey, windowId, dropPosition)
     },
-    [updateWindow],
+    [storageKey],
   )
 
   const resizeSnappedWindow = useCallback(
@@ -1468,260 +867,23 @@ export function useWorkspace({
       newBounds: NonNullable<WorkspaceWindowLayout['bounds']>,
       direction: string,
     ) => {
-      setWindows((current) => {
-        const target = current.find((w) => w.id === windowId)
-        if (!target?.layout?.bounds) {
-          return current.map((w) =>
-            w.id === windowId ? { ...w, layout: { ...w.layout, bounds: newBounds } } : w,
-          )
-        }
-
-        const oldBounds = target.layout.bounds
-        const siblings = (target.layout?.snapZone && SNAP_SIBLING_MAP[target.layout.snapZone]) ?? {}
-        const affectedZones = new Set<SnapZone>()
-        for (const zones of Object.values(siblings)) {
-          for (const z of zones) affectedZones.add(z)
-        }
-
-        const siblingUpdates = new Map<string, NonNullable<WorkspaceWindowLayout['bounds']>>()
-        const TOLERANCE = 5
-
-        const isSpatialRightSibling = (w: (typeof current)[0]) => {
-          const b = w.layout?.bounds
-          if (!b) return false
-          const targetRight = oldBounds.x + oldBounds.width
-          return Math.abs(b.x - targetRight) <= TOLERANCE
-        }
-        const isSpatialLeftSibling = (w: (typeof current)[0]) => {
-          const b = w.layout?.bounds
-          if (!b) return false
-          const siblingRight = b.x + b.width
-          return Math.abs(siblingRight - oldBounds.x) <= TOLERANCE
-        }
-        const isSpatialBottomSibling = (w: (typeof current)[0]) => {
-          const b = w.layout?.bounds
-          if (!b) return false
-          const targetBottom = oldBounds.y + oldBounds.height
-          return Math.abs(b.y - targetBottom) <= TOLERANCE
-        }
-        const isSpatialTopSibling = (w: (typeof current)[0]) => {
-          const b = w.layout?.bounds
-          if (!b) return false
-          const siblingBottom = b.y + b.height
-          return Math.abs(siblingBottom - oldBounds.y) <= TOLERANCE
-        }
-
-        let next = current.map((w) => {
-          if (w.id === windowId) {
-            return { ...w, layout: { ...w.layout, bounds: newBounds } }
-          }
-
-          const hasZoneMatch = w.layout?.snapZone && affectedZones.has(w.layout.snapZone)
-          const wb = { ...(w.layout?.bounds ?? { x: 0, y: 0, width: 0, height: 0 }) }
-          if (!w.layout?.bounds) return w
-
-          let updated = false
-
-          if (
-            direction.includes('right') &&
-            newBounds.x + newBounds.width !== oldBounds.x + oldBounds.width
-          ) {
-            const delta = newBounds.x + newBounds.width - (oldBounds.x + oldBounds.width)
-            const isSibling = hasZoneMatch && siblings.right?.includes(w.layout.snapZone!)
-            const isSpatial = !hasZoneMatch && isSpatialRightSibling(w)
-            if (isSibling || isSpatial) {
-              wb.x += delta
-              wb.width -= delta
-              updated = true
-            }
-          }
-          if (direction.includes('left') && newBounds.x !== oldBounds.x) {
-            const delta = newBounds.x - oldBounds.x
-            const isSibling = hasZoneMatch && siblings.left?.includes(w.layout.snapZone!)
-            const isSpatial = !hasZoneMatch && isSpatialLeftSibling(w)
-            if (isSibling || isSpatial) {
-              wb.width += delta
-              updated = true
-            }
-          }
-          if (
-            direction.includes('bottom') &&
-            newBounds.y + newBounds.height !== oldBounds.y + oldBounds.height
-          ) {
-            const delta = newBounds.y + newBounds.height - (oldBounds.y + oldBounds.height)
-            const isSibling = hasZoneMatch && siblings.bottom?.includes(w.layout.snapZone!)
-            const isSpatial = !hasZoneMatch && isSpatialBottomSibling(w)
-            if (isSibling || isSpatial) {
-              wb.y += delta
-              wb.height -= delta
-              updated = true
-            }
-          }
-          if (direction.includes('top') && newBounds.y !== oldBounds.y) {
-            const delta = newBounds.y - oldBounds.y
-            const isSibling = hasZoneMatch && siblings.top?.includes(w.layout.snapZone!)
-            const isSpatial = !hasZoneMatch && isSpatialTopSibling(w)
-            if (isSibling || isSpatial) {
-              wb.height += delta
-              updated = true
-            }
-          }
-
-          if (
-            !updated ||
-            (wb.x === w.layout.bounds.x &&
-              wb.y === w.layout.bounds.y &&
-              wb.width === w.layout.bounds.width &&
-              wb.height === w.layout.bounds.height)
-          ) {
-            return w
-          }
-
-          const groupId = w.tabGroupId ?? w.id
-          siblingUpdates.set(groupId, wb)
-          return { ...w, layout: { ...w.layout, bounds: wb } }
-        })
-
-        if (siblingUpdates.size > 0) {
-          next = next.map((w) => {
-            const gid = w.tabGroupId ?? w.id
-            const syncBounds = siblingUpdates.get(gid)
-            if (syncBounds && w.id !== windowId) {
-              const b = w.layout?.bounds
-              if (
-                !b ||
-                b.x !== syncBounds.x ||
-                b.y !== syncBounds.y ||
-                b.width !== syncBounds.width ||
-                b.height !== syncBounds.height
-              ) {
-                return { ...w, layout: { ...w.layout, bounds: syncBounds } }
-              }
-            }
-            return w
-          })
-        }
-
-        return next
-      })
+      store().resizeSnappedWindow(storageKey, windowId, newBounds, direction)
     },
-    [],
+    [storageKey],
   )
 
   const mergeWindowIntoGroup = useCallback(
     (windowId: string, targetWindowId: string, insertIndex?: number) => {
-      setWindows((current) => {
-        const target = current.find((w) => w.id === targetWindowId)
-        const moved = current.find((w) => w.id === windowId)
-        if (!target || !moved) return current
-
-        const groupId = target.tabGroupId || targetWindowId
-        const updatedMoved: WorkspaceWindowDefinition = {
-          ...moved,
-          tabGroupId: groupId,
-          layout: {
-            ...moved.layout,
-            bounds: target.layout?.bounds ?? moved.layout?.bounds,
-            zIndex: target.layout?.zIndex ?? moved.layout?.zIndex,
-          },
-        }
-        if (insertIndex == null) {
-          return current.map((w) => {
-            if (w.id === targetWindowId && !w.tabGroupId) return { ...w, tabGroupId: groupId }
-            if (w.id === windowId) return updatedMoved
-            return w
-          })
-        }
-        const withTabGroup = current.map((w) => {
-          if (w.id === targetWindowId && !w.tabGroupId) return { ...w, tabGroupId: groupId }
-          return w
-        })
-        const withoutMoved = withTabGroup.filter((w) => w.id !== windowId)
-        return insertWindowAtGroupIndex(withoutMoved, updatedMoved, groupId, insertIndex)
-      })
-      setFocusStoreActiveTabMap((prev) => {
-        const target = windows.find((w) => w.id === targetWindowId)
-        const groupId = target?.tabGroupId || targetWindowId
-        return { ...prev, [groupId]: windowId }
-      })
+      store().mergeWindowIntoGroup(storageKey, windowId, targetWindowId, insertIndex)
     },
-    [windows, setFocusStoreActiveTabMap],
+    [storageKey],
   )
 
   const splitWindowFromGroup = useCallback(
     (windowId: string, offsetBounds?: NonNullable<WorkspaceWindowLayout['bounds']>) => {
-      setWindows((current) => {
-        const w = current.find((win) => win.id === windowId)
-        if (!w?.tabGroupId) return current
-
-        const groupId = w.tabGroupId
-        const groupWindows = current.filter((win) => win.tabGroupId === groupId)
-        const groupLayout = w.layout
-        const defaultBounds =
-          offsetBounds ??
-          (() => {
-            const base = w.layout?.bounds ?? createDefaultBounds(0, w.type)
-            return { x: base.x + 30, y: base.y + 30, width: base.width, height: base.height }
-          })()
-
-        const nextWindows = current.map((win) => {
-          if (win.id === windowId) {
-            return {
-              ...win,
-              tabGroupId: null,
-              layout: {
-                ...win.layout,
-                bounds: defaultBounds,
-                snapZone: null,
-                fullscreen: false,
-                restoreBounds: win.layout?.bounds ?? win.layout?.restoreBounds ?? null,
-                zIndex: nextZIndexRef.current++,
-              },
-            }
-          }
-          return win
-        })
-
-        if (groupWindows.length === 2) {
-          return nextWindows.map((win) => {
-            if (win.tabGroupId !== groupId) return win
-            const fallbackBounds = createDefaultBounds(0, win.type)
-            return {
-              ...win,
-              tabGroupId: null,
-              layout: groupLayout
-                ? {
-                    ...groupLayout,
-                    bounds: groupLayout.bounds ?? win.layout?.bounds ?? fallbackBounds,
-                    snapZone: groupLayout.snapZone ?? null,
-                    restoreBounds: groupLayout.restoreBounds ?? groupLayout.bounds ?? null,
-                  }
-                : win.layout,
-            }
-          })
-        }
-
-        return nextWindows
-      })
-
-      setFocusStoreActiveTabMap((prev) => {
-        const w = windows.find((win) => win.id === windowId)
-        if (!w?.tabGroupId) return prev
-        const groupId = w.tabGroupId
-        const remaining = windows.filter((win) => win.tabGroupId === groupId && win.id !== windowId)
-        if (remaining.length === 0) {
-          const { [groupId]: _, ...rest } = prev
-          return rest
-        }
-        if (prev[groupId] === windowId) {
-          return { ...prev, [groupId]: remaining[0].id }
-        }
-        return prev
-      })
-
-      setFocusStoreActiveWindowId(windowId)
+      store().splitWindowFromGroup(storageKey, windowId, offsetBounds)
     },
-    [windows, setFocusStoreActiveTabMap, setFocusStoreActiveWindowId],
+    [storageKey],
   )
 
   const setActiveTab = useCallback(
@@ -1734,50 +896,9 @@ export function useWorkspace({
 
   const addTabToGroup = useCallback(
     (sourceWindowId: string) => {
-      const sourceWindow = windows.find((w) => w.id === sourceWindowId)
-      if (!sourceWindow) return sourceWindowId
-
-      const groupId = sourceWindow.tabGroupId || sourceWindowId
-      const id = `workspace-window-${nextWindowIdRef.current++}`
-      const zIndex = sourceWindow.layout?.zIndex ?? nextZIndexRef.current++
-
-      const newWindow: WorkspaceWindowDefinition = {
-        id,
-        type: sourceWindow.type,
-        title: '',
-        iconName: null,
-        iconPath: '',
-        iconType: sourceWindow.type === 'browser' ? MediaType.FOLDER : MediaType.OTHER,
-        iconIsVirtual: false,
-        source: sourceWindow.source,
-        initialState:
-          sourceWindow.type === 'browser' ? { dir: sourceWindow.initialState.dir ?? null } : {},
-        tabGroupId: groupId,
-        layout: {
-          bounds: sourceWindow.layout?.bounds,
-          fullscreen: sourceWindow.layout?.fullscreen,
-          snapZone: sourceWindow.layout?.snapZone,
-          minimized: false,
-          zIndex,
-          restoreBounds: sourceWindow.layout?.restoreBounds,
-        },
-      }
-
-      setWindows((current) => {
-        const updated = current.map((w) => {
-          if (w.id === sourceWindowId && !w.tabGroupId) {
-            return { ...w, tabGroupId: groupId }
-          }
-          return w
-        })
-        return [...updated, newWindow]
-      })
-
-      setFocusStoreActiveTabMap((prev) => ({ ...prev, [groupId]: id }))
-      setFocusStoreActiveWindowId(id)
-      return id
+      return store().addTabToGroup(storageKey, sourceWindowId)
     },
-    [windows, setFocusStoreActiveTabMap, setFocusStoreActiveWindowId],
+    [storageKey],
   )
 
   const openInNewTab = useCallback(
@@ -1791,11 +912,12 @@ export function useWorkspace({
       const sourceWindow = windows.find((w) => w.id === sourceWindowId)
       if (!sourceWindow || file.isVirtual) return sourceWindowId
       const groupId = sourceWindow.tabGroupId || sourceWindowId
+      const nextZ = store().sessions[storageKey]?.nextZIndex ?? 2
       const layout = sourceWindow.layout
         ? {
             ...sourceWindow.layout,
             minimized: false,
-            zIndex: sourceWindow.layout.zIndex ?? nextZIndexRef.current++,
+            zIndex: sourceWindow.layout.zIndex ?? nextZ,
           }
         : undefined
       const source = sourceOverride ?? sourceWindow.source
@@ -1829,50 +951,39 @@ export function useWorkspace({
 
   const updateWindowNavigationState = useCallback(
     (windowId: string, navState: Partial<NavigationState>) => {
-      updateWindow(windowId, (w) => {
-        const currentDir = w.initialState.dir ?? null
-        const currentViewing = w.initialState.viewing ?? null
-        const nextDir = navState.dir ?? null
-        const nextViewing = navState.viewing ?? null
-        if (currentDir === nextDir && currentViewing === nextViewing) return w
-        return {
-          ...w,
-          initialState: { ...w.initialState, dir: nextDir, viewing: nextViewing },
-        }
-      })
+      store().updateWindowNavigationState(storageKey, windowId, navState)
     },
-    [updateWindow],
+    [storageKey],
   )
 
-  const addPinnedItem = useCallback((item: Omit<PinnedTaskbarItem, 'id'>) => {
-    setPinnedTaskbarItems((prev) => {
-      const key = (p: PinnedTaskbarItem) => `${p.path}:${p.source.kind}:${p.source.token ?? ''}`
-      const newKey = `${item.path}:${item.source.kind}:${item.source.token ?? ''}`
-      if (prev.some((p) => key(p) === newKey)) return prev
-      const id = `pinned-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      return [...prev, { ...item, id }]
-    })
-  }, [])
+  const addPinnedItem = useCallback(
+    (item: Omit<PinnedTaskbarItem, 'id'>) => {
+      store().addPinnedItem(storageKey, item)
+    },
+    [storageKey],
+  )
 
-  const removePinnedItem = useCallback((id: string) => {
-    setPinnedTaskbarItems((prev) => prev.filter((p) => p.id !== id))
-  }, [])
+  const removePinnedItem = useCallback(
+    (id: string) => {
+      store().removePinnedItem(storageKey, id)
+    },
+    [storageKey],
+  )
 
   const collectLayoutSnapshot = useCallback((): PersistedWorkspaceState => {
-    const focus = useWorkspaceFocusStore.getState().getFocusState(storageKey)
-    const layoutOverlay = focus.layoutByWindowId ?? {}
-    const windowsToSave = windows.map((w) => ({
-      ...w,
-      layout: w.layout ? { ...w.layout, ...layoutOverlay[w.id] } : undefined,
-    }))
-    return {
-      windows: windowsToSave.filter((w) => w.id !== PLAYER_WINDOW_ID),
-      activeWindowId: focus.activeWindowId,
-      activeTabMap: focus.activeTabMap,
-      nextWindowId: nextWindowIdRef.current,
-      pinnedTaskbarItems,
+    const snap = store().collectLayoutSnapshot(storageKey)
+    if (!snap) {
+      const focus = useWorkspaceFocusStore.getState().getFocusState(storageKey)
+      return {
+        windows: [],
+        activeWindowId: focus.activeWindowId,
+        activeTabMap: focus.activeTabMap,
+        nextWindowId: 2,
+        pinnedTaskbarItems: [],
+      }
     }
-  }, [windows, pinnedTaskbarItems, storageKey])
+    return snap
+  }, [storageKey])
 
   const currentLayoutSnapshotSerialized = useMemo(
     () => serializeWorkspacePersistedState(collectLayoutSnapshot()),
@@ -1887,43 +998,28 @@ export function useWorkspace({
     (snapshot: PersistedWorkspaceState, options?: { baselinePresetId?: string | null }) => {
       const normalized = normalizePersistedWorkspaceState(snapshot)
       if (!normalized) return
-      hydrateFocusFromPersisted(storageKey, normalized)
-      const maxId = normalized.windows.reduce((max, w) => {
-        const match = w.id.match(/workspace-window-(\d+)/)
-        return match ? Math.max(max, Number(match[1])) : max
-      }, 1)
-      const maxZ = normalized.windows.reduce((max, w) => Math.max(max, w.layout?.zIndex ?? 0), 1)
-      nextWindowIdRef.current = Math.max(normalized.nextWindowId, maxId + 1)
-      nextZIndexRef.current = maxZ + 1
       persistedRef.current = normalized
-      setWindows(normalized.windows)
-      setPinnedTaskbarItems(normalized.pinnedTaskbarItems ?? [])
-      layoutBaselineSnapshotRef.current = JSON.parse(
-        JSON.stringify(normalized),
-      ) as PersistedWorkspaceState
-      setLayoutBaselineSerialized(serializeWorkspacePersistedState(normalized))
-      if (options && 'baselinePresetId' in options) {
-        setLayoutBaselinePresetId(options.baselinePresetId ?? null)
-      }
+      store().applyLayoutSnapshot(storageKey, normalized, options)
     },
     [storageKey],
   )
 
   const revertLayoutToBaseline = useCallback(() => {
-    const b = layoutBaselineSnapshotRef.current
+    const b = store().sessions[storageKey]?.layoutBaselineSnapshot
     if (!b) return
     applyLayoutSnapshot(b)
-  }, [applyLayoutSnapshot])
+  }, [storageKey, applyLayoutSnapshot])
 
   const syncLayoutBaselineToCurrent = useCallback(() => {
-    const snap = collectLayoutSnapshot()
-    layoutBaselineSnapshotRef.current = JSON.parse(JSON.stringify(snap)) as PersistedWorkspaceState
-    setLayoutBaselineSerialized(serializeWorkspacePersistedState(snap))
-  }, [collectLayoutSnapshot])
+    store().syncLayoutBaselineToCurrent(storageKey)
+  }, [storageKey])
 
-  const declareBaselinePresetId = useCallback((id: string | null) => {
-    setLayoutBaselinePresetId(id)
-  }, [])
+  const declareBaselinePresetId = useCallback(
+    (id: string | null) => {
+      store().setLayoutBaselinePresetId(storageKey, id)
+    },
+    [storageKey],
+  )
 
   return useMemo(
     () => ({

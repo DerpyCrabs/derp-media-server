@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { AudioPlayer } from '@/components/workspace/audio-player'
 import { Layout, type PinnedTaskbarItemView } from '@/components/workspace/layout'
+import { WorkspaceWindowTaskbarRows } from '@/components/workspace/workspace-window-taskbar-rows'
 import { WorkspaceNamedLayoutMenu } from '@/components/workspace/workspace-named-layout-menu'
 import { SnapPreview } from '@/components/workspace/snap-preview'
 import { TilingLayoutPicker } from '@/components/workspace/tiling-layout-picker'
@@ -26,8 +28,8 @@ import {
   type PersistedWorkspaceState,
   type SnapZone,
   type WorkspaceSource,
-  type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
+import { selectOrderedGroupIds, useWorkspaceSessionStore } from '@/lib/workspace-session-store'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import { useWorkspaceSnapLayoutVisibility } from '@/lib/use-workspace-snap-layout-visibility'
 import { useWorkspaceSessionUrl } from '@/lib/use-workspace-session-url'
@@ -40,29 +42,6 @@ import {
 interface LayoutPickerState {
   windowId: string
   anchorRect: DOMRect
-}
-
-interface WindowTabGroup {
-  groupId: string
-  windows: WorkspaceWindowDefinition[]
-}
-
-function groupWindowsByTab(windows: WorkspaceWindowDefinition[]): WindowTabGroup[] {
-  const groups = new Map<string, WorkspaceWindowDefinition[]>()
-  const order: string[] = []
-
-  for (const w of windows) {
-    const gid = w.tabGroupId ?? w.id
-    const existing = groups.get(gid)
-    if (existing) {
-      existing.push(w)
-    } else {
-      groups.set(gid, [w])
-      order.push(gid)
-    }
-  }
-
-  return order.map((gid) => ({ groupId: gid, windows: groups.get(gid)! }))
 }
 
 interface WorkspacePageProps {
@@ -139,10 +118,8 @@ export function WorkspacePage({
   const {
     storageKey,
     windows,
-    activeWindowId,
     playbackSource,
     playbackSession,
-    activeTabMap,
     focusWindow,
     closeWindow,
     openBrowserWindow,
@@ -183,11 +160,11 @@ export function WorkspacePage({
     persistTaskbarPinsToServer,
   })
 
-  const {
-    visibleIds: visibleSnapLayoutIds,
-    toggleLayout,
-    showAllLayouts,
-  } = useWorkspaceSnapLayoutVisibility()
+  const { visibleIds: visibleSnapLayoutIds } = useWorkspaceSnapLayoutVisibility()
+
+  const orderedGroupIds = useWorkspaceSessionStore(
+    useShallow((s) => selectOrderedGroupIds(s.sessions, storageKey)),
+  )
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [layoutPicker, setLayoutPicker] = useState<LayoutPickerState | null>(null)
@@ -281,7 +258,11 @@ export function WorkspacePage({
 
   windowsRef.current = windows
 
-  const windowGroups = useMemo(() => groupWindowsByTab(windows), [windows])
+  const draggingGroupId = useMemo(() => {
+    if (!draggingTabBounds) return null
+    const w = windows.find((x) => x.id === draggingTabBounds.windowId)
+    return w ? (w.tabGroupId ?? w.id) : null
+  }, [draggingTabBounds, windows])
 
   type MergeTarget = { groupId: string; insertIndex: number }
 
@@ -741,93 +722,6 @@ export function WorkspacePage({
     mediaPlayerIsPlaying,
     mediaType: currentMediaType,
   })
-  const taskbarItems = useMemo(
-    () =>
-      windowGroups.map((group) => {
-        const groupWindows = group.windows
-        const groupId = group.groupId
-        const leader = groupWindows[0]
-        const activeTabId = activeTabMap[groupId] ?? leader?.id
-        const displayWindow =
-          groupWindows.find((w) => w.id === activeTabId) ?? leader ?? groupWindows[0]
-        const tabCount = groupWindows.length
-        const path =
-          displayWindow.iconPath ??
-          (displayWindow.type === 'browser'
-            ? (displayWindow.initialState.dir ?? '')
-            : displayWindow.type === 'player'
-              ? (playbackSession.state.playing ?? '')
-              : (displayWindow.initialState.viewing ?? ''))
-        const isDir = displayWindow.type === 'browser'
-        const tooltip = path ? `${isDir ? 'Folder' : 'File'}: ${path}` : displayWindow.title
-        const dragData =
-          path && displayWindow.source
-            ? {
-                path,
-                isDirectory: isDir,
-                sourceKind: displayWindow.source.kind,
-                sourceToken: displayWindow.source.token,
-              }
-            : undefined
-        return {
-          id: groupId,
-          label: tabCount > 1 ? `${displayWindow.title} (+${tabCount - 1})` : displayWindow.title,
-          active: groupWindows.some((w) => w.id === activeWindowId),
-          tooltip,
-          dragData,
-          icon: getIcon(
-            displayWindow.iconType ??
-              (displayWindow.type === 'browser'
-                ? MediaType.FOLDER
-                : displayWindow.type === 'player'
-                  ? MediaType.VIDEO
-                  : displayWindow.initialState.viewing
-                    ? getMediaType(displayWindow.initialState.viewing.split('.').pop() ?? '')
-                    : MediaType.OTHER),
-            displayWindow.iconPath ??
-              (displayWindow.type === 'browser'
-                ? (displayWindow.initialState.dir ?? '')
-                : displayWindow.type === 'player'
-                  ? (playbackSession.state.playing ?? '')
-                  : (displayWindow.initialState.viewing ?? '')),
-            (displayWindow.iconType ?? MediaType.OTHER) === MediaType.AUDIO,
-            (displayWindow.iconType ??
-              (displayWindow.type === 'player' ? MediaType.VIDEO : MediaType.OTHER)) ===
-              MediaType.VIDEO,
-            displayWindow.iconIsVirtual ?? false,
-          ),
-          onSelect: () => {
-            const leaderId = leader?.id ?? groupWindows[0]?.id
-            const isMinimized = leader?.layout?.minimized ?? false
-            const isActive = groupWindows.some((w) => w.id === activeWindowId)
-            if (isMinimized) {
-              focusWindow(leaderId)
-            } else if (isActive) {
-              setWindowMinimized(leaderId, true)
-            } else {
-              focusWindow(leaderId)
-            }
-          },
-          onClose: () => {
-            for (const w of groupWindows) {
-              if (w.type === 'player') playbackSession.closePlayer()
-              closeWindow(w.id)
-            }
-          },
-        }
-      }),
-    [
-      windowGroups,
-      activeWindowId,
-      activeTabMap,
-      focusWindow,
-      setWindowMinimized,
-      getIcon,
-      playbackSession,
-      closeWindow,
-    ],
-  )
-
   const pinnedTaskbarItemViews = useMemo((): PinnedTaskbarItemView[] => {
     return pinnedTaskbarItems.map((pin) => {
       const customName = pin.customIconName ?? settings.customIcons[pin.path]
@@ -899,7 +793,18 @@ export function WorkspacePage({
 
   return (
     <Layout
-      items={taskbarItems}
+      hasWorkspaceWindows={orderedGroupIds.length > 0}
+      windowTaskbar={(handledByMouseDownRef) => (
+        <WorkspaceWindowTaskbarRows
+          storageKey={storageKey}
+          handledByMouseDownRef={handledByMouseDownRef}
+          getIcon={getIcon}
+          playbackSession={playbackSession}
+          focusWindow={focusWindow}
+          setWindowMinimized={setWindowMinimized}
+          closeWindow={closeWindow}
+        />
+      )}
       pinnedItems={pinnedTaskbarItemViews}
       onNewBrowser={() => openBrowserWindow()}
       taskbarRightSlot={
@@ -959,11 +864,11 @@ export function WorkspacePage({
         className='relative h-full w-full overflow-hidden bg-[radial-gradient(circle_at_top,var(--color-foreground)/0.03,transparent_28%),linear-gradient(to_bottom,var(--color-foreground)/0.02,transparent)]'
       >
         <SnapPreview />
-        {windowGroups.map((group) => (
+        {orderedGroupIds.map((groupId) => (
           <WindowGroup
-            key={group.groupId}
+            key={groupId}
             storageKey={storageKey}
-            tabs={group.windows}
+            groupId={groupId}
             editableFolders={editableFolders}
             playbackSession={playbackSession}
             onFocus={focusWindow}
@@ -988,11 +893,7 @@ export function WorkspacePage({
             onDropFileToTabBar={handleDropFileToTabBar}
             onAddToTaskbar={handleAddToTaskbar}
             onPlayerVideoMetadataLoaded={handlePlayerVideoMetadataLoaded}
-            overrideBounds={
-              draggingTabBounds && group.windows.some((w) => w.id === draggingTabBounds.windowId)
-                ? draggingTabBounds.bounds
-                : undefined
-            }
+            overrideBounds={draggingGroupId === groupId ? draggingTabBounds?.bounds : undefined}
           />
         ))}
         {layoutPicker && (
