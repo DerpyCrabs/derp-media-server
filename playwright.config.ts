@@ -17,7 +17,8 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  workers: 1,
+  // Batches use isolated ports + media dirs; parallelize by file (not within-file).
+  workers: batchId ? 4 : 1,
   reporter: [['line'], ['html', { open: 'never' }]],
   timeout: 15_000,
   expect: { timeout: 10_000 },
