@@ -40,6 +40,9 @@ interface WorkspaceFocusStore {
 
   /** Get focus state for a key (for selectors and persistence). */
   getFocusState: (key: string) => WorkspaceFocusState
+
+  /** Replace focus state entirely (e.g. restore named layout). */
+  replaceFocusState: (key: string, state: WorkspaceFocusState) => void
 }
 
 export const useWorkspaceFocusStore = create<WorkspaceFocusStore>((set, get) => ({
@@ -138,5 +141,18 @@ export const useWorkspaceFocusStore = create<WorkspaceFocusStore>((set, get) => 
 
   getFocusState(key) {
     return get().byKey[key] ?? DEFAULT_FOCUS
+  },
+
+  replaceFocusState(key, state) {
+    set((s) => ({
+      byKey: {
+        ...s.byKey,
+        [key]: {
+          activeWindowId: state.activeWindowId ?? null,
+          activeTabMap: state.activeTabMap ?? {},
+          layoutByWindowId: state.layoutByWindowId,
+        },
+      },
+    }))
   },
 }))

@@ -8,6 +8,11 @@ import {
   parseWorkspaceTaskbarPins,
   type WorkspaceTaskbarPin,
 } from '@/lib/workspace-taskbar-pins'
+import {
+  parseWorkspaceLayoutPresetsList,
+  sanitizeAdminWorkspaceLayoutPresets,
+} from '@/lib/workspace-layout-presets-schema'
+import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets-types'
 
 const SETTINGS_FILE = getDataFilePath('settings.json')
 const settingsMutex = new Mutex()
@@ -19,6 +24,7 @@ interface Settings {
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
   workspaceTaskbarPins?: WorkspaceTaskbarPin[]
+  workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
 
 interface SettingsFile {
@@ -32,6 +38,7 @@ const DEFAULT_SETTINGS: Settings = {
   customIcons: {},
   autoSave: {},
   workspaceTaskbarPins: [],
+  workspaceLayoutPresets: [],
 }
 
 async function readAllSettings(): Promise<SettingsFile> {
@@ -50,6 +57,9 @@ async function readSettings(): Promise<Settings> {
     ...raw,
     workspaceTaskbarPins: filterAdminWorkspaceTaskbarPins(
       parseWorkspaceTaskbarPins(raw.workspaceTaskbarPins),
+    ),
+    workspaceLayoutPresets: sanitizeAdminWorkspaceLayoutPresets(
+      parseWorkspaceLayoutPresetsList(raw.workspaceLayoutPresets),
     ),
   }
 }
@@ -188,5 +198,16 @@ export function registerSettingsApiRoutes(app: FastifyInstance) {
     settings.workspaceTaskbarPins = parsed
     await writeSettings(settings)
     return reply.send({ success: true, workspaceTaskbarPins: parsed })
+  })
+
+  app.post('/api/settings/workspaceLayoutPresets', async (request, reply) => {
+    const body = request.body as { presets?: unknown }
+    const parsed = sanitizeAdminWorkspaceLayoutPresets(
+      parseWorkspaceLayoutPresetsList(body.presets),
+    )
+    const settings = await readSettings()
+    settings.workspaceLayoutPresets = parsed
+    await writeSettings(settings)
+    return reply.send({ success: true, workspaceLayoutPresets: parsed })
   })
 }

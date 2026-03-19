@@ -249,7 +249,7 @@ export function Layout({
           </div>
 
           {taskbarRightSlot ? (
-            <div className='flex h-8 shrink-0 items-center gap-0'>{taskbarRightSlot}</div>
+            <div className='flex h-8 shrink-0 items-center gap-3'>{taskbarRightSlot}</div>
           ) : null}
         </div>
       </div>
