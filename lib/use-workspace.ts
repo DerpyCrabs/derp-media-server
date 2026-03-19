@@ -206,6 +206,7 @@ const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: nul
 
 const STORAGE_KEY = 'workspace-state'
 const SAVE_DEBOUNCE_MS = 500
+const EMPTY_ACTIVE_TAB_MAP: Record<string, string> = {}
 
 export interface PersistedWorkspaceState {
   windows: WorkspaceWindowDefinition[]
@@ -590,9 +591,10 @@ export function useWorkspace({
   const layoutBaselineSerialized = session.layoutBaselineSerialized
   const layoutBaselinePresetId = session.layoutBaselinePresetId
 
-  const focusState = useWorkspaceFocusStore((s) => s.byKey[storageKey] ?? null)
-  const activeWindowId = focusState?.activeWindowId ?? null
-  const activeTabMap = useMemo(() => focusState?.activeTabMap ?? {}, [focusState?.activeTabMap])
+  const activeWindowId = useWorkspaceFocusStore((s) => s.byKey[storageKey]?.activeWindowId ?? null)
+  const activeTabMap = useWorkspaceFocusStore(
+    useShallow((s) => s.byKey[storageKey]?.activeTabMap ?? EMPTY_ACTIVE_TAB_MAP),
+  )
 
   const setFocusStoreActiveWindowId = useCallback(
     (id: string | null) => useWorkspaceFocusStore.getState().setActiveWindowId(storageKey, id),
@@ -663,7 +665,7 @@ export function useWorkspace({
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [windows, pinnedTaskbarItems, storageKey, focusState])
+  }, [windows, pinnedTaskbarItems, storageKey, activeWindowId, activeTabMap])
 
   windowsRef.current = windows
 

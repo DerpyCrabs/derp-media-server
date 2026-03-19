@@ -3,6 +3,8 @@ import { create } from 'zustand'
 export interface WindowLayoutOverlay {
   zIndex?: number
   minimized?: boolean
+  /** Ephemeral bounds during snapped resize (committed to session on resize end). */
+  bounds?: { x: number; y: number; width: number; height: number }
 }
 
 export interface WorkspaceFocusState {
@@ -31,6 +33,11 @@ interface WorkspaceFocusStore {
   setWindowLayoutOverlay: (key: string, windowId: string, overlay: WindowLayoutOverlay) => void
   /** Set layout overlay for all windows in a group (e.g. on focus). */
   setGroupLayoutOverlay: (key: string, windowIds: string[], overlay: WindowLayoutOverlay) => void
+
+  /** Batch-merge layout overlays in one store update (e.g. live snapped resize). */
+  mergeLayoutOverlays: (key: string, partials: Record<string, Partial<WindowLayoutOverlay>>) => void
+  /** Remove ephemeral `bounds` from overlays after resize commit. */
+  clearLayoutOverlayBounds: (key: string, windowIds: string[]) => void
 
   /** Update activeTabMap for a key (e.g. when closing a tab or merging groups). */
   setActiveTabMap: (
@@ -114,6 +121,53 @@ export const useWorkspaceFocusStore = create<WorkspaceFocusStore>((set, get) => 
       let next = prev
       for (const id of windowIds) {
         next = { ...next, [id]: { ...next[id], ...overlay } }
+      }
+      return {
+        byKey: {
+          ...s.byKey,
+          [key]: {
+            ...(s.byKey[key] ?? DEFAULT_FOCUS),
+            layoutByWindowId: next,
+          },
+        },
+      }
+    })
+  },
+
+  mergeLayoutOverlays(key, partials) {
+    set((s) => {
+      const prev = s.byKey[key]?.layoutByWindowId ?? {}
+      let next = { ...prev }
+      for (const [windowId, partial] of Object.entries(partials)) {
+        next = { ...next, [windowId]: { ...next[windowId], ...partial } }
+      }
+      return {
+        byKey: {
+          ...s.byKey,
+          [key]: {
+            ...(s.byKey[key] ?? DEFAULT_FOCUS),
+            layoutByWindowId: next,
+          },
+        },
+      }
+    })
+  },
+
+  clearLayoutOverlayBounds(key, windowIds) {
+    set((s) => {
+      const prev = s.byKey[key]?.layoutByWindowId ?? {}
+      let next = { ...prev }
+      for (const id of windowIds) {
+        const cur = next[id]
+        if (!cur || cur.bounds === undefined) continue
+        const { bounds, ...rest } = cur
+        void bounds
+        if (Object.keys(rest).length === 0) {
+          const { [id]: _, ...restMap } = next
+          next = restMap
+        } else {
+          next = { ...next, [id]: rest }
+        }
       }
       return {
         byKey: {

@@ -24,7 +24,12 @@ import {
   workspaceSourceToMediaContext,
 } from '@/lib/use-workspace'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
-import { selectGroupTabs, useWorkspaceSessionStore } from '@/lib/workspace-session-store'
+import {
+  computeSnappedResizeWindows,
+  normalizedWindowsToArray,
+  selectGroupTabs,
+  useWorkspaceSessionStore,
+} from '@/lib/workspace-session-store'
 import { cn } from '@/lib/utils'
 import { hasFileDragData, getFileDragData, type FileDragData } from '@/lib/file-drag-data'
 
@@ -716,7 +721,7 @@ function WindowGroupInner({
     ),
   )
   const bounds = leader?.layout?.bounds
-  const effectiveBounds = overrideBounds ?? bounds
+  const effectiveBounds = overrideBounds ?? layoutOverlay?.bounds ?? bounds
   const effectiveZIndex = layoutOverlay?.zIndex ?? leader?.layout?.zIndex ?? 1
   const effectiveMinimized = layoutOverlay?.minimized ?? leader?.layout?.minimized ?? false
   const isSnapped = !!leader?.layout?.snapZone
@@ -750,15 +755,52 @@ function WindowGroupInner({
     bounds: Bounds
     direction: string
   } | null>(null)
+  const resizeOverlayWindowIdsRef = useRef<Set<string>>(new Set())
 
   const flushResizeSnapped = useCallback(() => {
     const pending = pendingResizeRef.current
     pendingResizeRef.current = null
     resizeRafIdRef.current = 0
-    if (pending) {
-      onResizeSnapped(leaderId, pending.bounds, pending.direction)
+    if (!pending || !leaderId) return
+    const session = useWorkspaceSessionStore.getState().sessions[storageKey]
+    if (!session) return
+    const current = normalizedWindowsToArray(session)
+    const next = computeSnappedResizeWindows(current, leaderId, pending.bounds, pending.direction)
+    const overlayPartials: Record<string, { bounds: Bounds }> = {}
+    for (const w of next) {
+      const prevW = current.find((x) => x.id === w.id)
+      const pb = prevW?.layout?.bounds
+      const nb = w.layout?.bounds
+      if (
+        !nb ||
+        (pb && pb.x === nb.x && pb.y === nb.y && pb.width === nb.width && pb.height === nb.height)
+      ) {
+        continue
+      }
+      overlayPartials[w.id] = { bounds: nb }
     }
-  }, [leaderId, onResizeSnapped])
+    if (Object.keys(overlayPartials).length === 0) return
+    for (const id of Object.keys(overlayPartials)) {
+      resizeOverlayWindowIdsRef.current.add(id)
+    }
+    useWorkspaceFocusStore.getState().mergeLayoutOverlays(storageKey, overlayPartials)
+  }, [leaderId, storageKey])
+
+  const handleResizeStart = useCallback(() => {
+    const layoutByWindowId = useWorkspaceFocusStore
+      .getState()
+      .getFocusState(storageKey).layoutByWindowId
+    if (layoutByWindowId) {
+      const ids = Object.entries(layoutByWindowId)
+        .filter(([, o]) => o.bounds !== undefined)
+        .map(([id]) => id)
+      if (ids.length > 0) {
+        useWorkspaceFocusStore.getState().clearLayoutOverlayBounds(storageKey, ids)
+      }
+    }
+    resizeOverlayWindowIdsRef.current.clear()
+    if (leaderId) onFocus(leaderId)
+  }, [storageKey, leaderId, onFocus])
 
   const handleResize = useCallback(
     (
@@ -806,11 +848,16 @@ function WindowGroupInner({
       }
       if (isSnapped) {
         onResizeSnapped(leaderId, newBounds, direction)
+        const overlayIds = [...resizeOverlayWindowIdsRef.current]
+        resizeOverlayWindowIdsRef.current.clear()
+        if (overlayIds.length > 0) {
+          useWorkspaceFocusStore.getState().clearLayoutOverlayBounds(storageKey, overlayIds)
+        }
       } else {
         onUpdateBounds(leaderId, newBounds)
       }
     },
-    [isSnapped, leaderId, onResizeSnapped, onUpdateBounds],
+    [isSnapped, leaderId, onResizeSnapped, onUpdateBounds, storageKey],
   )
 
   const handleDrag = useCallback(
@@ -1005,7 +1052,7 @@ function WindowGroupInner({
         cancel='.workspace-window-content, input, textarea, select, a, audio, video, img, [data-no-window-drag], .workspace-window-buttons'
         onDragStart={handleDragStart}
         onDrag={handleDrag}
-        onResizeStart={() => onFocus(leader.id)}
+        onResizeStart={handleResizeStart}
         onDragStop={handleDragStop}
         onResize={handleResize}
         onResizeStop={handleResizeStop}

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { SNAP_SIBLING_MAP, type SnapZone } from '@/lib/use-workspace'
+import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
+import {
+  SNAP_SIBLING_MAP,
+  type SnapZone,
+  type WorkspaceWindowDefinition,
+} from '@/lib/use-workspace'
 
 /**
  * Pure function that computes new sibling bounds when a neighbor is resized.
@@ -72,6 +77,47 @@ describe('SNAP_SIBLING_MAP for third zones', () => {
     const map = SNAP_SIBLING_MAP['left-third']
     expect(map.right).toContain('center-third')
     expect(map.right).toContain('right-two-thirds')
+  })
+})
+
+describe('computeSnappedResizeWindows (extracted from session store)', () => {
+  test('matches sibling resize for top-left-third / top-center-third pair', () => {
+    const viewportWidth = 1200
+    const viewportHeight = 800
+    const thirdW = Math.round(viewportWidth / 3)
+    const halfH = Math.round(viewportHeight / 2)
+    const delta = 80
+
+    const wA: WorkspaceWindowDefinition = {
+      id: 'a',
+      type: 'browser',
+      title: 'A',
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      layout: {
+        snapZone: 'top-left-third',
+        bounds: { x: 0, y: 0, width: thirdW, height: halfH },
+      },
+    }
+    const wB: WorkspaceWindowDefinition = {
+      id: 'b',
+      type: 'browser',
+      title: 'B',
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      layout: {
+        snapZone: 'top-center-third',
+        bounds: { x: thirdW, y: 0, width: thirdW, height: halfH },
+      },
+    }
+
+    const targetNew = { x: 0, y: 0, width: thirdW + delta, height: halfH }
+    const next = computeSnappedResizeWindows([wA, wB], 'a', targetNew, 'right')
+    const nb = next.find((w) => w.id === 'b')?.layout?.bounds
+    expect(nb?.x).toBe(thirdW + delta)
+    expect(nb?.width).toBe(thirdW - delta)
+    expect(nb?.y).toBe(0)
+    expect(nb?.height).toBe(halfH)
   })
 })
 
