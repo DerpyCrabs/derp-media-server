@@ -23,6 +23,7 @@ import {
   getPlayerBoundsForAspectRatio,
 } from '@/lib/use-workspace'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
+import { useWorkspaceSnapLayoutVisibility } from '@/lib/use-workspace-snap-layout-visibility'
 
 interface LayoutPickerState {
   windowId: string
@@ -91,6 +92,12 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('dir') : null,
     shareConfig,
   })
+
+  const {
+    visibleIds: visibleSnapLayoutIds,
+    toggleLayout,
+    showAllLayouts,
+  } = useWorkspaceSnapLayoutVisibility()
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [layoutPicker, setLayoutPicker] = useState<LayoutPickerState | null>(null)
@@ -877,6 +884,7 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
           <TilingLayoutPicker
             anchorRect={layoutPicker.anchorRect}
             containerRef={containerRef}
+            visibleSnapLayoutIds={visibleSnapLayoutIds}
             onSelectZone={handleLayoutSelect}
             onSelectFullscreen={handleLayoutFullscreen}
             onClose={() => setLayoutPicker(null)}
