@@ -34,11 +34,16 @@ import type { NavigationSession } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 import { queryKeys } from '@/lib/query-keys'
 import { useShareWorkspace } from '@/lib/share-workspace-context'
+import {
+  getWorkspaceFileOpenTarget,
+  useWorkspaceFileOpenTarget,
+} from '@/lib/workspace-file-open-target'
 
 interface ShareFileBrowserProps {
   session: NavigationSession
   dialogContainerRef?: React.RefObject<HTMLElement | null>
   onOpenInNewTabInSameWindow?: (file: FileItem) => void
+  onOpenInStandaloneWindow?: (file: FileItem) => void
   onAddToTaskbar?: (file: FileItem) => void
 }
 
@@ -46,8 +51,11 @@ function ShareFileBrowserInner({
   session: sessionProp,
   dialogContainerRef,
   onOpenInNewTabInSameWindow,
+  onOpenInStandaloneWindow,
   onAddToTaskbar,
 }: ShareFileBrowserProps) {
+  const fileOpenTarget = useWorkspaceFileOpenTarget()
+  const contextOpenWorkspaceAsStandalone = fileOpenTarget === 'new-tab'
   const shareCtx = useShareWorkspace()
   if (!shareCtx) throw new Error('ShareFileBrowser requires ShareWorkspaceContext')
 
@@ -284,7 +292,12 @@ function ShareFileBrowserInner({
   const handleOpenInNewTab = useCallback(
     (file: FileItem) => {
       if (file.isVirtual) return
-      if (onOpenInNewTabInSameWindow) {
+      if (getWorkspaceFileOpenTarget() === 'new-tab') {
+        if (onOpenInStandaloneWindow) {
+          onOpenInStandaloneWindow(file)
+          return
+        }
+      } else if (onOpenInNewTabInSameWindow) {
         onOpenInNewTabInSameWindow(file)
         return
       }
@@ -296,7 +309,7 @@ function ShareFileBrowserInner({
       const url = query ? `/share/${token}/workspace?${query}` : `/share/${token}/workspace`
       window.open(url, '_blank')
     },
-    [token, stripSharePrefixFn, onOpenInNewTabInSameWindow],
+    [token, stripSharePrefixFn, onOpenInNewTabInSameWindow, onOpenInStandaloneWindow],
   )
 
   const handleContextRename = useCallback((file: FileItem) => {
@@ -603,7 +616,8 @@ function ShareFileBrowserInner({
       onContextMove={canEdit ? handleContextMoveFile : undefined}
       onContextOpenInNewTab={handleOpenInNewTab}
       onContextAddToTaskbar={onAddToTaskbar}
-      showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
+      showOpenInNewTabForFiles={!!(onOpenInNewTabInSameWindow && onOpenInStandaloneWindow)}
+      contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
       dragSourceKind='share'
       dragSourceToken={token}
       showInlineCreate={inKb && canUpload}
@@ -636,7 +650,8 @@ function ShareFileBrowserInner({
       onContextMove={canEdit ? handleContextMoveFile : undefined}
       onContextOpenInNewTab={handleOpenInNewTab}
       onContextAddToTaskbar={onAddToTaskbar}
-      showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
+      showOpenInNewTabForFiles={!!(onOpenInNewTabInSameWindow && onOpenInStandaloneWindow)}
+      contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
       dragSourceKind='share'
       dragSourceToken={token}
     />

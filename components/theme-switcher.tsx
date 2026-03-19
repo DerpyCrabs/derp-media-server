@@ -1,5 +1,5 @@
 import { Menu } from '@base-ui/react/menu'
-import { Settings, Sun, Moon, Monitor, Check } from 'lucide-react'
+import { AppWindow, Layers, Settings, Sun, Moon, Monitor, Check } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useTheme, type ThemePalette, type ThemeMode } from '@/lib/use-theme'
+import {
+  setWorkspaceFileOpenTarget,
+  useWorkspaceFileOpenTargetStore,
+  type WorkspaceFileOpenTarget,
+} from '@/lib/workspace-file-open-target'
 import { SnapLayoutTemplateThumbnail } from '@/components/workspace/snap-layout-template-thumbnail'
 import { useWorkspaceSnapLayoutVisibility } from '@/lib/use-workspace-snap-layout-visibility'
 import {
@@ -33,6 +38,26 @@ const PALETTES: { value: ThemePalette; label: string }[] = [
   { value: 'default', label: 'Default' },
   { value: 'caffeine', label: 'Caffeine' },
   { value: 'cosmic-night', label: 'Cosmic Night' },
+]
+
+const FILE_OPEN_TARGETS: {
+  value: WorkspaceFileOpenTarget
+  label: string
+  hint: string
+  icon: typeof Layers
+}[] = [
+  {
+    value: 'new-tab',
+    label: 'New tab',
+    hint: 'Open in the same window group as the file browser (tab strip).',
+    icon: Layers,
+  },
+  {
+    value: 'new-window',
+    label: 'New window',
+    hint: 'Open as a separate floating workspace window.',
+    icon: AppWindow,
+  },
 ]
 
 const taskbarTriggerClass =
@@ -82,6 +107,7 @@ function SnapLayoutVisibilityRow({
 
 function SettingsModalContent() {
   const { palette, mode, setTheme } = useTheme()
+  const fileOpenTarget = useWorkspaceFileOpenTargetStore((s) => s.target)
   const {
     visibleIds: visibleSnapLayoutIds,
     toggleLayout,
@@ -93,6 +119,37 @@ function SettingsModalContent() {
         <DialogTitle>Settings</DialogTitle>
       </DialogHeader>
       <div className='grid gap-6'>
+        <div>
+          <div className='mb-2 text-xs font-medium text-muted-foreground'>
+            Workspace · open files
+          </div>
+          <p className='mb-3 text-xs text-muted-foreground'>
+            Default when you open a file from the workspace browser (saved on this device).
+          </p>
+          <div className='flex flex-col gap-2'>
+            {FILE_OPEN_TARGETS.map((opt) => {
+              const Icon = opt.icon
+              return (
+                <button
+                  key={opt.value}
+                  type='button'
+                  title={opt.hint}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-left transition-colors',
+                    fileOpenTarget === opt.value
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-muted/50 hover:bg-muted',
+                  )}
+                  onClick={() => setWorkspaceFileOpenTarget(opt.value)}
+                >
+                  <Icon className='h-4 w-4 shrink-0' />
+                  <span className='flex-1'>{opt.label}</span>
+                  {fileOpenTarget === opt.value && <Check className='h-4 w-4 shrink-0' />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <div>
           <div className='mb-2 text-xs font-medium text-muted-foreground'>Mode</div>
           <div className='flex flex-wrap gap-2'>

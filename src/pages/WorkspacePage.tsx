@@ -37,6 +37,7 @@ import {
   workspaceLayoutScopeFromShareToken,
   type WorkspaceLayoutPreset,
 } from '@/lib/workspace-layout-presets'
+import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 
 interface LayoutPickerState {
   windowId: string
@@ -184,6 +185,7 @@ export function WorkspacePage({
   const setWindowMinimizedRef = useRef(setWindowMinimized)
   const requestPlayRef = useRef(requestPlay)
   const openViewerWindowRef = useRef(openViewerWindow)
+  const openBrowserWindowRef = useRef(openBrowserWindow)
   const setLayoutPickerRef = useRef(setLayoutPicker)
   const closeWindowRef = useRef(closeWindow)
   const addTabToGroupRef = useRef(addTabToGroup)
@@ -192,6 +194,7 @@ export function WorkspacePage({
   setWindowMinimizedRef.current = setWindowMinimized
   requestPlayRef.current = requestPlay
   openViewerWindowRef.current = openViewerWindow
+  openBrowserWindowRef.current = openBrowserWindow
   setLayoutPickerRef.current = setLayoutPicker
   closeWindowRef.current = closeWindow
   addTabToGroupRef.current = addTabToGroup
@@ -204,13 +207,20 @@ export function WorkspacePage({
   const handleRequestPlay = useCallback((source: WorkspaceSource, path: string, dir?: string) => {
     requestPlayRef.current({ source, path, dir })
   }, [])
-  const handleRequestView = useCallback((source: WorkspaceSource, path: string, dir: string) => {
-    openViewerWindowRef.current({
-      title: path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer',
-      source,
-      initialState: { dir, viewing: path },
-    })
-  }, [])
+  const handleRequestView = useCallback(
+    (source: WorkspaceSource, sourceWindowId: string, path: string, dir: string) => {
+      if (getWorkspaceFileOpenTarget() === 'new-tab') {
+        openInNewTabRef.current(sourceWindowId, { path, isDirectory: false }, dir, source)
+        return
+      }
+      openViewerWindowRef.current({
+        title: path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer',
+        source,
+        initialState: { dir, viewing: path },
+      })
+    },
+    [],
+  )
   const handleOpenLayoutPicker = useCallback((windowId: string, anchorRect: DOMRect) => {
     setLayoutPickerRef.current({ windowId, anchorRect })
   }, [])
@@ -664,6 +674,27 @@ export function WorkspacePage({
     [],
   )
 
+  const handleOpenInStandaloneWindow = useCallback(
+    (
+      sourceWindowId: string,
+      file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+      currentPath: string,
+      sourceOverride?: WorkspaceSource,
+    ) => {
+      const sourceWindow = windowsRef.current.find((w) => w.id === sourceWindowId)
+      if (!sourceWindow || file.isVirtual) return
+      const source = sourceOverride ?? sourceWindow.source
+      if (file.isDirectory) {
+        openBrowserWindowRef.current({ source, initialState: { dir: file.path } })
+      } else {
+        const dir = file.path.split(/[/\\]/).slice(0, -1).join('/') || currentPath
+        const title = file.path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer'
+        openViewerWindowRef.current({ title, source, initialState: { dir, viewing: file.path } })
+      }
+    },
+    [],
+  )
+
   const { data: authConfig } = useQuery({
     queryKey: ['auth-config'],
     queryFn: () =>
@@ -877,6 +908,7 @@ export function WorkspacePage({
             onCloseTab={handleCloseTab}
             onAddTab={handleAddTab}
             onOpenInNewTabInSameWindow={handleOpenInNewTabInSameWindow}
+            onOpenInStandaloneWindow={handleOpenInStandaloneWindow}
             onDetachTab={handleDetachTab}
             onRestoreDrag={handleRestoreDrag}
             onDropFileToTabBar={handleDropFileToTabBar}

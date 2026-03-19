@@ -51,6 +51,10 @@ import { BrowserPane } from '@/components/browser-pane'
 import { BrowserPaneContent } from '@/components/browser-pane-content'
 import type { NavigationSession } from '@/lib/navigation-session'
 import { queryKeys } from '@/lib/query-keys'
+import {
+  getWorkspaceFileOpenTarget,
+  useWorkspaceFileOpenTarget,
+} from '@/lib/workspace-file-open-target'
 
 interface FileBrowserProps {
   editableFolders: string[]
@@ -58,6 +62,7 @@ interface FileBrowserProps {
   /** When set, dialogs (e.g. unsupported file) portal into this element to stay inside the window. */
   dialogContainerRef?: React.RefObject<HTMLElement | null>
   onOpenInNewTabInSameWindow?: (file: FileItem) => void
+  onOpenInStandaloneWindow?: (file: FileItem) => void
   onAddToTaskbar?: (file: FileItem) => void
 }
 
@@ -66,8 +71,11 @@ function FileBrowserInner({
   session: sessionProp,
   dialogContainerRef,
   onOpenInNewTabInSameWindow,
+  onOpenInStandaloneWindow,
   onAddToTaskbar,
 }: FileBrowserProps) {
+  const fileOpenTarget = useWorkspaceFileOpenTarget()
+  const contextOpenWorkspaceAsStandalone = fileOpenTarget === 'new-tab'
   const session = useNavigationSession(sessionProp)
   const { state, navigateToFolder, viewFile, playFile: urlPlayFile } = session
   const currentPath = state.dir || ''
@@ -355,7 +363,12 @@ function FileBrowserInner({
 
   const handleContextOpenInNewTab = (file: FileItem) => {
     if (file.isVirtual) return
-    if (onOpenInNewTabInSameWindow) {
+    if (getWorkspaceFileOpenTarget() === 'new-tab') {
+      if (onOpenInStandaloneWindow) {
+        onOpenInStandaloneWindow(file)
+        return
+      }
+    } else if (onOpenInNewTabInSameWindow) {
       onOpenInNewTabInSameWindow(file)
       return
     }
@@ -727,7 +740,8 @@ function FileBrowserInner({
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
       onContextAddToTaskbar={onAddToTaskbar}
-      showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
+      showOpenInNewTabForFiles={!!(onOpenInNewTabInSameWindow && onOpenInStandaloneWindow)}
+      contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -781,7 +795,8 @@ function FileBrowserInner({
       onContextCopy={editableFolders.length > 0 ? handleContextCopy : undefined}
       onContextOpenInNewTab={handleContextOpenInNewTab}
       onContextAddToTaskbar={onAddToTaskbar}
-      showOpenInNewTabForFiles={!!onOpenInNewTabInSameWindow}
+      showOpenInNewTabForFiles={!!(onOpenInNewTabInSameWindow && onOpenInStandaloneWindow)}
+      contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
       hasEditableFolders={editableFolders.length > 0}
       onMoveFile={handleMoveFile}
       shares={shares}
@@ -823,6 +838,7 @@ function FileBrowserInner({
             onContextToggleFavorite={handleContextToggleFavorite}
             onContextShare={handleContextShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
+            contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
             favorites={favorites}
             editableFolders={editableFolders}
             shares={shares}

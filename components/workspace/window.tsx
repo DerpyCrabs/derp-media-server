@@ -60,7 +60,13 @@ export interface WindowGroupProps {
   ) => void
   onNavigationStateChange: (windowId: string, dir: string | null, viewing: string | null) => void
   onRequestPlay: (source: WorkspaceSource, path: string, dir?: string) => void
-  onRequestView: (source: WorkspaceSource, path: string, dir: string, type: MediaType) => void
+  onRequestView: (
+    source: WorkspaceSource,
+    sourceWindowId: string,
+    path: string,
+    dir: string,
+    type: MediaType,
+  ) => void
   onOpenLayoutPicker: (windowId: string, anchorRect: DOMRect) => void
   onSelectTab: (tabGroupId: string, windowId: string) => void
   onCloseTab: (windowId: string) => void
@@ -70,6 +76,11 @@ export interface WindowGroupProps {
     file: { path: string; isDirectory: boolean; isVirtual?: boolean },
     currentPath: string,
   ) => string
+  onOpenInStandaloneWindow?: (
+    sourceWindowId: string,
+    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+    currentPath: string,
+  ) => void
   onAddToTaskbar?: (file: import('@/lib/types').FileItem) => void
   onDetachTab: (windowId: string, clientX: number, clientY: number) => void
   onRestoreDrag: (windowId: string, clientX: number, clientY: number) => void
@@ -86,6 +97,7 @@ function useWorkspaceWindowSession(
   localSession: NavigationSession,
   playbackSession: NavigationSession,
   source: WorkspaceSource,
+  sourceWindowId: string,
   onRequestPlay: WindowGroupProps['onRequestPlay'],
   onRequestView: WindowGroupProps['onRequestView'],
 ): NavigationSession {
@@ -111,7 +123,7 @@ function useWorkspaceWindowSession(
       viewFile: (path: string, dir?: string) => {
         const resolvedDir = dir ?? localSession.state.dir ?? ''
         const type = getMediaType(path.split('.').pop() ?? '')
-        onRequestView(source, path, resolvedDir, type)
+        onRequestView(source, sourceWindowId, path, resolvedDir, type)
       },
       playFile: (path: string, dir?: string) =>
         onRequestPlay(source, path, dir ?? localSession.state.dir ?? undefined),
@@ -119,7 +131,15 @@ function useWorkspaceWindowSession(
       closePlayer: playbackSession.closePlayer,
       setAudioOnly: playbackSession.setAudioOnly,
     }),
-    [mergedState, localSession, playbackSession, source, onRequestPlay, onRequestView],
+    [
+      mergedState,
+      localSession,
+      playbackSession,
+      source,
+      sourceWindowId,
+      onRequestPlay,
+      onRequestView,
+    ],
   )
 }
 
@@ -134,6 +154,7 @@ interface TabContentProps {
   onRequestPlay: WindowGroupProps['onRequestPlay']
   onRequestView: WindowGroupProps['onRequestView']
   onOpenInNewTabInSameWindow: WindowGroupProps['onOpenInNewTabInSameWindow']
+  onOpenInStandaloneWindow?: WindowGroupProps['onOpenInStandaloneWindow']
   onAddToTaskbar?: WindowGroupProps['onAddToTaskbar']
   onFocus: (windowId: string) => void
 }
@@ -149,6 +170,7 @@ const TabContent = memo(function TabContent({
   onRequestPlay,
   onRequestView,
   onOpenInNewTabInSameWindow,
+  onOpenInStandaloneWindow,
   onAddToTaskbar,
   onFocus,
 }: TabContentProps) {
@@ -158,6 +180,7 @@ const TabContent = memo(function TabContent({
     localSession,
     playbackSession,
     win.source,
+    win.id,
     onRequestPlay,
     onRequestView,
   )
@@ -276,6 +299,11 @@ const TabContent = memo(function TabContent({
               ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
               : undefined
           }
+          onOpenInStandaloneWindow={
+            onOpenInStandaloneWindow
+              ? (file) => onOpenInStandaloneWindow(win.id, file, localSession.state.dir || '')
+              : undefined
+          }
           onAddToTaskbar={onAddToTaskbar}
         />
       ) : (
@@ -286,6 +314,11 @@ const TabContent = memo(function TabContent({
           onOpenInNewTabInSameWindow={
             onOpenInNewTabInSameWindow
               ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
+              : undefined
+          }
+          onOpenInStandaloneWindow={
+            onOpenInStandaloneWindow
+              ? (file) => onOpenInStandaloneWindow(win.id, file, localSession.state.dir || '')
               : undefined
           }
           onAddToTaskbar={onAddToTaskbar}
@@ -681,6 +714,7 @@ function WindowGroupInner({
   onCloseTab,
   onAddTab,
   onOpenInNewTabInSameWindow,
+  onOpenInStandaloneWindow,
   onAddToTaskbar,
   onDetachTab,
   onRestoreDrag,
@@ -1148,6 +1182,7 @@ function WindowGroupInner({
                 onRequestPlay={onRequestPlay}
                 onRequestView={onRequestView}
                 onOpenInNewTabInSameWindow={onOpenInNewTabInSameWindow}
+                onOpenInStandaloneWindow={onOpenInStandaloneWindow}
                 onAddToTaskbar={onAddToTaskbar}
                 onFocus={onFocus}
               />
