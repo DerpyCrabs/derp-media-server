@@ -29,6 +29,10 @@ import {
   type WorkspaceSource,
 } from '@/lib/use-workspace'
 import { selectOrderedGroupIds, useWorkspaceSessionStore } from '@/lib/workspace-session-store'
+import {
+  useWorkspacePlaybackSession,
+  useWorkspacePlaybackStore,
+} from '@/lib/workspace-playback-store'
 import { useWorkspaceSnapLayoutVisibility } from '@/lib/use-workspace-snap-layout-visibility'
 import { useWorkspaceSessionUrl } from '@/lib/use-workspace-session-url'
 import { queryKeys } from '@/lib/query-keys'
@@ -118,7 +122,6 @@ export function WorkspacePage({
     storageKey,
     windows,
     playbackSource,
-    playbackSession,
     focusWindow,
     closeWindow,
     openBrowserWindow,
@@ -159,6 +162,8 @@ export function WorkspacePage({
     persistTaskbarPinsToServer,
   })
 
+  const playbackSession = useWorkspacePlaybackSession(storageKey)
+
   const { visibleIds: visibleSnapLayoutIds } = useWorkspaceSnapLayoutVisibility()
 
   const orderedGroupIds = useWorkspaceSessionStore(
@@ -172,14 +177,14 @@ export function WorkspacePage({
     bounds: Bounds
   } | null>(null)
   const windowsRef = useRef(windows)
-  const playbackSessionRef = useRef(playbackSession)
+  const storageKeyRef = useRef(storageKey)
   const mergeHighlightRef = useRef<string | null>(null)
   const draggedWindowIdRef = useRef<string | null>(null)
   const mergeThrottleLastRef = useRef(0)
   const MERGE_HIGHLIGHT_THROTTLE_MS = 50
 
   windowsRef.current = windows
-  playbackSessionRef.current = playbackSession
+  storageKeyRef.current = storageKey
 
   const setWindowMinimizedRef = useRef(setWindowMinimized)
   const requestPlayRef = useRef(requestPlay)
@@ -231,7 +236,9 @@ export function WorkspacePage({
     const groupId = w.tabGroupId ?? w.id
     const groupWindows = ws.filter((win) => (win.tabGroupId ?? win.id) === groupId)
     for (const win of groupWindows) {
-      if (win.type === 'player') playbackSessionRef.current.closePlayer()
+      if (win.type === 'player') {
+        useWorkspacePlaybackStore.getState().closePlayer(storageKeyRef.current)
+      }
       closeWindowRef.current(win.id)
     }
   }, [])
@@ -596,7 +603,7 @@ export function WorkspacePage({
     const ws = windowsRef.current
     const w = ws.find((win) => win.id === windowId)
     if (w?.type === 'player') {
-      playbackSessionRef.current.closePlayer()
+      useWorkspacePlaybackStore.getState().closePlayer(storageKeyRef.current)
     }
     closeWindowRef.current(windowId)
   }, [])
@@ -716,9 +723,10 @@ export function WorkspacePage({
   const currentMediaFile = useMediaPlayer((state) => state.currentFile)
   const currentMediaType = useMediaPlayer((state) => state.mediaType)
   const mediaPlayerIsPlaying = useMediaPlayer((state) => state.isPlaying)
+  const playingPathForIcons = useWorkspacePlaybackStore((s) => s.byKey[storageKey]?.playing ?? null)
   const { getIcon } = useFileIcon({
     customIcons: settings.customIcons,
-    playingPath: playbackSession.state.playing,
+    playingPath: playingPathForIcons,
     currentFile: currentMediaFile,
     mediaPlayerIsPlaying,
     mediaType: currentMediaType,
@@ -800,7 +808,6 @@ export function WorkspacePage({
           storageKey={storageKey}
           handledByMouseDownRef={handledByMouseDownRef}
           getIcon={getIcon}
-          playbackSession={playbackSession}
           focusWindow={focusWindow}
           setWindowMinimized={setWindowMinimized}
           closeWindow={closeWindow}
@@ -826,7 +833,7 @@ export function WorkspacePage({
             session={playbackSession}
             mediaContext={playbackContext}
             onShowVideo={() => {
-              playbackSession.setAudioOnly(false)
+              useWorkspacePlaybackStore.getState().setAudioOnly(storageKey, false)
               openPlayerWindow()
             }}
           />
@@ -871,7 +878,6 @@ export function WorkspacePage({
             storageKey={storageKey}
             groupId={groupId}
             editableFolders={editableFolders}
-            playbackSession={playbackSession}
             onFocus={focusWindow}
             onMinimize={handleMinimize}
             onToggleMaximize={toggleWindowFullscreen}

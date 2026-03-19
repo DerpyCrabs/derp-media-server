@@ -32,6 +32,10 @@ import {
   type WorkspaceWindowDefinition,
   workspaceSourceToMediaContext,
 } from '@/lib/use-workspace'
+import {
+  useWorkspacePlaybackSession,
+  useWorkspacePlaybackStore,
+} from '@/lib/workspace-playback-store'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import {
   computeSnappedResizeWindows,
@@ -48,7 +52,6 @@ export interface WindowGroupProps {
   storageKey: string
   groupId: string
   editableFolders: string[]
-  playbackSession: NavigationSession
   onFocus: (windowId: string) => void
   onMinimize: (windowId: string) => void
   onToggleMaximize: (windowId: string) => void
@@ -156,7 +159,6 @@ interface TabContentProps {
   storageKey: string
   window: WorkspaceWindowDefinition
   editableFolders: string[]
-  playbackSession: NavigationSession
   visible: boolean
   onPresentationChange: WindowGroupProps['onPresentationChange']
   onNavigationStateChange: WindowGroupProps['onNavigationStateChange']
@@ -172,7 +174,6 @@ const TabContent = memo(function TabContent({
   storageKey,
   window: win,
   editableFolders,
-  playbackSession,
   visible,
   onPresentationChange,
   onNavigationStateChange,
@@ -183,6 +184,7 @@ const TabContent = memo(function TabContent({
   onAddToTaskbar,
   onFocus,
 }: TabContentProps) {
+  const playbackSession = useWorkspacePlaybackSession(storageKey)
   const tabContentRef = useRef<HTMLDivElement>(null)
   const localSession = useInMemoryNavigationSession(win.initialState)
   const mergedWindowSession = useWorkspaceWindowSession(
@@ -754,7 +756,6 @@ function WindowGroupInner({
   storageKey,
   groupId: groupIdProp,
   editableFolders,
-  playbackSession,
   onFocus,
   onMinimize,
   onToggleMaximize,
@@ -779,6 +780,9 @@ function WindowGroupInner({
   onDropFileToTabBar,
   overrideBounds,
 }: WindowGroupProps) {
+  const playingPathForChrome = useWorkspacePlaybackStore(
+    (s) => s.byKey[storageKey]?.playing ?? null,
+  )
   const tabs = useWorkspaceSessionStore(
     useShallow((s) => selectGroupTabs(s.sessions, storageKey, groupIdProp)),
   )
@@ -829,7 +833,7 @@ function WindowGroupInner({
   const { settings } = useSettings('', false)
   const { getIcon } = useFileIcon({
     customIcons: settings.customIcons,
-    playingPath: playbackSession.state.playing,
+    playingPath: playingPathForChrome,
     currentFile: currentMediaFile,
     mediaPlayerIsPlaying,
     mediaType: currentMediaType,
@@ -1233,7 +1237,6 @@ function WindowGroupInner({
                 storageKey={storageKey}
                 window={tab}
                 editableFolders={editableFolders}
-                playbackSession={playbackSession}
                 visible={tab.id === visibleTabId}
                 onPresentationChange={onPresentationChange}
                 onNavigationStateChange={onNavigationStateChange}

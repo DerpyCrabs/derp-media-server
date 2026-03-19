@@ -37,6 +37,7 @@ import { ThemeSwitcher } from '@/components/theme-switcher'
 import type { NavigationSession } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 import { queryKeys } from '@/lib/query-keys'
+import { useBrowserViewMode } from '@/lib/browser-view-mode-store'
 
 interface ShareRestrictions {
   allowDelete: boolean
@@ -98,23 +99,10 @@ function SharedFolderBrowserInner({
   const canEdit = shareInfo.editable && shareInfo.restrictions?.allowEdit !== false
   const canDelete = shareInfo.editable && shareInfo.restrictions?.allowDelete !== false
 
-  const storageKey = `share-viewmode-${token}`
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(storageKey)
-      if (saved === 'list' || saved === 'grid') return saved
-    }
-    return adminViewMode
-  })
-
-  const handleViewModeChange = useCallback(
-    (mode: 'list' | 'grid') => {
-      setViewMode(mode)
-      try {
-        localStorage.setItem(storageKey, mode)
-      } catch {}
-    },
-    [storageKey],
+  const viewModeStorageKey = `share-viewmode-${token}`
+  const { viewMode, setViewMode: handleViewModeChange } = useBrowserViewMode(
+    viewModeStorageKey,
+    adminViewMode,
   )
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [showCreateFile, setShowCreateFile] = useState(false)
