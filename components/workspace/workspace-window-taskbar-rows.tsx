@@ -3,8 +3,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { X } from 'lucide-react'
 import { WorkspaceTaskbarWindowButton } from '@/components/workspace/layout'
 import { getMediaType } from '@/lib/media-utils'
-import { useInMemoryNavigationSession } from '@/lib/navigation-session'
 import { MediaType } from '@/lib/types'
+import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import {
@@ -25,7 +25,6 @@ export interface WorkspaceWindowTaskbarRowsProps {
   storageKey: string
   handledByMouseDownRef: RefObject<boolean>
   getIcon: TaskbarGetIcon
-  playbackSession: ReturnType<typeof useInMemoryNavigationSession>
   focusWindow: (windowId: string) => void
   setWindowMinimized: (windowId: string, minimized: boolean) => void
   closeWindow: (windowId: string) => void
@@ -36,7 +35,6 @@ const TaskbarWindowGroupRow = memo(function TaskbarWindowGroupRow({
   groupId,
   getIconRef,
   handledByMouseDownRef,
-  playbackSession,
   focusWindow,
   setWindowMinimized,
   closeWindow,
@@ -44,6 +42,7 @@ const TaskbarWindowGroupRow = memo(function TaskbarWindowGroupRow({
   groupId: string
   getIconRef: RefObject<TaskbarGetIcon>
 }) {
+  const playingPath = useWorkspacePlaybackStore((s) => s.byKey[storageKey]?.playing ?? null)
   const groupWindows = useWorkspaceSessionStore(
     useShallow((s) => selectGroupTabs(s.sessions, storageKey, groupId)),
   )
@@ -65,7 +64,7 @@ const TaskbarWindowGroupRow = memo(function TaskbarWindowGroupRow({
     (displayWindow.type === 'browser'
       ? (displayWindow.initialState.dir ?? '')
       : displayWindow.type === 'player'
-        ? (playbackSession.state.playing ?? '')
+        ? (playingPath ?? '')
         : (displayWindow.initialState.viewing ?? ''))
   const isDir = displayWindow.type === 'browser'
   const tooltip = path ? `${isDir ? 'Folder' : 'File'}: ${path}` : displayWindow.title
@@ -96,7 +95,7 @@ const TaskbarWindowGroupRow = memo(function TaskbarWindowGroupRow({
           (displayWindow.type === 'browser'
             ? (displayWindow.initialState.dir ?? '')
             : displayWindow.type === 'player'
-              ? (playbackSession.state.playing ?? '')
+              ? (playingPath ?? '')
               : (displayWindow.initialState.viewing ?? '')),
         (displayWindow.iconType ?? MediaType.OTHER) === MediaType.AUDIO,
         (displayWindow.iconType ??
@@ -119,7 +118,7 @@ const TaskbarWindowGroupRow = memo(function TaskbarWindowGroupRow({
       }}
       onClose={() => {
         for (const w of groupWindows) {
-          if (w.type === 'player') playbackSession.closePlayer()
+          if (w.type === 'player') useWorkspacePlaybackStore.getState().closePlayer(storageKey)
           closeWindow(w.id)
         }
       }}
@@ -137,7 +136,6 @@ export function WorkspaceWindowTaskbarRows(props: WorkspaceWindowTaskbarRowsProp
     storageKey,
     handledByMouseDownRef,
     getIcon,
-    playbackSession,
     focusWindow,
     setWindowMinimized,
     closeWindow,
@@ -158,7 +156,6 @@ export function WorkspaceWindowTaskbarRows(props: WorkspaceWindowTaskbarRowsProp
           groupId={groupId}
           handledByMouseDownRef={handledByMouseDownRef}
           getIconRef={getIconRef}
-          playbackSession={playbackSession}
           focusWindow={focusWindow}
           setWindowMinimized={setWindowMinimized}
           closeWindow={closeWindow}

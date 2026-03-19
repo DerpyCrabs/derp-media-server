@@ -18,6 +18,7 @@ import { useNavigationSession } from '@/lib/use-navigation-session'
 import type { NavigationSession } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 import { queryKeys } from '@/lib/query-keys'
+import { useShareTextViewerSettings } from '@/lib/share-text-viewer-settings-store'
 
 export interface ShareInfoForViewer {
   token: string
@@ -97,37 +98,16 @@ export function TextViewer({
   const shareStorageKey = isShareMode
     ? `share-autosave-${shareMode.token}${shareMode.filePath ? `-${shareMode.filePath.replace(/[/\\]/g, '_')}` : ''}`
     : ''
-  const [shareSettings, setShareSettings] = useState(() => {
+
+  const shareTextViewerDefaults = useMemo(() => {
     if (!isShareMode) return { enabled: true, readOnly: false }
-    const key = `share-autosave-${shareMode.token}${shareMode.filePath ? `-${shareMode.filePath.replace(/[/\\]/g, '_')}` : ''}`
     const canEdit =
       shareMode.shareInfo.editable && shareMode.shareInfo.restrictions?.allowEdit !== false
-    if (typeof window === 'undefined') return { enabled: true, readOnly: !canEdit }
-    try {
-      const raw = localStorage.getItem(key)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        return {
-          enabled: parsed.enabled ?? true,
-          readOnly: parsed.readOnly ?? !canEdit,
-        }
-      }
-    } catch {}
     return { enabled: true, readOnly: !canEdit }
-  })
-  const persistShareSettings = useCallback(
-    (enabled: boolean, readOnly?: boolean) => {
-      if (!shareStorageKey) return
-      setShareSettings((prev) => {
-        const next = { ...prev, enabled, ...(readOnly !== undefined && { readOnly }) }
-        try {
-          localStorage.setItem(shareStorageKey, JSON.stringify(next))
-        } catch {}
-        return next
-      })
-    },
-    [shareStorageKey],
-  )
+  }, [isShareMode, shareMode?.shareInfo.editable, shareMode?.shareInfo.restrictions?.allowEdit])
+
+  const { settings: shareSettings, persistSettings: persistShareSettings } =
+    useShareTextViewerSettings(shareStorageKey, shareTextViewerDefaults)
 
   const shareEditMutation = useMutation({
     mutationFn: (vars: { token: string; path: string; content: string }) =>

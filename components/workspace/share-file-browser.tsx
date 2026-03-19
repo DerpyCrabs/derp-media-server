@@ -38,6 +38,7 @@ import {
   getWorkspaceFileOpenTarget,
   useWorkspaceFileOpenTarget,
 } from '@/lib/workspace-file-open-target'
+import { useBrowserViewMode } from '@/lib/browser-view-mode-store'
 
 interface ShareFileBrowserProps {
   session: NavigationSession
@@ -657,22 +658,10 @@ function ShareFileBrowserInner({
     />
   )
 
-  const storageKey = `share-workspace-viewmode-${token}`
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(storageKey)
-      if (saved === 'list' || saved === 'grid') return saved
-    }
-    return 'list'
-  })
-  const handleViewModeChange = useCallback(
-    (mode: 'list' | 'grid') => {
-      setViewMode(mode)
-      try {
-        localStorage.setItem(storageKey, mode)
-      } catch {}
-    },
-    [storageKey],
+  const viewModeStorageKey = `share-workspace-viewmode-${token}`
+  const { viewMode, setViewMode: handleViewModeChange } = useBrowserViewMode(
+    viewModeStorageKey,
+    'list',
   )
 
   return (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useInMemoryNavigationSession, type NavigationState } from '@/lib/navigation-session'
+import type { NavigationState } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
 import { MediaType } from '@/lib/types'
 import { hydrateFocusFromPersisted } from '@/lib/workspace-core'
@@ -16,6 +16,7 @@ import {
   snapZoneToBounds,
 } from '@/lib/workspace-geometry'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
+import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 import {
   buildWorkspaceSessionSlice,
@@ -137,7 +138,6 @@ interface UseWorkspaceResult {
   windows: WorkspaceWindowDefinition[]
   activeWindowId: string | null
   playbackSource: WorkspaceSource | null
-  playbackSession: ReturnType<typeof useInMemoryNavigationSession>
   activeTabMap: Record<string, string>
   focusWindow: (windowId: string) => void
   closeWindow: (windowId: string) => void
@@ -315,19 +315,6 @@ function saveWorkspaceState(state: PersistedWorkspaceState, key: string = STORAG
       pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
     }
     localStorage.setItem(key, JSON.stringify(serializable))
-  } catch {}
-}
-
-function tryMigrateLegacyWorkspaceToSession(legacyKey: string, sessionKey: string) {
-  if (typeof window === 'undefined') return
-  try {
-    if (localStorage.getItem(sessionKey)) return
-    const legacyRaw = localStorage.getItem(legacyKey)
-    if (!legacyRaw) return
-    const validated = parsePersistedWorkspaceStateJson(legacyRaw)
-    if (!validated) return
-    saveWorkspaceState(validated, sessionKey)
-    localStorage.removeItem(legacyKey)
   } catch {}
 }
 
@@ -542,14 +529,12 @@ export function useWorkspace({
     [shareConfig],
   )
 
-  const playbackSession = useInMemoryNavigationSession()
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const persistedRef = useRef<PersistedWorkspaceState | null | undefined>(undefined)
   const windowsRef = useRef<WorkspaceWindowDefinition[]>([])
 
   function getPersistedState() {
     if (persistedRef.current === undefined) {
-      tryMigrateLegacyWorkspaceToSession(legacyBaseKey, storageKey)
       persistedRef.current = loadWorkspaceState(storageKey)
     }
     return persistedRef.current
@@ -568,14 +553,7 @@ export function useWorkspace({
           persistedRef.current = p
         },
       }),
-    [
-      storageKey,
-      initialDir,
-      defaultSource,
-      initialLayoutSnapshot,
-      initialLayoutPresetId,
-      legacyBaseKey,
-    ],
+    [storageKey, initialDir, defaultSource, initialLayoutSnapshot, initialLayoutPresetId],
   )
 
   useLayoutEffect(() => {
@@ -701,14 +679,16 @@ export function useWorkspace({
 
   const openPlayerWindow = useCallback(
     (options?: Pick<RequestPlayOptions, 'source' | 'path'>) => {
+      const playingPath =
+        options?.path ?? useWorkspacePlaybackStore.getState().byKey[storageKey]?.playing ?? null
       return store().openPlayerWindow(storageKey, {
         path: options?.path,
         source: options?.source ?? playbackSource ?? defaultSource,
-        playingPath: options?.path ?? playbackSession.state.playing,
+        playingPath,
         defaultSource,
       })
     },
-    [storageKey, playbackSession.state.playing, playbackSource, defaultSource],
+    [storageKey, playbackSource, defaultSource],
   )
 
   const openViewerWindow = useCallback(
@@ -843,10 +823,10 @@ export function useWorkspace({
 
   const requestPlay = useCallback(
     ({ source, path, dir }: RequestPlayOptions) => {
-      playbackSession.playFile(path, dir)
+      useWorkspacePlaybackStore.getState().playFile(storageKey, path, dir)
       store().requestPlay(storageKey, { source, path, isVideo: isVideoPath(path) })
     },
-    [playbackSession, storageKey],
+    [storageKey],
   )
 
   const snapWindowFn = useCallback(
@@ -1029,7 +1009,6 @@ export function useWorkspace({
       windows,
       activeWindowId,
       playbackSource,
-      playbackSession,
       activeTabMap,
       focusWindow,
       closeWindow,
@@ -1067,7 +1046,6 @@ export function useWorkspace({
       activeWindowId,
       activeTabMap,
       playbackSource,
-      playbackSession,
       focusWindow,
       closeWindow,
       openBrowserWindow,

@@ -1,10 +1,12 @@
-import { useSyncExternalStore, useCallback, useEffect } from 'react'
+import { useSyncExternalStore, useCallback, useEffect, useMemo } from 'react'
+import {
+  readSyncedPaletteMode,
+  useThemeStore,
+  type ThemeMode,
+  type ThemePalette,
+} from '@/lib/theme-store'
 
-const STORAGE_PALETTE = 'theme-palette'
-const STORAGE_MODE = 'theme-mode'
-
-export type ThemePalette = 'default' | 'caffeine' | 'cosmic-night'
-export type ThemeMode = 'light' | 'dark' | 'system'
+export type { ThemePalette, ThemeMode } from '@/lib/theme-store'
 
 export type ResolvedTheme =
   | 'default-light'
@@ -23,7 +25,7 @@ function getSystemPrefersDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
-function resolveTheme(palette: ThemePalette, mode: ThemeMode): ResolvedTheme {
+export function resolveTheme(palette: ThemePalette, mode: ThemeMode): ResolvedTheme {
   const isDark = mode === 'dark' || (mode === 'system' && getSystemPrefersDark())
   return `${palette}-${isDark ? 'dark' : 'light'}` as ResolvedTheme
 }
@@ -52,61 +54,46 @@ function removeCosmicNightFonts() {
   document.getElementById(COSMIC_NIGHT_FONTS_ID)?.remove()
 }
 
-function getStoredPalette(): ThemePalette {
-  if (typeof window === 'undefined') return 'default'
-  const stored = localStorage.getItem(STORAGE_PALETTE)
-  if (stored === 'caffeine' || stored === 'cosmic-night') return stored
-  return 'default'
-}
-
-function getStoredMode(): ThemeMode {
-  if (typeof window === 'undefined') return 'dark'
-  const stored = localStorage.getItem(STORAGE_MODE)
-  if (stored === 'light' || stored === 'system') return stored
-  return 'dark'
-}
-
-function getSnapshotResolved(): ResolvedTheme {
-  return resolveTheme(getStoredPalette(), getStoredMode())
-}
-
-const THEME_CHANGE_EVENT = 'theme-change'
-
-function subscribe(callback: () => void): () => void {
+function subscribeSystemPreference(cb: () => void) {
   const media = window.matchMedia('(prefers-color-scheme: dark)')
-  const handler = () => callback()
+  const handler = () => cb()
   media.addEventListener('change', handler)
-  window.addEventListener(THEME_CHANGE_EVENT, handler)
-  return () => {
-    media.removeEventListener('change', handler)
-    window.removeEventListener(THEME_CHANGE_EVENT, handler)
-  }
+  return () => media.removeEventListener('change', handler)
 }
 
 export function useTheme() {
-  const resolved = useSyncExternalStore(subscribe, getSnapshotResolved, getSnapshotResolved)
+  const palette = useThemeStore((s) => s.palette)
+  const mode = useThemeStore((s) => s.mode)
+  const setStoreTheme = useThemeStore((s) => s.setTheme)
 
-  const palette = getStoredPalette()
-  const mode = getStoredMode()
+  const systemDark = useSyncExternalStore(
+    subscribeSystemPreference,
+    getSystemPrefersDark,
+    getSystemPrefersDark,
+  )
+
+  const resolved = useMemo((): ResolvedTheme => {
+    const isDark = mode === 'dark' || (mode === 'system' && systemDark)
+    return `${palette}-${isDark ? 'dark' : 'light'}` as ResolvedTheme
+  }, [palette, mode, systemDark])
 
   useEffect(() => {
     applyTheme(resolved)
   }, [resolved])
 
-  const setTheme = useCallback((newPalette: ThemePalette, newMode: ThemeMode) => {
-    localStorage.setItem(STORAGE_PALETTE, newPalette)
-    localStorage.setItem(STORAGE_MODE, newMode)
-    const next = resolveTheme(newPalette, newMode)
-    applyTheme(next)
-    window.dispatchEvent(new Event(THEME_CHANGE_EVENT))
-  }, [])
+  const setTheme = useCallback(
+    (newPalette: ThemePalette, newMode: ThemeMode) => {
+      setStoreTheme(newPalette, newMode)
+      applyTheme(resolveTheme(newPalette, newMode))
+    },
+    [setStoreTheme],
+  )
 
   return { palette, mode, resolved, setTheme }
 }
 
 export function initTheme(): ResolvedTheme {
-  const palette = getStoredPalette()
-  const mode = getStoredMode()
+  const { palette, mode } = readSyncedPaletteMode()
   const resolved = resolveTheme(palette, mode)
   applyTheme(resolved)
   return resolved

@@ -1,8 +1,9 @@
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
 export type WorkspaceFileOpenTarget = 'new-tab' | 'new-window'
 
-const STORAGE_KEY = 'workspace-file-open-target'
+const LEGACY_STORAGE_KEY = 'workspace-file-open-target'
 const DEFAULT: WorkspaceFileOpenTarget = 'new-window'
 
 function parseStored(raw: string | null): WorkspaceFileOpenTarget {
@@ -10,9 +11,17 @@ function parseStored(raw: string | null): WorkspaceFileOpenTarget {
   return DEFAULT
 }
 
-function readStored(): WorkspaceFileOpenTarget {
-  if (typeof window === 'undefined') return DEFAULT
-  return parseStored(localStorage.getItem(STORAGE_KEY))
+function readLegacyTarget(): WorkspaceFileOpenTarget | null {
+  if (typeof window === 'undefined') return null
+  const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+  if (raw == null) return null
+  return parseStored(raw)
+}
+
+function initialTarget(): WorkspaceFileOpenTarget {
+  const legacy = readLegacyTarget()
+  if (legacy != null) return legacy
+  return DEFAULT
 }
 
 interface WorkspaceFileOpenTargetState {
@@ -20,15 +29,26 @@ interface WorkspaceFileOpenTargetState {
   setTarget: (value: WorkspaceFileOpenTarget) => void
 }
 
-export const useWorkspaceFileOpenTargetStore = create<WorkspaceFileOpenTargetState>((set) => ({
-  target: readStored(),
-  setTarget(value) {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, value)
-    }
-    set({ target: value })
-  },
-}))
+export const useWorkspaceFileOpenTargetStore = create<WorkspaceFileOpenTargetState>()(
+  persist(
+    (set) => ({
+      target: initialTarget(),
+      setTarget(value) {
+        set({ target: value })
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem(LEGACY_STORAGE_KEY)
+          } catch {}
+        }
+      },
+    }),
+    {
+      name: 'workspace-file-open-target-v2',
+      storage: createJSONStorage<{ target: WorkspaceFileOpenTarget }>(() => localStorage),
+      partialize: (s) => ({ target: s.target }),
+    },
+  ),
+)
 
 /** Non-reactive read (e.g. inside event handlers). */
 export function getWorkspaceFileOpenTarget(): WorkspaceFileOpenTarget {
