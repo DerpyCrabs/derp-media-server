@@ -42,6 +42,8 @@ interface FileContextMenuProps {
   onAddToTaskbar?: (file: FileItem) => void
   /** When true, show "Open in new tab" for files too (workspace only). Default: false (folders only). */
   showOpenInNewTabForFiles?: boolean
+  /** Workspace: when default open is "new tab", the context item opens a standalone window and shows this label. */
+  contextOpenWorkspaceAsStandalone?: boolean
   hasEditableFolders?: boolean
   isFavorite?: boolean
   isKnowledgeBase?: boolean
@@ -66,6 +68,7 @@ export function FileContextMenu({
   onOpenInWorkspace,
   onAddToTaskbar,
   showOpenInNewTabForFiles = false,
+  contextOpenWorkspaceAsStandalone = false,
   hasEditableFolders = false,
   isFavorite = false,
   isKnowledgeBase = false,
@@ -170,8 +173,12 @@ export function FileContextMenu({
         )}
         {onOpenInNewTab && !file.isVirtual && (file.isDirectory || showOpenInNewTabForFiles) && (
           <ContextMenuItem onClick={handleOpenInNewTab}>
-            <ExternalLink className='mr-2 h-4 w-4' />
-            Open in new tab
+            {contextOpenWorkspaceAsStandalone ? (
+              <AppWindow className='mr-2 h-4 w-4' />
+            ) : (
+              <ExternalLink className='mr-2 h-4 w-4' />
+            )}
+            {contextOpenWorkspaceAsStandalone ? 'Open in new window' : 'Open in new tab'}
           </ContextMenuItem>
         )}
         {onOpenInWorkspace && file.isDirectory && !file.isVirtual && (

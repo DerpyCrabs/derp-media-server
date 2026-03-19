@@ -51,6 +51,7 @@ interface FileGridViewProps {
   onContextOpenInWorkspace?: (file: FileItem) => void
   onContextAddToTaskbar?: (file: FileItem) => void
   showOpenInNewTabForFiles?: boolean
+  contextOpenWorkspaceAsStandalone?: boolean
   hasEditableFolders?: boolean
   onMoveFile?: (sourcePath: string, destinationDir: string) => void
 
@@ -90,6 +91,7 @@ export function FileGridView({
   onContextOpenInWorkspace,
   onContextAddToTaskbar,
   showOpenInNewTabForFiles = false,
+  contextOpenWorkspaceAsStandalone = false,
   hasEditableFolders = false,
   onMoveFile,
   isEditable: isEditableProp,
@@ -461,6 +463,7 @@ export function FileGridView({
               onOpenInWorkspace={onContextOpenInWorkspace}
               onAddToTaskbar={onContextAddToTaskbar}
               showOpenInNewTabForFiles={showOpenInNewTabForFiles}
+              contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
               hasEditableFolders={hasEditableFolders}
               isFavorite={isFavorite}
               isKnowledgeBase={isKnowledgeBase}
