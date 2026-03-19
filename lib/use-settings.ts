@@ -4,16 +4,18 @@ import { queryKeys } from '@/lib/query-keys'
 import { useAdminEventsStream } from '@/lib/use-admin-events-stream'
 
 import type { AutoSaveSettings } from './types'
+import type { WorkspaceTaskbarPin } from './workspace-taskbar-pins'
 import { VIRTUAL_FOLDERS } from './constants'
 
 type ViewMode = 'list' | 'grid'
 
-interface GlobalSettings {
+export interface GlobalSettings {
   viewModes: Record<string, ViewMode>
   favorites: string[]
   knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
+  workspaceTaskbarPins?: WorkspaceTaskbarPin[]
 }
 
 export function useSettings(currentPath: string, enabled = true) {

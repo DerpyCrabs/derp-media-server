@@ -9,6 +9,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { ShareWorkspaceContext, type ShareWorkspaceInfo } from '@/lib/share-workspace-context'
 import { WorkspacePage } from './WorkspacePage'
 import { useMemo } from 'react'
+import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 
 interface ShareRestrictions {
   allowDelete: boolean
@@ -30,6 +31,7 @@ interface ShareInfo {
   usedBytes?: number
   isKnowledgeBase: boolean
   adminViewMode: 'list' | 'grid'
+  workspaceTaskbarPins?: PinnedTaskbarItem[]
 }
 
 interface ShareWorkspacePageProps {
@@ -114,7 +116,10 @@ function ShareWorkspaceContent({
 
   return (
     <ShareWorkspaceContext.Provider value={shareWorkspaceInfo}>
-      <WorkspacePage shareConfig={shareConfig} />
+      <WorkspacePage
+        shareConfig={shareConfig}
+        shareWorkspaceTaskbarPins={shareInfo.workspaceTaskbarPins}
+      />
     </ShareWorkspaceContext.Provider>
   )
 }

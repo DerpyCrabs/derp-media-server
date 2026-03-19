@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { AudioPlayer } from '@/components/workspace/audio-player'
 import { Layout, type PinnedTaskbarItemView } from '@/components/workspace/layout'
@@ -7,15 +7,20 @@ import { SnapPreview } from '@/components/workspace/snap-preview'
 import { TilingLayoutPicker } from '@/components/workspace/tiling-layout-picker'
 import { WindowGroup, type Bounds } from '@/components/workspace/window'
 import { Button } from '@/components/ui/button'
-import { api } from '@/lib/api'
+import { api, post } from '@/lib/api'
 import { getIconComponent } from '@/lib/icon-utils'
 import { useFileIcon } from '@/lib/use-file-icon'
 import { getMediaType } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
-import { useSettings } from '@/lib/use-settings'
+import { useSettings, type GlobalSettings } from '@/lib/use-settings'
 import { useSnapZones } from '@/lib/use-snap-zones'
 import { MediaType } from '@/lib/types'
-import type { SnapZone, WorkspaceSource, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import type {
+  PinnedTaskbarItem,
+  SnapZone,
+  WorkspaceSource,
+  WorkspaceWindowDefinition,
+} from '@/lib/use-workspace'
 import {
   useWorkspace,
   workspaceSourceToMediaContext,
@@ -24,6 +29,7 @@ import {
 } from '@/lib/use-workspace'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import { useWorkspaceSnapLayoutVisibility } from '@/lib/use-workspace-snap-layout-visibility'
+import { queryKeys } from '@/lib/query-keys'
 
 interface LayoutPickerState {
   windowId: string
@@ -55,9 +61,51 @@ function groupWindowsByTab(windows: WorkspaceWindowDefinition[]): WindowTabGroup
 
 interface WorkspacePageProps {
   shareConfig?: { token: string; sharePath: string } | null
+  /** From share `/info` when in share workspace; avoids a second pins fetch. */
+  shareWorkspaceTaskbarPins?: PinnedTaskbarItem[]
 }
 
-export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
+export function WorkspacePage({
+  shareConfig = null,
+  shareWorkspaceTaskbarPins,
+}: WorkspacePageProps) {
+  const queryClient = useQueryClient()
+
+  const { data: globalSettings, isSuccess: adminSettingsReady } = useQuery({
+    queryKey: queryKeys.settings(),
+    queryFn: () => api<GlobalSettings>('/api/settings'),
+    staleTime: Infinity,
+    enabled: !shareConfig,
+  })
+
+  const persistPinsMutation = useMutation({
+    mutationFn: async (vars: { items: PinnedTaskbarItem[]; shareToken?: string }) => {
+      if (vars.shareToken) {
+        return post(`/api/share/${vars.shareToken}/workspaceTaskbarPins`, { items: vars.items })
+      }
+      return post('/api/settings/workspaceTaskbarPins', { items: vars.items })
+    },
+    onSettled: (_data, _err, vars) => {
+      if (vars.shareToken) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(vars.shareToken) })
+      } else {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      }
+    },
+  })
+
+  const persistTaskbarPinsToServer = useCallback(
+    (items: PinnedTaskbarItem[]) => {
+      persistPinsMutation.mutate({ items, shareToken: shareConfig?.token })
+    },
+    [shareConfig?.token, persistPinsMutation],
+  )
+
+  const serverTaskbarPins = shareConfig
+    ? (shareWorkspaceTaskbarPins ?? [])
+    : (globalSettings?.workspaceTaskbarPins ?? [])
+  const serverTaskbarPinsReady = shareConfig ? true : adminSettingsReady
+
   const {
     storageKey,
     windows,
@@ -91,6 +139,9 @@ export function WorkspacePage({ shareConfig = null }: WorkspacePageProps) {
     initialDir:
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('dir') : null,
     shareConfig,
+    serverTaskbarPins,
+    serverTaskbarPinsReady,
+    persistTaskbarPinsToServer,
   })
 
   const {

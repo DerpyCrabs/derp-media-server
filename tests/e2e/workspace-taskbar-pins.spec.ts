@@ -1,5 +1,23 @@
 import { test, expect, type Page } from '@playwright/test'
 
+async function createShare(page: Page, body: Record<string, unknown>) {
+  const res = await page.request.post('/api/shares', { data: body })
+  const json = (await res.json()) as {
+    share: { token: string; passcode?: string }
+  }
+  const base = `/share/${json.share.token}`
+  const url = json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
+  return url
+}
+
+function toShareWorkspaceUrl(shareUrl: string) {
+  const url = new URL(shareUrl, 'http://localhost')
+  const parts = url.pathname.split('/')
+  parts.splice(3, 0, 'workspace')
+  url.pathname = parts.join('/')
+  return `${url.pathname}${url.search}`
+}
+
 async function gotoWorkspace(page: Page) {
   await page.goto('/workspace')
   await expect(page.locator('[data-window-group]')).toBeVisible()
@@ -101,5 +119,57 @@ test.describe('Workspace taskbar pins', () => {
       timeout: 5_000,
     })
     await expect(viewerContent.getByRole('link', { name: 'Download File' })).toBeVisible()
+  })
+
+  test('admin workspace: pins persist in settings after reload', async ({ page }) => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    const savePinned = page.waitForResponse(
+      (resp) =>
+        resp.request().method() === 'POST' &&
+        resp.url().includes('/api/settings/workspaceTaskbarPins'),
+    )
+    await expect(content.getByText('Documents', { exact: true })).toBeVisible()
+    await content
+      .locator('table tr')
+      .filter({ hasText: 'Documents' })
+      .first()
+      .click({ button: 'right' })
+    await page.locator('[data-slot="context-menu-item"]').getByText('Add to taskbar').click()
+    await expect(page.locator('button[title="Folder: Documents"]')).toBeVisible()
+    await savePinned
+
+    await page.reload()
+    await expect(page.locator('[data-window-group]')).toBeVisible()
+    await expect(page.locator('button[title="Folder: Documents"]')).toBeVisible()
+  })
+
+  test('share workspace: pins persist on share after reload', async ({ page }) => {
+    const shareUrl = await createShare(page, {
+      path: 'SharedContent',
+      isDirectory: true,
+    })
+    await page.goto(toShareWorkspaceUrl(shareUrl))
+    await expect(page.locator('[data-window-group]')).toBeVisible()
+
+    const content = getBrowserContent(page)
+    await expect(content.getByText('subfolder', { exact: true })).toBeVisible()
+    const savePinned = page.waitForResponse(
+      (resp) =>
+        resp.request().method() === 'POST' &&
+        /\/api\/share\/[^/]+\/workspaceTaskbarPins/.test(new URL(resp.url()).pathname),
+    )
+    await content
+      .locator('table tr')
+      .filter({ hasText: 'subfolder' })
+      .first()
+      .click({ button: 'right' })
+    await page.locator('[data-slot="context-menu-item"]').getByText('Add to taskbar').click()
+    await expect(page.locator('button[title="Folder: SharedContent/subfolder"]')).toBeVisible()
+    await savePinned
+
+    await page.reload()
+    await expect(page.locator('[data-window-group]')).toBeVisible()
+    await expect(page.locator('button[title="Folder: SharedContent/subfolder"]')).toBeVisible()
   })
 })
