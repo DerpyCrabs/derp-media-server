@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getMediaType } from '@/lib/media-utils'
 import { useInMemoryNavigationSession, type NavigationState } from '@/lib/navigation-session'
 import type { SourceContext } from '@/lib/source-context'
@@ -111,6 +111,11 @@ interface ShareConfig {
 interface UseWorkspaceOptions {
   initialDir?: string | null
   shareConfig?: ShareConfig | null
+  /** Per-tab session id (must match URL `ws` query). */
+  workspaceSessionId: string
+  /** When there is no saved draft, optionally hydrate from this snapshot (e.g. `?preset=`). */
+  initialLayoutSnapshot?: PersistedWorkspaceState | null
+  initialLayoutPresetId?: string | null
   /** Hydrate from server after load; when unset/false, pins stay localStorage-only. */
   serverTaskbarPins?: PinnedTaskbarItem[]
   serverTaskbarPinsReady?: boolean
@@ -179,6 +184,18 @@ interface UseWorkspaceResult {
   pinnedTaskbarItems: PinnedTaskbarItem[]
   addPinnedItem: (item: Omit<PinnedTaskbarItem, 'id'>) => void
   removePinnedItem: (id: string) => void
+  collectLayoutSnapshot: () => PersistedWorkspaceState
+  applyLayoutSnapshot: (
+    snapshot: PersistedWorkspaceState,
+    options?: { baselinePresetId?: string | null },
+  ) => void
+  revertLayoutToBaseline: () => void
+  /** Resets "modified" flag by aligning baseline to the current workspace. */
+  syncLayoutBaselineToCurrent: () => void
+  isLayoutDirty: boolean
+  layoutBaselinePresetId: string | null
+  /** After saving a new preset, attach its id to the current baseline without reloading windows. */
+  declareBaselinePresetId: (id: string | null) => void
 }
 
 const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
@@ -222,12 +239,91 @@ export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
 const STORAGE_KEY = 'workspace-state'
 const SAVE_DEBOUNCE_MS = 500
 
-interface PersistedWorkspaceState {
+export interface PersistedWorkspaceState {
   windows: WorkspaceWindowDefinition[]
   activeWindowId: string | null
   activeTabMap: Record<string, string>
   nextWindowId: number
   pinnedTaskbarItems: PinnedTaskbarItem[]
+}
+
+export function workspaceStorageBaseKey(shareToken?: string | null): string {
+  return shareToken ? `${STORAGE_KEY}-share-${shareToken}` : STORAGE_KEY
+}
+
+export function workspaceStorageSessionKey(baseKey: string, workspaceSessionId: string): string {
+  return `${baseKey}-ws-${workspaceSessionId}`
+}
+
+function sortTabMapKeys(map: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)))
+}
+
+/** Stable serialization for dirty detection and baseline compare. */
+export function serializeWorkspacePersistedState(state: PersistedWorkspaceState): string {
+  return JSON.stringify({
+    windows: state.windows,
+    activeWindowId: state.activeWindowId,
+    activeTabMap: sortTabMapKeys(state.activeTabMap ?? {}),
+    nextWindowId: state.nextWindowId,
+    pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
+  })
+}
+
+export function normalizePersistedWorkspaceState(data: unknown): PersistedWorkspaceState | null {
+  if (!data || typeof data !== 'object') return null
+  const parsed = data as PersistedWorkspaceState
+  if (!Array.isArray(parsed.windows) || parsed.windows.length === 0) return null
+
+  const viewport = getViewportSize()
+  const validatedWindows = parsed.windows
+    .filter(
+      (w): w is WorkspaceWindowDefinition =>
+        !!w &&
+        typeof w.id === 'string' &&
+        typeof w.type === 'string' &&
+        !!w.source &&
+        isValidSource(w.source),
+    )
+    .map((w, i) => {
+      const b = w.layout?.bounds
+      const bounds = b
+        ? {
+            x: Math.max(0, Math.min(b.x, viewport.width - 100)),
+            y: Math.max(0, Math.min(b.y, viewport.height - 100)),
+            width: Math.min(b.width, viewport.width),
+            height: Math.min(b.height, viewport.height),
+          }
+        : createDefaultBounds(i, w.type)
+      return {
+        ...w,
+        layout: {
+          ...w.layout,
+          bounds,
+        },
+      }
+    })
+
+  if (validatedWindows.length === 0) return null
+
+  const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
+  const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
+
+  return {
+    windows: validatedWindows,
+    activeWindowId: parsed.activeWindowId ?? null,
+    activeTabMap: parsed.activeTabMap ?? {},
+    nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
+    pinnedTaskbarItems,
+  }
+}
+
+function parsePersistedWorkspaceStateJson(raw: string): PersistedWorkspaceState | null {
+  try {
+    return normalizePersistedWorkspaceState(JSON.parse(raw) as unknown)
+  } catch {
+    return null
+  }
 }
 
 function isValidSource(s: unknown): s is WorkspaceSource {
@@ -253,54 +349,24 @@ function saveWorkspaceState(state: PersistedWorkspaceState, key: string = STORAG
   } catch {}
 }
 
+function tryMigrateLegacyWorkspaceToSession(legacyKey: string, sessionKey: string) {
+  if (typeof window === 'undefined') return
+  try {
+    if (localStorage.getItem(sessionKey)) return
+    const legacyRaw = localStorage.getItem(legacyKey)
+    if (!legacyRaw) return
+    const validated = parsePersistedWorkspaceStateJson(legacyRaw)
+    if (!validated) return
+    saveWorkspaceState(validated, sessionKey)
+    localStorage.removeItem(legacyKey)
+  } catch {}
+}
+
 function loadWorkspaceState(key: string = STORAGE_KEY): PersistedWorkspaceState | null {
   if (typeof window === 'undefined') return null
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as PersistedWorkspaceState
-    if (!Array.isArray(parsed.windows) || parsed.windows.length === 0) return null
-
-    const viewport = getViewportSize()
-    const validatedWindows = parsed.windows
-      .filter(
-        (w): w is WorkspaceWindowDefinition =>
-          !!w && typeof w.id === 'string' && typeof w.type === 'string' && !!w.source,
-      )
-      .map((w, i) => {
-        const b = w.layout?.bounds
-        const bounds = b
-          ? {
-              x: Math.max(0, Math.min(b.x, viewport.width - 100)),
-              y: Math.max(0, Math.min(b.y, viewport.height - 100)),
-              width: Math.min(b.width, viewport.width),
-              height: Math.min(b.height, viewport.height),
-            }
-          : createDefaultBounds(i, w.type)
-        return {
-          ...w,
-          layout: {
-            ...w.layout,
-            bounds,
-          },
-        }
-      })
-
-    if (validatedWindows.length === 0) return null
-
-    const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
-    const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
-
-    return {
-      windows: validatedWindows,
-      activeWindowId: parsed.activeWindowId,
-      activeTabMap: parsed.activeTabMap ?? {},
-      nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
-      pinnedTaskbarItems,
-    }
-  } catch {
-    return null
-  }
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  return parsePersistedWorkspaceStateJson(raw)
 }
 
 export function loadPinnedTaskbarItemsOnly(key: string = STORAGE_KEY): PinnedTaskbarItem[] {
@@ -676,14 +742,35 @@ export function getWorkspaceWindowTitle(
     : getSourceLabel(window.source)
 }
 
+function hydrateFocusFromPersisted(storageKey: string, persisted: PersistedWorkspaceState) {
+  const layoutByWindowId: Record<string, { zIndex?: number; minimized?: boolean }> = {}
+  for (const w of persisted.windows) {
+    if (w.layout && (w.layout.zIndex != null || w.layout.minimized != null)) {
+      layoutByWindowId[w.id] = {
+        ...(w.layout.zIndex != null && { zIndex: w.layout.zIndex }),
+        ...(w.layout.minimized != null && { minimized: w.layout.minimized }),
+      }
+    }
+  }
+  useWorkspaceFocusStore.getState().replaceFocusState(storageKey, {
+    activeWindowId: persisted.activeWindowId,
+    activeTabMap: persisted.activeTabMap ?? {},
+    layoutByWindowId: Object.keys(layoutByWindowId).length > 0 ? layoutByWindowId : undefined,
+  })
+}
+
 export function useWorkspace({
   initialDir = null,
   shareConfig = null,
+  workspaceSessionId,
+  initialLayoutSnapshot = null,
+  initialLayoutPresetId = null,
   serverTaskbarPins = [],
   serverTaskbarPinsReady = false,
   persistTaskbarPinsToServer,
-}: UseWorkspaceOptions = {}): UseWorkspaceResult {
-  const storageKey = shareConfig ? `${STORAGE_KEY}-share-${shareConfig.token}` : STORAGE_KEY
+}: UseWorkspaceOptions): UseWorkspaceResult {
+  const legacyBaseKey = workspaceStorageBaseKey(shareConfig?.token)
+  const storageKey = workspaceStorageSessionKey(legacyBaseKey, workspaceSessionId)
 
   const defaultSource: WorkspaceSource = useMemo(
     () =>
@@ -699,19 +786,25 @@ export function useWorkspace({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const persistedRef = useRef<PersistedWorkspaceState | null | undefined>(undefined)
   const windowsRef = useRef<WorkspaceWindowDefinition[]>([])
+  const layoutBaselineSnapshotRef = useRef<PersistedWorkspaceState | null>(null)
+  const [layoutBaselineSerialized, setLayoutBaselineSerialized] = useState<string | null>(null)
 
   function getPersistedState() {
     if (persistedRef.current === undefined) {
+      tryMigrateLegacyWorkspaceToSession(legacyBaseKey, storageKey)
       persistedRef.current = loadWorkspaceState(storageKey)
     }
     return persistedRef.current
   }
+
+  const [layoutBaselinePresetId, setLayoutBaselinePresetId] = useState<string | null>(null)
 
   const [windows, setWindows] = useState<WorkspaceWindowDefinition[]>(() => {
     // When opening with an explicit folder (e.g. "Open in Workspace"), use a fresh
     // single-window layout for that folder instead of restoring the saved layout.
     const hasExplicitFolder = initialDir != null && initialDir !== ''
     if (hasExplicitFolder) {
+      persistedRef.current = null
       useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
         activeWindowId: 'workspace-window-1',
         activeTabMap: {},
@@ -734,20 +827,7 @@ export function useWorkspace({
     }
     const persisted = getPersistedState()
     if (persisted) {
-      const layoutByWindowId: Record<string, { zIndex?: number; minimized?: boolean }> = {}
-      for (const w of persisted.windows) {
-        if (w.layout && (w.layout.zIndex != null || w.layout.minimized != null)) {
-          layoutByWindowId[w.id] = {
-            ...(w.layout.zIndex != null && { zIndex: w.layout.zIndex }),
-            ...(w.layout.minimized != null && { minimized: w.layout.minimized }),
-          }
-        }
-      }
-      useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
-        activeWindowId: persisted.activeWindowId,
-        activeTabMap: persisted.activeTabMap ?? {},
-        layoutByWindowId: Object.keys(layoutByWindowId).length > 0 ? layoutByWindowId : undefined,
-      })
+      hydrateFocusFromPersisted(storageKey, persisted)
       const maxId = persisted.windows.reduce((max, w) => {
         const match = w.id.match(/workspace-window-(\d+)/)
         return match ? Math.max(max, Number(match[1])) : max
@@ -757,6 +837,27 @@ export function useWorkspace({
       nextZIndexRef.current = maxZ + 1
       return persisted.windows
     }
+    if (initialLayoutSnapshot) {
+      const fromPreset = normalizePersistedWorkspaceState(initialLayoutSnapshot)
+      if (fromPreset && fromPreset.windows.length > 0) {
+        persistedRef.current = fromPreset
+        hydrateFocusFromPersisted(storageKey, fromPreset)
+        const maxId = fromPreset.windows.reduce((max, w) => {
+          const match = w.id.match(/workspace-window-(\d+)/)
+          return match ? Math.max(max, Number(match[1])) : max
+        }, 1)
+        const maxZ = fromPreset.windows.reduce((max, w) => Math.max(max, w.layout?.zIndex ?? 0), 1)
+        nextWindowIdRef.current = Math.max(fromPreset.nextWindowId, maxId + 1)
+        nextZIndexRef.current = maxZ + 1
+        if (initialLayoutPresetId) {
+          layoutBaselineSnapshotRef.current = JSON.parse(
+            JSON.stringify(fromPreset),
+          ) as PersistedWorkspaceState
+        }
+        return fromPreset.windows
+      }
+    }
+    persistedRef.current = null
     useWorkspaceFocusStore.getState().hydrateIfNeeded(storageKey, {
       activeWindowId: 'workspace-window-1',
       activeTabMap: {},
@@ -802,9 +903,23 @@ export function useWorkspace({
   const serverPinsHydratedRef = useRef(false)
   const pinsServerSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [pinnedTaskbarItems, setPinnedTaskbarItems] = useState<PinnedTaskbarItem[]>(() =>
-    loadPinnedTaskbarItemsOnly(storageKey),
-  )
+  const [pinnedTaskbarItems, setPinnedTaskbarItems] = useState<PinnedTaskbarItem[]>(() => {
+    if (initialDir != null && initialDir !== '') {
+      return loadPinnedTaskbarItemsOnly(storageKey)
+    }
+    const p = persistedRef.current
+    if (p) return p.pinnedTaskbarItems ?? []
+    return loadPinnedTaskbarItemsOnly(storageKey)
+  })
+
+  useLayoutEffect(() => {
+    if (initialLayoutPresetId && layoutBaselineSnapshotRef.current) {
+      setLayoutBaselinePresetId(initialLayoutPresetId)
+      setLayoutBaselineSerialized(
+        serializeWorkspacePersistedState(layoutBaselineSnapshotRef.current),
+      )
+    }
+  }, [initialLayoutPresetId])
 
   useEffect(() => {
     serverPinsHydratedRef.current = false
@@ -1743,6 +1858,73 @@ export function useWorkspace({
     setPinnedTaskbarItems((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
+  const collectLayoutSnapshot = useCallback((): PersistedWorkspaceState => {
+    const focus = useWorkspaceFocusStore.getState().getFocusState(storageKey)
+    const layoutOverlay = focus.layoutByWindowId ?? {}
+    const windowsToSave = windows.map((w) => ({
+      ...w,
+      layout: w.layout ? { ...w.layout, ...layoutOverlay[w.id] } : undefined,
+    }))
+    return {
+      windows: windowsToSave.filter((w) => w.id !== PLAYER_WINDOW_ID),
+      activeWindowId: focus.activeWindowId,
+      activeTabMap: focus.activeTabMap,
+      nextWindowId: nextWindowIdRef.current,
+      pinnedTaskbarItems,
+    }
+  }, [windows, pinnedTaskbarItems, storageKey])
+
+  const currentLayoutSnapshotSerialized = useMemo(
+    () => serializeWorkspacePersistedState(collectLayoutSnapshot()),
+    [collectLayoutSnapshot],
+  )
+
+  const isLayoutDirty =
+    layoutBaselineSerialized !== null &&
+    currentLayoutSnapshotSerialized !== layoutBaselineSerialized
+
+  const applyLayoutSnapshot = useCallback(
+    (snapshot: PersistedWorkspaceState, options?: { baselinePresetId?: string | null }) => {
+      const normalized = normalizePersistedWorkspaceState(snapshot)
+      if (!normalized) return
+      hydrateFocusFromPersisted(storageKey, normalized)
+      const maxId = normalized.windows.reduce((max, w) => {
+        const match = w.id.match(/workspace-window-(\d+)/)
+        return match ? Math.max(max, Number(match[1])) : max
+      }, 1)
+      const maxZ = normalized.windows.reduce((max, w) => Math.max(max, w.layout?.zIndex ?? 0), 1)
+      nextWindowIdRef.current = Math.max(normalized.nextWindowId, maxId + 1)
+      nextZIndexRef.current = maxZ + 1
+      persistedRef.current = normalized
+      setWindows(normalized.windows)
+      setPinnedTaskbarItems(normalized.pinnedTaskbarItems ?? [])
+      layoutBaselineSnapshotRef.current = JSON.parse(
+        JSON.stringify(normalized),
+      ) as PersistedWorkspaceState
+      setLayoutBaselineSerialized(serializeWorkspacePersistedState(normalized))
+      if (options && 'baselinePresetId' in options) {
+        setLayoutBaselinePresetId(options.baselinePresetId ?? null)
+      }
+    },
+    [storageKey],
+  )
+
+  const revertLayoutToBaseline = useCallback(() => {
+    const b = layoutBaselineSnapshotRef.current
+    if (!b) return
+    applyLayoutSnapshot(b)
+  }, [applyLayoutSnapshot])
+
+  const syncLayoutBaselineToCurrent = useCallback(() => {
+    const snap = collectLayoutSnapshot()
+    layoutBaselineSnapshotRef.current = JSON.parse(JSON.stringify(snap)) as PersistedWorkspaceState
+    setLayoutBaselineSerialized(serializeWorkspacePersistedState(snap))
+  }, [collectLayoutSnapshot])
+
+  const declareBaselinePresetId = useCallback((id: string | null) => {
+    setLayoutBaselinePresetId(id)
+  }, [])
+
   return useMemo(
     () => ({
       storageKey,
@@ -1773,6 +1955,13 @@ export function useWorkspace({
       pinnedTaskbarItems,
       addPinnedItem,
       removePinnedItem,
+      collectLayoutSnapshot,
+      applyLayoutSnapshot,
+      revertLayoutToBaseline,
+      syncLayoutBaselineToCurrent,
+      isLayoutDirty,
+      layoutBaselinePresetId,
+      declareBaselinePresetId,
     }),
     [
       storageKey,
@@ -1803,6 +1992,13 @@ export function useWorkspace({
       pinnedTaskbarItems,
       addPinnedItem,
       removePinnedItem,
+      collectLayoutSnapshot,
+      applyLayoutSnapshot,
+      revertLayoutToBaseline,
+      syncLayoutBaselineToCurrent,
+      isLayoutDirty,
+      layoutBaselinePresetId,
+      declareBaselinePresetId,
     ],
   )
 }

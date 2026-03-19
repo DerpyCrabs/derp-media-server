@@ -10,6 +10,7 @@ import { ShareWorkspaceContext, type ShareWorkspaceInfo } from '@/lib/share-work
 import { WorkspacePage } from './WorkspacePage'
 import { useMemo } from 'react'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
+import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 
 interface ShareRestrictions {
   allowDelete: boolean
@@ -32,6 +33,7 @@ interface ShareInfo {
   isKnowledgeBase: boolean
   adminViewMode: 'list' | 'grid'
   workspaceTaskbarPins?: PinnedTaskbarItem[]
+  workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
 
 interface ShareWorkspacePageProps {
@@ -119,6 +121,7 @@ function ShareWorkspaceContent({
       <WorkspacePage
         shareConfig={shareConfig}
         shareWorkspaceTaskbarPins={shareInfo.workspaceTaskbarPins}
+        shareWorkspaceLayoutPresets={shareInfo.workspaceLayoutPresets}
       />
     </ShareWorkspaceContext.Provider>
   )

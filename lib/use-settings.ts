@@ -5,6 +5,7 @@ import { useAdminEventsStream } from '@/lib/use-admin-events-stream'
 
 import type { AutoSaveSettings } from './types'
 import type { WorkspaceTaskbarPin } from './workspace-taskbar-pins'
+import type { WorkspaceLayoutPreset } from './workspace-layout-presets-types'
 import { VIRTUAL_FOLDERS } from './constants'
 
 type ViewMode = 'list' | 'grid'
@@ -16,6 +17,7 @@ export interface GlobalSettings {
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
   workspaceTaskbarPins?: WorkspaceTaskbarPin[]
+  workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
 
 export function useSettings(currentPath: string, enabled = true) {

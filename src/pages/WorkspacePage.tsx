@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { AudioPlayer } from '@/components/workspace/audio-player'
 import { Layout, type PinnedTaskbarItemView } from '@/components/workspace/layout'
+import { WorkspaceNamedLayoutMenu } from '@/components/workspace/workspace-named-layout-menu'
 import { SnapPreview } from '@/components/workspace/snap-preview'
 import { TilingLayoutPicker } from '@/components/workspace/tiling-layout-picker'
 import { WindowGroup, type Bounds } from '@/components/workspace/window'
@@ -15,21 +16,26 @@ import { useMediaPlayer } from '@/lib/use-media-player'
 import { useSettings, type GlobalSettings } from '@/lib/use-settings'
 import { useSnapZones } from '@/lib/use-snap-zones'
 import { MediaType } from '@/lib/types'
-import type {
-  PinnedTaskbarItem,
-  SnapZone,
-  WorkspaceSource,
-  WorkspaceWindowDefinition,
-} from '@/lib/use-workspace'
+import { useSearchParams } from '@/lib/router'
 import {
   useWorkspace,
   workspaceSourceToMediaContext,
   snapZoneToBoundsWithOccupied,
   getPlayerBoundsForAspectRatio,
+  type PinnedTaskbarItem,
+  type PersistedWorkspaceState,
+  type SnapZone,
+  type WorkspaceSource,
+  type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
 import { useWorkspaceSnapLayoutVisibility } from '@/lib/use-workspace-snap-layout-visibility'
+import { useWorkspaceSessionUrl } from '@/lib/use-workspace-session-url'
 import { queryKeys } from '@/lib/query-keys'
+import {
+  workspaceLayoutScopeFromShareToken,
+  type WorkspaceLayoutPreset,
+} from '@/lib/workspace-layout-presets'
 
 interface LayoutPickerState {
   windowId: string
@@ -63,13 +69,21 @@ interface WorkspacePageProps {
   shareConfig?: { token: string; sharePath: string } | null
   /** From share `/info` when in share workspace; avoids a second pins fetch. */
   shareWorkspaceTaskbarPins?: PinnedTaskbarItem[]
+  /** From share `/info`; server-backed named layouts. */
+  shareWorkspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
 
 export function WorkspacePage({
   shareConfig = null,
   shareWorkspaceTaskbarPins,
+  shareWorkspaceLayoutPresets,
 }: WorkspacePageProps) {
   const queryClient = useQueryClient()
+  const workspaceSessionId = useWorkspaceSessionUrl()
+  const searchParams = useSearchParams()
+  const initialDir = searchParams.get('dir')
+  const presetParam = searchParams.get('preset')
+  const layoutScope = workspaceLayoutScopeFromShareToken(shareConfig?.token ?? null)
 
   const { data: globalSettings, isSuccess: adminSettingsReady } = useQuery({
     queryKey: queryKeys.settings(),
@@ -77,6 +91,22 @@ export function WorkspacePage({
     staleTime: Infinity,
     enabled: !shareConfig,
   })
+
+  const serverLayoutPresets = shareConfig
+    ? (shareWorkspaceLayoutPresets ?? [])
+    : (globalSettings?.workspaceLayoutPresets ?? [])
+
+  const initialLayoutSnapshot = useMemo((): PersistedWorkspaceState | null => {
+    if (!presetParam) return null
+    const preset = serverLayoutPresets.find((p) => p.id === presetParam && p.scope === layoutScope)
+    if (!preset) return null
+    return preset.snapshot
+  }, [presetParam, layoutScope, serverLayoutPresets])
+
+  const initialLayoutPresetId = useMemo(
+    () => (initialLayoutSnapshot && presetParam ? presetParam : null),
+    [initialLayoutSnapshot, presetParam],
+  )
 
   const persistPinsMutation = useMutation({
     mutationFn: async (vars: { items: PinnedTaskbarItem[]; shareToken?: string }) => {
@@ -135,9 +165,18 @@ export function WorkspacePage({
     pinnedTaskbarItems,
     addPinnedItem,
     removePinnedItem,
+    collectLayoutSnapshot,
+    applyLayoutSnapshot,
+    revertLayoutToBaseline,
+    syncLayoutBaselineToCurrent,
+    isLayoutDirty,
+    layoutBaselinePresetId,
+    declareBaselinePresetId,
   } = useWorkspace({
-    initialDir:
-      typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('dir') : null,
+    initialDir,
+    workspaceSessionId,
+    initialLayoutSnapshot,
+    initialLayoutPresetId,
     shareConfig,
     serverTaskbarPins,
     serverTaskbarPinsReady,
@@ -865,6 +904,18 @@ export function WorkspacePage({
       onNewBrowser={() => openBrowserWindow()}
       taskbarRightSlot={
         <>
+          {isLayoutDirty ? (
+            <span
+              className='mr-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-400'
+              title={
+                layoutBaselinePresetId
+                  ? 'Layout changed since this saved preset was applied'
+                  : 'Layout changed since the last baseline'
+              }
+            >
+              Modified
+            </span>
+          ) : null}
           <AudioPlayer
             session={playbackSession}
             mediaContext={playbackContext}
@@ -872,6 +923,19 @@ export function WorkspacePage({
               playbackSession.setAudioOnly(false)
               openPlayerWindow()
             }}
+          />
+          <WorkspaceNamedLayoutMenu
+            scope={layoutScope}
+            shareToken={shareConfig?.token ?? null}
+            presets={serverLayoutPresets}
+            presetsReady={shareConfig ? true : adminSettingsReady}
+            collectLayoutSnapshot={collectLayoutSnapshot}
+            applyLayoutSnapshot={applyLayoutSnapshot}
+            syncLayoutBaselineToCurrent={syncLayoutBaselineToCurrent}
+            revertLayoutToBaseline={revertLayoutToBaseline}
+            declareBaselinePresetId={declareBaselinePresetId}
+            isLayoutDirty={isLayoutDirty}
+            layoutBaselinePresetId={layoutBaselinePresetId}
           />
           <ThemeSwitcher variant='taskbar' />
         </>

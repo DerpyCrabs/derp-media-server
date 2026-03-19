@@ -17,7 +17,12 @@ const BATCHES = [
   },
   {
     id: '3',
-    tests: ['workspace-viewers', 'workspace-cross-dnd', 'workspace-taskbar-pins'],
+    tests: [
+      'workspace-viewers',
+      'workspace-cross-dnd',
+      'workspace-taskbar-pins',
+      'workspace-layout-sessions',
+    ],
   },
   {
     id: '4',

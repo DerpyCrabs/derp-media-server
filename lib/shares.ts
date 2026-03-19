@@ -14,6 +14,7 @@ import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { Mutex } from '@/lib/mutex'
 import type { WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
+import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets-types'
 
 export interface ShareRestrictions {
   allowDelete?: boolean
@@ -33,6 +34,8 @@ export interface ShareLink {
   usedBytes?: number
   /** Pinned taskbar items for /share/:token/workspace (paths relative to media root). */
   workspaceTaskbarPins?: WorkspaceTaskbarPin[]
+  /** Saved workspace layouts for this share (server-backed). */
+  workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
 
 const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024 // 2 GB
@@ -229,6 +232,23 @@ export async function updateShareWorkspaceTaskbarPins(
     const index = data.shares.findIndex((s) => s.token === token)
     if (index === -1) return false
     data.shares[index] = { ...data.shares[index], workspaceTaskbarPins: pins }
+    await writeSharesData(data)
+    return true
+  } finally {
+    release()
+  }
+}
+
+export async function updateShareWorkspaceLayoutPresets(
+  token: string,
+  presets: WorkspaceLayoutPreset[],
+): Promise<boolean> {
+  const release = await sharesMutex.acquire()
+  try {
+    const data = await readSharesRaw()
+    const index = data.shares.findIndex((s) => s.token === token)
+    if (index === -1) return false
+    data.shares[index] = { ...data.shares[index], workspaceLayoutPresets: presets }
     await writeSharesData(data)
     return true
   } finally {

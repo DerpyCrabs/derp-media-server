@@ -8,11 +8,16 @@ import {
   createShareSessionValue,
   isShareAccessAuthorized,
   updateShareWorkspaceTaskbarPins,
+  updateShareWorkspaceLayoutPresets,
 } from '@/lib/shares'
 import {
   filterShareWorkspaceTaskbarPins,
   parseWorkspaceTaskbarPins,
 } from '@/lib/workspace-taskbar-pins'
+import {
+  parseWorkspaceLayoutPresetsList,
+  sanitizeShareWorkspaceLayoutPresets,
+} from '@/lib/workspace-layout-presets-schema'
 import {
   listDirectory,
   createDirectory,
@@ -169,6 +174,15 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
           )
         : undefined
 
+    const workspaceLayoutPresets =
+      authorized && share.isDirectory
+        ? sanitizeShareWorkspaceLayoutPresets(
+            share.path,
+            token,
+            parseWorkspaceLayoutPresetsList(share.workspaceLayoutPresets),
+          )
+        : undefined
+
     return reply.send({
       name,
       ...(authorized && { path: share.path }),
@@ -183,6 +197,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       isKnowledgeBase,
       adminViewMode,
       ...(workspaceTaskbarPins !== undefined && { workspaceTaskbarPins }),
+      ...(workspaceLayoutPresets !== undefined && { workspaceLayoutPresets }),
     })
   })
 
@@ -235,6 +250,26 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     )
     await updateShareWorkspaceTaskbarPins(token, parsed)
     return reply.send({ success: true, workspaceTaskbarPins: parsed })
+  })
+
+  app.post('/api/share/:token/workspaceLayoutPresets', async (request, reply) => {
+    const { token } = request.params as { token: string }
+    const body = request.body as { presets?: unknown }
+
+    const cookies = request.cookies as Record<string, string | undefined>
+    const { share } = await validateShareAccess(cookies, token)
+
+    if (!share.isDirectory) {
+      return reply.code(400).send({ error: 'Share is not a directory' })
+    }
+
+    const parsed = sanitizeShareWorkspaceLayoutPresets(
+      share.path,
+      token,
+      parseWorkspaceLayoutPresetsList(body.presets),
+    )
+    await updateShareWorkspaceLayoutPresets(token, parsed)
+    return reply.send({ success: true, workspaceLayoutPresets: parsed })
   })
 
   app.get('/api/share/:token/files', async (request, reply) => {
