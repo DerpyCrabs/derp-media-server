@@ -1,4 +1,13 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Rnd } from 'react-rnd'
 import { Maximize2, Minimize2, Minus, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -369,11 +378,14 @@ function TabStrip({
   onDropFile,
 }: TabStripProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const lastScrollLeftRef = useRef(0)
   const [overflow, setOverflow] = useState({ left: false, right: false })
   const [fileDragOver, setFileDragOver] = useState(false)
   const [dropSlotIndex, setDropSlotIndex] = useState<number | null>(null)
   const dropSlotIndexRef = useRef<number | null>(null)
   dropSlotIndexRef.current = dropSlotIndex
+
+  const tabsKey = tabs.map((t) => t.id).join('|')
 
   const checkOverflow = useCallback(() => {
     const el = scrollRef.current
@@ -385,17 +397,62 @@ function TabStrip({
   }, [])
 
   useEffect(() => {
-    checkOverflow()
     const el = scrollRef.current
     if (!el) return
-    el.addEventListener('scroll', checkOverflow, { passive: true })
+    const onScroll = () => {
+      lastScrollLeftRef.current = el.scrollLeft
+      checkOverflow()
+    }
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
     const ro = new ResizeObserver(checkOverflow)
     ro.observe(el)
     return () => {
-      el.removeEventListener('scroll', checkOverflow)
+      el.removeEventListener('scroll', onScroll)
       ro.disconnect()
     }
   }, [checkOverflow, tabs.length])
+
+  const stripScrollStateRef = useRef<{ tabsKey: string; visibleTabId: string }>({
+    tabsKey: '',
+    visibleTabId: '',
+  })
+
+  useLayoutEffect(() => {
+    const container = scrollRef.current
+    const prev = stripScrollStateRef.current
+    const tabsChanged = prev.tabsKey !== tabsKey
+    const visibleChanged = prev.visibleTabId !== visibleTabId
+
+    if (container) {
+      if (tabsChanged && !visibleChanged) {
+        // Removing tabs can reset or clamp scrollLeft; keep the last user scroll as much as allowed.
+        const max = Math.max(0, container.scrollWidth - container.clientWidth)
+        container.scrollLeft = Math.max(0, Math.min(lastScrollLeftRef.current, max))
+        lastScrollLeftRef.current = container.scrollLeft
+      } else if (visibleChanged) {
+        const tabEl = container.querySelector(
+          `[data-workspace-tab-id="${CSS.escape(visibleTabId)}"]`,
+        )
+        if (tabEl instanceof HTMLElement) {
+          const pad = 16
+          const cRect = container.getBoundingClientRect()
+          const tRect = tabEl.getBoundingClientRect()
+          const clipLeft = cRect.left + pad - tRect.left
+          const clipRight = tRect.right - (cRect.right - pad)
+          if (clipLeft > 0) {
+            container.scrollLeft -= clipLeft
+          } else if (clipRight > 0) {
+            container.scrollLeft += clipRight
+          }
+          lastScrollLeftRef.current = container.scrollLeft
+        }
+      }
+    }
+
+    stripScrollStateRef.current = { tabsKey, visibleTabId }
+    requestAnimationFrame(() => checkOverflow())
+  }, [tabsKey, visibleTabId, checkOverflow])
 
   const scrollBy = useCallback((delta: number) => {
     scrollRef.current?.scrollBy({ left: delta, behavior: 'smooth' })
@@ -504,6 +561,7 @@ function TabStrip({
             />
             <div
               data-no-window-drag
+              data-workspace-tab-id={tab.id}
               className={cn(
                 'flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2',
                 tabs.find((t) => t.id === visibleTabId)?.id === tab.id

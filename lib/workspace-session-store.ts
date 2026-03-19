@@ -811,20 +811,36 @@ export const useWorkspaceSessionStore = create<WorkspaceSessionStore>((set, get)
 
       if (groupId) {
         const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
-        const nextTabId = remainingInGroup[0]?.id
-        useWorkspaceFocusStore
-          .getState()
-          .setActiveTabMap(key, (prev) =>
-            nextTabId && prev[groupId] === windowId ? { ...prev, [groupId]: nextTabId } : prev,
-          )
+        const remainingIds = new Set(remainingInGroup.map((w) => w.id))
+
+        useWorkspaceFocusStore.getState().pruneTabFromGroupMru(key, groupId, windowId)
+
+        const focusAfterPrune = useWorkspaceFocusStore.getState().getFocusState(key)
+        const mru = focusAfterPrune.tabMruByGroup?.[groupId] ?? []
+        if (focusAfterPrune.activeTabMap[groupId] === windowId) {
+          const nextTabId = mru.find((id) => remainingIds.has(id)) ?? remainingInGroup[0]?.id
+          if (nextTabId) {
+            useWorkspaceFocusStore.getState().setActiveTab(key, groupId, nextTabId)
+          } else {
+            useWorkspaceFocusStore.getState().setActiveTabMap(key, (prev) => {
+              const { [groupId]: _, ...rest } = prev
+              return rest
+            })
+          }
+        }
       }
 
-      const currentActive = useWorkspaceFocusStore.getState().getFocusState(key).activeWindowId
+      const focus = useWorkspaceFocusStore.getState().getFocusState(key)
+      const currentActive = focus.activeWindowId
       if (currentActive === windowId) {
         let nextActive: string | null
         if (groupId) {
           const remainingInGroup = nextWindows.filter((w) => (w.tabGroupId ?? w.id) === groupId)
-          nextActive = remainingInGroup[0]?.id ?? nextWindows.at(-1)?.id ?? null
+          const remainingIds = new Set(remainingInGroup.map((w) => w.id))
+          const mapped = focus.activeTabMap[groupId]
+          const nextFromMap =
+            mapped && remainingIds.has(mapped) ? mapped : (remainingInGroup[0]?.id ?? null)
+          nextActive = nextFromMap ?? nextWindows.at(-1)?.id ?? null
         } else {
           nextActive = nextWindows.at(-1)?.id ?? null
         }
@@ -1016,10 +1032,8 @@ export const useWorkspaceSessionStore = create<WorkspaceSessionStore>((set, get)
       }
     })
     if (mergedGroupId != null) {
-      useWorkspaceFocusStore.getState().setActiveTabMap(key, (prev) => ({
-        ...prev,
-        [mergedGroupId!]: windowId,
-      }))
+      useWorkspaceFocusStore.getState().setActiveTab(key, mergedGroupId, windowId)
+      useWorkspaceFocusStore.getState().setActiveWindowId(key, windowId)
     }
   },
 
@@ -1093,16 +1107,19 @@ export const useWorkspaceSessionStore = create<WorkspaceSessionStore>((set, get)
     })
 
     if (tabMapGroupId != null) {
-      useWorkspaceFocusStore.getState().setActiveTabMap(key, (prev) => {
-        if (tabMapRemaining.length === 0) {
+      useWorkspaceFocusStore.getState().pruneTabFromGroupMru(key, tabMapGroupId, windowId)
+      const focusAfter = useWorkspaceFocusStore.getState().getFocusState(key)
+      if (tabMapRemaining.length === 0) {
+        useWorkspaceFocusStore.getState().setActiveTabMap(key, (prev) => {
           const { [tabMapGroupId!]: _, ...rest } = prev
           return rest
-        }
-        if (prev[tabMapGroupId!] === windowId) {
-          return { ...prev, [tabMapGroupId!]: tabMapRemaining[0].id }
-        }
-        return prev
-      })
+        })
+      } else if (focusAfter.activeTabMap[tabMapGroupId!] === windowId) {
+        const mru = focusAfter.tabMruByGroup?.[tabMapGroupId!] ?? []
+        const remainingIds = new Set(tabMapRemaining.map((w) => w.id))
+        const nextId = mru.find((id) => remainingIds.has(id)) ?? tabMapRemaining[0].id
+        useWorkspaceFocusStore.getState().setActiveTab(key, tabMapGroupId, nextId)
+      }
     }
     useWorkspaceFocusStore.getState().setActiveWindowId(key, windowId)
   },
@@ -1163,7 +1180,7 @@ export const useWorkspaceSessionStore = create<WorkspaceSessionStore>((set, get)
         ? normalizedWindowsToArray(sess).find((w) => w.id === sourceWindowId)
         : undefined
       const gid = sw?.tabGroupId || sourceWindowId
-      useWorkspaceFocusStore.getState().setActiveTabMap(key, (prev) => ({ ...prev, [gid]: newId }))
+      useWorkspaceFocusStore.getState().setActiveTab(key, gid, newId)
       useWorkspaceFocusStore.getState().setActiveWindowId(key, newId)
     }
     return newId
