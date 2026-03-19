@@ -1,4 +1,4 @@
-import { type ReactNode, useRef } from 'react'
+import { type ReactNode, type RefObject, useRef } from 'react'
 import { FolderOpen, PinOff, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,14 +31,19 @@ export interface PinnedTaskbarItemView {
   dragData?: FileDragData
 }
 
+const EMPTY_TASKBAR_ITEMS: WorkspaceTaskbarItem[] = []
+const EMPTY_PINNED_VIEWS: PinnedTaskbarItemView[] = []
+
 interface WorkspaceLayoutProps {
-  items: WorkspaceTaskbarItem[]
+  items?: WorkspaceTaskbarItem[]
   pinnedItems?: PinnedTaskbarItemView[]
   onNewBrowser: () => void
   children: ReactNode
   emptyState?: ReactNode
   className?: string
   taskbarRightSlot?: ReactNode
+  windowTaskbar?: (handledByMouseDownRef: RefObject<boolean>) => ReactNode
+  hasWorkspaceWindows?: boolean
 }
 
 function PinnedTaskbarIcon({
@@ -91,7 +96,7 @@ function PinnedTaskbarIcon({
   )
 }
 
-function TaskbarButton({
+export function WorkspaceTaskbarWindowButton({
   id,
   label,
   icon,
@@ -114,7 +119,7 @@ function TaskbarButton({
   closeIcon: typeof X
   active?: boolean
   dragData?: FileDragData
-  handledByMouseDownRef: React.MutableRefObject<boolean>
+  handledByMouseDownRef: RefObject<boolean>
 }) {
   return (
     <div
@@ -167,16 +172,21 @@ function TaskbarButton({
 }
 
 export function Layout({
-  items,
-  pinnedItems = [],
+  items = EMPTY_TASKBAR_ITEMS,
+  pinnedItems = EMPTY_PINNED_VIEWS,
   onNewBrowser,
   children,
   emptyState,
   className,
   taskbarRightSlot,
+  windowTaskbar,
+  hasWorkspaceWindows,
 }: WorkspaceLayoutProps) {
   const handledByMouseDownRef = useRef(false)
-  const hasAnyTaskbarItems = items.length > 0 || pinnedItems.length > 0
+  const showWorkspace = hasWorkspaceWindows ?? items.length > 0
+  const hasWindowTaskbarButtons =
+    windowTaskbar != null ? (hasWorkspaceWindows ?? false) : items.length > 0
+  const hasAnyTaskbarItems = pinnedItems.length > 0 || hasWindowTaskbarButtons
 
   return (
     <div
@@ -186,7 +196,7 @@ export function Layout({
       )}
     >
       <div className='relative min-h-0 flex-1 overflow-hidden'>
-        {items.length > 0 ? children : emptyState}
+        {showWorkspace ? children : emptyState}
       </div>
 
       <div className='relative bg-background px-3' style={{ zIndex: 999999 }}>
@@ -219,26 +229,28 @@ export function Layout({
                     ))}
                   </div>
                 ) : null}
-                {pinnedItems.length > 0 && items.length > 0 ? (
+                {pinnedItems.length > 0 && hasWindowTaskbarButtons ? (
                   <div className='w-2 shrink-0' aria-hidden />
                 ) : null}
                 <div className='flex min-w-0 flex-1 items-center gap-0 overflow-x-auto'>
-                  {items.map((item) => (
-                    <TaskbarButton
-                      key={item.id}
-                      id={item.id}
-                      label={item.label}
-                      icon={item.icon}
-                      tooltip={item.tooltip ?? item.label}
-                      onSelect={item.onSelect}
-                      onClose={item.onClose}
-                      closeLabel={`Close ${item.label}`}
-                      closeIcon={X}
-                      active={item.active}
-                      dragData={item.dragData}
-                      handledByMouseDownRef={handledByMouseDownRef}
-                    />
-                  ))}
+                  {windowTaskbar
+                    ? windowTaskbar(handledByMouseDownRef)
+                    : items.map((item) => (
+                        <WorkspaceTaskbarWindowButton
+                          key={item.id}
+                          id={item.id}
+                          label={item.label}
+                          icon={item.icon}
+                          tooltip={item.tooltip ?? item.label}
+                          onSelect={item.onSelect}
+                          onClose={item.onClose}
+                          closeLabel={`Close ${item.label}`}
+                          closeIcon={X}
+                          active={item.active}
+                          dragData={item.dragData}
+                          handledByMouseDownRef={handledByMouseDownRef}
+                        />
+                      ))}
                 </div>
               </>
             ) : (

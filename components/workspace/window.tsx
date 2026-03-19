@@ -24,6 +24,7 @@ import {
   workspaceSourceToMediaContext,
 } from '@/lib/use-workspace'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
+import { selectGroupTabs, useWorkspaceSessionStore } from '@/lib/workspace-session-store'
 import { cn } from '@/lib/utils'
 import { hasFileDragData, getFileDragData, type FileDragData } from '@/lib/file-drag-data'
 
@@ -31,7 +32,7 @@ export type Bounds = { x: number; y: number; width: number; height: number }
 
 export interface WindowGroupProps {
   storageKey: string
-  tabs: WorkspaceWindowDefinition[]
+  groupId: string
   editableFolders: string[]
   playbackSession: NavigationSession
   onFocus: (windowId: string) => void
@@ -660,7 +661,7 @@ function SingleTabHeader({
 
 function WindowGroupInner({
   storageKey,
-  tabs,
+  groupId: groupIdProp,
   editableFolders,
   playbackSession,
   onFocus,
@@ -687,9 +688,12 @@ function WindowGroupInner({
   overrideBounds,
   onPlayerVideoMetadataLoaded,
 }: WindowGroupProps) {
+  const tabs = useWorkspaceSessionStore(
+    useShallow((s) => selectGroupTabs(s.sessions, storageKey, groupIdProp)),
+  )
   const leader = tabs[0] as WorkspaceWindowDefinition | undefined
   const leaderId = leader?.id ?? ''
-  const groupId = leader?.tabGroupId ?? leaderId
+  const groupId = groupIdProp
 
   const isActive = useWorkspaceFocusStore(
     useCallback(
