@@ -1,4 +1,5 @@
 import { AudioPlayer } from './AudioPlayer'
+import { ImageViewerDialog } from './ImageViewerDialog'
 import { TextViewerDialog } from './TextViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
 
@@ -10,6 +11,7 @@ export function MainMediaPlayers(props: Props) {
   return (
     <>
       <TextViewerDialog shareContext={props.shareContext} />
+      <ImageViewerDialog shareContext={props.shareContext} />
       <VideoPlayer shareContext={props.shareContext} />
       <AudioPlayer shareContext={props.shareContext} />
     </>
