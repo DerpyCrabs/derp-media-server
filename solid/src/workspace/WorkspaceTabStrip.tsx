@@ -59,7 +59,8 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     requestAnimationFrame(checkOverflow)
   }
 
-  const handleTabMouseDown = (tabId: string) => (e: MouseEvent) => {
+  const handleTabPointerDown = (tabId: string) => (e: PointerEvent) => {
+    if (e.button !== 0) return
     e.stopPropagation()
     props.onSelectTab(props.groupId, tabId)
     props.onFocusWindow(tabId)
@@ -70,7 +71,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     const startX = e.clientX
     const threshold = 40
 
-    const onMouseMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
       const dy = ev.clientY - startY
       const dx = Math.abs(ev.clientX - startX)
       if (dy > threshold || dx > threshold) {
@@ -78,13 +79,15 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
         cleanup()
       }
     }
-    const onMouseUp = () => cleanup()
+    const onUp = () => cleanup()
     const cleanup = () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onUp)
     }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onUp)
   }
 
   return (
@@ -119,7 +122,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                 class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2 ${
                   tab.id === props.visibleTabId ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
                 }`}
-                onMouseDown={handleTabMouseDown(tab.id)}
+                onPointerDown={handleTabPointerDown(tab.id)}
               >
                 <div
                   class={`flex h-4 w-4 shrink-0 items-center justify-center ${
@@ -139,6 +142,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                   type='button'
                   data-no-window-drag
                   class='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
+                  onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation()

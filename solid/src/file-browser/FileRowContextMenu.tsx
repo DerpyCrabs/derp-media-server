@@ -1,5 +1,6 @@
 import type { FileItem } from '@/lib/types'
 import { isPathEditable } from '@/lib/utils'
+import ExternalLink from 'lucide-solid/icons/external-link'
 import Pin from 'lucide-solid/icons/pin'
 import type { Accessor } from 'solid-js'
 import { createEffect, onCleanup, Show } from 'solid-js'
@@ -13,6 +14,7 @@ type FileRowContextMenuProps = {
   onDownload: (file: FileItem) => void
   onDelete: (file: FileItem) => void
   onAddToTaskbar?: (file: FileItem) => void
+  onOpenInNewTab?: (file: FileItem) => void
 }
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
@@ -43,6 +45,21 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             style={{ left: `${ctx.x}px`, top: `${ctx.y}px` }}
             role='menu'
           >
+            <Show when={props.onOpenInNewTab && !ctx.file.isVirtual}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onOpenInNewTab?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                <ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />
+                Open in new tab
+              </button>
+            </Show>
             <Show when={props.onAddToTaskbar && !ctx.file.isVirtual}>
               <button
                 type='button'
