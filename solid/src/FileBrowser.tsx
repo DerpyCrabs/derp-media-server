@@ -90,7 +90,6 @@ export function FileBrowser() {
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
 
   const fileRowMenu = useFileRowContextMenu({
-    isEditable,
     onDeleteRequest: (f) => setDeleteTarget(f),
   })
 
@@ -146,6 +145,15 @@ export function FileBrowser() {
 
   function handleBreadcrumbNavigate(path: string) {
     navigateToFolder(path || null)
+  }
+
+  function handleContextDownload(file: FileItem) {
+    const link = document.createElement('a')
+    link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`
+    link.download = file.isDirectory ? `${file.name}.zip` : file.name
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   function handleFileClick(file: FileItem) {
@@ -230,6 +238,7 @@ export function FileBrowser() {
                                 'ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col',
                               )}
                               onClick={() => handleFileClick(file)}
+                              onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
                               onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
                               role='button'
                               tabindex={0}
@@ -371,7 +380,9 @@ export function FileBrowser() {
         />
         <FileRowContextMenu
           menu={fileRowMenu.menu}
+          editableFolders={editableFolders}
           onDismiss={fileRowMenu.dismiss}
+          onDownload={handleContextDownload}
           onDelete={fileRowMenu.confirmDelete}
         />
         <DeleteFileDialog
