@@ -12,7 +12,7 @@ const BATCHES = [
   { id: '2', tests: ['navigation', 'upload'] },
   { id: '3', tests: ['download'] },
   { id: '4', tests: ['url-state', 'login'] },
-  { id: '5', tests: ['audio-player'] },
+  { id: '5', tests: ['audio-player', 'video-player'] },
   { id: '6', tests: ['image-viewer', 'text-editor'] },
 ]
 
