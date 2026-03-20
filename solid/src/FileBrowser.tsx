@@ -3,6 +3,7 @@ import type { GlobalSettings } from '@/lib/use-settings'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
+import type { ShareLink } from '@/lib/shares'
 import { MediaType, type FileItem } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
@@ -14,6 +15,7 @@ import { useBrowserHistory } from './browser-history'
 import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { DeleteFileDialog } from './file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from './file-browser/FileRowContextMenu'
+import { ShareDialog } from './file-browser/ShareDialog'
 import { navigateToFolder } from './file-browser/navigate-folder'
 import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
 import { UploadMenu } from './file-browser/UploadMenu'
@@ -47,6 +49,28 @@ export function FileBrowser() {
   const isEditable = createMemo(
     () => !isVirtualFolder() && isPathEditable(currentPath(), editableFolders()),
   )
+
+  const sharesQuery = useQuery(() => ({
+    queryKey: queryKeys.shares(),
+    queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
+  }))
+
+  const shares = createMemo(() => sharesQuery.data?.shares ?? [])
+
+  const sharedPathSet = createMemo(() => {
+    const set = new Set<string>()
+    for (const s of shares()) {
+      set.add(s.path.replace(/\\/g, '/'))
+    }
+    return set
+  })
+
+  const shareLinkBase = createMemo(() => {
+    const d = authQuery.data?.shareLinkDomain
+    if (typeof d === 'string' && d.trim()) return d.trim().replace(/\/$/, '')
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  })
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentPath()),
@@ -88,6 +112,7 @@ export function FileBrowser() {
 
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
+  const [shareTarget, setShareTarget] = createSignal<FileItem | null>(null)
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
@@ -101,6 +126,49 @@ export function FileBrowser() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   }))
+
+  const revokeShareMutation = useMutation(() => ({
+    mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+    },
+  }))
+
+  function normPath(p: string) {
+    return p.replace(/\\/g, '/')
+  }
+
+  const shareDialogExistingShares = createMemo(() => {
+    const t = shareTarget()
+    if (!t) return [] as ShareLink[]
+    const np = normPath(t.path)
+    return shares().filter((s) => normPath(s.path) === np)
+  })
+
+  const shareDialogIsEditable = createMemo(() => {
+    const t = shareTarget()
+    if (!t) return false
+    return isPathEditable(t.path, editableFolders())
+  })
+
+  function handleContextShare(file: FileItem) {
+    setShareTarget(file)
+  }
+
+  async function handleCopyShareLink(file: FileItem) {
+    if (!file.shareToken) return
+    const url = `${shareLinkBase()}/share/${file.shareToken}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function getPathHasShare(file: FileItem) {
+    return sharedPathSet().has(normPath(file.path))
+  }
 
   async function uploadFilesToServer(files: File[], targetDir: string) {
     if (files.length === 0) return
@@ -384,14 +452,34 @@ export function FileBrowser() {
           onDismiss={fileRowMenu.dismiss}
           onDownload={handleContextDownload}
           onDelete={fileRowMenu.confirmDelete}
+          onShare={handleContextShare}
+          onCopyShareLink={handleCopyShareLink}
+          getPathHasShare={getPathHasShare}
+        />
+        <ShareDialog
+          isOpen={!!shareTarget()}
+          onClose={() => setShareTarget(null)}
+          filePath={shareTarget()?.path ?? ''}
+          fileName={shareTarget()?.name ?? ''}
+          isDirectory={shareTarget()?.isDirectory ?? false}
+          isEditable={shareDialogIsEditable()}
+          existingShares={shareDialogExistingShares()}
+          shareLinkBase={shareLinkBase()}
         />
         <DeleteFileDialog
           item={deleteTarget}
-          isPending={deleteMutation.isPending}
+          isPending={deleteMutation.isPending || revokeShareMutation.isPending}
           onDismiss={() => setDeleteTarget(null)}
           onConfirm={() => {
             const it = deleteTarget()
-            if (it) void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+            if (!it) return
+            if (it.shareToken) {
+              void revokeShareMutation
+                .mutateAsync({ token: it.shareToken })
+                .then(() => setDeleteTarget(null))
+            } else {
+              void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+            }
           }}
         />
       </div>
