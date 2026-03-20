@@ -25,6 +25,7 @@ The app can ship a **Solid** client beside React. The Fastify server chooses the
 ### Tests (Solid)
 
 - **Single config:** `bun run test:solid` — Playwright uses [`playwright.solid.config.ts`](playwright.solid.config.ts), `webServer.env.UI_FRAMEWORK=solid`, specs under `tests/e2e-solid/`. Default URL port **5974** (React tests use **5973**) so both can run locally without clashing.
+- **UI mode (debug):** `bun run test:solid:ui` — same config as `test:solid` with Playwright’s `--ui` runner.
 - **Batches:** `bun run test:batch:solid` runs [`tests/run-batches-solid.ts`](tests/run-batches-solid.ts) (parallel batches + `BATCH_ID`, same fixture pattern as `test:batch`).
 - **Adding specs:** Add `tests/e2e-solid/<name>.spec.ts` and extend `BATCHES` in `run-batches-solid.ts` when you want a file in CI batch runs. Reuse [`tests/fixtures/setup.ts`](tests/fixtures/setup.ts) / teardown via the Solid Playwright config.
 - After Solid UI changes, run `bun run test:solid` or `test:batch:solid`; after mixed changes, still run `bun run test:batch` for the React suite.

@@ -18,6 +18,7 @@ const BATCHES = [
       'workspace-layout-chrome',
       'workspace-controls',
       'workspace-taskbar-pins',
+      'workspace-cross-dnd',
       'workspace-viewers',
     ],
   },

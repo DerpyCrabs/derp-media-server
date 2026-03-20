@@ -1,3 +1,4 @@
+import type { FileDragData } from '@/lib/file-drag-data'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { createDefaultBounds } from '@/lib/workspace-geometry'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
@@ -5,7 +6,7 @@ import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Minus from 'lucide-solid/icons/minus'
 import Plus from 'lucide-solid/icons/plus'
 import X from 'lucide-solid/icons/x'
-import { type Accessor, Show, createMemo } from 'solid-js'
+import { type Accessor, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import type { JSX } from 'solid-js'
 import {
   type ResizeHandleKey,
@@ -46,6 +47,7 @@ export type WorkspaceWindowChromeProps = {
   onCloseTab?: (tabId: string) => void
   onDetachTab?: (tabId: string, clientX: number, clientY: number) => void
   onAddTab?: () => void
+  onDropFileToTabBar?: (data: FileDragData, insertIndex?: number) => void
   children: JSX.Element
 }
 
@@ -58,6 +60,18 @@ function handleEnabled(
 }
 
 export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
+  const [windowGroupEl, setWindowGroupEl] = createSignal<HTMLDivElement | null>(null)
+
+  createEffect(() => {
+    const el = windowGroupEl()
+    if (!el) return
+    const onMouseDownCapture = () => {
+      props.onFocusWindow(props.visibleTabId())
+    }
+    el.addEventListener('mousedown', onMouseDownCapture, true)
+    onCleanup(() => el.removeEventListener('mousedown', onMouseDownCapture, true))
+  })
+
   const win = createMemo(() =>
     props.workspace()?.windows.find((w) => w.id === props.leaderWindowId),
   )
@@ -207,14 +221,11 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       }}
     >
       <div
+        ref={(el) => setWindowGroupEl(el ?? null)}
         data-window-group={props.groupId}
         class={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-card shadow-md ${
           props.isActive ? 'border-border shadow-black/20' : 'border-border'
         }`}
-        onMouseDown={(e) => {
-          if ((e.target as HTMLElement).closest?.('.workspace-window-content')) return
-          props.onFocusWindow(props.visibleTabId())
-        }}
       >
         <div
           class={`relative z-10 flex h-8 shrink-0 items-stretch border-b border-border ${
@@ -233,6 +244,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                   groupId={props.groupId}
                   tab={props.tabWindows()[0]}
                   isWindowActive={props.isActive}
+                  onDropFile={props.onDropFileToTabBar}
                 />
               }
             >
@@ -245,6 +257,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                 onFocusWindow={(tid) => props.onFocusWindow(tid)}
                 onCloseTab={(tid) => props.onCloseTab?.(tid)}
                 onDetachTab={props.onDetachTab}
+                onDropFile={props.onDropFileToTabBar}
               />
             </Show>
           </div>
@@ -253,6 +266,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             aria-hidden
           />
           <div
+            data-no-window-drag
             class='workspace-window-buttons flex shrink-0 items-stretch'
             onMouseDown={(e) => e.stopPropagation()}
           >
