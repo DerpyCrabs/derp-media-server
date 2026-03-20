@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 import { Match, Switch, createMemo } from 'solid-js'
+import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { SharePasscodeGate } from './SharePasscodeGate'
 import { WorkspacePage } from './WorkspacePage'
 
@@ -31,6 +32,8 @@ type ShareInfo = {
 type Props = { token: string }
 
 export function ShareWorkspacePage(props: Props) {
+  useShareFileWatcher(props.token)
+
   const shareQuery = useQuery(() => ({
     queryKey: queryKeys.shareInfo(props.token),
     queryFn: () => api<ShareInfo>(`/api/share/${props.token}/info`),
@@ -43,6 +46,11 @@ export function ShareWorkspacePage(props: Props) {
     if (!d?.isDirectory) return false
     if (d.needsPasscode && !d.authorized) return false
     return true
+  })
+
+  const shareAllowUpload = createMemo(() => {
+    const d = shareQuery.data
+    return !!d?.editable && d.restrictions?.allowUpload !== false
   })
 
   return (
@@ -78,6 +86,7 @@ export function ShareWorkspacePage(props: Props) {
         <WorkspacePage
           shareConfig={{ token: props.token, sharePath: sharePath() }}
           shareWorkspaceTaskbarPins={shareQuery.data?.workspaceTaskbarPins ?? []}
+          shareAllowUpload={shareAllowUpload()}
           shareCanEdit={
             !!shareQuery.data?.editable && shareQuery.data?.restrictions?.allowEdit !== false
           }

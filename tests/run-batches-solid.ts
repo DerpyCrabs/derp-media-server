@@ -32,6 +32,7 @@ const BATCHES = [
       'shares-manage',
       'shares-use',
       'share-viewers',
+      'share-workspace',
       'passcode-shares',
       'share-security',
     ],
