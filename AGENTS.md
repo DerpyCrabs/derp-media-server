@@ -51,5 +51,6 @@ Work **feature-by-feature**, not a big-bang rewrite:
 - **Async data** — Prefer TanStack Solid Query instead of ad-hoc `createSignal` + effect chains.
 - Don't add solid to names, they are already in solid directory
 - Don't write useless comments
+- Don't make more than 6 test batches, mirror react batches balancing
 
 For framework docs and APIs, see the [Solid.js reference](https://docs.solidjs.com/).
