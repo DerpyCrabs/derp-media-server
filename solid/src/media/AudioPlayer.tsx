@@ -83,6 +83,10 @@ export function AudioPlayer(props: Props) {
       pathParts.pop()
       dir = pathParts.join('/')
     }
+    const ctx = props.shareContext
+    if (ctx) {
+      return stripSharePrefix(dir, ctx.sharePath)
+    }
     return dir
   })
 

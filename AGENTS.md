@@ -52,5 +52,6 @@ Work **feature-by-feature**, not a big-bang rewrite:
 - Don't add solid to names, they are already in solid directory
 - Don't write useless comments
 - Don't make more than 6 test batches, mirror react batches balancing
+- Don't try to use zustand, there is solid-js/store
 
 For framework docs and APIs, see the [Solid.js reference](https://docs.solidjs.com/).
