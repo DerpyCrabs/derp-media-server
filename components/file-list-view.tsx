@@ -1,30 +1,24 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react'
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  type ChangeEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
 import { FileItem, MediaType } from '@/lib/types'
-import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
-import {
-  ArrowUp,
-  Star,
-  Eye,
-  Link,
-  Share2,
-  FilePlus,
-  FolderPlus,
-  AlertCircle,
-  Download,
-} from 'lucide-react'
+import { Star, Eye, Link, FilePlus, FolderPlus, AlertCircle } from 'lucide-react'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { FileContextMenu } from '@/components/file-context-menu'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
-import {
-  setFileDragData,
-  hasFileDragData,
-  getFileDragData,
-  isCompatibleSource,
-} from '@/lib/file-drag-data'
+import { FileListFileRow, FileListParentDirectoryRow } from '@/components/file-list-view-row'
+
+const DEFAULT_EDITABLE_FOLDERS: string[] = []
+const DEFAULT_SHARE_LINKS: ShareLink[] = []
 
 interface FileListViewProps {
   files: FileItem[]
@@ -92,8 +86,8 @@ export function FileListView({
   getIcon,
   favorites = [],
   isVirtualFolder = false,
-  editableFolders = [],
-  shares = [],
+  editableFolders = DEFAULT_EDITABLE_FOLDERS,
+  shares = DEFAULT_SHARE_LINKS,
   knowledgeBases = [],
   getViewCount,
   getShareViewCount,
@@ -154,12 +148,15 @@ export function FileListView({
   const canDropOnParent =
     !!onMoveFile && !!currentPath && isPathEditable(parentDir || '', editableFolders)
 
-  const canDropOn = (targetPath: string, sourcePath?: string) => {
-    const src = sourcePath ?? draggedPath
-    if (!src || src === targetPath) return false
-    if (targetPath.startsWith(src + '/')) return false
-    return true
-  }
+  const canDropOn = useCallback(
+    (targetPath: string, sourcePath?: string) => {
+      const src = sourcePath ?? draggedPath
+      if (!src || src === targetPath) return false
+      if (targetPath.startsWith(src + '/')) return false
+      return true
+    },
+    [draggedPath],
+  )
 
   useEffect(() => {
     if (inlineMode === 'file') fileInputRef.current?.focus()
@@ -178,20 +175,78 @@ export function FileListView({
       return !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase()
     })
 
-  const handleInlineCreateFile = () => {
+  const handleInlineCreateFile = useCallback(() => {
     const name = inlineName.trim()
     if (!name || inlineFileExists || !onInlineCreateFile) return
     onInlineCreateFile(name)
     setInlineMode(null)
     setInlineName('')
-  }
-  const handleInlineCreateFolder = () => {
+  }, [inlineName, inlineFileExists, onInlineCreateFile])
+
+  const handleInlineCreateFolder = useCallback(() => {
     const name = inlineName.trim()
     if (!name || inlineFolderExists || !onInlineCreateFolder) return
     onInlineCreateFolder(name)
     setInlineMode(null)
     setInlineName('')
-  }
+  }, [inlineName, inlineFolderExists, onInlineCreateFolder])
+
+  const handleInlineNameChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setInlineName(e.target.value)
+  }, [])
+
+  const handleInlineFileKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') handleInlineCreateFile()
+      else if (e.key === 'Escape') {
+        setInlineMode(null)
+        setInlineName('')
+      }
+    },
+    [handleInlineCreateFile],
+  )
+
+  const handleInlineFileBlur = useCallback(() => {
+    setInlineMode(null)
+    setInlineName('')
+    onInlineCreateCancel?.()
+  }, [onInlineCreateCancel])
+
+  const handleInlineFolderKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') handleInlineCreateFolder()
+      else if (e.key === 'Escape') {
+        setInlineMode(null)
+        setInlineName('')
+      }
+    },
+    [handleInlineCreateFolder],
+  )
+
+  const handleInlineFolderBlur = useCallback(() => {
+    setInlineMode(null)
+    setInlineName('')
+    onInlineCreateCancel?.()
+  }, [onInlineCreateCancel])
+
+  const handleInlineTableRowClick = useCallback((e: MouseEvent) => {
+    e.stopPropagation()
+  }, [])
+
+  const handleInputStopPropagation = useCallback((e: MouseEvent) => {
+    e.stopPropagation()
+  }, [])
+
+  const handleStartInlineFile = useCallback(() => {
+    setInlineMode('file')
+    setInlineName('')
+  }, [])
+
+  const handleStartInlineFolder = useCallback(() => {
+    setInlineMode('folder')
+    setInlineName('')
+  }, [])
+
   if (files.length === 0 && !currentPath) {
     return (
       <div className='text-center py-12 text-muted-foreground'>
@@ -255,50 +310,18 @@ export function FileListView({
       <Table>
         <TableBody>
           {currentPath && (
-            <TableRow
-              className={`cursor-pointer hover:bg-muted/50 select-none ${
-                dragOverPath === '__parent__' ? 'bg-primary/20' : ''
-              }`}
-              onClick={onParentDirectory}
-              onDragOver={(e) => {
-                if (!canDropOnParent) return
-                if (!draggedPath && !hasFileDragData(e.dataTransfer)) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                setDragOverPath('__parent__')
-              }}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setDragOverPath(null)
-                }
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDragOverPath(null)
-                if (draggedPath && onMoveFile) {
-                  onMoveFile(draggedPath, parentDir)
-                } else if (!draggedPath && onMoveFile) {
-                  const data = getFileDragData(e.dataTransfer)
-                  if (
-                    data &&
-                    dragSourceKind &&
-                    isCompatibleSource(
-                      { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
-                      data,
-                    ) &&
-                    canDropOn(parentDir, data.path)
-                  ) {
-                    onMoveFile(data.path, parentDir)
-                  }
-                }
-              }}
-            >
-              <TableCell className='w-12'>
-                <ArrowUp className='h-5 w-5 text-muted-foreground' />
-              </TableCell>
-              <TableCell className='font-medium'>..</TableCell>
-              <TableCell className='text-right text-muted-foreground'></TableCell>
-            </TableRow>
+            <FileListParentDirectoryRow
+              dragOverPath={dragOverPath}
+              canDropOnParent={canDropOnParent}
+              draggedPath={draggedPath}
+              parentDir={parentDir}
+              onMoveFile={onMoveFile}
+              dragSourceKind={dragSourceKind}
+              dragSourceToken={dragSourceToken}
+              canDropOn={canDropOn}
+              onParentDirectory={onParentDirectory}
+              setDragOverPath={setDragOverPath}
+            />
           )}
           {files.map((file) => {
             const isFavorite = favoriteSet.has(file.path)
@@ -311,195 +334,59 @@ export function FileListView({
                 : isPathEditable(file.path, editableFolders)
             const isShared = sharedPathSet.has(file.path)
 
-            const row = (
-              <TableRow
-                className={`cursor-pointer hover:bg-muted/50 select-none group ${
-                  playingPath === file.path ? 'bg-primary/10' : ''
-                } ${draggedPath === file.path ? 'opacity-50' : ''} ${
-                  file.isDirectory && dragOverPath === file.path ? 'bg-primary/20' : ''
-                }`}
-                draggable={enableDrag && isFileEditable && !!onMoveFile}
-                onClick={() => onFileClick(file)}
-                onDragStart={(e) => {
-                  if (!isFileEditable || !onMoveFile) return
-                  if (dragSourceKind) {
-                    setFileDragData(e.dataTransfer, {
-                      path: file.path,
-                      isDirectory: file.isDirectory,
-                      sourceKind: dragSourceKind,
-                      sourceToken: dragSourceToken,
-                    })
-                  } else {
-                    e.dataTransfer.setData('text/plain', file.path)
-                  }
-                  e.dataTransfer.effectAllowed = 'copyMove'
-                  setDraggedPath(file.path)
-                }}
-                onDragEnd={() => {
-                  setDraggedPath(null)
-                  setDragOverPath(null)
-                }}
-                onDragOver={(e) => {
-                  if (!file.isDirectory || !onMoveFile) return
-                  const hasCrossDrag = !draggedPath && hasFileDragData(e.dataTransfer)
-                  if (!draggedPath && !hasCrossDrag) return
-                  if (draggedPath && !canDropOn(file.path)) return
-                  if (isEditableProp === undefined && !isPathEditable(file.path, editableFolders))
-                    return
-                  e.preventDefault()
-                  e.dataTransfer.dropEffect = 'move'
-                  setDragOverPath(file.path)
-                }}
-                onDragLeave={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    if (dragOverPath === file.path) setDragOverPath(null)
-                  }
-                }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  setDragOverPath(null)
-                  if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
-                    onMoveFile(draggedPath, file.path)
-                  } else if (!draggedPath && file.isDirectory && onMoveFile) {
-                    const data = getFileDragData(e.dataTransfer)
-                    if (
-                      data &&
-                      dragSourceKind &&
-                      isCompatibleSource(
-                        { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
-                        data,
-                      ) &&
-                      canDropOn(file.path, data.path)
-                    ) {
-                      onMoveFile(data.path, file.path)
-                    }
-                  }
-                }}
-              >
-                <TableCell className='w-12'>
-                  <div className='flex items-center justify-center'>
-                    {getIcon(
-                      file.type,
-                      file.path,
-                      file.type === MediaType.AUDIO,
-                      file.type === MediaType.VIDEO,
-                      file.isVirtual,
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className='font-medium'>
-                  <div className='flex items-center gap-2'>
-                    {showFavorites && !file.isDirectory && (
-                      <button
-                        onClick={(e) => onFavoriteToggle!(file.path, e)}
-                        className='shrink-0 opacity-50 hover:opacity-100 transition-opacity'
-                        title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                        suppressHydrationWarning
-                      >
-                        <Star
-                          className={`h-4 w-4 ${
-                            isFavorite
-                              ? 'fill-yellow-400 text-yellow-400 opacity-100'
-                              : 'text-muted-foreground'
-                          }`}
-                          suppressHydrationWarning
-                        />
-                      </button>
-                    )}
-                    <div className='flex-1 min-w-0'>
-                      <span className='truncate block'>
-                        {file.name}
-                        {isShared && (
-                          <Link className='inline h-3 w-3 ml-1.5 text-primary opacity-70' />
-                        )}
-                      </span>
-                      {isVirtualFolder && !file.isDirectory && (
-                        <span className='text-xs text-muted-foreground truncate block'>
-                          {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className='text-right text-muted-foreground'>
-                  <div className='flex items-center justify-end gap-2'>
-                    {showViewCounts && !file.isDirectory && (
-                      <div
-                        className={`flex items-center gap-1 text-xs ${viewCount > 0 ? '' : 'hidden'}`}
-                        title={`${viewCount} views`}
-                        suppressHydrationWarning
-                      >
-                        <Eye className='h-3.5 w-3.5 shrink-0' />
-                        <span suppressHydrationWarning>{viewCount}</span>
-                      </div>
-                    )}
-                    {showViewCounts && !file.isDirectory && (
-                      <div
-                        className={`flex items-center gap-1 text-xs text-primary/70 ${shareViewCount > 0 ? '' : 'hidden'}`}
-                        title={`${shareViewCount} shared views`}
-                        suppressHydrationWarning
-                      >
-                        <Share2 className='h-3 w-3 shrink-0' />
-                        <span suppressHydrationWarning>{shareViewCount}</span>
-                      </div>
-                    )}
-                    {showDownloadButton && onContextDownload && (
-                      <Button
-                        variant='ghost'
-                        size='icon'
-                        className='h-7 w-7'
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onContextDownload(file)
-                        }}
-                        title='Download'
-                      >
-                        <Download className='h-3.5 w-3.5' />
-                      </Button>
-                    )}
-                    <span className='w-20 text-right shrink-0'>
-                      {file.isDirectory ? '' : formatFileSize(file.size)}
-                    </span>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )
-
-            return hasAnyContextAction ? (
-              <FileContextMenu
+            return (
+              <FileListFileRow
                 key={file.shareToken ? `share-${file.shareToken}` : file.path}
                 file={file}
-                onSetIcon={onContextSetIcon}
-                onRename={onContextRename}
-                onDelete={onContextDelete}
-                onDownload={onContextDownload}
-                onToggleFavorite={onContextToggleFavorite}
-                onToggleKnowledgeBase={onContextToggleKnowledgeBase}
-                onShare={onContextShare}
-                onCopyShareLink={onContextCopyShareLink}
-                onMove={onContextMove}
-                onCopy={onContextCopy}
-                onOpenInNewTab={onContextOpenInNewTab}
-                onOpenInWorkspace={onContextOpenInWorkspace}
-                onAddToTaskbar={onContextAddToTaskbar}
+                playingPath={playingPath}
+                draggedPath={draggedPath}
+                dragOverPath={dragOverPath}
+                enableDrag={enableDrag}
+                isFileEditable={isFileEditable}
+                onMoveFile={onMoveFile}
+                dragSourceKind={dragSourceKind}
+                dragSourceToken={dragSourceToken}
+                onFileClick={onFileClick}
+                getIcon={getIcon}
+                editableFolders={editableFolders}
+                isEditableProp={isEditableProp}
+                canDropOn={canDropOn}
+                setDraggedPath={setDraggedPath}
+                setDragOverPath={setDragOverPath}
+                isFavorite={isFavorite}
+                isKnowledgeBase={isKnowledgeBase}
+                viewCount={viewCount}
+                shareViewCount={shareViewCount}
+                isShared={isShared}
+                showFavorites={showFavorites}
+                showViewCounts={showViewCounts}
+                showDownloadButton={showDownloadButton}
+                onFavoriteToggle={onFavoriteToggle}
+                onContextDownload={onContextDownload}
+                isVirtualFolder={isVirtualFolder}
+                hasAnyContextAction={!!hasAnyContextAction}
+                onContextSetIcon={onContextSetIcon}
+                onContextRename={onContextRename}
+                onContextDelete={onContextDelete}
+                onContextToggleFavorite={onContextToggleFavorite}
+                onContextToggleKnowledgeBase={onContextToggleKnowledgeBase}
+                onContextShare={onContextShare}
+                onContextCopyShareLink={onContextCopyShareLink}
+                onContextMove={onContextMove}
+                onContextCopy={onContextCopy}
+                onContextOpenInNewTab={onContextOpenInNewTab}
+                onContextOpenInWorkspace={onContextOpenInWorkspace}
+                onContextAddToTaskbar={onContextAddToTaskbar}
                 showOpenInNewTabForFiles={showOpenInNewTabForFiles}
                 contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
                 hasEditableFolders={hasEditableFolders}
-                isFavorite={isFavorite}
-                isKnowledgeBase={isKnowledgeBase}
-                isEditable={isFileEditable}
-                isShared={isShared}
-              >
-                {row}
-              </FileContextMenu>
-            ) : (
-              <React.Fragment key={file.path}>{row}</React.Fragment>
+              />
             )
           })}
           {showInlineCreate && (
             <TableRow
               className='border-t bg-muted/20 hover:bg-muted/30'
-              onClick={(e) => e.stopPropagation()}
+              onClick={handleInlineTableRowClick}
             >
               <TableCell colSpan={3} className='p-0'>
                 <div className='grid grid-cols-2 gap-px p-2'>
@@ -509,20 +396,10 @@ export function FileListView({
                         <Input
                           ref={fileInputRef}
                           value={inlineName}
-                          onChange={(e) => setInlineName(e.target.value)}
+                          onChange={handleInlineNameChange}
                           placeholder='File name (e.g. notes.md)'
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleInlineCreateFile()
-                            else if (e.key === 'Escape') {
-                              setInlineMode(null)
-                              setInlineName('')
-                            }
-                          }}
-                          onBlur={() => {
-                            setInlineMode(null)
-                            setInlineName('')
-                            onInlineCreateCancel?.()
-                          }}
+                          onKeyDown={handleInlineFileKeyDown}
+                          onBlur={handleInlineFileBlur}
                           disabled={createFilePending}
                           className={`h-8 text-sm ${
                             inlineFileExists
@@ -531,7 +408,7 @@ export function FileListView({
                                 ? 'border-destructive ring-2 ring-destructive/30'
                                 : ''
                           }`}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={handleInputStopPropagation}
                         />
                         {inlineFileExists && (
                           <div className='flex items-start gap-1.5 rounded bg-yellow-500/10 border border-yellow-500/50 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
@@ -549,10 +426,7 @@ export function FileListView({
                     ) : (
                       <button
                         type='button'
-                        onClick={() => {
-                          setInlineMode('file')
-                          setInlineName('')
-                        }}
+                        onClick={handleStartInlineFile}
                         className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
                       >
                         <FilePlus className='h-4 w-4' />
@@ -566,20 +440,10 @@ export function FileListView({
                         <Input
                           ref={folderInputRef}
                           value={inlineName}
-                          onChange={(e) => setInlineName(e.target.value)}
+                          onChange={handleInlineNameChange}
                           placeholder='Folder name'
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleInlineCreateFolder()
-                            else if (e.key === 'Escape') {
-                              setInlineMode(null)
-                              setInlineName('')
-                            }
-                          }}
-                          onBlur={() => {
-                            setInlineMode(null)
-                            setInlineName('')
-                            onInlineCreateCancel?.()
-                          }}
+                          onKeyDown={handleInlineFolderKeyDown}
+                          onBlur={handleInlineFolderBlur}
                           disabled={createFolderPending}
                           className={`h-8 text-sm ${
                             inlineFolderExists
@@ -588,7 +452,7 @@ export function FileListView({
                                 ? 'border-destructive ring-2 ring-destructive/30'
                                 : ''
                           }`}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={handleInputStopPropagation}
                         />
                         {inlineFolderExists && (
                           <div className='flex items-start gap-1.5 rounded bg-yellow-500/10 border border-yellow-500/50 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
@@ -606,10 +470,7 @@ export function FileListView({
                     ) : (
                       <button
                         type='button'
-                        onClick={() => {
-                          setInlineMode('folder')
-                          setInlineName('')
-                        }}
+                        onClick={handleStartInlineFolder}
                         className='flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors'
                       >
                         <FolderPlus className='h-4 w-4' />

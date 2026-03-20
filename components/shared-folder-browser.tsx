@@ -1,4 +1,12 @@
-import { Suspense, useState, useMemo, useCallback } from 'react'
+import {
+  Suspense,
+  memo,
+  useState,
+  useMemo,
+  useCallback,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
 import { api, post } from '@/lib/api'
 import { FileItem, MediaType } from '@/lib/types'
@@ -66,11 +74,77 @@ interface SharedFolderBrowserProps {
   session?: NavigationSession
 }
 
+type ShareBreadcrumb = { name: string; path: string }
+
+const SHARED_FOLDER_BROWSER_SUSPENSE_FALLBACK = (
+  <div className='flex h-screen items-center justify-center'>Loading...</div>
+)
+
+const EMPTY_SHARE_EDITABLE_FOLDERS: string[] = []
+
+const ShareBreadcrumbCrumb = memo(function ShareBreadcrumbCrumb({
+  crumb,
+  index,
+  isLast,
+  sharePathNorm,
+  onNavigate,
+  onDownload,
+  onOpenInNewTab,
+  onOpenInWorkspace,
+}: {
+  crumb: ShareBreadcrumb
+  index: number
+  isLast: boolean
+  sharePathNorm: string
+  onNavigate: (subPath: string) => void
+  onDownload: (file: FileItem) => void
+  onOpenInNewTab: (file: FileItem) => void
+  onOpenInWorkspace: (file: FileItem) => void
+}) {
+  const fullPath = crumb.path ? `${sharePathNorm}/${crumb.path}` : sharePathNorm
+  const folderItem = useMemo(
+    (): FileItem => ({
+      name: crumb.name,
+      path: fullPath,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: false,
+    }),
+    [crumb.name, fullPath],
+  )
+
+  const handleClick = useCallback(() => {
+    onNavigate(crumb.path)
+  }, [onNavigate, crumb.path])
+
+  return (
+    <div className='flex items-center gap-2'>
+      {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
+      <FileContextMenu
+        file={folderItem}
+        onDownload={onDownload}
+        onOpenInNewTab={onOpenInNewTab}
+        onOpenInWorkspace={onOpenInWorkspace}
+      >
+        <Button
+          variant={isLast ? 'default' : 'ghost'}
+          size='sm'
+          onClick={handleClick}
+          className='h-8 gap-1.5 px-2.5 text-sm'
+        >
+          {index === 0 && <Folder className='h-4 w-4' />}
+          {crumb.name}
+        </Button>
+      </FileContextMenu>
+    </div>
+  )
+})
+
 export function SharedFolderBrowser(props: SharedFolderBrowserProps) {
   return (
-    <Suspense
-      fallback={<div className='flex items-center justify-center h-screen'>Loading...</div>}
-    >
+    <Suspense fallback={SHARED_FOLDER_BROWSER_SUSPENSE_FALLBACK}>
       <SharedFolderBrowserInner {...props} />
     </Suspense>
   )
@@ -195,11 +269,15 @@ function SharedFolderBrowserInner({
     },
     enabled: !!debouncedSearchQuery.trim() && inKb,
   })
-  const searchResults = (kbSearchData?.results || []) as {
-    path: string
-    name: string
-    snippet: string
-  }[]
+  const searchResults = useMemo(
+    () =>
+      (kbSearchData?.results ?? []) as {
+        path: string
+        name: string
+        snippet: string
+      }[],
+    [kbSearchData?.results],
+  )
 
   const handleKbResultClick = useCallback(
     (filePath: string) => {
@@ -441,16 +519,357 @@ function SharedFolderBrowserInner({
     [token, currentSubDir, createFolderMutation],
   )
 
+  const handleMoveDialogClose = useCallback(() => {
+    setShowMoveDialog(false)
+    setMoveTarget(null)
+    moveMutation.reset()
+  }, [moveMutation])
+
+  const handleNewItemNameChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setNewItemName(e.target.value)
+  }, [])
+
+  const handleCreateFolderSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault()
+      const subPath = currentSubDir ? `${currentSubDir}/${newItemName}` : newItemName
+      createFolderMutation.mutate(
+        { token, type: 'folder', path: subPath },
+        {
+          onSuccess: () => {
+            setShowCreateFolder(false)
+            setNewItemName('')
+            createFolderMutation.reset()
+          },
+        },
+      )
+    },
+    [currentSubDir, newItemName, token, createFolderMutation],
+  )
+
+  const handleCancelCreateFolder = useCallback(() => {
+    setShowCreateFolder(false)
+  }, [])
+
+  const handleCreateFileSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault()
+      const defaultExt = inKb ? '.md' : '.txt'
+      const fileName = newItemName.includes('.') ? newItemName : `${newItemName}${defaultExt}`
+      const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
+      const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
+      const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
+      createFileMutation.mutate(
+        { token, type: 'file', path: subPath, content: '' },
+        {
+          onSuccess: () => {
+            setShowCreateFile(false)
+            setNewItemName('')
+            createFileMutation.reset()
+            if (inKb) viewFile(fullPath)
+          },
+        },
+      )
+    },
+    [inKb, newItemName, currentSubDir, shareInfo.path, token, createFileMutation, viewFile],
+  )
+
+  const handleCancelCreateFile = useCallback(() => {
+    setShowCreateFile(false)
+  }, [])
+
+  const handleRenameDialogRename = useCallback(() => {
+    if (!renamingItem) return
+    const relativeOld = stripSharePrefix(renamingItem.path)
+    const parts = relativeOld.split('/').filter(Boolean)
+    const parentPath = parts.slice(0, -1).join('/')
+    const relativeNew = parentPath ? `${parentPath}/${renameNewName}` : renameNewName
+    renameMutation.mutate(
+      { token, oldPath: relativeOld, newPath: relativeNew },
+      {
+        onSuccess: () => {
+          setShowRenameDialog(false)
+          setRenamingItem(null)
+          setRenameNewName('')
+          renameMutation.reset()
+        },
+      },
+    )
+  }, [renamingItem, stripSharePrefix, renameNewName, renameMutation, token])
+
+  const handleRenameDialogReset = useCallback(() => {
+    setShowRenameDialog(false)
+    setRenamingItem(null)
+    setRenameNewName('')
+    renameMutation.reset()
+  }, [renameMutation])
+
+  const handleDeleteDialogConfirm = useCallback(() => {
+    if (!deletingItem) return
+    deleteItemMutation.mutate(
+      { token, path: stripSharePrefix(deletingItem.path) },
+      {
+        onSuccess: () => {
+          setShowDeleteDialog(false)
+          setDeletingItem(null)
+          deleteItemMutation.reset()
+        },
+      },
+    )
+  }, [deletingItem, deleteItemMutation, token, stripSharePrefix])
+
+  const handleDeleteDialogReset = useCallback(() => {
+    setShowDeleteDialog(false)
+    setDeletingItem(null)
+    deleteItemMutation.reset()
+  }, [deleteItemMutation])
+
+  const sharePathNorm = useMemo(() => shareInfo.path.replace(/\\/g, '/'), [shareInfo.path])
+
+  const mediaShareContext = useMemo(() => ({ token, shareInfo }), [token, shareInfo])
+
+  const mediaPlayersSlot = useMemo(
+    () => (
+      <MediaPlayers
+        editableFolders={EMPTY_SHARE_EDITABLE_FOLDERS}
+        session={session}
+        mediaContext={mediaContext}
+        shareContext={mediaShareContext}
+      />
+    ),
+    [session, mediaContext, mediaShareContext],
+  )
+
+  const paneSearch = useMemo(
+    () => ({
+      visible: inKb,
+      placeholder: 'Search notes...' as const,
+      value: searchQuery,
+      onChange: setSearchQuery,
+    }),
+    [inKb, searchQuery],
+  )
+
+  const handleOpenCreateFolder = useCallback(() => {
+    setNewItemName('')
+    setShowCreateFolder(true)
+  }, [])
+
+  const handleOpenCreateFile = useCallback(() => {
+    setNewItemName('')
+    setShowCreateFile(true)
+  }, [])
+
+  const handleInlineCreateCancel = useCallback(() => {
+    createFileMutation.reset()
+    createFolderMutation.reset()
+  }, [createFileMutation, createFolderMutation])
+
+  const browserPaneRootClass = useMemo(
+    () => `min-h-screen ${isAudioPlaying ? 'pb-12' : ''}`,
+    [isAudioPlaying],
+  )
+
+  const browserActions = useMemo(() => {
+    if (!canUpload) return null
+    return (
+      <>
+        <Button
+          variant='outline'
+          size='icon'
+          onClick={handleOpenCreateFolder}
+          title='Create new folder'
+          className='h-8 w-8'
+        >
+          <FolderPlus className='h-4 w-4' />
+        </Button>
+        <Button
+          variant='outline'
+          size='icon'
+          onClick={handleOpenCreateFile}
+          title='Create new file'
+          className='h-8 w-8'
+        >
+          <FilePlus className='h-4 w-4' />
+        </Button>
+        <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
+        <div className='mx-1 h-6 w-px bg-border' />
+      </>
+    )
+  }, [canUpload, handleOpenCreateFolder, handleOpenCreateFile, isUploading, handleUploadFiles])
+
+  const themeSwitcherTrailing = useMemo(() => <ThemeSwitcher variant='header' />, [])
+
+  const uploadProgressSlot = useMemo(
+    () => (
+      <UploadProgress
+        isUploading={isUploading}
+        error={uploadError}
+        fileCount={uploadFileCount}
+        onDismiss={resetUpload}
+      />
+    ),
+    [isUploading, uploadError, uploadFileCount, resetUpload],
+  )
+
+  const listViewSlot = useMemo(
+    () => (
+      <FileListView
+        files={files}
+        currentPath={currentSubDir}
+        playingPath={playingPath}
+        onFileClick={handleFileClick}
+        onParentDirectory={handleParentDirectory}
+        getIcon={getIcon}
+        isEditable={canEdit}
+        onMoveFile={canEdit ? handleMoveFile : undefined}
+        showDownloadButton
+        onContextDownload={handleDownload}
+        onContextRename={canEdit ? handleContextRename : undefined}
+        onContextDelete={canDelete ? handleContextDelete : undefined}
+        onContextMove={canEdit ? handleContextMoveFile : undefined}
+        onContextOpenInNewTab={handleOpenInNewTab}
+        onContextOpenInWorkspace={handleOpenInWorkspace}
+        showInlineCreate={inKb && canUpload}
+        onInlineCreateFile={handleInlineCreateFile}
+        onInlineCreateFolder={handleInlineCreateFolder}
+        onInlineCreateCancel={handleInlineCreateCancel}
+        createFilePending={createFileMutation.isPending}
+        createFolderPending={createFolderMutation.isPending}
+        createFileError={createFileMutation.error as Error | null}
+        createFolderError={createFolderMutation.error as Error | null}
+      />
+    ),
+    [
+      files,
+      currentSubDir,
+      playingPath,
+      handleFileClick,
+      handleParentDirectory,
+      getIcon,
+      canEdit,
+      handleMoveFile,
+      handleDownload,
+      handleContextRename,
+      canDelete,
+      handleContextDelete,
+      handleContextMoveFile,
+      handleOpenInNewTab,
+      handleOpenInWorkspace,
+      inKb,
+      canUpload,
+      handleInlineCreateFile,
+      handleInlineCreateFolder,
+      handleInlineCreateCancel,
+      createFileMutation.isPending,
+      createFolderMutation.isPending,
+      createFileMutation.error,
+      createFolderMutation.error,
+    ],
+  )
+
+  const gridViewSlot = useMemo(
+    () => (
+      <FileGridView
+        files={files}
+        currentPath={currentSubDir}
+        playingPath={playingPath}
+        onFileClick={handleFileClick}
+        onParentDirectory={handleParentDirectory}
+        getIcon={getIcon}
+        isEditable={canEdit}
+        onMoveFile={canEdit ? handleMoveFile : undefined}
+        getThumbnailUrl={getThumbnailUrl}
+        getImagePreviewUrl={getImagePreviewUrl}
+        onContextDownload={handleDownload}
+        onContextRename={canEdit ? handleContextRename : undefined}
+        onContextDelete={canDelete ? handleContextDelete : undefined}
+        onContextMove={canEdit ? handleContextMoveFile : undefined}
+        onContextOpenInNewTab={handleOpenInNewTab}
+        onContextOpenInWorkspace={handleOpenInWorkspace}
+      />
+    ),
+    [
+      files,
+      currentSubDir,
+      playingPath,
+      handleFileClick,
+      handleParentDirectory,
+      getIcon,
+      canEdit,
+      handleMoveFile,
+      getThumbnailUrl,
+      getImagePreviewUrl,
+      handleDownload,
+      handleContextRename,
+      canDelete,
+      handleContextDelete,
+      handleContextMoveFile,
+      handleOpenInNewTab,
+      handleOpenInWorkspace,
+    ],
+  )
+
+  const kbSearchResultsSlot = useMemo(
+    () => (
+      <KbSearchResults
+        results={searchResults}
+        query={searchQuery}
+        isLoading={searchLoading}
+        currentPath={currentPath}
+        onResultClick={handleKbResultClick}
+      />
+    ),
+    [searchResults, searchQuery, searchLoading, currentPath, handleKbResultClick],
+  )
+
+  const kbDashboardSlot = useMemo(
+    () =>
+      inKb ? (
+        <KbDashboard
+          scopePath={shareInfo.path}
+          onFileClick={handleKbResultClick}
+          shareToken={token}
+          dir={currentSubDir || undefined}
+        />
+      ) : null,
+    [inKb, shareInfo.path, handleKbResultClick, token, currentSubDir],
+  )
+
+  const breadcrumbsSlot = useMemo(
+    () => (
+      <div className='flex min-w-0 flex-1 flex-wrap items-center gap-1 lg:gap-2'>
+        {breadcrumbs.map((crumb, index) => (
+          <ShareBreadcrumbCrumb
+            key={crumb.path}
+            crumb={crumb}
+            index={index}
+            isLast={index === breadcrumbs.length - 1}
+            sharePathNorm={sharePathNorm}
+            onNavigate={navigate}
+            onDownload={handleDownload}
+            onOpenInNewTab={handleOpenInNewTab}
+            onOpenInWorkspace={handleOpenInWorkspace}
+          />
+        ))}
+      </div>
+    ),
+    [
+      breadcrumbs,
+      sharePathNorm,
+      navigate,
+      handleDownload,
+      handleOpenInNewTab,
+      handleOpenInWorkspace,
+    ],
+  )
+
   return (
     <div>
       {/* Move To Dialog */}
       <MoveToDialog
         isOpen={showMoveDialog}
-        onClose={() => {
-          setShowMoveDialog(false)
-          setMoveTarget(null)
-          moveMutation.reset()
-        }}
+        onClose={handleMoveDialogClose}
         fileName={moveTarget?.name || ''}
         filePath={moveTarget ? stripSharePrefix(moveTarget.path) : ''}
         onMove={handleDialogMove}
@@ -467,31 +886,15 @@ function SharedFolderBrowserInner({
             <DialogTitle>Create Folder</DialogTitle>
             <DialogDescription>Enter a name for the new folder</DialogDescription>
           </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              const subPath = currentSubDir ? `${currentSubDir}/${newItemName}` : newItemName
-              createFolderMutation.mutate(
-                { token, type: 'folder', path: subPath },
-                {
-                  onSuccess: () => {
-                    setShowCreateFolder(false)
-                    setNewItemName('')
-                    createFolderMutation.reset()
-                  },
-                },
-              )
-            }}
-            className='space-y-4'
-          >
+          <form onSubmit={handleCreateFolderSubmit} className='space-y-4'>
             <Input
               value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
+              onChange={handleNewItemNameChange}
               placeholder='Folder name'
               autoFocus
             />
             <div className='flex justify-end gap-2'>
-              <Button variant='outline' type='button' onClick={() => setShowCreateFolder(false)}>
+              <Button variant='outline' type='button' onClick={handleCancelCreateFolder}>
                 Cancel
               </Button>
               <Button
@@ -515,38 +918,15 @@ function SharedFolderBrowserInner({
               extension is provided.
             </DialogDescription>
           </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              const defaultExt = inKb ? '.md' : '.txt'
-              const fileName = newItemName.includes('.')
-                ? newItemName
-                : `${newItemName}${defaultExt}`
-              const subPath = currentSubDir ? `${currentSubDir}/${fileName}` : fileName
-              const sharePathNorm = shareInfo.path.replace(/\\/g, '/')
-              const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
-              createFileMutation.mutate(
-                { token, type: 'file', path: subPath, content: '' },
-                {
-                  onSuccess: () => {
-                    setShowCreateFile(false)
-                    setNewItemName('')
-                    createFileMutation.reset()
-                    if (inKb) viewFile(fullPath)
-                  },
-                },
-              )
-            }}
-            className='space-y-4'
-          >
+          <form onSubmit={handleCreateFileSubmit} className='space-y-4'>
             <Input
               value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
+              onChange={handleNewItemNameChange}
               placeholder={inKb ? 'notes.md' : 'notes.txt'}
               autoFocus
             />
             <div className='flex justify-end gap-2'>
-              <Button variant='outline' type='button' onClick={() => setShowCreateFile(false)}>
+              <Button variant='outline' type='button' onClick={handleCancelCreateFile}>
                 Cancel
               </Button>
               <Button type='submit' disabled={!newItemName.trim() || createFileMutation.isPending}>
@@ -564,35 +944,12 @@ function SharedFolderBrowserInner({
         itemName={renamingItem?.name || ''}
         newName={renameNewName}
         onNewNameChange={setRenameNewName}
-        onRename={() => {
-          if (renamingItem) {
-            const relativeOld = stripSharePrefix(renamingItem.path)
-            const parts = relativeOld.split('/').filter(Boolean)
-            const parentPath = parts.slice(0, -1).join('/')
-            const relativeNew = parentPath ? `${parentPath}/${renameNewName}` : renameNewName
-            renameMutation.mutate(
-              { token, oldPath: relativeOld, newPath: relativeNew },
-              {
-                onSuccess: () => {
-                  setShowRenameDialog(false)
-                  setRenamingItem(null)
-                  setRenameNewName('')
-                  renameMutation.reset()
-                },
-              },
-            )
-          }
-        }}
+        onRename={handleRenameDialogRename}
         isPending={renameMutation.isPending}
         error={renameMutation.error as Error | null}
         nameExists={renameTargetExists}
         isDirectory={renamingItem?.isDirectory || false}
-        onReset={() => {
-          setShowRenameDialog(false)
-          setRenamingItem(null)
-          setRenameNewName('')
-          renameMutation.reset()
-        }}
+        onReset={handleRenameDialogReset}
       />
 
       {/* Delete Confirm Dialog */}
@@ -600,205 +957,32 @@ function SharedFolderBrowserInner({
         isOpen={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
         item={deletingItem}
-        onDelete={() => {
-          if (deletingItem) {
-            deleteItemMutation.mutate(
-              { token, path: stripSharePrefix(deletingItem.path) },
-              {
-                onSuccess: () => {
-                  setShowDeleteDialog(false)
-                  setDeletingItem(null)
-                  deleteItemMutation.reset()
-                },
-              },
-            )
-          }
-        }}
+        onDelete={handleDeleteDialogConfirm}
         isPending={deleteItemMutation.isPending}
         error={deleteItemMutation.error as Error | null}
-        onReset={() => {
-          setShowDeleteDialog(false)
-          setDeletingItem(null)
-          deleteItemMutation.reset()
-        }}
+        onReset={handleDeleteDialogReset}
       />
 
       <BrowserPane
-        mediaPlayers={
-          <MediaPlayers
-            editableFolders={[]}
-            session={session}
-            mediaContext={mediaContext}
-            shareContext={{ token, shareInfo }}
-          />
-        }
-        progress={
-          <UploadProgress
-            isUploading={isUploading}
-            error={uploadError}
-            fileCount={uploadFileCount}
-            onDismiss={resetUpload}
-          />
-        }
-        rootClassName={`min-h-screen ${isAudioPlaying ? 'pb-12' : ''}`}
-        breadcrumbs={
-          <div className='flex items-center gap-1 lg:gap-2 flex-wrap min-w-0 flex-1'>
-            {breadcrumbs.map((crumb, index) => {
-              const fullPath = crumb.path
-                ? `${shareInfo.path.replace(/\\/g, '/')}/${crumb.path}`
-                : shareInfo.path.replace(/\\/g, '/')
-              const folderItem: FileItem = {
-                name: crumb.name,
-                path: fullPath,
-                type: MediaType.FOLDER,
-                size: 0,
-                extension: '',
-                isDirectory: true,
-                isVirtual: false,
-              }
-              const button = (
-                <Button
-                  variant={index === breadcrumbs.length - 1 ? 'default' : 'ghost'}
-                  size='sm'
-                  onClick={() => navigate(crumb.path)}
-                  className='gap-1.5 text-sm h-8 px-2.5'
-                >
-                  {index === 0 && <Folder className='h-4 w-4' />}
-                  {crumb.name}
-                </Button>
-              )
-              return (
-                <div key={crumb.path} className='flex items-center gap-2'>
-                  {index > 0 && <ChevronRight className='h-4 w-4 text-muted-foreground' />}
-                  <FileContextMenu
-                    file={folderItem}
-                    onDownload={handleDownload}
-                    onOpenInNewTab={handleOpenInNewTab}
-                    onOpenInWorkspace={handleOpenInWorkspace}
-                  >
-                    {button}
-                  </FileContextMenu>
-                </div>
-              )
-            })}
-          </div>
-        }
-        search={{
-          visible: inKb,
-          placeholder: 'Search notes...',
-          value: searchQuery,
-          onChange: setSearchQuery,
-        }}
-        actions={
-          canUpload ? (
-            <>
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={() => {
-                  setNewItemName('')
-                  setShowCreateFolder(true)
-                }}
-                title='Create new folder'
-                className='h-8 w-8'
-              >
-                <FolderPlus className='h-4 w-4' />
-              </Button>
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={() => {
-                  setNewItemName('')
-                  setShowCreateFile(true)
-                }}
-                title='Create new file'
-                className='h-8 w-8'
-              >
-                <FilePlus className='h-4 w-4' />
-              </Button>
-              <UploadMenuButton disabled={isUploading} onUpload={handleUploadFiles} />
-              <div className='w-px h-6 bg-border mx-1' />
-            </>
-          ) : null
-        }
-        trailingSlot={<ThemeSwitcher variant='header' />}
+        mediaPlayers={mediaPlayersSlot}
+        progress={uploadProgressSlot}
+        rootClassName={browserPaneRootClass}
+        breadcrumbs={breadcrumbsSlot}
+        search={paneSearch}
+        actions={browserActions}
+        trailingSlot={themeSwitcherTrailing}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
       >
         <UploadDropZone enabled={canUpload} onUpload={handleUploadFiles}>
           <BrowserPaneContent
             searchQuery={searchQuery}
-            searchResults={
-              <KbSearchResults
-                results={searchResults}
-                query={searchQuery}
-                isLoading={searchLoading}
-                currentPath={currentPath}
-                onResultClick={handleKbResultClick}
-              />
-            }
+            searchResults={kbSearchResultsSlot}
             loading={isLoading}
-            dashboard={
-              inKb ? (
-                <KbDashboard
-                  scopePath={shareInfo.path}
-                  onFileClick={handleKbResultClick}
-                  shareToken={token}
-                  dir={currentSubDir || undefined}
-                />
-              ) : null
-            }
+            dashboard={kbDashboardSlot}
             viewMode={viewMode}
-            listView={
-              <FileListView
-                files={files}
-                currentPath={currentSubDir}
-                playingPath={playingPath}
-                onFileClick={handleFileClick}
-                onParentDirectory={handleParentDirectory}
-                getIcon={getIcon}
-                isEditable={canEdit}
-                onMoveFile={canEdit ? handleMoveFile : undefined}
-                showDownloadButton
-                onContextDownload={handleDownload}
-                onContextRename={canEdit ? handleContextRename : undefined}
-                onContextDelete={canDelete ? handleContextDelete : undefined}
-                onContextMove={canEdit ? handleContextMoveFile : undefined}
-                onContextOpenInNewTab={handleOpenInNewTab}
-                onContextOpenInWorkspace={handleOpenInWorkspace}
-                showInlineCreate={inKb && canUpload}
-                onInlineCreateFile={handleInlineCreateFile}
-                onInlineCreateFolder={handleInlineCreateFolder}
-                onInlineCreateCancel={() => {
-                  createFileMutation.reset()
-                  createFolderMutation.reset()
-                }}
-                createFilePending={createFileMutation.isPending}
-                createFolderPending={createFolderMutation.isPending}
-                createFileError={createFileMutation.error as Error | null}
-                createFolderError={createFolderMutation.error as Error | null}
-              />
-            }
-            gridView={
-              <FileGridView
-                files={files}
-                currentPath={currentSubDir}
-                playingPath={playingPath}
-                onFileClick={handleFileClick}
-                onParentDirectory={handleParentDirectory}
-                getIcon={getIcon}
-                isEditable={canEdit}
-                onMoveFile={canEdit ? handleMoveFile : undefined}
-                getThumbnailUrl={getThumbnailUrl}
-                getImagePreviewUrl={getImagePreviewUrl}
-                onContextDownload={handleDownload}
-                onContextRename={canEdit ? handleContextRename : undefined}
-                onContextDelete={canDelete ? handleContextDelete : undefined}
-                onContextMove={canEdit ? handleContextMoveFile : undefined}
-                onContextOpenInNewTab={handleOpenInNewTab}
-                onContextOpenInWorkspace={handleOpenInWorkspace}
-              />
-            }
+            listView={listViewSlot}
+            gridView={gridViewSlot}
           />
         </UploadDropZone>
       </BrowserPane>

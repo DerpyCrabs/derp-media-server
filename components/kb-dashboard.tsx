@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, memo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { FileText } from 'lucide-react'
@@ -16,6 +16,31 @@ interface KbDashboardProps {
   shareToken?: string
   dir?: string
 }
+
+const RecentFileButton = memo(function RecentFileButton({
+  file,
+  onFileClick,
+}: {
+  file: RecentFile
+  onFileClick: (path: string) => void
+}) {
+  const onClick = useCallback(() => {
+    onFileClick(file.path)
+  }, [onFileClick, file.path])
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      className='flex items-center gap-1 md:gap-1.5 px-1.5 py-1 md:px-2 md:py-1.5 rounded border border-border bg-background hover:bg-muted/50 transition-colors text-left shrink-0'
+    >
+      <FileText className='h-4 w-4 shrink-0 text-muted-foreground' />
+      <span className='truncate text-sm font-medium'>{file.name}</span>
+      <span className='text-xs text-muted-foreground shrink-0'>
+        {formatRelativeTime(file.modifiedAt)}
+      </span>
+    </button>
+  )
+})
 
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr)
@@ -77,18 +102,7 @@ export function KbDashboard({ scopePath, onFileClick, shareToken, dir }: KbDashb
     >
       <div className='flex w-max min-w-full flex-nowrap gap-1 md:gap-1.5'>
         {recent.map((file) => (
-          <button
-            key={file.path}
-            type='button'
-            onClick={() => onFileClick(file.path)}
-            className='flex items-center gap-1 md:gap-1.5 px-1.5 py-1 md:px-2 md:py-1.5 rounded border border-border bg-background hover:bg-muted/50 transition-colors text-left shrink-0'
-          >
-            <FileText className='h-4 w-4 shrink-0 text-muted-foreground' />
-            <span className='truncate text-sm font-medium'>{file.name}</span>
-            <span className='text-xs text-muted-foreground shrink-0'>
-              {formatRelativeTime(file.modifiedAt)}
-            </span>
-          </button>
+          <RecentFileButton key={file.path} file={file} onFileClick={onFileClick} />
         ))}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useUrlState } from '@/lib/use-url-state'
@@ -39,11 +40,14 @@ export function SharePage({ token }: SharePageProps) {
   const { urlState } = useUrlState()
   const rawSearchParams = useSearchParams()
   const passcodeFromUrl = rawSearchParams.get('p') || undefined
-  const searchParams = {
-    dir: urlState.dir || undefined,
-    viewing: urlState.viewing || undefined,
-    playing: urlState.playing || undefined,
-  }
+  const searchParams = useMemo(
+    () => ({
+      dir: urlState.dir || undefined,
+      viewing: urlState.viewing || undefined,
+      playing: urlState.playing || undefined,
+    }),
+    [urlState.dir, urlState.viewing, urlState.playing],
+  )
 
   const {
     data: shareInfo,
@@ -53,6 +57,11 @@ export function SharePage({ token }: SharePageProps) {
     queryKey: queryKeys.shareInfo(token),
     queryFn: () => api<ShareInfo>(`/api/share/${token}/info`),
   })
+
+  const fullShareInfo = useMemo(() => {
+    if (!shareInfo) return undefined
+    return { ...shareInfo, token, path: shareInfo.path ?? '' }
+  }, [shareInfo, token])
 
   if (isLoading) {
     return (
@@ -78,7 +87,9 @@ export function SharePage({ token }: SharePageProps) {
     )
   }
 
-  const fullShareInfo = { ...shareInfo, token, path: shareInfo.path ?? '' }
+  if (!fullShareInfo) {
+    return null
+  }
 
   if (shareInfo.needsPasscode && !shareInfo.authorized) {
     return (

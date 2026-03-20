@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { post } from '@/lib/api'
 import {
@@ -40,6 +40,56 @@ interface ShareDialogProps {
 
 type QuotaMode = 'unlimited' | 'preset' | 'custom'
 
+function QuotaModeButton({
+  mode,
+  active,
+  onSelect,
+}: {
+  mode: QuotaMode
+  active: boolean
+  onSelect: (mode: QuotaMode) => void
+}) {
+  const onClick = useCallback(() => {
+    onSelect(mode)
+  }, [onSelect, mode])
+  return (
+    <Button
+      type='button'
+      variant={active ? 'default' : 'outline'}
+      size='sm'
+      className='h-7 text-xs capitalize'
+      onClick={onClick}
+    >
+      {mode}
+    </Button>
+  )
+}
+
+function PresetQuotaButton({
+  preset,
+  selected,
+  onSelect,
+}: {
+  preset: (typeof SIZE_PRESETS)[number]
+  selected: boolean
+  onSelect: (value: number) => void
+}) {
+  const onClick = useCallback(() => {
+    onSelect(preset.value)
+  }, [onSelect, preset.value])
+  return (
+    <Button
+      type='button'
+      variant={selected ? 'default' : 'outline'}
+      size='sm'
+      className='h-7 text-xs'
+      onClick={onClick}
+    >
+      {preset.label}
+    </Button>
+  )
+}
+
 function getQuotaMode(maxUploadBytes: number): QuotaMode {
   if (maxUploadBytes === 0) return 'unlimited'
   if (SIZE_PRESETS.some((p) => p.value === maxUploadBytes)) return 'preset'
@@ -55,16 +105,57 @@ function RestrictionsEditor({
 }) {
   const quotaMode = getQuotaMode(restrictions.maxUploadBytes)
 
-  const setMode = (mode: QuotaMode) => {
-    if (mode === 'unlimited') onChange({ ...restrictions, maxUploadBytes: 0 })
-    else if (mode === 'preset')
-      onChange({ ...restrictions, maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES })
-    else
-      onChange({
-        ...restrictions,
-        maxUploadBytes: restrictions.maxUploadBytes || DEFAULT_MAX_UPLOAD_BYTES,
-      })
-  }
+  const setMode = useCallback(
+    (mode: QuotaMode) => {
+      if (mode === 'unlimited') onChange({ ...restrictions, maxUploadBytes: 0 })
+      else if (mode === 'preset')
+        onChange({ ...restrictions, maxUploadBytes: DEFAULT_MAX_UPLOAD_BYTES })
+      else
+        onChange({
+          ...restrictions,
+          maxUploadBytes: restrictions.maxUploadBytes || DEFAULT_MAX_UPLOAD_BYTES,
+        })
+    },
+    [restrictions, onChange],
+  )
+
+  const onAllowUploadChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...restrictions, allowUpload: e.target.checked })
+    },
+    [restrictions, onChange],
+  )
+
+  const onAllowEditChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...restrictions, allowEdit: e.target.checked })
+    },
+    [restrictions, onChange],
+  )
+
+  const onAllowDeleteChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...restrictions, allowDelete: e.target.checked })
+    },
+    [restrictions, onChange],
+  )
+
+  const onCustomQuotaMbChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const mb = parseInt(e.target.value, 10)
+      if (!isNaN(mb) && mb > 0) {
+        onChange({ ...restrictions, maxUploadBytes: mb * 1024 * 1024 })
+      }
+    },
+    [restrictions, onChange],
+  )
+
+  const onPresetClick = useCallback(
+    (value: number) => {
+      onChange({ ...restrictions, maxUploadBytes: value })
+    },
+    [restrictions, onChange],
+  )
 
   return (
     <div className='space-y-3'>
@@ -72,7 +163,7 @@ function RestrictionsEditor({
         <input
           type='checkbox'
           checked={restrictions.allowUpload}
-          onChange={(e) => onChange({ ...restrictions, allowUpload: e.target.checked })}
+          onChange={onAllowUploadChange}
           className='h-4 w-4 rounded border-input'
         />
         <div>
@@ -85,7 +176,7 @@ function RestrictionsEditor({
         <input
           type='checkbox'
           checked={restrictions.allowEdit}
-          onChange={(e) => onChange({ ...restrictions, allowEdit: e.target.checked })}
+          onChange={onAllowEditChange}
           className='h-4 w-4 rounded border-input'
         />
         <div>
@@ -100,7 +191,7 @@ function RestrictionsEditor({
         <input
           type='checkbox'
           checked={restrictions.allowDelete}
-          onChange={(e) => onChange({ ...restrictions, allowDelete: e.target.checked })}
+          onChange={onAllowDeleteChange}
           className='h-4 w-4 rounded border-input'
         />
         <div>
@@ -113,31 +204,23 @@ function RestrictionsEditor({
         <p className='text-sm font-medium'>Upload size limit</p>
         <div className='flex gap-1.5'>
           {(['unlimited', 'preset', 'custom'] as const).map((mode) => (
-            <Button
+            <QuotaModeButton
               key={mode}
-              type='button'
-              variant={quotaMode === mode ? 'default' : 'outline'}
-              size='sm'
-              className='h-7 text-xs capitalize'
-              onClick={() => setMode(mode)}
-            >
-              {mode}
-            </Button>
+              mode={mode}
+              active={quotaMode === mode}
+              onSelect={setMode}
+            />
           ))}
         </div>
         {quotaMode === 'preset' && (
           <div className='flex flex-wrap gap-1.5'>
             {SIZE_PRESETS.map((preset) => (
-              <Button
+              <PresetQuotaButton
                 key={preset.value}
-                type='button'
-                variant={restrictions.maxUploadBytes === preset.value ? 'default' : 'outline'}
-                size='sm'
-                className='h-7 text-xs'
-                onClick={() => onChange({ ...restrictions, maxUploadBytes: preset.value })}
-              >
-                {preset.label}
-              </Button>
+                preset={preset}
+                selected={restrictions.maxUploadBytes === preset.value}
+                onSelect={onPresetClick}
+              />
             ))}
           </div>
         )}
@@ -147,12 +230,7 @@ function RestrictionsEditor({
               type='number'
               min={1}
               value={Math.round(restrictions.maxUploadBytes / (1024 * 1024))}
-              onChange={(e) => {
-                const mb = parseInt(e.target.value, 10)
-                if (!isNaN(mb) && mb > 0) {
-                  onChange({ ...restrictions, maxUploadBytes: mb * 1024 * 1024 })
-                }
-              }}
+              onChange={onCustomQuotaMbChange}
               className='h-7 text-xs w-24'
             />
             <span className='text-xs text-muted-foreground'>MB</span>
@@ -236,15 +314,28 @@ function ShareCard({
     [updateMutation, share.token],
   )
 
-  const handleEditableChange = (val: boolean) => {
-    setEditable(val)
-    scheduleUpdate(val, restrictions)
-  }
+  const handleEditableChange = useCallback(
+    (val: boolean) => {
+      setEditable(val)
+      scheduleUpdate(val, restrictions)
+    },
+    [scheduleUpdate, restrictions],
+  )
 
-  const handleRestrictionsChange = (r: Required<ShareRestrictions>) => {
-    setRestrictions(r)
-    scheduleUpdate(editable, r)
-  }
+  const handleRestrictionsChange = useCallback(
+    (r: Required<ShareRestrictions>) => {
+      setRestrictions(r)
+      scheduleUpdate(editable, r)
+    },
+    [scheduleUpdate, editable],
+  )
+
+  const onEditableCheckboxChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      handleEditableChange(e.target.checked)
+    },
+    [handleEditableChange],
+  )
 
   useEffect(() => {
     return () => {
@@ -260,7 +351,7 @@ function ShareCard({
     },
   })
 
-  const handleCopyLink = async () => {
+  const handleCopyLink = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(buildShareUrl(share, shareLinkBase))
       setCopiedLink(true)
@@ -268,7 +359,15 @@ function ShareCard({
     } catch {
       /* ignore */
     }
-  }
+  }, [share, shareLinkBase])
+
+  const toggleShowSettings = useCallback(() => {
+    setShowSettings((s) => !s)
+  }, [])
+
+  const handleRevoke = useCallback(() => {
+    revokeMutation.mutate({ token: share.token })
+  }, [revokeMutation, share.token])
 
   const url = buildShareUrl(share, shareLinkBase)
   const used = share.usedBytes || 0
@@ -310,7 +409,7 @@ function ShareCard({
         variant='ghost'
         size='sm'
         className='w-full justify-between h-8'
-        onClick={() => setShowSettings(!showSettings)}
+        onClick={toggleShowSettings}
       >
         <span className='text-xs'>
           {editable ? 'Editable' : 'Read-only'}
@@ -341,7 +440,7 @@ function ShareCard({
               <input
                 type='checkbox'
                 checked={editable}
-                onChange={(e) => handleEditableChange(e.target.checked)}
+                onChange={onEditableCheckboxChange}
                 className='h-4 w-4 rounded border-input'
               />
               <div>
@@ -368,7 +467,7 @@ function ShareCard({
         variant='destructive'
         size='sm'
         className='w-full'
-        onClick={() => revokeMutation.mutate({ token: share.token })}
+        onClick={handleRevoke}
         disabled={revokeMutation.isPending}
       >
         <Trash2 className='h-3.5 w-3.5 mr-1.5' />
@@ -426,10 +525,45 @@ export function ShareDialog({
 
   const hasShares = existingShares.length > 0
 
+  const handleDialogOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) onClose()
+    },
+    [onClose],
+  )
+
+  const onNewEditableChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewEditable(e.target.checked)
+  }, [])
+
+  const handleSubmitNewShare = useCallback(() => {
+    createShareMutation.mutate({
+      path: filePath,
+      isDirectory,
+      editable: newEditable,
+      ...(newEditable ? { restrictions: newRestrictions } : {}),
+    })
+  }, [createShareMutation, filePath, isDirectory, newEditable, newRestrictions])
+
+  const handleCancelNewShare = useCallback(() => {
+    setShowCreate(false)
+  }, [])
+
+  const handleOpenNewShare = useCallback(() => {
+    setShowCreate(true)
+  }, [])
+
+  const shareCardOnRevoked = useCallback(() => {}, [])
+
+  const sortedExistingShares = useMemo(
+    () => [...existingShares].sort((a, b) => b.createdAt - a.createdAt),
+    [existingShares],
+  )
+
   return (
     <Dialog
       open={isOpen}
-      onOpenChange={(open) => !open && onClose()}
+      onOpenChange={handleDialogOpenChange}
       disablePointerDismissal={!!container}
     >
       <DialogContent
@@ -460,7 +594,7 @@ export function ShareDialog({
                     <input
                       type='checkbox'
                       checked={newEditable}
-                      onChange={(e) => setNewEditable(e.target.checked)}
+                      onChange={onNewEditableChange}
                       className='h-4 w-4 rounded border-input'
                     />
                     <div>
@@ -487,48 +621,34 @@ export function ShareDialog({
                 <Button
                   className='flex-1'
                   size='sm'
-                  onClick={() =>
-                    createShareMutation.mutate({
-                      path: filePath,
-                      isDirectory,
-                      editable: newEditable,
-                      ...(newEditable ? { restrictions: newRestrictions } : {}),
-                    })
-                  }
+                  onClick={handleSubmitNewShare}
                   disabled={createShareMutation.isPending}
                 >
                   <Link className='h-3.5 w-3.5 mr-1.5' />
                   {createShareMutation.isPending ? 'Creating...' : 'Create'}
                 </Button>
-                <Button variant='outline' size='sm' onClick={() => setShowCreate(false)}>
+                <Button variant='outline' size='sm' onClick={handleCancelNewShare}>
                   Cancel
                 </Button>
               </div>
             </div>
           ) : (
-            <Button
-              variant='outline'
-              className='w-full'
-              size='sm'
-              onClick={() => setShowCreate(true)}
-            >
+            <Button variant='outline' className='w-full' size='sm' onClick={handleOpenNewShare}>
               <Plus className='h-3.5 w-3.5 mr-1.5' />
               Create New Share Link
             </Button>
           )}
 
           {/* Existing shares list (newest first) */}
-          {[...existingShares]
-            .sort((a, b) => b.createdAt - a.createdAt)
-            .map((share) => (
-              <ShareCard
-                key={share.token}
-                share={share}
-                isDirectory={isDirectory}
-                isEditable={isEditable}
-                onRevoked={() => {}}
-              />
-            ))}
+          {sortedExistingShares.map((share) => (
+            <ShareCard
+              key={share.token}
+              share={share}
+              isDirectory={isDirectory}
+              isEditable={isEditable}
+              onRevoked={shareCardOnRevoked}
+            />
+          ))}
 
           {!hasShares && !showCreate && (
             <p className='text-sm text-muted-foreground text-center py-2'>
