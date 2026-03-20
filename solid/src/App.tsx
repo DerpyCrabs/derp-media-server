@@ -3,6 +3,7 @@ import { Switch, Match, Show, createSignal, createMemo } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { FileBrowser } from './FileBrowser'
 import { ShareRoute } from './ShareRoute'
+import { WorkspacePage } from './WorkspacePage'
 
 async function postLogin(password: string) {
   const res = await fetch('/api/auth/login', {
@@ -72,9 +73,10 @@ function LoginPage() {
   )
 }
 
-function matchRoute(pathname: string): 'login' | 'share' | 'home' {
+function matchRoute(pathname: string): 'login' | 'share' | 'home' | 'workspace' {
   if (pathname === '/login' || pathname.startsWith('/login/')) return 'login'
   if (pathname.startsWith('/share/')) return 'share'
+  if (pathname === '/workspace') return 'workspace'
   return 'home'
 }
 
@@ -89,6 +91,9 @@ export function App() {
       </Match>
       <Match when={matchRoute(path()) === 'share'}>
         <ShareRoute />
+      </Match>
+      <Match when={matchRoute(path()) === 'workspace'}>
+        <WorkspacePage />
       </Match>
     </Switch>
   )
