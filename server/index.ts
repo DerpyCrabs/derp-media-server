@@ -22,6 +22,7 @@ import fs from 'fs'
 const isDev = process.env.NODE_ENV !== 'production'
 const isTest = process.env.NODE_ENV === 'test'
 const PORT = Number(process.env.PORT) || 3000
+const isSolidUi = process.env.UI_FRAMEWORK === 'solid'
 
 async function start() {
   const app = Fastify({ logger: false })
@@ -60,6 +61,7 @@ async function start() {
     await app.register(import('@fastify/middie'))
     const { createServer: createViteServer } = await import('vite')
     const vite = await createViteServer({
+      ...(isSolidUi ? { configFile: path.resolve('solid/vite.config.ts') } : {}),
       server: {
         middlewareMode: true,
         hmr: isTest ? { port: PORT + 1000 } : undefined,
@@ -79,15 +81,17 @@ async function start() {
       },
       appType: 'custom',
       cacheDir: isTest
-        ? `node_modules/.vite-test${process.env.BATCH_ID ? `-${process.env.BATCH_ID}` : ''}`
+        ? `node_modules/.vite-test${process.env.BATCH_ID ? `-${process.env.BATCH_ID}` : ''}${isSolidUi ? '-solid' : ''}`
         : undefined,
     })
     app.use(vite.middlewares)
 
+    const devIndexHtml = isSolidUi ? path.resolve('solid/index.html') : path.resolve('index.html')
+
     app.get('*', async (request, reply) => {
       try {
         const url = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`)
-        let template = fs.readFileSync(path.resolve('index.html'), 'utf-8')
+        let template = fs.readFileSync(devIndexHtml, 'utf-8')
         template = await vite.transformIndexHtml(url.pathname, template)
         const dehydrated = await dehydrateForRoute(
           url.pathname,
@@ -105,13 +109,14 @@ async function start() {
       }
     })
   } else {
+    const staticRoot = isSolidUi ? 'dist/client-solid' : 'dist/client'
     await app.register(import('@fastify/static'), {
-      root: path.resolve('dist/client'),
+      root: path.resolve(staticRoot),
       prefix: '/',
       wildcard: false,
     })
 
-    const templateHtml = fs.readFileSync(path.resolve('dist/client/index.html'), 'utf-8')
+    const templateHtml = fs.readFileSync(path.resolve(staticRoot, 'index.html'), 'utf-8')
 
     app.get('*', async (request, reply) => {
       try {

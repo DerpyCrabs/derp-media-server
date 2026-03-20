@@ -3,6 +3,19 @@
 # dependencies
 /node_modules
 /.pnp
+
+# solid/ subtree (nested installs, Vite output, caches if present)
+solid/node_modules/
+solid/dist/
+solid/build/
+solid/out/
+solid/.vite/
+solid/coverage/
+solid/.turbo/
+solid/.cache/
+solid/.parcel-cache/
+solid/playwright-report/
+solid/test-results/
 .pnp.*
 .yarn/*
 !.yarn/patches
