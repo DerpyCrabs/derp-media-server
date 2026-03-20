@@ -1,3 +1,4 @@
+import { useCallback, memo } from 'react'
 import { Menu } from '@base-ui/react/menu'
 import { AppWindow, Layers, Settings, Sun, Moon, Monitor, Check } from 'lucide-react'
 import {
@@ -68,6 +69,38 @@ const SNAP_SETTINGS_LANDSCAPE_AR = 16 / 12
 /** Match tall picker previews for portrait-oriented workspace. */
 const SNAP_SETTINGS_PORTRAIT_AR = 10 / 16
 
+const SnapLayoutThumb = memo(function SnapLayoutThumb({
+  template,
+  on,
+  onToggle,
+  aspectRatio,
+}: {
+  template: SnapLayoutTemplate
+  on: boolean
+  onToggle: (id: string) => void
+  aspectRatio: number
+}) {
+  const onClick = useCallback(() => {
+    onToggle(template.id)
+  }, [onToggle, template.id])
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      aria-pressed={on}
+      title={on ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'}
+      className={cn(
+        'rounded-lg p-1 transition-[opacity,box-shadow]',
+        on
+          ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+          : 'opacity-45 hover:opacity-80',
+      )}
+    >
+      <SnapLayoutTemplateThumbnail template={template} aspectRatio={aspectRatio} />
+    </button>
+  )
+})
+
 function SnapLayoutVisibilityRow({
   templates,
   visibleIds,
@@ -81,29 +114,112 @@ function SnapLayoutVisibilityRow({
 }) {
   return (
     <div className='flex flex-wrap gap-2'>
-      {templates.map((t) => {
-        const on = visibleIds.has(t.id)
-        return (
-          <button
-            key={t.id}
-            type='button'
-            onClick={() => onToggle(t.id)}
-            aria-pressed={on}
-            title={on ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'}
-            className={cn(
-              'rounded-lg p-1 transition-[opacity,box-shadow]',
-              on
-                ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-                : 'opacity-45 hover:opacity-80',
-            )}
-          >
-            <SnapLayoutTemplateThumbnail template={t} aspectRatio={aspectRatio} />
-          </button>
-        )
-      })}
+      {templates.map((t) => (
+        <SnapLayoutThumb
+          key={t.id}
+          template={t}
+          on={visibleIds.has(t.id)}
+          onToggle={onToggle}
+          aspectRatio={aspectRatio}
+        />
+      ))}
     </div>
   )
 }
+
+const FileOpenTargetButton = memo(function FileOpenTargetButton({
+  opt,
+  selected,
+}: {
+  opt: (typeof FILE_OPEN_TARGETS)[number]
+  selected: boolean
+}) {
+  const Icon = opt.icon
+  const onClick = useCallback(() => {
+    setWorkspaceFileOpenTarget(opt.value)
+  }, [opt.value])
+  return (
+    <button
+      type='button'
+      title={opt.hint}
+      className={cn(
+        'flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-left transition-colors',
+        selected
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border bg-muted/50 hover:bg-muted',
+      )}
+      onClick={onClick}
+    >
+      <Icon className='h-4 w-4 shrink-0' />
+      <span className='flex-1'>{opt.label}</span>
+      {selected && <Check className='h-4 w-4 shrink-0' />}
+    </button>
+  )
+})
+
+const SettingsModeButton = memo(function SettingsModeButton({
+  m,
+  palette,
+  mode,
+  setTheme,
+}: {
+  m: (typeof MODES)[number]
+  palette: ThemePalette
+  mode: ThemeMode
+  setTheme: (p: ThemePalette, m: ThemeMode) => void
+}) {
+  const Icon = m.icon
+  const onClick = useCallback(() => {
+    setTheme(palette, m.value)
+  }, [setTheme, palette, m.value])
+  return (
+    <button
+      type='button'
+      className={cn(
+        'flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+        mode === m.value
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border bg-muted/50 hover:bg-muted',
+      )}
+      onClick={onClick}
+    >
+      <Icon className='h-4 w-4 shrink-0' />
+      {m.label}
+      {mode === m.value && <Check className='h-4 w-4 shrink-0' />}
+    </button>
+  )
+})
+
+const SettingsPaletteButton = memo(function SettingsPaletteButton({
+  p,
+  palette,
+  mode,
+  setTheme,
+}: {
+  p: (typeof PALETTES)[number]
+  palette: ThemePalette
+  mode: ThemeMode
+  setTheme: (p: ThemePalette, m: ThemeMode) => void
+}) {
+  const onClick = useCallback(() => {
+    setTheme(p.value, mode)
+  }, [setTheme, p.value, mode])
+  return (
+    <button
+      type='button'
+      className={cn(
+        'flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+        palette === p.value
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border bg-muted/50 hover:bg-muted',
+      )}
+      onClick={onClick}
+    >
+      {p.label}
+      {palette === p.value && <Check className='h-4 w-4 shrink-0' />}
+    </button>
+  )
+})
 
 function SettingsModalContent() {
   const { palette, mode, setTheme } = useTheme()
@@ -127,72 +243,40 @@ function SettingsModalContent() {
             Default when you open a file from the workspace browser (saved on this device).
           </p>
           <div className='flex flex-col gap-2'>
-            {FILE_OPEN_TARGETS.map((opt) => {
-              const Icon = opt.icon
-              return (
-                <button
-                  key={opt.value}
-                  type='button'
-                  title={opt.hint}
-                  className={cn(
-                    'flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-left transition-colors',
-                    fileOpenTarget === opt.value
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-muted/50 hover:bg-muted',
-                  )}
-                  onClick={() => setWorkspaceFileOpenTarget(opt.value)}
-                >
-                  <Icon className='h-4 w-4 shrink-0' />
-                  <span className='flex-1'>{opt.label}</span>
-                  {fileOpenTarget === opt.value && <Check className='h-4 w-4 shrink-0' />}
-                </button>
-              )
-            })}
+            {FILE_OPEN_TARGETS.map((opt) => (
+              <FileOpenTargetButton
+                key={opt.value}
+                opt={opt}
+                selected={fileOpenTarget === opt.value}
+              />
+            ))}
           </div>
         </div>
         <div>
           <div className='mb-2 text-xs font-medium text-muted-foreground'>Mode</div>
           <div className='flex flex-wrap gap-2'>
-            {MODES.map((m) => {
-              const Icon = m.icon
-              return (
-                <button
-                  key={m.value}
-                  type='button'
-                  className={cn(
-                    'flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
-                    mode === m.value
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-muted/50 hover:bg-muted',
-                  )}
-                  onClick={() => setTheme(palette, m.value)}
-                >
-                  <Icon className='h-4 w-4 shrink-0' />
-                  {m.label}
-                  {mode === m.value && <Check className='h-4 w-4 shrink-0' />}
-                </button>
-              )
-            })}
+            {MODES.map((m) => (
+              <SettingsModeButton
+                key={m.value}
+                m={m}
+                palette={palette}
+                mode={mode}
+                setTheme={setTheme}
+              />
+            ))}
           </div>
         </div>
         <div>
           <div className='mb-2 text-xs font-medium text-muted-foreground'>Theme</div>
           <div className='flex flex-wrap gap-2'>
             {PALETTES.map((p) => (
-              <button
+              <SettingsPaletteButton
                 key={p.value}
-                type='button'
-                className={cn(
-                  'flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
-                  palette === p.value
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-muted/50 hover:bg-muted',
-                )}
-                onClick={() => setTheme(p.value, mode)}
-              >
-                {p.label}
-                {palette === p.value && <Check className='h-4 w-4 shrink-0' />}
-              </button>
+                p={p}
+                palette={palette}
+                mode={mode}
+                setTheme={setTheme}
+              />
             ))}
           </div>
         </div>
@@ -237,6 +321,58 @@ function SettingsModalContent() {
   )
 }
 
+const MenuModeRow = memo(function MenuModeRow({
+  m,
+  palette,
+  mode,
+  setTheme,
+}: {
+  m: (typeof MODES)[number]
+  palette: ThemePalette
+  mode: ThemeMode
+  setTheme: (p: ThemePalette, m: ThemeMode) => void
+}) {
+  const Icon = m.icon
+  const onClick = useCallback(() => {
+    setTheme(palette, m.value)
+  }, [setTheme, palette, m.value])
+  return (
+    <Menu.Item
+      className='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground'
+      onClick={onClick}
+    >
+      <Icon className='h-4 w-4 shrink-0' />
+      <span className='flex-1'>{m.label}</span>
+      {mode === m.value && <Check className='h-4 w-4 shrink-0' />}
+    </Menu.Item>
+  )
+})
+
+const MenuPaletteRow = memo(function MenuPaletteRow({
+  p,
+  palette,
+  mode,
+  setTheme,
+}: {
+  p: (typeof PALETTES)[number]
+  palette: ThemePalette
+  mode: ThemeMode
+  setTheme: (p: ThemePalette, m: ThemeMode) => void
+}) {
+  const onClick = useCallback(() => {
+    setTheme(p.value, mode)
+  }, [setTheme, p.value, mode])
+  return (
+    <Menu.Item
+      className='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground'
+      onClick={onClick}
+    >
+      <span className='flex-1'>{p.label}</span>
+      {palette === p.value && <Check className='h-4 w-4 shrink-0' />}
+    </Menu.Item>
+  )
+})
+
 export function ThemeSwitcher({ variant = 'header' }: ThemeSwitcherProps) {
   const { palette, mode, setTheme } = useTheme()
 
@@ -278,31 +414,19 @@ export function ThemeSwitcher({ variant = 'header' }: ThemeSwitcherProps) {
         >
           <Menu.Popup className='data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/10 bg-popover text-popover-foreground z-50 min-w-44 origin-(--transform-origin) overflow-hidden rounded-md p-1 shadow-md ring-1 duration-100 outline-none'>
             <div className='px-2 py-1.5 text-xs font-medium text-muted-foreground'>Mode</div>
-            {MODES.map((m) => {
-              const Icon = m.icon
-              return (
-                <Menu.Item
-                  key={m.value}
-                  className='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground'
-                  onClick={() => setTheme(palette, m.value)}
-                >
-                  <Icon className='h-4 w-4 shrink-0' />
-                  <span className='flex-1'>{m.label}</span>
-                  {mode === m.value && <Check className='h-4 w-4 shrink-0' />}
-                </Menu.Item>
-              )
-            })}
+            {MODES.map((m) => (
+              <MenuModeRow key={m.value} m={m} palette={palette} mode={mode} setTheme={setTheme} />
+            ))}
             <div className='my-1 h-px bg-border' />
             <div className='px-2 py-1.5 text-xs font-medium text-muted-foreground'>Theme</div>
             {PALETTES.map((p) => (
-              <Menu.Item
+              <MenuPaletteRow
                 key={p.value}
-                className='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground'
-                onClick={() => setTheme(p.value, mode)}
-              >
-                <span className='flex-1'>{p.label}</span>
-                {palette === p.value && <Check className='h-4 w-4 shrink-0' />}
-              </Menu.Item>
+                p={p}
+                palette={palette}
+                mode={mode}
+                setTheme={setTheme}
+              />
             ))}
           </Menu.Popup>
         </Menu.Positioner>

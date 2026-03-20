@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Minimize2, Maximize2, X, ArrowUp, Headphones } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -315,6 +315,34 @@ export function VideoPlayer({ session: sessionProp, mediaContext }: VideoPlayerP
     }
   }
 
+  const minimizedPositionStyle = useMemo(
+    () =>
+      isMinimized
+        ? {
+            left: `${position.x}px`,
+            top: `${position.y}px`,
+          }
+        : undefined,
+    [isMinimized, position.x, position.y],
+  )
+
+  const dragHandleCursorStyle = useMemo(
+    () => ({
+      cursor: isMinimized ? (isDragging ? 'grabbing' : 'grab') : 'default',
+    }),
+    [isMinimized, isDragging],
+  )
+
+  const videoAreaStyle = useMemo(
+    () => ({
+      maxHeight: isMinimized ? '180px' : '70vh',
+      minHeight: isMinimized ? '180px' : undefined,
+      height: isMinimized ? '180px' : undefined,
+      aspectRatio: isMinimized ? undefined : ('16 / 9' as const),
+    }),
+    [isMinimized],
+  )
+
   // Hide video player when in audio-only mode
   if (!isVideoFile || isAudioOnly) {
     return null
@@ -325,21 +353,14 @@ export function VideoPlayer({ session: sessionProp, mediaContext }: VideoPlayerP
       <div
         ref={playerRef}
         className={` ${isMinimized ? 'fixed z-40 w-80' : 'w-full bg-background'}`}
-        style={
-          isMinimized
-            ? {
-                left: `${position.x}px`,
-                top: `${position.y}px`,
-              }
-            : undefined
-        }
+        style={minimizedPositionStyle}
       >
         <Card className={`py-0 ${isMinimized ? '' : 'w-full rounded-none border-x-0 border-t-0'}`}>
           <div className='bg-black'>
             <div
               className='bg-background/90 backdrop-blur-sm border-b border-border p-2 flex items-center justify-between z-10'
               onMouseDown={handleDragStart}
-              style={{ cursor: isMinimized ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+              style={dragHandleCursorStyle}
             >
               <span className='text-sm font-medium truncate flex-1 px-2'>{fileName}</span>
               <div className='flex items-center gap-1'>
@@ -364,17 +385,7 @@ export function VideoPlayer({ session: sessionProp, mediaContext }: VideoPlayerP
                 </Button>
               </div>
             </div>
-            <video
-              ref={videoRef}
-              controls
-              className='w-full bg-black'
-              style={{
-                maxHeight: isMinimized ? '180px' : '70vh',
-                minHeight: isMinimized ? '180px' : undefined,
-                height: isMinimized ? '180px' : undefined,
-                aspectRatio: isMinimized ? undefined : '16 / 9',
-              }}
-            >
+            <video ref={videoRef} controls className='w-full bg-black' style={videoAreaStyle}>
               Your browser does not support the video tag.
             </video>
           </div>

@@ -1,4 +1,4 @@
-import { Suspense } from 'react'
+import { Suspense, useMemo } from 'react'
 import { AudioPlayer } from '@/components/audio-player'
 import { VideoPlayer } from '@/components/video-player'
 import { ImageViewer } from '@/components/image-viewer'
@@ -24,10 +24,14 @@ function MediaPlayersInner({
   mediaContext,
   shareContext,
 }: MediaPlayersProps) {
-  const resolvedMediaContext = mediaContext ?? {
-    shareToken: shareContext?.token ?? null,
-    sharePath: shareContext?.shareInfo.path ?? null,
-  }
+  const resolvedMediaContext = useMemo(
+    () =>
+      mediaContext ?? {
+        shareToken: shareContext?.token ?? null,
+        sharePath: shareContext?.shareInfo.path ?? null,
+      },
+    [mediaContext, shareContext?.token, shareContext?.shareInfo.path],
+  )
 
   return (
     <>

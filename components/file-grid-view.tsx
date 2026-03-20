@@ -1,4 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, {
+  memo,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  type DragEvent,
+  type MouseEvent,
+  type SyntheticEvent,
+} from 'react'
 import { FileItem, MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { isPathEditable } from '@/lib/utils'
@@ -13,6 +22,372 @@ import {
   getFileDragData,
   isCompatibleSource,
 } from '@/lib/file-drag-data'
+
+const DEFAULT_GRID_EDITABLE_FOLDERS: string[] = []
+const DEFAULT_GRID_SHARES: ShareLink[] = []
+
+interface FileGridFileCardProps {
+  file: FileItem
+  playingPath: string | null
+  draggedPath: string | null
+  dragOverPath: string | null
+  enableDrag: boolean
+  isFileEditable: boolean
+  onMoveFile?: (sourcePath: string, destinationDir: string) => void
+  dragSourceKind?: 'local' | 'share'
+  dragSourceToken?: string | undefined
+  onFileClick: (file: FileItem) => void
+  getIcon: (
+    type: MediaType,
+    filePath: string,
+    isAudioFile?: boolean,
+    isVideoFile?: boolean,
+    isVirtual?: boolean,
+  ) => React.ReactElement
+  editableFolders: string[]
+  isEditableProp: boolean | undefined
+  canDropOn: (targetPath: string, sourcePath?: string) => boolean
+  setDraggedPath: React.Dispatch<React.SetStateAction<string | null>>
+  setDragOverPath: React.Dispatch<React.SetStateAction<string | null>>
+  isFavorite: boolean
+  isKnowledgeBase: boolean
+  viewCount: number
+  shareViewCount: number
+  isShared: boolean
+  showFavorites: boolean
+  showViewCounts: boolean
+  onFavoriteToggle?: (path: string, e: MouseEvent) => void
+  isVirtualFolder: boolean
+  hasAnyContextAction: boolean
+  resolveThumbnailUrl: (file: FileItem) => string
+  resolveImagePreviewUrl: (file: FileItem) => string
+  onContextSetIcon?: (file: FileItem) => void
+  onContextRename?: (file: FileItem) => void
+  onContextDelete?: (file: FileItem) => void
+  onContextDownload?: (file: FileItem) => void
+  onContextToggleFavorite?: (file: FileItem) => void
+  onContextToggleKnowledgeBase?: (file: FileItem) => void
+  onContextShare?: (file: FileItem) => void
+  onContextCopyShareLink?: (file: FileItem) => void
+  onContextMove?: (file: FileItem) => void
+  onContextCopy?: (file: FileItem) => void
+  onContextOpenInNewTab?: (file: FileItem) => void
+  onContextOpenInWorkspace?: (file: FileItem) => void
+  onContextAddToTaskbar?: (file: FileItem) => void
+  showOpenInNewTabForFiles?: boolean
+  contextOpenWorkspaceAsStandalone?: boolean
+  hasEditableFolders?: boolean
+}
+
+const FileGridFileCard = memo(function FileGridFileCard({
+  file,
+  playingPath,
+  draggedPath,
+  dragOverPath,
+  enableDrag,
+  isFileEditable,
+  onMoveFile,
+  dragSourceKind,
+  dragSourceToken,
+  onFileClick,
+  getIcon,
+  editableFolders,
+  isEditableProp,
+  canDropOn,
+  setDraggedPath,
+  setDragOverPath,
+  isFavorite,
+  isKnowledgeBase,
+  viewCount,
+  shareViewCount,
+  isShared,
+  showFavorites,
+  showViewCounts,
+  onFavoriteToggle,
+  isVirtualFolder,
+  hasAnyContextAction,
+  resolveThumbnailUrl,
+  resolveImagePreviewUrl,
+  onContextSetIcon,
+  onContextRename,
+  onContextDelete,
+  onContextDownload,
+  onContextToggleFavorite,
+  onContextToggleKnowledgeBase,
+  onContextShare,
+  onContextCopyShareLink,
+  onContextMove,
+  onContextCopy,
+  onContextOpenInNewTab,
+  onContextOpenInWorkspace,
+  onContextAddToTaskbar,
+  showOpenInNewTabForFiles,
+  contextOpenWorkspaceAsStandalone,
+  hasEditableFolders,
+}: FileGridFileCardProps) {
+  const handleClick = useCallback(() => onFileClick(file), [onFileClick, file])
+
+  const handleDragStart = useCallback(
+    (e: DragEvent) => {
+      if (!isFileEditable || !onMoveFile) return
+      if (dragSourceKind) {
+        setFileDragData(e.dataTransfer, {
+          path: file.path,
+          isDirectory: file.isDirectory,
+          sourceKind: dragSourceKind,
+          sourceToken: dragSourceToken,
+        })
+      } else {
+        e.dataTransfer.setData('text/plain', file.path)
+      }
+      e.dataTransfer.effectAllowed = 'copyMove'
+      setDraggedPath(file.path)
+    },
+    [
+      isFileEditable,
+      onMoveFile,
+      dragSourceKind,
+      dragSourceToken,
+      file.path,
+      file.isDirectory,
+      setDraggedPath,
+    ],
+  )
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedPath(null)
+    setDragOverPath(null)
+  }, [setDraggedPath, setDragOverPath])
+
+  const handleDragOver = useCallback(
+    (e: DragEvent) => {
+      if (!file.isDirectory || !onMoveFile) return
+      const hasCrossDrag = !draggedPath && hasFileDragData(e.dataTransfer)
+      if (!draggedPath && !hasCrossDrag) return
+      if (draggedPath && !canDropOn(file.path)) return
+      if (isEditableProp === undefined && !isPathEditable(file.path, editableFolders)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setDragOverPath(file.path)
+    },
+    [
+      file.isDirectory,
+      file.path,
+      onMoveFile,
+      draggedPath,
+      canDropOn,
+      isEditableProp,
+      editableFolders,
+      setDragOverPath,
+    ],
+  )
+
+  const handleDragLeave = useCallback(
+    (e: DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        if (dragOverPath === file.path) setDragOverPath(null)
+      }
+    },
+    [dragOverPath, file.path, setDragOverPath],
+  )
+
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault()
+      setDragOverPath(null)
+      if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
+        onMoveFile(draggedPath, file.path)
+      } else if (!draggedPath && file.isDirectory && onMoveFile) {
+        const data = getFileDragData(e.dataTransfer)
+        if (
+          data &&
+          dragSourceKind &&
+          isCompatibleSource({ sourceKind: dragSourceKind, sourceToken: dragSourceToken }, data) &&
+          canDropOn(file.path, data.path)
+        ) {
+          onMoveFile(data.path, file.path)
+        }
+      }
+    },
+    [
+      setDragOverPath,
+      draggedPath,
+      file.isDirectory,
+      file.path,
+      onMoveFile,
+      canDropOn,
+      dragSourceKind,
+      dragSourceToken,
+    ],
+  )
+
+  const handleFavoriteClick = useCallback(
+    (e: MouseEvent) => {
+      onFavoriteToggle?.(file.path, e)
+    },
+    [onFavoriteToggle, file.path],
+  )
+
+  const handleImgError = useCallback((e: SyntheticEvent<HTMLImageElement>) => {
+    e.currentTarget.style.display = 'none'
+    const parent = e.currentTarget.parentElement
+    if (parent) {
+      const icon = parent.querySelector('.fallback-icon')
+      if (icon) {
+        icon.classList.remove('hidden')
+      }
+    }
+  }, [])
+
+  const card = (
+    <Card
+      className={`cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 ${
+        playingPath === file.path ? 'ring-2 ring-primary' : ''
+      } ${draggedPath === file.path ? 'opacity-50' : ''} ${
+        file.isDirectory && dragOverPath === file.path ? 'ring-2 ring-primary bg-primary/10' : ''
+      }`}
+      draggable={enableDrag && isFileEditable && !!onMoveFile}
+      onClick={handleClick}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <CardContent className='flex h-full flex-col p-0'>
+        <div className='group relative flex aspect-video items-center justify-center overflow-hidden rounded-t-lg bg-muted'>
+          {showFavorites && !file.isDirectory && (
+            <button
+              onClick={handleFavoriteClick}
+              className={`absolute top-1.5 left-1.5 z-10 rounded-full p-1 transition-all ${
+                isFavorite
+                  ? 'bg-background/90 shadow-sm hover:bg-background'
+                  : 'bg-background/70 opacity-60 hover:bg-background/90 group-hover:opacity-100'
+              }`}
+              title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              <Star
+                className={`h-3.5 w-3.5 ${
+                  isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'
+                }`}
+              />
+            </button>
+          )}
+          {showViewCounts && !file.isDirectory && (
+            <div
+              className={`absolute top-1.5 right-1.5 z-10 flex items-center gap-1 ${viewCount > 0 || shareViewCount > 0 ? '' : 'hidden'}`}
+              suppressHydrationWarning
+            >
+              <div
+                className={`flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm ${viewCount > 0 ? '' : 'hidden'}`}
+                title={`${viewCount} views`}
+                suppressHydrationWarning
+              >
+                <Eye className='h-3 w-3 text-muted-foreground' />
+                <span
+                  className='text-xs font-medium text-muted-foreground'
+                  suppressHydrationWarning
+                >
+                  {viewCount}
+                </span>
+              </div>
+              <div
+                className={`flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm ${shareViewCount > 0 ? '' : 'hidden'}`}
+                title={`${shareViewCount} shared views`}
+                suppressHydrationWarning
+              >
+                <Share2 className='h-3 w-3 text-primary/70' />
+                <span className='text-xs font-medium text-primary/70' suppressHydrationWarning>
+                  {shareViewCount}
+                </span>
+              </div>
+            </div>
+          )}
+          {file.type === MediaType.VIDEO ? (
+            <img
+              src={resolveThumbnailUrl(file)}
+              alt={file.name}
+              loading='lazy'
+              className='h-full w-full rounded-t-lg object-cover'
+              onError={handleImgError}
+            />
+          ) : file.type === MediaType.IMAGE ? (
+            <img
+              src={resolveImagePreviewUrl(file)}
+              alt={file.name}
+              loading='lazy'
+              className='h-full w-full rounded-t-lg object-cover'
+              onError={handleImgError}
+            />
+          ) : null}
+          <div
+            className={`fallback-icon ${
+              file.type === MediaType.VIDEO || file.type === MediaType.IMAGE ? 'hidden' : ''
+            }`}
+          >
+            <div className='scale-[2.5]'>
+              {getIcon(
+                file.type,
+                file.path,
+                file.type === MediaType.AUDIO,
+                file.type === MediaType.VIDEO,
+                file.isVirtual,
+              )}
+            </div>
+          </div>
+        </div>
+        <div className='flex flex-col gap-1 p-3'>
+          <p className='truncate text-sm font-medium' title={file.name}>
+            {file.name}
+            {isShared && <Link className='ml-1 inline h-3 w-3 text-primary opacity-70' />}
+          </p>
+          {isVirtualFolder && !file.isDirectory ? (
+            <p
+              className='truncate text-xs text-muted-foreground'
+              title={file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
+            >
+              {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
+            </p>
+          ) : (
+            <div className='flex items-center justify-end text-xs text-muted-foreground'>
+              <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+
+  return hasAnyContextAction ? (
+    <FileContextMenu
+      file={file}
+      onSetIcon={onContextSetIcon}
+      onRename={onContextRename}
+      onDelete={onContextDelete}
+      onDownload={onContextDownload}
+      onToggleFavorite={onContextToggleFavorite}
+      onToggleKnowledgeBase={onContextToggleKnowledgeBase}
+      onShare={onContextShare}
+      onCopyShareLink={onContextCopyShareLink}
+      onMove={onContextMove}
+      onCopy={onContextCopy}
+      onOpenInNewTab={onContextOpenInNewTab}
+      onOpenInWorkspace={onContextOpenInWorkspace}
+      onAddToTaskbar={onContextAddToTaskbar}
+      showOpenInNewTabForFiles={showOpenInNewTabForFiles}
+      contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
+      hasEditableFolders={hasEditableFolders}
+      isFavorite={isFavorite}
+      isKnowledgeBase={isKnowledgeBase}
+      isEditable={isFileEditable}
+      isShared={isShared}
+    >
+      {card}
+    </FileContextMenu>
+  ) : (
+    <React.Fragment key={file.path}>{card}</React.Fragment>
+  )
+})
 
 interface FileGridViewProps {
   files: FileItem[]
@@ -71,8 +446,8 @@ export function FileGridView({
   getIcon,
   favorites = [],
   isVirtualFolder = false,
-  editableFolders = [],
-  shares = [],
+  editableFolders = DEFAULT_GRID_EDITABLE_FOLDERS,
+  shares = DEFAULT_GRID_SHARES,
   knowledgeBases = [],
   getViewCount,
   getShareViewCount,
@@ -117,23 +492,68 @@ export function FileGridView({
     [shares, showShareIndicators],
   )
 
-  const defaultThumbnailUrl = (file: FileItem) => `/api/thumbnail/${encodeURIComponent(file.path)}`
-  const defaultImagePreviewUrl = (file: FileItem) => `/api/media/${encodeURIComponent(file.path)}`
-
-  const resolveThumbnailUrl = getThumbnailUrl ?? defaultThumbnailUrl
-  const resolveImagePreviewUrl = getImagePreviewUrl ?? defaultImagePreviewUrl
+  const resolveThumbnailUrl = useMemo(
+    () =>
+      getThumbnailUrl ?? ((file: FileItem) => `/api/thumbnail/${encodeURIComponent(file.path)}`),
+    [getThumbnailUrl],
+  )
+  const resolveImagePreviewUrl = useMemo(
+    () => getImagePreviewUrl ?? ((file: FileItem) => `/api/media/${encodeURIComponent(file.path)}`),
+    [getImagePreviewUrl],
+  )
 
   const parentParts = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : []
   const parentDir = parentParts.slice(0, -1).join('/')
   const canDropOnParent =
     !!onMoveFile && !!currentPath && isPathEditable(parentDir || '', editableFolders)
 
-  const canDropOn = (targetPath: string, sourcePath?: string) => {
-    const src = sourcePath ?? draggedPath
-    if (!src || src === targetPath) return false
-    if (targetPath.startsWith(src + '/')) return false
-    return true
-  }
+  const canDropOn = useCallback(
+    (targetPath: string, sourcePath?: string) => {
+      const src = sourcePath ?? draggedPath
+      if (!src || src === targetPath) return false
+      if (targetPath.startsWith(src + '/')) return false
+      return true
+    },
+    [draggedPath],
+  )
+
+  const handleGridParentDragOver = useCallback(
+    (e: DragEvent) => {
+      if (!canDropOnParent) return
+      if (!draggedPath && !hasFileDragData(e.dataTransfer)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setDragOverPath('__parent__')
+    },
+    [canDropOnParent, draggedPath],
+  )
+
+  const handleGridParentDragLeave = useCallback((e: DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverPath(null)
+    }
+  }, [])
+
+  const handleGridParentDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault()
+      setDragOverPath(null)
+      if (draggedPath && onMoveFile) {
+        onMoveFile(draggedPath, parentDir)
+      } else if (!draggedPath && onMoveFile) {
+        const data = getFileDragData(e.dataTransfer)
+        if (
+          data &&
+          dragSourceKind &&
+          isCompatibleSource({ sourceKind: dragSourceKind, sourceToken: dragSourceToken }, data) &&
+          canDropOn(parentDir, data.path)
+        ) {
+          onMoveFile(data.path, parentDir)
+        }
+      }
+    },
+    [draggedPath, onMoveFile, parentDir, dragSourceKind, dragSourceToken, canDropOn],
+  )
 
   if (files.length === 0 && !currentPath) {
     return (
@@ -198,47 +618,18 @@ export function FileGridView({
       <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
         {currentPath && (
           <Card
-            className={`cursor-pointer hover:bg-muted/50 transition-colors select-none ${
+            className={`cursor-pointer transition-colors select-none hover:bg-muted/50 ${
               dragOverPath === '__parent__' ? 'ring-2 ring-primary bg-primary/10' : ''
             }`}
             onClick={onParentDirectory}
-            onDragOver={(e) => {
-              if (!canDropOnParent) return
-              if (!draggedPath && !hasFileDragData(e.dataTransfer)) return
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              setDragOverPath('__parent__')
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                setDragOverPath(null)
-              }
-            }}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDragOverPath(null)
-              if (draggedPath && onMoveFile) {
-                onMoveFile(draggedPath, parentDir)
-              } else if (!draggedPath && onMoveFile) {
-                const data = getFileDragData(e.dataTransfer)
-                if (
-                  data &&
-                  dragSourceKind &&
-                  isCompatibleSource(
-                    { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
-                    data,
-                  ) &&
-                  canDropOn(parentDir, data.path)
-                ) {
-                  onMoveFile(data.path, parentDir)
-                }
-              }
-            }}
+            onDragOver={handleGridParentDragOver}
+            onDragLeave={handleGridParentDragLeave}
+            onDrop={handleGridParentDrop}
           >
-            <CardContent className='p-4 flex flex-col items-center justify-center aspect-video'>
-              <ArrowUp className='h-12 w-12 text-muted-foreground mb-2' />
-              <p className='text-sm font-medium text-center'>..</p>
-              <p className='text-xs text-muted-foreground text-center'>Parent Folder</p>
+            <CardContent className='flex aspect-video flex-col items-center justify-center p-4'>
+              <ArrowUp className='mb-2 h-12 w-12 text-muted-foreground' />
+              <p className='text-center text-sm font-medium'>..</p>
+              <p className='text-center text-xs text-muted-foreground'>Parent Folder</p>
             </CardContent>
           </Card>
         )}
@@ -253,227 +644,54 @@ export function FileGridView({
               : isPathEditable(file.path, editableFolders)
           const isShared = sharedPathSet.has(file.path)
 
-          const card = (
-            <Card
-              className={`cursor-pointer hover:bg-muted/50 transition-colors select-none py-0 ${
-                playingPath === file.path ? 'ring-2 ring-primary' : ''
-              } ${draggedPath === file.path ? 'opacity-50' : ''} ${
-                file.isDirectory && dragOverPath === file.path
-                  ? 'ring-2 ring-primary bg-primary/10'
-                  : ''
-              }`}
-              draggable={enableDrag && isFileEditable && !!onMoveFile}
-              onClick={() => onFileClick(file)}
-              onDragStart={(e) => {
-                if (!isFileEditable || !onMoveFile) return
-                if (dragSourceKind) {
-                  setFileDragData(e.dataTransfer, {
-                    path: file.path,
-                    isDirectory: file.isDirectory,
-                    sourceKind: dragSourceKind,
-                    sourceToken: dragSourceToken,
-                  })
-                } else {
-                  e.dataTransfer.setData('text/plain', file.path)
-                }
-                e.dataTransfer.effectAllowed = 'copyMove'
-                setDraggedPath(file.path)
-              }}
-              onDragEnd={() => {
-                setDraggedPath(null)
-                setDragOverPath(null)
-              }}
-              onDragOver={(e) => {
-                if (!file.isDirectory || !onMoveFile) return
-                const hasCrossDrag = !draggedPath && hasFileDragData(e.dataTransfer)
-                if (!draggedPath && !hasCrossDrag) return
-                if (draggedPath && !canDropOn(file.path)) return
-                if (isEditableProp === undefined && !isPathEditable(file.path, editableFolders))
-                  return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                setDragOverPath(file.path)
-              }}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  if (dragOverPath === file.path) setDragOverPath(null)
-                }
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                setDragOverPath(null)
-                if (draggedPath && file.isDirectory && onMoveFile && canDropOn(file.path)) {
-                  onMoveFile(draggedPath, file.path)
-                } else if (!draggedPath && file.isDirectory && onMoveFile) {
-                  const data = getFileDragData(e.dataTransfer)
-                  if (
-                    data &&
-                    dragSourceKind &&
-                    isCompatibleSource(
-                      { sourceKind: dragSourceKind, sourceToken: dragSourceToken },
-                      data,
-                    ) &&
-                    canDropOn(file.path, data.path)
-                  ) {
-                    onMoveFile(data.path, file.path)
-                  }
-                }
-              }}
-            >
-              <CardContent className='p-0 flex flex-col h-full'>
-                <div className='relative aspect-video bg-muted flex items-center justify-center overflow-hidden rounded-t-lg group'>
-                  {showFavorites && !file.isDirectory && (
-                    <button
-                      onClick={(e) => onFavoriteToggle!(file.path, e)}
-                      className={`absolute top-1.5 left-1.5 p-1 rounded-full transition-all z-10 ${
-                        isFavorite
-                          ? 'bg-background/90 hover:bg-background shadow-sm'
-                          : 'bg-background/70 hover:bg-background/90 opacity-60 group-hover:opacity-100'
-                      }`}
-                      title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                    >
-                      <Star
-                        className={`h-3.5 w-3.5 ${
-                          isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'
-                        }`}
-                      />
-                    </button>
-                  )}
-                  {showViewCounts && !file.isDirectory && (
-                    <div
-                      className={`absolute top-1.5 right-1.5 flex items-center gap-1 z-10 ${viewCount > 0 || shareViewCount > 0 ? '' : 'hidden'}`}
-                      suppressHydrationWarning
-                    >
-                      <div
-                        className={`px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1 ${viewCount > 0 ? '' : 'hidden'}`}
-                        title={`${viewCount} views`}
-                        suppressHydrationWarning
-                      >
-                        <Eye className='h-3 w-3 text-muted-foreground' />
-                        <span
-                          className='text-xs font-medium text-muted-foreground'
-                          suppressHydrationWarning
-                        >
-                          {viewCount}
-                        </span>
-                      </div>
-                      <div
-                        className={`px-2 py-0.5 rounded-full bg-background/90 backdrop-blur-sm shadow-sm flex items-center gap-1 ${shareViewCount > 0 ? '' : 'hidden'}`}
-                        title={`${shareViewCount} shared views`}
-                        suppressHydrationWarning
-                      >
-                        <Share2 className='h-3 w-3 text-primary/70' />
-                        <span
-                          className='text-xs font-medium text-primary/70'
-                          suppressHydrationWarning
-                        >
-                          {shareViewCount}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  {file.type === MediaType.VIDEO ? (
-                    <img
-                      src={resolveThumbnailUrl(file)}
-                      alt={file.name}
-                      loading='lazy'
-                      className='w-full h-full object-cover rounded-t-lg'
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none'
-                        const parent = e.currentTarget.parentElement
-                        if (parent) {
-                          const icon = parent.querySelector('.fallback-icon')
-                          if (icon) {
-                            icon.classList.remove('hidden')
-                          }
-                        }
-                      }}
-                    />
-                  ) : file.type === MediaType.IMAGE ? (
-                    <img
-                      src={resolveImagePreviewUrl(file)}
-                      alt={file.name}
-                      loading='lazy'
-                      className='w-full h-full object-cover rounded-t-lg'
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none'
-                        const parent = e.currentTarget.parentElement
-                        if (parent) {
-                          const icon = parent.querySelector('.fallback-icon')
-                          if (icon) {
-                            icon.classList.remove('hidden')
-                          }
-                        }
-                      }}
-                    />
-                  ) : null}
-                  <div
-                    className={`fallback-icon ${
-                      file.type === MediaType.VIDEO || file.type === MediaType.IMAGE ? 'hidden' : ''
-                    }`}
-                  >
-                    <div className='scale-[2.5]'>
-                      {getIcon(
-                        file.type,
-                        file.path,
-                        file.type === MediaType.AUDIO,
-                        file.type === MediaType.VIDEO,
-                        file.isVirtual,
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className='p-3 flex flex-col gap-1'>
-                  <p className='text-sm font-medium truncate' title={file.name}>
-                    {file.name}
-                    {isShared && <Link className='inline h-3 w-3 ml-1 text-primary opacity-70' />}
-                  </p>
-                  {isVirtualFolder && !file.isDirectory ? (
-                    <p
-                      className='text-xs text-muted-foreground truncate'
-                      title={file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
-                    >
-                      {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
-                    </p>
-                  ) : (
-                    <div className='flex items-center justify-end text-xs text-muted-foreground'>
-                      <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )
-
-          return hasAnyContextAction ? (
-            <FileContextMenu
+          return (
+            <FileGridFileCard
               key={file.shareToken ? `share-${file.shareToken}` : file.path}
               file={file}
-              onSetIcon={onContextSetIcon}
-              onRename={onContextRename}
-              onDelete={onContextDelete}
-              onDownload={onContextDownload}
-              onToggleFavorite={onContextToggleFavorite}
-              onToggleKnowledgeBase={onContextToggleKnowledgeBase}
-              onShare={onContextShare}
-              onCopyShareLink={onContextCopyShareLink}
-              onMove={onContextMove}
-              onCopy={onContextCopy}
-              onOpenInNewTab={onContextOpenInNewTab}
-              onOpenInWorkspace={onContextOpenInWorkspace}
-              onAddToTaskbar={onContextAddToTaskbar}
+              playingPath={playingPath}
+              draggedPath={draggedPath}
+              dragOverPath={dragOverPath}
+              enableDrag={enableDrag}
+              isFileEditable={isFileEditable}
+              onMoveFile={onMoveFile}
+              dragSourceKind={dragSourceKind}
+              dragSourceToken={dragSourceToken}
+              onFileClick={onFileClick}
+              getIcon={getIcon}
+              editableFolders={editableFolders}
+              isEditableProp={isEditableProp}
+              canDropOn={canDropOn}
+              setDraggedPath={setDraggedPath}
+              setDragOverPath={setDragOverPath}
+              isFavorite={isFavorite}
+              isKnowledgeBase={isKnowledgeBase}
+              viewCount={viewCount}
+              shareViewCount={shareViewCount}
+              isShared={isShared}
+              showFavorites={showFavorites}
+              showViewCounts={showViewCounts}
+              onFavoriteToggle={onFavoriteToggle}
+              isVirtualFolder={isVirtualFolder}
+              hasAnyContextAction={!!hasAnyContextAction}
+              resolveThumbnailUrl={resolveThumbnailUrl}
+              resolveImagePreviewUrl={resolveImagePreviewUrl}
+              onContextSetIcon={onContextSetIcon}
+              onContextRename={onContextRename}
+              onContextDelete={onContextDelete}
+              onContextDownload={onContextDownload}
+              onContextToggleFavorite={onContextToggleFavorite}
+              onContextToggleKnowledgeBase={onContextToggleKnowledgeBase}
+              onContextShare={onContextShare}
+              onContextCopyShareLink={onContextCopyShareLink}
+              onContextMove={onContextMove}
+              onContextCopy={onContextCopy}
+              onContextOpenInNewTab={onContextOpenInNewTab}
+              onContextOpenInWorkspace={onContextOpenInWorkspace}
+              onContextAddToTaskbar={onContextAddToTaskbar}
               showOpenInNewTabForFiles={showOpenInNewTabForFiles}
               contextOpenWorkspaceAsStandalone={contextOpenWorkspaceAsStandalone}
               hasEditableFolders={hasEditableFolders}
-              isFavorite={isFavorite}
-              isKnowledgeBase={isKnowledgeBase}
-              isEditable={isFileEditable}
-              isShared={isShared}
-            >
-              {card}
-            </FileContextMenu>
-          ) : (
-            <React.Fragment key={file.path}>{card}</React.Fragment>
+            />
           )
         })}
       </div>

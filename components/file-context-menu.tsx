@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useCallback } from 'react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -75,88 +76,88 @@ export function FileContextMenu({
   isEditable = false,
   isShared = false,
 }: FileContextMenuProps) {
-  // Handle long press for touch devices to trigger context menu
+  const onLongPress = useCallback((e: React.TouchEvent | React.MouseEvent | React.PointerEvent) => {
+    e.preventDefault()
+    const target = e.target as HTMLElement
+    const contextMenuEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: (e as React.TouchEvent).touches?.[0]?.clientX || (e as React.MouseEvent).clientX,
+      clientY: (e as React.TouchEvent).touches?.[0]?.clientY || (e as React.MouseEvent).clientY,
+    })
+    target.dispatchEvent(contextMenuEvent)
+  }, [])
+
   const longPressHandlers = useLongPress({
-    onLongPress: (e) => {
-      e.preventDefault()
-      // Simulate a context menu event
-      const target = e.target as HTMLElement
-      const contextMenuEvent = new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-        clientX: (e as React.TouchEvent).touches?.[0]?.clientX || (e as React.MouseEvent).clientX,
-        clientY: (e as React.TouchEvent).touches?.[0]?.clientY || (e as React.MouseEvent).clientY,
-      })
-      target.dispatchEvent(contextMenuEvent)
-    },
+    onLongPress,
     delay: 500,
   })
 
-  const handleSetIcon = () => {
+  const handleSetIcon = useCallback(() => {
     if (onSetIcon) onSetIcon(file)
-  }
+  }, [onSetIcon, file])
 
-  const handleRename = () => {
+  const handleRename = useCallback(() => {
     if (onRename) {
       onRename(file)
     }
-  }
+  }, [onRename, file])
 
-  const handleDelete = () => {
+  const handleDelete = useCallback(() => {
     if (onDelete) {
       onDelete(file)
     }
-  }
+  }, [onDelete, file])
 
-  const handleDownload = () => {
+  const handleDownload = useCallback(() => {
     if (onDownload) {
       onDownload(file)
     }
-  }
+  }, [onDownload, file])
 
-  const handleToggleFavorite = () => {
+  const handleToggleFavorite = useCallback(() => {
     if (onToggleFavorite) {
       onToggleFavorite(file)
     }
-  }
+  }, [onToggleFavorite, file])
 
-  const handleToggleKnowledgeBase = () => {
+  const handleToggleKnowledgeBase = useCallback(() => {
     if (onToggleKnowledgeBase) {
       onToggleKnowledgeBase(file)
     }
-  }
+  }, [onToggleKnowledgeBase, file])
 
-  const handleShare = () => {
+  const handleShare = useCallback(() => {
     if (onShare) {
       onShare(file)
     }
-  }
+  }, [onShare, file])
 
-  const handleCopyShareLink = () => {
+  const handleCopyShareLink = useCallback(() => {
     if (onCopyShareLink) {
       onCopyShareLink(file)
     }
-  }
+  }, [onCopyShareLink, file])
 
-  const handleMove = () => {
+  const handleMove = useCallback(() => {
     if (onMove) onMove(file)
-  }
+  }, [onMove, file])
 
-  const handleCopy = () => {
+  const handleCopy = useCallback(() => {
     if (onCopy) onCopy(file)
-  }
+  }, [onCopy, file])
 
-  const handleOpenInNewTab = () => {
+  const handleOpenInNewTab = useCallback(() => {
     if (onOpenInNewTab) onOpenInNewTab(file)
-  }
+  }, [onOpenInNewTab, file])
 
-  const handleOpenInWorkspace = () => {
+  const handleOpenInWorkspace = useCallback(() => {
     if (onOpenInWorkspace) onOpenInWorkspace(file)
-  }
+  }, [onOpenInWorkspace, file])
 
-  const handleAddToTaskbar = () => {
+  const handleAddToTaskbar = useCallback(() => {
     if (onAddToTaskbar) onAddToTaskbar(file)
-  }
+  }, [onAddToTaskbar, file])
 
   // Clone the child element and add the long press handlers
   const childWithHandlers = React.cloneElement(children, longPressHandlers)

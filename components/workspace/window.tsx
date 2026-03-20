@@ -25,7 +25,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { getMediaType } from '@/lib/media-utils'
 import { useSettings } from '@/lib/use-settings'
-import { MediaType } from '@/lib/types'
+import { MediaType, type FileItem } from '@/lib/types'
 import {
   getWorkspaceWindowTitle,
   type WorkspaceSource,
@@ -272,6 +272,21 @@ const TabContent = memo(function TabContent({
     localSession.state.viewing,
   ])
 
+  const currentPath = localSession.state.dir || ''
+  const handleOpenInNewTabInSameWindow = useMemo((): ((file: FileItem) => void) | undefined => {
+    if (!onOpenInNewTabInSameWindow) return undefined
+    return (file) => onOpenInNewTabInSameWindow(win.id, file, currentPath)
+  }, [onOpenInNewTabInSameWindow, win.id, currentPath])
+
+  const handleOpenInStandaloneWindow = useMemo((): ((file: FileItem) => void) | undefined => {
+    if (!onOpenInStandaloneWindow) return undefined
+    return (file) => onOpenInStandaloneWindow(win.id, file, currentPath)
+  }, [onOpenInStandaloneWindow, win.id, currentPath])
+
+  const handleTabContentFocus = useCallback(() => {
+    onFocus(win.id)
+  }, [onFocus, win.id])
+
   return (
     <div
       ref={tabContentRef}
@@ -280,8 +295,8 @@ const TabContent = memo(function TabContent({
         !visible && 'hidden',
       )}
       aria-hidden={!visible}
-      {...(visible ? { 'data-testid': 'workspace-window-visible-content' } : {})}
-      onMouseDownCapture={() => onFocus(win.id)}
+      data-testid={visible ? 'workspace-window-visible-content' : undefined}
+      onMouseDownCapture={handleTabContentFocus}
     >
       {win.type === 'player' ? (
         <VideoPlayer
@@ -305,16 +320,8 @@ const TabContent = memo(function TabContent({
         <ShareFileBrowser
           session={windowSession}
           dialogContainerRef={tabContentRef}
-          onOpenInNewTabInSameWindow={
-            onOpenInNewTabInSameWindow
-              ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
-              : undefined
-          }
-          onOpenInStandaloneWindow={
-            onOpenInStandaloneWindow
-              ? (file) => onOpenInStandaloneWindow(win.id, file, localSession.state.dir || '')
-              : undefined
-          }
+          onOpenInNewTabInSameWindow={handleOpenInNewTabInSameWindow}
+          onOpenInStandaloneWindow={handleOpenInStandaloneWindow}
           onAddToTaskbar={onAddToTaskbar}
         />
       ) : (
@@ -322,16 +329,8 @@ const TabContent = memo(function TabContent({
           editableFolders={editableFolders}
           session={windowSession}
           dialogContainerRef={tabContentRef}
-          onOpenInNewTabInSameWindow={
-            onOpenInNewTabInSameWindow
-              ? (file) => onOpenInNewTabInSameWindow(win.id, file, localSession.state.dir || '')
-              : undefined
-          }
-          onOpenInStandaloneWindow={
-            onOpenInStandaloneWindow
-              ? (file) => onOpenInStandaloneWindow(win.id, file, localSession.state.dir || '')
-              : undefined
-          }
+          onOpenInNewTabInSameWindow={handleOpenInNewTabInSameWindow}
+          onOpenInStandaloneWindow={handleOpenInStandaloneWindow}
           onAddToTaskbar={onAddToTaskbar}
         />
       )}
@@ -353,6 +352,119 @@ function getTabIcon(
     tab.iconIsVirtual ?? false,
   )
 }
+
+const TabStripDropSlot = memo(function TabStripDropSlot({
+  groupId,
+  index,
+  highlighted,
+  onDropFile,
+  onSlotDragOver,
+  onSlotDragLeave,
+  onSlotDrop,
+}: {
+  groupId: string
+  index: number
+  highlighted: boolean
+  onDropFile?: (data: FileDragData, insertIndex?: number) => void
+  onSlotDragOver: (e: React.DragEvent, index: number) => void
+  onSlotDragLeave: (e: React.DragEvent) => void
+  onSlotDrop: (e: React.DragEvent, index: number) => void
+}) {
+  const onDragOver = useCallback(
+    (e: React.DragEvent) => onSlotDragOver(e, index),
+    [onSlotDragOver, index],
+  )
+  const onDropCb = useCallback((e: React.DragEvent) => onSlotDrop(e, index), [onSlotDrop, index])
+  return (
+    <div
+      data-tab-drop-slot={`${groupId}:${index}`}
+      data-no-window-drag
+      className={cn(
+        'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
+        highlighted && 'bg-primary/80',
+      )}
+      onDragOver={onDropFile ? onDragOver : undefined}
+      onDragLeave={onSlotDragLeave}
+      onDrop={onDropFile ? onDropCb : undefined}
+    />
+  )
+})
+
+const TabStripTabRow = memo(function TabStripTabRow({
+  tab,
+  isSelected,
+  groupId,
+  isWindowActive,
+  getIcon,
+  onSelectTab,
+  onFocus,
+  onCloseTab,
+  onTabDragDetach,
+}: {
+  tab: WorkspaceWindowDefinition
+  isSelected: boolean
+  groupId: string
+  isWindowActive: boolean
+  getIcon: ReturnType<typeof useFileIcon>['getIcon']
+  onSelectTab: (tabGroupId: string, windowId: string) => void
+  onFocus: (windowId: string) => void
+  onCloseTab: (windowId: string) => void
+  onTabDragDetach: (tabId: string, e: React.MouseEvent) => void
+}) {
+  const handleRowMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      onSelectTab(groupId, tab.id)
+      onFocus(tab.id)
+      onTabDragDetach(tab.id, e)
+    },
+    [groupId, onSelectTab, onFocus, onTabDragDetach, tab.id],
+  )
+  const handleCloseMouseDown = useCallback((e: React.MouseEvent) => e.stopPropagation(), [])
+  const handleCloseClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      onCloseTab(tab.id)
+    },
+    [onCloseTab, tab.id],
+  )
+  return (
+    <div
+      data-no-window-drag
+      data-workspace-tab-id={tab.id}
+      className={cn(
+        'flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2',
+        isSelected ? 'bg-background' : 'bg-muted/50 hover:bg-muted',
+      )}
+      onMouseDown={handleRowMouseDown}
+    >
+      <div
+        className={cn(
+          'flex h-4 w-4 shrink-0 items-center justify-center',
+          isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
+        {getTabIcon(tab, getIcon)}
+      </div>
+      <span
+        className={cn(
+          'min-w-0 truncate text-[11px] font-medium',
+          isWindowActive ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
+        {getWorkspaceWindowTitle(tab)}
+      </span>
+      <button
+        type='button'
+        className='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
+        onMouseDown={handleCloseMouseDown}
+        onClick={handleCloseClick}
+      >
+        <X className='h-2.5 w-2.5' />
+      </button>
+    </div>
+  )
+})
 
 interface TabStripProps {
   tabs: WorkspaceWindowDefinition[]
@@ -494,26 +606,61 @@ function TabStrip({
     [onDropFile],
   )
 
+  const handleStripDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setFileDragOver(false)
+      setDropSlotIndex(null)
+    }
+  }, [])
+
+  const handleScrollNudgeLeft = useCallback(() => scrollBy(-120), [scrollBy])
+  const handleScrollNudgeRight = useCallback(() => scrollBy(120), [scrollBy])
+
+  const stopMouseDown = useCallback((e: React.MouseEvent) => e.stopPropagation(), [])
+
+  const handleScrollAreaWheel = useCallback((e: React.WheelEvent) => {
+    e.stopPropagation()
+    scrollRef.current?.scrollBy({ left: e.deltaY || e.deltaX, behavior: 'instant' })
+  }, [])
+
+  const handleScrollAreaDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+      setFileDragOver(true)
+    },
+    [onDropFile],
+  )
+
+  const handleScrollAreaDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!onDropFile) return
+      const data = getFileDragData(e.dataTransfer)
+      if (!data) return
+      e.preventDefault()
+      e.stopPropagation()
+      onDropFile(data, tabs.length)
+    },
+    [onDropFile, tabs.length],
+  )
+
   return (
     <div
       className={cn(
         'workspace-tab-strip relative flex min-w-0 flex-1 items-center',
         fileDragOver && 'ring-1 ring-inset ring-primary bg-primary/10',
       )}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          setFileDragOver(false)
-          setDropSlotIndex(null)
-        }
-      }}
+      onDragLeave={handleStripDragLeave}
     >
       {overflow.left && (
         <button
           type='button'
           data-no-window-drag
           className='absolute left-0 z-10 flex h-8 w-5 items-center justify-center bg-linear-to-r from-muted to-transparent text-muted-foreground'
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => scrollBy(-120)}
+          onMouseDown={stopMouseDown}
+          onClick={handleScrollNudgeLeft}
         >
           <span className='text-[10px]'>&#9666;</span>
         </button>
@@ -521,102 +668,42 @@ function TabStrip({
       <div
         ref={scrollRef}
         className='scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto'
-        onWheel={(e) => {
-          e.stopPropagation()
-          scrollRef.current?.scrollBy({ left: e.deltaY || e.deltaX, behavior: 'instant' })
-        }}
-        onDragOver={
-          onDropFile
-            ? (e) => {
-                if (!hasFileDragData(e.dataTransfer)) return
-                e.preventDefault()
-                e.stopPropagation()
-                e.dataTransfer.dropEffect = 'copy'
-                setFileDragOver(true)
-              }
-            : undefined
-        }
-        onDrop={
-          onDropFile
-            ? (e) => {
-                const data = getFileDragData(e.dataTransfer)
-                if (!data) return
-                e.preventDefault()
-                e.stopPropagation()
-                onDropFile(data, tabs.length)
-              }
-            : undefined
-        }
+        onWheel={handleScrollAreaWheel}
+        onDragOver={onDropFile ? handleScrollAreaDragOver : undefined}
+        onDrop={onDropFile ? handleScrollAreaDrop : undefined}
       >
         {tabs.map((tab, idx) => (
           <Fragment key={tab.id}>
-            <div
-              data-tab-drop-slot={`${groupId}:${idx}`}
-              data-no-window-drag
-              className={cn(
-                'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
-                dropSlotIndex === idx && 'bg-primary/80',
-              )}
-              onDragOver={onDropFile ? (e) => handleSlotDragOver(e, idx) : undefined}
-              onDragLeave={handleSlotDragLeave}
-              onDrop={onDropFile ? (e) => handleSlotDrop(e, idx) : undefined}
+            <TabStripDropSlot
+              groupId={groupId}
+              index={idx}
+              highlighted={dropSlotIndex === idx}
+              onDropFile={onDropFile}
+              onSlotDragOver={handleSlotDragOver}
+              onSlotDragLeave={handleSlotDragLeave}
+              onSlotDrop={handleSlotDrop}
             />
-            <div
-              data-no-window-drag
-              data-workspace-tab-id={tab.id}
-              className={cn(
-                'flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2',
-                tabs.find((t) => t.id === visibleTabId)?.id === tab.id
-                  ? 'bg-background'
-                  : 'bg-muted/50 hover:bg-muted',
-              )}
-              onMouseDown={(e) => {
-                e.stopPropagation()
-                onSelectTab(groupId, tab.id)
-                onFocus(tab.id)
-                onTabDragDetach(tab.id, e)
-              }}
-            >
-              <div
-                className={cn(
-                  'flex h-4 w-4 shrink-0 items-center justify-center',
-                  isWindowActive ? 'text-foreground' : 'text-muted-foreground',
-                )}
-              >
-                {getTabIcon(tab, getIcon)}
-              </div>
-              <span
-                className={cn(
-                  'min-w-0 truncate text-[11px] font-medium',
-                  isWindowActive ? 'text-foreground' : 'text-muted-foreground',
-                )}
-              >
-                {getWorkspaceWindowTitle(tab)}
-              </span>
-              <button
-                type='button'
-                className='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onCloseTab(tab.id)
-                }}
-              >
-                <X className='h-2.5 w-2.5' />
-              </button>
-            </div>
+            <TabStripTabRow
+              tab={tab}
+              isSelected={tab.id === visibleTabId}
+              groupId={groupId}
+              isWindowActive={isWindowActive}
+              getIcon={getIcon}
+              onSelectTab={onSelectTab}
+              onFocus={onFocus}
+              onCloseTab={onCloseTab}
+              onTabDragDetach={onTabDragDetach}
+            />
           </Fragment>
         ))}
-        <div
-          data-tab-drop-slot={`${groupId}:${tabs.length}`}
-          data-no-window-drag
-          className={cn(
-            'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
-            dropSlotIndex === tabs.length && 'bg-primary/80',
-          )}
-          onDragOver={onDropFile ? (e) => handleSlotDragOver(e, tabs.length) : undefined}
-          onDragLeave={handleSlotDragLeave}
-          onDrop={onDropFile ? (e) => handleSlotDrop(e, tabs.length) : undefined}
+        <TabStripDropSlot
+          groupId={groupId}
+          index={tabs.length}
+          highlighted={dropSlotIndex === tabs.length}
+          onDropFile={onDropFile}
+          onSlotDragOver={handleSlotDragOver}
+          onSlotDragLeave={handleSlotDragLeave}
+          onSlotDrop={handleSlotDrop}
         />
       </div>
       {overflow.right && (
@@ -624,8 +711,8 @@ function TabStrip({
           type='button'
           data-no-window-drag
           className='absolute right-0 z-10 flex h-8 w-5 items-center justify-center bg-linear-to-l from-muted to-transparent text-muted-foreground'
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => scrollBy(120)}
+          onMouseDown={stopMouseDown}
+          onClick={handleScrollNudgeRight}
         >
           <span className='text-[10px]'>&#9656;</span>
         </button>
@@ -683,41 +770,42 @@ function SingleTabHeader({
     [onDropFile],
   )
 
+  const handleHeaderDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!onDropFile || !hasFileDragData(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'copy'
+    },
+    [onDropFile],
+  )
+
+  const handleHeaderDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!onDropFile) return
+      const data = getFileDragData(e.dataTransfer)
+      if (!data) return
+      e.preventDefault()
+      e.stopPropagation()
+      onDropFile(data, 1)
+    },
+    [onDropFile],
+  )
+
   return (
     <div
       className='flex min-w-0 flex-1 items-center'
-      onDragOver={
-        onDropFile
-          ? (e) => {
-              if (!hasFileDragData(e.dataTransfer)) return
-              e.preventDefault()
-              e.stopPropagation()
-              e.dataTransfer.dropEffect = 'copy'
-            }
-          : undefined
-      }
-      onDrop={
-        onDropFile
-          ? (e) => {
-              const data = getFileDragData(e.dataTransfer)
-              if (!data) return
-              e.preventDefault()
-              e.stopPropagation()
-              onDropFile(data, 1)
-            }
-          : undefined
-      }
+      onDragOver={onDropFile ? handleHeaderDragOver : undefined}
+      onDrop={onDropFile ? handleHeaderDrop : undefined}
     >
-      <div
-        data-tab-drop-slot={`${groupId}:0`}
-        data-no-window-drag
-        className={cn(
-          'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
-          dropSlotIndex === 0 && 'bg-primary/80',
-        )}
-        onDragOver={onDropFile ? (e) => handleSlotDragOver(e, 0) : undefined}
-        onDragLeave={handleSlotDragLeave}
-        onDrop={onDropFile ? (e) => handleSlotDrop(e, 0) : undefined}
+      <TabStripDropSlot
+        groupId={groupId}
+        index={0}
+        highlighted={dropSlotIndex === 0}
+        onDropFile={onDropFile}
+        onSlotDragOver={handleSlotDragOver}
+        onSlotDragLeave={handleSlotDragLeave}
+        onSlotDrop={handleSlotDrop}
       />
       <div className='flex min-w-0 flex-1 items-center gap-1.5 px-2'>
         <div
@@ -737,16 +825,14 @@ function SingleTabHeader({
           {getWorkspaceWindowTitle(leader)}
         </div>
       </div>
-      <div
-        data-tab-drop-slot={`${groupId}:1`}
-        data-no-window-drag
-        className={cn(
-          'flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch',
-          dropSlotIndex === 1 && 'bg-primary/80',
-        )}
-        onDragOver={onDropFile ? (e) => handleSlotDragOver(e, 1) : undefined}
-        onDragLeave={handleSlotDragLeave}
-        onDrop={onDropFile ? (e) => handleSlotDrop(e, 1) : undefined}
+      <TabStripDropSlot
+        groupId={groupId}
+        index={1}
+        highlighted={dropSlotIndex === 1}
+        onDropFile={onDropFile}
+        onSlotDragOver={handleSlotDragOver}
+        onSlotDragLeave={handleSlotDragLeave}
+        onSlotDrop={handleSlotDrop}
       />
     </div>
   )
@@ -1123,17 +1209,49 @@ function WindowGroupInner({
     [tabs.length, onDetachTab],
   )
 
+  const rndSize = useMemo(() => {
+    if (!effectiveBounds) return { width: 360, height: 260 }
+    return { width: effectiveBounds.width, height: effectiveBounds.height }
+  }, [effectiveBounds])
+
+  const rndPosition = useMemo(() => {
+    if (!effectiveBounds) return { x: 0, y: 0 }
+    return { x: effectiveBounds.x, y: effectiveBounds.y }
+  }, [effectiveBounds])
+
+  const windowWrapperStyle = useMemo(() => ({ zIndex: effectiveZIndex }), [effectiveZIndex])
+
+  const handleWindowChromeFocus = useCallback(() => {
+    onFocus(visibleTabId)
+  }, [onFocus, visibleTabId])
+
+  const handleToolbarMouseDown = useCallback((e: React.MouseEvent) => e.stopPropagation(), [])
+
+  const handleAddTabClick = useCallback(() => {
+    guardClick(() => onAddTab(leaderId))
+  }, [guardClick, onAddTab, leaderId])
+
+  const handleMinimizeClick = useCallback(() => {
+    guardClick(() => onMinimize(leaderId))
+  }, [guardClick, onMinimize, leaderId])
+
+  const handleToggleMaximizeClick = useCallback(() => {
+    guardClick(() => onToggleMaximize(leaderId))
+  }, [guardClick, onToggleMaximize, leaderId])
+
+  const handleCloseWindowClick = useCallback(() => {
+    guardClick(() => onClose(leaderId))
+  }, [guardClick, onClose, leaderId])
+
   if (!leader || !effectiveBounds || effectiveMinimized) {
     return null
   }
 
-  const visibleTab = tabs.find((t) => t.id === visibleTabId) ?? leader
-
   return (
-    <div className='relative' style={{ zIndex: effectiveZIndex }}>
+    <div className='relative' style={windowWrapperStyle}>
       <Rnd
-        size={{ width: effectiveBounds.width, height: effectiveBounds.height }}
-        position={{ x: effectiveBounds.x, y: effectiveBounds.y }}
+        size={rndSize}
+        position={rndPosition}
         minWidth={360}
         minHeight={260}
         disableDragging={false}
@@ -1154,7 +1272,7 @@ function WindowGroupInner({
             'relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl',
             isActive && 'border-border shadow-black/20',
           )}
-          onMouseDownCapture={() => onFocus(visibleTab.id)}
+          onMouseDownCapture={handleWindowChromeFocus}
         >
           <div
             className={cn(
@@ -1196,26 +1314,26 @@ function WindowGroupInner({
             <div
               data-no-window-drag
               className='workspace-window-buttons flex h-full shrink-0 items-stretch gap-0 self-stretch pl-3'
-              onMouseDown={(e) => e.stopPropagation()}
+              onMouseDown={handleToolbarMouseDown}
             >
               <Button
                 variant='ghost'
                 className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-                onClick={() => guardClick(() => onAddTab(leader.id))}
+                onClick={handleAddTabClick}
               >
                 <Plus />
               </Button>
               <Button
                 variant='ghost'
                 className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-                onClick={() => guardClick(() => onMinimize(leader.id))}
+                onClick={handleMinimizeClick}
               >
                 <Minus />
               </Button>
               <Button
                 variant='ghost'
                 className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-                onClick={() => guardClick(() => onToggleMaximize(leader.id))}
+                onClick={handleToggleMaximizeClick}
                 onContextMenu={handleMaximizeContextMenu}
               >
                 {isFullscreen ? <Minimize2 /> : <Maximize2 />}
@@ -1223,7 +1341,7 @@ function WindowGroupInner({
               <Button
                 variant='ghost'
                 className='h-full w-8 min-w-8 shrink-0 rounded-none p-0 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5'
-                onClick={() => guardClick(() => onClose(leader.id))}
+                onClick={handleCloseWindowClick}
               >
                 <X />
               </Button>

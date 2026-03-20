@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useCallback } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -44,6 +45,13 @@ export function BrowserPane({
   onViewModeChange,
   children,
 }: BrowserPaneProps) {
+  const handleSearchInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      search?.onChange(e.target.value)
+    },
+    [search],
+  )
+
   const paneContent = (
     <>
       <div
@@ -85,7 +93,7 @@ export function BrowserPane({
                         type='search'
                         placeholder={search.placeholder}
                         value={search.value}
-                        onChange={(e) => search.onChange(e.target.value)}
+                        onChange={handleSearchInputChange}
                         className='h-9 w-full'
                         autoFocus
                       />
