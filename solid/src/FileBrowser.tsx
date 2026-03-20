@@ -7,14 +7,20 @@ import type { ShareLink } from '@/lib/shares'
 import { MediaType, type FileItem } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
-import { cn, isPathEditable } from '@/lib/utils'
+import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
+import FilePlus from 'lucide-solid/icons/file-plus'
+import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Star from 'lucide-solid/icons/star'
 import { createMemo, createSignal, For, Match, Show, Switch } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { Breadcrumbs } from './file-browser/Breadcrumbs'
+import { CreateFileDialog } from './file-browser/CreateFileDialog'
+import { CreateFolderDialog } from './file-browser/CreateFolderDialog'
 import { DeleteFileDialog } from './file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from './file-browser/FileRowContextMenu'
+import { MoveToDialog } from './file-browser/MoveToDialog'
+import { RenameDialog } from './file-browser/RenameDialog'
 import { ShareDialog } from './file-browser/ShareDialog'
 import { navigateToFolder } from './file-browser/navigate-folder'
 import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
@@ -86,6 +92,10 @@ export function FileBrowser() {
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
 
+  const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
+  const inKb = createMemo(() => getKnowledgeBaseRoot(currentPath(), knowledgeBases()) !== null)
+  const hasEditableFolders = createMemo(() => editableFolders().length > 0)
+
   const viewMode = createMemo(() => {
     const s = settingsQuery.data
     return s?.viewModes?.[currentPath()] ?? 'list'
@@ -113,6 +123,15 @@ export function FileBrowser() {
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
   const [shareTarget, setShareTarget] = createSignal<FileItem | null>(null)
+  const [showCreateFolder, setShowCreateFolder] = createSignal(false)
+  const [showCreateFile, setShowCreateFile] = createSignal(false)
+  const [showRename, setShowRename] = createSignal(false)
+  const [renameItem, setRenameItem] = createSignal<FileItem | null>(null)
+  const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
+  const [showMoveDialog, setShowMoveDialog] = createSignal(false)
+  const [copyTarget, setCopyTarget] = createSignal<FileItem | null>(null)
+  const [showCopyDialog, setShowCopyDialog] = createSignal(false)
+  const [newItemName, setNewItemName] = createSignal('')
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
@@ -135,6 +154,44 @@ export function FileBrowser() {
     },
   }))
 
+  const createFolderMutation = useMutation(() => ({
+    mutationFn: (vars: { type: 'folder'; path: string }) => post('/api/files/create', vars),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+    },
+  }))
+
+  const createFileMutation = useMutation(() => ({
+    mutationFn: (vars: { type: 'file'; path: string; content: string }) =>
+      post('/api/files/create', vars),
+    onSuccess: (_d, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      viewFile(variables.path, currentPath())
+    },
+  }))
+
+  const renameMutation = useMutation(() => ({
+    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+    },
+  }))
+
+  const moveMutation = useMutation(() => ({
+    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+    },
+  }))
+
+  const copyMutation = useMutation(() => ({
+    mutationFn: (vars: { sourcePath: string; destinationDir: string }) =>
+      post('/api/files/copy', vars),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+    },
+  }))
+
   function normPath(p: string) {
     return p.replace(/\\/g, '/')
   }
@@ -151,6 +208,36 @@ export function FileBrowser() {
     if (!t) return false
     return isPathEditable(t.path, editableFolders())
   })
+
+  const folderExists = createMemo(() => {
+    const n = newItemName().trim()
+    if (!n) return false
+    return files().some((f) => f.isDirectory && f.name.toLowerCase() === n.toLowerCase())
+  })
+
+  const fileExists = createMemo(() => {
+    const n = newItemName().trim()
+    if (!n) return false
+    const defaultExt = inKb() ? '.md' : '.txt'
+    const fileName = n.includes('.') ? n : `${n}${defaultExt}`
+    return files().some((f) => !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase())
+  })
+
+  const renameTargetExists = createMemo(() => {
+    const n = newItemName().trim()
+    const ed = renameItem()
+    if (!n || !ed || renameMutation.isPending) return false
+    return files().some((f) => f.path !== ed.path && f.name.toLowerCase() === n.toLowerCase())
+  })
+
+  const renameTargetIsDirectory = createMemo(() => {
+    const ed = renameItem()
+    if (!ed) return false
+    return files().find((f) => f.path === ed.path)?.isDirectory ?? ed.isDirectory
+  })
+
+  const moveDialogTarget = createMemo(() => (showMoveDialog() ? moveTarget() : null))
+  const copyDialogTarget = createMemo(() => (showCopyDialog() ? copyTarget() : null))
 
   function handleContextShare(file: FileItem) {
     setShareTarget(file)
@@ -224,6 +311,123 @@ export function FileBrowser() {
     document.body.removeChild(link)
   }
 
+  function openCreateFolder() {
+    setNewItemName('')
+    createFolderMutation.reset()
+    setShowCreateFolder(true)
+  }
+
+  function openCreateFile() {
+    setNewItemName('')
+    createFileMutation.reset()
+    setShowCreateFile(true)
+  }
+
+  function submitCreateFolder() {
+    const name = newItemName().trim()
+    const folderPath = currentPath() ? `${currentPath()}/${name}` : name
+    createFolderMutation.mutate(
+      { type: 'folder', path: folderPath },
+      {
+        onSuccess: () => {
+          setShowCreateFolder(false)
+          setNewItemName('')
+          createFolderMutation.reset()
+        },
+      },
+    )
+  }
+
+  function submitCreateFile() {
+    let filePath = newItemName().trim()
+    if (!filePath) return
+    filePath = currentPath() ? `${currentPath()}/${filePath}` : filePath
+    const defaultExt = inKb() ? '.md' : '.txt'
+    if (!filePath.includes('.')) filePath = `${filePath}${defaultExt}`
+    createFileMutation.mutate(
+      { type: 'file', path: filePath, content: '' },
+      {
+        onSuccess: () => {
+          setShowCreateFile(false)
+          setNewItemName('')
+          createFileMutation.reset()
+        },
+      },
+    )
+  }
+
+  function handleContextRename(file: FileItem) {
+    setRenameItem(file)
+    setNewItemName(file.name)
+    renameMutation.reset()
+    setShowRename(true)
+  }
+
+  function submitRename() {
+    const ed = renameItem()
+    if (!ed) return
+    const pathParts = ed.path.split(/[/\\]/).filter(Boolean)
+    const parentPath = pathParts.slice(0, -1).join('/')
+    const newPath = parentPath ? `${parentPath}/${newItemName().trim()}` : newItemName().trim()
+    renameMutation.mutate(
+      { oldPath: ed.path, newPath },
+      {
+        onSuccess: () => {
+          setShowRename(false)
+          setRenameItem(null)
+          setNewItemName('')
+          renameMutation.reset()
+        },
+      },
+    )
+  }
+
+  function handleContextMove(file: FileItem) {
+    setMoveTarget(file)
+    moveMutation.reset()
+    setShowMoveDialog(true)
+  }
+
+  function handleDialogMove(dest: string) {
+    const t = moveTarget()
+    if (!t) return
+    const fileName = t.path.split(/[/\\]/).pop()!
+    const normDest = dest.replace(/\\/g, '/').replace(/\/+$/, '')
+    const newPath = normDest ? `${normDest}/${fileName}` : fileName
+    const oldPath = t.path.replace(/\\/g, '/')
+    moveMutation.mutate(
+      { oldPath, newPath },
+      {
+        onSuccess: () => {
+          setShowMoveDialog(false)
+          setMoveTarget(null)
+          moveMutation.reset()
+        },
+      },
+    )
+  }
+
+  function handleContextCopyTo(file: FileItem) {
+    setCopyTarget(file)
+    copyMutation.reset()
+    setShowCopyDialog(true)
+  }
+
+  function handleCopyToDestination(dest: string) {
+    const t = copyTarget()
+    if (!t) return
+    copyMutation.mutate(
+      { sourcePath: t.path, destinationDir: dest },
+      {
+        onSuccess: () => {
+          setShowCopyDialog(false)
+          setCopyTarget(null)
+          copyMutation.reset()
+        },
+      },
+    )
+  }
+
   function handleFileClick(file: FileItem) {
     if (file.isDirectory) {
       navigateToFolder(file.path)
@@ -257,6 +461,24 @@ export function FileBrowser() {
                 <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
                 <div class='flex items-center gap-1'>
                   <Show when={isEditable()}>
+                    <button
+                      type='button'
+                      title='Create new folder'
+                      aria-label='New folder'
+                      class='inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
+                      onClick={() => openCreateFolder()}
+                    >
+                      <FolderPlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
+                    </button>
+                    <button
+                      type='button'
+                      title='Create new file'
+                      aria-label='New file'
+                      class='inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
+                      onClick={() => openCreateFile()}
+                    >
+                      <FilePlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
+                    </button>
                     <UploadMenu
                       disabled={isUploading()}
                       onUpload={(files) => void uploadFilesToServer(files, currentPath())}
@@ -449,12 +671,17 @@ export function FileBrowser() {
         <FileRowContextMenu
           menu={fileRowMenu.menu}
           editableFolders={editableFolders}
+          isCurrentDirEditable={isEditable}
+          hasEditableFolders={hasEditableFolders}
           onDismiss={fileRowMenu.dismiss}
           onDownload={handleContextDownload}
           onDelete={fileRowMenu.confirmDelete}
           onShare={handleContextShare}
           onCopyShareLink={handleCopyShareLink}
           getPathHasShare={getPathHasShare}
+          onRename={handleContextRename}
+          onMove={handleContextMove}
+          onCopy={handleContextCopyTo}
         />
         <ShareDialog
           isOpen={!!shareTarget()}
@@ -482,6 +709,87 @@ export function FileBrowser() {
             }
           }}
         />
+        <CreateFolderDialog
+          isOpen={showCreateFolder()}
+          folderName={newItemName()}
+          onFolderNameChange={setNewItemName}
+          onCreate={() => submitCreateFolder()}
+          onCancel={() => {
+            setShowCreateFolder(false)
+            setNewItemName('')
+            createFolderMutation.reset()
+          }}
+          isPending={createFolderMutation.isPending}
+          error={createFolderMutation.error ?? null}
+          folderExists={folderExists()}
+        />
+        <CreateFileDialog
+          isOpen={showCreateFile()}
+          fileName={newItemName()}
+          onFileNameChange={setNewItemName}
+          onCreate={() => submitCreateFile()}
+          onCancel={() => {
+            setShowCreateFile(false)
+            setNewItemName('')
+            createFileMutation.reset()
+          }}
+          isPending={createFileMutation.isPending}
+          error={createFileMutation.error ?? null}
+          fileExists={fileExists()}
+          defaultExtension={inKb() ? 'md' : 'txt'}
+        />
+        <RenameDialog
+          isOpen={showRename()}
+          itemName={renameItem()?.name ?? ''}
+          newName={newItemName()}
+          onNewNameChange={setNewItemName}
+          onRename={() => submitRename()}
+          onCancel={() => {
+            setShowRename(false)
+            setRenameItem(null)
+            setNewItemName('')
+            renameMutation.reset()
+          }}
+          isPending={renameMutation.isPending}
+          error={renameMutation.error ?? null}
+          nameExists={renameTargetExists()}
+          isDirectory={renameTargetIsDirectory()}
+        />
+        <Show when={moveDialogTarget()} keyed>
+          {(file) => (
+            <MoveToDialog
+              onClose={() => {
+                setShowMoveDialog(false)
+                setMoveTarget(null)
+                moveMutation.reset()
+              }}
+              fileName={file.name}
+              filePath={file.path}
+              onConfirm={(dest) => handleDialogMove(dest)}
+              isPending={moveMutation.isPending}
+              error={moveMutation.error ?? null}
+              editableFolders={editableFolders()}
+            />
+          )}
+        </Show>
+        <Show when={copyDialogTarget()} keyed>
+          {(file) => (
+            <MoveToDialog
+              mode='copy'
+              onClose={() => {
+                setShowCopyDialog(false)
+                setCopyTarget(null)
+                copyMutation.reset()
+              }}
+              fileName={file.name}
+              filePath={file.path}
+              onConfirm={(dest) => handleCopyToDestination(dest)}
+              isPending={copyMutation.isPending}
+              error={copyMutation.error ?? null}
+              editableFolders={editableFolders()}
+            />
+          )}
+        </Show>
       </div>
     </>
   )
