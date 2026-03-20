@@ -9,6 +9,7 @@ import ArrowUp from 'lucide-solid/icons/arrow-up'
 import { For, Show, createMemo, onCleanup, onMount } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
+import type { TextViewerShareContext } from './media/TextViewerDialog'
 import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
 import { fileIcon } from './lib/use-file-icon'
 
@@ -48,10 +49,17 @@ export function ShareFolderBrowser(props: Props) {
     return sp.get('dir') ?? ''
   })
 
-  const shareContext = createMemo(() => ({
-    token: props.token,
-    sharePath: props.shareInfo.path,
-  }))
+  const shareContext = createMemo(
+    (): TextViewerShareContext => ({
+      token: props.token,
+      sharePath: props.shareInfo.path,
+      isDirectory: props.shareInfo.isDirectory,
+    }),
+  )
+
+  const shareCanEdit = createMemo(
+    () => props.shareInfo.editable && props.shareInfo.restrictions?.allowEdit !== false,
+  )
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.shareFiles(props.token, currentSubDir()),
@@ -108,7 +116,11 @@ export function ShareFolderBrowser(props: Props) {
 
   return (
     <>
-      <MainMediaPlayers shareContext={shareContext()} />
+      <MainMediaPlayers
+        shareContext={shareContext()}
+        shareCanEdit={shareCanEdit()}
+        editableFolders={[]}
+      />
       <div class='min-h-screen' data-testid='share-file-browser'>
         <div class='container mx-auto lg:p-4'>
           <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none py-0 text-sm shadow-xs ring-1 lg:rounded-xl'>
