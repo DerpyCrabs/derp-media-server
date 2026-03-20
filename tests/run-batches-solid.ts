@@ -24,7 +24,7 @@ const BATCHES = [
   },
   { id: '4', tests: ['url-state', 'login'] },
   { id: '5', tests: ['audio-player', 'video-player'] },
-  { id: '6', tests: ['image-viewer', 'text-editor'] },
+  { id: '6', tests: ['image-viewer', 'text-editor', 'shares-use'] },
 ]
 
 const ROOT = path.resolve(__dirname, '..')

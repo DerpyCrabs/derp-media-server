@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { Match, Switch, createMemo } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
+import { ShareFileViewer } from './ShareFileViewer'
 import { ShareFolderBrowser, type ShareInfoPayload } from './ShareFolderBrowser'
 import { SharePasscodeGate } from './SharePasscodeGate'
 
@@ -42,13 +43,11 @@ export function ShareRoute() {
     enabled: !!token(),
   }))
 
-  const folderBrowserProps = createMemo(() => {
-    const t = token()
+  const sharePayload = createMemo((): ShareInfoPayload | undefined => {
     const data = shareQuery.data
-    if (!t || !data || shareQuery.isPending || shareQuery.isError) return undefined
+    if (!data || shareQuery.isPending || shareQuery.isError) return undefined
     if (data.needsPasscode && !data.authorized) return undefined
-    if (!data.isDirectory) return undefined
-    const shareInfo: ShareInfoPayload = {
+    return {
       name: data.name,
       path: data.path ?? '',
       isDirectory: data.isDirectory,
@@ -57,7 +56,20 @@ export function ShareRoute() {
       extension: data.extension,
       restrictions: data.restrictions,
     }
-    return { token: t, shareInfo }
+  })
+
+  const folderBrowserProps = createMemo(() => {
+    const t = token()
+    const info = sharePayload()
+    if (!t || !info?.isDirectory) return undefined
+    return { token: t, shareInfo: info }
+  })
+
+  const fileViewerProps = createMemo(() => {
+    const t = token()
+    const info = sharePayload()
+    if (!t || !info || info.isDirectory) return undefined
+    return { token: t, shareInfo: info }
   })
 
   return (
@@ -91,11 +103,12 @@ export function ShareRoute() {
       <Match when={folderBrowserProps()} keyed>
         {(p) => <ShareFolderBrowser token={p.token} shareInfo={p.shareInfo} />}
       </Match>
+      <Match when={fileViewerProps()} keyed>
+        {(p) => <ShareFileViewer token={p.token} shareInfo={p.shareInfo} />}
+      </Match>
       <Match when={true}>
         <div class='flex min-h-screen items-center justify-center p-4'>
-          <p class='text-muted-foreground text-sm'>
-            Shared file view is not available in Solid yet.
-          </p>
+          <p class='text-muted-foreground text-sm'>Unable to display this share.</p>
         </div>
       </Match>
     </Switch>
