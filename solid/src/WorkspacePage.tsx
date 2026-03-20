@@ -7,6 +7,8 @@ import {
   createDefaultBounds,
   createFullscreenBounds,
   createWindowLayout,
+  getPlaybackTitle,
+  isVideoPath,
   PLAYER_WINDOW_ID,
 } from '@/lib/workspace-geometry'
 import type {
@@ -22,6 +24,7 @@ import {
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
 } from '@/lib/use-workspace'
+import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
 import { detectSnapZone, type SnapDetectResult } from '@/lib/use-snap-zones'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
@@ -33,7 +36,17 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack }
 import { useBrowserHistory, navigateSearchParams } from './browser-history'
 import { applySnapPreviewLayout } from './workspace/snap-preview'
 import { WorkspaceTilingPicker } from './workspace/WorkspaceTilingPicker'
+import { findMergeTarget } from './workspace/merge-target'
+import {
+  addTabToGroupState,
+  groupIdForWindow,
+  mergeWindowIntoGroupState,
+  orderedVisibleGroupIds,
+  splitWindowFromGroupState,
+  tabsInGroup,
+} from './workspace/tab-group-ops'
 import { WorkspaceBrowserPane, type WorkspaceShareConfig } from './workspace/WorkspaceBrowserPane'
+import { WorkspacePlayerPane } from './workspace/WorkspacePlayerPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from './workspace/WorkspaceWindowChrome'
 
@@ -229,12 +242,18 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   function focusWindow(windowId: string) {
     const w = workspace()
     if (!w) return
+    const target = w.windows.find((x) => x.id === windowId)
+    if (!target) return
+    if (w.activeWindowId === windowId) return
+    const gid = groupIdForWindow(target)
     const maxZ = Math.max(...w.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+    const newZ = maxZ + 1
     setWorkspace({
       ...w,
       activeWindowId: windowId,
+      activeTabMap: { ...w.activeTabMap, [gid]: windowId },
       windows: w.windows.map((win) =>
-        win.id === windowId ? { ...win, layout: { ...win.layout, zIndex: maxZ + 1 } } : win,
+        groupIdForWindow(win) === gid ? { ...win, layout: { ...win.layout, zIndex: newZ } } : win,
       ),
     })
   }
@@ -242,12 +261,149 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   function closeWindow(windowId: string) {
     const w = workspace()
     if (!w) return
-    const next = w.windows.filter((x) => x.id !== windowId)
+    const t = w.windows.find((x) => x.id === windowId)
+    const gid = t ? groupIdForWindow(t) : windowId
+    const toRemove = new Set(w.windows.filter((x) => groupIdForWindow(x) === gid).map((x) => x.id))
+    const key = storageSessionKeyFull().key
+    for (const id of toRemove) {
+      if (id === PLAYER_WINDOW_ID) {
+        useWorkspacePlaybackStore.getState().closePlayer(key)
+      }
+    }
+    const next = w.windows.filter((x) => !toRemove.has(x.id))
     let active = w.activeWindowId
-    if (active === windowId) {
+    if (active != null && toRemove.has(active)) {
       active = next[next.length - 1]?.id ?? active
     }
-    setWorkspace({ ...w, windows: next, activeWindowId: active })
+    const nextTabMap = { ...w.activeTabMap }
+    delete nextTabMap[gid]
+    setWorkspace({ ...w, windows: next, activeWindowId: active, activeTabMap: nextTabMap })
+  }
+
+  function setActiveTab(groupId: string, tabId: string) {
+    setWorkspace((prev) =>
+      prev
+        ? {
+            ...prev,
+            activeTabMap: { ...prev.activeTabMap, [groupId]: tabId },
+            activeWindowId: tabId,
+          }
+        : prev,
+    )
+  }
+
+  function closeTab(tabId: string) {
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      if (tabId === PLAYER_WINDOW_ID) {
+        useWorkspacePlaybackStore.getState().closePlayer(storageSessionKeyFull().key)
+      }
+      const victim = prev.windows.find((w) => w.id === tabId)
+      if (!victim) return prev
+      const gid = groupIdForWindow(victim)
+      const members = prev.windows.filter((w) => groupIdForWindow(w) === gid)
+      if (members.length <= 1) {
+        const next = prev.windows.filter((w) => w.id !== tabId)
+        let active = prev.activeWindowId
+        if (active === tabId) active = next[next.length - 1]?.id ?? active
+        const nextMap = { ...prev.activeTabMap }
+        delete nextMap[gid]
+        return { ...prev, windows: next, activeWindowId: active, activeTabMap: nextMap }
+      }
+      let next = prev.windows.filter((w) => w.id !== tabId)
+      const still = next.filter((w) => groupIdForWindow(w) === gid)
+      const nextMap = { ...prev.activeTabMap }
+      if (still.length === 1) {
+        next = next.map((w) => (w.id === still[0].id ? { ...w, tabGroupId: null } : w))
+        delete nextMap[gid]
+      } else if (prev.activeTabMap[gid] === tabId) {
+        nextMap[gid] = still[0]?.id ?? prev.activeTabMap[gid]
+      }
+      let active = prev.activeWindowId
+      if (active === tabId) {
+        active = nextMap[gid] ?? still[0]?.id ?? next[next.length - 1]?.id ?? active
+      }
+      return { ...prev, windows: next, activeWindowId: active, activeTabMap: nextMap }
+    })
+  }
+
+  function addTab(leaderId: string) {
+    setWorkspace((prev) => (prev ? addTabToGroupState(prev, leaderId) : prev))
+  }
+
+  function handleDetachTab(tabId: string, clientX: number, clientY: number) {
+    const c = workspaceAreaEl?.getBoundingClientRect()
+    if (!c) return
+    const w = workspace()
+    const win = w?.windows.find((x) => x.id === tabId)
+    const currentBounds = win?.layout?.bounds
+    const restoreBounds = win?.layout?.restoreBounds
+    const width = restoreBounds?.width ?? currentBounds?.width ?? 500
+    const height = restoreBounds?.height ?? currentBounds?.height ?? 400
+    const newX = clientX - c.left - width / 2
+    const newY = Math.max(0, clientY - c.top - 16)
+    setWorkspace((prev) =>
+      prev ? splitWindowFromGroupState(prev, tabId, { x: newX, y: newY, width, height }) : prev,
+    )
+    focusWindow(tabId)
+  }
+
+  function requestPlay(source: WorkspaceSource, path: string, dir?: string) {
+    const key = storageSessionKeyFull().key
+    useWorkspacePlaybackStore.getState().playFile(key, path, dir)
+    const w = workspace()
+    if (!w) return
+    if (!isVideoPath(path)) {
+      const next = w.windows.filter((x) => x.id !== PLAYER_WINDOW_ID)
+      let active = w.activeWindowId
+      if (active === PLAYER_WINDOW_ID) {
+        active = next[next.length - 1]?.id ?? active
+      }
+      setWorkspace({ ...w, windows: next, activeWindowId: active })
+      return
+    }
+    const zIndex = Math.max(...w.windows.map((x) => x.layout?.zIndex ?? 1), 1) + 1
+    const existing = w.windows.find((win) => win.id === PLAYER_WINDOW_ID)
+    let nextWindows: WorkspaceWindowDefinition[]
+    if (!existing) {
+      const newWin: WorkspaceWindowDefinition = {
+        id: PLAYER_WINDOW_ID,
+        type: 'player',
+        title: getPlaybackTitle(path),
+        iconName: null,
+        iconPath: path,
+        iconType: MediaType.VIDEO,
+        iconIsVirtual: false,
+        source,
+        initialState: {},
+        tabGroupId: null,
+        layout: createWindowLayout(
+          undefined,
+          createDefaultBounds(w.windows.length, 'player'),
+          zIndex,
+        ),
+      }
+      nextWindows = [...w.windows, newWin]
+    } else {
+      nextWindows = w.windows.map((win) =>
+        win.id === PLAYER_WINDOW_ID
+          ? {
+              ...win,
+              title: getPlaybackTitle(path),
+              iconPath: path,
+              iconType: MediaType.VIDEO,
+              iconIsVirtual: false,
+              source,
+              layout: { ...win.layout, minimized: false, zIndex },
+            }
+          : win,
+      )
+    }
+    setWorkspace({
+      ...w,
+      windows: nextWindows,
+      activeWindowId: PLAYER_WINDOW_ID,
+    })
   }
 
   function updateWindowViewing(windowId: string, viewing: string) {
@@ -395,8 +551,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const w = workspace()
     if (!w) return snapZoneToBoundsWithOccupied(zone, [])
     const ex = draggedWindowIdForSnap
+    const excludeW = ex ? w.windows.find((x) => x.id === ex) : null
+    const excludeGid = excludeW ? groupIdForWindow(excludeW) : null
     const occupied = w.windows
-      .filter((x) => x.id !== ex && x.layout?.snapZone && x.layout.bounds)
+      .filter(
+        (x) =>
+          x.layout?.snapZone &&
+          x.layout.bounds &&
+          (excludeGid == null || groupIdForWindow(x) !== excludeGid),
+      )
       .map((x) => ({ bounds: x.layout!.bounds!, snapZone: x.layout!.snapZone! }))
     return snapZoneToBoundsWithOccupied(zone, occupied)
   }
@@ -434,21 +597,24 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   function unsnapWindow(windowId: string, drop: { x: number; y: number } | null) {
     setWorkspace((prev) => {
       if (!prev) return prev
+      const win = prev.windows.find((x) => x.id === windowId)
+      const gid = win ? groupIdForWindow(win) : null
       return {
         ...prev,
-        windows: prev.windows.map((win) => {
-          if (win.id !== windowId) return win
-          const restored = win.layout?.restoreBounds ?? win.layout?.bounds
+        windows: prev.windows.map((w) => {
+          if (gid && groupIdForWindow(w) !== gid) return w
+          if (!gid && w.id !== windowId) return w
+          const restored = w.layout?.restoreBounds ?? w.layout?.bounds
           return {
-            ...win,
+            ...w,
             layout: {
-              ...win.layout,
+              ...w.layout,
               snapZone: null,
               fullscreen: false,
               bounds:
                 drop && restored
                   ? { x: drop.x, y: drop.y, width: restored.width, height: restored.height }
-                  : (restored ?? win.layout?.bounds ?? null),
+                  : (restored ?? w.layout?.bounds ?? null),
               restoreBounds: null,
             },
           }
@@ -461,29 +627,34 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     setWorkspace((prev) => {
       if (!prev) return prev
       const maxZ = Math.max(...prev.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+      const win = prev.windows.find((x) => x.id === windowId)
+      const gid = win ? groupIdForWindow(win) : null
       const occupied = prev.windows
-        .filter((x) => x.id !== windowId && x.layout?.snapZone && x.layout.bounds)
+        .filter(
+          (x) =>
+            x.layout?.snapZone && x.layout.bounds && (gid == null || groupIdForWindow(x) !== gid),
+        )
         .map((x) => ({ bounds: x.layout!.bounds!, snapZone: x.layout!.snapZone! }))
       const snapBounds = snapZoneToBoundsWithOccupied(zone, occupied)
       return {
         ...prev,
         activeWindowId: windowId,
-        windows: prev.windows.map((win) =>
-          win.id === windowId
-            ? {
-                ...win,
-                layout: {
-                  ...win.layout,
-                  fullscreen: false,
-                  snapZone: zone,
-                  minimized: false,
-                  zIndex: maxZ + 1,
-                  bounds: snapBounds,
-                  restoreBounds: win.layout?.restoreBounds ?? win.layout?.bounds ?? null,
-                },
-              }
-            : win,
-        ),
+        windows: prev.windows.map((w) => {
+          if (gid && groupIdForWindow(w) !== gid) return w
+          if (!gid && w.id !== windowId) return w
+          return {
+            ...w,
+            layout: {
+              ...w.layout,
+              fullscreen: false,
+              snapZone: zone,
+              minimized: false,
+              zIndex: maxZ + 1,
+              bounds: snapBounds,
+              restoreBounds: w.layout?.restoreBounds ?? w.layout?.bounds ?? null,
+            },
+          }
+        }),
       }
     })
   }
@@ -491,25 +662,27 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   function toggleFullscreenWindow(windowId: string) {
     setWorkspace((prev) => {
       if (!prev) return prev
+      const win = prev.windows.find((x) => x.id === windowId)
+      const gid = win ? groupIdForWindow(win) : null
       const maxZ = Math.max(...prev.windows.map((x) => x.layout?.zIndex ?? 1), 1)
       return {
         ...prev,
         activeWindowId: windowId,
-        windows: prev.windows.map((win) => {
-          if (win.id !== windowId) return win
-          const currentBounds = win.layout?.bounds ?? createDefaultBounds(0, win.type)
-          const isFs = win.layout?.fullscreen ?? false
+        windows: prev.windows.map((w) => {
+          const inGroup = gid && groupIdForWindow(w) === gid
+          const solo = !gid && w.id === windowId
+          if (!inGroup && !solo) return w
+          const currentBounds = w.layout?.bounds ?? createDefaultBounds(0, w.type)
+          const isFs = w.layout?.fullscreen ?? false
           return {
-            ...win,
+            ...w,
             layout: {
-              ...win.layout,
+              ...w.layout,
               fullscreen: !isFs,
               snapZone: null,
               minimized: false,
               zIndex: maxZ + 1,
-              bounds: isFs
-                ? (win.layout?.restoreBounds ?? currentBounds)
-                : createFullscreenBounds(),
+              bounds: isFs ? (w.layout?.restoreBounds ?? currentBounds) : createFullscreenBounds(),
               restoreBounds: isFs ? null : currentBounds,
             },
           }
@@ -519,29 +692,39 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   }
 
   function setWindowMinimized(windowId: string, minimized: boolean) {
-    setWorkspace((prev) =>
-      prev
-        ? {
-            ...prev,
-            windows: prev.windows.map((win) =>
-              win.id === windowId ? { ...win, layout: { ...win.layout, minimized } } : win,
-            ),
-          }
-        : prev,
-    )
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      const win = prev.windows.find((x) => x.id === windowId)
+      const gid = win ? groupIdForWindow(win) : null
+      return {
+        ...prev,
+        windows: prev.windows.map((w) =>
+          gid && groupIdForWindow(w) === gid
+            ? { ...w, layout: { ...w.layout, minimized } }
+            : !gid && w.id === windowId
+              ? { ...w, layout: { ...w.layout, minimized } }
+              : w,
+        ),
+      }
+    })
   }
 
   function updateWindowBounds(windowId: string, bounds: WorkspaceBounds) {
-    setWorkspace((prev) =>
-      prev
-        ? {
-            ...prev,
-            windows: prev.windows.map((win) =>
-              win.id === windowId ? { ...win, layout: { ...win.layout, bounds } } : win,
-            ),
-          }
-        : prev,
-    )
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      const win = prev.windows.find((x) => x.id === windowId)
+      const gid = win ? groupIdForWindow(win) : null
+      return {
+        ...prev,
+        windows: prev.windows.map((w) =>
+          gid && groupIdForWindow(w) === gid
+            ? { ...w, layout: { ...w.layout, bounds } }
+            : w.id === windowId
+              ? { ...w, layout: { ...w.layout, bounds } }
+              : w,
+        ),
+      }
+    })
   }
 
   function resizeSnappedWindowBounds(windowId: string, bounds: WorkspaceBounds, direction: string) {
@@ -567,6 +750,22 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     if (c && p) applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag)
     dragZoneRef = null
     draggedWindowIdForSnap = null
+
+    const wsMerge = workspace()
+    if (wsMerge) {
+      const hit = findMergeTarget(wsMerge.windows, windowId, clientX, clientY)
+      if (hit) {
+        const targetWindow = wsMerge.windows.find((w) => groupIdForWindow(w) === hit.groupId)
+        if (targetWindow) {
+          setWorkspace((prev) =>
+            prev
+              ? mergeWindowIntoGroupState(prev, windowId, targetWindow.id, hit.insertIndex)
+              : prev,
+          )
+          return
+        }
+      }
+    }
 
     if (zone === 'top') {
       toggleFullscreenWindow(windowId)
@@ -603,9 +802,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     onCleanup(() => document.removeEventListener('mousedown', onDoc))
   })
 
-  const visibleWindows = createMemo(
-    () => workspace()?.windows.filter((x) => !x.layout?.minimized) ?? [],
-  )
+  const visibleGroupIds = createMemo(() => orderedVisibleGroupIds(workspace()?.windows ?? []))
   const pinnedItems = createMemo(() => workspace()?.pinnedTaskbarItems ?? [])
 
   return (
@@ -624,49 +821,88 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           class='pointer-events-none absolute rounded-sm border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
           style={{ display: 'none', 'z-index': 99999 }}
         />
-        <For each={visibleWindows()}>
-          {(win) => (
-            <WorkspaceWindowChrome
-              windowId={win.id}
-              groupId={win.tabGroupId ?? win.id}
-              workspace={workspace}
-              isActive={workspace()?.activeWindowId === win.id}
-              containerEl={() => workspaceAreaEl}
-              onFocusWindow={focusWindow}
-              onClose={closeWindow}
-              onMinimize={(id) => setWindowMinimized(id, true)}
-              onToggleFullscreen={toggleFullscreenWindow}
-              onOpenLayoutPicker={(windowId, rect) => setLayoutPicker({ windowId, anchor: rect })}
-              onRestoreDrag={restoreDrag}
-              onDragPointerMove={handleDragPointerMove}
-              onDragPointerEnd={onDragPointerEnd}
-              onDragDuringMove={updateWindowBounds}
-              onResizeSnapped={resizeSnappedWindowBounds}
-              onUpdateBounds={updateWindowBounds}
-            >
-              <Show when={win.type === 'browser'}>
-                <WorkspaceBrowserPane
-                  windowId={win.id}
+        <For each={visibleGroupIds()}>
+          {(gid) => {
+            const tabs = () => tabsInGroup(workspace()?.windows ?? [], gid)
+            const leader = () => tabs()[0]
+            const visibleTabId = () => workspace()?.activeTabMap[gid] ?? leader()?.id ?? ''
+            const tabList = () => tabs()
+            return (
+              <Show when={leader()}>
+                <WorkspaceWindowChrome
+                  leaderWindowId={leader()!.id}
+                  groupId={gid}
+                  tabWindows={tabList}
+                  visibleTabId={visibleTabId}
                   workspace={workspace}
-                  sharePanel={sharePanel}
-                  editableFolders={editableFolders()}
-                  onNavigateDir={navigateDir}
-                  onOpenViewer={openViewerFromBrowser}
-                  onAddToTaskbar={addPinnedItem}
-                />
+                  isActive={visibleTabId() === workspace()?.activeWindowId}
+                  containerEl={() => workspaceAreaEl}
+                  onFocusWindow={focusWindow}
+                  onClose={closeWindow}
+                  onMinimize={(id) => setWindowMinimized(id, true)}
+                  onToggleFullscreen={toggleFullscreenWindow}
+                  onOpenLayoutPicker={(wid, rect) =>
+                    setLayoutPicker({ windowId: wid, anchor: rect })
+                  }
+                  onRestoreDrag={restoreDrag}
+                  onDragPointerMove={handleDragPointerMove}
+                  onDragPointerEnd={onDragPointerEnd}
+                  onDragDuringMove={updateWindowBounds}
+                  onResizeSnapped={resizeSnappedWindowBounds}
+                  onUpdateBounds={updateWindowBounds}
+                  onSelectTab={setActiveTab}
+                  onCloseTab={closeTab}
+                  onDetachTab={handleDetachTab}
+                  onAddTab={() => addTab(leader()!.id)}
+                >
+                  <For each={tabs()}>
+                    {(tab) => (
+                      <div
+                        class={`min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
+                          tab.id === visibleTabId() ? '' : 'hidden'
+                        }`}
+                        aria-hidden={tab.id !== visibleTabId()}
+                      >
+                        <Show when={tab.type === 'browser'}>
+                          <WorkspaceBrowserPane
+                            windowId={tab.id}
+                            workspace={workspace}
+                            sharePanel={sharePanel}
+                            editableFolders={editableFolders()}
+                            onNavigateDir={navigateDir}
+                            onOpenViewer={openViewerFromBrowser}
+                            onAddToTaskbar={addPinnedItem}
+                            onRequestPlay={requestPlay}
+                            onFocusFromPane={focusWindow}
+                          />
+                        </Show>
+                        <Show when={tab.type === 'viewer'}>
+                          <WorkspaceViewerPane
+                            windowId={tab.id}
+                            workspace={workspace}
+                            sharePanel={sharePanel}
+                            editableFolders={editableFolders()}
+                            shareCanEdit={props.shareConfig ? (props.shareCanEdit ?? false) : false}
+                            onUpdateViewing={updateWindowViewing}
+                            onFocusFromPane={focusWindow}
+                          />
+                        </Show>
+                        <Show when={tab.type === 'player'}>
+                          <WorkspacePlayerPane
+                            windowId={tab.id}
+                            storageKey={storageSessionKeyFull().key}
+                            window={() => workspace()?.windows.find((w) => w.id === tab.id)}
+                            shareFallback={sharePanel}
+                            onFocusFromPane={focusWindow}
+                          />
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </WorkspaceWindowChrome>
               </Show>
-              <Show when={win.type === 'viewer'}>
-                <WorkspaceViewerPane
-                  windowId={win.id}
-                  workspace={workspace}
-                  sharePanel={sharePanel}
-                  editableFolders={editableFolders()}
-                  shareCanEdit={props.shareConfig ? (props.shareCanEdit ?? false) : false}
-                  onUpdateViewing={updateWindowViewing}
-                />
-              </Show>
-            </WorkspaceWindowChrome>
-          )}
+            )
+          }}
         </For>
         <Show when={layoutPicker()}>
           {(get) => {

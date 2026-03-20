@@ -6,6 +6,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import type { WorkspaceSource } from '@/lib/use-workspace'
 import { formatFileSize } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -20,6 +21,7 @@ import {
   createSignal,
   onCleanup,
 } from 'solid-js'
+import { bindPaneFocusOnClick } from './pane-focus-on-click'
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
@@ -37,6 +39,8 @@ type Props = {
   onNavigateDir: (windowId: string, dir: string) => void
   onOpenViewer: (windowId: string, file: FileItem) => void
   onAddToTaskbar: (file: FileItem) => void
+  onRequestPlay?: (source: WorkspaceSource, path: string, dir?: string) => void
+  onFocusFromPane?: (windowId: string) => void
 }
 
 function parentDir(fullPath: string): string {
@@ -49,6 +53,12 @@ export function WorkspaceBrowserPane(props: Props) {
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
   const [unsupportedFile, setUnsupportedFile] = createSignal<FileItem | null>(null)
+  const [paneRoot, setPaneRoot] = createSignal<HTMLDivElement | null>(null)
+  bindPaneFocusOnClick(
+    paneRoot,
+    () => props.windowId,
+    () => props.onFocusFromPane,
+  )
 
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
@@ -170,6 +180,9 @@ export function WorkspaceBrowserPane(props: Props) {
     }
     const mt = file.type
     if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
+      const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)
+      const src = wdef?.source
+      if (src) props.onRequestPlay?.(src, file.path, currentPath() || undefined)
       return
     }
     if (mt === MediaType.OTHER) {
@@ -192,6 +205,7 @@ export function WorkspaceBrowserPane(props: Props) {
 
   return (
     <div
+      ref={setPaneRoot}
       class='relative flex min-h-0 flex-1 flex-col overflow-hidden'
       data-testid='workspace-window-visible-content'
     >
