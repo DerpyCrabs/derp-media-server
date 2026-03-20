@@ -6,6 +6,7 @@ import path from 'path'
 const BATCHES = [
   { id: '1', tests: ['smoke'] },
   { id: '2', tests: ['login'] },
+  { id: '3', tests: ['navigation'] },
 ]
 
 const ROOT = path.resolve(__dirname, '..')

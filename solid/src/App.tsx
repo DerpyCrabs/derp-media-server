@@ -1,35 +1,7 @@
 import { useMutation } from '@tanstack/solid-query'
-import { Switch, Match, Show, createSignal, onCleanup, onMount } from 'solid-js'
-
-function pathnameSnap() {
-  return window.location.pathname
-}
-
-function usePathname() {
-  const [path, setPath] = createSignal(pathnameSnap())
-
-  onMount(() => {
-    const sync = () => setPath(pathnameSnap())
-    window.addEventListener('popstate', sync)
-    const origPush = history.pushState.bind(history)
-    const origReplace = history.replaceState.bind(history)
-    history.pushState = function (...args: Parameters<typeof origPush>) {
-      origPush(...args)
-      sync()
-    }
-    history.replaceState = function (...args: Parameters<typeof origReplace>) {
-      origReplace(...args)
-      sync()
-    }
-    onCleanup(() => {
-      window.removeEventListener('popstate', sync)
-      history.pushState = origPush
-      history.replaceState = origReplace
-    })
-  })
-
-  return path
-}
+import { Switch, Match, Show, createSignal, createMemo } from 'solid-js'
+import { useBrowserHistory } from './browser-history'
+import { FileBrowser } from './FileBrowser'
 
 async function postLogin(password: string) {
   const res = await fetch('/api/auth/login', {
@@ -110,15 +82,6 @@ function ShareStub() {
   )
 }
 
-function HomePage() {
-  return (
-    <div class='min-h-screen p-6' data-testid='solid-home'>
-      <h1 class='text-lg font-medium'>Media Server (Solid)</h1>
-      <p class='text-sm text-muted-foreground mt-2'>Solid shell — UI port in progress.</p>
-    </div>
-  )
-}
-
 function matchRoute(path: string): 'login' | 'share' | 'home' {
   if (path === '/login' || path.startsWith('/login/')) return 'login'
   if (path.startsWith('/share/')) return 'share'
@@ -126,9 +89,11 @@ function matchRoute(path: string): 'login' | 'share' | 'home' {
 }
 
 export function App() {
-  const path = usePathname()
+  const loc = useBrowserHistory()
+  const path = createMemo(() => loc().pathname)
+
   return (
-    <Switch fallback={<HomePage />}>
+    <Switch fallback={<FileBrowser />}>
       <Match when={matchRoute(path()) === 'login'}>
         <LoginPage />
       </Match>
