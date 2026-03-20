@@ -1,3 +1,10 @@
+import {
+  getFileDragData,
+  hasFileDragData,
+  isCompatibleSource,
+  setFileDragData,
+} from '@/lib/file-drag-data'
+import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { GlobalSettings } from '@/lib/use-settings'
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
@@ -8,8 +15,9 @@ import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import type { WorkspaceSource } from '@/lib/use-workspace'
 import { formatFileSize } from '@/lib/media-utils'
-import { cn } from '@/lib/utils'
+import { cn, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
+import FilePlus from 'lucide-solid/icons/file-plus'
 import type { Accessor } from 'solid-js'
 import {
   For,
@@ -20,8 +28,8 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  onMount,
 } from 'solid-js'
-import { bindPaneFocusOnClick } from './pane-focus-on-click'
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
@@ -45,7 +53,6 @@ type Props = {
     currentPath: string,
   ) => void
   onRequestPlay?: (source: WorkspaceSource, path: string, dir?: string) => void
-  onFocusFromPane?: (windowId: string) => void
 }
 
 function parentDir(fullPath: string): string {
@@ -58,13 +65,15 @@ export function WorkspaceBrowserPane(props: Props) {
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
   const [unsupportedFile, setUnsupportedFile] = createSignal<FileItem | null>(null)
-  const [paneRoot, setPaneRoot] = createSignal<HTMLDivElement | null>(null)
-  bindPaneFocusOnClick(
-    paneRoot,
-    () => props.windowId,
-    () => props.onFocusFromPane,
-  )
+  const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
+  const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
+  const [enableDrag, setEnableDrag] = createSignal(false)
+  const [showCreateFile, setShowCreateFile] = createSignal(false)
+  const [newFileName, setNewFileName] = createSignal('')
 
+  onMount(() => {
+    setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
+  })
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
   const currentPath = createMemo(() => win()?.initialState?.dir ?? '')
@@ -98,6 +107,66 @@ export function WorkspaceBrowserPane(props: Props) {
   })
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
+
+  const isVirtualFolder = createMemo(() =>
+    (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
+  )
+
+  const isPaneEditable = createMemo(
+    () => !share() && !isVirtualFolder() && isPathEditable(currentPath(), props.editableFolders),
+  )
+
+  const parentParts = createMemo(() =>
+    currentPath() ? currentPath().split(/[/\\]/).filter(Boolean) : [],
+  )
+  const dropParentDir = createMemo(() => {
+    const p = parentParts()
+    if (p.length <= 1) return ''
+    return p.slice(0, -1).join('/')
+  })
+  const canDropOnParent = createMemo(
+    () =>
+      isPaneEditable() &&
+      !!currentPath() &&
+      isPathEditable(dropParentDir() || '', props.editableFolders),
+  )
+
+  const canDropOn = (targetPath: string, sourcePath?: string | null) => {
+    const src = sourcePath ?? draggedPath()
+    if (!src || src === targetPath) return false
+    if (targetPath.startsWith(src + '/')) return false
+    return true
+  }
+
+  const dragSourceKind = createMemo((): 'local' | 'share' => (share() ? 'share' : 'local'))
+  const dragSourceToken = createMemo(() => share()?.token)
+
+  const moveMutation = useMutation(() => ({
+    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      const sh = share()
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+    },
+  }))
+
+  function handleMoveFile(sourcePath: string, destinationDir: string) {
+    const fileName = sourcePath.split(/[/\\]/).pop()!
+    const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
+    moveMutation.mutate({ oldPath: sourcePath, newPath })
+  }
+
+  const allowMoveFile = createMemo(() => (isPaneEditable() ? handleMoveFile : undefined))
+
+  const createFileMutation = useMutation(() => ({
+    mutationFn: (vars: { type: 'file'; path: string; content: string }) =>
+      post('/api/files/create', vars),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      const sh = share()
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+    },
+  }))
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
@@ -173,6 +242,29 @@ export function WorkspaceBrowserPane(props: Props) {
     props.onNavigateDir(props.windowId, path)
   }
 
+  function openCreateFileDialog() {
+    setNewFileName('')
+    setShowCreateFile(true)
+  }
+
+  function submitCreateFile() {
+    const name = newFileName().trim()
+    if (!name || fileExists()) return
+    const base = currentPath() ? `${currentPath()}/${name}` : name
+    const finalPath = base.includes('.') ? base : `${base}.txt`
+    void createFileMutation.mutateAsync({ type: 'file', path: finalPath, content: '' }).then(() => {
+      setShowCreateFile(false)
+      setNewFileName('')
+    })
+  }
+
+  const fileExists = createMemo(() => {
+    const n = newFileName().trim().toLowerCase()
+    if (!n) return false
+    const withExt = n.includes('.') ? n : `${n}.txt`
+    return files().some((f) => f.name.toLowerCase() === withExt || f.name.toLowerCase() === n)
+  })
+
   function handleParentDirectory() {
     props.onNavigateDir(props.windowId, parentDir(currentPath()))
   }
@@ -208,13 +300,137 @@ export function WorkspaceBrowserPane(props: Props) {
     onCleanup(() => window.removeEventListener('keydown', onKey))
   })
 
+  function parentRowDragOver(e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    if (!canDropOnParent() || !allowMoveFile()) return
+    if (!dtr || (!draggedPath() && !hasFileDragData(dtr))) return
+    e.preventDefault()
+    dtr.dropEffect = 'move'
+    setDragOverPath('__parent__')
+  }
+
+  function parentRowDragLeave(e: globalThis.DragEvent) {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node) && dragOverPath() === '__parent__') {
+      setDragOverPath(null)
+    }
+  }
+
+  function parentRowDrop(e: globalThis.DragEvent) {
+    e.preventDefault()
+    setDragOverPath(null)
+    const mv = allowMoveFile()
+    if (!mv) return
+    const dest = parentDir(currentPath())
+    const dp = draggedPath()
+    if (dp) {
+      mv(dp, dest)
+      return
+    }
+    const dtr = e.dataTransfer
+    if (!dtr) return
+    const data = getFileDragData(dtr)
+    if (
+      data &&
+      isCompatibleSource({ sourceKind: dragSourceKind(), sourceToken: dragSourceToken() }, data) &&
+      canDropOn(dest, data.path)
+    ) {
+      mv(data.path, dest)
+    }
+  }
+
+  function onFileDragStart(file: FileItem, e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    if (
+      !dtr ||
+      !enableDrag() ||
+      !isPathEditable(file.path, props.editableFolders) ||
+      !allowMoveFile()
+    )
+      return
+    const kind = dragSourceKind()
+    const tok = dragSourceToken()
+    setFileDragData(dtr, {
+      path: file.path,
+      isDirectory: file.isDirectory,
+      sourceKind: kind,
+      ...(kind === 'share' && tok ? { sourceToken: tok } : {}),
+    })
+    dtr.effectAllowed = 'copyMove'
+    setDraggedPath(file.path)
+  }
+
+  function onFileDragEnd() {
+    setDraggedPath(null)
+    setDragOverPath(null)
+  }
+
+  function onFolderDragOver(file: FileItem, e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    if (!file.isDirectory || !allowMoveFile() || !dtr) return
+    const hasCross = !draggedPath() && hasFileDragData(dtr)
+    if (!draggedPath() && !hasCross) return
+    const dp = draggedPath()
+    if (dp && !canDropOn(file.path)) return
+    if (!isPathEditable(file.path, props.editableFolders)) return
+    e.preventDefault()
+    dtr.dropEffect = 'move'
+    setDragOverPath(file.path)
+  }
+
+  function onFolderDragLeave(file: FileItem, e: globalThis.DragEvent) {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node) && dragOverPath() === file.path) {
+      setDragOverPath(null)
+    }
+  }
+
+  function onFolderDrop(file: FileItem, e: globalThis.DragEvent) {
+    e.preventDefault()
+    setDragOverPath(null)
+    const mv = allowMoveFile()
+    if (!mv || !file.isDirectory) return
+    const dp = draggedPath()
+    if (dp && canDropOn(file.path)) {
+      mv(dp, file.path)
+      return
+    }
+    if (!dp) {
+      const dtr = e.dataTransfer
+      if (!dtr) return
+      const data = getFileDragData(dtr)
+      if (
+        data &&
+        isCompatibleSource(
+          { sourceKind: dragSourceKind(), sourceToken: dragSourceToken() },
+          data,
+        ) &&
+        canDropOn(file.path, data.path)
+      ) {
+        mv(data.path, file.path)
+      }
+    }
+  }
+
   return (
-    <div ref={setPaneRoot} class='relative flex min-h-0 flex-1 flex-col overflow-hidden'>
+    <div class='relative flex min-h-0 flex-1 flex-col overflow-hidden'>
       <div class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 p-1.5'>
         <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
-        <Show when={!share()}>
-          <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
-        </Show>
+        <div class='flex items-center gap-1'>
+          <Show when={isPaneEditable()}>
+            <button
+              type='button'
+              title='Create new file'
+              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
+              onClick={openCreateFileDialog}
+            >
+              <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+            </button>
+          </Show>
+          <Show when={!share()}>
+            <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
+          </Show>
+        </div>
       </div>
 
       <Show when={filesQuery.isError}>
@@ -279,8 +495,14 @@ export function WorkspaceBrowserPane(props: Props) {
                 <tbody class='[&_tr:last-child]:border-0'>
                   <Show when={currentPath()}>
                     <tr
-                      class='cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50'
+                      class={cn(
+                        'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                        dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                      )}
                       onClick={handleParentDirectory}
+                      onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
+                      onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
+                      onDrop={allowMoveFile() ? parentRowDrop : undefined}
                     >
                       <td class='w-12 p-2 align-middle'>
                         <div class='flex items-center justify-center'>
@@ -296,25 +518,53 @@ export function WorkspaceBrowserPane(props: Props) {
                     </tr>
                   </Show>
                   <For each={files()}>
-                    {(file) => (
-                      <tr
-                        class='group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50'
-                        onClick={() => handleFileClick(file)}
-                        onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
-                      >
-                        <td class='w-12 p-2 align-middle'>
-                          <div class='flex items-center justify-center'>{fileIcon(file)}</div>
-                        </td>
-                        <td class='p-2 align-middle font-medium'>
-                          <span class='truncate'>{file.name}</span>
-                        </td>
-                        <td class='p-2 align-middle text-right text-muted-foreground'>
-                          <span class='inline-block w-20 tabular-nums'>
-                            {file.isDirectory ? '' : formatFileSize(file.size)}
-                          </span>
-                        </td>
-                      </tr>
-                    )}
+                    {(file) => {
+                      const canDragRow =
+                        enableDrag() &&
+                        isPathEditable(file.path, props.editableFolders) &&
+                        !!allowMoveFile()
+                      return (
+                        <tr
+                          class={cn(
+                            'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                            file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
+                            draggedPath() === file.path ? 'opacity-50' : '',
+                          )}
+                          draggable={canDragRow}
+                          onClick={() => handleFileClick(file)}
+                          onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                          onDragStart={(e) => onFileDragStart(file, e)}
+                          onDragEnd={onFileDragEnd}
+                          onDragOver={
+                            file.isDirectory && allowMoveFile()
+                              ? (e) => onFolderDragOver(file, e)
+                              : undefined
+                          }
+                          onDragLeave={
+                            file.isDirectory && allowMoveFile()
+                              ? (e) => onFolderDragLeave(file, e)
+                              : undefined
+                          }
+                          onDrop={
+                            file.isDirectory && allowMoveFile()
+                              ? (e) => onFolderDrop(file, e)
+                              : undefined
+                          }
+                        >
+                          <td class='w-12 p-2 align-middle'>
+                            <div class='flex items-center justify-center'>{fileIcon(file)}</div>
+                          </td>
+                          <td class='p-2 align-middle font-medium'>
+                            <span class='truncate'>{file.name}</span>
+                          </td>
+                          <td class='p-2 align-middle text-right text-muted-foreground'>
+                            <span class='inline-block w-20 tabular-nums'>
+                              {file.isDirectory ? '' : formatFileSize(file.size)}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    }}
                   </For>
                 </tbody>
               </table>
@@ -322,35 +572,32 @@ export function WorkspaceBrowserPane(props: Props) {
           </Match>
         </Switch>
 
-        <Show when={unsupportedFile()}>
-          {(get) => {
-            const file = get()
-            return (
+        <Show when={unsupportedFile()} keyed>
+          {(file) => (
+            <div
+              class='bg-background/85 absolute inset-0 z-20 flex items-center justify-center p-4 backdrop-blur-sm'
+              role='presentation'
+              onClick={(e) => e.target === e.currentTarget && setUnsupportedFile(null)}
+            >
               <div
-                class='bg-background/85 absolute inset-0 z-20 flex items-center justify-center p-4 backdrop-blur-sm'
-                role='presentation'
-                onClick={(e) => e.target === e.currentTarget && setUnsupportedFile(null)}
+                class='bg-card border-border w-full max-w-sm rounded-lg border p-6 shadow-lg'
+                role='dialog'
+                aria-modal='true'
+                onClick={(e) => e.stopPropagation()}
               >
-                <div
-                  class='bg-card border-border w-full max-w-sm rounded-lg border p-6 shadow-lg'
-                  role='dialog'
-                  aria-modal='true'
-                  onClick={(e) => e.stopPropagation()}
+                <p class='text-muted-foreground mb-4 text-center text-sm'>
+                  This file type cannot be previewed.
+                </p>
+                <a
+                  href={unsupportedDownloadHref(file)}
+                  download={file.name}
+                  class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
                 >
-                  <p class='text-muted-foreground mb-4 text-center text-sm'>
-                    This file type cannot be previewed.
-                  </p>
-                  <a
-                    href={unsupportedDownloadHref(file)}
-                    download={file.name}
-                    class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
-                  >
-                    Download File
-                  </a>
-                </div>
+                  Download File
+                </a>
               </div>
-            )
-          }}
+            </div>
+          )}
         </Show>
       </div>
 
@@ -381,6 +628,64 @@ export function WorkspaceBrowserPane(props: Props) {
           if (it) void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
         }}
       />
+
+      <Show when={showCreateFile()}>
+        <div
+          class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+          role='presentation'
+          onClick={() => setShowCreateFile(false)}
+        >
+          <div
+            role='dialog'
+            aria-modal='true'
+            aria-labelledby='workspace-create-file-title'
+            class='bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-lg'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id='workspace-create-file-title' class='text-lg font-semibold'>
+              Create New File
+            </h2>
+            <p class='text-muted-foreground mt-1 text-sm'>
+              Enter a name. A .txt extension will be added if none is provided.
+            </p>
+            <input
+              type='text'
+              class='mt-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
+              placeholder='File name (e.g., notes.txt)'
+              value={newFileName()}
+              onInput={(e) => setNewFileName((e.currentTarget as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newFileName().trim() && !fileExists()) submitCreateFile()
+              }}
+            />
+            <Show when={fileExists()}>
+              <p class='mt-2 text-sm text-amber-600'>A file with this name already exists.</p>
+            </Show>
+            <Show when={createFileMutation.isError}>
+              <p class='text-destructive mt-2 text-sm'>
+                {(createFileMutation.error as Error)?.message ?? 'Create failed'}
+              </p>
+            </Show>
+            <div class='mt-6 flex justify-end gap-2'>
+              <button
+                type='button'
+                class='h-9 rounded-md border border-input px-4 text-sm'
+                onClick={() => setShowCreateFile(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type='button'
+                class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm disabled:opacity-50'
+                disabled={createFileMutation.isPending || !newFileName().trim() || fileExists()}
+                onClick={() => submitCreateFile()}
+              >
+                {createFileMutation.isPending ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   )
 }

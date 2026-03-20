@@ -19,6 +19,7 @@
     "test:unit": "bun test tests/unit/",
     "test:batch": "bun tests/run-batches.ts",
     "test:solid": "playwright test -c playwright.solid.config.ts",
+    "test:solid:ui": "playwright test -c playwright.solid.config.ts --ui",
     "test:batch:solid": "bun tests/run-batches-solid.ts",
     "test:generate-media": "bun tests/fixtures/generate-media-cache.ts",
     "test:ui": "playwright test --ui",

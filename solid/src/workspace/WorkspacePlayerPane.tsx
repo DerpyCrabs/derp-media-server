@@ -4,7 +4,6 @@ import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
 import { MediaType } from '@/lib/types'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
-import { bindPaneFocusOnClick } from './pane-focus-on-click'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import type { WorkspaceShareConfig } from './WorkspaceBrowserPane'
 
@@ -21,17 +20,10 @@ type Props = {
   storageKey: string
   window: Accessor<WorkspaceWindowDefinition | undefined>
   shareFallback: Accessor<WorkspaceShareConfig | null>
-  onFocusFromPane?: (windowId: string) => void
 }
 
 export function WorkspacePlayerPane(props: Props) {
   let videoRef: HTMLVideoElement | undefined
-  const [paneRoot, setPaneRoot] = createSignal<HTMLDivElement | null>(null)
-  bindPaneFocusOnClick(
-    paneRoot,
-    () => props.windowId,
-    () => props.onFocusFromPane,
-  )
 
   const [playing, setPlaying] = createSignal<string | null>(null)
   const [audioOnly, setAudioOnly] = createSignal(false)
@@ -78,10 +70,7 @@ export function WorkspacePlayerPane(props: Props) {
   })
 
   return (
-    <div
-      ref={setPaneRoot}
-      class='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black/80'
-    >
+    <div class='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black/80'>
       <Show
         when={showVideo()}
         fallback={

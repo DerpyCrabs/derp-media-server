@@ -92,11 +92,13 @@ export function openInNewTabInGroupState(
   file: { path: string; isDirectory: boolean; isVirtual?: boolean },
   currentPath: string,
   insertIndex?: number,
+  sourceOverride?: WorkspaceWindowDefinition['source'],
 ): PersistedWorkspaceState {
   if (file.isVirtual) return state
   const sourceWindow = state.windows.find((w) => w.id === sourceWindowId)
   if (!sourceWindow) return state
   const groupId = sourceWindow.tabGroupId || sourceWindowId
+  const source = sourceOverride ?? sourceWindow.source
   const n = state.nextWindowId
   const id = `workspace-window-${n}`
   const zIndex = sourceWindow.layout?.zIndex ?? 1
@@ -122,7 +124,7 @@ export function openInNewTabInGroupState(
       iconPath: '',
       iconType: MediaType.FOLDER,
       iconIsVirtual: false,
-      source: sourceWindow.source,
+      source,
       initialState: { dir: file.path },
       tabGroupId: groupId,
       layout: sharedLayout ?? {
@@ -141,7 +143,7 @@ export function openInNewTabInGroupState(
       iconPath: file.path,
       iconType: getMediaType(file.path.split('.').pop() ?? ''),
       iconIsVirtual: false,
-      source: sourceWindow.source,
+      source,
       initialState: { dir, viewing: file.path },
       tabGroupId: groupId,
       layout: sharedLayout ?? {

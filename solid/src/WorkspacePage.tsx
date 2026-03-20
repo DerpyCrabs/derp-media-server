@@ -11,6 +11,7 @@ import {
   isVideoPath,
   PLAYER_WINDOW_ID,
 } from '@/lib/workspace-geometry'
+import type { FileDragData } from '@/lib/file-drag-data'
 import type {
   PersistedWorkspaceState,
   PinnedTaskbarItem,
@@ -442,9 +443,49 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     sourceWindowId: string,
     file: { path: string; isDirectory: boolean; isVirtual?: boolean },
     currentPath: string,
+    insertIndex?: number,
+    sourceOverride?: WorkspaceSource,
   ) {
     setWorkspace((prev) =>
-      prev ? openInNewTabInGroupState(prev, sourceWindowId, file, currentPath) : prev,
+      prev
+        ? openInNewTabInGroupState(
+            prev,
+            sourceWindowId,
+            file,
+            currentPath,
+            insertIndex,
+            sourceOverride,
+          )
+        : prev,
+    )
+  }
+
+  function dropFileToTabBar(
+    targetLeaderWindowId: string,
+    data: FileDragData,
+    insertIndex?: number,
+  ) {
+    const sc = shareConfig()
+    const source: WorkspaceSource =
+      data.sourceKind === 'share'
+        ? {
+            kind: 'share',
+            token: data.sourceToken ?? '',
+            sharePath: sc?.sharePath ?? '',
+          }
+        : { kind: 'local', rootPath: null }
+    const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
+    setWorkspace((prev) =>
+      prev
+        ? openInNewTabInGroupState(
+            prev,
+            targetLeaderWindowId,
+            { path: data.path, isDirectory: data.isDirectory },
+            dir,
+            insertIndex,
+            source,
+          )
+        : prev,
     )
   }
 
@@ -900,6 +941,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
               const leader = () => tabs()[0]
               const visibleTabId = () => workspace()?.activeTabMap[gid] ?? leader()?.id ?? ''
               const tabList = () => tabs()
+              const tabIds = createMemo(() => tabs().map((w) => w.id))
               return (
                 <Show when={leader()}>
                   <WorkspaceWindowChrome
@@ -927,60 +969,63 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                     onCloseTab={closeTab}
                     onDetachTab={handleDetachTab}
                     onAddTab={() => addTab(leader()!.id)}
+                    onDropFileToTabBar={(data, insertIndex) =>
+                      dropFileToTabBar(leader()!.id, data, insertIndex)
+                    }
                   >
-                    <For each={tabs()}>
-                      {(tab) => (
-                        <div
-                          data-testid={
-                            tab.id === visibleTabId()
-                              ? 'workspace-window-visible-content'
-                              : undefined
-                          }
-                          class={`min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
-                            tab.id === visibleTabId() ? '' : 'hidden'
-                          }`}
-                          aria-hidden={tab.id !== visibleTabId()}
-                        >
-                          <Show when={tab.type === 'browser'}>
-                            <WorkspaceBrowserPane
-                              windowId={tab.id}
-                              workspace={workspace}
-                              sharePanel={sharePanel}
-                              editableFolders={editableFolders()}
-                              onNavigateDir={navigateDir}
-                              onOpenViewer={openViewerFromBrowser}
-                              onAddToTaskbar={addPinnedItem}
-                              onOpenInNewTab={(wid, file, path) =>
-                                openInNewTabInSameWindow(wid, file, path)
-                              }
-                              onRequestPlay={requestPlay}
-                              onFocusFromPane={focusWindow}
-                            />
-                          </Show>
-                          <Show when={tab.type === 'viewer'}>
-                            <WorkspaceViewerPane
-                              windowId={tab.id}
-                              workspace={workspace}
-                              sharePanel={sharePanel}
-                              editableFolders={editableFolders()}
-                              shareCanEdit={
-                                props.shareConfig ? (props.shareCanEdit ?? false) : false
-                              }
-                              onUpdateViewing={updateWindowViewing}
-                              onFocusFromPane={focusWindow}
-                            />
-                          </Show>
-                          <Show when={tab.type === 'player'}>
-                            <WorkspacePlayerPane
-                              windowId={tab.id}
-                              storageKey={storageSessionKeyFull().key}
-                              window={() => workspace()?.windows.find((w) => w.id === tab.id)}
-                              shareFallback={sharePanel}
-                              onFocusFromPane={focusWindow}
-                            />
-                          </Show>
-                        </div>
-                      )}
+                    <For each={tabIds()}>
+                      {(tabId) => {
+                        const windowDef = createMemo(() => tabs().find((w) => w.id === tabId))
+                        return (
+                          <div
+                            data-testid={
+                              tabId === visibleTabId()
+                                ? 'workspace-window-visible-content'
+                                : undefined
+                            }
+                            class={`min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
+                              tabId === visibleTabId() ? '' : 'hidden'
+                            }`}
+                            aria-hidden={tabId !== visibleTabId()}
+                          >
+                            <Show when={windowDef()?.type === 'browser'}>
+                              <WorkspaceBrowserPane
+                                windowId={tabId}
+                                workspace={workspace}
+                                sharePanel={sharePanel}
+                                editableFolders={editableFolders()}
+                                onNavigateDir={navigateDir}
+                                onOpenViewer={openViewerFromBrowser}
+                                onAddToTaskbar={addPinnedItem}
+                                onOpenInNewTab={(wid, file, path) =>
+                                  openInNewTabInSameWindow(wid, file, path)
+                                }
+                                onRequestPlay={requestPlay}
+                              />
+                            </Show>
+                            <Show when={windowDef()?.type === 'viewer'}>
+                              <WorkspaceViewerPane
+                                windowId={tabId}
+                                workspace={workspace}
+                                sharePanel={sharePanel}
+                                editableFolders={editableFolders()}
+                                shareCanEdit={
+                                  props.shareConfig ? (props.shareCanEdit ?? false) : false
+                                }
+                                onUpdateViewing={updateWindowViewing}
+                              />
+                            </Show>
+                            <Show when={windowDef()?.type === 'player'}>
+                              <WorkspacePlayerPane
+                                windowId={tabId}
+                                storageKey={storageSessionKeyFull().key}
+                                window={() => workspace()?.windows.find((w) => w.id === tabId)}
+                                shareFallback={sharePanel}
+                              />
+                            </Show>
+                          </div>
+                        )
+                      }}
                     </For>
                   </WorkspaceWindowChrome>
                 </Show>

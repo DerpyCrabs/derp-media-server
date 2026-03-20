@@ -1,3 +1,5 @@
+import type { FileDragData } from '@/lib/file-drag-data'
+import { getFileDragData, hasFileDragData } from '@/lib/file-drag-data'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
 import { MediaType } from '@/lib/types'
@@ -16,7 +18,17 @@ function TabIcon(props: { tab: WorkspaceWindowDefinition }) {
   return <File class='h-3.5 w-3.5' stroke-width={2} />
 }
 
-function TabStripDropSlot(props: { groupId: string; index: number; highlighted?: boolean }) {
+function TabStripDropSlot(props: {
+  groupId: string
+  index: number
+  highlighted?: boolean
+  onDropFile?: (data: FileDragData, insertIndex?: number) => void
+  onSlotDragOver: (e: globalThis.DragEvent, index: number) => void
+  onSlotDragLeave: (e: globalThis.DragEvent) => void
+  onSlotDrop: (e: globalThis.DragEvent, index: number) => void
+}) {
+  const onDragOver = (e: globalThis.DragEvent) => props.onSlotDragOver(e, props.index)
+  const onDropCb = (e: globalThis.DragEvent) => props.onSlotDrop(e, props.index)
   return (
     <div
       data-tab-drop-slot={`${props.groupId}:${props.index}`}
@@ -24,6 +36,9 @@ function TabStripDropSlot(props: { groupId: string; index: number; highlighted?:
       class={`flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch ${
         props.highlighted ? 'bg-primary/80' : ''
       }`}
+      onDragOver={props.onDropFile ? onDragOver : undefined}
+      onDragLeave={props.onDropFile ? props.onSlotDragLeave : undefined}
+      onDrop={props.onDropFile ? onDropCb : undefined}
     />
   )
 }
@@ -37,11 +52,14 @@ export type WorkspaceTabStripProps = {
   onFocusWindow: (tabId: string) => void
   onCloseTab: (tabId: string) => void
   onDetachTab?: (tabId: string, clientX: number, clientY: number) => void
+  onDropFile?: (data: FileDragData, insertIndex?: number) => void
 }
 
 export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
   let scrollEl!: HTMLDivElement
   const [overflow, setOverflow] = createSignal({ left: false, right: false })
+  const [dropSlotIndex, setDropSlotIndex] = createSignal<number | null>(null)
+  const [fileDragOver, setFileDragOver] = createSignal(false)
 
   const checkOverflow = () => {
     const el = scrollEl
@@ -57,6 +75,66 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
   const scrollBy = (delta: number) => {
     scrollEl?.scrollBy({ left: delta, behavior: 'smooth' })
     requestAnimationFrame(checkOverflow)
+  }
+
+  const handleSlotDragOver = (e: globalThis.DragEvent, index: number) => {
+    const dtr = e.dataTransfer
+    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dtr.dropEffect = 'copy'
+    setDropSlotIndex(index)
+    setFileDragOver(true)
+  }
+
+  const handleSlotDragLeave = (e: globalThis.DragEvent) => {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node)) {
+      setDropSlotIndex(null)
+    }
+  }
+
+  const handleSlotDrop = (e: globalThis.DragEvent, index: number) => {
+    setFileDragOver(false)
+    setDropSlotIndex(null)
+    if (!props.onDropFile) return
+    const dtr = e.dataTransfer
+    if (!dtr) return
+    const data = getFileDragData(dtr)
+    if (!data) return
+    e.preventDefault()
+    e.stopPropagation()
+    props.onDropFile(data, index)
+  }
+
+  const handleStripDragLeave = (e: globalThis.DragEvent) => {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node)) {
+      setFileDragOver(false)
+      setDropSlotIndex(null)
+    }
+  }
+
+  const handleScrollAreaDragOver = (e: globalThis.DragEvent) => {
+    const dtr = e.dataTransfer
+    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dtr.dropEffect = 'copy'
+    setFileDragOver(true)
+  }
+
+  const handleScrollAreaDrop = (e: globalThis.DragEvent) => {
+    if (!props.onDropFile) return
+    const dtr = e.dataTransfer
+    if (!dtr) return
+    const data = getFileDragData(dtr)
+    if (!data) return
+    e.preventDefault()
+    e.stopPropagation()
+    setFileDragOver(false)
+    setDropSlotIndex(null)
+    props.onDropFile(data, props.tabs.length)
   }
 
   const handleTabPointerDown = (tabId: string) => (e: PointerEvent) => {
@@ -91,7 +169,12 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
   }
 
   return (
-    <div class='workspace-tab-strip relative flex min-w-0 flex-1 items-center'>
+    <div
+      class={`workspace-tab-strip relative flex min-w-0 flex-1 items-center ${
+        fileDragOver() ? 'ring-1 ring-inset ring-primary bg-primary/10' : ''
+      }`}
+      onDragLeave={handleStripDragLeave}
+    >
       <Show when={overflow().left}>
         <button
           type='button'
@@ -111,11 +194,21 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
           e.stopPropagation()
           scrollEl?.scrollBy({ left: e.deltaY || e.deltaX, behavior: 'instant' })
         }}
+        onDragOver={props.onDropFile ? handleScrollAreaDragOver : undefined}
+        onDrop={props.onDropFile ? handleScrollAreaDrop : undefined}
       >
         <For each={props.tabs}>
           {(tab, idx) => (
             <>
-              <TabStripDropSlot groupId={props.groupId} index={idx()} />
+              <TabStripDropSlot
+                groupId={props.groupId}
+                index={idx()}
+                highlighted={dropSlotIndex() === idx()}
+                onDropFile={props.onDropFile}
+                onSlotDragOver={handleSlotDragOver}
+                onSlotDragLeave={handleSlotDragLeave}
+                onSlotDrop={handleSlotDrop}
+              />
               <div
                 data-no-window-drag
                 data-workspace-tab-id={tab.id}
@@ -155,7 +248,15 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
             </>
           )}
         </For>
-        <TabStripDropSlot groupId={props.groupId} index={props.tabs.length} />
+        <TabStripDropSlot
+          groupId={props.groupId}
+          index={props.tabs.length}
+          highlighted={dropSlotIndex() === props.tabs.length}
+          onDropFile={props.onDropFile}
+          onSlotDragOver={handleSlotDragOver}
+          onSlotDragLeave={handleSlotDragLeave}
+          onSlotDrop={handleSlotDrop}
+        />
       </div>
       <Show when={overflow().right}>
         <button
@@ -176,12 +277,74 @@ export type WorkspaceSingleTabHeaderProps = {
   groupId: string
   tab: WorkspaceWindowDefinition
   isWindowActive: boolean
+  onDropFile?: (data: FileDragData, insertIndex?: number) => void
 }
 
 export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
+  const [dropSlotIndex, setDropSlotIndex] = createSignal<number | null>(null)
+
+  const handleSlotDragOver = (e: globalThis.DragEvent, index: number) => {
+    const dtr = e.dataTransfer
+    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dtr.dropEffect = 'copy'
+    setDropSlotIndex(index)
+  }
+
+  const handleSlotDragLeave = (e: globalThis.DragEvent) => {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node)) {
+      setDropSlotIndex(null)
+    }
+  }
+
+  const handleSlotDrop = (e: globalThis.DragEvent, index: number) => {
+    setDropSlotIndex(null)
+    if (!props.onDropFile) return
+    const dtr = e.dataTransfer
+    if (!dtr) return
+    const data = getFileDragData(dtr)
+    if (!data) return
+    e.preventDefault()
+    e.stopPropagation()
+    props.onDropFile(data, index)
+  }
+
+  const handleHeaderDragOver = (e: globalThis.DragEvent) => {
+    const dtr = e.dataTransfer
+    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dtr.dropEffect = 'copy'
+  }
+
+  const handleHeaderDrop = (e: globalThis.DragEvent) => {
+    if (!props.onDropFile) return
+    const dtr = e.dataTransfer
+    if (!dtr) return
+    const data = getFileDragData(dtr)
+    if (!data) return
+    e.preventDefault()
+    e.stopPropagation()
+    props.onDropFile(data, 1)
+  }
+
   return (
-    <div class='flex min-w-0 flex-1 items-center'>
-      <TabStripDropSlot groupId={props.groupId} index={0} />
+    <div
+      class='flex min-w-0 flex-1 items-center'
+      onDragOver={props.onDropFile ? handleHeaderDragOver : undefined}
+      onDrop={props.onDropFile ? handleHeaderDrop : undefined}
+    >
+      <TabStripDropSlot
+        groupId={props.groupId}
+        index={0}
+        highlighted={dropSlotIndex() === 0}
+        onDropFile={props.onDropFile}
+        onSlotDragOver={handleSlotDragOver}
+        onSlotDragLeave={handleSlotDragLeave}
+        onSlotDrop={handleSlotDrop}
+      />
       <div class='flex min-w-0 flex-1 items-center gap-1.5 px-2'>
         <div
           class={`flex h-5 w-5 shrink-0 items-center justify-center ${
@@ -198,7 +361,15 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
           {getWorkspaceWindowTitle(props.tab)}
         </div>
       </div>
-      <TabStripDropSlot groupId={props.groupId} index={1} />
+      <TabStripDropSlot
+        groupId={props.groupId}
+        index={1}
+        highlighted={dropSlotIndex() === 1}
+        onDropFile={props.onDropFile}
+        onSlotDragOver={handleSlotDragOver}
+        onSlotDragLeave={handleSlotDragLeave}
+        onSlotDrop={handleSlotDrop}
+      />
     </div>
   )
 }
