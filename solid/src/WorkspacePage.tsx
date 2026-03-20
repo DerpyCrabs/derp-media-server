@@ -2,29 +2,40 @@ import type { GlobalSettings } from '@/lib/use-settings'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
-import { createDefaultBounds, createWindowLayout, PLAYER_WINDOW_ID } from '@/lib/workspace-geometry'
+import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
+import {
+  createDefaultBounds,
+  createFullscreenBounds,
+  createWindowLayout,
+  PLAYER_WINDOW_ID,
+} from '@/lib/workspace-geometry'
 import type {
   PersistedWorkspaceState,
   PinnedTaskbarItem,
+  SnapZone,
   WorkspaceSource,
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import {
   normalizePersistedWorkspaceState,
+  snapZoneToBoundsWithOccupied,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
 } from '@/lib/use-workspace'
+import { detectSnapZone, type SnapDetectResult } from '@/lib/use-snap-zones'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import File from 'lucide-solid/icons/file'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import Folder from 'lucide-solid/icons/folder'
-import X from 'lucide-solid/icons/x'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { useBrowserHistory, navigateSearchParams } from './browser-history'
+import { applySnapPreviewLayout } from './workspace/snap-preview'
+import { WorkspaceTilingPicker } from './workspace/WorkspaceTilingPicker'
 import { WorkspaceBrowserPane, type WorkspaceShareConfig } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
+import { WorkspaceWindowChrome, type WorkspaceBounds } from './workspace/WorkspaceWindowChrome'
 
 const DEFAULT_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 
@@ -110,6 +121,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   })
 
   const [workspace, setWorkspace] = createSignal<PersistedWorkspaceState | null>(null)
+
+  let workspaceAreaEl: HTMLDivElement | undefined
+  let snapPreviewEl: HTMLDivElement | undefined
+  const [layoutPicker, setLayoutPicker] = createSignal<{
+    windowId: string
+    anchor: DOMRect
+  } | null>(null)
+  let dragZoneRef: SnapDetectResult | null = null
+  let draggedWindowIdForSnap: string | null = null
 
   const [pinsHydratedFor, setPinsHydratedFor] = createSignal('')
 
@@ -371,6 +391,200 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     openViewer('', synthetic, pin.source)
   }
 
+  function getZoneBoundsForDrag(zone: SnapZone): WorkspaceBounds {
+    const w = workspace()
+    if (!w) return snapZoneToBoundsWithOccupied(zone, [])
+    const ex = draggedWindowIdForSnap
+    const occupied = w.windows
+      .filter((x) => x.id !== ex && x.layout?.snapZone && x.layout.bounds)
+      .map((x) => ({ bounds: x.layout!.bounds!, snapZone: x.layout!.snapZone! }))
+    return snapZoneToBoundsWithOccupied(zone, occupied)
+  }
+
+  function handleDragPointerMove(windowId: string, clientX: number, clientY: number) {
+    draggedWindowIdForSnap = windowId
+    const c = workspaceAreaEl
+    const p = snapPreviewEl
+    if (!c || !p) return
+    const rect = c.getBoundingClientRect()
+    const z = detectSnapZone(clientX - rect.left, clientY - rect.top, rect.width, rect.height)
+    dragZoneRef = z
+    applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag)
+  }
+
+  function restoreDrag(windowId: string, clientX: number, clientY: number) {
+    const w = workspace()
+    const container = workspaceAreaEl?.getBoundingClientRect()
+    if (!w || !container) return
+    const win = w.windows.find((x) => x.id === windowId)
+    if (!win) return
+    const currentBounds = win.layout?.bounds
+    const restoreBounds = win.layout?.restoreBounds
+    const restoredW = restoreBounds?.width ?? currentBounds?.width ?? 500
+    const currentWidth = currentBounds?.width ?? restoredW
+    const oX = container.left
+    const grabRatio = currentBounds
+      ? Math.min(Math.max((clientX - oX - currentBounds.x) / currentWidth, 0), 1)
+      : 0.5
+    const newX = clientX - oX - restoredW * grabRatio
+    const newY = currentBounds?.y ?? 0
+    unsnapWindow(windowId, { x: newX, y: newY })
+  }
+
+  function unsnapWindow(windowId: string, drop: { x: number; y: number } | null) {
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        windows: prev.windows.map((win) => {
+          if (win.id !== windowId) return win
+          const restored = win.layout?.restoreBounds ?? win.layout?.bounds
+          return {
+            ...win,
+            layout: {
+              ...win.layout,
+              snapZone: null,
+              fullscreen: false,
+              bounds:
+                drop && restored
+                  ? { x: drop.x, y: drop.y, width: restored.width, height: restored.height }
+                  : (restored ?? win.layout?.bounds ?? null),
+              restoreBounds: null,
+            },
+          }
+        }),
+      }
+    })
+  }
+
+  function snapWindowState(windowId: string, zone: SnapZone) {
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      const maxZ = Math.max(...prev.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+      const occupied = prev.windows
+        .filter((x) => x.id !== windowId && x.layout?.snapZone && x.layout.bounds)
+        .map((x) => ({ bounds: x.layout!.bounds!, snapZone: x.layout!.snapZone! }))
+      const snapBounds = snapZoneToBoundsWithOccupied(zone, occupied)
+      return {
+        ...prev,
+        activeWindowId: windowId,
+        windows: prev.windows.map((win) =>
+          win.id === windowId
+            ? {
+                ...win,
+                layout: {
+                  ...win.layout,
+                  fullscreen: false,
+                  snapZone: zone,
+                  minimized: false,
+                  zIndex: maxZ + 1,
+                  bounds: snapBounds,
+                  restoreBounds: win.layout?.restoreBounds ?? win.layout?.bounds ?? null,
+                },
+              }
+            : win,
+        ),
+      }
+    })
+  }
+
+  function toggleFullscreenWindow(windowId: string) {
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      const maxZ = Math.max(...prev.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+      return {
+        ...prev,
+        activeWindowId: windowId,
+        windows: prev.windows.map((win) => {
+          if (win.id !== windowId) return win
+          const currentBounds = win.layout?.bounds ?? createDefaultBounds(0, win.type)
+          const isFs = win.layout?.fullscreen ?? false
+          return {
+            ...win,
+            layout: {
+              ...win.layout,
+              fullscreen: !isFs,
+              snapZone: null,
+              minimized: false,
+              zIndex: maxZ + 1,
+              bounds: isFs
+                ? (win.layout?.restoreBounds ?? currentBounds)
+                : createFullscreenBounds(),
+              restoreBounds: isFs ? null : currentBounds,
+            },
+          }
+        }),
+      }
+    })
+  }
+
+  function setWindowMinimized(windowId: string, minimized: boolean) {
+    setWorkspace((prev) =>
+      prev
+        ? {
+            ...prev,
+            windows: prev.windows.map((win) =>
+              win.id === windowId ? { ...win, layout: { ...win.layout, minimized } } : win,
+            ),
+          }
+        : prev,
+    )
+  }
+
+  function updateWindowBounds(windowId: string, bounds: WorkspaceBounds) {
+    setWorkspace((prev) =>
+      prev
+        ? {
+            ...prev,
+            windows: prev.windows.map((win) =>
+              win.id === windowId ? { ...win, layout: { ...win.layout, bounds } } : win,
+            ),
+          }
+        : prev,
+    )
+  }
+
+  function resizeSnappedWindowBounds(windowId: string, bounds: WorkspaceBounds, direction: string) {
+    setWorkspace((prev) =>
+      prev
+        ? {
+            ...prev,
+            windows: computeSnappedResizeWindows(prev.windows, windowId, bounds, direction),
+          }
+        : prev,
+    )
+  }
+
+  function onDragPointerEnd(
+    windowId: string,
+    bounds: WorkspaceBounds,
+    clientX: number,
+    clientY: number,
+  ) {
+    const zone = dragZoneRef
+    const c = workspaceAreaEl
+    const p = snapPreviewEl
+    if (c && p) applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag)
+    dragZoneRef = null
+    draggedWindowIdForSnap = null
+
+    if (zone === 'top') {
+      toggleFullscreenWindow(windowId)
+      return
+    }
+    if (zone) {
+      snapWindowState(windowId, zone as SnapZone)
+      return
+    }
+
+    const w = workspace()?.windows.find((x) => x.id === windowId)
+    if (w?.layout?.snapZone || w?.layout?.fullscreen) {
+      unsnapWindow(windowId, { x: bounds.x, y: bounds.y })
+      return
+    }
+    updateWindowBounds(windowId, bounds)
+  }
+
   const [pinMenu, setPinMenu] = createSignal<{
     x: number
     y: number
@@ -389,76 +603,93 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     onCleanup(() => document.removeEventListener('mousedown', onDoc))
   })
 
-  const windows = createMemo(() => workspace()?.windows ?? [])
+  const visibleWindows = createMemo(
+    () => workspace()?.windows.filter((x) => !x.layout?.minimized) ?? [],
+  )
   const pinnedItems = createMemo(() => workspace()?.pinnedTaskbarItems ?? [])
 
   return (
     <div class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'>
-      <div class='relative min-h-0 flex-1 overflow-hidden'>
-        <For each={windows()}>
-          {(win) => {
-            const b = () => win.layout?.bounds
+      <div
+        class='relative min-h-0 flex-1 overflow-hidden'
+        ref={(el) => {
+          workspaceAreaEl = el
+        }}
+      >
+        <div
+          ref={(el) => {
+            snapPreviewEl = el ?? undefined
+          }}
+          data-snap-preview
+          class='pointer-events-none absolute rounded-sm border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
+          style={{ display: 'none', 'z-index': 99999 }}
+        />
+        <For each={visibleWindows()}>
+          {(win) => (
+            <WorkspaceWindowChrome
+              windowId={win.id}
+              groupId={win.tabGroupId ?? win.id}
+              workspace={workspace}
+              isActive={workspace()?.activeWindowId === win.id}
+              containerEl={() => workspaceAreaEl}
+              onFocusWindow={focusWindow}
+              onClose={closeWindow}
+              onMinimize={(id) => setWindowMinimized(id, true)}
+              onToggleFullscreen={toggleFullscreenWindow}
+              onOpenLayoutPicker={(windowId, rect) => setLayoutPicker({ windowId, anchor: rect })}
+              onRestoreDrag={restoreDrag}
+              onDragPointerMove={handleDragPointerMove}
+              onDragPointerEnd={onDragPointerEnd}
+              onDragDuringMove={updateWindowBounds}
+              onResizeSnapped={resizeSnappedWindowBounds}
+              onUpdateBounds={updateWindowBounds}
+            >
+              <Show when={win.type === 'browser'}>
+                <WorkspaceBrowserPane
+                  windowId={win.id}
+                  workspace={workspace}
+                  sharePanel={sharePanel}
+                  editableFolders={editableFolders()}
+                  onNavigateDir={navigateDir}
+                  onOpenViewer={openViewerFromBrowser}
+                  onAddToTaskbar={addPinnedItem}
+                />
+              </Show>
+              <Show when={win.type === 'viewer'}>
+                <WorkspaceViewerPane
+                  windowId={win.id}
+                  workspace={workspace}
+                  sharePanel={sharePanel}
+                  editableFolders={editableFolders()}
+                  shareCanEdit={props.shareConfig ? (props.shareCanEdit ?? false) : false}
+                  onUpdateViewing={updateWindowViewing}
+                />
+              </Show>
+            </WorkspaceWindowChrome>
+          )}
+        </For>
+        <Show when={layoutPicker()}>
+          {(get) => {
+            const p = get()
+            const c = workspaceAreaEl
+            if (!c) return null
             return (
-              <div
-                class='absolute flex flex-col overflow-hidden rounded-md border border-border bg-card shadow-md'
-                data-window-group={win.tabGroupId ?? win.id}
-                style={{
-                  left: `${b()?.x ?? 0}px`,
-                  top: `${b()?.y ?? 0}px`,
-                  width: `${b()?.width ?? 400}px`,
-                  height: `${b()?.height ?? 300}px`,
-                  'z-index': win.layout?.zIndex ?? 1,
+              <WorkspaceTilingPicker
+                anchorRect={p.anchor}
+                container={c}
+                onSelectZone={(zone) => {
+                  snapWindowState(p.windowId, zone)
+                  setLayoutPicker(null)
                 }}
-              >
-                <div class='flex h-8 shrink-0 items-stretch border-b border-border bg-muted/80'>
-                  <div
-                    data-testid='window-drag-handle'
-                    class='flex min-w-0 flex-1 cursor-grab items-center px-2 text-xs font-medium text-foreground select-none active:cursor-grabbing'
-                    onMouseDown={() => focusWindow(win.id)}
-                  >
-                    <span class='truncate'>{win.title}</span>
-                  </div>
-                  <div
-                    class='workspace-window-buttons flex shrink-0 items-stretch'
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type='button'
-                      class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-                      onClick={() => closeWindow(win.id)}
-                      aria-label={`Close ${win.title}`}
-                    >
-                      <X class='h-3.5 w-3.5' stroke-width={2} />
-                    </button>
-                  </div>
-                </div>
-                <div class='workspace-window-content min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground'>
-                  <Show when={win.type === 'browser'}>
-                    <WorkspaceBrowserPane
-                      windowId={win.id}
-                      workspace={workspace}
-                      sharePanel={sharePanel}
-                      editableFolders={editableFolders()}
-                      onNavigateDir={navigateDir}
-                      onOpenViewer={openViewerFromBrowser}
-                      onAddToTaskbar={addPinnedItem}
-                    />
-                  </Show>
-                  <Show when={win.type === 'viewer'}>
-                    <WorkspaceViewerPane
-                      windowId={win.id}
-                      workspace={workspace}
-                      sharePanel={sharePanel}
-                      editableFolders={editableFolders()}
-                      shareCanEdit={props.shareConfig ? (props.shareCanEdit ?? false) : false}
-                      onUpdateViewing={updateWindowViewing}
-                    />
-                  </Show>
-                </div>
-              </div>
+                onSelectFullscreen={() => {
+                  toggleFullscreenWindow(p.windowId)
+                  setLayoutPicker(null)
+                }}
+                onClose={() => setLayoutPicker(null)}
+              />
             )
           }}
-        </For>
+        </Show>
       </div>
 
       <div class='relative bg-background px-3' style={{ 'z-index': '999999' }}>
