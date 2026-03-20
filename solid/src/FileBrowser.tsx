@@ -180,7 +180,7 @@ export function FileBrowser() {
 
   return (
     <>
-      <MainMediaPlayers />
+      <MainMediaPlayers editableFolders={editableFolders()} />
       <div class='min-h-screen' data-testid='file-browser'>
         <div class='container mx-auto lg:p-4'>
           <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none lg:rounded-xl py-0 text-sm shadow-xs ring-1'>

@@ -9,7 +9,7 @@ const BATCHES = [
   { id: '3', tests: ['navigation'] },
   { id: '4', tests: ['upload'] },
   { id: '5', tests: ['url-state'] },
-  { id: '6', tests: ['download', 'image-viewer'] },
+  { id: '6', tests: ['download', 'image-viewer', 'text-editor'] },
 ]
 
 const ROOT = path.resolve(__dirname, '..')
