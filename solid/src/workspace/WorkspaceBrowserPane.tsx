@@ -471,7 +471,10 @@ export function WorkspaceBrowserPane(props: Props) {
 
   return (
     <div class='relative flex min-h-0 flex-1 flex-col overflow-hidden'>
-      <div class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 p-1.5'>
+      <div
+        data-no-window-drag
+        class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 p-1.5'
+      >
         <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
         <div class='flex items-center gap-1'>
           <Show when={showShareCreateToolbar()}>
@@ -512,6 +515,7 @@ export function WorkspaceBrowserPane(props: Props) {
             <div class='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4'>
               <Show when={currentPath()}>
                 <div
+                  data-no-window-drag
                   class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                   onClick={handleParentDirectory}
                   onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
@@ -531,6 +535,7 @@ export function WorkspaceBrowserPane(props: Props) {
               <For each={files()}>
                 {(file) => (
                   <div
+                    data-no-window-drag
                     class={cn(
                       'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
                     )}
@@ -562,6 +567,7 @@ export function WorkspaceBrowserPane(props: Props) {
                 <tbody class='[&_tr:last-child]:border-0'>
                   <Show when={currentPath()}>
                     <tr
+                      data-no-window-drag
                       class={cn(
                         'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
                         dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
@@ -592,6 +598,7 @@ export function WorkspaceBrowserPane(props: Props) {
                         !!allowMoveFile()
                       return (
                         <tr
+                          data-no-window-drag
                           class={cn(
                             'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
                             file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
@@ -642,6 +649,7 @@ export function WorkspaceBrowserPane(props: Props) {
         <Show when={unsupportedFile()} keyed>
           {(file) => (
             <div
+              data-no-window-drag
               class='bg-background/85 absolute inset-0 z-20 flex items-center justify-center p-4 backdrop-blur-sm'
               role='presentation'
               onClick={(e) => e.target === e.currentTarget && setUnsupportedFile(null)}
@@ -671,6 +679,8 @@ export function WorkspaceBrowserPane(props: Props) {
       <FileRowContextMenu
         menu={fileRowMenu.menu}
         editableFolders={() => props.editableFolders}
+        isCurrentDirEditable={isAdminPaneEditable}
+        hasEditableFolders={() => props.editableFolders.length > 0}
         onDismiss={fileRowMenu.dismiss}
         onDownload={handleContextDownload}
         onDelete={fileRowMenu.confirmDelete}
@@ -698,6 +708,7 @@ export function WorkspaceBrowserPane(props: Props) {
 
       <Show when={showCreateFolder()}>
         <div
+          data-no-window-drag
           class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
           role='presentation'
           onClick={() => setShowCreateFolder(false)}
@@ -759,6 +770,7 @@ export function WorkspaceBrowserPane(props: Props) {
 
       <Show when={showCreateFile()}>
         <div
+          data-no-window-drag
           class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
           role='presentation'
           onClick={() => setShowCreateFile(false)}

@@ -70,7 +70,10 @@ export function WorkspacePlayerPane(props: Props) {
   })
 
   return (
-    <div class='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black/80'>
+    <div
+      data-no-window-drag
+      class='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black/80'
+    >
       <Show
         when={showVideo()}
         fallback={

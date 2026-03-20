@@ -59,13 +59,33 @@ function handleEnabled(
   return map[key] === true
 }
 
+/**
+ * Same rules as react-rnd on `WindowGroup` in components/workspace/window.tsx:
+ * `dragHandleClassName='workspace-window-drag-handle'` and
+ * `cancel='.workspace-window-content, input, textarea, select, a, audio, video, img, [data-no-window-drag], .workspace-window-buttons'`
+ */
+function shouldBlockWindowDragStart(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (!el?.closest) return true
+  if (!el.closest('.workspace-window-drag-handle')) return true
+  if (el.closest('.workspace-window-content')) return true
+  if (el.closest('input, textarea, select, a, audio, video, img')) return true
+  if (el.closest('[data-no-window-drag]')) return true
+  if (el.closest('.workspace-window-buttons')) return true
+  return false
+}
+
 export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const [windowGroupEl, setWindowGroupEl] = createSignal<HTMLDivElement | null>(null)
+  const [titleBarEl, setTitleBarEl] = createSignal<HTMLDivElement | null>(null)
 
   createEffect(() => {
     const el = windowGroupEl()
     if (!el) return
-    const onMouseDownCapture = () => {
+    const onMouseDownCapture = (e: MouseEvent) => {
+      if (e.button !== 0) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('.workspace-window-drag-handle')) return
       props.onFocusWindow(props.visibleTabId())
     }
     el.addEventListener('mousedown', onMouseDownCapture, true)
@@ -89,24 +109,25 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
 
   const showResize = createMemo(() => !isFullscreen())
 
-  const startWindowDrag = (e: PointerEvent) => {
-    if ((e.target as HTMLElement).closest('[data-no-window-drag]')) return
-    e.preventDefault()
-    e.stopPropagation()
-    const el = e.currentTarget as HTMLElement
-    el.setPointerCapture(e.pointerId)
-    props.onFocusWindow(props.visibleTabId())
+  const startWindowDrag = (e: PointerEvent, pointerCaptureEl: HTMLElement) => {
+    if (shouldBlockWindowDragStart(e.target)) return
 
     const container = props.containerEl()
     if (!container) return
+
+    const wb = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)?.layout?.bounds
+    if (!wb) return
+
+    e.preventDefault()
+    e.stopPropagation()
+    pointerCaptureEl.setPointerCapture(e.pointerId)
+    props.onFocusWindow(props.visibleTabId())
+
     const cRect = container.getBoundingClientRect()
 
     if (snapZone() || isFullscreen()) {
       props.onRestoreDrag(props.leaderWindowId, e.clientX, e.clientY)
     }
-
-    const wb = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)?.layout?.bounds
-    if (!wb) return
     const grabDx = e.clientX - cRect.left - wb.x
     const grabDy = e.clientY - cRect.top - wb.y
 
@@ -123,9 +144,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     }
 
     const onUp = (ev: PointerEvent) => {
-      el.releasePointerCapture(ev.pointerId)
+      pointerCaptureEl.releasePointerCapture(ev.pointerId)
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onUp)
       const final = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)
         ?.layout?.bounds
       if (final) {
@@ -135,7 +157,20 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
 
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onUp)
   }
+
+  createEffect(() => {
+    const bar = titleBarEl()
+    if (!bar) return
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      if (shouldBlockWindowDragStart(e.target)) return
+      startWindowDrag(e, bar)
+    }
+    bar.addEventListener('pointerdown', onPointerDownCapture, true)
+    onCleanup(() => bar.removeEventListener('pointerdown', onPointerDownCapture, true))
+  })
 
   const startResize = (direction: string) => (e: MouseEvent) => {
     e.preventDefault()
@@ -228,14 +263,14 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         }`}
       >
         <div
+          ref={(el) => setTitleBarEl(el ?? null)}
           class={`relative z-10 flex h-8 shrink-0 items-stretch border-b border-border ${
             props.isActive ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground'
           }`}
         >
           <div
             data-testid='window-drag-handle'
-            class='flex min-w-0 flex-1 cursor-grab items-center text-xs font-medium select-none active:cursor-grabbing'
-            onPointerDown={startWindowDrag}
+            class='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center text-xs font-medium select-none active:cursor-grabbing'
           >
             <Show
               when={hasTabs()}

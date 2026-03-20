@@ -17,6 +17,7 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
         const isRevoke = () => !!item.shareToken
         return (
           <div
+            data-no-window-drag
             class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
             role='presentation'
             onClick={() => props.onDismiss()}
