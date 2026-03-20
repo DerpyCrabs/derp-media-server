@@ -36,3 +36,7 @@ export function closeViewer() {
 export function closePlayer() {
   applyUpdates({ playing: null, audioOnly: null }, 'replace')
 }
+
+export function setAudioOnly(enabled: boolean) {
+  applyUpdates({ audioOnly: enabled ? 'true' : null }, 'replace')
+}

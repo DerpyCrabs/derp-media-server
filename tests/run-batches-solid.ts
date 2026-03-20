@@ -2,14 +2,18 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 
-/** Solid e2e batches — expand as specs are ported to tests/e2e-solid. */
+/**
+ * Same six batch IDs / parallelism as React (`run-batches.ts`), only specs that exist under
+ * `tests/e2e-solid/`. Batch 3 has no Solid workspace suite yet, so one React-batch-6 spec
+ * is placed here to keep six workers busy (slowest file dominates per batch).
+ */
 const BATCHES = [
   { id: '1', tests: ['smoke'] },
-  { id: '2', tests: ['login'] },
-  { id: '3', tests: ['navigation'] },
-  { id: '4', tests: ['upload'] },
-  { id: '5', tests: ['url-state'] },
-  { id: '6', tests: ['download', 'image-viewer', 'text-editor'] },
+  { id: '2', tests: ['navigation', 'upload'] },
+  { id: '3', tests: ['download'] },
+  { id: '4', tests: ['url-state', 'login'] },
+  { id: '5', tests: ['audio-player'] },
+  { id: '6', tests: ['image-viewer', 'text-editor'] },
 ]
 
 const ROOT = path.resolve(__dirname, '..')
