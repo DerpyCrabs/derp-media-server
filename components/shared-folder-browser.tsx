@@ -118,7 +118,7 @@ function SharedFolderBrowserInner({
 
   const handleUploadFiles = useCallback(
     (files: File[]) => {
-      uploadFiles(files, currentSubDir)
+      void uploadFiles(files, currentSubDir)
     },
     [uploadFiles, currentSubDir],
   )
@@ -159,7 +159,7 @@ function SharedFolderBrowserInner({
     mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
       post(`/api/share/${vars.token}/create`, vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
       setShowCreateFolder(false)
       setNewItemName('')
     },
@@ -170,14 +170,14 @@ function SharedFolderBrowserInner({
     mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
       post(`/api/share/${vars.token}/create`, vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
     },
   })
 
   const deleteItemMutation = useMutation({
     mutationFn: (vars: { token: string; path: string }) =>
       post(`/api/share/${vars.token}/delete`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -225,13 +225,13 @@ function SharedFolderBrowserInner({
   const renameMutation = useMutation({
     mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
       post(`/api/share/${vars.token}/rename`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const moveMutation = useMutation({
     mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
       post(`/api/share/${vars.token}/rename`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const handleMoveFile = useCallback(

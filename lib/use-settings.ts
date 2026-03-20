@@ -55,7 +55,7 @@ export function useSettings(currentPath: string, enabled = true) {
       if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
@@ -88,8 +88,8 @@ export function useSettings(currentPath: string, enabled = true) {
       if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES) })
     },
   })
 
@@ -122,7 +122,7 @@ export function useSettings(currentPath: string, enabled = true) {
       if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
@@ -148,7 +148,7 @@ export function useSettings(currentPath: string, enabled = true) {
       if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
@@ -170,7 +170,7 @@ export function useSettings(currentPath: string, enabled = true) {
       if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 
@@ -203,7 +203,7 @@ export function useSettings(currentPath: string, enabled = true) {
       if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   })
 

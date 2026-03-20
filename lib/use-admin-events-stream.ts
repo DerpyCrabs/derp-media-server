@@ -33,13 +33,15 @@ function connectToSSE(queryClient: ReturnType<typeof useQueryClient>) {
           if (data.type === 'connected') {
             console.log('[Admin SSE] Connected to events stream')
           } else if (data.type === 'files-changed') {
-            queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-            queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
-            queryClient.invalidateQueries({ queryKey: queryKeys.kb() })
-            queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent() })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.kb() })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent() })
           } else if (data.type === 'settings-changed') {
-            queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-            queryClient.invalidateQueries({ queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES) })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES),
+            })
           }
         } catch (error) {
           console.error('[Admin SSE] Error parsing message:', error)

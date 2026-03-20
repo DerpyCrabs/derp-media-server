@@ -6,7 +6,6 @@ import { MediaType } from '@/lib/types'
 import { hydrateFocusFromPersisted } from '@/lib/workspace-core'
 import {
   createDefaultBounds,
-  createFullscreenBounds,
   createWindowLayout,
   getPlayerBoundsForAspectRatio,
   getSourceLabel,
@@ -533,12 +532,12 @@ export function useWorkspace({
   const persistedRef = useRef<PersistedWorkspaceState | null | undefined>(undefined)
   const windowsRef = useRef<WorkspaceWindowDefinition[]>([])
 
-  function getPersistedState() {
+  const getPersistedState = useCallback(() => {
     if (persistedRef.current === undefined) {
       persistedRef.current = loadWorkspaceState(storageKey)
     }
     return persistedRef.current
-  }
+  }, [storageKey])
 
   const initialSlice = useMemo(
     (): WorkspaceSessionSlice =>
@@ -553,7 +552,14 @@ export function useWorkspace({
           persistedRef.current = p
         },
       }),
-    [storageKey, initialDir, defaultSource, initialLayoutSnapshot, initialLayoutPresetId],
+    [
+      storageKey,
+      initialDir,
+      defaultSource,
+      initialLayoutSnapshot,
+      initialLayoutPresetId,
+      getPersistedState,
+    ],
   )
 
   useLayoutEffect(() => {
@@ -647,21 +653,19 @@ export function useWorkspace({
 
   windowsRef.current = windows
 
-  const store = useWorkspaceSessionStore.getState
-
   const updateWindow = useCallback(
     (
       windowId: string,
       updater: (window: WorkspaceWindowDefinition) => WorkspaceWindowDefinition,
     ) => {
-      store().updateWindow(storageKey, windowId, updater)
+      useWorkspaceSessionStore.getState().updateWindow(storageKey, windowId, updater)
     },
     [storageKey],
   )
 
   const createWindow = useCallback(
     (type: WorkspaceWindowDefinition['type'], options: OpenWorkspaceWindowOptions) =>
-      store().createWindow(storageKey, type, options, defaultSource),
+      useWorkspaceSessionStore.getState().createWindow(storageKey, type, options, defaultSource),
     [storageKey, defaultSource],
   )
 
@@ -672,7 +676,7 @@ export function useWorkspace({
 
   const focusWindow = useCallback(
     (windowId: string) => {
-      store().focusWindow(storageKey, windowId)
+      useWorkspaceSessionStore.getState().focusWindow(storageKey, windowId)
     },
     [storageKey],
   )
@@ -681,7 +685,7 @@ export function useWorkspace({
     (options?: Pick<RequestPlayOptions, 'source' | 'path'>) => {
       const playingPath =
         options?.path ?? useWorkspacePlaybackStore.getState().byKey[storageKey]?.playing ?? null
-      return store().openPlayerWindow(storageKey, {
+      return useWorkspaceSessionStore.getState().openPlayerWindow(storageKey, {
         path: options?.path,
         source: options?.source ?? playbackSource ?? defaultSource,
         playingPath,
@@ -796,7 +800,7 @@ export function useWorkspace({
 
   const toggleWindowFullscreen = useCallback(
     (windowId: string) => {
-      store().toggleWindowFullscreen(storageKey, windowId)
+      useWorkspaceSessionStore.getState().toggleWindowFullscreen(storageKey, windowId)
     },
     [storageKey],
   )
@@ -807,7 +811,7 @@ export function useWorkspace({
     }
 
     const syncWindowBounds = () => {
-      store().syncWindowBoundsFromViewport(storageKey)
+      useWorkspaceSessionStore.getState().syncWindowBoundsFromViewport(storageKey)
     }
 
     window.addEventListener('resize', syncWindowBounds)
@@ -816,7 +820,7 @@ export function useWorkspace({
 
   const closeWindow = useCallback(
     (windowId: string) => {
-      store().closeWindow(storageKey, windowId)
+      useWorkspaceSessionStore.getState().closeWindow(storageKey, windowId)
     },
     [storageKey],
   )
@@ -824,21 +828,25 @@ export function useWorkspace({
   const requestPlay = useCallback(
     ({ source, path, dir }: RequestPlayOptions) => {
       useWorkspacePlaybackStore.getState().playFile(storageKey, path, dir)
-      store().requestPlay(storageKey, { source, path, isVideo: isVideoPath(path) })
+      useWorkspaceSessionStore.getState().requestPlay(storageKey, {
+        source,
+        path,
+        isVideo: isVideoPath(path),
+      })
     },
     [storageKey],
   )
 
   const snapWindowFn = useCallback(
     (windowId: string, zone: SnapZone) => {
-      store().snapWindow(storageKey, windowId, zone)
+      useWorkspaceSessionStore.getState().snapWindow(storageKey, windowId, zone)
     },
     [storageKey],
   )
 
   const unsnapWindow = useCallback(
     (windowId: string, dropPosition?: { x: number; y: number }) => {
-      store().unsnapWindow(storageKey, windowId, dropPosition)
+      useWorkspaceSessionStore.getState().unsnapWindow(storageKey, windowId, dropPosition)
     },
     [storageKey],
   )
@@ -849,21 +857,25 @@ export function useWorkspace({
       newBounds: NonNullable<WorkspaceWindowLayout['bounds']>,
       direction: string,
     ) => {
-      store().resizeSnappedWindow(storageKey, windowId, newBounds, direction)
+      useWorkspaceSessionStore
+        .getState()
+        .resizeSnappedWindow(storageKey, windowId, newBounds, direction)
     },
     [storageKey],
   )
 
   const mergeWindowIntoGroup = useCallback(
     (windowId: string, targetWindowId: string, insertIndex?: number) => {
-      store().mergeWindowIntoGroup(storageKey, windowId, targetWindowId, insertIndex)
+      useWorkspaceSessionStore
+        .getState()
+        .mergeWindowIntoGroup(storageKey, windowId, targetWindowId, insertIndex)
     },
     [storageKey],
   )
 
   const splitWindowFromGroup = useCallback(
     (windowId: string, offsetBounds?: NonNullable<WorkspaceWindowLayout['bounds']>) => {
-      store().splitWindowFromGroup(storageKey, windowId, offsetBounds)
+      useWorkspaceSessionStore.getState().splitWindowFromGroup(storageKey, windowId, offsetBounds)
     },
     [storageKey],
   )
@@ -878,7 +890,7 @@ export function useWorkspace({
 
   const addTabToGroup = useCallback(
     (sourceWindowId: string) => {
-      return store().addTabToGroup(storageKey, sourceWindowId)
+      return useWorkspaceSessionStore.getState().addTabToGroup(storageKey, sourceWindowId)
     },
     [storageKey],
   )
@@ -894,7 +906,7 @@ export function useWorkspace({
       const sourceWindow = windows.find((w) => w.id === sourceWindowId)
       if (!sourceWindow || file.isVirtual) return sourceWindowId
       const groupId = sourceWindow.tabGroupId || sourceWindowId
-      const nextZ = store().sessions[storageKey]?.nextZIndex ?? 2
+      const nextZ = useWorkspaceSessionStore.getState().sessions[storageKey]?.nextZIndex ?? 2
       const layout = sourceWindow.layout
         ? {
             ...sourceWindow.layout,
@@ -928,32 +940,34 @@ export function useWorkspace({
       setActiveTab(groupId, newWindowId)
       return newWindowId
     },
-    [windows, openBrowserWindow, openViewerWindow, setActiveTab],
+    [windows, openBrowserWindow, openViewerWindow, setActiveTab, storageKey],
   )
 
   const updateWindowNavigationState = useCallback(
     (windowId: string, navState: Partial<NavigationState>) => {
-      store().updateWindowNavigationState(storageKey, windowId, navState)
+      useWorkspaceSessionStore
+        .getState()
+        .updateWindowNavigationState(storageKey, windowId, navState)
     },
     [storageKey],
   )
 
   const addPinnedItem = useCallback(
     (item: Omit<PinnedTaskbarItem, 'id'>) => {
-      store().addPinnedItem(storageKey, item)
+      useWorkspaceSessionStore.getState().addPinnedItem(storageKey, item)
     },
     [storageKey],
   )
 
   const removePinnedItem = useCallback(
     (id: string) => {
-      store().removePinnedItem(storageKey, id)
+      useWorkspaceSessionStore.getState().removePinnedItem(storageKey, id)
     },
     [storageKey],
   )
 
   const collectLayoutSnapshot = useCallback((): PersistedWorkspaceState => {
-    const snap = store().collectLayoutSnapshot(storageKey)
+    const snap = useWorkspaceSessionStore.getState().collectLayoutSnapshot(storageKey)
     if (!snap) {
       const focus = useWorkspaceFocusStore.getState().getFocusState(storageKey)
       return {
@@ -981,24 +995,24 @@ export function useWorkspace({
       const normalized = normalizePersistedWorkspaceState(snapshot)
       if (!normalized) return
       persistedRef.current = normalized
-      store().applyLayoutSnapshot(storageKey, normalized, options)
+      useWorkspaceSessionStore.getState().applyLayoutSnapshot(storageKey, normalized, options)
     },
     [storageKey],
   )
 
   const revertLayoutToBaseline = useCallback(() => {
-    const b = store().sessions[storageKey]?.layoutBaselineSnapshot
+    const b = useWorkspaceSessionStore.getState().sessions[storageKey]?.layoutBaselineSnapshot
     if (!b) return
     applyLayoutSnapshot(b)
   }, [storageKey, applyLayoutSnapshot])
 
   const syncLayoutBaselineToCurrent = useCallback(() => {
-    store().syncLayoutBaselineToCurrent(storageKey)
+    useWorkspaceSessionStore.getState().syncLayoutBaselineToCurrent(storageKey)
   }, [storageKey])
 
   const declareBaselinePresetId = useCallback(
     (id: string | null) => {
-      store().setLayoutBaselinePresetId(storageKey, id)
+      useWorkspaceSessionStore.getState().setLayoutBaselinePresetId(storageKey, id)
     },
     [storageKey],
   )

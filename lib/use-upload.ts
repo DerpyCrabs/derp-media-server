@@ -47,9 +47,9 @@ export function useUpload({ shareToken }: UseUploadOptions = {}) {
         setState({ isUploading: false, error: null, fileCount: 0 })
 
         if (shareToken) {
-          queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
         } else {
-          queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
         }
       } catch (err) {
         setState((s) => ({

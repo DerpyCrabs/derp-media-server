@@ -32,7 +32,7 @@ export function usePaste(currentPath: string) {
         {
           onSuccess: () => {
             setLastPastedFile(filePath)
-            queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
             setShowPasteDialog(false)
             setPasteData(null)
           },

@@ -357,18 +357,24 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
       const broadcastEvents = new Map<string, string>()
       let uploadedCount = 0
 
-      for (const file of files) {
-        const subPath = targetSubDir ? `${targetSubDir}/${file.name}` : file.name
-        const resolved = resolveSharePathHTTP(share, subPath)
-        if (resolved === null) continue
+      const uploaded = await Promise.all(
+        files.map(async (file) => {
+          const subPath = targetSubDir ? `${targetSubDir}/${file.name}` : file.name
+          const resolved = resolveSharePathHTTP(share, subPath)
+          if (resolved === null) return null
 
-        const fullPath = validatePath(resolved)
-        await fs.mkdir(path.dirname(fullPath), { recursive: true })
-        await fs.writeFile(fullPath, file.data)
+          const fullPath = validatePath(resolved)
+          await fs.mkdir(path.dirname(fullPath), { recursive: true })
+          await fs.writeFile(fullPath, file.data)
 
-        const parentDir = path.dirname(resolved).replace(/\\/g, '/')
-        const normalizedParent = parentDir === '.' ? '' : parentDir
-        broadcastEvents.set(normalizedParent, resolved)
+          const parentDir = path.dirname(resolved).replace(/\\/g, '/')
+          const normalizedParent = parentDir === '.' ? '' : parentDir
+          return { normalizedParent, resolved }
+        }),
+      )
+      for (const entry of uploaded) {
+        if (!entry) continue
+        broadcastEvents.set(entry.normalizedParent, entry.resolved)
         uploadedCount++
       }
 

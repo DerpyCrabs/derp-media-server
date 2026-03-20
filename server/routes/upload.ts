@@ -28,20 +28,26 @@ export function registerUploadRoutes(app: FastifyInstance) {
       const broadcastEvents = new Map<string, string>()
       let uploadedCount = 0
 
-      for (const file of files) {
-        const relativePath = targetDir ? `${targetDir}/${file.name}` : file.name
-        const parentDir = path.dirname(relativePath).replace(/\\/g, '/')
-        const normalizedParent = parentDir === '.' ? '' : parentDir
+      const written = await Promise.all(
+        files.map(async (file) => {
+          const relativePath = targetDir ? `${targetDir}/${file.name}` : file.name
+          const parentDir = path.dirname(relativePath).replace(/\\/g, '/')
+          const normalizedParent = parentDir === '.' ? '' : parentDir
 
-        if (!isPathEditable(normalizedParent) && !isPathEditable(relativePath)) {
-          continue
-        }
+          if (!isPathEditable(normalizedParent) && !isPathEditable(relativePath)) {
+            return null
+          }
 
-        const fullPath = validatePath(relativePath)
-        await fs.mkdir(path.dirname(fullPath), { recursive: true })
-        await fs.writeFile(fullPath, file.data)
+          const fullPath = validatePath(relativePath)
+          await fs.mkdir(path.dirname(fullPath), { recursive: true })
+          await fs.writeFile(fullPath, file.data)
 
-        broadcastEvents.set(normalizedParent, relativePath.replace(/\\/g, '/'))
+          return { normalizedParent, rel: relativePath.replace(/\\/g, '/') }
+        }),
+      )
+      for (const entry of written) {
+        if (!entry) continue
+        broadcastEvents.set(entry.normalizedParent, entry.rel)
         uploadedCount++
       }
 

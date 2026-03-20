@@ -218,7 +218,7 @@ function ShareCard({
         body: JSON.stringify(vars),
       }).then((r) => r.json()),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
     },
   })
 
@@ -255,7 +255,7 @@ function ShareCard({
   const revokeMutation = useMutation({
     mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
       onRevoked()
     },
   })
@@ -420,7 +420,7 @@ export function ShareDialog({
     }) => post('/api/shares', vars),
     onSuccess: () => {
       setShowCreate(false)
-      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
     },
   })
 

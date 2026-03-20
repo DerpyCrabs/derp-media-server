@@ -152,7 +152,7 @@ export function VideoPlayer({ session: sessionProp, mediaContext }: VideoPlayerP
 
         // Set up action handlers for media controls
         navigator.mediaSession.setActionHandler('play', () => {
-          video.play()
+          void video.play().catch((err) => console.error('Play error:', err))
         })
         navigator.mediaSession.setActionHandler('pause', () => {
           video.pause()

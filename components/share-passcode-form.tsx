@@ -60,14 +60,14 @@ export function SharePasscodeGate({
   useEffect(() => {
     if (passcodeFromUrl && !autoVerified.current) {
       autoVerified.current = true
-      verify(passcodeFromUrl)
+      void verify(passcodeFromUrl)
     }
   }, [passcodeFromUrl, verify])
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault()
-      verify(passcode)
+      await verify(passcode)
     },
     [passcode, verify],
   )

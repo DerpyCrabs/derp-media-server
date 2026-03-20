@@ -29,11 +29,11 @@ export function useShareFileWatcher(token: string | null | undefined, enabled = 
           }
           if (data.type !== 'files-changed') return
 
-          queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(token) })
-          queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
-          queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent(token) })
-          queryClient.invalidateQueries({ queryKey: ['share-kb-search', token] })
-          queryClient.invalidateQueries({ queryKey: ['share-text', token] })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(token) })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent(token) })
+          void queryClient.invalidateQueries({ queryKey: ['share-kb-search', token] })
+          void queryClient.invalidateQueries({ queryKey: ['share-text', token] })
         } catch (error) {
           console.error('[Share SSE] Error parsing message:', error)
         }

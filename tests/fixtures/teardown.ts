@@ -58,6 +58,7 @@ export default async function teardown(_config: FullConfig) {
       }
       break
     } catch {
+      // eslint-disable-next-line no-await-in-loop -- retry delay between rm attempts
       if (attempt < 2) await new Promise((r) => setTimeout(r, 1000))
     }
   }

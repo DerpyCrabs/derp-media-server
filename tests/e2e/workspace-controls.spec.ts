@@ -40,6 +40,7 @@ async function getWindowBounds(windowGroup: Locator) {
 async function waitForWindowBoundsStable(page: Page, windowGroup: Locator, timeoutMs = 400) {
   const deadline = Date.now() + timeoutMs
   let prev: string | null = null
+  /* eslint-disable no-await-in-loop -- poll until bounds stabilize */
   while (Date.now() < deadline) {
     const b = await getWindowBounds(windowGroup)
     const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
@@ -47,6 +48,7 @@ async function waitForWindowBoundsStable(page: Page, windowGroup: Locator, timeo
     prev = key
     await page.waitForTimeout(25)
   }
+  /* eslint-enable no-await-in-loop */
 }
 
 async function dragFromTo(
@@ -65,10 +67,12 @@ async function dragFromTo(
 
 async function closeAllWindows(page: Page) {
   const closeBtns = page.locator('button[aria-label^="Close "]')
+  /* eslint-disable no-await-in-loop -- sequential close until none left */
   while ((await closeBtns.count()) > 0) {
     await closeBtns.first().click()
     await page.waitForTimeout(50)
   }
+  /* eslint-enable no-await-in-loop */
 }
 
 test.describe('Tab Merging and Splitting', () => {
@@ -665,9 +669,11 @@ test.describe('File Browsing and Viewers', () => {
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
 
-    for (const folder of ['Videos', 'Music', 'Images', 'Documents']) {
-      await expect(content.getByText(folder, { exact: true })).toBeVisible()
-    }
+    await Promise.all(
+      ['Videos', 'Music', 'Images', 'Documents'].map((folder) =>
+        expect(content.getByText(folder, { exact: true })).toBeVisible(),
+      ),
+    )
   })
 
   test('navigating into a folder updates browser content', async ({ page }) => {
