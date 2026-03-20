@@ -20,6 +20,7 @@ import { queryKeys } from '@/lib/query-keys'
 import File from 'lucide-solid/icons/file'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import Folder from 'lucide-solid/icons/folder'
+import X from 'lucide-solid/icons/x'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { useBrowserHistory, navigateSearchParams } from './browser-history'
 import { WorkspaceBrowserPane, type WorkspaceShareConfig } from './workspace/WorkspaceBrowserPane'
@@ -81,6 +82,7 @@ type AuthConfig = { enabled: boolean; editableFolders: string[] }
 export type WorkspacePageProps = {
   shareConfig?: { token: string; sharePath: string } | null
   shareWorkspaceTaskbarPins?: PinnedTaskbarItem[]
+  shareCanEdit?: boolean
 }
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
@@ -213,6 +215,31 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       activeWindowId: windowId,
       windows: w.windows.map((win) =>
         win.id === windowId ? { ...win, layout: { ...win.layout, zIndex: maxZ + 1 } } : win,
+      ),
+    })
+  }
+
+  function closeWindow(windowId: string) {
+    const w = workspace()
+    if (!w) return
+    const next = w.windows.filter((x) => x.id !== windowId)
+    let active = w.activeWindowId
+    if (active === windowId) {
+      active = next[next.length - 1]?.id ?? active
+    }
+    setWorkspace({ ...w, windows: next, activeWindowId: active })
+  }
+
+  function updateWindowViewing(windowId: string, viewing: string) {
+    const w = workspace()
+    if (!w) return
+    const title = viewing.split(/[/\\]/).pop() ?? 'File'
+    setWorkspace({
+      ...w,
+      windows: w.windows.map((win) =>
+        win.id === windowId
+          ? { ...win, title, initialState: { ...win.initialState, viewing } }
+          : win,
       ),
     })
   }
@@ -383,11 +410,27 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                   'z-index': win.layout?.zIndex ?? 1,
                 }}
               >
-                <div
-                  class='flex h-8 shrink-0 cursor-default items-center border-b border-border bg-muted/80 px-2 text-xs font-medium text-foreground'
-                  onMouseDown={() => focusWindow(win.id)}
-                >
-                  {win.title}
+                <div class='flex h-8 shrink-0 items-stretch border-b border-border bg-muted/80'>
+                  <div
+                    data-testid='window-drag-handle'
+                    class='flex min-w-0 flex-1 cursor-grab items-center px-2 text-xs font-medium text-foreground select-none active:cursor-grabbing'
+                    onMouseDown={() => focusWindow(win.id)}
+                  >
+                    <span class='truncate'>{win.title}</span>
+                  </div>
+                  <div
+                    class='workspace-window-buttons flex shrink-0 items-stretch'
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type='button'
+                      class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
+                      onClick={() => closeWindow(win.id)}
+                      aria-label={`Close ${win.title}`}
+                    >
+                      <X class='h-3.5 w-3.5' stroke-width={2} />
+                    </button>
+                  </div>
                 </div>
                 <div class='workspace-window-content min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground'>
                   <Show when={win.type === 'browser'}>
@@ -406,6 +449,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                       windowId={win.id}
                       workspace={workspace}
                       sharePanel={sharePanel}
+                      editableFolders={editableFolders()}
+                      shareCanEdit={props.shareConfig ? (props.shareCanEdit ?? false) : false}
+                      onUpdateViewing={updateWindowViewing}
                     />
                   </Show>
                 </div>
