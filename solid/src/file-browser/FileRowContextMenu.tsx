@@ -1,4 +1,5 @@
 import type { FileItem } from '@/lib/types'
+import { isPathEditable } from '@/lib/utils'
 import type { Accessor } from 'solid-js'
 import { createEffect, onCleanup, Show } from 'solid-js'
 
@@ -6,7 +7,9 @@ type MenuState = { x: number; y: number; file: FileItem }
 
 type FileRowContextMenuProps = {
   menu: Accessor<MenuState | null>
+  editableFolders: Accessor<string[]>
   onDismiss: () => void
+  onDownload: (file: FileItem) => void
   onDelete: (file: FileItem) => void
 }
 
@@ -27,6 +30,10 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
     <Show when={props.menu()}>
       {(getCtx) => {
         const ctx = getCtx()
+        const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
+        const showDelete = () =>
+          isPathEditable(ctx.file.path, props.editableFolders()) && !ctx.file.isVirtual
+
         return (
           <div
             data-slot='file-row-context-menu'
@@ -37,12 +44,26 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             <button
               type='button'
               data-slot='context-menu-item'
-              class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground text-destructive'
+              class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
               role='menuitem'
-              onClick={() => props.onDelete(ctx.file)}
+              onClick={() => {
+                props.onDownload(ctx.file)
+                props.onDismiss()
+              }}
             >
-              Delete
+              {downloadLabel()}
             </button>
+            <Show when={showDelete()}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground text-destructive'
+                role='menuitem'
+                onClick={() => props.onDelete(ctx.file)}
+              >
+                Delete
+              </button>
+            </Show>
           </div>
         )
       }}
