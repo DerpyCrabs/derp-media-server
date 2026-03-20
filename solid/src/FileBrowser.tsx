@@ -1,3 +1,9 @@
+import {
+  getFileDragData,
+  hasFileDragData,
+  isCompatibleSource,
+  setFileDragData,
+} from '@/lib/file-drag-data'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import type { GlobalSettings } from '@/lib/use-settings'
 import { api, post } from '@/lib/api'
@@ -21,6 +27,7 @@ import {
   Match,
   on,
   onCleanup,
+  onMount,
   Show,
   Switch,
 } from 'solid-js'
@@ -193,6 +200,13 @@ export function FileBrowser() {
   const [copyTarget, setCopyTarget] = createSignal<FileItem | null>(null)
   const [showCopyDialog, setShowCopyDialog] = createSignal(false)
   const [newItemName, setNewItemName] = createSignal('')
+  const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
+  const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
+  const [enableDrag, setEnableDrag] = createSignal(false)
+
+  onMount(() => {
+    setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
+  })
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
@@ -244,6 +258,140 @@ export function FileBrowser() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   }))
+
+  const parentDirForDrop = createMemo(() => {
+    const parts = currentPath().split(/[/\\]/).filter(Boolean)
+    return parts.slice(0, -1).join('/')
+  })
+
+  const canDropOnParent = createMemo(
+    () =>
+      isEditable() &&
+      !!currentPath() &&
+      isPathEditable(parentDirForDrop() || '', editableFolders()),
+  )
+
+  function canDropOn(targetPath: string, sourcePath?: string | null) {
+    const src = sourcePath ?? draggedPath()
+    if (!src || src === targetPath) return false
+    if (targetPath.startsWith(src + '/')) return false
+    return true
+  }
+
+  function parentDirFromCurrent(): string {
+    const parts = currentPath().split(/[/\\]/).filter(Boolean)
+    if (parts.length <= 1) return ''
+    return parts.slice(0, -1).join('/')
+  }
+
+  function handleMoveFileFromDrag(sourcePath: string, destinationDir: string) {
+    const fileName = sourcePath.split(/[/\\]/).pop()!
+    const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
+    moveMutation.mutate({ oldPath: sourcePath, newPath })
+  }
+
+  const allowMoveFile = createMemo(() => (isEditable() ? handleMoveFileFromDrag : undefined))
+
+  function parentRowDragOver(e: globalThis.DragEvent) {
+    const mv = allowMoveFile()
+    const dtr = e.dataTransfer
+    if (!mv || !canDropOnParent() || !dtr || (!draggedPath() && !hasFileDragData(dtr))) return
+    e.preventDefault()
+    dtr.dropEffect = 'move'
+    setDragOverPath('__parent__')
+  }
+
+  function parentRowDragLeave(e: globalThis.DragEvent) {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node) && dragOverPath() === '__parent__') {
+      setDragOverPath(null)
+    }
+  }
+
+  function parentRowDrop(e: globalThis.DragEvent) {
+    e.preventDefault()
+    setDragOverPath(null)
+    const mv = allowMoveFile()
+    if (!mv) return
+    const dest = parentDirFromCurrent()
+    const dp = draggedPath()
+    if (dp) {
+      mv(dp, dest)
+      return
+    }
+    const dtr = e.dataTransfer
+    if (!dtr) return
+    const data = getFileDragData(dtr)
+    if (
+      data &&
+      isCompatibleSource({ sourceKind: 'local', sourceToken: undefined }, data) &&
+      canDropOn(dest, data.path)
+    ) {
+      mv(data.path, dest)
+    }
+  }
+
+  function onFileDragStart(file: FileItem, e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    if (!dtr || !enableDrag() || !isPathEditable(file.path, editableFolders()) || !allowMoveFile())
+      return
+    setFileDragData(dtr, {
+      path: file.path,
+      isDirectory: file.isDirectory,
+      sourceKind: 'local',
+    })
+    dtr.effectAllowed = 'copyMove'
+    setDraggedPath(file.path)
+  }
+
+  function onFileDragEnd() {
+    setDraggedPath(null)
+    setDragOverPath(null)
+  }
+
+  function onFolderDragOver(file: FileItem, e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    if (!file.isDirectory || !allowMoveFile() || !dtr) return
+    const hasCross = !draggedPath() && hasFileDragData(dtr)
+    if (!draggedPath() && !hasCross) return
+    const dp = draggedPath()
+    if (dp && !canDropOn(file.path)) return
+    if (!isPathEditable(file.path, editableFolders())) return
+    e.preventDefault()
+    dtr.dropEffect = 'move'
+    setDragOverPath(file.path)
+  }
+
+  function onFolderDragLeave(file: FileItem, e: globalThis.DragEvent) {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node) && dragOverPath() === file.path) {
+      setDragOverPath(null)
+    }
+  }
+
+  function onFolderDrop(file: FileItem, e: globalThis.DragEvent) {
+    e.preventDefault()
+    setDragOverPath(null)
+    const mv = allowMoveFile()
+    if (!mv || !file.isDirectory) return
+    const dp = draggedPath()
+    if (dp && canDropOn(file.path)) {
+      mv(dp, file.path)
+      return
+    }
+    if (!dp) {
+      const dtr = e.dataTransfer
+      if (!dtr) return
+      const data = getFileDragData(dtr)
+      if (
+        data &&
+        isCompatibleSource({ sourceKind: 'local', sourceToken: undefined }, data) &&
+        canDropOn(file.path, data.path)
+      ) {
+        mv(data.path, file.path)
+      }
+    }
+  }
 
   const copyMutation = useMutation(() => ({
     mutationFn: (vars: { sourcePath: string; destinationDir: string }) =>
@@ -736,8 +884,26 @@ export function FileBrowser() {
                               <tbody class='[&_tr:last-child]:border-0'>
                                 <Show when={currentPath()}>
                                   <tr
-                                    class='border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none'
+                                    class={cn(
+                                      'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none',
+                                      dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                                    )}
                                     onClick={handleParentDirectory}
+                                    onDragOver={
+                                      allowMoveFile() && canDropOnParent()
+                                        ? parentRowDragOver
+                                        : undefined
+                                    }
+                                    onDragLeave={
+                                      allowMoveFile() && canDropOnParent()
+                                        ? parentRowDragLeave
+                                        : undefined
+                                    }
+                                    onDrop={
+                                      allowMoveFile() && canDropOnParent()
+                                        ? parentRowDrop
+                                        : undefined
+                                    }
                                   >
                                     <td class='w-12 p-2 align-middle'>
                                       <div class='flex items-center justify-center'>
@@ -755,12 +921,40 @@ export function FileBrowser() {
                                 <For each={files()}>
                                   {(file) => {
                                     const isFav = () => favoriteSet().has(file.path)
+                                    const canDragRow =
+                                      enableDrag() &&
+                                      isPathEditable(file.path, editableFolders()) &&
+                                      !!allowMoveFile()
                                     return (
                                       <tr
-                                        class='border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group'
+                                        class={cn(
+                                          'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group',
+                                          file.isDirectory && dragOverPath() === file.path
+                                            ? 'bg-primary/20'
+                                            : '',
+                                          draggedPath() === file.path ? 'opacity-50' : '',
+                                        )}
+                                        draggable={canDragRow}
                                         onClick={() => handleFileClick(file)}
                                         onContextMenu={(e) =>
                                           fileRowMenu.openRowContextMenu(e, file)
+                                        }
+                                        onDragStart={(e) => onFileDragStart(file, e)}
+                                        onDragEnd={onFileDragEnd}
+                                        onDragOver={
+                                          file.isDirectory && allowMoveFile()
+                                            ? (e) => onFolderDragOver(file, e)
+                                            : undefined
+                                        }
+                                        onDragLeave={
+                                          file.isDirectory && allowMoveFile()
+                                            ? (e) => onFolderDragLeave(file, e)
+                                            : undefined
+                                        }
+                                        onDrop={
+                                          file.isDirectory && allowMoveFile()
+                                            ? (e) => onFolderDrop(file, e)
+                                            : undefined
                                         }
                                       >
                                         <td class='w-12 p-2 align-middle'>
