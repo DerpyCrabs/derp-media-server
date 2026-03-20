@@ -4,6 +4,7 @@ import { MediaType } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
 import { queryKeys } from '@/lib/query-keys'
 import { isPathEditable } from '@/lib/utils'
+import Download from 'lucide-solid/icons/download'
 import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 import { useBrowserHistory } from '../browser-history'
 import { closeViewer } from '../lib/url-state-actions'
@@ -24,10 +25,28 @@ type Props = {
   shareCanEdit?: boolean
 }
 
-function shareEditRelativePath(viewingPath: string, sharePath: string): string {
-  const sp = sharePath.replace(/\\/g, '/')
+function shareEditRelativePath(viewingPath: string, ctx: TextViewerShareContext): string {
+  const sp = ctx.sharePath.replace(/\\/g, '/')
   const fileFwd = viewingPath.replace(/\\/g, '/')
+  if (!ctx.isDirectory) {
+    return fileFwd === sp ? '.' : fileFwd
+  }
   return fileFwd.startsWith(sp + '/') ? fileFwd.slice(sp.length + 1) : fileFwd
+}
+
+function shareDownloadHref(
+  token: string,
+  viewingPath: string,
+  ctx: TextViewerShareContext,
+): string {
+  if (!ctx.isDirectory) {
+    return `/api/share/${encodeURIComponent(token)}/download`
+  }
+  const rel = shareEditRelativePath(viewingPath, ctx)
+  if (!rel || rel === '.') {
+    return `/api/share/${encodeURIComponent(token)}/download`
+  }
+  return `/api/share/${encodeURIComponent(token)}/download?path=${encodeURIComponent(rel)}`
 }
 
 function buildResolveImageUrl(
@@ -76,7 +95,7 @@ function buildResolveImageUrl(
   }
 }
 
-function TextViewerBody(props: {
+export function TextViewerBody(props: {
   viewingPath: string
   shareContext?: TextViewerShareContext | null
   editableFolders: string[]
@@ -125,7 +144,7 @@ function TextViewerBody(props: {
     mutationFn: async (content: string) => {
       const ctx = props.shareContext
       if (ctx) {
-        const rel = shareEditRelativePath(props.viewingPath, ctx.sharePath)
+        const rel = shareEditRelativePath(props.viewingPath, ctx)
         await post(`/api/share/${ctx.token}/edit`, { path: rel, content })
       } else {
         await post('/api/files/edit', { path: props.viewingPath, content })
@@ -204,6 +223,12 @@ function TextViewerBody(props: {
 
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
   const showEditor = createMemo(() => fileEditable() && !readOnlyView())
+  const lineCount = createMemo(() => (textQuery.data ?? '').split('\n').length)
+  const shareDownload = createMemo(() => {
+    const ctx = props.shareContext
+    if (!ctx) return null
+    return shareDownloadHref(ctx.token, props.viewingPath, ctx)
+  })
 
   return (
     <div
@@ -213,9 +238,19 @@ function TextViewerBody(props: {
       class='fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm'
     >
       <header class='border-border bg-background/90 flex h-auto min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2'>
-        <h2 id='text-viewer-title' class='min-w-0 flex-1 truncate text-sm font-medium'>
-          {fileName()}
-        </h2>
+        <div class='min-w-0 flex-1'>
+          <h2 id='text-viewer-title' class='truncate text-lg font-medium'>
+            {fileName()}
+          </h2>
+          <Show when={props.shareContext}>
+            <p class='text-muted-foreground text-sm'>
+              {ext().toUpperCase()} File{' '}
+              <Show when={(textQuery.data ?? '').length > 0}>
+                <span>• {lineCount()} lines</span>
+              </Show>
+            </p>
+          </Show>
+        </div>
         <div class='flex flex-wrap items-center gap-2'>
           <Show when={showEditor()}>
             <button
@@ -251,6 +286,24 @@ function TextViewerBody(props: {
             >
               <span class='sr-only'>Copy to clipboard</span>
               {copied() ? '✓' : '⎘'}
+            </button>
+          </Show>
+          <Show when={shareDownload()}>
+            <button
+              type='button'
+              title='Download'
+              aria-label='Download'
+              class='hover:bg-muted inline-flex h-8 w-8 items-center justify-center rounded-md'
+              onClick={() => {
+                const h = shareDownload()
+                if (!h) return
+                const a = document.createElement('a')
+                a.href = h
+                a.download = fileName()
+                a.click()
+              }}
+            >
+              <Download class='h-5 w-5' stroke-width={2} aria-hidden='true' />
             </button>
           </Show>
           <button
