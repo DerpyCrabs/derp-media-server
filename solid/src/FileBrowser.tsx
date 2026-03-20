@@ -42,6 +42,7 @@ import { UploadMenu } from './file-browser/UploadMenu'
 import type { AuthConfig, UploadToastState } from './file-browser/types'
 import { UploadToastStack } from './file-browser/UploadToastStack'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
+import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { fileIcon, gridHeroIcon } from './lib/use-file-icon'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { playFile, viewFile } from './lib/url-state-actions'
@@ -49,6 +50,7 @@ import { playFile, viewFile } from './lib/url-state-actions'
 export function FileBrowser() {
   const history = useBrowserHistory()
   const queryClient = useQueryClient()
+  useAdminEventsStream()
 
   const currentPath = createMemo(() => {
     const sp = new URLSearchParams(history().search)

@@ -35,6 +35,7 @@ import FolderOpen from 'lucide-solid/icons/folder-open'
 import Folder from 'lucide-solid/icons/folder'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { useBrowserHistory, navigateSearchParams } from './browser-history'
+import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { applySnapPreviewLayout } from './workspace/snap-preview'
 import { WorkspaceTilingPicker } from './workspace/WorkspaceTilingPicker'
 import { findMergeTarget } from './workspace/merge-target'
@@ -119,6 +120,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const queryClient = useQueryClient()
 
   const shareConfig = () => props.shareConfig ?? null
+  useAdminEventsStream(!props.shareConfig)
 
   const browserSource = createMemo(
     (): WorkspaceSource =>

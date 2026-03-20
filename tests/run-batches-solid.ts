@@ -36,6 +36,7 @@ const BATCHES = [
       'share-workspace',
       'passcode-shares',
       'share-security',
+      'sse-live-updates',
     ],
   },
 ]
