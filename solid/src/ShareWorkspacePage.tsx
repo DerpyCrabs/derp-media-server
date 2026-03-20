@@ -78,6 +78,9 @@ export function ShareWorkspacePage(props: Props) {
         <WorkspacePage
           shareConfig={{ token: props.token, sharePath: sharePath() }}
           shareWorkspaceTaskbarPins={shareQuery.data?.workspaceTaskbarPins ?? []}
+          shareCanEdit={
+            !!shareQuery.data?.editable && shareQuery.data?.restrictions?.allowEdit !== false
+          }
         />
       </Match>
     </Switch>
