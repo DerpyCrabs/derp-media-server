@@ -23,7 +23,7 @@ const BATCHES = [
     ],
   },
   { id: '4', tests: ['url-state', 'login'] },
-  { id: '5', tests: ['audio-player', 'video-player'] },
+  { id: '5', tests: ['audio-player', 'video-player', 'share-audio-api'] },
   {
     id: '6',
     tests: [
@@ -31,6 +31,7 @@ const BATCHES = [
       'text-editor',
       'shares-manage',
       'shares-use',
+      'share-viewers',
       'passcode-shares',
       'share-security',
     ],
