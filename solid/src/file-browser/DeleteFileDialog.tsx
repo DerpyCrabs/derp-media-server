@@ -14,6 +14,7 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
     <Show when={props.item()}>
       {(getItem) => {
         const item = getItem()
+        const isRevoke = () => !!item.shareToken
         return (
           <div
             class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
@@ -26,12 +27,23 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
               class='w-full max-w-md rounded-lg border border-border bg-card text-card-foreground shadow-lg p-6'
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 class='text-lg font-semibold'>Delete {item.isDirectory ? 'Folder' : 'File'}?</h2>
+              <h2 class='text-lg font-semibold'>
+                {isRevoke() ? 'Revoke Share?' : `Delete ${item.isDirectory ? 'Folder' : 'File'}?`}
+              </h2>
               <p class='text-sm text-muted-foreground mt-2'>
-                Are you sure you want to delete &quot;{item.name}&quot;?
-                <span class='block mt-2 text-sm font-medium text-foreground'>
-                  This action cannot be undone.
-                </span>
+                {isRevoke() ? (
+                  <>
+                    Are you sure you want to revoke the share link for &quot;{item.name}&quot;? The
+                    link will stop working immediately.
+                  </>
+                ) : (
+                  <>
+                    Are you sure you want to delete &quot;{item.name}&quot;?
+                    <span class='block mt-2 text-sm font-medium text-foreground'>
+                      This action cannot be undone.
+                    </span>
+                  </>
+                )}
               </p>
               <div class='flex justify-end gap-2 mt-6'>
                 <button
@@ -47,7 +59,13 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
                   disabled={props.isPending}
                   onClick={() => props.onConfirm()}
                 >
-                  {props.isPending ? 'Deleting...' : 'Delete'}
+                  {props.isPending
+                    ? isRevoke()
+                      ? 'Revoking...'
+                      : 'Deleting...'
+                    : isRevoke()
+                      ? 'Revoke Share'
+                      : 'Delete'}
                 </button>
               </div>
             </div>
