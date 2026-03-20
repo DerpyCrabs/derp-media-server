@@ -1,7 +1,9 @@
 import type { FileItem } from '@/lib/types'
 import { isPathEditable } from '@/lib/utils'
+import BookOpen from 'lucide-solid/icons/book-open'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import Link from 'lucide-solid/icons/link'
+import Pencil from 'lucide-solid/icons/pencil'
 import Pin from 'lucide-solid/icons/pin'
 import type { Accessor } from 'solid-js'
 import { createEffect, onCleanup, Show } from 'solid-js'
@@ -24,6 +26,9 @@ type FileRowContextMenuProps = {
   onRename?: (file: FileItem) => void
   onMove?: (file: FileItem) => void
   onCopy?: (file: FileItem) => void
+  onSetIcon?: (file: FileItem) => void
+  onToggleKnowledgeBase?: (file: FileItem) => void
+  isKnowledgeBase?: (file: FileItem) => boolean
 }
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
@@ -73,6 +78,21 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             style={{ left: `${ctx.x}px`, top: `${ctx.y}px` }}
             role='menu'
           >
+            <Show when={props.onSetIcon && !ctx.file.isVirtual}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onSetIcon?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                <Pencil class='h-4 w-4 shrink-0' stroke-width={2} />
+                Set icon
+              </button>
+            </Show>
             <Show when={props.onOpenInNewTab && !ctx.file.isVirtual}>
               <button
                 type='button'
@@ -119,6 +139,26 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                   stroke-width={2}
                 />
                 {manageLabel()}
+              </button>
+            </Show>
+            <Show when={ctx.file.isDirectory && props.onToggleKnowledgeBase}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onToggleKnowledgeBase?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                <BookOpen
+                  class={`h-4 w-4 shrink-0 ${props.isKnowledgeBase?.(ctx.file) ? 'fill-primary text-primary' : ''}`}
+                  stroke-width={2}
+                />
+                {props.isKnowledgeBase?.(ctx.file)
+                  ? 'Remove Knowledge Base'
+                  : 'Set as Knowledge Base'}
               </button>
             </Show>
             <button

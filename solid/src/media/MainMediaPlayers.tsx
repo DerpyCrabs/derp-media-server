@@ -7,6 +7,7 @@ import { VideoPlayer } from './VideoPlayer'
 type Props = {
   shareContext?: TextViewerShareContext | null
   editableFolders?: string[]
+  knowledgeBases?: string[]
   shareCanEdit?: boolean
 }
 
@@ -16,6 +17,7 @@ export function MainMediaPlayers(props: Props) {
       <TextViewerDialog
         shareContext={props.shareContext}
         editableFolders={props.editableFolders}
+        knowledgeBases={props.knowledgeBases}
         shareCanEdit={props.shareCanEdit}
       />
       <ImageViewerDialog shareContext={props.shareContext} />
