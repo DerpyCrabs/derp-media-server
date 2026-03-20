@@ -264,7 +264,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                 onClick={(e) => guardClick(() => props.onAddTab?.(), e)}
                 aria-label='New tab'
               >
-                <Plus class='h-3.5 w-3.5' stroke-width={2} />
+                <Plus class='lucide-plus h-3.5 w-3.5' stroke-width={2} />
               </button>
             </Show>
             <button

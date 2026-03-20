@@ -39,6 +39,11 @@ type Props = {
   onNavigateDir: (windowId: string, dir: string) => void
   onOpenViewer: (windowId: string, file: FileItem) => void
   onAddToTaskbar: (file: FileItem) => void
+  onOpenInNewTab?: (
+    windowId: string,
+    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+    currentPath: string,
+  ) => void
   onRequestPlay?: (source: WorkspaceSource, path: string, dir?: string) => void
   onFocusFromPane?: (windowId: string) => void
 }
@@ -204,11 +209,7 @@ export function WorkspaceBrowserPane(props: Props) {
   })
 
   return (
-    <div
-      ref={setPaneRoot}
-      class='relative flex min-h-0 flex-1 flex-col overflow-hidden'
-      data-testid='workspace-window-visible-content'
-    >
+    <div ref={setPaneRoot} class='relative flex min-h-0 flex-1 flex-col overflow-hidden'>
       <div class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 p-1.5'>
         <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
         <Show when={!share()}>
@@ -360,6 +361,16 @@ export function WorkspaceBrowserPane(props: Props) {
         onDownload={handleContextDownload}
         onDelete={fileRowMenu.confirmDelete}
         onAddToTaskbar={props.onAddToTaskbar}
+        onOpenInNewTab={
+          props.onOpenInNewTab
+            ? (f) =>
+                props.onOpenInNewTab!(
+                  props.windowId,
+                  { path: f.path, isDirectory: f.isDirectory, isVirtual: f.isVirtual },
+                  currentPath(),
+                )
+            : undefined
+        }
       />
       <DeleteFileDialog
         item={deleteTarget}

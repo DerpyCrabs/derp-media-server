@@ -81,7 +81,6 @@ export function WorkspacePlayerPane(props: Props) {
     <div
       ref={setPaneRoot}
       class='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black/80'
-      data-testid='workspace-window-visible-content'
     >
       <Show
         when={showVideo()}

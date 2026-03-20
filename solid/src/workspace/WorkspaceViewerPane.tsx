@@ -361,11 +361,7 @@ export function WorkspaceViewerPane(props: Props) {
   )
 
   return (
-    <div
-      ref={setPaneRoot}
-      class='flex min-h-0 flex-1 flex-col overflow-hidden bg-background'
-      data-testid='workspace-window-visible-content'
-    >
+    <div ref={setPaneRoot} class='flex min-h-0 flex-1 flex-col overflow-hidden bg-background'>
       <Show when={mediaType() === MediaType.IMAGE && viewingPath()}>
         <div class='flex h-full min-h-0 flex-col bg-black'>
           <div class='flex h-8 shrink-0 items-center justify-between border-b border-white/10 bg-black/50 px-2'>

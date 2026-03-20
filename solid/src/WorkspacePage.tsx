@@ -41,10 +41,13 @@ import {
   addTabToGroupState,
   groupIdForWindow,
   mergeWindowIntoGroupState,
+  openInNewTabInGroupState,
+  orderedAllGroupIds,
   orderedVisibleGroupIds,
   splitWindowFromGroupState,
   tabsInGroup,
 } from './workspace/tab-group-ops'
+import { TaskbarGroupRow } from './workspace/WorkspaceTaskbarRows'
 import { WorkspaceBrowserPane, type WorkspaceShareConfig } from './workspace/WorkspaceBrowserPane'
 import { WorkspacePlayerPane } from './workspace/WorkspacePlayerPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
@@ -244,8 +247,10 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     if (!w) return
     const target = w.windows.find((x) => x.id === windowId)
     if (!target) return
-    if (w.activeWindowId === windowId) return
     const gid = groupIdForWindow(target)
+    const leader = tabsInGroup(w.windows, gid)[0]
+    const groupMinimized = leader?.layout?.minimized ?? false
+    if (w.activeWindowId === windowId && !groupMinimized) return
     const maxZ = Math.max(...w.windows.map((x) => x.layout?.zIndex ?? 1), 1)
     const newZ = maxZ + 1
     setWorkspace({
@@ -253,7 +258,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       activeWindowId: windowId,
       activeTabMap: { ...w.activeTabMap, [gid]: windowId },
       windows: w.windows.map((win) =>
-        groupIdForWindow(win) === gid ? { ...win, layout: { ...win.layout, zIndex: newZ } } : win,
+        groupIdForWindow(win) === gid
+          ? { ...win, layout: { ...win.layout, zIndex: newZ, minimized: false } }
+          : win,
       ),
     })
   }
@@ -429,6 +436,16 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         win.id === windowId ? { ...win, initialState: { ...win.initialState, dir } } : win,
       ),
     })
+  }
+
+  function openInNewTabInSameWindow(
+    sourceWindowId: string,
+    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+    currentPath: string,
+  ) {
+    setWorkspace((prev) =>
+      prev ? openInNewTabInGroupState(prev, sourceWindowId, file, currentPath) : prev,
+    )
   }
 
   function openBrowser(options?: { source?: WorkspaceSource; initialState?: { dir?: string } }) {
@@ -790,6 +807,19 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     pinId: string
   } | null>(null)
 
+  const [playbackPlayingPath, setPlaybackPlayingPath] = createSignal<string | null>(null)
+  createEffect(() => {
+    const key = storageSessionKeyFull().key
+    if (!key) return
+    const read = () => useWorkspacePlaybackStore.getState().byKey[key]?.playing ?? null
+    setPlaybackPlayingPath(read())
+    const unsub = useWorkspacePlaybackStore.subscribe(() => setPlaybackPlayingPath(read()))
+    onCleanup(unsub)
+  })
+
+  const taskbarMouseHandled = { current: false }
+  const taskbarGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))
+
   createEffect(() => {
     const m = pinMenu()
     if (!m) return
@@ -804,6 +834,27 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const visibleGroupIds = createMemo(() => orderedVisibleGroupIds(workspace()?.windows ?? []))
   const pinnedItems = createMemo(() => workspace()?.pinnedTaskbarItems ?? [])
+  const hasWorkspaceWindows = createMemo(() => (workspace()?.windows.length ?? 0) > 0)
+  const hasAnyTaskbarItems = createMemo(
+    () => pinnedItems().length > 0 || taskbarGroupIds().length > 0,
+  )
+
+  /** Solid <For> passes props.each to mapArray as the list; it must be an array, not a memo fn. */
+  const taskbarWindowRows = createMemo(() => (
+    <For each={taskbarGroupIds()}>
+      {(groupId) => (
+        <TaskbarGroupRow
+          groupId={groupId}
+          workspace={workspace}
+          playingPath={playbackPlayingPath}
+          taskbarMouseHandled={taskbarMouseHandled}
+          focusWindow={focusWindow}
+          setWindowMinimized={setWindowMinimized}
+          closeWindow={closeWindow}
+        />
+      )}
+    </For>
+  ))
 
   return (
     <div class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'>
@@ -813,118 +864,151 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           workspaceAreaEl = el
         }}
       >
-        <div
-          ref={(el) => {
-            snapPreviewEl = el ?? undefined
-          }}
-          data-snap-preview
-          class='pointer-events-none absolute rounded-sm border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
-          style={{ display: 'none', 'z-index': 99999 }}
-        />
-        <For each={visibleGroupIds()}>
-          {(gid) => {
-            const tabs = () => tabsInGroup(workspace()?.windows ?? [], gid)
-            const leader = () => tabs()[0]
-            const visibleTabId = () => workspace()?.activeTabMap[gid] ?? leader()?.id ?? ''
-            const tabList = () => tabs()
-            return (
-              <Show when={leader()}>
-                <WorkspaceWindowChrome
-                  leaderWindowId={leader()!.id}
-                  groupId={gid}
-                  tabWindows={tabList}
-                  visibleTabId={visibleTabId}
-                  workspace={workspace}
-                  isActive={visibleTabId() === workspace()?.activeWindowId}
-                  containerEl={() => workspaceAreaEl}
-                  onFocusWindow={focusWindow}
-                  onClose={closeWindow}
-                  onMinimize={(id) => setWindowMinimized(id, true)}
-                  onToggleFullscreen={toggleFullscreenWindow}
-                  onOpenLayoutPicker={(wid, rect) =>
-                    setLayoutPicker({ windowId: wid, anchor: rect })
-                  }
-                  onRestoreDrag={restoreDrag}
-                  onDragPointerMove={handleDragPointerMove}
-                  onDragPointerEnd={onDragPointerEnd}
-                  onDragDuringMove={updateWindowBounds}
-                  onResizeSnapped={resizeSnappedWindowBounds}
-                  onUpdateBounds={updateWindowBounds}
-                  onSelectTab={setActiveTab}
-                  onCloseTab={closeTab}
-                  onDetachTab={handleDetachTab}
-                  onAddTab={() => addTab(leader()!.id)}
-                >
-                  <For each={tabs()}>
-                    {(tab) => (
-                      <div
-                        class={`min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
-                          tab.id === visibleTabId() ? '' : 'hidden'
-                        }`}
-                        aria-hidden={tab.id !== visibleTabId()}
-                      >
-                        <Show when={tab.type === 'browser'}>
-                          <WorkspaceBrowserPane
-                            windowId={tab.id}
-                            workspace={workspace}
-                            sharePanel={sharePanel}
-                            editableFolders={editableFolders()}
-                            onNavigateDir={navigateDir}
-                            onOpenViewer={openViewerFromBrowser}
-                            onAddToTaskbar={addPinnedItem}
-                            onRequestPlay={requestPlay}
-                            onFocusFromPane={focusWindow}
-                          />
-                        </Show>
-                        <Show when={tab.type === 'viewer'}>
-                          <WorkspaceViewerPane
-                            windowId={tab.id}
-                            workspace={workspace}
-                            sharePanel={sharePanel}
-                            editableFolders={editableFolders()}
-                            shareCanEdit={props.shareConfig ? (props.shareCanEdit ?? false) : false}
-                            onUpdateViewing={updateWindowViewing}
-                            onFocusFromPane={focusWindow}
-                          />
-                        </Show>
-                        <Show when={tab.type === 'player'}>
-                          <WorkspacePlayerPane
-                            windowId={tab.id}
-                            storageKey={storageSessionKeyFull().key}
-                            window={() => workspace()?.windows.find((w) => w.id === tab.id)}
-                            shareFallback={sharePanel}
-                            onFocusFromPane={focusWindow}
-                          />
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </WorkspaceWindowChrome>
-              </Show>
-            )
-          }}
-        </For>
-        <Show when={layoutPicker()}>
-          {(get) => {
-            const p = get()
-            const c = workspaceAreaEl
-            if (!c) return null
-            return (
-              <WorkspaceTilingPicker
-                anchorRect={p.anchor}
-                container={c}
-                onSelectZone={(zone) => {
-                  snapWindowState(p.windowId, zone)
-                  setLayoutPicker(null)
-                }}
-                onSelectFullscreen={() => {
-                  toggleFullscreenWindow(p.windowId)
-                  setLayoutPicker(null)
-                }}
-                onClose={() => setLayoutPicker(null)}
-              />
-            )
-          }}
+        <Show
+          when={hasWorkspaceWindows()}
+          fallback={
+            <div class='flex h-full items-center justify-center p-6'>
+              <div class='w-full max-w-md rounded-xl border border-border bg-card/95 p-8 text-center shadow-2xl backdrop-blur'>
+                <div class='space-y-3'>
+                  <div class='text-lg font-medium'>No windows are open</div>
+                  <div class='text-sm text-muted-foreground'>
+                    Start a browser window to build your workspace.
+                  </div>
+                  <button
+                    type='button'
+                    class='inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90'
+                    onClick={() => openBrowser()}
+                  >
+                    Open Browser
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+        >
+          <div
+            ref={(el) => {
+              snapPreviewEl = el ?? undefined
+            }}
+            data-snap-preview
+            class='pointer-events-none absolute rounded-sm border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
+            style={{ display: 'none', 'z-index': 99999 }}
+          />
+          <For each={visibleGroupIds()}>
+            {(gid) => {
+              const tabs = () => tabsInGroup(workspace()?.windows ?? [], gid)
+              const leader = () => tabs()[0]
+              const visibleTabId = () => workspace()?.activeTabMap[gid] ?? leader()?.id ?? ''
+              const tabList = () => tabs()
+              return (
+                <Show when={leader()}>
+                  <WorkspaceWindowChrome
+                    leaderWindowId={leader()!.id}
+                    groupId={gid}
+                    tabWindows={tabList}
+                    visibleTabId={visibleTabId}
+                    workspace={workspace}
+                    isActive={visibleTabId() === workspace()?.activeWindowId}
+                    containerEl={() => workspaceAreaEl}
+                    onFocusWindow={focusWindow}
+                    onClose={closeWindow}
+                    onMinimize={(id) => setWindowMinimized(id, true)}
+                    onToggleFullscreen={toggleFullscreenWindow}
+                    onOpenLayoutPicker={(wid, rect) =>
+                      setLayoutPicker({ windowId: wid, anchor: rect })
+                    }
+                    onRestoreDrag={restoreDrag}
+                    onDragPointerMove={handleDragPointerMove}
+                    onDragPointerEnd={onDragPointerEnd}
+                    onDragDuringMove={updateWindowBounds}
+                    onResizeSnapped={resizeSnappedWindowBounds}
+                    onUpdateBounds={updateWindowBounds}
+                    onSelectTab={setActiveTab}
+                    onCloseTab={closeTab}
+                    onDetachTab={handleDetachTab}
+                    onAddTab={() => addTab(leader()!.id)}
+                  >
+                    <For each={tabs()}>
+                      {(tab) => (
+                        <div
+                          data-testid={
+                            tab.id === visibleTabId()
+                              ? 'workspace-window-visible-content'
+                              : undefined
+                          }
+                          class={`min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
+                            tab.id === visibleTabId() ? '' : 'hidden'
+                          }`}
+                          aria-hidden={tab.id !== visibleTabId()}
+                        >
+                          <Show when={tab.type === 'browser'}>
+                            <WorkspaceBrowserPane
+                              windowId={tab.id}
+                              workspace={workspace}
+                              sharePanel={sharePanel}
+                              editableFolders={editableFolders()}
+                              onNavigateDir={navigateDir}
+                              onOpenViewer={openViewerFromBrowser}
+                              onAddToTaskbar={addPinnedItem}
+                              onOpenInNewTab={(wid, file, path) =>
+                                openInNewTabInSameWindow(wid, file, path)
+                              }
+                              onRequestPlay={requestPlay}
+                              onFocusFromPane={focusWindow}
+                            />
+                          </Show>
+                          <Show when={tab.type === 'viewer'}>
+                            <WorkspaceViewerPane
+                              windowId={tab.id}
+                              workspace={workspace}
+                              sharePanel={sharePanel}
+                              editableFolders={editableFolders()}
+                              shareCanEdit={
+                                props.shareConfig ? (props.shareCanEdit ?? false) : false
+                              }
+                              onUpdateViewing={updateWindowViewing}
+                              onFocusFromPane={focusWindow}
+                            />
+                          </Show>
+                          <Show when={tab.type === 'player'}>
+                            <WorkspacePlayerPane
+                              windowId={tab.id}
+                              storageKey={storageSessionKeyFull().key}
+                              window={() => workspace()?.windows.find((w) => w.id === tab.id)}
+                              shareFallback={sharePanel}
+                              onFocusFromPane={focusWindow}
+                            />
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </WorkspaceWindowChrome>
+                </Show>
+              )
+            }}
+          </For>
+          <Show when={layoutPicker()}>
+            {(get) => {
+              const p = get()
+              const c = workspaceAreaEl
+              if (!c) return null
+              return (
+                <WorkspaceTilingPicker
+                  anchorRect={p.anchor}
+                  container={c}
+                  onSelectZone={(zone) => {
+                    snapWindowState(p.windowId, zone)
+                    setLayoutPicker(null)
+                  }}
+                  onSelectFullscreen={() => {
+                    toggleFullscreenWindow(p.windowId)
+                    setLayoutPicker(null)
+                  }}
+                  onClose={() => setLayoutPicker(null)}
+                />
+              )
+            }}
+          </Show>
         </Show>
       </div>
 
@@ -939,32 +1023,49 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
             <FolderOpen class='h-5 w-5' stroke-width={1.75} />
           </button>
 
-          <div class='flex min-w-0 flex-1 items-center gap-2 overflow-x-auto'>
-            <For each={pinnedItems()}>
-              {(pin) => {
-                const tooltip = `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
-                return (
-                  <button
-                    type='button'
-                    title={tooltip}
-                    aria-label={tooltip}
-                    class='flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground'
-                    onClick={() => selectPinned(pin)}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      setPinMenu({ x: e.clientX, y: e.clientY, pinId: pin.id })
+          <div class='flex min-w-0 flex-1 items-center overflow-x-auto'>
+            <Show when={hasAnyTaskbarItems()}>
+              <Show when={pinnedItems().length > 0}>
+                <div class='flex shrink-0 items-center gap-2'>
+                  <For each={pinnedItems()}>
+                    {(pin) => {
+                      const tooltip = `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
+                      return (
+                        <button
+                          type='button'
+                          title={tooltip}
+                          aria-label={tooltip}
+                          class='flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground'
+                          onClick={() => selectPinned(pin)}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            setPinMenu({ x: e.clientX, y: e.clientY, pinId: pin.id })
+                          }}
+                        >
+                          <Show
+                            when={pin.isDirectory}
+                            fallback={<File class='h-5 w-5' stroke-width={1.75} />}
+                          >
+                            <Folder class='h-5 w-5' stroke-width={1.75} />
+                          </Show>
+                        </button>
+                      )
                     }}
-                  >
-                    <Show
-                      when={pin.isDirectory}
-                      fallback={<File class='h-5 w-5' stroke-width={1.75} />}
-                    >
-                      <Folder class='h-5 w-5' stroke-width={1.75} />
-                    </Show>
-                  </button>
-                )
-              }}
-            </For>
+                  </For>
+                </div>
+              </Show>
+              <Show when={pinnedItems().length > 0 && taskbarGroupIds().length > 0}>
+                <div class='w-2 shrink-0' aria-hidden />
+              </Show>
+              <div class='flex min-w-0 flex-1 items-center gap-0 overflow-x-auto'>
+                {taskbarWindowRows()}
+              </div>
+            </Show>
+            <Show when={!hasAnyTaskbarItems()}>
+              <div class='text-sm text-muted-foreground'>
+                No windows open. Use the browser button to start a workspace.
+              </div>
+            </Show>
           </div>
         </div>
       </div>
