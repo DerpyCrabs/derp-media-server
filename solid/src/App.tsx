@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/solid-query'
 import { Switch, Match, Show, createSignal, createMemo } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { FileBrowser } from './FileBrowser'
+import { ShareRoute } from './ShareRoute'
 
 async function postLogin(password: string) {
   const res = await fetch('/api/auth/login', {
@@ -71,20 +72,9 @@ function LoginPage() {
   )
 }
 
-function ShareStub() {
-  return (
-    <div class='min-h-screen flex items-center justify-center p-4'>
-      <div class='w-full max-w-sm rounded-xl border border-border bg-card p-6'>
-        <h1 class='text-xl font-semibold'>Protected Share</h1>
-        <p class='text-sm text-muted-foreground mt-2'>Solid UI placeholder</p>
-      </div>
-    </div>
-  )
-}
-
-function matchRoute(path: string): 'login' | 'share' | 'home' {
-  if (path === '/login' || path.startsWith('/login/')) return 'login'
-  if (path.startsWith('/share/')) return 'share'
+function matchRoute(pathname: string): 'login' | 'share' | 'home' {
+  if (pathname === '/login' || pathname.startsWith('/login/')) return 'login'
+  if (pathname.startsWith('/share/')) return 'share'
   return 'home'
 }
 
@@ -98,7 +88,7 @@ export function App() {
         <LoginPage />
       </Match>
       <Match when={matchRoute(path()) === 'share'}>
-        <ShareStub />
+        <ShareRoute />
       </Match>
     </Switch>
   )

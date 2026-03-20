@@ -48,6 +48,8 @@ Work **feature-by-feature**, not a big-bang rewrite:
 - **Effects** — Use `onMount` / `createEffect` sparingly; many React `useEffect` cases become event handlers, memos, or resources.
 - **Side effects in JSX** — Don’t rely on render running for one-off side effects; use `onMount` or user events.
 - **Lists** — Use `<For>` with a stable key callback when rendering collections; avoid indexing into large lists without keys.
-- **Async data** — Prefer `createResource` or TanStack Solid Query (once wired) instead of ad-hoc `createSignal` + effect chains.
+- **Async data** — Prefer TanStack Solid Query instead of ad-hoc `createSignal` + effect chains.
+- Don't add solid to names, they are already in solid directory
+- Don't write useless comments
 
 For framework docs and APIs, see the [Solid.js reference](https://docs.solidjs.com/).
