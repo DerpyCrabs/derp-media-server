@@ -14,6 +14,9 @@ export default defineConfig({
       '@': path.resolve(dir, '..'),
     },
   },
+  optimizeDeps: {
+    exclude: ['lucide-solid'],
+  },
   build: {
     outDir: path.resolve(dir, '../dist/client-solid'),
     emptyOutDir: true,
