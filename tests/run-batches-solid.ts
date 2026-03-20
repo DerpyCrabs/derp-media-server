@@ -11,7 +11,13 @@ const BATCHES = [
   { id: '2', tests: ['navigation', 'upload'] },
   {
     id: '3',
-    tests: ['download', 'workspace-layout-sessions', 'workspace-taskbar-pins', 'workspace-viewers'],
+    tests: [
+      'download',
+      'workspace-layout-sessions',
+      'workspace-layout-snap-resize',
+      'workspace-taskbar-pins',
+      'workspace-viewers',
+    ],
   },
   { id: '4', tests: ['url-state', 'login'] },
   { id: '5', tests: ['audio-player', 'video-player'] },
