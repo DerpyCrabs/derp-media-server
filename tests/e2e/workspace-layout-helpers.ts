@@ -36,6 +36,7 @@ export async function getWindowBounds(windowGroup: Locator) {
 export async function waitForWindowBoundsStable(page: Page, windowGroup: Locator, timeoutMs = 400) {
   const deadline = Date.now() + timeoutMs
   let prev: string | null = null
+  /* eslint-disable no-await-in-loop -- poll until bounds stabilize */
   while (Date.now() < deadline) {
     const b = await getWindowBounds(windowGroup)
     const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
@@ -43,6 +44,7 @@ export async function waitForWindowBoundsStable(page: Page, windowGroup: Locator
     prev = key
     await page.waitForTimeout(25)
   }
+  /* eslint-enable no-await-in-loop */
 }
 
 export async function dragFromTo(

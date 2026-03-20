@@ -244,7 +244,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
     const handleEnded = () => {
       if (isRepeatRef.current) {
         audio.currentTime = 0
-        audio.play()
+        void audio.play().catch((err) => console.error('Play error:', err))
       } else {
         playNextAudioRef.current()
       }
@@ -344,7 +344,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
 
       if ('mediaSession' in navigator) {
         navigator.mediaSession.setActionHandler('play', () => {
-          audio.play()
+          void audio.play().catch((err) => console.error('Play error:', err))
         })
         navigator.mediaSession.setActionHandler('pause', () => {
           audio.pause()
@@ -429,7 +429,7 @@ export function AudioPlayer({ session: sessionProp, mediaContext }: AudioPlayerP
     if (pendingSeekRef.current) return
 
     if (isPlaying && audio.paused) {
-      audio.play().catch((err) => console.error('Play error:', err))
+      void audio.play().catch((err) => console.error('Play error:', err))
     } else if (!isPlaying && !audio.paused) {
       audio.pause()
     }

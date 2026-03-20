@@ -32,9 +32,11 @@ test.describe('Workspace File Browser', () => {
     await expect(content.getByText('readme.txt')).toBeVisible()
 
     await content.getByRole('button', { name: 'Home' }).click()
-    for (const folder of ['Videos', 'Music', 'Images', 'Documents']) {
-      await expect(content.getByText(folder, { exact: true })).toBeVisible()
-    }
+    await Promise.all(
+      ['Videos', 'Music', 'Images', 'Documents'].map((folder) =>
+        expect(content.getByText(folder, { exact: true })).toBeVisible(),
+      ),
+    )
   })
 
   test('navigates to parent using ".." row', async ({ page }) => {

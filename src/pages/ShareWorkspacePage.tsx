@@ -53,6 +53,11 @@ export function ShareWorkspacePage({ token }: ShareWorkspacePageProps) {
     queryFn: () => api<ShareInfo>(`/api/share/${token}/info`),
   })
 
+  const fullShareInfo = useMemo(
+    () => (shareInfo ? { ...shareInfo, token, path: shareInfo.path ?? '' } : null),
+    [shareInfo, token],
+  )
+
   if (isLoading) {
     return (
       <div className='min-h-screen flex items-center justify-center'>
@@ -82,7 +87,7 @@ export function ShareWorkspacePage({ token }: ShareWorkspacePageProps) {
     return null
   }
 
-  const fullShareInfo = { ...shareInfo, token, path: shareInfo.path ?? '' }
+  if (!fullShareInfo) return null
 
   if (shareInfo.needsPasscode && !shareInfo.authorized) {
     return (

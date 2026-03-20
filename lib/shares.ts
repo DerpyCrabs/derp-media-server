@@ -297,35 +297,41 @@ export async function getAllShares(): Promise<ShareLink[]> {
 
 export async function getSharesAsFileItems(): Promise<FileItem[]> {
   const shares = (await getAllShares()).sort((a, b) => b.createdAt - a.createdAt)
+  const indexed = await Promise.all(
+    shares.map(async (share, index) => {
+      const normalized = share.path.replace(/\\/g, '/')
+      try {
+        const fullPath = path.join(config.mediaDir, share.path)
+        const stat = await fs.stat(fullPath)
+        const fileName = path.basename(share.path)
+        const extension = path.extname(fileName).slice(1).toLowerCase()
+        return {
+          index,
+          normalized,
+          item: {
+            name: fileName,
+            path: share.path,
+            type: stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension),
+            size: stat.isDirectory() ? 0 : stat.size,
+            extension,
+            isDirectory: share.isDirectory,
+            shareToken: share.token,
+          } satisfies FileItem,
+        }
+      } catch {
+        return null
+      }
+    }),
+  )
   const fileItems: FileItem[] = []
   const seenPaths = new Set<string>()
-
-  for (const share of shares) {
-    const normalized = share.path.replace(/\\/g, '/')
+  const candidates = indexed.filter((x): x is NonNullable<typeof x> => x !== null)
+  candidates.sort((a, b) => a.index - b.index)
+  for (const { normalized, item } of candidates) {
     if (seenPaths.has(normalized)) continue
     seenPaths.add(normalized)
-
-    try {
-      const fullPath = path.join(config.mediaDir, share.path)
-      const stat = await fs.stat(fullPath)
-
-      const fileName = path.basename(share.path)
-      const extension = path.extname(fileName).slice(1).toLowerCase()
-
-      fileItems.push({
-        name: fileName,
-        path: share.path,
-        type: stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension),
-        size: stat.isDirectory() ? 0 : stat.size,
-        extension,
-        isDirectory: share.isDirectory,
-        shareToken: share.token,
-      })
-    } catch {
-      continue
-    }
+    fileItems.push(item)
   }
-
   return fileItems
 }
 

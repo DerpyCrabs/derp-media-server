@@ -19,7 +19,7 @@ export function useFileMutations(currentPath: string, options?: FileMutationOpti
   const _createFolder = useMutation({
     mutationFn: (vars: { type: 'folder'; path: string }) => post('/api/files/create', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   })
 
@@ -27,7 +27,7 @@ export function useFileMutations(currentPath: string, options?: FileMutationOpti
     mutationFn: (vars: { type: 'file'; path: string; content: string }) =>
       post('/api/files/create', vars),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       viewFile(variables.path)
     },
   })
@@ -47,21 +47,21 @@ export function useFileMutations(currentPath: string, options?: FileMutationOpti
   const _deleteItem = useMutation({
     mutationFn: (vars: { path: string }) => post('/api/files/delete', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   })
 
   const _rename = useMutation({
     mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   })
 
   const _move = useMutation({
     mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   })
 
@@ -69,7 +69,7 @@ export function useFileMutations(currentPath: string, options?: FileMutationOpti
     mutationFn: (vars: { sourcePath: string; destinationDir: string }) =>
       post('/api/files/copy', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   })
 

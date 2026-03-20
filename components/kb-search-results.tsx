@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { Search } from 'lucide-react'
 
 interface SearchResult {
@@ -23,20 +24,23 @@ function SnippetWithHighlight({ snippet, query }: { snippet: string; query: stri
   const escaped = escapeRegex(query.trim())
   const regex = new RegExp(`(${escaped})`, 'gi')
   const parts = snippet.split(regex)
+  let charOffset = 0
   return (
     <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
+      {parts.map((part, i) => {
+        const key = `${charOffset}:${part}`
+        charOffset += part.length
+        return i % 2 === 1 ? (
           <mark
-            key={i}
+            key={key}
             className='rounded bg-yellow-400/40 dark:bg-amber-500/40 px-0.5 ring-1 ring-amber-500/60 dark:ring-amber-400/50'
           >
             {part}
           </mark>
         ) : (
-          part
-        ),
-      )}
+          <Fragment key={key}>{part}</Fragment>
+        )
+      })}
     </>
   )
 }

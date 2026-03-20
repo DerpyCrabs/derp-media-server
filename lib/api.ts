@@ -7,10 +7,33 @@ class ApiError extends Error {
   }
 }
 
+function mergeFetchHeaders(base: Record<string, string>, extra?: HeadersInit): Headers {
+  const out = new Headers(base)
+  if (!extra) return out
+  if (extra instanceof Headers) {
+    extra.forEach((value, key) => {
+      out.set(key, value)
+    })
+    return out
+  }
+  if (Array.isArray(extra)) {
+    for (const [k, v] of extra) {
+      out.set(k, v)
+    }
+    return out
+  }
+  for (const [k, v] of Object.entries(extra)) {
+    if (v !== undefined) out.set(k, String(v))
+  }
+  return out
+}
+
 export async function api<T>(url: string, options?: RequestInit): Promise<T> {
+  const { headers: optsHeaders, ...rest } = options ?? {}
+  const headers = mergeFetchHeaders({ 'Content-Type': 'application/json' }, optsHeaders)
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
+    ...rest,
+    headers,
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

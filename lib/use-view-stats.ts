@@ -34,7 +34,7 @@ export function useViewStats(
         : post('/api/stats/views', vars),
     onSuccess: () => {
       if (includeCounts && !shareToken) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.stats() })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.stats() })
       }
     },
   })

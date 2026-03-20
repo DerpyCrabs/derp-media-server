@@ -4,17 +4,11 @@ test.describe('Folder Navigation', () => {
   test('shows all top-level folders at root', async ({ page }) => {
     await page.goto('/')
     const table = page.locator('table')
-    for (const folder of [
-      'Videos',
-      'Music',
-      'Images',
-      'Documents',
-      'Notes',
-      'SharedContent',
-      'EmptyFolder',
-    ]) {
-      await expect(table.getByText(folder, { exact: true })).toBeVisible()
-    }
+    await Promise.all(
+      ['Videos', 'Music', 'Images', 'Documents', 'Notes', 'SharedContent', 'EmptyFolder'].map(
+        (folder) => expect(table.getByText(folder, { exact: true })).toBeVisible(),
+      ),
+    )
   })
 
   test('navigates into a folder on click', async ({ page }) => {

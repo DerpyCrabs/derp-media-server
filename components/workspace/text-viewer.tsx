@@ -202,7 +202,7 @@ export function TextViewer({
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
       const toSave = editContentRef.current
-      if (toSave !== content) handleSaveRef.current(true, toSave)
+      if (toSave !== content) void handleSaveRef.current(true, toSave)
     }, 2000)
   }, [viewingPath, autoSaveEnabled, isEditing, content])
 
@@ -217,7 +217,7 @@ export function TextViewer({
         clearTimeout(autoSaveTimerRef.current)
         autoSaveTimerRef.current = null
       }
-      handleSave(true)
+      void handleSave(true)
     }
   }
 
@@ -276,10 +276,10 @@ export function TextViewer({
           throw new Error(data.error || 'Failed to save image')
         }
         if (shareToken) {
-          queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(shareToken) })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(shareToken) })
         } else {
-          queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
-          queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
         }
         return imagePath
       } catch (err) {

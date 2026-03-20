@@ -78,7 +78,7 @@ export function useDynamicFavicon(
   const navigationState = options?.state ?? urlState
   const originalTitleRef = useRef<string>('Media Server')
   const originalFaviconRef = useRef<string | null>(null)
-  const currentFaviconRef = useRef<'default' | string>('default')
+  const currentFaviconRef = useRef<string>('default')
 
   useEffect(() => {
     // Store original title and favicon on first mount
@@ -122,7 +122,7 @@ export function useDynamicFavicon(
         const isDark = document.documentElement.getAttribute('data-theme')?.endsWith('-dark')
         const color = isDark ? '#ffffff' : '#000000'
 
-        generateFaviconFromSvg(svgString, color).then((data) => {
+        void generateFaviconFromSvg(svgString, color).then((data) => {
           if (data && data !== currentFaviconRef.current) {
             setFavicon(data)
             currentFaviconRef.current = data

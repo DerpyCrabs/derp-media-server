@@ -42,6 +42,8 @@ import {
 } from '@/lib/workspace-layout-presets'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 
+const EMPTY_WORKSPACE_LAYOUT_PRESETS: WorkspaceLayoutPreset[] = []
+
 interface LayoutPickerState {
   windowId: string
   anchorRect: DOMRect
@@ -74,9 +76,13 @@ export function WorkspacePage({
     enabled: !shareConfig,
   })
 
-  const serverLayoutPresets = shareConfig
-    ? (shareWorkspaceLayoutPresets ?? [])
-    : (globalSettings?.workspaceLayoutPresets ?? [])
+  const serverLayoutPresets = useMemo(
+    () =>
+      shareConfig
+        ? (shareWorkspaceLayoutPresets ?? EMPTY_WORKSPACE_LAYOUT_PRESETS)
+        : (globalSettings?.workspaceLayoutPresets ?? EMPTY_WORKSPACE_LAYOUT_PRESETS),
+    [shareConfig, shareWorkspaceLayoutPresets, globalSettings?.workspaceLayoutPresets],
+  )
 
   const initialLayoutSnapshot = useMemo((): PersistedWorkspaceState | null => {
     if (!presetParam) return null

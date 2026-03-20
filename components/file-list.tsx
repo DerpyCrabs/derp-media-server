@@ -133,7 +133,7 @@ function FileListInner({
   } = useUpload()
 
   const handleUploadFiles = (files: File[]) => {
-    uploadFiles(files, currentPath)
+    void uploadFiles(files, currentPath)
   }
 
   const queryClient = useQueryClient()
@@ -142,8 +142,8 @@ function FileListInner({
   const revokeShareMutation = useMutation({
     mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.files(currentPath) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files(currentPath) })
     },
   })
 
@@ -308,7 +308,7 @@ function FileListInner({
     ) {
       return
     }
-    handlePaste(e)
+    void handlePaste(e)
   }
 
   // Handle context menu action for setting icon

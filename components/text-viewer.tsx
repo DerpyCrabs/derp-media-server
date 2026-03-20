@@ -278,7 +278,7 @@ export function TextViewer({
     }
     autoSaveTimerRef.current = setTimeout(() => {
       if (editContent !== content) {
-        handleSave(true)
+        void handleSave(true)
       }
     }, 2000)
 
@@ -296,7 +296,7 @@ export function TextViewer({
         clearTimeout(autoSaveTimerRef.current)
         autoSaveTimerRef.current = null
       }
-      handleSave(true)
+      void handleSave(true)
     }
   }
 
@@ -415,8 +415,8 @@ export function TextViewer({
           const data = await res.json()
           throw new Error(data.error || 'Failed to save image')
         }
-        queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
-        queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.files(kbRoot) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.files(`${kbRoot}/images`) })
         return imagePath
       } catch (err) {
         console.error('Failed to paste image:', err)

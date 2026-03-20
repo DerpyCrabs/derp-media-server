@@ -28,7 +28,7 @@ interface WorkspacePlaybackStore {
   setAudioOnly: (key: string, enabled: boolean) => void
 }
 
-export const useWorkspacePlaybackStore = create<WorkspacePlaybackStore>((set, get) => ({
+export const useWorkspacePlaybackStore = create<WorkspacePlaybackStore>((set, _get) => ({
   byKey: {},
 
   playFile(key, path, dir) {

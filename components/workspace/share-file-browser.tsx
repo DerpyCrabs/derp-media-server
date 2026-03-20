@@ -134,7 +134,7 @@ function ShareFileBrowserInner({
 
   const handleUploadFiles = useCallback(
     (uploadedFiles: File[]) => {
-      uploadFiles(uploadedFiles, currentSubDir)
+      void uploadFiles(uploadedFiles, currentSubDir)
     },
     [uploadFiles, currentSubDir],
   )
@@ -142,31 +142,31 @@ function ShareFileBrowserInner({
   const createFolderMutation = useMutation({
     mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
       post(`/api/share/${vars.token}/create`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const createFileMutation = useMutation({
     mutationFn: (vars: { token: string; type: string; path: string; content?: string }) =>
       post(`/api/share/${vars.token}/create`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const deleteItemMutation = useMutation({
     mutationFn: (vars: { token: string; path: string }) =>
       post(`/api/share/${vars.token}/delete`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const renameMutation = useMutation({
     mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
       post(`/api/share/${vars.token}/rename`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const moveMutation = useMutation({
     mutationFn: (vars: { token: string; oldPath: string; newPath: string }) =>
       post(`/api/share/${vars.token}/rename`, vars),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) }),
   })
 
   const viewMutation = useMutation({

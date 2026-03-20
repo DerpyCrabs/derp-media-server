@@ -142,17 +142,19 @@ async function walkMarkdownFiles(
   results: { path: string; mtime: number }[],
 ): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name)
-    const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
-    if (entry.isDirectory()) {
-      if (shouldExcludeFolder(entry.name)) continue
-      await walkMarkdownFiles(fullPath, mediaDir, results)
-    } else if (path.extname(entry.name).toLowerCase() === '.md') {
-      const stat = await fs.stat(fullPath)
-      results.push({ path: relPath, mtime: stat.mtimeMs })
-    }
-  }
+  await Promise.all(
+    entries.map(async (entry) => {
+      const fullPath = path.join(dirPath, entry.name)
+      const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
+      if (entry.isDirectory()) {
+        if (shouldExcludeFolder(entry.name)) return
+        await walkMarkdownFiles(fullPath, mediaDir, results)
+      } else if (path.extname(entry.name).toLowerCase() === '.md') {
+        const stat = await fs.stat(fullPath)
+        results.push({ path: relPath, mtime: stat.mtimeMs })
+      }
+    }),
+  )
 }
 
 async function getKnowledgeBaseRecentFiles(root: string) {

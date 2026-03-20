@@ -12,17 +12,19 @@ const SEARCH_RESULT_LIMIT = 50
 
 async function walkTextFiles(dirPath: string, mediaDir: string, results: string[]): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name)
-    const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
-    if (entry.isDirectory()) {
-      if (shouldExcludeFolder(entry.name)) continue
-      await walkTextFiles(fullPath, mediaDir, results)
-    } else {
-      const ext = path.extname(entry.name).toLowerCase()
-      if (TEXT_EXTENSIONS.includes(ext)) results.push(relPath)
-    }
-  }
+  await Promise.all(
+    entries.map(async (entry) => {
+      const fullPath = path.join(dirPath, entry.name)
+      const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
+      if (entry.isDirectory()) {
+        if (shouldExcludeFolder(entry.name)) return
+        await walkTextFiles(fullPath, mediaDir, results)
+      } else {
+        const ext = path.extname(entry.name).toLowerCase()
+        if (TEXT_EXTENSIONS.includes(ext)) results.push(relPath)
+      }
+    }),
+  )
 }
 
 async function walkMarkdownFiles(
@@ -31,20 +33,22 @@ async function walkMarkdownFiles(
   results: { path: string; mtime: number }[],
 ): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name)
-    const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
-    if (entry.isDirectory()) {
-      if (shouldExcludeFolder(entry.name)) continue
-      await walkMarkdownFiles(fullPath, mediaDir, results)
-    } else {
-      const ext = path.extname(entry.name).toLowerCase()
-      if (ext === '.md') {
-        const stat = await fs.stat(fullPath)
-        results.push({ path: relPath, mtime: stat.mtimeMs })
+  await Promise.all(
+    entries.map(async (entry) => {
+      const fullPath = path.join(dirPath, entry.name)
+      const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
+      if (entry.isDirectory()) {
+        if (shouldExcludeFolder(entry.name)) return
+        await walkMarkdownFiles(fullPath, mediaDir, results)
+      } else {
+        const ext = path.extname(entry.name).toLowerCase()
+        if (ext === '.md') {
+          const stat = await fs.stat(fullPath)
+          results.push({ path: relPath, mtime: stat.mtimeMs })
+        }
       }
-    }
-  }
+    }),
+  )
 }
 
 function extractSnippet(content: string, query: string): string {
@@ -88,6 +92,7 @@ export function registerKbApiRoutes(app: FastifyInstance) {
     const results: { path: string; name: string; snippet: string }[] = []
     const lowerQuery = q.trim().toLowerCase()
 
+    /* eslint-disable no-await-in-loop -- stop after SEARCH_RESULT_LIMIT; sequential reads */
     for (const relPath of textFiles) {
       if (results.length >= SEARCH_RESULT_LIMIT) break
       const fullPath = path.join(mediaDir, relPath)
@@ -100,6 +105,7 @@ export function registerKbApiRoutes(app: FastifyInstance) {
         snippet,
       })
     }
+    /* eslint-enable no-await-in-loop */
 
     return reply.send({ results })
   })

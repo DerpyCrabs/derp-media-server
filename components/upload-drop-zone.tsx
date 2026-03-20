@@ -11,6 +11,7 @@ interface UploadDropZoneProps {
 async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
   const entries: FileSystemEntry[] = []
   let batch: FileSystemEntry[]
+  /* eslint-disable no-await-in-loop -- readEntries yields batches until empty */
   do {
     batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
       reader.readEntries(resolve, reject)
@@ -33,9 +34,7 @@ async function readEntry(entry: FileSystemEntry, basePath: string, files: File[]
     const reader = dirEntry.createReader()
     const entries = await readAllEntries(reader)
     const dirPath = basePath ? `${basePath}/${entry.name}` : entry.name
-    for (const child of entries) {
-      await readEntry(child, dirPath, files)
-    }
+    await Promise.all(entries.map((child) => readEntry(child, dirPath, files)))
   }
 }
 
@@ -51,9 +50,7 @@ async function collectDroppedFiles(dataTransfer: DataTransfer): Promise<File[]> 
     }
 
     if (entries.length > 0) {
-      for (const entry of entries) {
-        await readEntry(entry, '', files)
-      }
+      await Promise.all(entries.map((ent) => readEntry(ent, '', files)))
       return files
     }
   }
