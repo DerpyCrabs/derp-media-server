@@ -3,6 +3,7 @@ import { Switch, Match, Show, createSignal, createMemo } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { FileBrowser } from './FileBrowser'
 import { ShareRoute } from './ShareRoute'
+import { ShareWorkspacePage } from './ShareWorkspacePage'
 import { WorkspacePage } from './WorkspacePage'
 
 async function postLogin(password: string) {
@@ -80,14 +81,23 @@ function matchRoute(pathname: string): 'login' | 'share' | 'home' | 'workspace' 
   return 'home'
 }
 
+function parseShareWorkspaceToken(pathname: string): string | null {
+  const m = pathname.match(/^\/share\/([^/]+)\/workspace\/?$/)
+  return m?.[1] ?? null
+}
+
 export function App() {
   const loc = useBrowserHistory()
   const path = createMemo(() => loc().pathname)
+  const shareWorkspaceToken = createMemo(() => parseShareWorkspaceToken(path()))
 
   return (
     <Switch fallback={<FileBrowser />}>
       <Match when={matchRoute(path()) === 'login'}>
         <LoginPage />
+      </Match>
+      <Match when={shareWorkspaceToken()} keyed>
+        {(token) => <ShareWorkspacePage token={token} />}
       </Match>
       <Match when={matchRoute(path()) === 'share'}>
         <ShareRoute />
