@@ -29,6 +29,7 @@ const BATCHES = [
     tests: [
       'image-viewer',
       'text-editor',
+      'knowledge-base',
       'shares-manage',
       'shares-use',
       'share-viewers',

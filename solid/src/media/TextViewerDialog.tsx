@@ -3,7 +3,7 @@ import { post } from '@/lib/api'
 import { MediaType } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
 import { queryKeys } from '@/lib/query-keys'
-import { isPathEditable } from '@/lib/utils'
+import { getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import Download from 'lucide-solid/icons/download'
 import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 import { useBrowserHistory } from '../browser-history'
@@ -21,6 +21,8 @@ type Props = {
   shareContext?: TextViewerShareContext | null
   /** When browsing as admin; ignored if shareContext is set. */
   editableFolders?: string[]
+  /** For Obsidian-style image embeds in knowledge bases (admin). */
+  knowledgeBases?: string[]
   /** Share link allows editing (editable + allowEdit). */
   shareCanEdit?: boolean
 }
@@ -52,6 +54,7 @@ function shareDownloadHref(
 function buildResolveImageUrl(
   viewingPath: string,
   share: TextViewerShareContext | null,
+  knowledgeBases: string[],
 ): (src: string) => string | null {
   return (rawSrc: string) => {
     let src = rawSrc
@@ -91,6 +94,13 @@ function buildResolveImageUrl(
       return encoded ? `/api/share/${share.token}/media/${encoded}` : null
     }
 
+    if (!src.startsWith('http://') && !src.startsWith('https://') && !src.includes('/')) {
+      const kbRoot = getKnowledgeBaseRoot(viewingPath.replace(/\\/g, '/'), knowledgeBases)
+      if (kbRoot) {
+        src = `${kbRoot}/images/${src}`
+      }
+    }
+
     return `/api/media/${src.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
   }
 }
@@ -100,6 +110,7 @@ export function TextViewerBody(props: {
   shareContext?: TextViewerShareContext | null
   editableFolders: string[]
   shareCanEdit: boolean
+  knowledgeBases?: string[]
 }): JSX.Element {
   const queryClient = useQueryClient()
   const mediaUrl = createMemo(() => {
@@ -217,8 +228,9 @@ export function TextViewerBody(props: {
     }
   }
 
+  const kbList = () => props.knowledgeBases ?? []
   const resolveImageUrl = createMemo(() =>
-    buildResolveImageUrl(props.viewingPath, props.shareContext ?? null),
+    buildResolveImageUrl(props.viewingPath, props.shareContext ?? null, kbList()),
   )
 
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
@@ -385,6 +397,7 @@ export function TextViewerDialog(props: Props) {
   const isText = createMemo(() => !!viewingPath() && mediaType() === MediaType.TEXT)
 
   const folders = () => props.editableFolders ?? []
+  const kb = () => props.knowledgeBases ?? []
   const shareEdit = () => props.shareCanEdit ?? false
 
   return (
@@ -393,6 +406,7 @@ export function TextViewerDialog(props: Props) {
         viewingPath={viewingPath()!}
         shareContext={props.shareContext ?? null}
         editableFolders={folders()}
+        knowledgeBases={kb()}
         shareCanEdit={shareEdit()}
       />
     </Show>
