@@ -4,13 +4,12 @@ import path from 'path'
 
 /**
  * Same six batch IDs / parallelism as React (`run-batches.ts`), only specs that exist under
- * `tests/e2e-solid/`. Batch 3 has no Solid workspace suite yet, so one React-batch-6 spec
- * is placed here to keep six workers busy (slowest file dominates per batch).
+ * `tests/e2e-solid/`.
  */
 const BATCHES = [
   { id: '1', tests: ['smoke'] },
   { id: '2', tests: ['navigation', 'upload'] },
-  { id: '3', tests: ['download'] },
+  { id: '3', tests: ['download', 'workspace-layout-sessions'] },
   { id: '4', tests: ['url-state', 'login'] },
   { id: '5', tests: ['audio-player', 'video-player'] },
   { id: '6', tests: ['image-viewer', 'text-editor'] },
