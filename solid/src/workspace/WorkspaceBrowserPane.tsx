@@ -18,6 +18,7 @@ import { formatFileSize } from '@/lib/media-utils'
 import { cn, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
+import FolderPlus from 'lucide-solid/icons/folder-plus'
 import type { Accessor } from 'solid-js'
 import {
   For,
@@ -43,6 +44,8 @@ type Props = {
   windowId: string
   workspace: Accessor<PersistedWorkspaceState | null>
   sharePanel: Accessor<WorkspaceShareConfig | null>
+  /** Share workspace: show create file/folder when upload is allowed (matches React ShareFileBrowser). */
+  shareAllowUpload?: boolean
   editableFolders: string[]
   onNavigateDir: (windowId: string, dir: string) => void
   onOpenViewer: (windowId: string, file: FileItem) => void
@@ -70,6 +73,8 @@ export function WorkspaceBrowserPane(props: Props) {
   const [enableDrag, setEnableDrag] = createSignal(false)
   const [showCreateFile, setShowCreateFile] = createSignal(false)
   const [newFileName, setNewFileName] = createSignal('')
+  const [showCreateFolder, setShowCreateFolder] = createSignal(false)
+  const [newFolderName, setNewFolderName] = createSignal('')
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
@@ -112,9 +117,11 @@ export function WorkspaceBrowserPane(props: Props) {
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
   )
 
-  const isPaneEditable = createMemo(
+  const isAdminPaneEditable = createMemo(
     () => !share() && !isVirtualFolder() && isPathEditable(currentPath(), props.editableFolders),
   )
+  const showShareCreateToolbar = createMemo(() => !!share() && !!props.shareAllowUpload)
+  const showCreateToolbar = createMemo(() => isAdminPaneEditable() || showShareCreateToolbar())
 
   const parentParts = createMemo(() =>
     currentPath() ? currentPath().split(/[/\\]/).filter(Boolean) : [],
@@ -126,7 +133,7 @@ export function WorkspaceBrowserPane(props: Props) {
   })
   const canDropOnParent = createMemo(
     () =>
-      isPaneEditable() &&
+      isAdminPaneEditable() &&
       !!currentPath() &&
       isPathEditable(dropParentDir() || '', props.editableFolders),
   )
@@ -156,13 +163,28 @@ export function WorkspaceBrowserPane(props: Props) {
     moveMutation.mutate({ oldPath: sourcePath, newPath })
   }
 
-  const allowMoveFile = createMemo(() => (isPaneEditable() ? handleMoveFile : undefined))
+  const allowMoveFile = createMemo(() => (isAdminPaneEditable() ? handleMoveFile : undefined))
 
   const createFileMutation = useMutation(() => ({
-    mutationFn: (vars: { type: 'file'; path: string; content: string }) =>
-      post('/api/files/create', vars),
+    mutationFn: (vars: { path: string; content: string; shareToken?: string }) =>
+      vars.shareToken
+        ? post(`/api/share/${vars.shareToken}/create`, {
+            type: 'file',
+            path: vars.path,
+            content: vars.content,
+          })
+        : post('/api/files/create', { type: 'file', path: vars.path, content: vars.content }),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      const sh = share()
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+    },
+  }))
+
+  const createFolderMutation = useMutation(() => ({
+    mutationFn: (vars: { token: string; path: string }) =>
+      post(`/api/share/${vars.token}/create`, { type: 'folder', path: vars.path }),
+    onSettled: () => {
       const sh = share()
       if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
     },
@@ -247,14 +269,43 @@ export function WorkspaceBrowserPane(props: Props) {
     setShowCreateFile(true)
   }
 
+  function openCreateFolderDialog() {
+    setNewFolderName('')
+    setShowCreateFolder(true)
+  }
+
   function submitCreateFile() {
     const name = newFileName().trim()
     if (!name || fileExists()) return
+    const sh = share()
+    if (sh) {
+      const stem = name.includes('.') ? name : `${name}.txt`
+      const rel = listDir() ? `${listDir()}/${stem}` : stem
+      void createFileMutation
+        .mutateAsync({ path: rel, content: '', shareToken: sh.token })
+        .then(() => {
+          setShowCreateFile(false)
+          setNewFileName('')
+        })
+      return
+    }
     const base = currentPath() ? `${currentPath()}/${name}` : name
     const finalPath = base.includes('.') ? base : `${base}.txt`
-    void createFileMutation.mutateAsync({ type: 'file', path: finalPath, content: '' }).then(() => {
+    void createFileMutation.mutateAsync({ path: finalPath, content: '' }).then(() => {
       setShowCreateFile(false)
       setNewFileName('')
+    })
+  }
+
+  function submitCreateFolder() {
+    const sh = share()
+    if (!sh) return
+    const name = newFolderName().trim()
+    if (!name || folderExists()) return
+    const rel = listDir() ? `${listDir()}/${name}` : name
+    void createFolderMutation.mutateAsync({ token: sh.token, path: rel }).then(() => {
+      setShowCreateFolder(false)
+      setNewFolderName('')
     })
   }
 
@@ -263,6 +314,12 @@ export function WorkspaceBrowserPane(props: Props) {
     if (!n) return false
     const withExt = n.includes('.') ? n : `${n}.txt`
     return files().some((f) => f.name.toLowerCase() === withExt || f.name.toLowerCase() === n)
+  })
+
+  const folderExists = createMemo(() => {
+    const n = newFolderName().trim().toLowerCase()
+    if (!n) return false
+    return files().some((f) => f.isDirectory && f.name.toLowerCase() === n)
   })
 
   function handleParentDirectory() {
@@ -417,7 +474,17 @@ export function WorkspaceBrowserPane(props: Props) {
       <div class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 p-1.5'>
         <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
         <div class='flex items-center gap-1'>
-          <Show when={isPaneEditable()}>
+          <Show when={showShareCreateToolbar()}>
+            <button
+              type='button'
+              title='Create new folder'
+              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
+              onClick={openCreateFolderDialog}
+            >
+              <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+            </button>
+          </Show>
+          <Show when={showCreateToolbar()}>
             <button
               type='button'
               title='Create new file'
@@ -628,6 +695,67 @@ export function WorkspaceBrowserPane(props: Props) {
           if (it) void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
         }}
       />
+
+      <Show when={showCreateFolder()}>
+        <div
+          class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+          role='presentation'
+          onClick={() => setShowCreateFolder(false)}
+        >
+          <div
+            role='dialog'
+            aria-modal='true'
+            aria-labelledby='workspace-create-folder-title'
+            class='bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-lg'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id='workspace-create-folder-title' class='text-lg font-semibold'>
+              Create folder
+            </h2>
+            <form
+              class='mt-4 space-y-4'
+              onSubmit={(e) => {
+                e.preventDefault()
+                submitCreateFolder()
+              }}
+            >
+              <input
+                type='text'
+                class='mt-0 w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
+                placeholder='Folder name'
+                value={newFolderName()}
+                onInput={(e) => setNewFolderName((e.currentTarget as HTMLInputElement).value)}
+              />
+              <Show when={folderExists()}>
+                <p class='text-sm text-amber-600'>A folder with this name already exists.</p>
+              </Show>
+              <Show when={createFolderMutation.isError}>
+                <p class='text-destructive text-sm'>
+                  {(createFolderMutation.error as Error)?.message ?? 'Create failed'}
+                </p>
+              </Show>
+              <div class='flex justify-end gap-2'>
+                <button
+                  type='button'
+                  class='h-9 rounded-md border border-input px-4 text-sm'
+                  onClick={() => setShowCreateFolder(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type='submit'
+                  class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm disabled:opacity-50'
+                  disabled={
+                    createFolderMutation.isPending || !newFolderName().trim() || folderExists()
+                  }
+                >
+                  {createFolderMutation.isPending ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </Show>
 
       <Show when={showCreateFile()}>
         <div

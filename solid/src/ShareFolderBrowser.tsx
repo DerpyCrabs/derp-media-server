@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
+import AppWindow from 'lucide-solid/icons/app-window'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import Folder from 'lucide-solid/icons/folder'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
@@ -251,6 +252,35 @@ export function ShareFolderBrowser(props: Props) {
                   >
                     {ctx.file.isDirectory ? 'Download as ZIP' : 'Download'}
                   </button>
+                  <Show when={ctx.file.isDirectory && !ctx.file.isVirtual}>
+                    <button
+                      type='button'
+                      data-slot='context-menu-item'
+                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                      role='menuitem'
+                      onClick={() => {
+                        const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
+                        const pathNorm = ctx.file.path.replace(/\\/g, '/')
+                        const subPath =
+                          pathNorm === sharePathNorm
+                            ? ''
+                            : stripSharePrefix(ctx.file.path, props.shareInfo.path)
+                        const params = new URLSearchParams()
+                        if (subPath) params.set('dir', subPath)
+                        const query = params.toString()
+                        window.open(
+                          query
+                            ? `/share/${props.token}/workspace?${query}`
+                            : `/share/${props.token}/workspace`,
+                          '_blank',
+                        )
+                        dismissMenu()
+                      }}
+                    >
+                      <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+                      Open in Workspace
+                    </button>
+                  </Show>
                   <Show when={canDelete()}>
                     <button
                       type='button'

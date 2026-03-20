@@ -110,6 +110,7 @@ type AuthConfig = { enabled: boolean; editableFolders: string[] }
 export type WorkspacePageProps = {
   shareConfig?: { token: string; sharePath: string } | null
   shareWorkspaceTaskbarPins?: PinnedTaskbarItem[]
+  shareAllowUpload?: boolean
   shareCanEdit?: boolean
 }
 
@@ -993,6 +994,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                 windowId={tabId}
                                 workspace={workspace}
                                 sharePanel={sharePanel}
+                                shareAllowUpload={props.shareAllowUpload ?? false}
                                 editableFolders={editableFolders()}
                                 onNavigateDir={navigateDir}
                                 onOpenViewer={openViewerFromBrowser}
