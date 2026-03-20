@@ -1,8 +1,9 @@
-import type { PersistedWorkspaceState } from '@/lib/use-workspace'
+import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { createDefaultBounds } from '@/lib/workspace-geometry'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Minus from 'lucide-solid/icons/minus'
+import Plus from 'lucide-solid/icons/plus'
 import X from 'lucide-solid/icons/x'
 import { type Accessor, Show, createMemo } from 'solid-js'
 import type { JSX } from 'solid-js'
@@ -10,6 +11,7 @@ import {
   type ResizeHandleKey,
   getWorkspaceSnapResizeHandleMap,
 } from './workspace-snap-resize-handles'
+import { WorkspaceSingleTabHeader, WorkspaceTabStrip } from './WorkspaceTabStrip'
 
 const MIN_W = 360
 const MIN_H = 260
@@ -17,8 +19,10 @@ const MIN_H = 260
 export type WorkspaceBounds = { x: number; y: number; width: number; height: number }
 
 export type WorkspaceWindowChromeProps = {
-  windowId: string
+  leaderWindowId: string
   groupId: string
+  tabWindows: Accessor<WorkspaceWindowDefinition[]>
+  visibleTabId: Accessor<string>
   workspace: Accessor<PersistedWorkspaceState | null>
   isActive: boolean
   containerEl: Accessor<HTMLElement | undefined>
@@ -38,6 +42,10 @@ export type WorkspaceWindowChromeProps = {
   onDragDuringMove: (windowId: string, bounds: WorkspaceBounds) => void
   onResizeSnapped: (windowId: string, bounds: WorkspaceBounds, direction: string) => void
   onUpdateBounds: (windowId: string, bounds: WorkspaceBounds) => void
+  onSelectTab?: (groupId: string, tabId: string) => void
+  onCloseTab?: (tabId: string) => void
+  onDetachTab?: (tabId: string, clientX: number, clientY: number) => void
+  onAddTab?: () => void
   children: JSX.Element
 }
 
@@ -50,7 +58,10 @@ function handleEnabled(
 }
 
 export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
-  const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
+  const win = createMemo(() =>
+    props.workspace()?.windows.find((w) => w.id === props.leaderWindowId),
+  )
+  const hasTabs = createMemo(() => props.tabWindows().length > 1)
   const b = createMemo(
     () => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'),
   )
@@ -65,43 +76,46 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const showResize = createMemo(() => !isFullscreen())
 
   const startWindowDrag = (e: PointerEvent) => {
+    if ((e.target as HTMLElement).closest('[data-no-window-drag]')) return
     e.preventDefault()
     e.stopPropagation()
     const el = e.currentTarget as HTMLElement
     el.setPointerCapture(e.pointerId)
-    props.onFocusWindow(props.windowId)
+    props.onFocusWindow(props.visibleTabId())
 
     const container = props.containerEl()
     if (!container) return
     const cRect = container.getBoundingClientRect()
 
     if (snapZone() || isFullscreen()) {
-      props.onRestoreDrag(props.windowId, e.clientX, e.clientY)
+      props.onRestoreDrag(props.leaderWindowId, e.clientX, e.clientY)
     }
 
-    const wb = props.workspace()?.windows.find((w) => w.id === props.windowId)?.layout?.bounds
+    const wb = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)?.layout?.bounds
     if (!wb) return
     const grabDx = e.clientX - cRect.left - wb.x
     const grabDy = e.clientY - cRect.top - wb.y
 
     const onMove = (ev: PointerEvent) => {
-      props.onDragPointerMove(props.windowId, ev.clientX, ev.clientY)
-      const cur = props.workspace()?.windows.find((w) => w.id === props.windowId)?.layout?.bounds
+      props.onDragPointerMove(props.leaderWindowId, ev.clientX, ev.clientY)
+      const cur = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)
+        ?.layout?.bounds
       if (!cur) return
       let nx = ev.clientX - cRect.left - grabDx
       let ny = ev.clientY - cRect.top - grabDy
       nx = Math.max(0, Math.min(nx, cRect.width - cur.width))
       ny = Math.max(0, Math.min(ny, cRect.height - cur.height))
-      props.onDragDuringMove(props.windowId, { ...cur, x: nx, y: ny })
+      props.onDragDuringMove(props.leaderWindowId, { ...cur, x: nx, y: ny })
     }
 
     const onUp = (ev: PointerEvent) => {
       el.releasePointerCapture(ev.pointerId)
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
-      const final = props.workspace()?.windows.find((w) => w.id === props.windowId)?.layout?.bounds
+      const final = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)
+        ?.layout?.bounds
       if (final) {
-        props.onDragPointerEnd(props.windowId, final, ev.clientX, ev.clientY)
+        props.onDragPointerEnd(props.leaderWindowId, final, ev.clientX, ev.clientY)
       }
     }
 
@@ -112,7 +126,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const startResize = (direction: string) => (e: MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    props.onFocusWindow(props.windowId)
+    props.onFocusWindow(props.visibleTabId())
 
     const container = props.containerEl()
     if (!container) return
@@ -159,9 +173,9 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       }
 
       if (snapped) {
-        props.onResizeSnapped(props.windowId, applyFreeResize(nb), direction)
+        props.onResizeSnapped(props.leaderWindowId, applyFreeResize(nb), direction)
       } else {
-        props.onUpdateBounds(props.windowId, applyFreeResize(nb))
+        props.onUpdateBounds(props.leaderWindowId, applyFreeResize(nb))
       }
     }
 
@@ -199,7 +213,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         }`}
         onMouseDown={(e) => {
           if ((e.target as HTMLElement).closest?.('.workspace-window-content')) return
-          props.onFocusWindow(props.windowId)
+          props.onFocusWindow(props.visibleTabId())
         }}
       >
         <div
@@ -209,19 +223,54 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         >
           <div
             data-testid='window-drag-handle'
-            class='flex min-w-0 flex-1 cursor-grab items-center px-2 text-xs font-medium select-none active:cursor-grabbing'
+            class='flex min-w-0 flex-1 cursor-grab items-center text-xs font-medium select-none active:cursor-grabbing'
             onPointerDown={startWindowDrag}
           >
-            <span class='truncate'>{win()?.title}</span>
+            <Show
+              when={hasTabs()}
+              fallback={
+                <WorkspaceSingleTabHeader
+                  groupId={props.groupId}
+                  tab={props.tabWindows()[0]}
+                  isWindowActive={props.isActive}
+                />
+              }
+            >
+              <WorkspaceTabStrip
+                groupId={props.groupId}
+                tabs={props.tabWindows()}
+                visibleTabId={props.visibleTabId()}
+                isWindowActive={props.isActive}
+                onSelectTab={(gid, tid) => props.onSelectTab?.(gid, tid)}
+                onFocusWindow={(tid) => props.onFocusWindow(tid)}
+                onCloseTab={(tid) => props.onCloseTab?.(tid)}
+                onDetachTab={props.onDetachTab}
+              />
+            </Show>
           </div>
+          <div
+            class='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
+            aria-hidden
+          />
           <div
             class='workspace-window-buttons flex shrink-0 items-stretch'
             onMouseDown={(e) => e.stopPropagation()}
           >
+            <Show when={props.onAddTab}>
+              <button
+                type='button'
+                data-no-window-drag
+                class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
+                onClick={(e) => guardClick(() => props.onAddTab?.(), e)}
+                aria-label='New tab'
+              >
+                <Plus class='h-3.5 w-3.5' stroke-width={2} />
+              </button>
+            </Show>
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onMinimize(props.windowId), e)}
+              onClick={(e) => guardClick(() => props.onMinimize(props.leaderWindowId), e)}
               aria-label='Minimize'
             >
               <Minus class='lucide-minus h-3.5 w-3.5' stroke-width={2} />
@@ -229,12 +278,12 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onToggleFullscreen(props.windowId), e)}
+              onClick={(e) => guardClick(() => props.onToggleFullscreen(props.leaderWindowId), e)}
               onContextMenu={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                props.onOpenLayoutPicker(props.windowId, r)
+                props.onOpenLayoutPicker(props.leaderWindowId, r)
               }}
               aria-label='Maximize'
             >
@@ -248,14 +297,17 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onClose(props.windowId), e)}
+              onClick={(e) => guardClick(() => props.onClose(props.leaderWindowId), e)}
               aria-label={`Close ${win()?.title ?? ''}`}
             >
               <X class='lucide-x h-3.5 w-3.5' stroke-width={2} />
             </button>
           </div>
         </div>
-        <div class='workspace-window-content min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground'>
+        <div
+          data-testid='workspace-chrome-content'
+          class='workspace-window-content min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground'
+        >
           {props.children}
         </div>
       </div>

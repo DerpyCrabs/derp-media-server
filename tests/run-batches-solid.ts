@@ -15,6 +15,7 @@ const BATCHES = [
       'download',
       'workspace-layout-sessions',
       'workspace-layout-snap-resize',
+      'workspace-layout-chrome',
       'workspace-taskbar-pins',
       'workspace-viewers',
     ],

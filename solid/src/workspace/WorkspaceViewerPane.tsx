@@ -15,6 +15,7 @@ import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
+import { bindPaneFocusOnClick } from './pane-focus-on-click'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import { MarkdownPane } from '../media/MarkdownPane'
 import type { TextViewerShareContext } from '../media/TextViewerDialog'
@@ -27,6 +28,7 @@ type Props = {
   editableFolders: string[]
   shareCanEdit: boolean
   onUpdateViewing: (windowId: string, path: string) => void
+  onFocusFromPane?: (windowId: string) => void
 }
 
 function shareEditRelativePath(viewingPath: string, sharePath: string): string {
@@ -83,6 +85,12 @@ function buildResolveImageUrl(
 
 export function WorkspaceViewerPane(props: Props) {
   const queryClient = useQueryClient()
+  const [paneRoot, setPaneRoot] = createSignal<HTMLDivElement | null>(null)
+  bindPaneFocusOnClick(
+    paneRoot,
+    () => props.windowId,
+    () => props.onFocusFromPane,
+  )
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
   const share = createMemo((): WorkspaceShareConfig | null => {
@@ -354,6 +362,7 @@ export function WorkspaceViewerPane(props: Props) {
 
   return (
     <div
+      ref={setPaneRoot}
       class='flex min-h-0 flex-1 flex-col overflow-hidden bg-background'
       data-testid='workspace-window-visible-content'
     >
