@@ -106,6 +106,14 @@ test.describe('Folder Navigation', () => {
     await expect(row).toContainText(/\d+\s*(B|KB|MB)/)
   })
 
+  test('increments view count when opening a file in list view', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    await page.locator('table').getByText('readme.txt', { exact: true }).click()
+    await expect(page).toHaveURL(/viewing=/)
+    const row = page.locator('table tr').filter({ hasText: 'readme.txt' })
+    await expect(row.locator('[data-testid=file-view-count]')).toHaveText(/[1-9]/)
+  })
+
   test('shows virtual folders at root', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByText('Favorites')).toBeVisible()

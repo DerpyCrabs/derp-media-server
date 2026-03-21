@@ -88,7 +88,11 @@ export function WorkspaceViewerPane(props: Props) {
   const share = createMemo((): WorkspaceShareConfig | null => {
     const w = win()
     if (w?.source.kind === 'share' && w.source.token) {
-      return { token: w.source.token, sharePath: w.source.sharePath ?? '' }
+      const panel = props.sharePanel()
+      const fromWindow = (w.source.sharePath ?? '').trim()
+      const fromPanel =
+        panel && panel.token === w.source.token ? (panel.sharePath ?? '').trim() : ''
+      return { token: w.source.token, sharePath: fromWindow || fromPanel }
     }
     return props.sharePanel() ?? null
   })

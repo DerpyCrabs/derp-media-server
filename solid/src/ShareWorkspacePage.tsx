@@ -3,7 +3,7 @@ import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
-import { Match, Switch, createMemo } from 'solid-js'
+import { Match, Switch, createMemo, onMount } from 'solid-js'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { SharePasscodeGate } from './SharePasscodeGate'
 import { WorkspacePage } from './WorkspacePage'
@@ -32,6 +32,18 @@ type ShareInfo = {
 }
 
 type Props = { token: string }
+
+function RedirectShareFileFromWorkspace(props: { token: string }) {
+  onMount(() => {
+    const qs = window.location.search
+    history.replaceState(null, '', `/share/${props.token}${qs}`)
+  })
+  return (
+    <div class='flex min-h-screen items-center justify-center'>
+      <p class='text-muted-foreground text-sm'>Loading…</p>
+    </div>
+  )
+}
 
 export function ShareWorkspacePage(props: Props) {
   useShareFileWatcher(props.token)
@@ -83,11 +95,7 @@ export function ShareWorkspacePage(props: Props) {
         {(info) => <SharePasscodeGate token={props.token} shareName={info().name} />}
       </Match>
       <Match when={shareQuery.data && !shareQuery.data!.isDirectory}>
-        <div class='flex min-h-screen items-center justify-center p-4'>
-          <p class='text-muted-foreground text-sm'>
-            Workspace is only available for folder shares.
-          </p>
-        </div>
+        <RedirectShareFileFromWorkspace token={props.token} />
       </Match>
       <Match when={canShowWorkspace()}>
         <WorkspacePage

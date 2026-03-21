@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
-import { stripSharePrefix } from '@/lib/source-context'
+import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import type { WorkspaceSource } from '@/lib/use-workspace'
@@ -50,6 +50,7 @@ import { UploadToastStack } from '../file-browser/UploadToastStack'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import type { FileIconContext } from '../lib/use-file-icon'
+import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
 
 export type WorkspaceShareConfig = { token: string; sharePath: string }
@@ -133,7 +134,11 @@ export function WorkspaceBrowserPane(props: Props) {
   const share = createMemo((): WorkspaceShareConfig | null => {
     const w = win()
     if (w?.source.kind === 'share' && w.source.token) {
-      return { token: w.source.token, sharePath: w.source.sharePath ?? '' }
+      const panel = props.sharePanel()
+      const fromWindow = (w.source.sharePath ?? '').trim()
+      const fromPanel =
+        panel && panel.token === w.source.token ? (panel.sharePath ?? '').trim() : ''
+      return { token: w.source.token, sharePath: fromWindow || fromPanel }
     }
     return props.sharePanel() ?? null
   })
@@ -144,6 +149,13 @@ export function WorkspaceBrowserPane(props: Props) {
     if (sh) return stripSharePrefix(p, sh.sharePath.replace(/\\/g, '/'))
     return p
   })
+
+  const viewSourceContext = createMemo((): SourceContext => {
+    const sh = share()
+    if (sh) return { shareToken: sh.token, sharePath: sh.sharePath }
+    return {}
+  })
+  const viewStats = useViewStats(viewSourceContext)
 
   const filesQuery = useQuery(() => {
     const sh = share()
@@ -746,6 +758,7 @@ export function WorkspaceBrowserPane(props: Props) {
       props.onNavigateDir(props.windowId, file.path)
       return
     }
+    viewStats.incrementView(file.path)
     const mt = file.type
     if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
       const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)

@@ -46,7 +46,11 @@ export function WorkspacePlayerPane(props: Props) {
     if (!path) return ''
     const w = props.window()
     if (w?.source.kind === 'share' && w.source.token) {
-      return buildShareMediaUrl(w.source.token, w.source.sharePath ?? '', path)
+      const fb = props.shareFallback()
+      const sharePath =
+        (w.source.sharePath ?? '').trim() ||
+        (fb && fb.token === w.source.token ? (fb.sharePath ?? '').trim() : '')
+      return buildShareMediaUrl(w.source.token, sharePath, path)
     }
     const fb = props.shareFallback()
     if (fb) return buildShareMediaUrl(fb.token, fb.sharePath, path)

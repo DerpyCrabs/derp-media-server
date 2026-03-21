@@ -35,6 +35,7 @@ import { UploadMenu } from './file-browser/UploadMenu'
 import type { UploadToastState } from './file-browser/types'
 import { UploadToastStack } from './file-browser/UploadToastStack'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
+import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
 import { EMPTY_FILE_ICON_CONTEXT, fileIcon, gridHeroIcon } from './lib/use-file-icon'
@@ -78,6 +79,10 @@ export function ShareFolderBrowser(props: Props) {
   const history = useBrowserHistory()
   const queryClient = useQueryClient()
   useShareFileWatcher(props.token)
+  useDynamicFavicon(() => ({}), {
+    rootName: props.shareInfo.name,
+    getSearch: () => history().search,
+  })
 
   const [rowMenu, setRowMenu] = createSignal<MenuState | null>(null)
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
