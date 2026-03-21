@@ -73,7 +73,10 @@ export function SharePage({ token }: SharePageProps) {
 
   if (error || !shareInfo) {
     return (
-      <div className='min-h-screen flex items-center justify-center p-4'>
+      <div
+        className='min-h-screen flex items-center justify-center p-4'
+        data-testid='share-not-found'
+      >
         <Card className='border-destructive max-w-md w-full'>
           <CardHeader>
             <CardTitle className='flex items-center gap-2 text-destructive'>

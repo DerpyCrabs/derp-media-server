@@ -77,15 +77,15 @@ function LoginPage() {
   )
 }
 
-function matchRoute(pathname: string): 'login' | 'share' | 'home' | 'workspace' {
-  if (pathname === '/login' || pathname.startsWith('/login/')) return 'login'
-  if (pathname.startsWith('/share/')) return 'share'
-  if (pathname === '/workspace') return 'workspace'
-  return 'home'
-}
-
 function parseShareWorkspaceToken(pathname: string): string | null {
   const m = pathname.match(/^\/share\/([^/]+)\/workspace\/?$/)
+  return m?.[1] ?? null
+}
+
+/** Match React src/routes.tsx: `/share/:token` only when token is non-empty (excludes `/share/` and `/share`). */
+function parseShareFolderOrFileToken(pathname: string): string | null {
+  if (parseShareWorkspaceToken(pathname)) return null
+  const m = pathname.match(/^\/share\/([^/]+)/)
   return m?.[1] ?? null
 }
 
@@ -103,7 +103,7 @@ export function App() {
         </>
       }
     >
-      <Match when={matchRoute(path()) === 'login'}>
+      <Match when={path() === '/login'}>
         <>
           <SolidThemeSync />
           <LoginPage />
@@ -117,13 +117,15 @@ export function App() {
           </>
         )}
       </Match>
-      <Match when={matchRoute(path()) === 'share'}>
-        <>
-          <SolidThemeSync />
-          <ShareRoute />
-        </>
+      <Match when={parseShareFolderOrFileToken(path())} keyed>
+        {(token) => (
+          <>
+            <SolidThemeSync />
+            <ShareRoute token={token} />
+          </>
+        )}
       </Match>
-      <Match when={matchRoute(path()) === 'workspace'}>
+      <Match when={path() === '/workspace'}>
         <>
           <SolidThemeSync />
           <WorkspacePage />
