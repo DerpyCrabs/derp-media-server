@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { Match, Switch, createMemo } from 'solid-js'
-import { useBrowserHistory } from './browser-history'
 import { ShareFileViewer } from './ShareFileViewer'
 import { ShareFolderBrowser, type ShareInfoPayload } from './ShareFolderBrowser'
 import { SharePasscodeGate } from './SharePasscodeGate'
@@ -29,19 +28,14 @@ type ShareInfo = {
   adminViewMode: 'list' | 'grid'
 }
 
-function parseShareToken(pathname: string): string | null {
-  const m = pathname.match(/^\/share\/([^/]+)/)
-  return m?.[1] ?? null
+type Props = {
+  token: string
 }
 
-export function ShareRoute() {
-  const loc = useBrowserHistory()
-  const token = createMemo(() => parseShareToken(loc().pathname))
-
+export function ShareRoute(props: Props) {
   const shareQuery = useQuery(() => ({
-    queryKey: queryKeys.shareInfo(token() ?? ''),
-    queryFn: () => api<ShareInfo>(`/api/share/${token()}/info`),
-    enabled: !!token(),
+    queryKey: queryKeys.shareInfo(props.token),
+    queryFn: () => api<ShareInfo>(`/api/share/${props.token}/info`),
   }))
 
   const sharePayload = createMemo((): ShareInfoPayload | undefined => {
@@ -62,36 +56,33 @@ export function ShareRoute() {
   })
 
   const folderBrowserProps = createMemo(() => {
-    const t = token()
     const info = sharePayload()
-    if (!t || !info?.isDirectory) return undefined
-    return { token: t, shareInfo: info }
+    if (!info?.isDirectory) return undefined
+    return { token: props.token, shareInfo: info }
   })
 
   const fileViewerProps = createMemo(() => {
-    const t = token()
     const info = sharePayload()
-    if (!t || !info || info.isDirectory) return undefined
-    return { token: t, shareInfo: info }
+    if (!info || info.isDirectory) return undefined
+    return { token: props.token, shareInfo: info }
   })
+
+  const showNotFound = createMemo(
+    () => !shareQuery.isPending && (shareQuery.isError || shareQuery.data == null),
+  )
 
   return (
     <Switch>
-      <Match when={!token()}>
-        <div
-          class='flex min-h-screen items-center justify-center p-4'
-          data-testid='share-invalid-token'
-        >
-          <p class='text-muted-foreground text-sm'>Invalid share link</p>
-        </div>
-      </Match>
       <Match when={shareQuery.isPending}>
         <div class='flex min-h-screen items-center justify-center'>
           <p class='text-muted-foreground text-sm'>Loading…</p>
         </div>
       </Match>
-      <Match when={shareQuery.isError}>
-        <div class='flex min-h-screen items-center justify-center p-4'>
+      <Match when={showNotFound()}>
+        <div
+          class='flex min-h-screen items-center justify-center p-4'
+          data-testid='share-not-found'
+        >
           <div class='border-destructive max-w-md w-full rounded-xl border p-6'>
             <h1 class='text-destructive text-lg font-semibold'>Share Not Found</h1>
             <p class='text-muted-foreground mt-2 text-sm'>
@@ -100,8 +91,8 @@ export function ShareRoute() {
           </div>
         </div>
       </Match>
-      <Match when={shareQuery.data?.needsPasscode && !shareQuery.data?.authorized && token()}>
-        <SharePasscodeGate token={token()!} shareName={shareQuery.data!.name} />
+      <Match when={shareQuery.data?.needsPasscode && !shareQuery.data?.authorized}>
+        <SharePasscodeGate token={props.token} shareName={shareQuery.data!.name} />
       </Match>
       <Match when={folderBrowserProps()} keyed>
         {(p) => <ShareFolderBrowser token={p.token} shareInfo={p.shareInfo} />}
