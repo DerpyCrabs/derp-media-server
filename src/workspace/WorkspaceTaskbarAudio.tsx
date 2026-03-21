@@ -159,7 +159,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
   const displayImageUrl = createMemo(() => {
     const path = playingPath()
-    if (isVideoFile() && audioOnlyWs() && path) {
+    if (isVideoFile() && path) {
       return buildThumbnailUrl(path, mediaShare())
     }
     return audioMetadata()?.coverArt || coverArtUrl()
@@ -174,7 +174,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
     void storeTick()
     const meta = audioMetadata()
     const d = useMediaPlayer.getState().duration
-    if (isVideoFile() && audioOnlyWs() && meta?.duration != null && meta.duration > 0) {
+    if (isVideoFile() && audioOnlyWs() && meta?.duration != null && meta.duration > 0 && d <= 0) {
       return meta.duration
     }
     return d
@@ -440,13 +440,27 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
   createEffect(() => {
     const path = playingPath()
-    if (!path || !shouldHandleAudio() || !('mediaSession' in navigator)) return
+    if (
+      !path ||
+      (!shouldHandleAudio() && !canControlVideoFromTaskbar()) ||
+      !('mediaSession' in navigator)
+    )
+      return
 
+    const isVideoFull = canControlVideoFromTaskbar()
     const isVideoAudio = isVideoFile() && audioOnlyWs()
     const meta = audioMetadata()
     const metadata: MediaMetadataInit = {
-      title: isVideoAudio ? `${fileName()} (Audio)` : meta?.title || fileName(),
-      artist: isVideoAudio ? 'Video Audio' : meta?.artist || 'Unknown Artist',
+      title: isVideoFull
+        ? fileName()
+        : isVideoAudio
+          ? `${fileName()} (Audio)`
+          : meta?.title || fileName(),
+      artist: isVideoFull
+        ? 'Video'
+        : isVideoAudio
+          ? 'Video Audio'
+          : meta?.artist || 'Unknown Artist',
       album: meta?.album || currentDir() || 'Unknown Album',
     }
 
