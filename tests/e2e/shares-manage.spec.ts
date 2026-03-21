@@ -11,7 +11,6 @@ test.describe('Managing Shares', () => {
     await expect(page.getByRole('heading', { name: 'Share Links' })).toBeVisible()
     await page.getByRole('button', { name: 'Create New Share Link' }).click()
 
-    // Fill/submit the form then expect a share URL input
     const createBtn = page.getByRole('button', { name: /^Create$/i })
     if (await createBtn.isVisible()) {
       await createBtn.click()
@@ -46,12 +45,10 @@ test.describe('Managing Shares', () => {
 
     await page.getByRole('button', { name: 'Create New Share Link' }).click()
 
-    // Enable editing
     const editableCheckbox = page.getByText('Allow editing')
     await expect(editableCheckbox).toBeVisible()
     await editableCheckbox.click()
 
-    // Restriction options should appear
     await expect(page.getByText('Allow uploads')).toBeVisible()
 
     const createBtn = page.getByRole('button', { name: /^Create$/i })
@@ -68,19 +65,16 @@ test.describe('Managing Shares', () => {
       .getByText(/Share|Manage Share/)
       .click()
 
-    // Existing share should show a URL input
     const urlInput = page.locator('input[readonly]').first()
     await expect(urlInput).toBeVisible()
     const value = await urlInput.inputValue()
     expect(value).toContain('/share/')
 
-    // Copy button
     await expect(page.locator('button[title="Copy link"]').first()).toBeVisible()
   })
 
   test('views shares in Shares virtual folder', async ({ page }) => {
     await page.goto('/?dir=Shares')
-    // Should list active shares
     const table = page.locator('table')
     await expect(table).toBeVisible()
   })
@@ -95,14 +89,12 @@ test.describe('Managing Shares', () => {
     await page.goto('/?dir=Shares')
     await expect(page.locator('table')).toBeVisible()
 
-    // Right-click on the share item
     const row = page.locator('table tr').filter({ hasText: 'data.json' })
     await row.click({ button: 'right' })
     const revokeItem = page.locator('[data-slot="context-menu-item"]').getByText('Revoke Share')
     await expect(revokeItem).toBeVisible()
     await revokeItem.click({ noWaitAfter: true })
 
-    // Confirm and wait for the delete API call to complete
     await Promise.all([
       page.waitForResponse((resp) => resp.url().includes('/api/shares/delete')),
       page.getByRole('button', { name: /Revoke/i }).click(),
@@ -124,12 +116,10 @@ test.describe('Managing Shares', () => {
     const json = await res.json()
     const share = json.share
 
-    // When auth is enabled, shares auto-generate a passcode
     const shareUrl = share.passcode
       ? `/share/${share.token}?p=${encodeURIComponent(share.passcode)}`
       : `/share/${share.token}`
 
-    // Visit the share — delete should not be available
     await page.goto(shareUrl)
     await expect(page.getByText('public-doc.txt')).toBeVisible()
 

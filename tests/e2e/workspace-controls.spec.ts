@@ -1,78 +1,33 @@
 import { test, expect, type Page, type Locator } from '@playwright/test'
+import {
+  TASKBAR_HEIGHT,
+  gotoWorkspace,
+  openBrowserWindow,
+  getWindowGroups,
+  getDragHandle,
+  getWindowBounds,
+  waitForWindowBoundsStable,
+  dragFromTo,
+} from '../e2e/workspace-layout-helpers'
 
-const TASKBAR_HEIGHT = 32
-
-async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
-}
-
-async function openBrowserWindow(page: Page) {
-  const countBefore = await page.locator('[data-window-group]').count()
-  await page.locator('button[title="Open browser window"]').click()
-  await expect(page.locator('[data-window-group]')).toHaveCount(countBefore + 1)
-}
-
-function getWindowGroups(page: Page) {
-  return page.locator('[data-window-group]')
-}
-
-/** Visible tab content only (one per window when tabs exist). */
 function getVisibleContent(windowGroup: Locator) {
   return windowGroup.locator('[data-testid="workspace-window-visible-content"]')
 }
 
-function getRndWrapper(windowGroup: Locator) {
-  return windowGroup.locator('..')
+function workspaceTabs(tabStrip: Locator) {
+  return tabStrip.locator('[data-workspace-tab-id]')
 }
 
-function getDragHandle(windowGroup: Locator) {
-  return windowGroup.locator('[data-testid="window-drag-handle"]')
-}
-
-async function getWindowBounds(windowGroup: Locator) {
-  const rnd = getRndWrapper(windowGroup)
-  const box = await rnd.boundingBox()
-  return box!
-}
-
-/** Wait for window bounds to stabilize after drag/resize. */
-async function waitForWindowBoundsStable(page: Page, windowGroup: Locator, timeoutMs = 400) {
-  const deadline = Date.now() + timeoutMs
-  let prev: string | null = null
-  /* eslint-disable no-await-in-loop -- poll until bounds stabilize */
-  while (Date.now() < deadline) {
-    const b = await getWindowBounds(windowGroup)
-    const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
-    if (prev === key) return
-    prev = key
-    await page.waitForTimeout(25)
-  }
-  /* eslint-enable no-await-in-loop */
-}
-
-async function dragFromTo(
-  page: Page,
-  fromX: number,
-  fromY: number,
-  toX: number,
-  toY: number,
-  steps = 10,
-) {
-  await page.mouse.move(fromX, fromY)
-  await page.mouse.down()
-  await page.mouse.move(toX, toY, { steps })
-  await page.mouse.up()
+function getTaskbarCloseButtons(page: Page) {
+  return page.locator('[data-taskbar-window-row] button[aria-label^="Close "]')
 }
 
 async function closeAllWindows(page: Page) {
-  const closeBtns = page.locator('button[aria-label^="Close "]')
-  /* eslint-disable no-await-in-loop -- sequential close until none left */
+  const closeBtns = getTaskbarCloseButtons(page)
   while ((await closeBtns.count()) > 0) {
     await closeBtns.first().click()
     await page.waitForTimeout(50)
   }
-  /* eslint-enable no-await-in-loop */
 }
 
 test.describe('Tab Merging and Splitting', () => {
@@ -122,10 +77,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
 
     const tabStrip = page.locator('.workspace-tab-strip')
-    const tabs = tabStrip
-      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
-      .filter({ hasNotText: '◂' })
-      .filter({ hasNotText: '▸' })
+    const tabs = workspaceTabs(tabStrip)
     const secondTab = tabs.nth(1)
     const tabBox = await secondTab.boundingBox()
     if (!tabBox) throw new Error('Tab not visible')
@@ -163,10 +115,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
 
     const tabStrip = page.locator('.workspace-tab-strip')
-    const tabs = tabStrip
-      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
-      .filter({ hasNotText: '◂' })
-      .filter({ hasNotText: '▸' })
+    const tabs = workspaceTabs(tabStrip)
     const secondTab = tabs.nth(1)
     const tabBox = await secondTab.boundingBox()
     if (!tabBox) throw new Error('Tab not visible')
@@ -225,9 +174,7 @@ test.describe('Tab Merging and Splitting', () => {
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')
-    const tabs = tabStrip
-      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
-      .filter({ has: page.locator('span') })
+    const tabs = workspaceTabs(tabStrip)
     await expect(tabs.first()).toBeVisible()
   })
 
@@ -250,7 +197,7 @@ test.describe('Tab Merging and Splitting', () => {
     )
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
-    const taskbarCloseBtn = page.locator('button[aria-label^="Close "]')
+    const taskbarCloseBtn = getTaskbarCloseButtons(page)
     const label = await taskbarCloseBtn.first().getAttribute('aria-label')
     expect(label).toContain('+1')
   })
@@ -283,14 +230,10 @@ test.describe('Tab Merging and Splitting', () => {
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     const tabStrip = page.locator('.workspace-tab-strip')
-    const tabs = tabStrip
-      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
-      .filter({ hasNotText: '◂' })
-      .filter({ hasNotText: '▸' })
+    const tabs = workspaceTabs(tabStrip)
     await expect(tabs).toHaveCount(2)
 
-    const getTaskbarLabel = () =>
-      page.locator('button[aria-label^="Close "]').first().getAttribute('aria-label')
+    const getTaskbarLabel = () => getTaskbarCloseButtons(page).first().getAttribute('aria-label')
 
     const labelAfterMerge = await getTaskbarLabel()
     expect(labelAfterMerge).toContain('readme.txt')
@@ -326,10 +269,7 @@ test.describe('Tab Merging and Splitting', () => {
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     const tabStrip = page.locator('.workspace-tab-strip')
-    const tabs = tabStrip
-      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
-      .filter({ hasNotText: '◂' })
-      .filter({ hasNotText: '▸' })
+    const tabs = workspaceTabs(tabStrip)
     await expect(tabs).toHaveCount(2)
 
     await tabs.first().click()
@@ -384,10 +324,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
     const mergedWindow = getWindowGroups(page).first()
     const tabStrip = mergedWindow.locator('.workspace-tab-strip')
-    const tabs = tabStrip
-      .locator('[data-no-window-drag]:not([data-tab-drop-slot])')
-      .filter({ hasNotText: '◂' })
-      .filter({ hasNotText: '▸' })
+    const tabs = workspaceTabs(tabStrip)
     await expect(tabs).toHaveCount(2)
 
     await tabs.first().click()
@@ -500,8 +437,7 @@ test.describe('Taskbar', () => {
     await minimizeBtn.click()
     await expect(getWindowGroups(page)).toHaveCount(0)
 
-    const taskbarCloseButtons = page.locator('button[aria-label^="Close "]')
-    const firstTaskbarItem = taskbarCloseButtons.first().locator('..')
+    const firstTaskbarItem = page.locator('[data-taskbar-window-row]').first()
     await firstTaskbarItem.locator('button').first().click()
 
     await expect(getWindowGroups(page)).toHaveCount(1)
@@ -512,8 +448,7 @@ test.describe('Taskbar', () => {
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
 
-    const taskbarItems = page.locator('button[aria-label^="Close "]')
-    const firstTaskbarItem = taskbarItems.first().locator('..')
+    const firstTaskbarItem = page.locator('[data-taskbar-window-row]').first()
     await firstTaskbarItem.locator('button').first().click()
     await page.waitForTimeout(50)
 
@@ -522,7 +457,7 @@ test.describe('Taskbar', () => {
     await firstContent.getByText('Documents', { exact: true }).click()
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
-    const secondTaskbarItem = taskbarItems.nth(1).locator('..')
+    const secondTaskbarItem = page.locator('[data-taskbar-window-row]').nth(1)
     await secondTaskbarItem.locator('button').first().click()
     await page.waitForTimeout(50)
 
@@ -538,7 +473,7 @@ test.describe('Taskbar', () => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
-    const taskbarCloseBtn = page.locator('button[aria-label^="Close "]')
+    const taskbarCloseBtn = getTaskbarCloseButtons(page)
     await taskbarCloseBtn.first().click()
 
     await expect(getWindowGroups(page)).toHaveCount(0)
@@ -782,7 +717,7 @@ test.describe('Player Window Reuse', () => {
     const windowCountAfterFirst = await getWindowGroups(page).count()
 
     const browserContent = getVisibleContent(groups.first())
-    await browserContent.getByText('sample.mp4').click()
+    await browserContent.getByText('sample.mp4').click({ force: true })
 
     await expect(page.locator('[data-window-group] video')).toHaveCount(1)
     const windowCountAfterSecond = await getWindowGroups(page).count()

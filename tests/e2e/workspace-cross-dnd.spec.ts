@@ -11,7 +11,7 @@ import {
   html5DragDrop,
   navigateToSharedContent,
   openBrowserWindow,
-} from './workspace-cross-dnd-helpers'
+} from '../e2e/workspace-cross-dnd-helpers'
 
 test.describe('Cross-Window File Move', () => {
   test('drags a file from one browser into a folder in another', async ({ page }) => {

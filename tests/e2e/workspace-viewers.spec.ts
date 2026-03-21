@@ -73,7 +73,6 @@ test.describe('Workspace File Browser', () => {
     await expect(content.getByTestId('kb-recent-strip')).toBeVisible()
     await expect(content.getByRole('button', { name: 'Open search' })).toBeVisible()
     await content.getByRole('button', { name: 'Open search' }).click()
-    // Search input is portaled outside the window content in React BrowserPane.
     await expect(page.getByPlaceholder('Search notes...')).toBeVisible()
     const notesTable = content.locator('table')
     await expect(notesTable.getByRole('button', { name: 'New file' })).toBeVisible()
@@ -87,7 +86,6 @@ test.describe('Workspace File Browser', () => {
     await content.getByText('Videos', { exact: true }).click()
     await expect(content.getByText('sample.mp4')).toBeVisible()
 
-    // Ensure we start in list mode
     const listBtn = content.locator('button:has(.lucide-list)')
     if (
       await content
@@ -353,7 +351,6 @@ test.describe('Workspace Text Viewer', () => {
 
     await textarea.fill('# Updated Todo\n\n- Brand new item\n')
 
-    // Blur triggers immediate auto-save; find viewer window by content (window that has textarea) for parallel-safe ordering
     const viewerWindow = page
       .locator('[data-window-group]')
       .filter({ has: page.locator('.workspace-window-content').locator('textarea') })
@@ -365,7 +362,6 @@ test.describe('Workspace Text Viewer', () => {
       viewerWindow.locator('[data-testid="window-drag-handle"]').click(),
     ])
 
-    // Close the viewer window and reopen the file
     const closeBtn = viewerWindow.locator('.workspace-window-buttons button:has(.lucide-x)')
     await closeBtn.click()
     await expect(getWindowGroups(page)).toHaveCount(1)
@@ -384,7 +380,6 @@ test.describe('Workspace Text Viewer', () => {
     expect(saved).toContain('Updated Todo')
     expect(saved).toContain('Brand new item')
 
-    // Restore original content
     await newViewer
       .locator('textarea')
       .fill('# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n')

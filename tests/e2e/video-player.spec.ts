@@ -42,7 +42,6 @@ test.describe('Video Player', () => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
     await expect(page.locator('video')).toBeVisible()
     await page.getByRole('button', { name: 'Minimize player' }).click()
-    // Still visible but in a minimized container
     await expect(page.locator('video')).toBeVisible()
   })
 
@@ -62,7 +61,6 @@ test.describe('Video Player', () => {
   test('video thumbnails appear in grid view', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
     await page.locator('button:has(.lucide-layout-grid)').click()
-    // Thumbnails are <img> elements inside the grid cards
     const cards = page.locator('.grid').getByText('sample.mp4').locator('..')
     await expect(cards).toBeVisible()
   })
