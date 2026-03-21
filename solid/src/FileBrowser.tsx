@@ -7,10 +7,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import type { GlobalSettings } from '@/lib/use-settings'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
+import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
+import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
@@ -43,6 +45,7 @@ import { IconEditorDialog } from './file-browser/IconEditorDialog'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbSearchResults } from './file-browser/KbSearchResults'
 import { MoveToDialog } from './file-browser/MoveToDialog'
+import { PasteDialog } from './file-browser/PasteDialog'
 import { RenameDialog } from './file-browser/RenameDialog'
 import { ShareDialog } from './file-browser/ShareDialog'
 import { navigateToFolder } from './file-browser/navigate-folder'
@@ -51,6 +54,7 @@ import { UploadMenu } from './file-browser/UploadMenu'
 import type { AuthConfig, UploadToastState } from './file-browser/types'
 import { UploadToastStack } from './file-browser/UploadToastStack'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
+import { ThemeSwitcher } from './ThemeSwitcher'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { fileIcon, gridHeroIcon } from './lib/use-file-icon'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
@@ -116,6 +120,7 @@ export function FileBrowser() {
   }))
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
+  const pasteExistingLowerNames = createMemo(() => files().map((f) => f.name.toLowerCase()))
 
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const kbRootPath = createMemo(() => getKnowledgeBaseRoot(currentPath(), knowledgeBases()))
@@ -207,6 +212,8 @@ export function FileBrowser() {
   const [enableDrag, setEnableDrag] = createSignal(false)
   let externalUploadDragDepth = 0
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
+  const [pasteData, setPasteData] = createSignal<PasteData | null>(null)
+  const [showPasteDialog, setShowPasteDialog] = createSignal(false)
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
@@ -262,6 +269,53 @@ export function FileBrowser() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   }))
+
+  const pasteMutation = useMutation(() => ({
+    mutationFn: (vars: { path: string; content?: string; base64Content?: string }) =>
+      post('/api/files/create', {
+        type: 'file',
+        path: vars.path,
+        content: vars.content,
+        base64Content: vars.base64Content,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      setShowPasteDialog(false)
+      setPasteData(null)
+    },
+  }))
+
+  function closePasteDialog() {
+    setShowPasteDialog(false)
+    setPasteData(null)
+    pasteMutation.reset()
+  }
+
+  async function handlePasteEvent(e: ClipboardEvent) {
+    if (!isEditable()) return
+    e.preventDefault()
+    const data = await extractPasteDataFromClipboardData(e.clipboardData)
+    if (!data) return
+    setPasteData(data)
+    setShowPasteDialog(true)
+  }
+
+  function handlePasteFileSubmit(fileName: string) {
+    const pd = pasteData()
+    if (!pd) return
+    const rel = currentPath() ? `${currentPath()}/${fileName}` : fileName
+    if (pd.type === 'image') {
+      pasteMutation.mutate({ path: rel, base64Content: pd.content })
+    } else if (pd.type === 'file') {
+      if (pd.isTextContent) {
+        pasteMutation.mutate({ path: rel, content: pd.content })
+      } else {
+        pasteMutation.mutate({ path: rel, base64Content: pd.content })
+      }
+    } else {
+      pasteMutation.mutate({ path: rel, content: pd.content })
+    }
+  }
 
   const parentDirForDrop = createMemo(() => {
     const parts = currentPath().split(/[/\\]/).filter(Boolean)
@@ -758,7 +812,12 @@ export function FileBrowser() {
   return (
     <>
       <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />
-      <div class='min-h-screen' data-testid='file-browser'>
+      <div
+        class='min-h-screen'
+        data-testid='file-browser'
+        tabIndex={0}
+        onPaste={(e) => void handlePasteEvent(e)}
+      >
         <div class='container mx-auto lg:p-4'>
           <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none lg:rounded-xl py-0 text-sm shadow-xs ring-1'>
             <div class='shrink-0 border-b border-border bg-muted/30 p-1.5 lg:p-2'>
@@ -815,6 +874,7 @@ export function FileBrowser() {
                     />
                   </Show>
                   <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
+                  <ThemeSwitcher />
                 </div>
               </div>
             </div>
@@ -1226,6 +1286,15 @@ export function FileBrowser() {
             />
           )}
         </Show>
+        <PasteDialog
+          isOpen={showPasteDialog()}
+          pasteData={pasteData()}
+          isPending={pasteMutation.isPending}
+          error={pasteMutation.error ?? null}
+          existingFiles={pasteExistingLowerNames()}
+          onPaste={handlePasteFileSubmit}
+          onClose={closePasteDialog}
+        />
       </div>
     </>
   )

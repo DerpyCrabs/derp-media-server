@@ -40,6 +40,15 @@ test.describe('File browser misc', () => {
     await expect(page.getByText('Drop files to upload')).toBeVisible()
   })
 
+  test('persists dark mode after reload', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Open theme settings' }).click()
+    await page.getByRole('menuitem', { name: 'Dark' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
+  })
+
   test('dismisses share dialog with Escape', async ({ page }) => {
     await page.goto('/?dir=Documents')
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
@@ -50,5 +59,23 @@ test.describe('File browser misc', () => {
     await expect(page.getByRole('heading', { name: 'Share Links' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('heading', { name: 'Share Links' })).not.toBeVisible()
+  })
+})
+
+test.describe('File browser clipboard paste', () => {
+  test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+
+  test('opens paste dialog for text clipboard', async ({ page }) => {
+    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.getByTestId('file-browser').focus()
+    await page.evaluate(async () => {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/plain': new Blob(['paste dialog e2e'], { type: 'text/plain' }),
+        }),
+      ])
+    })
+    await page.keyboard.press('Control+v')
+    await expect(page.getByRole('heading', { name: /Paste Text/i })).toBeVisible()
   })
 })

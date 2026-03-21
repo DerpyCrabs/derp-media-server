@@ -1,17 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { post } from '@/lib/api'
+import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
+import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
 
-export interface PasteData {
-  type: 'text' | 'image' | 'file'
-  content: string
-  suggestedName: string
-  fileType?: string
-  showPreview?: boolean
-  fileSize?: number
-  isTextContent?: boolean
-}
+export type { PasteData } from '@/lib/paste-data'
 
 export function usePaste(currentPath: string) {
   const queryClient = useQueryClient()
@@ -43,160 +37,10 @@ export function usePaste(currentPath: string) {
 
   const handlePaste = async (e: React.ClipboardEvent) => {
     e.preventDefault()
-
-    const clipboardData = e.clipboardData
-    if (!clipboardData) return
-
-    const isTextFileType = (mimeType: string, fileName: string): boolean => {
-      if (mimeType.startsWith('text/')) return true
-
-      const textExtensions = [
-        'txt',
-        'md',
-        'json',
-        'xml',
-        'csv',
-        'log',
-        'yaml',
-        'yml',
-        'ini',
-        'conf',
-        'sh',
-        'bat',
-        'ps1',
-        'js',
-        'ts',
-        'jsx',
-        'tsx',
-        'css',
-        'scss',
-        'html',
-        'htm',
-        'py',
-        'java',
-        'c',
-        'cpp',
-        'h',
-        'cs',
-        'go',
-        'rs',
-        'php',
-        'rb',
-        'swift',
-        'kt',
-        'sql',
-      ]
-      const extension = fileName.split('.').pop()?.toLowerCase()
-      return extension ? textExtensions.includes(extension) : false
-    }
-
-    const files = clipboardData.files
-    if (files && files.length > 0) {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]
-        const fileName = file.name
-        const fileSize = file.size
-        const isTextFile = isTextFileType(file.type, fileName)
-
-        const reader = new FileReader()
-        reader.onload = async (event) => {
-          const result = event.target?.result
-          if (!result) return
-
-          if (file.type.startsWith('image/')) {
-            const base64 = (result as string).split(',')[1]
-            setPasteData({
-              type: 'image',
-              content: base64,
-              suggestedName: fileName,
-              fileType: file.type,
-              fileSize,
-              showPreview: true,
-              isTextContent: false,
-            })
-            setShowPasteDialog(true)
-          } else if (isTextFile) {
-            setPasteData({
-              type: 'file',
-              content: result as string,
-              suggestedName: fileName,
-              fileType: file.type,
-              fileSize,
-              showPreview: true,
-              isTextContent: true,
-            })
-            setShowPasteDialog(true)
-          } else {
-            const base64 = (result as string).split(',')[1]
-            setPasteData({
-              type: 'file',
-              content: base64,
-              suggestedName: fileName,
-              fileType: file.type,
-              fileSize,
-              showPreview: true,
-              isTextContent: false,
-            })
-            setShowPasteDialog(true)
-          }
-        }
-
-        if (file.type.startsWith('image/') || isTextFile) {
-          if (file.type.startsWith('image/')) {
-            reader.readAsDataURL(file)
-          } else {
-            reader.readAsText(file)
-          }
-        } else {
-          reader.readAsDataURL(file)
-        }
-      }
-      return
-    }
-
-    const items = clipboardData.items
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      if (item.type.startsWith('image/')) {
-        const blob = item.getAsFile()
-        if (blob) {
-          const reader = new FileReader()
-          reader.onload = (event) => {
-            const result = event.target?.result
-            if (result && typeof result === 'string') {
-              const base64 = result.split(',')[1]
-              const extension = item.type.split('/')[1] || 'png'
-              setPasteData({
-                type: 'image',
-                content: base64,
-                suggestedName: `image-${Date.now()}.${extension}`,
-                fileType: item.type,
-                fileSize: blob.size,
-                showPreview: true,
-                isTextContent: false,
-              })
-              setShowPasteDialog(true)
-            }
-          }
-          reader.readAsDataURL(blob)
-        }
-        return
-      }
-    }
-
-    const text = clipboardData.getData('text/plain')
-    if (text) {
-      const textSize = new Blob([text]).size
-      setPasteData({
-        type: 'text',
-        content: text,
-        suggestedName: `pasted-${Date.now()}.txt`,
-        fileSize: textSize,
-        showPreview: true,
-        isTextContent: true,
-      })
-      setShowPasteDialog(true)
-    }
+    const extracted = await extractPasteDataFromClipboardData(e.clipboardData)
+    if (!extracted) return
+    setPasteData(extracted)
+    setShowPasteDialog(true)
   }
 
   const handlePasteFile = (fileName: string) => {

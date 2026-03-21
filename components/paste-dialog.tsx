@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { PasteData } from '@/lib/use-paste'
+import type { PasteData } from '@/lib/paste-data'
 import { AlertCircle, FileIcon, HardDrive } from 'lucide-react'
 import { formatFileSize } from '@/lib/media-utils'
 
