@@ -1,4 +1,4 @@
-import { QueryClient, dehydrate } from '@tanstack/react-query'
+import { QueryClient, dehydrate } from '@tanstack/solid-query'
 import {
   listDirectory,
   getEditableFolders,

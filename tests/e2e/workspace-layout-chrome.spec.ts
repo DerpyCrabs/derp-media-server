@@ -10,7 +10,7 @@ import {
   waitForWindowBoundsStable,
   dragFromTo,
   dragToEdge,
-} from './workspace-layout-helpers'
+} from '../e2e/workspace-layout-helpers'
 
 test.describe('Tiling Layout Picker', () => {
   test('selects full-screen layout', async ({ page }) => {

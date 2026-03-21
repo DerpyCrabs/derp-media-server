@@ -58,7 +58,3 @@ export function getWorkspaceFileOpenTarget(): WorkspaceFileOpenTarget {
 export function setWorkspaceFileOpenTarget(value: WorkspaceFileOpenTarget): void {
   useWorkspaceFileOpenTargetStore.getState().setTarget(value)
 }
-
-export function useWorkspaceFileOpenTarget(): WorkspaceFileOpenTarget {
-  return useWorkspaceFileOpenTargetStore((s) => s.target)
-}

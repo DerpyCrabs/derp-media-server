@@ -1,4 +1,3 @@
-import { useCallback, useLayoutEffect } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
@@ -35,28 +34,3 @@ export const useBrowserViewModeStore = create<BrowserViewModeStore>()(
     },
   ),
 )
-
-export function useBrowserViewMode(storageKey: string, fallback: BrowserViewMode) {
-  const viewMode = useBrowserViewModeStore((s) => s.byKey[storageKey] ?? fallback)
-  const setStoreMode = useBrowserViewModeStore((s) => s.setViewMode)
-  const setViewMode = useCallback(
-    (mode: BrowserViewMode) => {
-      setStoreMode(storageKey, mode)
-    },
-    [storageKey, setStoreMode],
-  )
-
-  useLayoutEffect(() => {
-    const st = useBrowserViewModeStore.getState()
-    if (st.byKey[storageKey]) return
-    try {
-      const raw = localStorage.getItem(storageKey)
-      if (raw === 'list' || raw === 'grid') {
-        st.setViewMode(storageKey, raw)
-        localStorage.removeItem(storageKey)
-      }
-    } catch {}
-  }, [storageKey])
-
-  return { viewMode, setViewMode }
-}

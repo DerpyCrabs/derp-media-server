@@ -1,17 +1,14 @@
+/* @refresh reload */
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import './globals.css'
-import { initTheme } from '@/lib/use-theme'
-
-initTheme()
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
 import {
   QueryClient,
   QueryClientProvider,
-  HydrationBoundary,
+  hydrate,
   type DehydratedState,
-} from '@tanstack/react-query'
+} from '@tanstack/solid-query'
+import { render } from 'solid-js/web'
 import { App } from './App'
 
 declare global {
@@ -29,12 +26,19 @@ const queryClient = new QueryClient({
   },
 })
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <HydrationBoundary state={window.__DEHYDRATED_STATE__}>
+const dehydrated = window.__DEHYDRATED_STATE__
+if (dehydrated) {
+  hydrate(queryClient, dehydrated)
+}
+
+const root = document.getElementById('root')
+if (root) {
+  render(
+    () => (
+      <QueryClientProvider client={queryClient}>
         <App />
-      </HydrationBoundary>
-    </QueryClientProvider>
-  </StrictMode>,
-)
+      </QueryClientProvider>
+    ),
+    root,
+  )
+}

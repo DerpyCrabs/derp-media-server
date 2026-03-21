@@ -10,7 +10,7 @@ import {
   html5DragDrop,
   navigateToSharedContent,
   openBrowserWindow,
-} from './workspace-cross-dnd-helpers'
+} from '../e2e/workspace-cross-dnd-helpers'
 
 async function createShare(page: Page, body: Record<string, unknown>) {
   const res = await page.request.post('/api/shares', { data: body })

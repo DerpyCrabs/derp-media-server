@@ -30,8 +30,6 @@ test.describe('Share Viewers & Players', () => {
     await context.close()
   })
 
-  // ── Video Player in Share ───────────────────────────────────────────
-
   test('opens video player when clicking a video file in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('public-video.mp4').click()
@@ -78,8 +76,6 @@ test.describe('Share Viewers & Players', () => {
     await expect(page.locator('video')).not.toBeVisible()
     await expect(page).not.toHaveURL(/playing=/)
   })
-
-  // ── Audio Player in Share ───────────────────────────────────────────
 
   test('opens audio player bar when clicking an audio file in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
@@ -152,8 +148,6 @@ test.describe('Share Viewers & Players', () => {
     await expect(albumArt).toHaveAttribute('src', /\/api\/share\/.*\/thumbnail\//)
   })
 
-  // ── Image Viewer in Share ───────────────────────────────────────────
-
   test('opens image viewer when clicking an image in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('photo.jpg').click()
@@ -210,8 +204,6 @@ test.describe('Share Viewers & Players', () => {
     await expect(page.locator('table').getByText('photo.jpg')).toBeVisible()
     await expect(page).not.toHaveURL(/viewing=/)
   })
-
-  // ── PDF Viewer in Share ─────────────────────────────────────────────
 
   test('opens PDF viewer when clicking a PDF file in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)

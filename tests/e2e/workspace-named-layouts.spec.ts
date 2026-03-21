@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { openBrowserWindow, getWindowGroups } from './workspace-layout-helpers'
+import { openBrowserWindow, getWindowGroups } from '../e2e/workspace-layout-helpers'
 
 const batch = process.env.BATCH_ID ?? 'local'
 

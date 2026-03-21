@@ -15,7 +15,6 @@ test.describe('Passcode-Protected Shares', () => {
     await page.goto(`/share/${PASSCODE_TOKEN}`)
     await page.locator('input[placeholder="Enter passcode"]').fill('wrong')
     await page.getByRole('button', { name: 'Access Share' }).click()
-    // Error message should appear
     await expect(page.locator('.text-destructive')).toBeVisible()
   })
 
@@ -24,13 +23,11 @@ test.describe('Passcode-Protected Shares', () => {
     await page.locator('input[placeholder="Enter passcode"]').fill(CORRECT_PASSCODE)
     await page.getByRole('button', { name: 'Access Share' }).click()
 
-    // Should load the shared folder content
     await expect(page.getByText('public-doc.txt')).toBeVisible()
   })
 
   test('passcode in URL auto-authenticates', async ({ page }) => {
     await page.goto(`/share/${PASSCODE_TOKEN}?p=${CORRECT_PASSCODE}`)
-    // Should bypass the passcode form and show content directly
     await expect(page.getByText('public-doc.txt')).toBeVisible()
   })
 })

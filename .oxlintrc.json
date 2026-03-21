@@ -1,15 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["eslint", "typescript", "react", "react-perf"],
-  "categories": {
-    "perf": "warn"
-  },
-  "rules": {
-    "eslint-plugin-react-perf/jsx-no-new-function-as-prop": "off",
-    "eslint-plugin-react-perf/jsx-no-new-object-as-prop": "off",
-    "eslint-plugin-react-perf/jsx-no-new-array-as-prop": "off",
-    "eslint-plugin-react-perf/jsx-no-jsx-as-prop": "off"
-  },
+  "plugins": ["eslint", "typescript"],
   "env": {
     "builtin": true
   },
