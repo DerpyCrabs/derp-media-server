@@ -28,6 +28,10 @@ import {
   onMount,
 } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
+import {
+  BreadcrumbContextMenu,
+  type BreadcrumbMenuTarget,
+} from './file-browser/BreadcrumbContextMenu'
 import { DeleteFileDialog } from './file-browser/DeleteFileDialog'
 import { MoveToDialog } from './file-browser/MoveToDialog'
 import { RenameDialog } from './file-browser/RenameDialog'
@@ -86,6 +90,7 @@ export function ShareFolderBrowser(props: Props) {
   })
 
   const [rowMenu, setRowMenu] = createSignal<MenuState | null>(null)
+  const [breadcrumbMenu, setBreadcrumbMenu] = createSignal<BreadcrumbMenuTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
   const [showCreateFolder, setShowCreateFolder] = createSignal(false)
   const [showCreateFile, setShowCreateFile] = createSignal(false)
@@ -321,6 +326,62 @@ export function ShareFolderBrowser(props: Props) {
     setRowMenu(null)
   }
 
+  const shareBreadcrumbMenuActions = createMemo(() => {
+    const m = breadcrumbMenu()
+    if (!m) {
+      return { showOpenInNewTab: false, showOpenInWorkspace: false, showDownloadAsZip: false }
+    }
+    return {
+      showOpenInNewTab: true,
+      showOpenInWorkspace: props.shareInfo.isDirectory,
+      showDownloadAsZip: true,
+    }
+  })
+
+  function shareBreadcrumbAsFolder(m: BreadcrumbMenuTarget): FileItem {
+    return {
+      name: m.displayName,
+      path: m.serverPath,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+    }
+  }
+
+  function handleShareBreadcrumbOpenInNewTab() {
+    const m = breadcrumbMenu()
+    if (!m) return
+    const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
+    const subPath =
+      m.serverPath === sharePathNorm ? '' : stripSharePrefix(m.serverPath, props.shareInfo.path)
+    const params = new URLSearchParams()
+    if (subPath) params.set('dir', subPath)
+    const query = params.toString()
+    window.open(query ? `/share/${props.token}?${query}` : `/share/${props.token}`, '_blank')
+  }
+
+  function handleShareBreadcrumbOpenInWorkspace() {
+    const m = breadcrumbMenu()
+    if (!m || !props.shareInfo.isDirectory) return
+    const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
+    const subPath =
+      m.serverPath === sharePathNorm ? '' : stripSharePrefix(m.serverPath, props.shareInfo.path)
+    const params = new URLSearchParams()
+    if (subPath) params.set('dir', subPath)
+    const query = params.toString()
+    window.open(
+      query ? `/share/${props.token}/workspace?${query}` : `/share/${props.token}/workspace`,
+      '_blank',
+    )
+  }
+
+  function handleShareBreadcrumbDownloadZip() {
+    const m = breadcrumbMenu()
+    if (!m) return
+    handleDownload(shareBreadcrumbAsFolder(m))
+  }
+
   function openRowMenu(e: MouseEvent, file: FileItem) {
     e.preventDefault()
     e.stopPropagation()
@@ -520,6 +581,16 @@ export function ShareFolderBrowser(props: Props) {
         editableFolders={[]}
       />
       <div class='min-h-screen' data-testid='share-file-browser'>
+        <BreadcrumbContextMenu
+          target={breadcrumbMenu}
+          onDismiss={() => setBreadcrumbMenu(null)}
+          showOpenInNewTab={shareBreadcrumbMenuActions().showOpenInNewTab}
+          onOpenInNewTab={handleShareBreadcrumbOpenInNewTab}
+          showOpenInWorkspace={shareBreadcrumbMenuActions().showOpenInWorkspace}
+          onOpenInWorkspace={handleShareBreadcrumbOpenInWorkspace}
+          showDownloadAsZip={shareBreadcrumbMenuActions().showDownloadAsZip}
+          onDownloadAsZip={handleShareBreadcrumbDownloadZip}
+        />
         <Show when={rowMenu()}>
           {(getCtx) => {
             const ctx = getCtx()
@@ -769,6 +840,8 @@ export function ShareFolderBrowser(props: Props) {
                         </Show>
                         <button
                           type='button'
+                          data-breadcrumb-segment={index() === 0 ? 'share-root' : 'crumb'}
+                          data-breadcrumb-path={crumb.path}
                           class={cn(
                             'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                             index() === breadcrumbs().length - 1
@@ -776,6 +849,20 @@ export function ShareFolderBrowser(props: Props) {
                               : 'text-foreground hover:bg-accent hover:text-accent-foreground',
                           )}
                           onClick={() => navigateToFolder(crumb.path || null)}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            const shareNorm = props.shareInfo.path.replace(/\\/g, '/')
+                            const subDir = crumb.path
+                            const serverPath = subDir ? `${shareNorm}/${subDir}` : shareNorm
+                            setBreadcrumbMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              serverPath,
+                              displayName: crumb.name,
+                              isHome: index() === 0,
+                            })
+                          }}
                         >
                           <Show when={index() === 0}>
                             <Folder class='h-4 w-4 shrink-0' size={16} stroke-width={2} />

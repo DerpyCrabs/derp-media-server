@@ -8,6 +8,10 @@ type BreadcrumbsProps = {
   currentPath: string
   onNavigate: (path: string) => void
   mode?: 'MediaServer' | 'Workspace'
+  onCrumbContextMenu?: (
+    e: MouseEvent,
+    info: { navigatePath: string; displayName: string; isHome: boolean },
+  ) => void
 }
 
 type BreadcrumbRow =
@@ -234,8 +238,20 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
                   <div class='flex items-center gap-2'>
                     <button
                       type='button'
+                      data-breadcrumb-segment='home'
+                      data-breadcrumb-path=''
                       class={btnClass(row.isLast)}
                       onClick={() => props.onNavigate(row.path)}
+                      onContextMenu={(e) => {
+                        if (!props.onCrumbContextMenu) return
+                        e.preventDefault()
+                        e.stopPropagation()
+                        props.onCrumbContextMenu(e, {
+                          navigatePath: row.path,
+                          displayName: row.name,
+                          isHome: true,
+                        })
+                      }}
                     >
                       <House class='h-4 w-4 shrink-0' stroke-width={2} />
                       {row.name}
@@ -248,8 +264,20 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
                     <ChevronRight class='h-4 w-4 shrink-0 text-muted-foreground' stroke-width={2} />
                     <button
                       type='button'
+                      data-breadcrumb-segment='crumb'
+                      data-breadcrumb-path={row.path}
                       class={btnClass(row.isLast)}
                       onClick={() => props.onNavigate(row.path)}
+                      onContextMenu={(e) => {
+                        if (!props.onCrumbContextMenu) return
+                        e.preventDefault()
+                        e.stopPropagation()
+                        props.onCrumbContextMenu(e, {
+                          navigatePath: row.path,
+                          displayName: row.name,
+                          isHome: false,
+                        })
+                      }}
                     >
                       {row.name}
                     </button>
