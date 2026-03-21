@@ -64,6 +64,7 @@ function PinnedTaskbarIcon({
     <ContextMenu>
       <ContextMenuTrigger
         className='flex shrink-0 items-center justify-center py-1 px-0.5'
+        data-taskbar-pin={dragData ? true : undefined}
         draggable={!!dragData}
         onDragStart={
           dragData

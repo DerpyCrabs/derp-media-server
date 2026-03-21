@@ -3,13 +3,12 @@ import fs from 'fs'
 import path from 'path'
 
 /**
- * Same six batch IDs / parallelism as React (`run-batches.ts`), specs under `tests/e2e-solid/`,
- * plus `smoke` in batch 1.
+ * Same six batch IDs / parallelism as React (`run-batches.ts`), specs under `tests/e2e-solid/`.
  */
 const BATCHES = [
   {
     id: '1',
-    tests: ['smoke', 'workspace-layout-snap-resize', 'workspace-layout-chrome'],
+    tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome'],
   },
   {
     id: '2',

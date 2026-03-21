@@ -36,7 +36,7 @@ function main() {
   }
 
   if (solidOnly.length) {
-    console.log('Solid-only (expected extras like smoke, or remove if obsolete):')
+    console.log('Solid-only (unexpected — prefer a React mirror unless deliberate):')
     for (const n of solidOnly) console.log(`  - ${n}`)
     console.log('')
   } else {
