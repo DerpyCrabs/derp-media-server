@@ -8,6 +8,7 @@ import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import type { GlobalSettings } from '@/lib/use-settings'
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { stripSharePrefix } from '@/lib/source-context'
@@ -21,6 +22,7 @@ import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
+import Upload from 'lucide-solid/icons/upload'
 import type { Accessor } from 'solid-js'
 import {
   For,
@@ -39,6 +41,9 @@ import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
+import type { UploadToastState } from '../file-browser/types'
+import { UploadMenu } from '../file-browser/UploadMenu'
+import { UploadToastStack } from '../file-browser/UploadToastStack'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import type { FileIconContext } from '../lib/use-file-icon'
@@ -87,8 +92,22 @@ export function WorkspaceBrowserPane(props: Props) {
   const [searchQuery, setSearchQuery] = createSignal('')
   const [debouncedSearch, setDebouncedSearch] = createSignal('')
   const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
+  const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
+  let externalUploadDragDepth = 0
+  const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
   const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
   const [inlineName, setInlineName] = createSignal('')
+  let inlineFileInputEl: HTMLInputElement | undefined
+  let inlineFolderInputEl: HTMLInputElement | undefined
+
+  createEffect(() => {
+    const m = inlineMode()
+    if (m === 'file') {
+      queueMicrotask(() => inlineFileInputEl?.focus())
+    } else if (m === 'folder') {
+      queueMicrotask(() => inlineFolderInputEl?.focus())
+    }
+  })
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
@@ -328,6 +347,12 @@ export function WorkspaceBrowserPane(props: Props) {
   const showKbSearchResults = createMemo(() => inKb() && debouncedSearch().trim().length > 0)
 
   const showAdminCreateToolbar = createMemo(() => isAdminPaneEditable() && !share())
+
+  const allowWorkspaceUpload = createMemo(
+    () => showShareCreateToolbar() || showAdminCreateToolbar(),
+  )
+
+  const isUploading = createMemo(() => uploadToast().kind === 'uploading')
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
@@ -700,81 +725,170 @@ export function WorkspaceBrowserPane(props: Props) {
     }
   }
 
+  async function uploadFilesToServer(files: File[]) {
+    if (files.length === 0 || !allowWorkspaceUpload()) return
+    const sh = share()
+    const targetDir = sh ? listDir() : currentPath()
+    const url = sh ? `/api/share/${sh.token}/upload` : '/api/files/upload'
+    setUploadToast({ kind: 'uploading', fileCount: files.length })
+    try {
+      const formData = new FormData()
+      formData.append('targetDir', targetDir)
+      for (const file of files) {
+        formData.append('files', file, file.name)
+      }
+      const res = await fetch(url, { method: 'POST', body: formData })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null
+        const message = data?.error || `Upload failed (${res.status})`
+        setUploadToast({ kind: 'error', message })
+        return
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+      setUploadToast({ kind: 'success' })
+      window.setTimeout(() => setUploadToast({ kind: 'hidden' }), 2000)
+    } catch (err) {
+      setUploadToast({
+        kind: 'error',
+        message: err instanceof Error ? err.message : 'Upload failed',
+      })
+    }
+  }
+
+  function isOsFileUploadDrag(e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    return !!(dtr && dtr.types.includes('Files') && !hasFileDragData(dtr))
+  }
+
+  function onExternalUploadDragEnter(e: globalThis.DragEvent) {
+    if (!allowWorkspaceUpload() || !isOsFileUploadDrag(e)) return
+    e.preventDefault()
+    externalUploadDragDepth++
+    if (externalUploadDragDepth === 1) setExternalUploadDragOver(true)
+  }
+
+  function onExternalUploadDragLeave(e: globalThis.DragEvent) {
+    if (!allowWorkspaceUpload()) return
+    e.preventDefault()
+    externalUploadDragDepth--
+    if (externalUploadDragDepth <= 0) {
+      externalUploadDragDepth = 0
+      setExternalUploadDragOver(false)
+    }
+  }
+
+  function onExternalUploadDragOver(e: globalThis.DragEvent) {
+    if (!allowWorkspaceUpload() || !isOsFileUploadDrag(e)) return
+    e.preventDefault()
+    const dtr = e.dataTransfer
+    if (dtr) dtr.dropEffect = 'copy'
+  }
+
+  async function onExternalUploadDrop(e: globalThis.DragEvent) {
+    e.preventDefault()
+    externalUploadDragDepth = 0
+    setExternalUploadDragOver(false)
+    if (!allowWorkspaceUpload()) return
+    const dtr = e.dataTransfer
+    if (!dtr || dtr.files.length === 0) return
+    const dropped = await collectDroppedUploadFiles(dtr)
+    if (dropped.length > 0) void uploadFilesToServer(dropped)
+  }
+
   return (
     <div class='relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'>
       <div
         data-no-window-drag
-        class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 p-1.5'
+        class='flex h-9 shrink-0 items-center border-b border-border bg-muted/50 px-2 py-0'
       >
-        <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
-        <div class='flex flex-wrap items-center justify-end gap-1 md:justify-start'>
-          <Show when={inKb()}>
-            <div
-              class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
-              data-kb-search-root
-            >
-              <div class='relative'>
-                <button
-                  type='button'
-                  aria-label='Open search'
-                  class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border'
-                  onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
-                >
-                  <Search class='h-3.5 w-3.5' stroke-width={2} />
-                </button>
-                <Show when={searchPopoverOpen()}>
-                  <div class='border-border bg-popover ring-offset-background absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border p-2 shadow-lg outline-none'>
-                    <input
-                      type='search'
-                      placeholder='Search notes...'
-                      class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
-                      value={searchQuery()}
-                      onInput={(e) => setSearchQuery((e.currentTarget as HTMLInputElement).value)}
-                    />
-                  </div>
-                </Show>
+        <div class='flex w-full flex-wrap items-center justify-between gap-1'>
+          <Breadcrumbs
+            currentPath={currentPath()}
+            onNavigate={handleBreadcrumbNavigate}
+            mode='Workspace'
+          />
+          <div class='flex flex-wrap items-center justify-end gap-1 md:justify-start'>
+            <Show when={inKb()}>
+              <div
+                class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
+                data-kb-search-root
+              >
+                <div class='relative'>
+                  <button
+                    type='button'
+                    aria-label='Open search'
+                    class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent outline-none'
+                    onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
+                  >
+                    <Search class='h-3.5 w-3.5' stroke-width={2} />
+                  </button>
+                  <Show when={searchPopoverOpen()}>
+                    <div class='border-border bg-popover ring-offset-background absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border p-2 shadow-lg outline-none'>
+                      <input
+                        type='search'
+                        placeholder='Search notes...'
+                        class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
+                        value={searchQuery()}
+                        onInput={(e) => setSearchQuery((e.currentTarget as HTMLInputElement).value)}
+                      />
+                    </div>
+                  </Show>
+                </div>
               </div>
-            </div>
-          </Show>
-          <Show when={showShareCreateToolbar()}>
-            <button
-              type='button'
-              title='Create new folder'
-              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
-              onClick={openCreateFolderDialog}
-            >
-              <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
-            </button>
-            <button
-              type='button'
-              title='Create new file'
-              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
-              onClick={openCreateFileDialog}
-            >
-              <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
-            </button>
-          </Show>
-          <Show when={showAdminCreateToolbar()}>
-            <button
-              type='button'
-              title='Create new folder'
-              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
-              onClick={openCreateFolderDialog}
-            >
-              <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
-            </button>
-            <button
-              type='button'
-              title='Create new file'
-              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
-              onClick={openCreateFileDialog}
-            >
-              <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
-            </button>
-          </Show>
-          <Show when={!share()}>
-            <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
-          </Show>
+            </Show>
+            <Show when={showShareCreateToolbar()}>
+              <button
+                type='button'
+                title='Create new folder'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                onClick={openCreateFolderDialog}
+              >
+                <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+              </button>
+              <button
+                type='button'
+                title='Create new file'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                onClick={openCreateFileDialog}
+              >
+                <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+              </button>
+              <UploadMenu
+                mode='Workspace'
+                disabled={isUploading()}
+                onUpload={(files) => void uploadFilesToServer(files)}
+              />
+              <div class='bg-border mx-1 h-5 w-px shrink-0' />
+            </Show>
+            <Show when={showAdminCreateToolbar()}>
+              <button
+                type='button'
+                title='Create new folder'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                onClick={openCreateFolderDialog}
+              >
+                <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+              </button>
+              <button
+                type='button'
+                title='Create new file'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                onClick={openCreateFileDialog}
+              >
+                <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+              </button>
+              <UploadMenu
+                mode='Workspace'
+                disabled={isUploading()}
+                onUpload={(files) => void uploadFilesToServer(files)}
+              />
+              <div class='bg-border mx-1 h-5 w-px shrink-0' />
+            </Show>
+            <Show when={!share()}>
+              <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} mode='Workspace' />
+            </Show>
+          </div>
         </div>
       </div>
 
@@ -784,13 +898,21 @@ export function WorkspaceBrowserPane(props: Props) {
         </div>
       </Show>
 
-      <div class='relative min-h-0 flex-1 overflow-auto px-2 py-2'>
+      <div
+        class='relative min-h-0 flex-1 overflow-auto px-2 py-2'
+        data-testid='workspace-upload-drop-zone'
+        onDragEnter={onExternalUploadDragEnter}
+        onDragLeave={onExternalUploadDragLeave}
+        onDragOver={onExternalUploadDragOver}
+        onDrop={(e) => void onExternalUploadDrop(e)}
+      >
         <Show
           when={showKbSearchResults()}
           fallback={
             <>
               <Show when={inKb() && (!!currentPath() || !!share())}>
                 <KbDashboard
+                  mode='Workspace'
                   scopePath={share() ? share()!.sharePath.replace(/\\/g, '/') : currentPath()}
                   shareToken={share()?.token}
                   dir={share() ? listDir() || undefined : undefined}
@@ -851,6 +973,144 @@ export function WorkspaceBrowserPane(props: Props) {
                         </div>
                       )}
                     </For>
+                    <Show when={showInlineCreate()}>
+                      <div
+                        data-no-window-drag
+                        class='col-span-full border-t border-border px-2 py-1.5 sm:col-span-2 md:col-span-3 lg:col-span-4'
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div class='grid grid-cols-2 gap-2'>
+                          <div class='flex min-w-0 flex-col gap-1'>
+                            <Show
+                              when={inlineMode() === 'file'}
+                              fallback={
+                                <button
+                                  type='button'
+                                  class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setInlineName('')
+                                    setInlineMode('file')
+                                  }}
+                                >
+                                  <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+                                  New file
+                                </button>
+                              }
+                            >
+                              <input
+                                type='text'
+                                ref={(el) => {
+                                  inlineFileInputEl = el ?? undefined
+                                }}
+                                class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+                                  inlineFileExists()
+                                    ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                    : createFileMutation.isError
+                                      ? 'border-destructive ring-2 ring-destructive/30'
+                                      : ''
+                                }`}
+                                placeholder='File name (e.g. notes.md)'
+                                value={inlineName()}
+                                disabled={createFileMutation.isPending}
+                                onInput={(e) =>
+                                  setInlineName((e.currentTarget as HTMLInputElement).value)
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') submitInlineFile()
+                                  else if (e.key === 'Escape') resetInlineCreate()
+                                }}
+                                onBlur={() => resetInlineCreate()}
+                              />
+                              <Show when={inlineFileExists()}>
+                                <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                  <AlertCircle
+                                    class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                    stroke-width={2}
+                                  />
+                                  <span>A file with this name already exists.</span>
+                                </div>
+                              </Show>
+                              <Show when={createFileMutation.isError && !inlineFileExists()}>
+                                <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                  <AlertCircle
+                                    class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                    stroke-width={2}
+                                  />
+                                  <span>{(createFileMutation.error as Error)?.message}</span>
+                                </div>
+                              </Show>
+                            </Show>
+                          </div>
+                          <div class='flex min-w-0 flex-col gap-1'>
+                            <Show
+                              when={inlineMode() === 'folder'}
+                              fallback={
+                                <button
+                                  type='button'
+                                  class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setInlineName('')
+                                    setInlineMode('folder')
+                                  }}
+                                >
+                                  <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+                                  New folder
+                                </button>
+                              }
+                            >
+                              <input
+                                type='text'
+                                ref={(el) => {
+                                  inlineFolderInputEl = el ?? undefined
+                                }}
+                                class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+                                  inlineFolderExists()
+                                    ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                    : createFolderMutation.isError
+                                      ? 'border-destructive ring-2 ring-destructive/30'
+                                      : ''
+                                }`}
+                                placeholder='Folder name'
+                                value={inlineName()}
+                                disabled={createFolderMutation.isPending}
+                                onInput={(e) =>
+                                  setInlineName((e.currentTarget as HTMLInputElement).value)
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') submitInlineFolder()
+                                  else if (e.key === 'Escape') resetInlineCreate()
+                                }}
+                                onBlur={() => resetInlineCreate()}
+                              />
+                              <Show when={inlineFolderExists()}>
+                                <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                  <AlertCircle
+                                    class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                    stroke-width={2}
+                                  />
+                                  <span>A folder with this name already exists.</span>
+                                </div>
+                              </Show>
+                              <Show when={createFolderMutation.isError && !inlineFolderExists()}>
+                                <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                  <AlertCircle
+                                    class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                    stroke-width={2}
+                                  />
+                                  <span>{(createFolderMutation.error as Error)?.message}</span>
+                                </div>
+                              </Show>
+                            </Show>
+                          </div>
+                        </div>
+                      </div>
+                    </Show>
                   </div>
                 </Match>
                 <Match when={viewMode() === 'list'}>
@@ -942,32 +1202,36 @@ export function WorkspaceBrowserPane(props: Props) {
                         <Show when={showInlineCreate() && viewMode() === 'list'}>
                           <tr
                             data-no-window-drag
-                            class='hover:bg-muted/30 border-t border-border bg-muted/20'
+                            class='border-t border-border'
                             onClick={(e) => e.stopPropagation()}
                           >
                             <td class='p-0' colspan={3}>
-                              <div class='grid grid-cols-2 gap-px p-2'>
+                              <div class='grid grid-cols-2 gap-2 px-2 py-1.5'>
                                 <div class='flex min-w-0 flex-col gap-1'>
                                   <Show
                                     when={inlineMode() === 'file'}
                                     fallback={
                                       <button
                                         type='button'
-                                        class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground flex w-full items-center justify-center gap-1.5 rounded border border-dashed px-3 py-2 text-sm transition-colors'
+                                        class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                        onMouseDown={(e) => e.preventDefault()}
                                         onClick={(e) => {
                                           e.stopPropagation()
                                           setInlineName('')
                                           setInlineMode('file')
                                         }}
                                       >
-                                        <FilePlus class='h-4 w-4' stroke-width={2} />
+                                        <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
                                         New file
                                       </button>
                                     }
                                   >
                                     <input
                                       type='text'
-                                      class={`border-input bg-background h-8 w-full rounded-md border px-2 text-sm ${
+                                      ref={(el) => {
+                                        inlineFileInputEl = el ?? undefined
+                                      }}
+                                      class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                                         inlineFileExists()
                                           ? 'border-yellow-500 ring-2 ring-yellow-500/30'
                                           : createFileMutation.isError
@@ -1013,21 +1277,25 @@ export function WorkspaceBrowserPane(props: Props) {
                                     fallback={
                                       <button
                                         type='button'
-                                        class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground flex w-full items-center justify-center gap-1.5 rounded border border-dashed px-3 py-2 text-sm transition-colors'
+                                        class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                        onMouseDown={(e) => e.preventDefault()}
                                         onClick={(e) => {
                                           e.stopPropagation()
                                           setInlineName('')
                                           setInlineMode('folder')
                                         }}
                                       >
-                                        <FolderPlus class='h-4 w-4' stroke-width={2} />
+                                        <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
                                         New folder
                                       </button>
                                     }
                                   >
                                     <input
                                       type='text'
-                                      class={`border-input bg-background h-8 w-full rounded-md border px-2 text-sm ${
+                                      ref={(el) => {
+                                        inlineFolderInputEl = el ?? undefined
+                                      }}
+                                      class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                                         inlineFolderExists()
                                           ? 'border-yellow-500 ring-2 ring-yellow-500/30'
                                           : createFolderMutation.isError
@@ -1090,6 +1358,15 @@ export function WorkspaceBrowserPane(props: Props) {
             currentPath={currentPath()}
             onResultClick={handleKbResultClickFromSearch}
           />
+        </Show>
+
+        <Show when={externalUploadDragOver()}>
+          <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>
+            <div class='text-primary flex flex-col items-center gap-2'>
+              <Upload class='h-10 w-10' stroke-width={2} />
+              <span class='text-lg font-medium'>Drop files to upload</span>
+            </div>
+          </div>
         </Show>
 
         <Show when={unsupportedFile()} keyed>
@@ -1275,6 +1552,11 @@ export function WorkspaceBrowserPane(props: Props) {
           </div>
         </div>
       </Show>
+
+      <UploadToastStack
+        state={uploadToast}
+        onDismissError={() => setUploadToast({ kind: 'hidden' })}
+      />
     </div>
   )
 }

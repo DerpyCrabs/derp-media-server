@@ -1442,19 +1442,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                 Modified
               </span>
             </Show>
-            <WorkspaceNamedLayoutMenu
-              scope={layoutScope()}
-              shareToken={shareConfig()?.token ?? null}
-              presets={serverLayoutPresets()}
-              presetsReady={presetsReady()}
-              collectLayoutSnapshot={collectLayoutSnapshot}
-              applyLayoutSnapshot={applyLayoutSnapshot}
-              syncLayoutBaselineToCurrent={syncLayoutBaselineToCurrent}
-              revertLayoutToBaseline={revertLayoutToBaseline}
-              declareBaselinePresetId={declareBaselinePresetId}
-              isLayoutDirty={isLayoutDirty()}
-              layoutBaselinePresetId={layoutBaselinePresetId()}
-            />
             <WorkspaceTaskbarAudio
               storageKey={() => storageSessionKeyFull().key}
               shareCtx={() => {
@@ -1471,6 +1458,19 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                 const dir = key ? useWorkspacePlaybackStore.getState().byKey[key]?.dir : undefined
                 requestPlay(browserSource(), path, dir ?? undefined)
               }}
+            />
+            <WorkspaceNamedLayoutMenu
+              scope={layoutScope()}
+              shareToken={shareConfig()?.token ?? null}
+              presets={serverLayoutPresets()}
+              presetsReady={presetsReady()}
+              collectLayoutSnapshot={collectLayoutSnapshot}
+              applyLayoutSnapshot={applyLayoutSnapshot}
+              syncLayoutBaselineToCurrent={syncLayoutBaselineToCurrent}
+              revertLayoutToBaseline={revertLayoutToBaseline}
+              declareBaselinePresetId={declareBaselinePresetId}
+              isLayoutDirty={isLayoutDirty()}
+              layoutBaselinePresetId={layoutBaselinePresetId()}
             />
             <WorkspaceTaskbarSettings />
           </div>

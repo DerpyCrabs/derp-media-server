@@ -6,13 +6,14 @@ import { MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import AlertCircle from 'lucide-solid/icons/alert-circle'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import AppWindow from 'lucide-solid/icons/app-window'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import Folder from 'lucide-solid/icons/folder'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { DeleteFileDialog } from './file-browser/DeleteFileDialog'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
@@ -36,6 +37,7 @@ export type ShareInfoPayload = {
   mediaType: string
   extension: string
   restrictions?: ShareRestrictions
+  isKnowledgeBase?: boolean
 }
 
 function stripSharePrefix(filePath: string, sharePath: string) {
@@ -61,6 +63,19 @@ export function ShareFolderBrowser(props: Props) {
   const [showCreateFolder, setShowCreateFolder] = createSignal(false)
   const [showCreateFile, setShowCreateFile] = createSignal(false)
   const [newItemName, setNewItemName] = createSignal('')
+  const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
+  const [inlineName, setInlineName] = createSignal('')
+  let inlineFileInputEl: HTMLInputElement | undefined
+  let inlineFolderInputEl: HTMLInputElement | undefined
+
+  createEffect(() => {
+    const m = inlineMode()
+    if (m === 'file') {
+      queueMicrotask(() => inlineFileInputEl?.focus())
+    } else if (m === 'folder') {
+      queueMicrotask(() => inlineFolderInputEl?.focus())
+    }
+  })
 
   const currentSubDir = createMemo(() => {
     const sp = new URLSearchParams(history().search)
@@ -96,6 +111,80 @@ export function ShareFolderBrowser(props: Props) {
   }))
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
+
+  const inKb = createMemo(() => !!props.shareInfo.isKnowledgeBase)
+  const showInlineCreate = createMemo(() => canUpload() && inKb())
+
+  createEffect(
+    on(
+      currentSubDir,
+      () => {
+        setInlineMode(null)
+        setInlineName('')
+      },
+      { defer: true },
+    ),
+  )
+
+  const inlineFileExists = createMemo(() => {
+    if (inlineMode() !== 'file') return false
+    const stem = inlineName().trim()
+    if (!stem) return false
+    const addExt = inKb() ? '.md' : '.txt'
+    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
+  })
+
+  const inlineFolderExists = createMemo(() => {
+    if (inlineMode() !== 'folder') return false
+    const n = inlineName().trim().toLowerCase()
+    if (!n) return false
+    return files().some((f) => f.isDirectory && f.name.toLowerCase() === n)
+  })
+
+  function submitInlineFile() {
+    const stem = inlineName().trim()
+    if (!stem || inlineFileExists() || !showInlineCreate()) return
+    const defaultExt = inKb() ? '.md' : '.txt'
+    const fileStem = stem.includes('.') ? stem : `${stem}${defaultExt}`
+    const subPath = currentSubDir() ? `${currentSubDir()}/${fileStem}` : fileStem
+    const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
+    const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
+    createFileMutation.mutate(
+      { type: 'file', path: subPath, content: '' },
+      {
+        onSuccess: () => {
+          setInlineMode(null)
+          setInlineName('')
+          createFileMutation.reset()
+          if (inKb()) viewFile(fullPath)
+        },
+      },
+    )
+  }
+
+  function submitInlineFolder() {
+    const name = inlineName().trim()
+    if (!name || inlineFolderExists() || !showInlineCreate()) return
+    const subPath = currentSubDir() ? `${currentSubDir()}/${name}` : name
+    createFolderMutation.mutate(
+      { type: 'folder', path: subPath },
+      {
+        onSuccess: () => {
+          setInlineMode(null)
+          setInlineName('')
+          createFolderMutation.reset()
+        },
+      },
+    )
+  }
+
+  function resetInlineCreate() {
+    setInlineMode(null)
+    setInlineName('')
+    createFileMutation.reset()
+    createFolderMutation.reset()
+  }
 
   const viewMutation = useMutation(() => ({
     mutationFn: (relativePath: string) =>
@@ -439,7 +528,7 @@ export function ShareFolderBrowser(props: Props) {
                     <button
                       type='button'
                       title='Create new file'
-                      class='hover:bg-muted inline-flex h-8 w-8 items-center justify-center rounded-md'
+                      class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
                       onClick={() => {
                         setNewItemName('')
                         setShowCreateFile(true)
@@ -450,7 +539,7 @@ export function ShareFolderBrowser(props: Props) {
                     <button
                       type='button'
                       title='Create new folder'
-                      class='hover:bg-muted inline-flex h-8 w-8 items-center justify-center rounded-md'
+                      class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
                       onClick={() => {
                         setNewItemName('')
                         setShowCreateFolder(true)
@@ -511,6 +600,142 @@ export function ShareFolderBrowser(props: Props) {
                           </tr>
                         )}
                       </For>
+                      <Show when={showInlineCreate()}>
+                        <tr class='border-t border-border' onClick={(e) => e.stopPropagation()}>
+                          <td class='p-0' colspan={3}>
+                            <div class='grid grid-cols-2 gap-2 px-2 py-1.5'>
+                              <div class='flex min-w-0 flex-col gap-1'>
+                                <Show
+                                  when={inlineMode() === 'file'}
+                                  fallback={
+                                    <button
+                                      type='button'
+                                      class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setInlineName('')
+                                        setInlineMode('file')
+                                      }}
+                                    >
+                                      <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+                                      New file
+                                    </button>
+                                  }
+                                >
+                                  <input
+                                    type='text'
+                                    ref={(el) => {
+                                      inlineFileInputEl = el ?? undefined
+                                    }}
+                                    class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+                                      inlineFileExists()
+                                        ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                        : createFileMutation.isError
+                                          ? 'border-destructive ring-2 ring-destructive/30'
+                                          : ''
+                                    }`}
+                                    placeholder='File name (e.g. notes.md)'
+                                    value={inlineName()}
+                                    disabled={createFileMutation.isPending}
+                                    onInput={(e) =>
+                                      setInlineName((e.currentTarget as HTMLInputElement).value)
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') submitInlineFile()
+                                      else if (e.key === 'Escape') resetInlineCreate()
+                                    }}
+                                    onBlur={() => resetInlineCreate()}
+                                  />
+                                  <Show when={inlineFileExists()}>
+                                    <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                      <AlertCircle
+                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                        stroke-width={2}
+                                      />
+                                      <span>A file with this name already exists.</span>
+                                    </div>
+                                  </Show>
+                                  <Show when={createFileMutation.isError && !inlineFileExists()}>
+                                    <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                      <AlertCircle
+                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                        stroke-width={2}
+                                      />
+                                      <span>{(createFileMutation.error as Error)?.message}</span>
+                                    </div>
+                                  </Show>
+                                </Show>
+                              </div>
+                              <div class='flex min-w-0 flex-col gap-1'>
+                                <Show
+                                  when={inlineMode() === 'folder'}
+                                  fallback={
+                                    <button
+                                      type='button'
+                                      class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setInlineName('')
+                                        setInlineMode('folder')
+                                      }}
+                                    >
+                                      <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+                                      New folder
+                                    </button>
+                                  }
+                                >
+                                  <input
+                                    type='text'
+                                    ref={(el) => {
+                                      inlineFolderInputEl = el ?? undefined
+                                    }}
+                                    class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+                                      inlineFolderExists()
+                                        ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                        : createFolderMutation.isError
+                                          ? 'border-destructive ring-2 ring-destructive/30'
+                                          : ''
+                                    }`}
+                                    placeholder='Folder name'
+                                    value={inlineName()}
+                                    disabled={createFolderMutation.isPending}
+                                    onInput={(e) =>
+                                      setInlineName((e.currentTarget as HTMLInputElement).value)
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') submitInlineFolder()
+                                      else if (e.key === 'Escape') resetInlineCreate()
+                                    }}
+                                    onBlur={() => resetInlineCreate()}
+                                  />
+                                  <Show when={inlineFolderExists()}>
+                                    <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                      <AlertCircle
+                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                        stroke-width={2}
+                                      />
+                                      <span>A folder with this name already exists.</span>
+                                    </div>
+                                  </Show>
+                                  <Show
+                                    when={createFolderMutation.isError && !inlineFolderExists()}
+                                  >
+                                    <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                      <AlertCircle
+                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                        stroke-width={2}
+                                      />
+                                      <span>{(createFolderMutation.error as Error)?.message}</span>
+                                    </div>
+                                  </Show>
+                                </Show>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      </Show>
                     </tbody>
                   </table>
                 </div>

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { cn } from '@/lib/utils'
 import FileText from 'lucide-solid/icons/file-text'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 
@@ -25,9 +26,12 @@ type Props = {
   onFileClick: (path: string) => void
   shareToken?: string
   dir?: string
+  /** Tighter strip + chips (workspace window chrome). */
+  mode?: 'MediaServer' | 'Workspace'
 }
 
 export function KbDashboard(props: Props) {
+  const compact = () => (props.mode ?? 'MediaServer') === 'Workspace'
   const directQuery = useQuery(() => ({
     queryKey: queryKeys.kbRecent(props.scopePath),
     queryFn: () =>
@@ -75,19 +79,49 @@ export function KbDashboard(props: Props) {
       <div
         ref={setScrollEl}
         data-testid='kb-recent-strip'
-        class='min-w-0 shrink-0 overflow-x-auto scrollbar-none border-b border-border bg-muted/20 px-1.5 py-1.5 md:px-2 md:py-2'
+        class={cn(
+          'min-w-0 shrink-0 overflow-x-auto scrollbar-none border-b border-border',
+          compact()
+            ? 'flex items-center -mx-2 -mt-2 px-2 py-1.5 mb-1'
+            : 'bg-muted/20 px-1.5 py-1.5 md:px-2 md:py-2',
+        )}
       >
-        <div class='flex w-max min-w-full flex-nowrap gap-1 md:gap-1.5'>
+        <div
+          class={cn('flex w-max min-w-full flex-nowrap', compact() ? 'gap-1' : 'gap-1 md:gap-1.5')}
+        >
           <For each={recent()}>
             {(file) => (
               <button
                 type='button'
-                class='flex shrink-0 items-center gap-1 rounded border border-border bg-background px-1.5 py-1 text-left transition-colors hover:bg-muted/50 md:gap-1.5 md:px-2 md:py-1.5'
+                class={cn(
+                  'flex shrink-0 items-center rounded border border-border bg-background text-left transition-colors hover:bg-muted/50',
+                  compact()
+                    ? 'gap-1 px-1.5 py-0.5'
+                    : 'gap-1 px-1.5 py-1 md:gap-1.5 md:px-2 md:py-1.5',
+                )}
                 onClick={() => props.onFileClick(file.path)}
               >
-                <FileText class='h-4 w-4 shrink-0 text-muted-foreground' stroke-width={2} />
-                <span class='truncate text-sm font-medium'>{file.name}</span>
-                <span class='shrink-0 text-xs text-muted-foreground'>
+                <FileText
+                  class={cn(
+                    'shrink-0 text-muted-foreground',
+                    compact() ? 'h-3.5 w-3.5' : 'h-4 w-4',
+                  )}
+                  stroke-width={2}
+                />
+                <span
+                  class={cn(
+                    'truncate font-medium',
+                    compact() ? 'max-w-[10rem] text-xs' : 'text-sm',
+                  )}
+                >
+                  {file.name}
+                </span>
+                <span
+                  class={cn(
+                    'shrink-0 text-muted-foreground',
+                    compact() ? 'text-[10px] leading-none' : 'text-xs',
+                  )}
+                >
                   {formatRelativeTime(file.modifiedAt)}
                 </span>
               </button>

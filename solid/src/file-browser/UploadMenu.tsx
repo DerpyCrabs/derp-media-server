@@ -7,9 +7,11 @@ import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 type UploadMenuProps = {
   disabled: boolean
   onUpload: (files: File[]) => void
+  mode?: 'MediaServer' | 'Workspace'
 }
 
 export function UploadMenu(props: UploadMenuProps) {
+  const isWorkspace = () => (props.mode ?? 'MediaServer') === 'Workspace'
   const [open, setOpen] = createSignal(false)
   let wrap: HTMLDivElement | undefined
   let fileInput: HTMLInputElement | undefined
@@ -51,12 +53,22 @@ export function UploadMenu(props: UploadMenuProps) {
         type='button'
         title='Upload'
         disabled={props.disabled}
+        aria-expanded={open()}
         class={cn(
-          'h-8 w-8 inline-flex items-center justify-center rounded-md border border-input bg-background text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50',
+          isWorkspace() ? 'h-7 w-7' : 'size-8',
+          'inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors',
+          'hover:bg-muted hover:text-foreground',
+          'dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+          'aria-expanded:bg-muted aria-expanded:text-foreground',
+          'disabled:pointer-events-none disabled:opacity-50',
         )}
         onClick={() => setOpen(!open())}
       >
-        <Upload class='h-4 w-4' size={16} stroke-width={2} />
+        <Upload
+          class={isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+          size={isWorkspace() ? 14 : 16}
+          stroke-width={2}
+        />
       </button>
       <Show when={open()}>
         <div

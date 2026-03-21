@@ -31,7 +31,7 @@ export function MarkdownPane(props: Props): JSX.Element {
   })
 
   return (
-    <div class='relative h-full min-h-full overflow-auto p-4'>
+    <div class='scrollbar-thin relative h-full min-h-full overflow-auto'>
       <Show when={expandedSrc()}>
         {(src) => (
           <div
@@ -68,7 +68,7 @@ export function MarkdownPane(props: Props): JSX.Element {
       </Show>
       <div
         ref={setMountEl}
-        class='prose prose-neutral dark:prose-invert max-w-none [&_img]:max-h-48 [&_img]:max-w-sm [&_img]:cursor-zoom-in [&_img]:object-contain'
+        class='prose prose-neutral dark:prose-invert min-h-full w-full max-w-none px-3 py-2 [&_img]:max-h-48 [&_img]:max-w-sm [&_img]:cursor-zoom-in [&_img]:object-contain'
         onClick={(e) => {
           const t = e.target
           if (t instanceof HTMLImageElement) {
