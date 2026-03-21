@@ -21,10 +21,15 @@ import type {
 } from '@/lib/use-workspace'
 import {
   normalizePersistedWorkspaceState,
+  serializeWorkspacePersistedState,
   snapZoneToBoundsWithOccupied,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
 } from '@/lib/use-workspace'
+import {
+  workspaceLayoutScopeFromShareToken,
+  type WorkspaceLayoutPreset,
+} from '@/lib/workspace-layout-presets'
 import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
 import { detectSnapZone, type SnapDetectResult } from '@/lib/use-snap-zones'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
@@ -54,6 +59,7 @@ import { WorkspaceBrowserPane, type WorkspaceShareConfig } from './workspace/Wor
 import { WorkspacePlayerPane } from './workspace/WorkspacePlayerPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from './workspace/WorkspaceWindowChrome'
+import { WorkspaceNamedLayoutMenu } from './workspace/WorkspaceNamedLayoutMenu'
 
 const DEFAULT_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 
@@ -111,6 +117,7 @@ type AuthConfig = { enabled: boolean; editableFolders: string[] }
 export type WorkspacePageProps = {
   shareConfig?: { token: string; sharePath: string } | null
   shareWorkspaceTaskbarPins?: PinnedTaskbarItem[]
+  shareWorkspaceLayoutPresets?: WorkspaceLayoutPreset[]
   shareAllowUpload?: boolean
   shareCanEdit?: boolean
 }
@@ -153,6 +160,11 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const [pinsHydratedFor, setPinsHydratedFor] = createSignal('')
 
+  const [layoutBaselinePresetId, setLayoutBaselinePresetId] = createSignal<string | null>(null)
+  const [layoutBaselineSerialized, setLayoutBaselineSerialized] = createSignal<string | null>(null)
+  const [layoutBaselineSnapshot, setLayoutBaselineSnapshot] =
+    createSignal<PersistedWorkspaceState | null>(null)
+
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
     queryFn: () => api<GlobalSettings>('/api/settings'),
@@ -185,6 +197,17 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     return settingsQuery.data?.workspaceTaskbarPins ?? []
   })
 
+  const serverLayoutPresets = createMemo((): WorkspaceLayoutPreset[] => {
+    if (shareConfig()) return props.shareWorkspaceLayoutPresets ?? []
+    return settingsQuery.data?.workspaceLayoutPresets ?? []
+  })
+
+  const presetsReady = createMemo(() => (shareConfig() ? true : settingsQuery.isSuccess))
+
+  const layoutScope = createMemo(() =>
+    workspaceLayoutScopeFromShareToken(shareConfig()?.token ?? null),
+  )
+
   const persistPinsMutation = useMutation(() => ({
     mutationFn: (items: PinnedTaskbarItem[]) => {
       const c = shareConfig()
@@ -203,6 +226,67 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     },
   }))
 
+  let lastHydratedStorageKey = ''
+  let presetUrlResolvedForKey = ''
+
+  function collectLayoutSnapshot(): PersistedWorkspaceState {
+    const w = workspace()
+    if (!w) {
+      return {
+        windows: [],
+        activeWindowId: null,
+        activeTabMap: {},
+        nextWindowId: 2,
+        pinnedTaskbarItems: [],
+      }
+    }
+    return {
+      windows: w.windows.filter((x) => x.id !== PLAYER_WINDOW_ID),
+      activeWindowId: w.activeWindowId,
+      activeTabMap: { ...w.activeTabMap },
+      nextWindowId: w.nextWindowId,
+      pinnedTaskbarItems: w.pinnedTaskbarItems ?? [],
+    }
+  }
+
+  function applyLayoutSnapshot(
+    snapshot: PersistedWorkspaceState,
+    options?: { baselinePresetId?: string | null },
+  ) {
+    const normalized = normalizePersistedWorkspaceState(snapshot)
+    if (!normalized?.windows.length) return
+    const clone = JSON.parse(JSON.stringify(normalized)) as PersistedWorkspaceState
+    setWorkspace(normalized)
+    setLayoutBaselineSerialized(serializeWorkspacePersistedState(clone))
+    setLayoutBaselineSnapshot(clone)
+    if (options && 'baselinePresetId' in options) {
+      setLayoutBaselinePresetId(options.baselinePresetId ?? null)
+    }
+  }
+
+  function revertLayoutToBaseline() {
+    const snap = layoutBaselineSnapshot()
+    if (!snap) return
+    applyLayoutSnapshot(JSON.parse(JSON.stringify(snap)) as PersistedWorkspaceState)
+  }
+
+  function syncLayoutBaselineToCurrent() {
+    const snap = collectLayoutSnapshot()
+    const clone = JSON.parse(JSON.stringify(snap)) as PersistedWorkspaceState
+    setLayoutBaselineSerialized(serializeWorkspacePersistedState(clone))
+    setLayoutBaselineSnapshot(clone)
+  }
+
+  function declareBaselinePresetId(id: string | null) {
+    setLayoutBaselinePresetId(id)
+  }
+
+  const isLayoutDirty = createMemo(() => {
+    const b = layoutBaselineSerialized()
+    if (b == null) return false
+    return serializeWorkspacePersistedState(collectLayoutSnapshot()) !== b
+  })
+
   createEffect(() => {
     const loc = history()
     if (!isWorkspaceRoute(loc.pathname)) return
@@ -213,19 +297,120 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     }
     const base = workspaceStorageBaseKey(shareConfig()?.token ?? null)
     const key = workspaceStorageSessionKey(base, sid)
-    untrack(() => {
-      const loaded = loadPersisted(key)
-      const src = browserSource()
-      setWorkspace(loaded ?? defaultPersistedState(src))
-      setPinsHydratedFor('')
-    })
+    const params = new URLSearchParams(loc.search)
+    const dirParam = params.get('dir')
+    const presetParam = params.get('preset')
+    void settingsQuery.isSuccess
+    void serverLayoutPresets()
+    const presetsReadyNow = shareConfig() ? true : settingsQuery.isSuccess
+    const loaded = loadPersisted(key)
+    const src = browserSource()
+    const scope = workspaceLayoutScopeFromShareToken(shareConfig()?.token ?? null)
+    const presetsList = serverLayoutPresets()
+
+    const applyPreset = (param: string) => {
+      const found = presetsList.find((p) => p.id === param && p.scope === scope)
+      const normalized = found ? normalizePersistedWorkspaceState(found.snapshot) : null
+      if (!normalized?.windows.length) return false
+      const clone = JSON.parse(JSON.stringify(normalized)) as PersistedWorkspaceState
+      untrack(() => {
+        setLayoutBaselinePresetId(param)
+        setLayoutBaselineSerialized(serializeWorkspacePersistedState(clone))
+        setLayoutBaselineSnapshot(clone)
+        setWorkspace(normalized)
+      })
+      return true
+    }
+
+    const resetBaseline = () => {
+      setLayoutBaselinePresetId(null)
+      setLayoutBaselineSerialized(null)
+      setLayoutBaselineSnapshot(null)
+    }
+
+    const setDefaultWorkspace = () => {
+      resetBaseline()
+      setWorkspace(defaultPersistedState(src))
+    }
+
+    if (lastHydratedStorageKey !== key) {
+      lastHydratedStorageKey = key
+      presetUrlResolvedForKey = ''
+      untrack(() => {
+        if (dirParam != null && dirParam !== '') {
+          resetBaseline()
+          setWorkspace({
+            windows: [
+              {
+                id: 'workspace-window-1',
+                type: 'browser',
+                title: 'Browser 1',
+                iconName: null,
+                iconPath: dirParam,
+                iconType: MediaType.FOLDER,
+                iconIsVirtual: false,
+                source: src,
+                initialState: { dir: dirParam },
+                tabGroupId: null,
+                layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
+              },
+            ],
+            activeWindowId: 'workspace-window-1',
+            activeTabMap: {},
+            nextWindowId: 2,
+            pinnedTaskbarItems: [],
+          })
+        } else if (loaded) {
+          resetBaseline()
+          setWorkspace(loaded)
+        } else if (presetParam && presetsReadyNow) {
+          if (applyPreset(presetParam)) {
+            presetUrlResolvedForKey = key
+          } else {
+            setDefaultWorkspace()
+          }
+        } else if (presetParam && !presetsReadyNow) {
+          setDefaultWorkspace()
+        } else {
+          setDefaultWorkspace()
+        }
+        setPinsHydratedFor('')
+      })
+      return
+    }
+
+    if (
+      presetParam &&
+      presetsReadyNow &&
+      !loaded &&
+      presetUrlResolvedForKey !== key &&
+      applyPreset(presetParam)
+    ) {
+      presetUrlResolvedForKey = key
+      untrack(() => setPinsHydratedFor(''))
+    }
   })
 
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
   createEffect(() => {
     const { key } = storageSessionKeyFull()
     const w = workspace()
     if (!key || !w) return
-    persistWorkspaceState(key, w)
+    if (shareConfig()) {
+      persistWorkspaceState(key, w)
+      return
+    }
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      persistWorkspaceState(key, w)
+    }, 500)
+    onCleanup(() => {
+      if (persistTimer) {
+        clearTimeout(persistTimer)
+        persistTimer = null
+      }
+    })
   })
 
   createEffect(() => {
@@ -1115,6 +1300,35 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                 No windows open. Use the browser button to start a workspace.
               </div>
             </Show>
+          </div>
+
+          <div class='flex shrink-0 items-center gap-1 border-l border-border pl-2'>
+            <Show when={isLayoutDirty()}>
+              <span
+                data-testid='workspace-layout-modified-badge'
+                class='mr-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-400'
+                title={
+                  layoutBaselinePresetId()
+                    ? 'Layout changed since this saved preset was applied'
+                    : 'Layout changed since the last baseline'
+                }
+              >
+                Modified
+              </span>
+            </Show>
+            <WorkspaceNamedLayoutMenu
+              scope={layoutScope()}
+              shareToken={shareConfig()?.token ?? null}
+              presets={serverLayoutPresets()}
+              presetsReady={presetsReady()}
+              collectLayoutSnapshot={collectLayoutSnapshot}
+              applyLayoutSnapshot={applyLayoutSnapshot}
+              syncLayoutBaselineToCurrent={syncLayoutBaselineToCurrent}
+              revertLayoutToBaseline={revertLayoutToBaseline}
+              declareBaselinePresetId={declareBaselinePresetId}
+              isLayoutDirty={isLayoutDirty()}
+              layoutBaselinePresetId={layoutBaselinePresetId()}
+            />
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
+import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import { Match, Switch, createMemo } from 'solid-js'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { SharePasscodeGate } from './SharePasscodeGate'
@@ -27,6 +28,7 @@ type ShareInfo = {
   isKnowledgeBase: boolean
   adminViewMode: 'list' | 'grid'
   workspaceTaskbarPins?: PinnedTaskbarItem[]
+  workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
 
 type Props = { token: string }
@@ -86,6 +88,7 @@ export function ShareWorkspacePage(props: Props) {
         <WorkspacePage
           shareConfig={{ token: props.token, sharePath: sharePath() }}
           shareWorkspaceTaskbarPins={shareQuery.data?.workspaceTaskbarPins ?? []}
+          shareWorkspaceLayoutPresets={shareQuery.data?.workspaceLayoutPresets ?? []}
           shareAllowUpload={shareAllowUpload()}
           shareCanEdit={
             !!shareQuery.data?.editable && shareQuery.data?.restrictions?.allowEdit !== false
