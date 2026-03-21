@@ -26,7 +26,7 @@ import {
 } from '../lib/build-media-url'
 
 const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
-const VIDEO_EXT = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
+const VIDEO_EXT = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 
 async function fetchAudioMetadata(url: string) {
   const response = await fetch(url)
@@ -52,6 +52,8 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const [detailsOpen, setDetailsOpen] = createSignal(false)
   const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
   const pendingSeekRef = { current: false }
+  const srcSwitchRef = { current: false }
+  const srcLoadGenRef = { current: 0 }
   const detailsOpenRef = { current: false }
 
   createEffect(() => {
@@ -395,6 +397,18 @@ export function WorkspaceTaskbarAudio(props: Props) {
       useMediaPlayer.getState().setCurrentFile(path, 'audio')
     }
 
+    srcLoadGenRef.current += 1
+    const token = srcLoadGenRef.current
+    srcSwitchRef.current = true
+    const endSrcSwitch = () => {
+      audio.removeEventListener('canplay', endSrcSwitch)
+      audio.removeEventListener('error', endSrcSwitch)
+      if (token !== srcLoadGenRef.current) return
+      srcSwitchRef.current = false
+    }
+    audio.addEventListener('canplay', endSrcSwitch)
+    audio.addEventListener('error', endSrcSwitch)
+
     audio.src = fullUrl
     audio.load()
 
@@ -554,7 +568,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
   return (
     <>
-      <audio ref={setAudioEl} preload='auto' class='hidden' />
+      <audio ref={setAudioEl} preload='auto' class='hidden' data-workspace-taskbar-media-audio />
 
       <div class='relative' data-workspace-taskbar-audio-root>
         <div class='text-muted-foreground flex h-8 items-center gap-1 border-l border-border bg-muted/50 px-2'>

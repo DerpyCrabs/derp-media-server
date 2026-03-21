@@ -1,29 +1,25 @@
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
+import { isVideoPath } from '@/lib/workspace-geometry'
 import { MediaType } from '@/lib/types'
+import Headphones from 'lucide-solid/icons/headphones'
+import MonitorPlay from 'lucide-solid/icons/monitor-play'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import type { WorkspaceShareConfig } from './WorkspaceBrowserPane'
-
-const VIDEO_EXT = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
-
-function isVideoPath(p: string | null): boolean {
-  if (!p) return false
-  const ext = p.split('.').pop()?.toLowerCase()
-  return ext ? VIDEO_EXT.has(ext) : false
-}
 
 type Props = {
   windowId: string
   storageKey: string
   window: Accessor<WorkspaceWindowDefinition | undefined>
   shareFallback: Accessor<WorkspaceShareConfig | null>
+  onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
 }
 
 export function WorkspacePlayerPane(props: Props) {
-  let videoRef: HTMLVideoElement | undefined
+  const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
 
   const [playing, setPlaying] = createSignal<string | null>(null)
   const [audioOnly, setAudioOnly] = createSignal(false)
@@ -39,7 +35,11 @@ export function WorkspacePlayerPane(props: Props) {
     onCleanup(unsub)
   })
 
-  const showVideo = createMemo(() => isVideoPath(playing()) && !audioOnly())
+  const playingIsVideo = createMemo(() => {
+    const p = playing()
+    return p ? isVideoPath(p) : false
+  })
+  const showVideo = createMemo(() => playingIsVideo() && !audioOnly())
 
   const mediaUrl = createMemo(() => {
     const path = playing()
@@ -56,7 +56,7 @@ export function WorkspacePlayerPane(props: Props) {
   createEffect(() => {
     const path = playing()
     const url = mediaUrl()
-    const vid = videoRef
+    const vid = videoEl()
     if (!path || !showVideo() || !vid || !url) return
 
     useMediaPlayer.getState().setCurrentFile(path, 'video')
@@ -69,26 +69,85 @@ export function WorkspacePlayerPane(props: Props) {
     void vid.play().catch(() => {})
   })
 
+  const fileName = createMemo(() => (playing() || '').split('/').pop() || 'Video Player')
+
+  function setWorkspaceAudioOnly(enabled: boolean) {
+    useWorkspacePlaybackStore.getState().setAudioOnly(props.storageKey, enabled)
+  }
+
   return (
     <div
       data-no-window-drag
-      class='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black/80'
+      class='absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-black/80'
     >
       <Show
-        when={showVideo()}
+        when={playingIsVideo()}
         fallback={
-          <div class='text-muted-foreground flex h-full items-center justify-center p-4 text-sm'>
-            No video
+          <div class='bg-muted/20 flex h-full items-center justify-center p-6 text-center'>
+            <div class='space-y-3'>
+              <div class='bg-muted mx-auto flex h-12 w-12 items-center justify-center rounded-full'>
+                <MonitorPlay class='text-muted-foreground h-6 w-6' stroke-width={2} />
+              </div>
+              <div class='text-sm font-medium'>No video is playing</div>
+              <div class='text-muted-foreground text-sm'>
+                Start a video from any browser window to open it here.
+              </div>
+            </div>
           </div>
         }
       >
-        <video
-          ref={videoRef}
-          class='h-full w-full object-contain'
-          controls
-          playsinline
-          data-media-type={MediaType.VIDEO}
-        />
+        <Show
+          when={audioOnly()}
+          fallback={
+            <div class='group relative flex min-h-0 min-w-0 flex-1 flex-col bg-black'>
+              <div class='absolute top-2 right-2 z-10 opacity-0 transition-opacity group-hover:opacity-100'>
+                <button
+                  type='button'
+                  title='Listen only'
+                  class='bg-secondary inline-flex h-7 w-7 items-center justify-center rounded-md'
+                  onClick={() => setWorkspaceAudioOnly(true)}
+                >
+                  <Headphones class='h-4 w-4' stroke-width={2} />
+                </button>
+              </div>
+              <video
+                ref={(el) => setVideoEl(el ?? undefined)}
+                class='min-h-0 w-full flex-1 bg-black object-contain'
+                controls
+                playsinline
+                data-media-type={MediaType.VIDEO}
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget
+                  if (v.videoWidth > 0 && v.videoHeight > 0) {
+                    props.onVideoMetadataLoaded?.(v.videoWidth, v.videoHeight)
+                  }
+                }}
+              />
+            </div>
+          }
+        >
+          <div class='bg-muted/20 flex h-full items-center justify-center p-6 text-center'>
+            <div class='space-y-3'>
+              <div class='bg-muted mx-auto flex h-12 w-12 items-center justify-center rounded-full'>
+                <Headphones class='text-muted-foreground h-6 w-6' stroke-width={2} />
+              </div>
+              <div class='text-sm font-medium'>{fileName()} is playing in audio mode</div>
+              <div class='text-muted-foreground text-sm'>
+                Restore video playback from the taskbar audio controls or here.
+              </div>
+              <div>
+                <button
+                  type='button'
+                  class='border-input bg-background hover:bg-accent inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm'
+                  onClick={() => setWorkspaceAudioOnly(false)}
+                >
+                  <MonitorPlay class='h-4 w-4' stroke-width={2} />
+                  Show video
+                </button>
+              </div>
+            </div>
+          </div>
+        </Show>
       </Show>
     </div>
   )

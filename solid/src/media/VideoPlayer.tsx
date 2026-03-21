@@ -17,7 +17,7 @@ type Props = {
   shareContext?: { token: string; sharePath: string } | null
 }
 
-const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
+const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 
 export function VideoPlayer(props: Props) {
   const history = useBrowserHistory()

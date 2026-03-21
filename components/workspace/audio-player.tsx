@@ -545,9 +545,9 @@ export function AudioPlayer({
 
   return (
     <>
-      <audio ref={audioRef} preload='auto' className='hidden' />
+      <audio ref={audioRef} preload='auto' className='hidden' data-workspace-taskbar-media-audio />
 
-      <div ref={rootRef} className='relative'>
+      <div ref={rootRef} className='relative' data-workspace-taskbar-audio-root>
         <div className='flex h-8 items-center gap-1 border-l border-border bg-muted/50 px-2 text-muted-foreground'>
           <button
             type='button'

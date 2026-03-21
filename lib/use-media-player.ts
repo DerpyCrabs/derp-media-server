@@ -15,6 +15,8 @@ interface MediaPlayerState {
   sharePath: string | null
 
   playFile: (path: string, type: 'audio' | 'video') => void
+  /** Select track and play; does not toggle pause when the same file is already selected. */
+  startOrResumePlayback: (path: string, type: 'audio' | 'video') => void
   setCurrentFile: (path: string, type: 'audio' | 'video') => void
   setIsPlaying: (playing: boolean) => void
   setCurrentTime: (time: number) => void
@@ -48,6 +50,21 @@ export const useMediaPlayer = create<MediaPlayerState>((set, get) => ({
       return
     }
 
+    set({
+      currentFile: path,
+      mediaType: type,
+      currentTime: 0,
+      duration: 0,
+      isPlaying: true,
+    })
+  },
+
+  startOrResumePlayback: (path, type) => {
+    const state = get()
+    if (state.currentFile === path && state.mediaType === type) {
+      set({ isPlaying: true })
+      return
+    }
     set({
       currentFile: path,
       mediaType: type,

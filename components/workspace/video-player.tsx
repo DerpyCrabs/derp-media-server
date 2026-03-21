@@ -19,7 +19,7 @@ interface WorkspaceVideoPlayerProps {
   workspaceWindowId?: string
 }
 
-const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v'])
 
 function isVideoPath(path: string | null) {
   const extension = path?.split('.').pop()?.toLowerCase()

@@ -1,45 +1,29 @@
 import type { SnapZone } from '@/lib/use-workspace'
+import { useWorkspaceSnapLayoutVisibilityStore } from '@/lib/workspace-snap-layout-visibility-store'
 import {
-  ALL_SNAP_LAYOUT_IDS,
   filterSnapTemplates,
   SNAP_LAYOUT_ROW_1,
   SNAP_LAYOUT_ROW_2,
   SNAP_LAYOUT_ROW_VERTICAL,
-  type SnapLayoutTemplate,
 } from '@/lib/workspace-snap-layouts'
-import { For, Show, createMemo, onCleanup, onMount } from 'solid-js'
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { SnapLayoutTemplateThumbnail } from './SnapLayoutTemplateThumbnail'
 
 const PICKER_APPROX_WIDTH = 320
 const PICKER_APPROX_HEIGHT = 180
 
 function SnapTemplateThumb(props: {
-  template: SnapLayoutTemplate
+  template: (typeof SNAP_LAYOUT_ROW_1)[number]
   aspectRatio: number
   onSlot: (zone: SnapZone | 'full') => void
 }) {
-  const rows = () => props.template.gridRows ?? 4
   return (
-    <div
-      data-snap-layout-template
-      class='w-16 shrink-0 rounded border border-border bg-muted/50 p-0.5'
-      style={{ 'aspect-ratio': String(props.aspectRatio) }}
-    >
-      <div
-        class='grid h-full w-full grid-cols-6 gap-0.5'
-        style={{ 'grid-template-rows': `repeat(${rows()}, minmax(0, 1fr))` }}
-      >
-        <For each={props.template.grid}>
-          {(slot) => (
-            <button
-              type='button'
-              class='rounded-[2px] bg-muted transition-colors hover:bg-primary/40'
-              style={{ 'grid-column': slot.col, 'grid-row': slot.row }}
-              onClick={() => props.onSlot(slot.zone)}
-            />
-          )}
-        </For>
-      </div>
-    </div>
+    <SnapLayoutTemplateThumbnail
+      template={props.template}
+      aspectRatio={props.aspectRatio}
+      interactive
+      onSlotClick={props.onSlot}
+    />
   )
 }
 
@@ -54,7 +38,18 @@ export type WorkspaceTilingPickerProps = {
 export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
   let root!: HTMLDivElement
 
-  const visibleIds = createMemo(() => new Set(ALL_SNAP_LAYOUT_IDS))
+  const [snapVisTick, setSnapVisTick] = createSignal(0)
+  onMount(() => {
+    const unsub = useWorkspaceSnapLayoutVisibilityStore.subscribe(() =>
+      setSnapVisTick((n) => n + 1),
+    )
+    onCleanup(unsub)
+  })
+
+  const visibleIds = createMemo(() => {
+    void snapVisTick()
+    return new Set(useWorkspaceSnapLayoutVisibilityStore.getState().visibleIdList)
+  })
 
   const layout = createMemo(() => {
     const rect = props.container.getBoundingClientRect()

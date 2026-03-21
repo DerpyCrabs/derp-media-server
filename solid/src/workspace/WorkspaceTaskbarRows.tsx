@@ -21,6 +21,8 @@ function RowIcon(props: { tab: WorkspaceWindowDefinition }) {
 export function TaskbarGroupRow(props: {
   groupId: string
   workspace: Accessor<PersistedWorkspaceState | null>
+  /** Subscribed separately so the row updates when only focus changes (not only `windows`). */
+  activeWindowId: Accessor<string | null>
   playingPath: Accessor<string | null>
   taskbarMouseHandled: { current: boolean }
   focusWindow: (id: string) => void
@@ -29,7 +31,6 @@ export function TaskbarGroupRow(props: {
 }) {
   const groupWindows = () => tabsInGroup(props.workspace()?.windows ?? [], props.groupId)
   const leader = () => groupWindows()[0]
-  const activeWindowId = () => props.workspace()?.activeWindowId ?? null
   const activeTabId = () => props.workspace()?.activeTabMap[props.groupId] ?? leader()?.id ?? ''
   const displayWindow = () =>
     groupWindows().find((w) => w.id === activeTabId()) ?? leader() ?? groupWindows()[0]
@@ -53,7 +54,7 @@ export function TaskbarGroupRow(props: {
     const isDir = d.type === 'browser'
     return path ? `${isDir ? 'Folder' : 'File'}: ${path}` : getWorkspaceWindowTitle(d)
   }
-  const isActive = () => groupWindows().some((w) => w.id === activeWindowId())
+  const isActive = () => groupWindows().some((w) => w.id === props.activeWindowId())
 
   const onSelect = () => {
     const g = groupWindows()
@@ -73,13 +74,17 @@ export function TaskbarGroupRow(props: {
     <Show when={leader() && displayWindow()}>
       <div
         data-taskbar-window-row
-        class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border bg-muted/50 px-2 text-muted-foreground ${
-          isActive() ? 'bg-muted text-foreground' : ''
+        data-taskbar-active={isActive() ? '' : undefined}
+        class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border px-2 ${
+          isActive()
+            ? 'border-b-2 border-b-primary bg-muted text-foreground'
+            : 'border-b-2 border-b-transparent bg-muted/50 text-muted-foreground'
         }`}
       >
         <button
           type='button'
           title={tooltip()}
+          aria-current={isActive() ? 'true' : undefined}
           onMouseDown={(e) => {
             if (e.button === 0) {
               props.taskbarMouseHandled.current = true
