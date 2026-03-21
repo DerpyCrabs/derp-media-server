@@ -1,13 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
-
-async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
-}
-
-function getWindowGroups(page: Page) {
-  return page.locator('[data-window-group]')
-}
+import {
+  getWindowGroups,
+  gotoWorkspace,
+  WORKSPACE_VISIBLE_WINDOW_GROUP,
+} from './workspace-layout-helpers'
 
 function getBrowserContent(page: Page) {
   return getWindowGroups(page).first().locator('.workspace-window-content')
@@ -374,7 +370,7 @@ test.describe('Workspace Text Viewer', () => {
     await textarea.fill('# Updated Todo\n\n- Brand new item\n')
 
     const viewerWindow = page
-      .locator('[data-window-group]')
+      .locator(WORKSPACE_VISIBLE_WINDOW_GROUP)
       .filter({ has: page.locator('.workspace-window-content').locator('textarea') })
       .first()
     await Promise.all([
@@ -393,7 +389,7 @@ test.describe('Workspace Text Viewer', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
 
     const newViewer = page
-      .locator('[data-window-group]')
+      .locator(WORKSPACE_VISIBLE_WINDOW_GROUP)
       .filter({ has: page.locator('.workspace-window-content textarea') })
       .first()
       .locator('.workspace-window-content')

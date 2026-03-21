@@ -1,13 +1,5 @@
-import { test, expect, type Page, type Locator } from '@playwright/test'
-
-async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
-}
-
-function getWindowGroups(page: Page) {
-  return page.locator('[data-window-group]')
-}
+import { test, expect, type Locator } from '@playwright/test'
+import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
 
 function getVisibleContent(group: Locator) {
   return group.locator('[data-testid="workspace-window-visible-content"]')

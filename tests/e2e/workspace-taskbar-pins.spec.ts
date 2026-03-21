@@ -11,6 +11,7 @@ import {
   navigateToSharedContent,
   openBrowserWindow,
 } from '../e2e/workspace-cross-dnd-helpers'
+import { WORKSPACE_VISIBLE_WINDOW_GROUP } from './workspace-layout-helpers'
 
 async function createShare(page: Page, body: Record<string, unknown>) {
   const res = await page.request.post('/api/shares', { data: body })
@@ -32,7 +33,7 @@ function toShareWorkspaceUrl(shareUrl: string) {
 
 async function gotoWorkspace(page: Page) {
   await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
+  await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
 }
 
 function getBrowserContent(page: Page) {
@@ -151,7 +152,7 @@ test.describe('Workspace taskbar pins', () => {
     await savePinned
 
     await page.reload()
-    await expect(page.locator('[data-window-group]')).toBeVisible()
+    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
     await expect(page.locator('[title="Folder: Documents"]')).toBeVisible()
   })
 
@@ -161,7 +162,7 @@ test.describe('Workspace taskbar pins', () => {
       isDirectory: true,
     })
     await page.goto(toShareWorkspaceUrl(shareUrl))
-    await expect(page.locator('[data-window-group]')).toBeVisible()
+    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
 
     const content = getBrowserContent(page)
     await expect(content.getByText('subfolder', { exact: true })).toBeVisible()
@@ -180,7 +181,7 @@ test.describe('Workspace taskbar pins', () => {
     await savePinned
 
     await page.reload()
-    await expect(page.locator('[data-window-group]')).toBeVisible()
+    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
     await expect(page.locator('[title="Folder: SharedContent/subfolder"]')).toBeVisible()
   })
 

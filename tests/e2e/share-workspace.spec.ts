@@ -67,7 +67,7 @@ function expectNoAdminShareLeaks(requests: string[]) {
 }
 
 function getWindowGroups(page: Page) {
-  return page.locator('[data-window-group]')
+  return page.locator('[data-window-group]:not([data-workspace-window-minimized])')
 }
 
 function getBrowserContent(page: Page) {
@@ -84,7 +84,9 @@ async function chooseWorkspaceOpenTarget(page: Page, label: 'New tab' | 'New win
 
 async function gotoShareWorkspace(page: Page, url: string) {
   await page.goto(url)
-  await expect(page.locator('[data-window-group]')).toBeVisible()
+  await expect(
+    page.locator('[data-window-group]:not([data-workspace-window-minimized])'),
+  ).toBeVisible()
 }
 
 test.describe('Share Workspace', () => {
@@ -352,7 +354,9 @@ test.describe('Share Workspace', () => {
     await expect(content.locator('.aspect-video').first()).toBeVisible()
 
     await page.reload()
-    await expect(page.locator('[data-window-group]')).toBeVisible()
+    await expect(
+      page.locator('[data-window-group]:not([data-workspace-window-minimized])'),
+    ).toBeVisible()
     const contentAfter = getBrowserContent(page)
     await expect(contentAfter.getByText('public-doc.txt')).toBeVisible()
     await expect(contentAfter.locator('.aspect-video').first()).toBeVisible()

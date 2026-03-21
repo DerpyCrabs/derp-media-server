@@ -2,19 +2,21 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 const TASKBAR_HEIGHT = 32
 
+const WORKSPACE_VISIBLE_WINDOW_GROUP = '[data-window-group]:not([data-workspace-window-minimized])'
+
 export async function gotoWorkspace(page: Page) {
   await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
+  await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
 }
 
 export async function openBrowserWindow(page: Page) {
-  const countBefore = await page.locator('[data-window-group]').count()
+  const countBefore = await page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).count()
   await page.locator('button[title="Open browser window"]').click()
-  await expect(page.locator('[data-window-group]')).toHaveCount(countBefore + 1)
+  await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)).toHaveCount(countBefore + 1)
 }
 
 export function getWindowGroups(page: Page) {
-  return page.locator('[data-window-group]')
+  return page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)
 }
 
 export function getVisibleContent(windowGroup: Locator) {

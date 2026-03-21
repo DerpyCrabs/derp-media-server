@@ -8,6 +8,7 @@ import {
   getWindowBounds,
   waitForWindowBoundsStable,
   dragFromTo,
+  WORKSPACE_VISIBLE_WINDOW_GROUP,
 } from '../e2e/workspace-layout-helpers'
 
 function getVisibleContent(windowGroup: Locator) {
@@ -699,7 +700,7 @@ test.describe('Player Window Reuse', () => {
     await expect(content.getByText('sample.mp4')).toBeVisible()
     await content.getByText('sample.mp4').click()
 
-    const videos = page.locator('[data-window-group] video')
+    const videos = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
     await expect(videos).toHaveCount(1)
   })
 
@@ -712,14 +713,14 @@ test.describe('Player Window Reuse', () => {
     await expect(content.getByText('sample.mp4')).toBeVisible()
     await content.getByText('sample.mp4').click()
 
-    const videos = page.locator('[data-window-group] video')
+    const videos = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
     await expect(videos).toHaveCount(1)
     const windowCountAfterFirst = await getWindowGroups(page).count()
 
     const browserContent = getVisibleContent(groups.first())
     await browserContent.getByText('sample.mp4').click({ force: true })
 
-    await expect(page.locator('[data-window-group] video')).toHaveCount(1)
+    await expect(page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)).toHaveCount(1)
     const windowCountAfterSecond = await getWindowGroups(page).count()
     expect(windowCountAfterSecond).toBe(windowCountAfterFirst)
   })

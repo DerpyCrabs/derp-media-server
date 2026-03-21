@@ -10,6 +10,7 @@ import {
   waitForWindowBoundsStable,
   dragFromTo,
   dragToEdge,
+  WORKSPACE_VISIBLE_WINDOW_GROUP,
 } from '../e2e/workspace-layout-helpers'
 
 test.describe('Tiling Layout Picker', () => {
@@ -499,7 +500,7 @@ test.describe('State Persistence', () => {
     await page.waitForLoadState('domcontentloaded')
     await expect(getWindowGroups(page).first()).toBeVisible()
 
-    const reloadedVideo = page.locator('[data-window-group] video')
+    const reloadedVideo = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
     await expect(reloadedVideo).toHaveCount(0)
   })
 })
