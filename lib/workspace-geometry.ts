@@ -319,6 +319,72 @@ export function snapZoneToBoundsWithOccupied(
   return { x, y, width, height }
 }
 
+function layoutGroupKey(w: WorkspaceWindowDefinition): string {
+  return w.tabGroupId ?? w.id
+}
+
+/**
+ * Recompute pixel bounds from `snapZone` for every snapped window group.
+ * Named layout presets and localStorage often keep stale bounds (different viewport, old clamping);
+ * without this, tiles look fine but shared-edge resize can miss neighbors.
+ */
+export function reconcileLayoutBoundsFromSnapZones(
+  windows: WorkspaceWindowDefinition[],
+): WorkspaceWindowDefinition[] {
+  if (windows.length === 0) return windows
+
+  const repByGroup = new Map<string, WorkspaceWindowDefinition>()
+  for (const w of windows) {
+    const g = layoutGroupKey(w)
+    if (!repByGroup.has(g)) repByGroup.set(g, w)
+  }
+
+  const snappedReps = [...repByGroup.values()].filter(
+    (w) => w.layout?.snapZone && !w.layout.fullscreen && !w.layout.minimized,
+  )
+  if (snappedReps.length === 0) return windows
+
+  const sorted = [...snappedReps].sort((a, b) => {
+    const za = a.layout!.snapZone!
+    const zb = b.layout!.snapZone!
+    const aa = snapZoneToBounds(za)
+    const bb = snapZoneToBounds(zb)
+    if (aa.x !== bb.x) return aa.x - bb.x
+    if (aa.y !== bb.y) return aa.y - bb.y
+    const areaA = aa.width * aa.height
+    const areaB = bb.width * bb.height
+    if (areaA !== areaB) return areaB - areaA
+    return za.localeCompare(zb)
+  })
+
+  const occupied: {
+    bounds: NonNullable<WorkspaceWindowLayout['bounds']>
+    snapZone: SnapZone
+  }[] = []
+  const boundsByGroup = new Map<string, NonNullable<WorkspaceWindowLayout['bounds']>>()
+
+  for (const w of sorted) {
+    const zone = w.layout!.snapZone!
+    const b = snapZoneToBoundsWithOccupied(zone, occupied)
+    boundsByGroup.set(layoutGroupKey(w), b)
+    occupied.push({ bounds: b, snapZone: zone })
+  }
+
+  return windows.map((w) => {
+    const lz = w.layout
+    if (!lz?.snapZone || lz.fullscreen || lz.minimized) return w
+    const b = boundsByGroup.get(layoutGroupKey(w))
+    if (!b) return w
+    return {
+      ...w,
+      layout: {
+        ...lz,
+        bounds: b,
+      },
+    }
+  })
+}
+
 export function getPlaybackTitle(path: string | undefined) {
   if (!path) return 'Video Player'
 

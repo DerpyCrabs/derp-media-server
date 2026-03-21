@@ -22,6 +22,26 @@ export function getRndWrapper(windowGroup: Locator) {
   return windowGroup.locator('..')
 }
 
+/** Rightmost vertical resize handle (shared column edge), not the outer screen edge. */
+export async function getSharedColumnResizeHandle(windowGroup: Locator): Promise<Locator> {
+  const rnd = getRndWrapper(windowGroup)
+  const handles = rnd.locator('div[style*="col-resize"]')
+  const count = await handles.count()
+  if (count === 0) throw new Error('No col-resize handle on window')
+  let bestIdx = 0
+  let bestCx = -Infinity
+  for (let i = 0; i < count; i++) {
+    const box = await handles.nth(i).boundingBox()
+    if (!box) continue
+    const cx = box.x + box.width / 2
+    if (cx > bestCx) {
+      bestCx = cx
+      bestIdx = i
+    }
+  }
+  return handles.nth(bestIdx)
+}
+
 export function getDragHandle(windowGroup: Locator) {
   return windowGroup.locator('[data-testid="window-drag-handle"]')
 }
