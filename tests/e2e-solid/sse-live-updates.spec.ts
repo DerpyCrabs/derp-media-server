@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { test, expect, Page, BrowserContext } from '@playwright/test'
 import path from 'path'
 
@@ -22,7 +23,6 @@ async function createShare(
 }
 
 async function gotoWithSSE(page: Page, url: string) {
-  // SSE responses stay open; waitForRequest matches once the stream is opened (unlike waitForResponse).
   const expectShareStream = url.includes('/share/')
   const streamRequest = page.waitForRequest(
     (r) => {
@@ -66,8 +66,24 @@ async function renameFile(page: Page, oldPath: string, newPath: string) {
   })
 }
 
+async function fillCreateFileDialog(page: Page, baseName: string) {
+  await page.locator('button[title="Create new file"]').click()
+  const nameInput = page.locator(
+    'input[placeholder="filename.txt"], input[placeholder*="File name"]',
+  )
+  await expect(nameInput).toBeVisible()
+  await nameInput.fill(baseName)
+  await page.getByRole('dialog').getByRole('button', { name: 'Create', exact: true }).click()
+}
+
 test.describe('SSE Live Updates', () => {
   test('admin renames file in shared folder -> share view updates', async ({ browser }) => {
+    const id = randomUUID().slice(0, 10)
+    const startName = `sse-rename-${id}.txt`
+    const endName = `sse-renamed-${id}.txt`
+    const startPath = `SharedContent/${startName}`
+    const endPath = `SharedContent/${endName}`
+
     const adminCtx = await createAdminContext(browser)
     const adminPage = await adminCtx.newPage()
 
@@ -76,23 +92,19 @@ test.describe('SSE Live Updates', () => {
       isDirectory: true,
     })
 
-    await createFile(adminPage, 'SharedContent/sse-rename-target.txt')
+    await createFile(adminPage, startPath)
 
     const shareCtx = await browser.newContext()
     const sharePage = await shareCtx.newPage()
     await gotoWithSSE(sharePage, shareUrl)
-    await expect(sharePage.getByText('sse-rename-target.txt')).toBeVisible()
+    await expect(sharePage.getByText(startName)).toBeVisible()
 
-    await renameFile(
-      adminPage,
-      'SharedContent/sse-rename-target.txt',
-      'SharedContent/sse-renamed-result.txt',
-    )
+    await renameFile(adminPage, startPath, endPath)
 
-    await expect(sharePage.getByText('sse-renamed-result.txt')).toBeVisible()
-    await expect(sharePage.getByText('sse-rename-target.txt')).not.toBeVisible()
+    await expect(sharePage.getByText(endName)).toBeVisible()
+    await expect(sharePage.getByText(startName)).not.toBeVisible()
 
-    await deleteFile(adminPage, 'SharedContent/sse-renamed-result.txt')
+    await deleteFile(adminPage, endPath)
     await deleteShare(adminPage, token)
     await sharePage.close()
     await shareCtx.close()
@@ -101,6 +113,10 @@ test.describe('SSE Live Updates', () => {
   })
 
   test('admin changes are seen by another admin user', async ({ browser }) => {
+    const id = randomUUID().slice(0, 10)
+    const fileName = `sse-admin-sync-${id}.txt`
+    const filePath = `SharedContent/${fileName}`
+
     const ctx1 = await createAdminContext(browser)
     const admin1 = await ctx1.newPage()
     const ctx2 = await createAdminContext(browser)
@@ -111,13 +127,13 @@ test.describe('SSE Live Updates', () => {
     await gotoWithSSE(admin2, '/?dir=SharedContent')
     await expect(admin2.locator('table')).toBeVisible()
 
-    await createFile(admin1, 'SharedContent/sse-admin-sync.txt', 'synced')
-    await expect(admin1.locator('table').getByText('sse-admin-sync.txt')).toBeVisible()
+    await createFile(admin1, filePath, 'synced')
+    await expect(admin1.locator('table').getByText(fileName)).toBeVisible()
 
-    await expect(admin2.locator('table').getByText('sse-admin-sync.txt')).toBeVisible()
+    await expect(admin2.locator('table').getByText(fileName)).toBeVisible()
 
-    await deleteFile(admin1, 'SharedContent/sse-admin-sync.txt')
-    await expect(admin2.locator('table').getByText('sse-admin-sync.txt')).not.toBeVisible()
+    await deleteFile(admin1, filePath)
+    await expect(admin2.locator('table').getByText(fileName)).not.toBeVisible()
 
     await admin1.close()
     await ctx1.close()
@@ -126,6 +142,10 @@ test.describe('SSE Live Updates', () => {
   })
 
   test('editable share changes are seen by admin user', async ({ browser }) => {
+    const id = randomUUID().slice(0, 10)
+    const fileName = `sse-share-to-admin-${id}.txt`
+    const filePath = `SharedContent/${fileName}`
+
     const adminCtx = await createAdminContext(browser)
     const adminPage = await adminCtx.newPage()
 
@@ -144,16 +164,12 @@ test.describe('SSE Live Updates', () => {
     await sharePage.goto(shareUrl)
     await expect(sharePage.locator('table')).toBeVisible()
 
-    await sharePage.locator('button[title="Create new file"]').click()
-    const nameInput = sharePage.locator('[role="dialog"]').getByRole('textbox')
-    await nameInput.clear()
-    await nameInput.fill('sse-share-to-admin.txt')
-    await sharePage.getByRole('button', { name: 'Create', exact: true }).click()
-    await expect(sharePage.locator('table').getByText('sse-share-to-admin.txt')).toBeVisible()
+    await fillCreateFileDialog(sharePage, fileName.replace(/\.txt$/, ''))
+    await expect(sharePage.locator('table').getByText(fileName)).toBeVisible()
 
-    await expect(adminPage.locator('table').getByText('sse-share-to-admin.txt')).toBeVisible()
+    await expect(adminPage.locator('table').getByText(fileName)).toBeVisible()
 
-    await deleteFile(adminPage, 'SharedContent/sse-share-to-admin.txt')
+    await deleteFile(adminPage, filePath)
     await deleteShare(adminPage, token)
     await sharePage.close()
     await shareCtx.close()
@@ -162,6 +178,9 @@ test.describe('SSE Live Updates', () => {
   })
 
   test('editable share changes are seen by another share user', async ({ browser }) => {
+    const id = randomUUID().slice(0, 10)
+    const fileName = `sse-share-to-share-${id}.txt`
+
     const adminCtx = await createAdminContext(browser)
     const adminPage = await adminCtx.newPage()
 
@@ -182,24 +201,19 @@ test.describe('SSE Live Updates', () => {
     await gotoWithSSE(share2, shareUrl)
     await expect(share2.locator('table')).toBeVisible()
 
-    await share1.locator('button[title="Create new file"]').click()
-    const nameInput = share1.locator('[role="dialog"]').getByRole('textbox')
-    await nameInput.clear()
-    await nameInput.fill('sse-share-to-share.txt')
-    await share1.getByRole('button', { name: 'Create', exact: true }).click()
-    await expect(share1.locator('table').getByText('sse-share-to-share.txt')).toBeVisible()
+    await fillCreateFileDialog(share1, fileName.replace(/\.txt$/, ''))
+    await expect(share1.locator('table').getByText(fileName)).toBeVisible()
     await expect(share1.locator('[role="dialog"]')).not.toBeVisible()
 
-    await expect(share2.locator('table').getByText('sse-share-to-share.txt')).toBeVisible()
+    await expect(share2.locator('table').getByText(fileName)).toBeVisible()
 
-    await share1
-      .locator('table tr')
-      .filter({ hasText: 'sse-share-to-share.txt' })
-      .click({ button: 'right' })
+    await share1.locator('table tr').filter({ hasText: fileName }).click({ button: 'right' })
     await share1.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-    await share1.getByRole('button', { name: /Delete/i }).click()
+    const deleteConfirm = share1.getByRole('alertdialog')
+    await expect(deleteConfirm).toBeVisible()
+    await deleteConfirm.getByRole('button', { name: /Delete/i }).click()
 
-    await expect(share2.locator('table').getByText('sse-share-to-share.txt')).not.toBeVisible()
+    await expect(share2.locator('table').getByText(fileName)).not.toBeVisible()
 
     await deleteShare(adminPage, token)
     await share1.close()

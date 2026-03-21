@@ -401,6 +401,15 @@ export function ShareDialog(props: ShareDialogProps) {
     }
   })
 
+  createEffect(() => {
+    if (!props.isOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') props.onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    onCleanup(() => document.removeEventListener('keydown', onKeyDown))
+  })
+
   const createShareMutation = useMutation(() => ({
     mutationFn: (vars: {
       path: string

@@ -1,65 +1,12 @@
 import { useState, useRef, useCallback } from 'react'
 import { Upload } from 'lucide-react'
+import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 
 interface UploadDropZoneProps {
   enabled: boolean
   onUpload: (files: File[]) => void
   children: React.ReactNode
   className?: string
-}
-
-async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
-  const entries: FileSystemEntry[] = []
-  let batch: FileSystemEntry[]
-  /* eslint-disable no-await-in-loop -- readEntries yields batches until empty */
-  do {
-    batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
-      reader.readEntries(resolve, reject)
-    })
-    entries.push(...batch)
-  } while (batch.length > 0)
-  return entries
-}
-
-async function readEntry(entry: FileSystemEntry, basePath: string, files: File[]): Promise<void> {
-  if (entry.isFile) {
-    const fileEntry = entry as FileSystemFileEntry
-    const file = await new Promise<File>((resolve, reject) => {
-      fileEntry.file(resolve, reject)
-    })
-    const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name
-    files.push(new File([file], relativePath, { type: file.type, lastModified: file.lastModified }))
-  } else if (entry.isDirectory) {
-    const dirEntry = entry as FileSystemDirectoryEntry
-    const reader = dirEntry.createReader()
-    const entries = await readAllEntries(reader)
-    const dirPath = basePath ? `${basePath}/${entry.name}` : entry.name
-    await Promise.all(entries.map((child) => readEntry(child, dirPath, files)))
-  }
-}
-
-async function collectDroppedFiles(dataTransfer: DataTransfer): Promise<File[]> {
-  const files: File[] = []
-  const items = dataTransfer.items
-
-  if (items) {
-    const entries: FileSystemEntry[] = []
-    for (let i = 0; i < items.length; i++) {
-      const entry = items[i].webkitGetAsEntry?.()
-      if (entry) entries.push(entry)
-    }
-
-    if (entries.length > 0) {
-      await Promise.all(entries.map((ent) => readEntry(ent, '', files)))
-      return files
-    }
-  }
-
-  // Fallback: plain file list (no folder support)
-  for (let i = 0; i < dataTransfer.files.length; i++) {
-    files.push(dataTransfer.files[i])
-  }
-  return files
 }
 
 export function UploadDropZone({ enabled, onUpload, children, className }: UploadDropZoneProps) {
@@ -110,7 +57,7 @@ export function UploadDropZone({ enabled, onUpload, children, className }: Uploa
 
       if (!enabled || e.dataTransfer.files.length === 0) return
 
-      const files = await collectDroppedFiles(e.dataTransfer)
+      const files = await collectDroppedUploadFiles(e.dataTransfer)
       if (files.length > 0) {
         onUpload(files)
       }
@@ -120,6 +67,7 @@ export function UploadDropZone({ enabled, onUpload, children, className }: Uploa
 
   return (
     <div
+      data-testid='upload-drop-zone'
       className={`relative ${className || ''}`}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}

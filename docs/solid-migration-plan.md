@@ -2,6 +2,11 @@
 
 Continue the React → Solid port by **copying Playwright specs** from [`tests/e2e/`](../tests/e2e) into [`tests/e2e-solid/`](../tests/e2e-solid), then implementing the minimum Solid UI until each suite passes. Expand [`tests/run-batches-solid.ts`](../tests/run-batches-solid.ts) as coverage grows.
 
+## E2E parity tooling
+
+- **Spec diff:** `bun run e2e:diff-specs` — lists React-only vs Solid-only Playwright basenames (exit 1 if a React spec has no Solid twin).
+- **Gap checklist:** [e2e-gap-matrix.md](e2e-gap-matrix.md) — affordance coverage matrix; update as you add tests.
+
 ## Strategy
 
 1. **Copy** `tests/e2e/<name>.spec.ts` → `tests/e2e-solid/<_name>.spec.ts`.

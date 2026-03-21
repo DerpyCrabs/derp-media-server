@@ -6,6 +6,7 @@ import {
 } from '@/lib/file-drag-data'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import type { GlobalSettings } from '@/lib/use-settings'
+import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
@@ -19,6 +20,7 @@ import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
 import Star from 'lucide-solid/icons/star'
+import Upload from 'lucide-solid/icons/upload'
 import {
   createEffect,
   createMemo,
@@ -203,6 +205,8 @@ export function FileBrowser() {
   const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
   const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
   const [enableDrag, setEnableDrag] = createSignal(false)
+  let externalUploadDragDepth = 0
+  const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
@@ -516,6 +520,46 @@ export function FileBrowser() {
     }
   }
 
+  function isOsFileUploadDrag(e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    return !!(dtr && dtr.types.includes('Files') && !hasFileDragData(dtr))
+  }
+
+  function onExternalUploadDragEnter(e: globalThis.DragEvent) {
+    if (!isEditable() || !isOsFileUploadDrag(e)) return
+    e.preventDefault()
+    externalUploadDragDepth++
+    if (externalUploadDragDepth === 1) setExternalUploadDragOver(true)
+  }
+
+  function onExternalUploadDragLeave(e: globalThis.DragEvent) {
+    if (!isEditable()) return
+    e.preventDefault()
+    externalUploadDragDepth--
+    if (externalUploadDragDepth <= 0) {
+      externalUploadDragDepth = 0
+      setExternalUploadDragOver(false)
+    }
+  }
+
+  function onExternalUploadDragOver(e: globalThis.DragEvent) {
+    if (!isEditable() || !isOsFileUploadDrag(e)) return
+    e.preventDefault()
+    const dtr = e.dataTransfer
+    if (dtr) dtr.dropEffect = 'copy'
+  }
+
+  async function onExternalUploadDrop(e: globalThis.DragEvent) {
+    e.preventDefault()
+    externalUploadDragDepth = 0
+    setExternalUploadDragOver(false)
+    if (!isEditable()) return
+    const dtr = e.dataTransfer
+    if (!dtr || dtr.files.length === 0) return
+    const files = await collectDroppedUploadFiles(dtr)
+    if (files.length > 0) void uploadFilesToServer(files, currentPath())
+  }
+
   function handleParentDirectory() {
     if (isVirtualFolder()) {
       navigateToFolder(null)
@@ -775,7 +819,14 @@ export function FileBrowser() {
               </div>
             </div>
 
-            <div class='flex flex-col min-h-0 flex-1 overflow-hidden'>
+            <div
+              class='relative flex flex-col min-h-0 flex-1 overflow-hidden'
+              data-testid='upload-drop-zone'
+              onDragEnter={onExternalUploadDragEnter}
+              onDragLeave={onExternalUploadDragLeave}
+              onDragOver={onExternalUploadDragOver}
+              onDrop={(e) => void onExternalUploadDrop(e)}
+            >
               <Show when={filesQuery.isError}>
                 <div class='p-4'>
                   <p class='text-destructive text-sm'>Failed to load files.</p>
@@ -1019,6 +1070,14 @@ export function FileBrowser() {
                   currentPath={currentPath()}
                   onResultClick={handleKbResultClick}
                 />
+              </Show>
+              <Show when={externalUploadDragOver()}>
+                <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>
+                  <div class='text-primary flex flex-col items-center gap-2'>
+                    <Upload class='h-10 w-10' stroke-width={2} />
+                    <span class='text-lg font-medium'>Drop files to upload</span>
+                  </div>
+                </div>
               </Show>
             </div>
           </div>

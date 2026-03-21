@@ -3,41 +3,47 @@ import fs from 'fs'
 import path from 'path'
 
 /**
- * Same six batch IDs / parallelism as React (`run-batches.ts`), only specs that exist under
- * `tests/e2e-solid/`.
+ * Same six batch IDs / parallelism as React (`run-batches.ts`), specs under `tests/e2e-solid/`,
+ * plus `smoke` in batch 1.
  */
 const BATCHES = [
-  { id: '1', tests: ['smoke'] },
-  { id: '2', tests: ['navigation', 'upload'] },
+  {
+    id: '1',
+    tests: ['smoke', 'workspace-layout-snap-resize', 'workspace-layout-chrome'],
+  },
+  {
+    id: '2',
+    tests: ['workspace-controls', 'navigation', 'upload', 'file-browser-misc'],
+  },
   {
     id: '3',
     tests: [
-      'download',
-      'workspace-layout-sessions',
-      'workspace-layout-snap-resize',
-      'workspace-layout-chrome',
-      'workspace-controls',
-      'workspace-taskbar-pins',
-      'workspace-cross-dnd',
       'workspace-viewers',
+      'workspace-cross-dnd',
+      'workspace-taskbar-pins',
+      'workspace-layout-sessions',
     ],
   },
-  { id: '4', tests: ['url-state', 'login'] },
-  { id: '5', tests: ['audio-player', 'video-player', 'share-audio-api'] },
+  {
+    id: '4',
+    tests: ['editable-folders', 'share-security', 'url-state', 'login', 'share-workspace'],
+  },
+  {
+    id: '5',
+    tests: ['audio-player', 'shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates'],
+  },
   {
     id: '6',
     tests: [
+      'video-player',
       'image-viewer',
+      'pdf-viewer',
+      'download',
       'text-editor',
       'knowledge-base',
-      'shares-manage',
-      'shares-use',
-      'share-viewers',
-      'share-workspace',
-      'passcode-shares',
-      'share-security',
-      'sse-live-updates',
       'drag-drop',
+      'passcode-shares',
+      'share-viewers',
     ],
   },
 ]
