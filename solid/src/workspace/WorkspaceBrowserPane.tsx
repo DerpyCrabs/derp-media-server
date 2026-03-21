@@ -36,7 +36,8 @@ import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
-import { fileIcon, gridHeroIcon } from '../lib/use-file-icon'
+import type { FileIconContext } from '../lib/use-file-icon'
+import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
 
 export type WorkspaceShareConfig = { token: string; sharePath: string }
 
@@ -44,6 +45,7 @@ type Props = {
   windowId: string
   workspace: Accessor<PersistedWorkspaceState | null>
   sharePanel: Accessor<WorkspaceShareConfig | null>
+  fileIconContext: () => FileIconContext
   /** Share workspace: show create file/folder when upload is allowed (matches React ShareFileBrowser). */
   shareAllowUpload?: boolean
   editableFolders: string[]
@@ -196,6 +198,14 @@ export function WorkspaceBrowserPane(props: Props) {
     staleTime: Infinity,
     enabled: !share(),
   }))
+
+  const knowledgeBases = createMemo(() =>
+    share() ? [] : (settingsQuery.data?.knowledgeBases ?? []),
+  )
+
+  function isRowKnowledgeBase(file: FileItem) {
+    return file.isDirectory && knowledgeBases().includes(file.path.replace(/\\/g, '/'))
+  }
 
   const viewMode = createMemo(() => {
     if (share()) return 'list' as const
@@ -546,7 +556,12 @@ export function WorkspaceBrowserPane(props: Props) {
                     tabindex={0}
                   >
                     <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-                      <div class='text-muted-foreground'>{gridHeroIcon(file)}</div>
+                      <div
+                        class='text-muted-foreground'
+                        {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
+                      >
+                        {gridHeroIcon(file, props.fileIconContext())}
+                      </div>
                     </div>
                     <div class='flex flex-col gap-1 p-3'>
                       <p class='truncate text-sm font-medium' title={file.name}>
@@ -625,8 +640,13 @@ export function WorkspaceBrowserPane(props: Props) {
                               : undefined
                           }
                         >
-                          <td class='w-12 p-2 align-middle'>
-                            <div class='flex items-center justify-center'>{fileIcon(file)}</div>
+                          <td
+                            class='w-12 p-2 align-middle'
+                            {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
+                          >
+                            <div class='flex items-center justify-center'>
+                              {fileItemIcon(file, props.fileIconContext())}
+                            </div>
                           </td>
                           <td class='p-2 align-middle font-medium'>
                             <span class='truncate'>{file.name}</span>

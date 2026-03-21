@@ -238,7 +238,10 @@ export const FileListFileRow = memo(function FileListFileRow({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <TableCell className='w-12'>
+      <TableCell
+        className='w-12'
+        {...(isKnowledgeBase && file.isDirectory ? { 'data-kb-root-icon': '' } : {})}
+      >
         <div className='flex items-center justify-center'>
           {getIcon(
             file.type,

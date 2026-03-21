@@ -324,6 +324,7 @@ const FileGridFileCard = memo(function FileGridFileCard({
             className={`fallback-icon ${
               file.type === MediaType.VIDEO || file.type === MediaType.IMAGE ? 'hidden' : ''
             }`}
+            {...(isKnowledgeBase && file.isDirectory ? { 'data-kb-root-icon': '' } : {})}
           >
             <div className='scale-[2.5]'>
               {getIcon(

@@ -233,6 +233,7 @@ function FileBrowserInner({
 
   const { getIcon } = useFileIcon({
     customIcons,
+    knowledgeBases,
     playingPath,
     currentFile,
     mediaPlayerIsPlaying,

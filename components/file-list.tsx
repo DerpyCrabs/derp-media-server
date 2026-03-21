@@ -221,6 +221,7 @@ function FileListInner({
   // Use file icon hook
   const { getIcon } = useFileIcon({
     customIcons,
+    knowledgeBases,
     playingPath,
     currentFile,
     mediaPlayerIsPlaying,

@@ -35,6 +35,8 @@ import {
   Show,
   Switch,
 } from 'solid-js'
+import type { FileIconContext } from './lib/use-file-icon'
+import { fileItemIcon, gridHeroIcon } from './lib/use-file-icon'
 import { useBrowserHistory } from './browser-history'
 import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { CreateFileDialog } from './file-browser/CreateFileDialog'
@@ -56,7 +58,6 @@ import { UploadToastStack } from './file-browser/UploadToastStack'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
-import { fileIcon, gridHeroIcon } from './lib/use-file-icon'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { playFile, viewFile } from './lib/url-state-actions'
 
@@ -127,6 +128,30 @@ export function FileBrowser() {
   const inKb = createMemo(() => kbRootPath() !== null)
   const customIcons = createMemo(() => settingsQuery.data?.customIcons ?? {})
   const hasEditableFolders = createMemo(() => editableFolders().length > 0)
+
+  const playingFromUrl = createMemo(() => {
+    const sp = new URLSearchParams(history().search)
+    return sp.get('playing')
+  })
+
+  const [mediaPlayerTick, setMediaPlayerTick] = createSignal(0)
+  onMount(() => {
+    const unsub = useMediaPlayer.subscribe(() => setMediaPlayerTick((n) => n + 1))
+    onCleanup(() => unsub())
+  })
+
+  const fileIconCtx = createMemo((): FileIconContext => {
+    void mediaPlayerTick()
+    const st = useMediaPlayer.getState()
+    return {
+      customIcons: customIcons(),
+      knowledgeBases: knowledgeBases(),
+      playingPath: playingFromUrl(),
+      currentFile: st.currentFile,
+      mediaPlayerIsPlaying: st.isPlaying,
+      mediaType: st.mediaType,
+    }
+  })
 
   const [searchQuery, setSearchQuery] = createSignal('')
   const [debouncedSearch, setDebouncedSearch] = createSignal('')
@@ -993,7 +1018,14 @@ export function FileBrowser() {
                                           />
                                         </button>
                                       </Show>
-                                      <div class='text-muted-foreground'>{gridHeroIcon(file)}</div>
+                                      <div
+                                        class='text-muted-foreground'
+                                        {...(isRowKnowledgeBase(file)
+                                          ? { 'data-kb-root-icon': '' }
+                                          : {})}
+                                      >
+                                        {gridHeroIcon(file, fileIconCtx())}
+                                      </div>
                                     </div>
                                     <div class='flex flex-col gap-1 p-3'>
                                       <p class='truncate text-sm font-medium' title={file.name}>
@@ -1092,9 +1124,14 @@ export function FileBrowser() {
                                             : undefined
                                         }
                                       >
-                                        <td class='w-12 p-2 align-middle'>
+                                        <td
+                                          class='w-12 p-2 align-middle'
+                                          {...(isRowKnowledgeBase(file)
+                                            ? { 'data-kb-root-icon': '' }
+                                            : {})}
+                                        >
                                           <div class='flex items-center justify-center'>
-                                            {fileIcon(file)}
+                                            {fileItemIcon(file, fileIconCtx())}
                                           </div>
                                         </td>
                                         <td class='p-2 align-middle font-medium'>

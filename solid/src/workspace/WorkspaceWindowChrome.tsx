@@ -1,5 +1,6 @@
 import type { FileDragData } from '@/lib/file-drag-data'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import type { FileIconContext } from '../lib/use-file-icon'
 import { createDefaultBounds } from '@/lib/workspace-geometry'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
@@ -25,6 +26,7 @@ export type WorkspaceWindowChromeProps = {
   tabWindows: Accessor<WorkspaceWindowDefinition[]>
   visibleTabId: Accessor<string>
   workspace: Accessor<PersistedWorkspaceState | null>
+  fileIconContext: () => FileIconContext
   isActive: boolean
   containerEl: Accessor<HTMLElement | undefined>
   onFocusWindow: (id: string) => void
@@ -279,6 +281,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                   groupId={props.groupId}
                   tab={props.tabWindows()[0]}
                   isWindowActive={props.isActive}
+                  fileIconContext={props.fileIconContext}
                   onDropFile={props.onDropFileToTabBar}
                 />
               }
@@ -288,6 +291,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                 tabs={props.tabWindows()}
                 visibleTabId={props.visibleTabId()}
                 isWindowActive={props.isActive}
+                fileIconContext={props.fileIconContext}
                 onSelectTab={(gid, tid) => props.onSelectTab?.(gid, tid)}
                 onFocusWindow={(tid) => props.onFocusWindow(tid)}
                 onCloseTab={(tid) => props.onCloseTab?.(tid)}

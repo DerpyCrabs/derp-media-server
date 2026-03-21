@@ -919,6 +919,7 @@ function WindowGroupInner({
   const { settings } = useSettings('', false)
   const { getIcon } = useFileIcon({
     customIcons: settings.customIcons,
+    knowledgeBases: settings.knowledgeBases ?? [],
     playingPath: playingPathForChrome,
     currentFile: currentMediaFile,
     mediaPlayerIsPlaying,

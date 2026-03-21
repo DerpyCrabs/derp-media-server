@@ -2,21 +2,10 @@ import type { FileDragData } from '@/lib/file-drag-data'
 import { getFileDragData, hasFileDragData } from '@/lib/file-drag-data'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
-import { MediaType } from '@/lib/types'
-import File from 'lucide-solid/icons/file'
-import Folder from 'lucide-solid/icons/folder'
-import Video from 'lucide-solid/icons/video'
+import type { FileIconContext } from '../lib/use-file-icon'
+import { workspaceTabIcon } from '../lib/use-file-icon'
 import X from 'lucide-solid/icons/x'
 import { For, Show, createSignal, onMount } from 'solid-js'
-
-function TabIcon(props: { tab: WorkspaceWindowDefinition }) {
-  const t = props.tab
-  if (t.type === 'player' || t.iconType === MediaType.VIDEO)
-    return <Video class='h-3.5 w-3.5' stroke-width={2} />
-  if (t.type === 'browser' || t.iconType === MediaType.FOLDER)
-    return <Folder class='h-3.5 w-3.5' stroke-width={2} />
-  return <File class='h-3.5 w-3.5' stroke-width={2} />
-}
 
 function TabStripDropSlot(props: {
   groupId: string
@@ -48,6 +37,7 @@ export type WorkspaceTabStripProps = {
   tabs: WorkspaceWindowDefinition[]
   visibleTabId: string
   isWindowActive: boolean
+  fileIconContext: () => FileIconContext
   onSelectTab: (groupId: string, tabId: string) => void
   onFocusWindow: (tabId: string) => void
   onCloseTab: (tabId: string) => void
@@ -222,7 +212,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                     props.isWindowActive ? 'text-foreground' : 'text-muted-foreground'
                   }`}
                 >
-                  <TabIcon tab={tab} />
+                  {workspaceTabIcon(tab, props.fileIconContext())}
                 </div>
                 <span
                   class={`min-w-0 truncate text-[11px] font-medium ${
@@ -277,6 +267,7 @@ export type WorkspaceSingleTabHeaderProps = {
   groupId: string
   tab: WorkspaceWindowDefinition
   isWindowActive: boolean
+  fileIconContext: () => FileIconContext
   onDropFile?: (data: FileDragData, insertIndex?: number) => void
 }
 
@@ -351,7 +342,7 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
             props.isWindowActive ? 'text-foreground' : 'text-muted-foreground'
           }`}
         >
-          <TabIcon tab={props.tab} />
+          {workspaceTabIcon(props.tab, props.fileIconContext())}
         </div>
         <div
           class={`min-w-0 truncate text-[11px] font-medium ${

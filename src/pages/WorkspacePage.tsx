@@ -732,6 +732,7 @@ export function WorkspacePage({
   const playingPathForIcons = useWorkspacePlaybackStore((s) => s.byKey[storageKey]?.playing ?? null)
   const { getIcon } = useFileIcon({
     customIcons: settings.customIcons,
+    knowledgeBases: settings.knowledgeBases ?? [],
     playingPath: playingPathForIcons,
     currentFile: currentMediaFile,
     mediaPlayerIsPlaying,
