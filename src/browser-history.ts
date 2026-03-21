@@ -8,7 +8,7 @@ function notify() {
 
 let patched = false
 
-export function patchHistory() {
+function patchHistory() {
   if (patched) return
   patched = true
   const origPush = history.pushState.bind(history)

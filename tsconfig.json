@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "types": ["bun-types", "vite/client"],
+    "types": ["bun", "vite/client"],
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,

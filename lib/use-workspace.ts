@@ -9,14 +9,6 @@ import {
 } from '@/lib/workspace-geometry'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 
-export {
-  SNAP_SIBLING_MAP,
-  getPlayerBoundsForAspectRatio,
-  snapZoneToBounds,
-  snapZoneToBoundsWithOccupied,
-} from '@/lib/workspace-geometry'
-export type { WorkspaceBounds } from '@/lib/workspace-geometry'
-
 export interface WorkspaceSource {
   kind: 'local' | 'share'
   rootPath?: string | null
@@ -176,18 +168,6 @@ function isValidSource(s: unknown): s is WorkspaceSource {
 
 function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
   return parseWorkspaceTaskbarPins([p]).length === 1
-}
-
-export function loadPinnedTaskbarItemsOnly(key: string = STORAGE_KEY): PinnedTaskbarItem[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as { pinnedTaskbarItems?: unknown }
-    return parseWorkspaceTaskbarPins(parsed.pinnedTaskbarItems)
-  } catch {
-    return []
-  }
 }
 
 export function workspaceSourceToMediaContext(

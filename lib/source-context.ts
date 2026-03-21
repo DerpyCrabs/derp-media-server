@@ -17,10 +17,6 @@ export function resolveSourceContext(
   return sourceOrToken ?? {}
 }
 
-export function hasShareSource(source: SourceContext): boolean {
-  return Boolean(source.shareToken && source.sharePath)
-}
-
 export function stripSharePrefix(filePath: string, sharePath: string | null | undefined): string {
   if (!sharePath) return filePath
   const norm = filePath.replace(/\\/g, '/')

@@ -68,7 +68,7 @@ function colorClass(mediaType: MediaType): string {
   }
 }
 
-export function renderFileIcon(
+function renderFileIcon(
   type: MediaType,
   filePath: string,
   isAudioFile: boolean,

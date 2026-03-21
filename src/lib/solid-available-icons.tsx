@@ -26,9 +26,9 @@ import Star from 'lucide-solid/icons/star'
 import Upload from 'lucide-solid/icons/upload'
 import Zap from 'lucide-solid/icons/zap'
 
-export type SolidIconEntry = { name: string; Icon: Component<{ class?: string; size?: number }> }
+type SolidIconEntry = { name: string; Icon: Component<{ class?: string; size?: number }> }
 
-/** Same icon names as `lib/icon-utils` AVAILABLE_ICONS (server stores these strings). */
+/** Curated names persisted server-side for custom folder icons. */
 export const SOLID_AVAILABLE_ICONS: SolidIconEntry[] = [
   { name: 'Heart', Icon: Heart },
   { name: 'Star', Icon: Star },

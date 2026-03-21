@@ -1,6 +1,5 @@
 import { getMediaType } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
-import type { NavigationState } from '@/lib/navigation-session'
 import type {
   SnapZone,
   WorkspaceSource,
@@ -206,7 +205,7 @@ const BOTTOM_SIDE_ZONES: SnapZone[] = [
   'bottom-right-third',
 ]
 
-export function snapZoneToBounds(zone: SnapZone): NonNullable<WorkspaceWindowLayout['bounds']> {
+function snapZoneToBounds(zone: SnapZone): NonNullable<WorkspaceWindowLayout['bounds']> {
   return snapZoneToBoundsWithOccupied(zone, [])
 }
 
@@ -398,41 +397,6 @@ export const PLAYER_WINDOW_ID = 'workspace-player-window'
 export function isVideoPath(path: string) {
   const extension = path.split('.').pop()?.toLowerCase() ?? ''
   return getMediaType(extension) === MediaType.VIDEO
-}
-
-export function getInitialWindowIcon(
-  type: WorkspaceWindowDefinition['type'],
-  initialState: Partial<NavigationState>,
-): Pick<WorkspaceWindowDefinition, 'iconPath' | 'iconType' | 'iconIsVirtual'> {
-  if (type === 'browser') {
-    return {
-      iconPath: initialState.dir ?? '',
-      iconType: MediaType.FOLDER,
-      iconIsVirtual: false,
-    }
-  }
-
-  if (type === 'player') {
-    return {
-      iconPath: initialState.playing ?? '',
-      iconType: MediaType.VIDEO,
-      iconIsVirtual: false,
-    }
-  }
-
-  if (type === 'viewer' && initialState.viewing) {
-    return {
-      iconPath: initialState.viewing,
-      iconType: getMediaType(initialState.viewing.split('.').pop() ?? ''),
-      iconIsVirtual: false,
-    }
-  }
-
-  return {
-    iconPath: '',
-    iconType: MediaType.OTHER,
-    iconIsVirtual: false,
-  }
 }
 
 export function insertWindowAtGroupIndex(

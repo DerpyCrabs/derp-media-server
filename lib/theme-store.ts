@@ -7,7 +7,7 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 const LEGACY_PALETTE = 'theme-palette'
 const LEGACY_MODE = 'theme-mode'
 
-export const THEME_PERSIST_KEY = 'app-theme'
+const THEME_PERSIST_KEY = 'app-theme'
 
 function isPalette(v: unknown): v is ThemePalette {
   return v === 'default' || v === 'caffeine' || v === 'cosmic-night'

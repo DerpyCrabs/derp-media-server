@@ -53,8 +53,6 @@ export function subscribeSystemPreference(cb: () => void) {
   return () => media.removeEventListener('change', handler)
 }
 
-export { getSystemPrefersDark }
-
 export function initThemeFromStorage(): ResolvedTheme {
   const { palette, mode } = readSyncedPaletteMode()
   const resolved = resolveTheme(palette, mode)

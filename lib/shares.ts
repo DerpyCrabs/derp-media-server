@@ -335,17 +335,6 @@ export async function getSharesAsFileItems(): Promise<FileItem[]> {
   return fileItems
 }
 
-export async function getSharesForPath(targetPath: string): Promise<ShareLink[]> {
-  const data = await readSharesRaw()
-  const normalized = targetPath.replace(/\\/g, '/')
-  return data.shares
-    .filter((s) => {
-      const sp = s.path.replace(/\\/g, '/')
-      return sp === normalized
-    })
-    .map(decryptSharePasscode)
-}
-
 /**
  * Validates that a sub-path is within the share's root directory.
  * Returns the full relative path (from mediaDir root) or null if invalid.
@@ -431,7 +420,7 @@ export function createShareSessionValue(token: string): {
   }
 }
 
-export function verifyShareSessionValue(token: string, value: string | undefined): boolean {
+function verifyShareSessionValue(token: string, value: string | undefined): boolean {
   if (!value) return false
   if (!verifyShareSignedCookie(value, token)) return false
   const dot = value.indexOf('.')
