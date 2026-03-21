@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 const PASSCODE_TOKEN = 'test-passcode-share-token1'
 
-test.describe('Login & Auth (Solid UI)', () => {
+test.describe('Login & Auth', () => {
   test('unauthenticated visit to / redirects to /login', async ({ page }) => {
     await page.goto('/')
     await expect(page).toHaveURL(/\/login/)

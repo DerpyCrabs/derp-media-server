@@ -354,8 +354,12 @@ test.describe('Window Z-Ordering and Focus', () => {
 
     const rndA = getRndWrapper(groups.first())
     const rndB = getRndWrapper(groups.nth(1))
-    const getZ = (el: HTMLElement) =>
-      parseInt((el.parentElement as HTMLElement)?.style?.zIndex || '0', 10)
+    const getZ = (el: HTMLElement) => {
+      const own = parseInt(el.style?.zIndex || '', 10)
+      if (!Number.isNaN(own) && own !== 0) return own
+      const p = el.parentElement as HTMLElement | null
+      return parseInt(p?.style?.zIndex || '0', 10) || 0
+    }
 
     const zB = await rndB.evaluate(getZ)
     const zA = await rndA.evaluate(getZ)
@@ -375,15 +379,19 @@ test.describe('Window Z-Ordering and Focus', () => {
 
     const rndA = getRndWrapper(groups.first())
     const rndB = getRndWrapper(groups.nth(1))
-    const getZ = (el: HTMLElement) =>
-      parseInt((el.parentElement as HTMLElement)?.style?.zIndex || '0', 10)
+    const getZ = (el: HTMLElement) => {
+      const own = parseInt(el.style?.zIndex || '', 10)
+      if (!Number.isNaN(own) && own !== 0) return own
+      const p = el.parentElement as HTMLElement | null
+      return parseInt(p?.style?.zIndex || '0', 10) || 0
+    }
 
     const zB = await rndB.evaluate(getZ)
     const zA = await rndA.evaluate(getZ)
     expect(zB).toBeGreaterThan(zA)
 
-    const contentA = groups.first().locator('.workspace-window-content')
-    await contentA.click({ position: { x: 10, y: 50 } })
+    const contentA = groups.first().getByTestId('workspace-chrome-content')
+    await contentA.click({ position: { x: 10, y: 50 }, force: true })
     await page.waitForTimeout(50)
 
     const newZA = await rndA.evaluate(getZ)
@@ -477,7 +485,7 @@ test.describe('State Persistence', () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = groups.first().getByTestId('workspace-window-visible-content')
     await content.getByText('Videos', { exact: true }).click()
     await page.waitForTimeout(300)
     await content.getByText('sample.mp4').click()

@@ -33,8 +33,7 @@ test.describe('Video Player', () => {
   test('closes video player', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
     await expect(page.locator('video')).toBeVisible()
-    const playerHeader = page.locator('video').locator('..')
-    await playerHeader.locator('button:has(.lucide-x)').click()
+    await page.getByRole('button', { name: 'Close player' }).click()
     await expect(page.locator('video')).not.toBeVisible()
     await expect(page).not.toHaveURL(/playing=/)
   })
@@ -42,7 +41,7 @@ test.describe('Video Player', () => {
   test('minimizes video player', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
     await expect(page.locator('video')).toBeVisible()
-    await page.locator('button:has(.lucide-minimize-2)').click()
+    await page.getByRole('button', { name: 'Minimize player' }).click()
     await expect(page.locator('video')).toBeVisible()
   })
 
@@ -68,8 +67,8 @@ test.describe('Video Player', () => {
 
   test('maximize restores from minimized state', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
-    await page.locator('button:has(.lucide-minimize-2)').click()
-    await page.locator('button:has(.lucide-maximize-2)').click()
+    await page.getByRole('button', { name: 'Minimize player' }).click()
+    await page.getByRole('button', { name: 'Maximize player' }).click()
     await expect(page.locator('video')).toBeVisible()
   })
 })

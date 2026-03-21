@@ -668,10 +668,13 @@ export function ShareFolderBrowser(props: Props) {
             <div
               role='dialog'
               aria-modal='true'
+              aria-labelledby='share-create-folder-title'
               class='bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-lg'
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 class='text-lg font-semibold'>Create folder</h2>
+              <h2 id='share-create-folder-title' class='text-lg font-semibold'>
+                Create folder
+              </h2>
               <form class='mt-4 space-y-4' onSubmit={submitCreateFolder}>
                 <input
                   type='text'
@@ -710,16 +713,19 @@ export function ShareFolderBrowser(props: Props) {
             <div
               role='dialog'
               aria-modal='true'
+              aria-labelledby='share-create-file-title'
               class='bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-lg'
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 class='text-lg font-semibold'>Create file</h2>
+              <h2 id='share-create-file-title' class='text-lg font-semibold'>
+                Create file
+              </h2>
               <form class='mt-4 space-y-4' onSubmit={submitCreateFile}>
                 <input
                   type='text'
                   class='border-input bg-background flex h-10 w-full rounded-md border px-3 text-sm'
                   value={newItemName()}
-                  placeholder='filename.txt'
+                  placeholder='File name (e.g., notes.txt)'
                   onInput={(e) => setNewItemName(e.currentTarget.value)}
                 />
                 <div class='flex justify-end gap-2'>

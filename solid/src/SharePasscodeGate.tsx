@@ -80,6 +80,7 @@ export function SharePasscodeGate(props: Props) {
               class='border-input bg-background flex h-10 w-full rounded-md border px-3 text-center font-mono text-lg tracking-widest shadow-xs focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none'
               value={passcode()}
               autocomplete='off'
+              autofocus
               onInput={(e) => setPasscode(e.currentTarget.value)}
             />
             <Show when={error()}>

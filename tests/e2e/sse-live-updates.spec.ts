@@ -73,7 +73,10 @@ async function fillCreateFileDialog(page: Page, baseName: string) {
   )
   await expect(nameInput).toBeVisible()
   await nameInput.fill(baseName)
-  await page.getByRole('dialog').getByRole('button', { name: 'Create', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: /create.*file/i })
+    .getByRole('button', { name: 'Create', exact: true })
+    .click()
 }
 
 test.describe('SSE Live Updates', () => {

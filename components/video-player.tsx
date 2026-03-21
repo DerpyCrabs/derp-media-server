@@ -373,14 +373,26 @@ export function VideoPlayer({ session: sessionProp, mediaContext }: VideoPlayerP
                 >
                   <Headphones className='h-4 w-4' />
                 </Button>
-                <Button variant='ghost' size='icon' onClick={toggleMinimize} className='h-8 w-8'>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={toggleMinimize}
+                  className='h-8 w-8'
+                  aria-label={isMinimized ? 'Maximize player' : 'Minimize player'}
+                >
                   {isMinimized ? (
                     <Maximize2 className='h-4 w-4' />
                   ) : (
                     <Minimize2 className='h-4 w-4' />
                   )}
                 </Button>
-                <Button variant='ghost' size='icon' onClick={handleClose} className='h-8 w-8'>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={handleClose}
+                  className='h-8 w-8'
+                  aria-label='Close player'
+                >
                   <X className='h-4 w-4' />
                 </Button>
               </div>

@@ -1349,7 +1349,11 @@ function WindowGroupInner({
             </div>
           </div>
 
-          <div className='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
+          <div
+            data-testid='workspace-chrome-content'
+            data-no-window-drag
+            className='relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-sm text-muted-foreground'
+          >
             {tabs.map((tab) => (
               <TabContent
                 key={tab.id}
