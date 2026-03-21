@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
+import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import type { FileItem } from '@/lib/types'
@@ -13,12 +15,30 @@ import AppWindow from 'lucide-solid/icons/app-window'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import Folder from 'lucide-solid/icons/folder'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
-import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js'
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+} from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { DeleteFileDialog } from './file-browser/DeleteFileDialog'
+import { MoveToDialog } from './file-browser/MoveToDialog'
+import { RenameDialog } from './file-browser/RenameDialog'
+import { UploadMenu } from './file-browser/UploadMenu'
+import type { UploadToastState } from './file-browser/types'
+import { UploadToastStack } from './file-browser/UploadToastStack'
+import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
-import { fileIcon } from './lib/use-file-icon'
+import { EMPTY_FILE_ICON_CONTEXT, fileIcon, gridHeroIcon } from './lib/use-file-icon'
+import { ThemeSwitcher } from './ThemeSwitcher'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import type { TextViewerShareContext } from './media/TextViewerDialog'
 
@@ -38,6 +58,7 @@ export type ShareInfoPayload = {
   extension: string
   restrictions?: ShareRestrictions
   isKnowledgeBase?: boolean
+  adminViewMode: 'list' | 'grid'
 }
 
 function stripSharePrefix(filePath: string, sharePath: string) {
@@ -65,6 +86,14 @@ export function ShareFolderBrowser(props: Props) {
   const [newItemName, setNewItemName] = createSignal('')
   const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
   const [inlineName, setInlineName] = createSignal('')
+  const [showRename, setShowRename] = createSignal(false)
+  const [renamingItem, setRenamingItem] = createSignal<FileItem | null>(null)
+  const [renameNewName, setRenameNewName] = createSignal('')
+  const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
+  const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
+  const [shareViewModeTick, setShareViewModeTick] = createSignal(0)
+  const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
+  let externalUploadDragDepth = 0
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
 
@@ -220,6 +249,47 @@ export function ShareFolderBrowser(props: Props) {
     },
   }))
 
+  const renameItemMutation = useMutation(() => ({
+    mutationFn: (vars: { oldPath: string; newPath: string }) =>
+      post(`/api/share/${props.token}/rename`, vars),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
+    },
+  }))
+
+  const moveItemMutation = useMutation(() => ({
+    mutationFn: (vars: { oldPath: string; newPath: string }) =>
+      post(`/api/share/${props.token}/rename`, vars),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
+    },
+  }))
+
+  const viewModeStorageKey = () => `share-viewmode-${props.token}`
+
+  const viewMode = createMemo(() => {
+    void shareViewModeTick()
+    return useBrowserViewModeStore
+      .getState()
+      .getViewMode(viewModeStorageKey(), props.shareInfo.adminViewMode)
+  })
+
+  function setViewMode(mode: 'list' | 'grid') {
+    useBrowserViewModeStore.getState().setViewMode(viewModeStorageKey(), mode)
+    setShareViewModeTick((n) => n + 1)
+  }
+
+  const editableFoldersForMove = createMemo(() =>
+    props.shareInfo.path ? [props.shareInfo.path] : [],
+  )
+
+  const renameTargetExists = createMemo(() => {
+    const item = renamingItem()
+    const name = renameNewName().trim()
+    if (!item || !name || renameItemMutation.isPending) return false
+    return files().some((f) => f.path !== item.path && f.name.toLowerCase() === name.toLowerCase())
+  })
+
   const breadcrumbs = createMemo(() => {
     const parts = currentSubDir() ? currentSubDir().split('/').filter(Boolean) : []
     return [
@@ -233,6 +303,8 @@ export function ShareFolderBrowser(props: Props) {
 
   onMount(() => {
     useMediaPlayer.getState().setShareContext(props.token, props.shareInfo.path)
+    const unsub = useBrowserViewModeStore.subscribe(() => setShareViewModeTick((n) => n + 1))
+    onCleanup(() => unsub())
   })
 
   onCleanup(() => {
@@ -304,6 +376,136 @@ export function ShareFolderBrowser(props: Props) {
     createFileMutation.mutate({ type: 'file', path: sub, content: '' })
   }
 
+  function openContextRename(file: FileItem) {
+    setRenamingItem(file)
+    setRenameNewName(file.name)
+    setShowRename(true)
+    dismissMenu()
+  }
+
+  function cancelRename() {
+    setShowRename(false)
+    setRenamingItem(null)
+    setRenameNewName('')
+    renameItemMutation.reset()
+  }
+
+  function submitRename() {
+    const item = renamingItem()
+    const newName = renameNewName().trim()
+    if (!item || !newName || newName === item.name || renameTargetExists()) return
+    const oldRel = stripSharePrefix(item.path, props.shareInfo.path)
+    const parts = oldRel.split('/').filter(Boolean)
+    const parent = parts.slice(0, -1).join('/')
+    const newRel = parent ? `${parent}/${newName}` : newName
+    renameItemMutation.mutate(
+      { oldPath: oldRel, newPath: newRel },
+      { onSuccess: () => cancelRename() },
+    )
+  }
+
+  function openContextMove(file: FileItem) {
+    setMoveTarget(file)
+    moveItemMutation.reset()
+    dismissMenu()
+  }
+
+  function closeMoveDialog() {
+    setMoveTarget(null)
+    moveItemMutation.reset()
+  }
+
+  function confirmMoveTo(destDir: string) {
+    const target = moveTarget()
+    if (!target) return
+    const sourceRel = stripSharePrefix(target.path, props.shareInfo.path)
+    const baseName = sourceRel.split('/').filter(Boolean).pop()!
+    const newPath = destDir ? `${destDir}/${baseName}` : baseName
+    moveItemMutation.mutate(
+      { oldPath: sourceRel, newPath: newPath },
+      { onSuccess: () => closeMoveDialog() },
+    )
+  }
+
+  const moveDialogRelPath = createMemo(() => {
+    const t = moveTarget()
+    if (!t) return ''
+    return stripSharePrefix(t.path, props.shareInfo.path)
+  })
+
+  const isUploading = createMemo(() => uploadToast().kind === 'uploading')
+
+  async function uploadFilesToServer(files: File[]) {
+    if (files.length === 0 || !canUpload()) return
+    const targetDir = currentSubDir()
+    setUploadToast({ kind: 'uploading', fileCount: files.length })
+    try {
+      const formData = new FormData()
+      formData.append('targetDir', targetDir)
+      for (const file of files) {
+        formData.append('files', file, file.name)
+      }
+      const res = await fetch(`/api/share/${props.token}/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null
+        const message = data?.error || `Upload failed (${res.status})`
+        setUploadToast({ kind: 'error', message })
+        return
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
+      setUploadToast({ kind: 'success' })
+      window.setTimeout(() => setUploadToast({ kind: 'hidden' }), 2000)
+    } catch (err) {
+      setUploadToast({
+        kind: 'error',
+        message: err instanceof Error ? err.message : 'Upload failed',
+      })
+    }
+  }
+
+  function isOsFileUploadDrag(e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    return !!(dtr && dtr.types.includes('Files'))
+  }
+
+  function onExternalUploadDragEnter(e: globalThis.DragEvent) {
+    if (!canUpload() || !isOsFileUploadDrag(e)) return
+    e.preventDefault()
+    externalUploadDragDepth++
+    if (externalUploadDragDepth === 1) setExternalUploadDragOver(true)
+  }
+
+  function onExternalUploadDragLeave(e: globalThis.DragEvent) {
+    if (!canUpload()) return
+    e.preventDefault()
+    externalUploadDragDepth--
+    if (externalUploadDragDepth <= 0) {
+      externalUploadDragDepth = 0
+      setExternalUploadDragOver(false)
+    }
+  }
+
+  function onExternalUploadDragOver(e: globalThis.DragEvent) {
+    if (!canUpload() || !isOsFileUploadDrag(e)) return
+    e.preventDefault()
+    const dtr = e.dataTransfer
+    if (dtr) dtr.dropEffect = 'copy'
+  }
+
+  async function onExternalUploadDrop(e: globalThis.DragEvent) {
+    e.preventDefault()
+    externalUploadDragDepth = 0
+    setExternalUploadDragOver(false)
+    if (!canUpload()) return
+    const dtr = e.dataTransfer
+    if (!dtr || dtr.files.length === 0) return
+    const dropped = await collectDroppedUploadFiles(dtr)
+    if (dropped.length > 0) void uploadFilesToServer(dropped)
+  }
+
   return (
     <>
       <MainMediaPlayers
@@ -341,6 +543,28 @@ export function ShareFolderBrowser(props: Props) {
                   >
                     {ctx.file.isDirectory ? 'Download as ZIP' : 'Download'}
                   </button>
+                  <Show when={shareCanEdit() && !ctx.file.isVirtual}>
+                    <button
+                      type='button'
+                      data-slot='context-menu-item'
+                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                      role='menuitem'
+                      onClick={() => openContextRename(ctx.file)}
+                    >
+                      Rename
+                    </button>
+                  </Show>
+                  <Show when={shareCanEdit() && !ctx.file.isVirtual}>
+                    <button
+                      type='button'
+                      data-slot='context-menu-item'
+                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                      role='menuitem'
+                      onClick={() => openContextMove(ctx.file)}
+                    >
+                      Move to…
+                    </button>
+                  </Show>
                   <Show when={ctx.file.isDirectory && !ctx.file.isVirtual}>
                     <button
                       type='button'
@@ -401,6 +625,33 @@ export function ShareFolderBrowser(props: Props) {
             void deleteItemMutation.mutateAsync(rel)
           }}
         />
+
+        <RenameDialog
+          isOpen={showRename()}
+          itemName={renamingItem()?.name ?? ''}
+          newName={renameNewName()}
+          onNewNameChange={setRenameNewName}
+          onRename={submitRename}
+          onCancel={cancelRename}
+          isPending={renameItemMutation.isPending}
+          error={renameItemMutation.error as Error | undefined}
+          nameExists={renameTargetExists()}
+          isDirectory={renamingItem()?.isDirectory ?? false}
+        />
+
+        <Show when={moveTarget()}>
+          <MoveToDialog
+            onClose={closeMoveDialog}
+            fileName={moveTarget()!.name}
+            filePath={moveDialogRelPath()}
+            onConfirm={confirmMoveTo}
+            isPending={moveItemMutation.isPending}
+            error={moveItemMutation.error as Error | undefined}
+            editableFolders={editableFoldersForMove()}
+            shareToken={props.token}
+            shareRootPath={props.shareInfo.path}
+          />
+        </Show>
 
         <Show when={showCreateFolder()}>
           <div
@@ -523,227 +774,312 @@ export function ShareFolderBrowser(props: Props) {
                     )}
                   </For>
                 </nav>
-                <Show when={canUpload()}>
-                  <div class='flex items-center gap-1'>
-                    <button
-                      type='button'
-                      title='Create new file'
-                      class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
-                      onClick={() => {
-                        setNewItemName('')
-                        setShowCreateFile(true)
-                      }}
-                    >
-                      <FilePlus class='h-4 w-4' stroke-width={2} />
-                    </button>
-                    <button
-                      type='button'
-                      title='Create new folder'
-                      class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
-                      onClick={() => {
-                        setNewItemName('')
-                        setShowCreateFolder(true)
-                      }}
-                    >
-                      <FolderPlus class='h-4 w-4' stroke-width={2} />
-                    </button>
-                  </div>
-                </Show>
+                <div class='flex flex-wrap items-center justify-end gap-1'>
+                  <Show when={canUpload()}>
+                    <div class='flex items-center gap-1'>
+                      <button
+                        type='button'
+                        title='Create new file'
+                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                        onClick={() => {
+                          setNewItemName('')
+                          setShowCreateFile(true)
+                        }}
+                      >
+                        <FilePlus class='h-4 w-4' stroke-width={2} />
+                      </button>
+                      <button
+                        type='button'
+                        title='Create new folder'
+                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                        onClick={() => {
+                          setNewItemName('')
+                          setShowCreateFolder(true)
+                        }}
+                      >
+                        <FolderPlus class='h-4 w-4' stroke-width={2} />
+                      </button>
+                      <UploadMenu
+                        mode='MediaServer'
+                        disabled={isUploading()}
+                        onUpload={(files) => void uploadFilesToServer(files)}
+                      />
+                      <div class='bg-border mx-1 h-5 w-px shrink-0' />
+                    </div>
+                  </Show>
+                  <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
+                  <ThemeSwitcher />
+                </div>
               </div>
             </div>
-            <div class='flex min-h-0 flex-1 flex-col overflow-hidden'>
+            <div
+              class='relative flex min-h-0 flex-1 flex-col overflow-hidden'
+              onDragEnter={onExternalUploadDragEnter}
+              onDragLeave={onExternalUploadDragLeave}
+              onDragOver={onExternalUploadDragOver}
+              onDrop={(e) => void onExternalUploadDrop(e)}
+            >
+              <Show when={externalUploadDragOver() && canUpload()}>
+                <div class='pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed border-primary bg-primary/10'>
+                  <p class='text-primary text-sm font-medium'>Drop files to upload</p>
+                </div>
+              </Show>
               <Show when={filesQuery.isError}>
                 <div class='p-4'>
                   <p class='text-destructive text-sm'>Failed to load files.</p>
                 </div>
               </Show>
-              <div class='py-2 sm:px-4'>
-                <div class='relative w-full overflow-x-auto'>
-                  <table class='w-full caption-bottom text-sm'>
-                    <tbody class='[&_tr:last-child]:border-0'>
+              <Switch>
+                <Match when={viewMode() === 'grid'}>
+                  <div class='px-4 py-4'>
+                    <div class='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'>
                       <Show when={currentSubDir()}>
-                        <tr
-                          class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
+                        <div
+                          class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                           onClick={handleParentDirectory}
+                          role='button'
+                          tabindex={0}
                         >
-                          <td class='w-12 p-2 align-middle'>
-                            <div class='flex items-center justify-center'>
-                              <ArrowUp
-                                class='h-5 w-5 text-muted-foreground'
-                                size={20}
-                                stroke-width={2}
-                              />
-                            </div>
-                          </td>
-                          <td class='p-2 align-middle font-medium'>..</td>
-                          <td class='p-2 align-middle text-right text-muted-foreground' />
-                        </tr>
+                          <div class='flex aspect-video flex-col items-center justify-center bg-muted/80 p-4'>
+                            <ArrowUp
+                              class='mb-2 h-12 w-12 text-muted-foreground'
+                              size={48}
+                              stroke-width={2}
+                            />
+                            <p class='text-center text-sm font-medium'>..</p>
+                          </div>
+                        </div>
                       </Show>
                       <For each={files()}>
                         {(file) => (
-                          <tr
-                            class='hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors'
+                          <div
+                            class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                             onClick={() => handleFileClick(file)}
                             onContextMenu={(e) => openRowMenu(e, file)}
+                            role='button'
+                            tabindex={0}
                           >
-                            <td class='w-12 p-2 align-middle'>
-                              <div class='flex items-center justify-center'>{fileIcon(file)}</div>
-                            </td>
-                            <td class='p-2 align-middle font-medium'>
-                              <span class='truncate'>{file.name}</span>
-                            </td>
-                            <td class='p-2 align-middle text-right text-muted-foreground tabular-nums'>
-                              <span class='inline-block w-20'>
-                                {file.isDirectory ? '' : formatFileSize(file.size)}
-                              </span>
-                            </td>
-                          </tr>
-                        )}
-                      </For>
-                      <Show when={showInlineCreate()}>
-                        <tr class='border-t border-border' onClick={(e) => e.stopPropagation()}>
-                          <td class='p-0' colspan={3}>
-                            <div class='grid grid-cols-2 gap-2 px-2 py-1.5'>
-                              <div class='flex min-w-0 flex-col gap-1'>
-                                <Show
-                                  when={inlineMode() === 'file'}
-                                  fallback={
-                                    <button
-                                      type='button'
-                                      class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setInlineName('')
-                                        setInlineMode('file')
-                                      }}
-                                    >
-                                      <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
-                                      New file
-                                    </button>
-                                  }
-                                >
-                                  <input
-                                    type='text'
-                                    ref={(el) => {
-                                      inlineFileInputEl = el ?? undefined
-                                    }}
-                                    class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
-                                      inlineFileExists()
-                                        ? 'border-yellow-500 ring-2 ring-yellow-500/30'
-                                        : createFileMutation.isError
-                                          ? 'border-destructive ring-2 ring-destructive/30'
-                                          : ''
-                                    }`}
-                                    placeholder='File name (e.g. notes.md)'
-                                    value={inlineName()}
-                                    disabled={createFileMutation.isPending}
-                                    onInput={(e) =>
-                                      setInlineName((e.currentTarget as HTMLInputElement).value)
-                                    }
-                                    onClick={(e) => e.stopPropagation()}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') submitInlineFile()
-                                      else if (e.key === 'Escape') resetInlineCreate()
-                                    }}
-                                    onBlur={() => resetInlineCreate()}
-                                  />
-                                  <Show when={inlineFileExists()}>
-                                    <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
-                                      <AlertCircle
-                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                        stroke-width={2}
-                                      />
-                                      <span>A file with this name already exists.</span>
-                                    </div>
-                                  </Show>
-                                  <Show when={createFileMutation.isError && !inlineFileExists()}>
-                                    <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
-                                      <AlertCircle
-                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                        stroke-width={2}
-                                      />
-                                      <span>{(createFileMutation.error as Error)?.message}</span>
-                                    </div>
-                                  </Show>
-                                </Show>
-                              </div>
-                              <div class='flex min-w-0 flex-col gap-1'>
-                                <Show
-                                  when={inlineMode() === 'folder'}
-                                  fallback={
-                                    <button
-                                      type='button'
-                                      class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setInlineName('')
-                                        setInlineMode('folder')
-                                      }}
-                                    >
-                                      <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
-                                      New folder
-                                    </button>
-                                  }
-                                >
-                                  <input
-                                    type='text'
-                                    ref={(el) => {
-                                      inlineFolderInputEl = el ?? undefined
-                                    }}
-                                    class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
-                                      inlineFolderExists()
-                                        ? 'border-yellow-500 ring-2 ring-yellow-500/30'
-                                        : createFolderMutation.isError
-                                          ? 'border-destructive ring-2 ring-destructive/30'
-                                          : ''
-                                    }`}
-                                    placeholder='Folder name'
-                                    value={inlineName()}
-                                    disabled={createFolderMutation.isPending}
-                                    onInput={(e) =>
-                                      setInlineName((e.currentTarget as HTMLInputElement).value)
-                                    }
-                                    onClick={(e) => e.stopPropagation()}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') submitInlineFolder()
-                                      else if (e.key === 'Escape') resetInlineCreate()
-                                    }}
-                                    onBlur={() => resetInlineCreate()}
-                                  />
-                                  <Show when={inlineFolderExists()}>
-                                    <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
-                                      <AlertCircle
-                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                        stroke-width={2}
-                                      />
-                                      <span>A folder with this name already exists.</span>
-                                    </div>
-                                  </Show>
-                                  <Show
-                                    when={createFolderMutation.isError && !inlineFolderExists()}
-                                  >
-                                    <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
-                                      <AlertCircle
-                                        class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                        stroke-width={2}
-                                      />
-                                      <span>{(createFolderMutation.error as Error)?.message}</span>
-                                    </div>
-                                  </Show>
-                                </Show>
+                            <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                              <div class='text-muted-foreground'>
+                                {gridHeroIcon(file, EMPTY_FILE_ICON_CONTEXT)}
                               </div>
                             </div>
-                          </td>
-                        </tr>
-                      </Show>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                            <div class='flex flex-col gap-1 p-3'>
+                              <p class='truncate text-sm font-medium' title={file.name}>
+                                {file.name}
+                              </p>
+                              <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                                <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Match>
+                <Match when={viewMode() === 'list'}>
+                  <div class='py-2 sm:px-4'>
+                    <div class='relative w-full overflow-x-auto'>
+                      <table class='w-full caption-bottom text-sm'>
+                        <tbody class='[&_tr:last-child]:border-0'>
+                          <Show when={currentSubDir()}>
+                            <tr
+                              class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
+                              onClick={handleParentDirectory}
+                            >
+                              <td class='w-12 p-2 align-middle'>
+                                <div class='flex items-center justify-center'>
+                                  <ArrowUp
+                                    class='h-5 w-5 text-muted-foreground'
+                                    size={20}
+                                    stroke-width={2}
+                                  />
+                                </div>
+                              </td>
+                              <td class='p-2 align-middle font-medium'>..</td>
+                              <td class='p-2 align-middle text-right text-muted-foreground' />
+                            </tr>
+                          </Show>
+                          <For each={files()}>
+                            {(file) => (
+                              <tr
+                                class='hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors'
+                                onClick={() => handleFileClick(file)}
+                                onContextMenu={(e) => openRowMenu(e, file)}
+                              >
+                                <td class='w-12 p-2 align-middle'>
+                                  <div class='flex items-center justify-center'>
+                                    {fileIcon(file)}
+                                  </div>
+                                </td>
+                                <td class='p-2 align-middle font-medium'>
+                                  <span class='truncate'>{file.name}</span>
+                                </td>
+                                <td class='p-2 align-middle text-right text-muted-foreground tabular-nums'>
+                                  <span class='inline-block w-20'>
+                                    {file.isDirectory ? '' : formatFileSize(file.size)}
+                                  </span>
+                                </td>
+                              </tr>
+                            )}
+                          </For>
+                          <Show when={showInlineCreate()}>
+                            <tr class='border-t border-border' onClick={(e) => e.stopPropagation()}>
+                              <td class='p-0' colspan={3}>
+                                <div class='grid grid-cols-2 gap-2 px-2 py-1.5'>
+                                  <div class='flex min-w-0 flex-col gap-1'>
+                                    <Show
+                                      when={inlineMode() === 'file'}
+                                      fallback={
+                                        <button
+                                          type='button'
+                                          class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setInlineName('')
+                                            setInlineMode('file')
+                                          }}
+                                        >
+                                          <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+                                          New file
+                                        </button>
+                                      }
+                                    >
+                                      <input
+                                        type='text'
+                                        ref={(el) => {
+                                          inlineFileInputEl = el ?? undefined
+                                        }}
+                                        class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+                                          inlineFileExists()
+                                            ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                            : createFileMutation.isError
+                                              ? 'border-destructive ring-2 ring-destructive/30'
+                                              : ''
+                                        }`}
+                                        placeholder='File name (e.g. notes.md)'
+                                        value={inlineName()}
+                                        disabled={createFileMutation.isPending}
+                                        onInput={(e) =>
+                                          setInlineName((e.currentTarget as HTMLInputElement).value)
+                                        }
+                                        onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') submitInlineFile()
+                                          else if (e.key === 'Escape') resetInlineCreate()
+                                        }}
+                                        onBlur={() => resetInlineCreate()}
+                                      />
+                                      <Show when={inlineFileExists()}>
+                                        <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                          <AlertCircle
+                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                            stroke-width={2}
+                                          />
+                                          <span>A file with this name already exists.</span>
+                                        </div>
+                                      </Show>
+                                      <Show
+                                        when={createFileMutation.isError && !inlineFileExists()}
+                                      >
+                                        <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                          <AlertCircle
+                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                            stroke-width={2}
+                                          />
+                                          <span>
+                                            {(createFileMutation.error as Error)?.message}
+                                          </span>
+                                        </div>
+                                      </Show>
+                                    </Show>
+                                  </div>
+                                  <div class='flex min-w-0 flex-col gap-1'>
+                                    <Show
+                                      when={inlineMode() === 'folder'}
+                                      fallback={
+                                        <button
+                                          type='button'
+                                          class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setInlineName('')
+                                            setInlineMode('folder')
+                                          }}
+                                        >
+                                          <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+                                          New folder
+                                        </button>
+                                      }
+                                    >
+                                      <input
+                                        type='text'
+                                        ref={(el) => {
+                                          inlineFolderInputEl = el ?? undefined
+                                        }}
+                                        class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+                                          inlineFolderExists()
+                                            ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                            : createFolderMutation.isError
+                                              ? 'border-destructive ring-2 ring-destructive/30'
+                                              : ''
+                                        }`}
+                                        placeholder='Folder name'
+                                        value={inlineName()}
+                                        disabled={createFolderMutation.isPending}
+                                        onInput={(e) =>
+                                          setInlineName((e.currentTarget as HTMLInputElement).value)
+                                        }
+                                        onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') submitInlineFolder()
+                                          else if (e.key === 'Escape') resetInlineCreate()
+                                        }}
+                                        onBlur={() => resetInlineCreate()}
+                                      />
+                                      <Show when={inlineFolderExists()}>
+                                        <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                          <AlertCircle
+                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                            stroke-width={2}
+                                          />
+                                          <span>A folder with this name already exists.</span>
+                                        </div>
+                                      </Show>
+                                      <Show
+                                        when={createFolderMutation.isError && !inlineFolderExists()}
+                                      >
+                                        <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                          <AlertCircle
+                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                            stroke-width={2}
+                                          />
+                                          <span>
+                                            {(createFolderMutation.error as Error)?.message}
+                                          </span>
+                                        </div>
+                                      </Show>
+                                    </Show>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          </Show>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Match>
+              </Switch>
             </div>
           </div>
         </div>
       </div>
+      <UploadToastStack
+        state={uploadToast}
+        onDismissError={() => setUploadToast({ kind: 'hidden' })}
+      />
     </>
   )
 }

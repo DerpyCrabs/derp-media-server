@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import Folder from 'lucide-solid/icons/folder'
@@ -10,12 +11,16 @@ type MoveOrCopyMode = 'move' | 'copy'
 type MoveToDialogProps = {
   onClose: () => void
   fileName: string
+  /** Admin: full path. Share: path relative to share root. */
   filePath: string
   onConfirm: (destinationDir: string) => void
   isPending: boolean
   error: Error | null | undefined
   editableFolders: string[]
   mode?: MoveOrCopyMode
+  shareToken?: string
+  /** Full server path of share root (for stripping API paths). */
+  shareRootPath?: string
 }
 
 function computeSourceRoot(filePath: string, editableFolders: string[]) {
@@ -35,23 +40,51 @@ function computeInitialBrowse(filePath: string, editableFolders: string[]) {
   return root
 }
 
+function sourceDirRelative(relFilePath: string) {
+  const parts = relFilePath.split('/').filter(Boolean)
+  if (parts.length <= 1) return ''
+  return parts.slice(0, -1).join('/')
+}
+
 export function MoveToDialog(props: MoveToDialogProps) {
   const isCopy = () => (props.mode ?? 'move') === 'copy'
+  const isShare = () => !!props.shareToken
 
   const [selectedRoot, setSelectedRoot] = createSignal(
-    computeSourceRoot(props.filePath, props.editableFolders),
+    isShare() ? '' : computeSourceRoot(props.filePath, props.editableFolders),
   )
   const [browsePath, setBrowsePath] = createSignal(
-    computeInitialBrowse(props.filePath, props.editableFolders),
+    isShare()
+      ? sourceDirRelative(props.filePath.replace(/\\/g, '/'))
+      : computeInitialBrowse(props.filePath, props.editableFolders),
   )
 
-  const [dirFiles] = createResource(browsePath, async (dir) => {
-    const { files } = await api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`)
+  const listSource = createMemo(() => {
+    if (isShare()) {
+      return { kind: 'share' as const, token: props.shareToken!, dir: browsePath() }
+    }
+    return { kind: 'admin' as const, dir: browsePath() }
+  })
+
+  const [dirFiles] = createResource(listSource, async (src) => {
+    if (src.kind === 'share') {
+      const { files } = await api<{ files: FileItem[] }>(
+        `/api/share/${src.token}/files?dir=${encodeURIComponent(src.dir)}`,
+      )
+      return files
+    }
+    const { files } = await api<{ files: FileItem[] }>(
+      `/api/files?dir=${encodeURIComponent(src.dir)}`,
+    )
     return files
   })
 
   const sourceDir = createMemo(() => {
-    const parts = props.filePath.split(/[/\\]/).filter(Boolean)
+    const fp = props.filePath.replace(/\\/g, '/')
+    if (isShare()) {
+      return sourceDirRelative(fp)
+    }
+    const parts = fp.split(/[/\\]/).filter(Boolean)
     return parts.slice(0, -1).join('/')
   })
 
@@ -60,13 +93,14 @@ export function MoveToDialog(props: MoveToDialogProps) {
 
   const folders = createMemo(() => {
     const rawFiles: FileItem[] = dirFiles() ?? []
+    const root = props.shareRootPath?.replace(/\\/g, '/') ?? ''
     const normalizedFilePath = props.filePath.replace(/\\/g, '/')
     return rawFiles
       .filter((f) => f.isDirectory)
-      .map((f) => ({
-        name: f.name,
-        navPath: f.path.replace(/\\/g, '/'),
-      }))
+      .map((f) => {
+        const navPath = isShare() ? stripSharePrefix(f.path, root) : f.path.replace(/\\/g, '/')
+        return { name: f.name, navPath }
+      })
       .filter((f) => {
         if (f.navPath === normalizedFilePath) return false
         if (f.navPath.startsWith(normalizedFilePath + '/')) return false
@@ -74,7 +108,9 @@ export function MoveToDialog(props: MoveToDialogProps) {
       })
   })
 
-  const canGoUp = createMemo(() => normalizedBrowse() !== normalizedRoot())
+  const canGoUp = createMemo(() =>
+    isShare() ? normalizedBrowse() !== '' : normalizedBrowse() !== normalizedRoot(),
+  )
 
   function goUp() {
     const parts = browsePath().split(/[/\\]/).filter(Boolean)
@@ -87,9 +123,12 @@ export function MoveToDialog(props: MoveToDialogProps) {
     setBrowsePath(normalized)
   }
 
-  const isSameAsSource = createMemo(() => normalizedBrowse() === sourceDir().replace(/\\/g, '/'))
+  const isSameAsSource = createMemo(() => normalizedBrowse() === sourceDir())
 
   const displayPath = createMemo(() => {
+    if (isShare()) {
+      return browsePath() ? `/${browsePath()}` : '/'
+    }
     if (normalizedBrowse() === normalizedRoot()) return '/'
     return '/' + normalizedBrowse().slice(normalizedRoot().length + 1)
   })
@@ -113,7 +152,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
           {isCopy() ? 'Choose an editable destination folder' : 'Choose a destination folder'}
         </p>
 
-        <Show when={props.editableFolders.length > 1}>
+        <Show when={!isShare() && props.editableFolders.length > 1}>
           <div class='flex gap-1.5 flex-wrap mt-3'>
             <For each={props.editableFolders}>
               {(folder) => {

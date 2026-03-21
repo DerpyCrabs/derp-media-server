@@ -135,6 +135,7 @@ export type WorkspacePageProps = {
   shareWorkspaceLayoutPresets?: WorkspaceLayoutPreset[]
   shareAllowUpload?: boolean
   shareCanEdit?: boolean
+  shareCanDelete?: boolean
   shareIsKnowledgeBase?: boolean
 }
 
@@ -196,7 +197,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   }))
 
   const editableFolders = createMemo((): string[] => {
-    if (shareConfig()) return []
+    const c = shareConfig()
+    if (c?.sharePath) return [c.sharePath]
     return authQuery.data?.editableFolders ?? []
   })
 
@@ -1281,6 +1283,12 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                 workspace={workspace}
                                 sharePanel={sharePanel}
                                 shareAllowUpload={props.shareAllowUpload ?? false}
+                                shareCanEdit={
+                                  props.shareConfig ? (props.shareCanEdit ?? false) : false
+                                }
+                                shareCanDelete={
+                                  props.shareConfig ? (props.shareCanDelete ?? false) : false
+                                }
                                 shareIsKnowledgeBase={props.shareIsKnowledgeBase ?? false}
                                 editableFolders={editableFolders()}
                                 fileIconContext={workspaceFileIconContext}

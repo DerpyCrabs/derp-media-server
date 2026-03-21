@@ -56,6 +56,7 @@ export function ShareRoute() {
       extension: data.extension,
       restrictions: data.restrictions,
       isKnowledgeBase: data.isKnowledgeBase,
+      adminViewMode: data.adminViewMode || 'list',
     }
   })
 

@@ -29,7 +29,14 @@ const BATCHES = [
   },
   {
     id: '4',
-    tests: ['editable-folders', 'share-security', 'url-state', 'login', 'share-workspace'],
+    tests: [
+      'editable-folders',
+      'share-security',
+      'url-state',
+      'login',
+      'share-workspace',
+      'share-browser-parity',
+    ],
   },
   {
     id: '5',

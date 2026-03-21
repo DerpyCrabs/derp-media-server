@@ -16,6 +16,7 @@ import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import type { WorkspaceSource } from '@/lib/use-workspace'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
+import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -39,6 +40,8 @@ import {
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
+import { MoveToDialog } from '../file-browser/MoveToDialog'
+import { RenameDialog } from '../file-browser/RenameDialog'
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
 import type { UploadToastState } from '../file-browser/types'
@@ -58,6 +61,10 @@ type Props = {
   fileIconContext: () => FileIconContext
   /** Share workspace: show create file/folder when upload is allowed (matches React ShareFileBrowser). */
   shareAllowUpload?: boolean
+  /** Share workspace: rename/move and drag-move within share. */
+  shareCanEdit?: boolean
+  /** Share workspace: delete from context menu. */
+  shareCanDelete?: boolean
   /** Share workspace: root is marked as knowledge base (enables KB search / recent / inline create). */
   shareIsKnowledgeBase?: boolean
   editableFolders: string[]
@@ -97,6 +104,11 @@ export function WorkspaceBrowserPane(props: Props) {
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
   const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
   const [inlineName, setInlineName] = createSignal('')
+  const [showRename, setShowRename] = createSignal(false)
+  const [renamingItem, setRenamingItem] = createSignal<FileItem | null>(null)
+  const [renameNewName, setRenameNewName] = createSignal('')
+  const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
+  const [shareViewModeTick, setShareViewModeTick] = createSignal(0)
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
 
@@ -111,6 +123,8 @@ export function WorkspaceBrowserPane(props: Props) {
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
+    const unsub = useBrowserViewModeStore.subscribe(() => setShareViewModeTick((n) => n + 1))
+    onCleanup(() => unsub())
   })
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
@@ -153,6 +167,9 @@ export function WorkspaceBrowserPane(props: Props) {
   const isAdminPaneEditable = createMemo(
     () => !share() && !isVirtualFolder() && isPathEditable(currentPath(), props.editableFolders),
   )
+  const isContextDirEditable = createMemo(() =>
+    share() ? !!props.shareCanEdit : isAdminPaneEditable(),
+  )
   const showShareCreateToolbar = createMemo(() => !!share() && !!props.shareAllowUpload)
 
   const parentParts = createMemo(() =>
@@ -163,12 +180,12 @@ export function WorkspaceBrowserPane(props: Props) {
     if (p.length <= 1) return ''
     return p.slice(0, -1).join('/')
   })
-  const canDropOnParent = createMemo(
-    () =>
-      isAdminPaneEditable() &&
-      !!currentPath() &&
-      isPathEditable(dropParentDir() || '', props.editableFolders),
-  )
+  const canDropOnParent = createMemo(() => {
+    if (!currentPath()) return false
+    if (!isPathEditable(dropParentDir() || '', props.editableFolders)) return false
+    if (share()) return !!props.shareCanEdit
+    return isAdminPaneEditable()
+  })
 
   const canDropOn = (targetPath: string, sourcePath?: string | null) => {
     const src = sourcePath ?? draggedPath()
@@ -180,8 +197,15 @@ export function WorkspaceBrowserPane(props: Props) {
   const dragSourceKind = createMemo((): 'local' | 'share' => (share() ? 'share' : 'local'))
   const dragSourceToken = createMemo(() => share()?.token)
 
-  const moveMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
+  const moveItemMutation = useMutation(() => ({
+    mutationFn: (
+      vars:
+        | { kind: 'admin'; oldPath: string; newPath: string }
+        | { kind: 'share'; token: string; oldPath: string; newPath: string },
+    ) =>
+      vars.kind === 'share'
+        ? post(`/api/share/${vars.token}/rename`, { oldPath: vars.oldPath, newPath: vars.newPath })
+        : post('/api/files/rename', { oldPath: vars.oldPath, newPath: vars.newPath }),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       const sh = share()
@@ -190,12 +214,41 @@ export function WorkspaceBrowserPane(props: Props) {
   }))
 
   function handleMoveFile(sourcePath: string, destinationDir: string) {
+    const sh = share()
+    const shareNorm = sh?.sharePath.replace(/\\/g, '/') ?? ''
+    if (sh) {
+      const sourceRel = stripSharePrefix(sourcePath, shareNorm)
+      const destRel = stripSharePrefix(destinationDir, shareNorm)
+      const baseName = sourceRel.split('/').filter(Boolean).pop()!
+      const newPath = destRel ? `${destRel}/${baseName}` : baseName
+      moveItemMutation.mutate({ kind: 'share', token: sh.token, oldPath: sourceRel, newPath })
+      return
+    }
     const fileName = sourcePath.split(/[/\\]/).pop()!
     const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
-    moveMutation.mutate({ oldPath: sourcePath, newPath })
+    moveItemMutation.mutate({ kind: 'admin', oldPath: sourcePath, newPath })
   }
 
-  const allowMoveFile = createMemo(() => (isAdminPaneEditable() ? handleMoveFile : undefined))
+  const allowMoveFile = createMemo(() => {
+    if (share()) return props.shareCanEdit ? handleMoveFile : undefined
+    return isAdminPaneEditable() ? handleMoveFile : undefined
+  })
+
+  const renameItemMutation = useMutation(() => ({
+    mutationFn: (
+      vars:
+        | { kind: 'admin'; oldPath: string; newPath: string }
+        | { kind: 'share'; token: string; oldPath: string; newPath: string },
+    ) =>
+      vars.kind === 'share'
+        ? post(`/api/share/${vars.token}/rename`, { oldPath: vars.oldPath, newPath: vars.newPath })
+        : post('/api/files/rename', { oldPath: vars.oldPath, newPath: vars.newPath }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      const sh = share()
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+    },
+  }))
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
@@ -268,7 +321,13 @@ export function WorkspaceBrowserPane(props: Props) {
   }))
 
   const viewMode = createMemo(() => {
-    if (share()) return 'list' as const
+    const sh = share()
+    if (sh) {
+      void shareViewModeTick()
+      return useBrowserViewModeStore
+        .getState()
+        .getViewMode(`share-workspace-viewmode-${sh.token}`, 'list')
+    }
     const s = settingsQuery.data
     return s?.viewModes?.[currentPath()] ?? 'list'
   })
@@ -359,7 +418,14 @@ export function WorkspaceBrowserPane(props: Props) {
   })
 
   const deleteMutation = useMutation(() => ({
-    mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
+    mutationFn: (itemPath: string) => {
+      const sh = share()
+      if (sh) {
+        const rel = stripSharePrefix(itemPath, sh.sharePath.replace(/\\/g, '/'))
+        return post(`/api/share/${sh.token}/delete`, { path: rel })
+      }
+      return post('/api/files/delete', { path: itemPath })
+    },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       const sh = share()
@@ -369,13 +435,105 @@ export function WorkspaceBrowserPane(props: Props) {
     },
   }))
 
+  const renameTargetExists = createMemo(() => {
+    const item = renamingItem()
+    const name = renameNewName().trim()
+    if (!item || !name || renameItemMutation.isPending) return false
+    return files().some((f) => f.path !== item.path && f.name.toLowerCase() === name.toLowerCase())
+  })
+
+  function openContextRename(file: FileItem) {
+    setRenamingItem(file)
+    setRenameNewName(file.name)
+    setShowRename(true)
+  }
+
+  function cancelRename() {
+    setShowRename(false)
+    setRenamingItem(null)
+    setRenameNewName('')
+    renameItemMutation.reset()
+  }
+
+  function submitRename() {
+    const item = renamingItem()
+    const newName = renameNewName().trim()
+    if (!item || !newName || newName === item.name || renameTargetExists()) return
+    const sh = share()
+    const shareNorm = sh?.sharePath.replace(/\\/g, '/') ?? ''
+    if (sh) {
+      const oldRel = stripSharePrefix(item.path, shareNorm)
+      const parts = oldRel.split('/').filter(Boolean)
+      const parent = parts.slice(0, -1).join('/')
+      const newRel = parent ? `${parent}/${newName}` : newName
+      renameItemMutation.mutate(
+        { kind: 'share', token: sh.token, oldPath: oldRel, newPath: newRel },
+        { onSuccess: () => cancelRename() },
+      )
+    } else {
+      const oldPath = item.path.replace(/\\/g, '/')
+      const par = parentDir(oldPath)
+      const newPath = par ? `${par}/${newName}` : newName
+      renameItemMutation.mutate(
+        { kind: 'admin', oldPath, newPath },
+        { onSuccess: () => cancelRename() },
+      )
+    }
+  }
+
+  function openContextMove(file: FileItem) {
+    setMoveTarget(file)
+    moveItemMutation.reset()
+  }
+
+  function closeMoveDialog() {
+    setMoveTarget(null)
+    moveItemMutation.reset()
+  }
+
+  function confirmMoveTo(destinationDir: string) {
+    const target = moveTarget()
+    if (!target) return
+    const sh = share()
+    const shareNorm = sh?.sharePath.replace(/\\/g, '/') ?? ''
+    if (sh) {
+      const sourceRel = stripSharePrefix(target.path, shareNorm)
+      const baseName = sourceRel.split('/').filter(Boolean).pop()!
+      const newPath = destinationDir ? `${destinationDir}/${baseName}` : baseName
+      moveItemMutation.mutate(
+        { kind: 'share', token: sh.token, oldPath: sourceRel, newPath },
+        { onSuccess: () => closeMoveDialog() },
+      )
+    } else {
+      const fileName = target.path.split(/[/\\]/).pop()!
+      const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
+      moveItemMutation.mutate(
+        { kind: 'admin', oldPath: target.path, newPath },
+        { onSuccess: () => closeMoveDialog() },
+      )
+    }
+  }
+
+  const moveDialogFilePath = createMemo(() => {
+    const t = moveTarget()
+    const sh = share()
+    if (!t) return ''
+    if (sh) return stripSharePrefix(t.path, sh.sharePath.replace(/\\/g, '/'))
+    return t.path
+  })
+
   createEffect(() => {
     currentPath()
     setUnsupportedFile(null)
   })
 
   function setViewMode(mode: 'list' | 'grid') {
-    if (share()) return
+    const sh = share()
+    if (sh) {
+      useBrowserViewModeStore.getState().setViewMode(`share-workspace-viewmode-${sh.token}`, mode)
+      setShareViewModeTick((n) => n + 1)
+      return
+    }
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
   }
 
@@ -885,9 +1043,7 @@ export function WorkspaceBrowserPane(props: Props) {
               />
               <div class='bg-border mx-1 h-5 w-px shrink-0' />
             </Show>
-            <Show when={!share()}>
-              <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} mode='Workspace' />
-            </Show>
+            <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} mode='Workspace' />
           </div>
         </div>
       </div>
@@ -1402,12 +1558,16 @@ export function WorkspaceBrowserPane(props: Props) {
       <FileRowContextMenu
         menu={fileRowMenu.menu}
         editableFolders={() => props.editableFolders}
-        isCurrentDirEditable={isAdminPaneEditable}
+        isCurrentDirEditable={isContextDirEditable}
         hasEditableFolders={() => props.editableFolders.length > 0}
+        shareDeleteGated={() => !!share()}
+        shareCanDelete={() => !!props.shareCanDelete}
         onDismiss={fileRowMenu.dismiss}
         onDownload={handleContextDownload}
         onDelete={fileRowMenu.confirmDelete}
         onAddToTaskbar={props.onAddToTaskbar}
+        onRename={isContextDirEditable() ? openContextRename : undefined}
+        onMove={isContextDirEditable() ? openContextMove : undefined}
         onOpenInNewTab={
           props.onOpenInNewTab
             ? (f) =>
@@ -1420,6 +1580,31 @@ export function WorkspaceBrowserPane(props: Props) {
         }
         showOpenInNewTabForFiles={!!props.onOpenInNewTab}
       />
+      <RenameDialog
+        isOpen={showRename()}
+        itemName={renamingItem()?.name ?? ''}
+        newName={renameNewName()}
+        onNewNameChange={setRenameNewName}
+        onRename={submitRename}
+        onCancel={cancelRename}
+        isPending={renameItemMutation.isPending}
+        error={renameItemMutation.error as Error | undefined}
+        nameExists={renameTargetExists()}
+        isDirectory={renamingItem()?.isDirectory ?? false}
+      />
+      <Show when={moveTarget()}>
+        <MoveToDialog
+          onClose={closeMoveDialog}
+          fileName={moveTarget()!.name}
+          filePath={moveDialogFilePath()}
+          onConfirm={confirmMoveTo}
+          isPending={moveItemMutation.isPending}
+          error={moveItemMutation.error as Error | undefined}
+          editableFolders={props.editableFolders}
+          shareToken={share()?.token}
+          shareRootPath={share()?.sharePath}
+        />
+      </Show>
       <DeleteFileDialog
         item={deleteTarget}
         isPending={deleteMutation.isPending}
