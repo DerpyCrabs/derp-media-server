@@ -36,6 +36,7 @@ import { detectSnapZone, type SnapDetectResult } from '@/lib/use-snap-zones'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import File from 'lucide-solid/icons/file'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import Folder from 'lucide-solid/icons/folder'
@@ -62,6 +63,7 @@ import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from './workspace/WorkspaceWindowChrome'
 import { WorkspaceNamedLayoutMenu } from './workspace/WorkspaceNamedLayoutMenu'
 import { WorkspaceTaskbarAudio } from './workspace/WorkspaceTaskbarAudio'
+import { WorkspaceTaskbarSettings } from './workspace/WorkspaceTaskbarSettings'
 
 const DEFAULT_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 
@@ -712,6 +714,17 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const w = workspace()
     const winDef = w?.windows.find((x) => x.id === windowId)
     if (!winDef) return
+    const dir = winDef.initialState?.dir ?? ''
+    if (getWorkspaceFileOpenTarget() === 'new-tab') {
+      openInNewTabInSameWindow(
+        windowId,
+        { path: file.path, isDirectory: false },
+        dir,
+        undefined,
+        winDef.source,
+      )
+      return
+    }
     openViewer(windowId, file, winDef.source)
   }
 
@@ -1348,6 +1361,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                 requestPlay(browserSource(), path, dir ?? undefined)
               }}
             />
+            <WorkspaceTaskbarSettings />
           </div>
         </div>
       </div>
