@@ -154,7 +154,7 @@ export function FileBrowser() {
   const hasEditableFolders = createMemo(() => editableFolders().length > 0)
 
   const viewStats = useViewStats(() => ({}))
-  useDynamicFavicon(customIcons, { getSearch: () => history().search })
+  useDynamicFavicon(() => customIcons(), { getSearch: () => history().search })
 
   const playingFromUrl = createMemo(() => {
     const sp = new URLSearchParams(history().search)
@@ -493,6 +493,21 @@ export function FileBrowser() {
     if (cur && !cur.contains(e.relatedTarget as Node) && dragOverPath() === file.path) {
       setDragOverPath(null)
     }
+  }
+
+  function handleFolderRowDragOver(path: string, e: globalThis.DragEvent) {
+    const file = files().find((x) => x.path === path)
+    if (file?.isDirectory) onFolderDragOver(file, e)
+  }
+
+  function handleFolderRowDragLeave(path: string, e: globalThis.DragEvent) {
+    const file = files().find((x) => x.path === path)
+    if (file?.isDirectory) onFolderDragLeave(file, e)
+  }
+
+  function handleFolderRowDrop(path: string, e: globalThis.DragEvent) {
+    const file = files().find((x) => x.path === path)
+    if (file?.isDirectory) onFolderDrop(file, e)
   }
 
   function onFolderDrop(file: FileItem, e: globalThis.DragEvent) {
@@ -1350,21 +1365,18 @@ export function FileBrowser() {
                                           {...createLongPressContextMenuHandlers()}
                                           onDragStart={(e) => onFileDragStart(file, e)}
                                           onDragEnd={onFileDragEnd}
-                                          onDragOver={
-                                            file.isDirectory && allowMoveFile()
-                                              ? (e) => onFolderDragOver(file, e)
-                                              : undefined
-                                          }
-                                          onDragLeave={
-                                            file.isDirectory && allowMoveFile()
-                                              ? (e) => onFolderDragLeave(file, e)
-                                              : undefined
-                                          }
-                                          onDrop={
-                                            file.isDirectory && allowMoveFile()
-                                              ? (e) => onFolderDrop(file, e)
-                                              : undefined
-                                          }
+                                          onDragOver={(e) => {
+                                            if (!file.isDirectory || !allowMoveFile()) return
+                                            handleFolderRowDragOver(file.path, e)
+                                          }}
+                                          onDragLeave={(e) => {
+                                            if (!file.isDirectory || !allowMoveFile()) return
+                                            handleFolderRowDragLeave(file.path, e)
+                                          }}
+                                          onDrop={(e) => {
+                                            if (!file.isDirectory || !allowMoveFile()) return
+                                            handleFolderRowDrop(file.path, e)
+                                          }}
                                         >
                                           <td
                                             class='w-12 p-2 align-middle'

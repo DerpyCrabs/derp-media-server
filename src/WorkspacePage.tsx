@@ -51,7 +51,7 @@ import {
   untrack,
 } from 'solid-js'
 import type { FileIconContext } from './lib/use-file-icon'
-import { pinnedShellIcon, workspaceTaskbarRowIcon, workspaceTabIcon } from './lib/use-file-icon'
+import { pinnedShellIcon } from './lib/use-file-icon'
 import { useBrowserHistory, navigateSearchParams } from './browser-history'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { applySnapPreviewLayout } from './workspace/snap-preview'
@@ -888,7 +888,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag)
   }
 
-  function restoreDrag(windowId: string, clientX: number, clientY: number) {
+  function restoreDrag(windowId: string, clientX: number, _clientY: number) {
     const w = workspace()
     const container = workspaceAreaEl?.getBoundingClientRect()
     if (!w || !container) return

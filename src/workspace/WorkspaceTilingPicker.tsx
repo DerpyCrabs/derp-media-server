@@ -36,7 +36,7 @@ export type WorkspaceTilingPickerProps = {
 }
 
 export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
-  let root!: HTMLDivElement
+  let root: HTMLDivElement | undefined
 
   const [snapVisTick, setSnapVisTick] = createSignal(0)
   onMount(() => {
@@ -89,7 +89,9 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
 
   return (
     <div
-      ref={root}
+      ref={(el) => {
+        root = el
+      }}
       class='absolute z-[9999] rounded-lg border border-border bg-popover/95 p-3 shadow-2xl backdrop-blur'
       style={{
         left: `${layout().left}px`,

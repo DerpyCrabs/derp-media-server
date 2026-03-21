@@ -441,8 +441,8 @@ export function WorkspaceTaskbarAudio(props: Props) {
       navigator.mediaSession.setActionHandler('seekto', (details) => {
         if (details.seekTime != null) audio.currentTime = details.seekTime
       })
-      navigator.mediaSession.setActionHandler('previoustrack', () => playPreviousAudio())
-      navigator.mediaSession.setActionHandler('nexttrack', () => playNextAudio())
+      navigator.mediaSession.setActionHandler('previoustrack', playPreviousAudio)
+      navigator.mediaSession.setActionHandler('nexttrack', playNextAudio)
     }
   })
 

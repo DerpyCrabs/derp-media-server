@@ -180,7 +180,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     onCleanup(() => bar.removeEventListener('pointerdown', onPointerDownCapture, true))
   })
 
-  const startResize = (direction: string) => (e: MouseEvent) => {
+  const startResize = (direction: string, e: MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     props.onFocusWindow(props.visibleTabId())
@@ -244,11 +244,6 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
 
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-  }
-
-  const guardClick = (fn: () => void, e: MouseEvent) => {
-    e.stopPropagation()
-    fn()
   }
 
   const rm = () => resizeMap()
@@ -321,7 +316,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                 type='button'
                 data-no-window-drag
                 class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-                onClick={(e) => guardClick(() => props.onAddTab?.(), e)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  props.onAddTab?.()
+                }}
                 aria-label='New tab'
               >
                 <Plus class='lucide-plus h-3.5 w-3.5' stroke-width={2} />
@@ -330,7 +328,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onMinimize(liveLeaderId()), e)}
+              onClick={(e) => {
+                e.stopPropagation()
+                props.onMinimize(liveLeaderId())
+              }}
               aria-label='Minimize'
             >
               <Minus class='lucide-minus h-3.5 w-3.5' stroke-width={2} />
@@ -338,7 +339,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onToggleFullscreen(liveLeaderId()), e)}
+              onClick={(e) => {
+                e.stopPropagation()
+                props.onToggleFullscreen(liveLeaderId())
+              }}
               onContextMenu={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -357,7 +361,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onClose(liveLeaderId()), e)}
+              onClick={(e) => {
+                e.stopPropagation()
+                props.onClose(liveLeaderId())
+              }}
               aria-label={`Close ${win()?.title ?? ''}`}
             >
               <X class='lucide-x h-3.5 w-3.5' stroke-width={2} />
@@ -383,7 +390,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'row-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('top')(e)
+              startResize('top', e)
             }}
           />
         </Show>
@@ -396,7 +403,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'row-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('bottom')(e)
+              startResize('bottom', e)
             }}
           />
         </Show>
@@ -409,7 +416,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'col-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('left')(e)
+              startResize('left', e)
             }}
           />
         </Show>
@@ -422,7 +429,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'col-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('right')(e)
+              startResize('right', e)
             }}
           />
         </Show>
@@ -437,7 +444,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'nwse-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('topLeft')(e)
+              startResize('topLeft', e)
             }}
           />
         </Show>
@@ -452,7 +459,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'nesw-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('topRight')(e)
+              startResize('topRight', e)
             }}
           />
         </Show>
@@ -467,7 +474,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'nesw-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('bottomLeft')(e)
+              startResize('bottomLeft', e)
             }}
           />
         </Show>
@@ -482,7 +489,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             style={{ cursor: 'nwse-resize' }}
             onMouseDown={(e) => {
               e.stopPropagation()
-              startResize('bottomRight')(e)
+              startResize('bottomRight', e)
             }}
           />
         </Show>

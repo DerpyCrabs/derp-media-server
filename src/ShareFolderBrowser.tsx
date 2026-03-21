@@ -83,9 +83,9 @@ type Props = {
 export function ShareFolderBrowser(props: Props) {
   const history = useBrowserHistory()
   const queryClient = useQueryClient()
-  useShareFileWatcher(props.token)
+  useShareFileWatcher(() => props.token)
   useDynamicFavicon(() => ({}), {
-    rootName: props.shareInfo.name,
+    rootName: () => props.shareInfo.name,
     getSearch: () => history().search,
   })
 

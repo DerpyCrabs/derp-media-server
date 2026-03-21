@@ -31,14 +31,15 @@ type ShareCtx = { token: string; sharePath: string }
 
 function useDirFromUrl() {
   const history = useBrowserHistory()
-  return createMemo(() => {
+  const dirMemo = createMemo(() => {
     const sp = new URLSearchParams(history().search)
     return sp.get('dir') ?? ''
   })
+  return dirMemo
 }
 
 function useDirToFetch(viewingPath: () => string, dirFromUrl: Accessor<string>) {
-  return createMemo(() => {
+  const dirToFetchMemo = createMemo(() => {
     let dir = dirFromUrl()
     if (!dir && viewingPath()) {
       const pathParts = viewingPath().split(/[/\\]/)
@@ -47,6 +48,7 @@ function useDirToFetch(viewingPath: () => string, dirFromUrl: Accessor<string>) 
     }
     return dir
   })
+  return dirToFetchMemo
 }
 
 function ImageViewerInner(props: {
@@ -67,7 +69,7 @@ function ImageViewerInner(props: {
   const [rotation, setRotation] = createSignal(0)
 
   createEffect(() => {
-    props.viewingPath
+    void props.viewingPath
     setZoom('fit')
     setRotation(0)
   })

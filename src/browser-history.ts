@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount } from 'solid-js'
+import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 
 const subscribers = new Set<() => void>()
 
@@ -41,13 +41,14 @@ export function useBrowserHistory() {
     })
   })
 
-  return () => {
+  const locationMemo = createMemo(() => {
     void tick()
     return {
       pathname: window.location.pathname,
       search: window.location.search,
     }
-  }
+  })
+  return locationMemo
 }
 
 export function navigateSearchParams(

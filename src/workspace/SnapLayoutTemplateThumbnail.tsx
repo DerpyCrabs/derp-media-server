@@ -1,7 +1,7 @@
 import type { SnapZone } from '@/lib/use-workspace'
 import { cn } from '@/lib/utils'
 import type { SnapLayoutTemplate } from '@/lib/workspace-snap-layouts'
-import { For } from 'solid-js'
+import { For, Show } from 'solid-js'
 
 export type SnapLayoutTemplateThumbnailProps = {
   template: SnapLayoutTemplate
@@ -25,18 +25,21 @@ export function SnapLayoutTemplateThumbnail(props: SnapLayoutTemplateThumbnailPr
         style={{ 'grid-template-rows': `repeat(${rows()}, minmax(0, 1fr))` }}
       >
         <For each={props.template.grid}>
-          {(slot) =>
-            props.interactive ? (
+          {(slot) => (
+            <Show
+              when={props.interactive}
+              fallback={
+                <div class={cellClass} style={{ 'grid-column': slot.col, 'grid-row': slot.row }} />
+              }
+            >
               <button
                 type='button'
                 class={cn(cellClass, 'transition-colors hover:bg-primary/40')}
                 style={{ 'grid-column': slot.col, 'grid-row': slot.row }}
                 onClick={() => props.onSlotClick?.(slot.zone)}
               />
-            ) : (
-              <div class={cellClass} style={{ 'grid-column': slot.col, 'grid-row': slot.row }} />
-            )
-          }
+            </Show>
+          )}
         </For>
       </div>
     </div>

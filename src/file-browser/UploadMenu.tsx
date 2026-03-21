@@ -80,7 +80,9 @@ export function UploadMenu(props: UploadMenuProps) {
             type='button'
             role='menuitem'
             class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-            onClick={() => void queueMicrotask(() => fileInput?.click())}
+            onClick={() => {
+              queueMicrotask(() => fileInput?.click())
+            }}
           >
             <FileIcon size={16} stroke-width={2} />
             Upload files
@@ -89,7 +91,9 @@ export function UploadMenu(props: UploadMenuProps) {
             type='button'
             role='menuitem'
             class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-            onClick={() => void queueMicrotask(() => folderInput?.click())}
+            onClick={() => {
+              queueMicrotask(() => folderInput?.click())
+            }}
           >
             <Folder size={16} stroke-width={2} />
             Upload folder

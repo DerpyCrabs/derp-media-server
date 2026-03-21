@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, untrack, type JSX } from 'solid-js'
 import { getSolidIconComponent, SOLID_AVAILABLE_ICONS } from '../lib/solid-available-icons'
 import X from 'lucide-solid/icons/x'
 
@@ -12,7 +12,9 @@ type Props = {
 }
 
 export function IconEditorDialog(props: Props) {
-  const [selectedIcon, setSelectedIcon] = createSignal<string | null>(props.currentIcon)
+  const [selectedIcon, setSelectedIcon] = createSignal<string | null>(
+    untrack(() => props.currentIcon),
+  )
 
   createEffect(() => {
     if (props.isOpen) setSelectedIcon(props.currentIcon)
@@ -82,20 +84,25 @@ export function IconEditorDialog(props: Props) {
             </button>
 
             <div class='grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'>
-              {SOLID_AVAILABLE_ICONS.map(({ name, Icon }) => (
-                <button
-                  type='button'
-                  title={name}
-                  class={`flex items-center justify-center rounded-lg border-2 p-3 transition-all hover:bg-muted/50 ${
-                    selectedIcon() === name
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border hover:border-primary/50'
-                  }`}
-                  onClick={() => setSelectedIcon(name)}
-                >
-                  <Icon class='h-6 w-6' size={24} stroke-width={2} />
-                </button>
-              ))}
+              <For each={SOLID_AVAILABLE_ICONS}>
+                {(icon) => {
+                  const Icon = icon.Icon
+                  return (
+                    <button
+                      type='button'
+                      title={icon.name}
+                      class={`flex items-center justify-center rounded-lg border-2 p-3 transition-all hover:bg-muted/50 ${
+                        selectedIcon() === icon.name
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                      onClick={() => setSelectedIcon(icon.name)}
+                    >
+                      <Icon class='h-6 w-6' size={24} stroke-width={2} />
+                    </button>
+                  )
+                }}
+              </For>
             </div>
           </div>
 

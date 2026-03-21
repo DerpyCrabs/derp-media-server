@@ -68,7 +68,7 @@ export function WorkspacePlayerPane(props: Props) {
     const abs = new URL(url, window.location.origin).href
     if (vid.src !== abs) {
       vid.src = url
-      void vid.load()
+      vid.load()
     }
     void vid.play().catch(() => {})
   })

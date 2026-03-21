@@ -10,7 +10,7 @@ import type { Accessor } from 'solid-js'
 import { createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 
 type Options = {
-  rootName?: string
+  rootName?: string | Accessor<string>
   state?: Accessor<DynamicFaviconNavState>
   getSearch?: Accessor<string>
 }
@@ -67,9 +67,11 @@ export function useDynamicFavicon(
       shouldUpdateFavicon = true
     }
 
+    const rootNameOpt = options?.rootName
+    const resolvedRootName = typeof rootNameOpt === 'function' ? rootNameOpt() : rootNameOpt
     const folderName = currentDir
       ? currentDir.split(/[/\\]/).filter(Boolean).at(-1)
-      : (options?.rootName ?? 'Home')
+      : (resolvedRootName ?? 'Home')
     document.title = folderName ? `${folderName} - Media Server` : 'Media Server'
 
     if (shouldUpdateFavicon) {

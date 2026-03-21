@@ -212,12 +212,23 @@ export function AudioPlayer(props: Props) {
   const playNextRef: { current: () => void } = { current: () => undefined }
   const playPrevRef: { current: () => void } = { current: () => undefined }
 
-  createEffect(() => {
-    const path = playingPath()
-    const files = audioFiles()
-    const dir = currentDir()
+  const playNavSnapshot: {
+    path: string | null
+    files: FileItem[]
+    dir: string
+    audio: HTMLAudioElement | undefined
+  } = { path: null, files: [], dir: '', audio: undefined }
 
-    playNextRef.current = () => {
+  createEffect(() => {
+    playNavSnapshot.path = playingPath()
+    playNavSnapshot.files = audioFiles()
+    playNavSnapshot.dir = currentDir()
+    playNavSnapshot.audio = audioEl()
+
+    const runNext = () => {
+      const path = playNavSnapshot.path
+      const files = playNavSnapshot.files
+      const dir = playNavSnapshot.dir
       if (!path || files.length === 0) return
       const currentIndex = files.findIndex((file) => file.path === path)
       if (currentIndex === -1) {
@@ -240,9 +251,12 @@ export function AudioPlayer(props: Props) {
       useMediaPlayer.getState().playFile(nextFile.path, 'audio')
     }
 
-    playPrevRef.current = () => {
+    const runPrev = () => {
+      const path = playNavSnapshot.path
+      const files = playNavSnapshot.files
+      const dir = playNavSnapshot.dir
       if (!path || files.length === 0) return
-      const audio = audioEl()
+      const audio = playNavSnapshot.audio
       if (audio && audio.currentTime > 20) {
         audio.currentTime = 0
         return
@@ -261,6 +275,9 @@ export function AudioPlayer(props: Props) {
       urlPlayFile(previousFile.path, dir)
       useMediaPlayer.getState().playFile(previousFile.path, 'audio')
     }
+
+    playNextRef.current = runNext
+    playPrevRef.current = runPrev
   })
 
   createEffect(() => {
