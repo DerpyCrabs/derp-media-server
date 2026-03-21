@@ -1092,7 +1092,12 @@ function FileListInner({
   )
 
   return (
-    <div className='flex flex-col' onPaste={handlePasteEvent} tabIndex={-1}>
+    <div
+      className='flex flex-col'
+      data-testid='file-browser'
+      onPaste={handlePasteEvent}
+      tabIndex={-1}
+    >
       <BrowserPane
         dialogs={dialogs}
         progress={uploadProgressSlot}

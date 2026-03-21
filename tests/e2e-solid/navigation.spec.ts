@@ -84,12 +84,13 @@ test.describe('Folder Navigation', () => {
   })
 
   test('tracks views and shows Most Played', async ({ page }) => {
-    await page.request.post('/api/stats/views', {
+    const res = await page.request.post('/api/stats/views', {
       data: { filePath: 'Documents/readme.txt' },
     })
+    expect(res.ok()).toBeTruthy()
 
     await page.goto('/?dir=Most Played')
-    await expect(page.getByText('readme.txt')).toBeVisible()
+    await expect(page.locator('table').getByText('readme.txt')).toBeVisible()
   })
 
   test('loads folder from direct URL', async ({ page }) => {

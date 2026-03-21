@@ -21,6 +21,7 @@
     "test:solid": "playwright test -c playwright.solid.config.ts",
     "test:solid:ui": "playwright test -c playwright.solid.config.ts --ui",
     "test:batch:solid": "bun tests/run-batches-solid.ts",
+    "e2e:diff-specs": "bun scripts/diff-e2e-specs.ts",
     "test:generate-media": "bun tests/fixtures/generate-media-cache.ts",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
