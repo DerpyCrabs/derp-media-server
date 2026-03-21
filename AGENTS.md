@@ -32,7 +32,7 @@ The app can ship a **Solid** client beside React. The Fastify server chooses the
 
 ### Migration (React → Solid)
 
-**Roadmap (test-driven, copy React e2e → implement Solid until green):** [`docs/solid-migration-plan.md`](docs/solid-migration-plan.md).
+**Roadmap (test-driven, copy React e2e → implement Solid until green):**
 
 Work **feature-by-feature**, not a big-bang rewrite:
 
