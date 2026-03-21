@@ -15,6 +15,11 @@ test.describe('Login & Auth (Solid UI)', () => {
     await expect(page.getByText('Media Server')).toBeVisible()
   })
 
+  test('login page exposes theme settings control', async ({ page }) => {
+    await page.goto('/login')
+    await expect(page.getByRole('button', { name: 'Open theme settings' })).toBeVisible()
+  })
+
   test('wrong password shows error message', async ({ page }) => {
     await page.goto('/login')
     await page.locator('input[type="password"]').fill('wrong-password')

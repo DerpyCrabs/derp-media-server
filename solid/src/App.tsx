@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/solid-query'
 import { Switch, Match, Show, createSignal, createMemo } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { SolidThemeSync } from './SolidThemeSync'
+import { ThemeSwitcher } from './ThemeSwitcher'
 import { FileBrowser } from './FileBrowser'
 import { ShareRoute } from './ShareRoute'
 import { ShareWorkspacePage } from './ShareWorkspacePage'
@@ -38,7 +39,8 @@ function LoginPage() {
   }
 
   return (
-    <div class='min-h-screen flex items-center justify-center p-4'>
+    <div class='relative min-h-screen flex items-center justify-center p-4'>
+      <ThemeSwitcher variant='floating' />
       <div class='w-full max-w-sm rounded-xl border border-border bg-card text-card-foreground shadow-sm'>
         <div class='p-6 space-y-1'>
           <h1 class='text-xl font-semibold'>Media Server</h1>

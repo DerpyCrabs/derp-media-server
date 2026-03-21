@@ -3,6 +3,8 @@ import { post } from '@/lib/api'
 import Download from 'lucide-solid/icons/download'
 import { Match, Switch, onCleanup, onMount } from 'solid-js'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useBrowserHistory } from './browser-history'
+import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import type { ShareInfoPayload } from './ShareFolderBrowser'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { playFile, viewFile } from './lib/url-state-actions'
@@ -15,7 +17,12 @@ type Props = {
 }
 
 export function ShareFileViewer(props: Props) {
+  const history = useBrowserHistory()
   useShareFileWatcher(props.token)
+  useDynamicFavicon(() => ({}), {
+    rootName: props.shareInfo.name,
+    getSearch: () => history().search,
+  })
 
   const shareContext = (): TextViewerShareContext => ({
     token: props.token,

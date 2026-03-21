@@ -22,6 +22,10 @@ export function SharePasscodeGate(props: Props) {
   const verifyMutation = useMutation(() => ({
     mutationFn: (code: string) => post(`/api/share/${props.token}/verify`, { passcode: code }),
     onSuccess: () => {
+      queryClient.setQueryData(queryKeys.shareInfo(props.token), (prev: unknown) => {
+        if (!prev || typeof prev !== 'object') return prev
+        return { ...(prev as Record<string, unknown>), authorized: true }
+      })
       void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(props.token) })
     },
   }))

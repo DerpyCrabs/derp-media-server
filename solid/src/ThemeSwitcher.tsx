@@ -1,5 +1,6 @@
 import { useThemeStore, type ThemeMode, type ThemePalette } from '@/lib/theme-store'
 import { applyTheme, resolveTheme } from '@/lib/theme-dom'
+import { cn } from '@/lib/utils'
 import Check from 'lucide-solid/icons/check'
 import Monitor from 'lucide-solid/icons/monitor'
 import Moon from 'lucide-solid/icons/moon'
@@ -19,7 +20,10 @@ const PALETTES: { value: ThemePalette; label: string }[] = [
   { value: 'cosmic-night', label: 'Cosmic Night' },
 ]
 
-export function ThemeSwitcher() {
+type Props = { variant?: 'header' | 'floating' }
+
+export function ThemeSwitcher(props: Props) {
+  const variant = () => props.variant ?? 'header'
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [storeTick, setStoreTick] = createSignal(0)
 
@@ -43,7 +47,7 @@ export function ThemeSwitcher() {
   }
 
   return (
-    <div class='relative'>
+    <div class={cn('relative', variant() === 'floating' && 'fixed bottom-4 right-4 z-10002')}>
       <button
         type='button'
         title='Theme settings'
@@ -57,7 +61,12 @@ export function ThemeSwitcher() {
       <Show when={menuOpen()}>
         <div class='fixed inset-0 z-10000' role='presentation' onClick={() => setMenuOpen(false)} />
         <div
-          class='ring-foreground/10 absolute right-0 top-full z-10001 mt-1 min-w-44 origin-top-right overflow-hidden rounded-md bg-popover p-1 text-popover-foreground shadow-md ring-1'
+          class={cn(
+            'ring-foreground/10 absolute right-0 z-10001 min-w-44 overflow-hidden rounded-md bg-popover p-1 text-popover-foreground shadow-md ring-1',
+            variant() === 'floating'
+              ? 'bottom-full mb-1 origin-bottom-right'
+              : 'top-full mt-1 origin-top-right',
+          )}
           onClick={(e) => e.stopPropagation()}
         >
           <div class='text-muted-foreground px-2 py-1.5 text-xs font-medium'>Mode</div>

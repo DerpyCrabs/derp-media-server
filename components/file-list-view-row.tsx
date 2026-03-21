@@ -288,6 +288,7 @@ export const FileListFileRow = memo(function FileListFileRow({
         <div className='flex items-center justify-end gap-2'>
           {showViewCounts && !file.isDirectory && (
             <div
+              data-testid='file-view-count'
               className={`flex items-center gap-1 text-xs ${viewCount > 0 ? '' : 'hidden'}`}
               title={`${viewCount} views`}
               suppressHydrationWarning

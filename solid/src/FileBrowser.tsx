@@ -24,6 +24,9 @@ import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
 import Star from 'lucide-solid/icons/star'
 import Upload from 'lucide-solid/icons/upload'
+import Eye from 'lucide-solid/icons/eye'
+import Share2 from 'lucide-solid/icons/share-2'
+import LinkIcon from 'lucide-solid/icons/link'
 import {
   createEffect,
   createMemo,
@@ -60,6 +63,8 @@ import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
+import { useDynamicFavicon } from './lib/use-dynamic-favicon'
+import { useViewStats } from './lib/use-view-stats'
 import { playFile, viewFile } from './lib/url-state-actions'
 
 export function FileBrowser() {
@@ -129,6 +134,9 @@ export function FileBrowser() {
   const inKb = createMemo(() => kbRootPath() !== null)
   const customIcons = createMemo(() => settingsQuery.data?.customIcons ?? {})
   const hasEditableFolders = createMemo(() => editableFolders().length > 0)
+
+  const viewStats = useViewStats(() => ({}))
+  useDynamicFavicon(customIcons, { getSearch: () => history().search })
 
   const playingFromUrl = createMemo(() => {
     const sp = new URLSearchParams(history().search)
@@ -886,7 +894,7 @@ export function FileBrowser() {
       return
     }
 
-    void post('/api/stats/views', { filePath: file.path }).catch(() => {})
+    viewStats.incrementView(file.path)
     const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
     if (isMediaFile) {
       useMediaPlayer
@@ -1093,6 +1101,46 @@ export function FileBrowser() {
                                           />
                                         </button>
                                       </Show>
+                                      <Show when={!file.isDirectory}>
+                                        <div
+                                          class={cn(
+                                            'absolute top-1.5 right-1.5 z-10 flex items-center gap-1',
+                                            viewStats.getViewCount(file.path) > 0 ||
+                                              viewStats.getShareViewCount(file.path) > 0
+                                              ? ''
+                                              : 'hidden',
+                                          )}
+                                        >
+                                          <Show when={viewStats.getViewCount(file.path) > 0}>
+                                            <div
+                                              class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
+                                              title={`${viewStats.getViewCount(file.path)} views`}
+                                            >
+                                              <Eye
+                                                class='h-3 w-3 text-muted-foreground'
+                                                stroke-width={2}
+                                              />
+                                              <span class='text-xs font-medium text-muted-foreground'>
+                                                {viewStats.getViewCount(file.path)}
+                                              </span>
+                                            </div>
+                                          </Show>
+                                          <Show when={viewStats.getShareViewCount(file.path) > 0}>
+                                            <div
+                                              class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
+                                              title={`${viewStats.getShareViewCount(file.path)} shared views`}
+                                            >
+                                              <Share2
+                                                class='h-3 w-3 text-primary/70'
+                                                stroke-width={2}
+                                              />
+                                              <span class='text-xs font-medium text-primary/70'>
+                                                {viewStats.getShareViewCount(file.path)}
+                                              </span>
+                                            </div>
+                                          </Show>
+                                        </div>
+                                      </Show>
                                       <div
                                         class='text-muted-foreground'
                                         {...(isRowKnowledgeBase(file)
@@ -1105,12 +1153,33 @@ export function FileBrowser() {
                                     <div class='flex flex-col gap-1 p-3'>
                                       <p class='truncate text-sm font-medium' title={file.name}>
                                         {file.name}
+                                        <Show when={sharedPathSet().has(file.path)}>
+                                          <LinkIcon
+                                            class='ml-1 inline h-3 w-3 text-primary opacity-70'
+                                            aria-hidden='true'
+                                            stroke-width={2}
+                                          />
+                                        </Show>
                                       </p>
-                                      <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                        <span>
-                                          {file.isDirectory ? '' : formatFileSize(file.size)}
-                                        </span>
-                                      </div>
+                                      <Show
+                                        when={isVirtualFolder() && !file.isDirectory}
+                                        fallback={
+                                          <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                                            <span>
+                                              {file.isDirectory ? '' : formatFileSize(file.size)}
+                                            </span>
+                                          </div>
+                                        }
+                                      >
+                                        <p
+                                          class='truncate text-xs text-muted-foreground'
+                                          title={
+                                            file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'
+                                          }
+                                        >
+                                          {file.path.split(/[/\\]/).slice(0, -1).join('/') || '/'}
+                                        </p>
+                                      </Show>
                                     </div>
                                   </div>
                                 )
@@ -1171,6 +1240,7 @@ export function FileBrowser() {
                                       <tr
                                         class={cn(
                                           'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group',
+                                          playingFromUrl() === file.path ? 'bg-primary/10' : '',
                                           file.isDirectory && dragOverPath() === file.path
                                             ? 'bg-primary/20'
                                             : '',
@@ -1238,13 +1308,65 @@ export function FileBrowser() {
                                                 />
                                               </button>
                                             </Show>
-                                            <span class='truncate'>{file.name}</span>
+                                            <div class='min-w-0 flex-1'>
+                                              <span class='block truncate'>
+                                                {file.name}
+                                                <Show when={sharedPathSet().has(file.path)}>
+                                                  <LinkIcon
+                                                    class='ml-1.5 inline h-3 w-3 text-primary opacity-70'
+                                                    aria-hidden='true'
+                                                    stroke-width={2}
+                                                  />
+                                                </Show>
+                                              </span>
+                                              <Show when={isVirtualFolder() && !file.isDirectory}>
+                                                <span class='block truncate text-xs text-muted-foreground'>
+                                                  {file.path
+                                                    .split(/[/\\]/)
+                                                    .slice(0, -1)
+                                                    .join('/') || '/'}
+                                                </span>
+                                              </Show>
+                                            </div>
                                           </div>
                                         </td>
                                         <td class='p-2 align-middle text-right text-muted-foreground'>
-                                          <span class='inline-block w-20 tabular-nums'>
-                                            {file.isDirectory ? '' : formatFileSize(file.size)}
-                                          </span>
+                                          <div class='flex items-center justify-end gap-2'>
+                                            <Show when={!file.isDirectory}>
+                                              <Show when={viewStats.getViewCount(file.path) > 0}>
+                                                <div
+                                                  class='flex items-center gap-1 text-xs'
+                                                  title={`${viewStats.getViewCount(file.path)} views`}
+                                                  data-testid='file-view-count'
+                                                >
+                                                  <Eye
+                                                    class='h-3.5 w-3.5 shrink-0'
+                                                    stroke-width={2}
+                                                  />
+                                                  <span>{viewStats.getViewCount(file.path)}</span>
+                                                </div>
+                                              </Show>
+                                              <Show
+                                                when={viewStats.getShareViewCount(file.path) > 0}
+                                              >
+                                                <div
+                                                  class='flex items-center gap-1 text-xs text-primary/70'
+                                                  title={`${viewStats.getShareViewCount(file.path)} shared views`}
+                                                >
+                                                  <Share2
+                                                    class='h-3 w-3 shrink-0'
+                                                    stroke-width={2}
+                                                  />
+                                                  <span>
+                                                    {viewStats.getShareViewCount(file.path)}
+                                                  </span>
+                                                </div>
+                                              </Show>
+                                            </Show>
+                                            <span class='inline-block w-20 tabular-nums shrink-0'>
+                                              {file.isDirectory ? '' : formatFileSize(file.size)}
+                                            </span>
+                                          </div>
                                         </td>
                                       </tr>
                                     )

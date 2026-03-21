@@ -111,6 +111,17 @@ test.describe('Share Workspace', () => {
     await context.close()
   })
 
+  test('file-only share /workspace URL redirects to standard file share', async ({ page }) => {
+    const shareUrl = await createShare(page, {
+      path: 'Documents/readme.txt',
+      isDirectory: false,
+    })
+    const workspaceUrl = toWorkspaceUrl(shareUrl)
+    const token = getShareToken(shareUrl)
+    await page.goto(workspaceUrl)
+    await expect(page).toHaveURL(new RegExp(`.*/share/${token}(?:\\?|$)`))
+  })
+
   test('opens share in workspace view and shows files', async ({ page }) => {
     const requests = watchRequests(page)
 
