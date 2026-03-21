@@ -68,7 +68,6 @@ import {
   mergeWindowIntoGroupState,
   openInNewTabInGroupState,
   orderedAllGroupIds,
-  orderedVisibleGroupIds,
   splitWindowFromGroupState,
   tabsInGroup,
 } from './workspace/tab-group-ops'
@@ -1124,7 +1123,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     onCleanup(() => document.removeEventListener('mousedown', onDoc))
   })
 
-  const visibleGroupIds = createMemo(() => orderedVisibleGroupIds(workspace()?.windows ?? []))
+  const renderedGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))
   const pinnedItems = createMemo(() => workspace()?.pinnedTaskbarItems ?? [])
   const pinnedItemsForTaskbar = createMemo(() => {
     void mediaIconTick()
@@ -1197,7 +1196,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
             class='pointer-events-none absolute rounded-sm border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
             style={{ display: 'none', 'z-index': 99999 }}
           />
-          <For each={visibleGroupIds()}>
+          <For each={renderedGroupIds()}>
             {(gid) => {
               void mediaIconTick()
               void playbackPlayingPath()

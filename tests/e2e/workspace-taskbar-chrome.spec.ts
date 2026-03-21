@@ -1,12 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
-
-async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
-}
+import { WORKSPACE_VISIBLE_WINDOW_GROUP, gotoWorkspace } from './workspace-layout-helpers'
 
 function getBrowserContent(page: Page) {
-  return page.locator('[data-window-group]').first().locator('.workspace-window-content')
+  return page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first().locator('.workspace-window-content')
 }
 
 test.describe('Workspace taskbar chrome', () => {
@@ -38,7 +34,7 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(content.getByText('sample.mp4')).toBeVisible()
     await content.getByText('sample.mp4').click()
 
-    const videos = page.locator('[data-window-group] video')
+    const videos = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
     await expect(videos).toHaveCount(1)
     await videos.first().hover()
     await page.locator('button[title="Listen only"]').click()
@@ -49,7 +45,7 @@ test.describe('Workspace taskbar chrome', () => {
       .locator('[data-workspace-taskbar-audio-root]')
       .getByRole('button', { name: 'Show video' })
       .click()
-    await expect(page.locator('[data-window-group] video')).toHaveCount(1)
+    await expect(page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)).toHaveCount(1)
   })
 
   test('hiding snap template in workspace settings removes it from layout picker', async ({
@@ -63,7 +59,7 @@ test.describe('Workspace taskbar chrome', () => {
     await page.keyboard.press('Escape')
     await expect(settingsDialog).not.toBeVisible()
 
-    const groups = page.locator('[data-window-group]')
+    const groups = page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
     await expect(page.getByText('Snap layout')).toBeVisible()

@@ -107,6 +107,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     () => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'),
   )
   const isFullscreen = createMemo(() => win()?.layout?.fullscreen ?? false)
+  const isMinimized = createMemo(() => win()?.layout?.minimized ?? false)
   const snapZone = createMemo(() => win()?.layout?.snapZone ?? null)
   const isSnapped = createMemo(() => !!snapZone() && !isFullscreen())
 
@@ -254,14 +255,23 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       style={{
         left: `${b().x}px`,
         top: `${b().y}px`,
-        width: `${b().width}px`,
-        height: `${b().height}px`,
+        width: isMinimized() ? '1px' : `${b().width}px`,
+        height: isMinimized() ? '1px' : `${b().height}px`,
         'z-index': win()?.layout?.zIndex ?? 1,
+        ...(isMinimized()
+          ? {
+              opacity: 0,
+              'pointer-events': 'none',
+              overflow: 'hidden',
+            }
+          : {}),
       }}
+      aria-hidden={isMinimized()}
     >
       <div
         ref={(el) => setWindowGroupEl(el ?? null)}
         data-window-group={props.groupId}
+        data-workspace-window-minimized={isMinimized() ? '' : undefined}
         class={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl ${
           props.isActive ? 'border-border shadow-black/20' : ''
         }`}
