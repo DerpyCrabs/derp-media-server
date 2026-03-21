@@ -13,6 +13,7 @@ import {
   type ResizeHandleKey,
   getWorkspaceSnapResizeHandleMap,
 } from './workspace-snap-resize-handles'
+import { groupIdForWindow } from './tab-group-ops'
 import { WorkspaceSingleTabHeader, WorkspaceTabStrip } from './WorkspaceTabStrip'
 
 const MIN_W = 360
@@ -94,9 +95,13 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     onCleanup(() => el.removeEventListener('mousedown', onMouseDownCapture, true))
   })
 
-  const win = createMemo(() =>
-    props.workspace()?.windows.find((w) => w.id === props.leaderWindowId),
-  )
+  const liveLeaderId = createMemo(() => {
+    const rows = props.workspace()?.windows ?? []
+    const leaderWin = rows.find((w) => groupIdForWindow(w) === props.groupId)
+    return leaderWin?.id ?? props.leaderWindowId
+  })
+
+  const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === liveLeaderId()))
   const hasTabs = createMemo(() => props.tabWindows().length > 1)
   const b = createMemo(
     () => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'),
@@ -117,7 +122,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     const container = props.containerEl()
     if (!container) return
 
-    const wb = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)?.layout?.bounds
+    const lid = liveLeaderId()
+    const wb = props.workspace()?.windows.find((w) => w.id === lid)?.layout?.bounds
     if (!wb) return
 
     e.preventDefault()
@@ -128,21 +134,21 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     const cRect = container.getBoundingClientRect()
 
     if (snapZone() || isFullscreen()) {
-      props.onRestoreDrag(props.leaderWindowId, e.clientX, e.clientY)
+      props.onRestoreDrag(lid, e.clientX, e.clientY)
     }
     const grabDx = e.clientX - cRect.left - wb.x
     const grabDy = e.clientY - cRect.top - wb.y
 
     const onMove = (ev: PointerEvent) => {
-      props.onDragPointerMove(props.leaderWindowId, ev.clientX, ev.clientY)
-      const cur = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)
-        ?.layout?.bounds
+      const id = liveLeaderId()
+      props.onDragPointerMove(id, ev.clientX, ev.clientY)
+      const cur = props.workspace()?.windows.find((w) => w.id === id)?.layout?.bounds
       if (!cur) return
       let nx = ev.clientX - cRect.left - grabDx
       let ny = ev.clientY - cRect.top - grabDy
       nx = Math.max(0, Math.min(nx, cRect.width - cur.width))
       ny = Math.max(0, Math.min(ny, cRect.height - cur.height))
-      props.onDragDuringMove(props.leaderWindowId, { ...cur, x: nx, y: ny })
+      props.onDragDuringMove(id, { ...cur, x: nx, y: ny })
     }
 
     const onUp = (ev: PointerEvent) => {
@@ -150,10 +156,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
       document.removeEventListener('pointercancel', onUp)
-      const final = props.workspace()?.windows.find((w) => w.id === props.leaderWindowId)
-        ?.layout?.bounds
+      const id = liveLeaderId()
+      const final = props.workspace()?.windows.find((w) => w.id === id)?.layout?.bounds
       if (final) {
-        props.onDragPointerEnd(props.leaderWindowId, final, ev.clientX, ev.clientY)
+        props.onDragPointerEnd(id, final, ev.clientX, ev.clientY)
       }
     }
 
@@ -186,7 +192,6 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     const startBounds = { ...b() }
     const startX = e.clientX
     const startY = e.clientY
-    const snapped = isSnapped()
 
     const applyFreeResize = (nb: WorkspaceBounds) => {
       let next = { ...nb }
@@ -223,10 +228,12 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         nb.height = startBounds.height - dy
       }
 
-      if (snapped) {
-        props.onResizeSnapped(props.leaderWindowId, applyFreeResize(nb), direction)
+      const id = liveLeaderId()
+      const snappedNow = !!props.workspace()?.windows.find((w) => w.id === id)?.layout?.snapZone
+      if (snappedNow) {
+        props.onResizeSnapped(id, applyFreeResize(nb), direction)
       } else {
-        props.onUpdateBounds(props.leaderWindowId, applyFreeResize(nb))
+        props.onUpdateBounds(id, applyFreeResize(nb))
       }
     }
 
@@ -323,7 +330,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onMinimize(props.leaderWindowId), e)}
+              onClick={(e) => guardClick(() => props.onMinimize(liveLeaderId()), e)}
               aria-label='Minimize'
             >
               <Minus class='lucide-minus h-3.5 w-3.5' stroke-width={2} />
@@ -331,12 +338,12 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onToggleFullscreen(props.leaderWindowId), e)}
+              onClick={(e) => guardClick(() => props.onToggleFullscreen(liveLeaderId()), e)}
               onContextMenu={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                props.onOpenLayoutPicker(props.leaderWindowId, r)
+                props.onOpenLayoutPicker(liveLeaderId(), r)
               }}
               aria-label='Maximize'
             >
@@ -350,7 +357,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-              onClick={(e) => guardClick(() => props.onClose(props.leaderWindowId), e)}
+              onClick={(e) => guardClick(() => props.onClose(liveLeaderId()), e)}
               aria-label={`Close ${win()?.title ?? ''}`}
             >
               <X class='lucide-x h-3.5 w-3.5' stroke-width={2} />

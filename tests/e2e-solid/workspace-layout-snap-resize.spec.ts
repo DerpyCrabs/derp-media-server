@@ -7,6 +7,7 @@ import {
   getRndWrapper,
   getDragHandle,
   getWindowBounds,
+  getSharedColumnResizeHandle,
   waitForWindowBoundsStable,
   dragFromTo,
   dragToEdge,
@@ -237,6 +238,84 @@ test.describe('Resizing Snapped Windows', () => {
 
     expect(newLeftBounds.width).toBeGreaterThan(leftBounds.width)
     expect(newRightBounds.x).toBeGreaterThan(rightBounds.x)
+  })
+
+  test('resizing left snapped column moves both top-right and bottom-right windows', async ({
+    page,
+  }) => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+    await expect(groups).toHaveCount(3)
+
+    await dragToEdge(page, getDragHandle(groups.nth(0)), 'left')
+
+    await groups.nth(1).dispatchEvent('mousedown')
+    await page.waitForTimeout(30)
+    await dragToEdge(page, getDragHandle(groups.nth(1)), 'top-right')
+
+    await groups.nth(2).dispatchEvent('mousedown')
+    await page.waitForTimeout(30)
+    await dragToEdge(page, getDragHandle(groups.nth(2)), 'bottom-right')
+
+    await expect(groups).toHaveCount(3)
+    for (let i = 0; i < 3; i++) {
+      await expect(groups.nth(i)).toBeVisible()
+    }
+
+    const b0 = await getWindowBounds(groups.nth(0))
+    const b1 = await getWindowBounds(groups.nth(1))
+    const b2 = await getWindowBounds(groups.nth(2))
+    expect(b0).toBeTruthy()
+    expect(b1).toBeTruthy()
+    expect(b2).toBeTruthy()
+
+    const byX = [b0, b1, b2]
+      .map((bounds, i) => ({ bounds, i }))
+      .sort((a, c) => a.bounds.x - c.bounds.x)
+    const leftIdx = byX[0]!.i
+    const rightTopIdx = byX[1]!.bounds.y <= byX[2]!.bounds.y ? byX[1]!.i : byX[2]!.i
+    const rightBottomIdx = rightTopIdx === byX[1]!.i ? byX[2]!.i : byX[1]!.i
+
+    const leftWindow = groups.nth(leftIdx)
+    const topRightWindow = groups.nth(rightTopIdx)
+    const bottomRightWindow = groups.nth(rightBottomIdx)
+
+    const leftBounds = byX[0]!.bounds
+    const topRightBefore = await getWindowBounds(topRightWindow)
+    const bottomRightBefore = await getWindowBounds(bottomRightWindow)
+
+    expect(leftBounds.x).toBeLessThanOrEqual(5)
+    expect(topRightBefore.x).toBeGreaterThan(leftBounds.x + leftBounds.width - 25)
+    expect(bottomRightBefore.x).toBeGreaterThan(leftBounds.x + leftBounds.width - 25)
+    expect(Math.abs(topRightBefore.x - bottomRightBefore.x)).toBeLessThanOrEqual(8)
+    expect(Math.abs(topRightBefore.width - bottomRightBefore.width)).toBeLessThanOrEqual(8)
+
+    const resizeHandle = await getSharedColumnResizeHandle(leftWindow)
+    await expect(resizeHandle).toBeAttached()
+
+    const handleBox = await resizeHandle.boundingBox()
+    if (!handleBox) throw new Error('Resize handle not found')
+
+    const startX = handleBox.x + handleBox.width / 2
+    const startY = handleBox.y + handleBox.height / 2
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX + 80, startY, { steps: 10 })
+    await page.mouse.up()
+    await waitForWindowBoundsStable(page, leftWindow)
+    await waitForWindowBoundsStable(page, topRightWindow)
+    await waitForWindowBoundsStable(page, bottomRightWindow)
+
+    const topRightAfter = await getWindowBounds(topRightWindow)
+    const bottomRightAfter = await getWindowBounds(bottomRightWindow)
+
+    expect(topRightAfter.x).toBeGreaterThan(topRightBefore.x)
+    expect(bottomRightAfter.x).toBeGreaterThan(bottomRightBefore.x)
+    expect(Math.abs(topRightAfter.x - bottomRightAfter.x)).toBeLessThanOrEqual(8)
+    expect(Math.abs(topRightAfter.width - bottomRightAfter.width)).toBeLessThanOrEqual(8)
   })
 
   test('resizes shared edge between top and bottom quarter windows', async ({ page }) => {

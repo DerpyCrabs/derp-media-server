@@ -12,6 +12,7 @@ import {
   getViewportSize,
   isVideoPath,
   PLAYER_WINDOW_ID,
+  reconcileLayoutBoundsFromSnapZones,
   snapZoneToBounds,
 } from '@/lib/workspace-geometry'
 import { useWorkspaceFocusStore } from '@/lib/workspace-focus-store'
@@ -274,11 +275,13 @@ export function normalizePersistedWorkspaceState(data: unknown): PersistedWorksp
 
   if (validatedWindows.length === 0) return null
 
+  const reconciledWindows = reconcileLayoutBoundsFromSnapZones(validatedWindows)
+
   const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
   const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
 
   return {
-    windows: validatedWindows,
+    windows: reconciledWindows,
     activeWindowId: parsed.activeWindowId ?? null,
     activeTabMap: parsed.activeTabMap ?? {},
     nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
