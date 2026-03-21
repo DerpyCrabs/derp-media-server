@@ -120,7 +120,7 @@ export function WorkspaceNamedLayoutMenu({
     [presets, applyLayoutSnapshot, setPresetInUrl],
   )
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const name = saveName.trim()
     if (!name || !presetsReady) return
     const now = new Date().toISOString()
@@ -134,7 +134,12 @@ export function WorkspaceNamedLayoutMenu({
       createdAt: now,
       updatedAt: now,
     }
-    persistPresets([...presets, next])
+    await persistPresetsMutation.mutateAsync([...presets, next])
+    if (shareToken) {
+      await queryClient.refetchQueries({ queryKey: queryKeys.shareInfo(shareToken) })
+    } else {
+      await queryClient.refetchQueries({ queryKey: queryKeys.settings() })
+    }
     syncLayoutBaselineToCurrent()
     declareBaselinePresetId(id)
     setPresetInUrl(id)
@@ -146,7 +151,9 @@ export function WorkspaceNamedLayoutMenu({
     scope,
     presets,
     collectLayoutSnapshot,
-    persistPresets,
+    persistPresetsMutation,
+    queryClient,
+    shareToken,
     syncLayoutBaselineToCurrent,
     declareBaselinePresetId,
     setPresetInUrl,
@@ -197,6 +204,7 @@ export function WorkspaceNamedLayoutMenu({
       <DropdownMenu modal>
         <DropdownMenuTrigger
           type='button'
+          data-testid='workspace-named-layout-trigger'
           title='Layouts — save or restore'
           disabled={!presetsReady}
           className='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40'
@@ -268,7 +276,7 @@ export function WorkspaceNamedLayoutMenu({
             placeholder='e.g. Review + browser'
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && saveName.trim()) handleSave()
+              if (e.key === 'Enter' && saveName.trim()) void handleSave()
             }}
           />
           <DialogFooter className='gap-2 sm:justify-end'>

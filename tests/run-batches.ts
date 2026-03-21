@@ -22,6 +22,7 @@ const BATCHES = [
       'workspace-cross-dnd',
       'workspace-taskbar-pins',
       'workspace-layout-sessions',
+      'workspace-named-layouts',
     ],
   },
   {

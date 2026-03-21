@@ -428,6 +428,20 @@ function computeInitialWorkspaceSessionSlice(ctx: {
       nextZIndex = maxZ + 1
       windows = persisted.windows
       pinnedTaskbarItems = persisted.pinnedTaskbarItems ?? []
+      if (initialLayoutPresetId && initialLayoutSnapshot) {
+        const fromPreset = normalizePersistedWorkspaceState(initialLayoutSnapshot)
+        const normalizedPersisted = normalizePersistedWorkspaceState(persisted)
+        if (
+          fromPreset &&
+          normalizedPersisted &&
+          serializeWorkspacePersistedState(fromPreset) ===
+            serializeWorkspacePersistedState(normalizedPersisted)
+        ) {
+          layoutBaselineSnapshot = JSON.parse(JSON.stringify(fromPreset)) as PersistedWorkspaceState
+          layoutBaselineSerialized = serializeWorkspacePersistedState(fromPreset)
+          layoutBaselinePresetId = initialLayoutPresetId
+        }
+      }
     } else if (initialLayoutSnapshot) {
       const fromPreset = normalizePersistedWorkspaceState(initialLayoutSnapshot)
       if (fromPreset && fromPreset.windows.length > 0) {

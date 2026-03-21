@@ -825,6 +825,7 @@ export function WorkspacePage({
         <>
           {isLayoutDirty ? (
             <span
+              data-testid='workspace-layout-modified-badge'
               className='mr-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-400'
               title={
                 layoutBaselinePresetId
