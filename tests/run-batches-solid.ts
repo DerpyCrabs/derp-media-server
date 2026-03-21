@@ -24,6 +24,7 @@ const BATCHES = [
       'workspace-taskbar-chrome',
       'workspace-layout-sessions',
       'workspace-named-layouts',
+      'workspace-file-open-target',
     ],
   },
   {
