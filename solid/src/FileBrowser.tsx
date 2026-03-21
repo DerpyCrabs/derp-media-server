@@ -639,6 +639,30 @@ export function FileBrowser() {
     document.body.removeChild(link)
   }
 
+  function handleContextOpenInNewTab(file: FileItem) {
+    if (!file.isDirectory || file.isVirtual) return
+    const params = new URLSearchParams()
+    if (file.path) params.set('dir', file.path)
+    const url = `${window.location.origin}${window.location.pathname || '/'}?${params.toString()}`
+    window.open(url, '_blank')
+  }
+
+  function handleContextOpenInWorkspace(file: FileItem) {
+    if (!file.isDirectory || file.isVirtual) return
+    const params = new URLSearchParams()
+    if (file.path) params.set('dir', file.path)
+    const query = params.toString()
+    window.open(query ? `/workspace?${query}` : '/workspace', '_blank')
+  }
+
+  function handleContextToggleFavorite(file: FileItem) {
+    favoriteMutation.mutate({ filePath: file.path })
+  }
+
+  function isRowFavorite(file: FileItem) {
+    return favoriteSet().has(file.path)
+  }
+
   function openCreateFolder() {
     setNewItemName('')
     createFolderMutation.reset()
@@ -1172,6 +1196,10 @@ export function FileBrowser() {
           onShare={handleContextShare}
           onCopyShareLink={handleCopyShareLink}
           getPathHasShare={getPathHasShare}
+          onOpenInNewTab={handleContextOpenInNewTab}
+          onOpenInWorkspace={handleContextOpenInWorkspace}
+          onToggleFavorite={handleContextToggleFavorite}
+          isFavorite={isRowFavorite}
           onRename={handleContextRename}
           onMove={handleContextMove}
           onCopy={handleContextCopyTo}

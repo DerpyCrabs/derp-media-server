@@ -1,10 +1,12 @@
 import type { FileItem } from '@/lib/types'
 import { isPathEditable } from '@/lib/utils'
+import AppWindow from 'lucide-solid/icons/app-window'
 import BookOpen from 'lucide-solid/icons/book-open'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import Link from 'lucide-solid/icons/link'
 import Pencil from 'lucide-solid/icons/pencil'
 import Pin from 'lucide-solid/icons/pin'
+import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { createEffect, onCleanup, Show } from 'solid-js'
 
@@ -23,6 +25,11 @@ type FileRowContextMenuProps = {
   getPathHasShare?: (file: FileItem) => boolean
   onAddToTaskbar?: (file: FileItem) => void
   onOpenInNewTab?: (file: FileItem) => void
+  /** When true, show "Open in new tab" for files too (workspace). Default: folders only. */
+  showOpenInNewTabForFiles?: boolean
+  onOpenInWorkspace?: (file: FileItem) => void
+  onToggleFavorite?: (file: FileItem) => void
+  isFavorite?: (file: FileItem) => boolean
   onRename?: (file: FileItem) => void
   onMove?: (file: FileItem) => void
   onCopy?: (file: FileItem) => void
@@ -93,7 +100,13 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Set icon
               </button>
             </Show>
-            <Show when={props.onOpenInNewTab && !ctx.file.isVirtual}>
+            <Show
+              when={
+                props.onOpenInNewTab &&
+                !ctx.file.isVirtual &&
+                (ctx.file.isDirectory || props.showOpenInNewTabForFiles === true)
+              }
+            >
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -106,6 +119,21 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
               >
                 <ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />
                 Open in new tab
+              </button>
+            </Show>
+            <Show when={props.onOpenInWorkspace && ctx.file.isDirectory && !ctx.file.isVirtual}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onOpenInWorkspace?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+                Open in Workspace
               </button>
             </Show>
             <Show when={props.onAddToTaskbar && !ctx.file.isVirtual}>
@@ -121,6 +149,24 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
               >
                 <Pin class='h-4 w-4 shrink-0' stroke-width={2} />
                 Add to taskbar
+              </button>
+            </Show>
+            <Show when={ctx.file.isDirectory && !ctx.file.isVirtual && !!props.onToggleFavorite}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onToggleFavorite?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                <Star
+                  class={`h-4 w-4 shrink-0 ${props.isFavorite?.(ctx.file) ? 'fill-yellow-400 text-yellow-400' : ''}`}
+                  stroke-width={2}
+                />
+                {props.isFavorite?.(ctx.file) ? 'Unfavorite' : 'Favorite'}
               </button>
             </Show>
             <Show when={showShare()}>
