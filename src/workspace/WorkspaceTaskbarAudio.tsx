@@ -16,7 +16,8 @@ import StepForward from 'lucide-solid/icons/step-forward'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import type { Accessor } from 'solid-js'
-import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { useStoreSync } from '../lib/solid-store-sync'
 import {
   buildAudioExtractUrl,
   buildAudioMetadataUrl,
@@ -47,8 +48,8 @@ type Props = {
 }
 
 export function WorkspaceTaskbarAudio(props: Props) {
-  const [wxTick, setWxTick] = createSignal(0)
-  const [storeTick, setStoreTick] = createSignal(0)
+  const wxTick = useStoreSync(useWorkspacePlaybackStore)
+  const storeTick = useStoreSync(useMediaPlayer)
   const [detailsOpen, setDetailsOpen] = createSignal(false)
   const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
   const pendingSeekRef = { current: false }
@@ -58,15 +59,6 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
   createEffect(() => {
     detailsOpenRef.current = detailsOpen()
-  })
-
-  onMount(() => {
-    const u1 = useWorkspacePlaybackStore.subscribe(() => setWxTick((n) => n + 1))
-    const u2 = useMediaPlayer.subscribe(() => setStoreTick((n) => n + 1))
-    onCleanup(() => {
-      u1()
-      u2()
-    })
   })
 
   const slice = createMemo(() => {

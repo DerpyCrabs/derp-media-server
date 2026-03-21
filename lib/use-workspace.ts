@@ -108,11 +108,39 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
   })
 }
 
-export function normalizePersistedWorkspaceState(data: unknown): PersistedWorkspaceState | null {
+const MIN_VISIBLE_WINDOW = 100
+
+function clampBoundsToViewport(
+  b: NonNullable<WorkspaceWindowLayout['bounds']>,
+  viewport: { width: number; height: number },
+): NonNullable<WorkspaceWindowLayout['bounds']> {
+  const vw = Math.max(viewport.width, MIN_VISIBLE_WINDOW)
+  const vh = Math.max(viewport.height, MIN_VISIBLE_WINDOW)
+  const width = Math.min(Math.max(b.width, MIN_VISIBLE_WINDOW), vw)
+  const height = Math.min(Math.max(b.height, MIN_VISIBLE_WINDOW), vh)
+  const x = Math.max(0, Math.min(b.x, vw - width))
+  const y = Math.max(0, Math.min(b.y, vh - height))
+  return { x, y, width, height }
+}
+
+export type NormalizePersistedWorkspaceOptions = {
+  /**
+   * When true (default), recompute pixel bounds from `snapZone` for snapped groups.
+   * Used for named presets / stale server snapshots. Disable when hydrating a local session
+   * draft so user-resized tiles keep their saved bounds instead of resetting to template splits.
+   */
+  reconcileSnapZones?: boolean
+}
+
+export function normalizePersistedWorkspaceState(
+  data: unknown,
+  options?: NormalizePersistedWorkspaceOptions,
+): PersistedWorkspaceState | null {
   if (!data || typeof data !== 'object') return null
   const parsed = data as PersistedWorkspaceState
   if (!Array.isArray(parsed.windows) || parsed.windows.length === 0) return null
 
+  const reconcileSnapZones = options?.reconcileSnapZones !== false
   const viewport = getViewportSize()
   const validatedWindows = parsed.windows
     .filter(
@@ -125,14 +153,7 @@ export function normalizePersistedWorkspaceState(data: unknown): PersistedWorksp
     )
     .map((w, i) => {
       const b = w.layout?.bounds
-      const bounds = b
-        ? {
-            x: Math.max(0, Math.min(b.x, viewport.width - 100)),
-            y: Math.max(0, Math.min(b.y, viewport.height - 100)),
-            width: Math.min(b.width, viewport.width),
-            height: Math.min(b.height, viewport.height),
-          }
-        : createDefaultBounds(i, w.type)
+      const bounds = b ? clampBoundsToViewport(b, viewport) : createDefaultBounds(i, w.type)
       return {
         ...w,
         layout: {
@@ -144,7 +165,9 @@ export function normalizePersistedWorkspaceState(data: unknown): PersistedWorksp
 
   if (validatedWindows.length === 0) return null
 
-  const reconciledWindows = reconcileLayoutBoundsFromSnapZones(validatedWindows)
+  const reconciledWindows = reconcileSnapZones
+    ? reconcileLayoutBoundsFromSnapZones(validatedWindows)
+    : validatedWindows
 
   const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
   const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)

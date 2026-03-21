@@ -6,7 +6,8 @@ import {
   SNAP_LAYOUT_ROW_2,
   SNAP_LAYOUT_ROW_VERTICAL,
 } from '@/lib/workspace-snap-layouts'
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createMemo, onCleanup, onMount } from 'solid-js'
+import { useStoreSync } from '../lib/solid-store-sync'
 import { SnapLayoutTemplateThumbnail } from './SnapLayoutTemplateThumbnail'
 
 const PICKER_APPROX_WIDTH = 320
@@ -38,13 +39,7 @@ export type WorkspaceTilingPickerProps = {
 export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
   let root: HTMLDivElement | undefined
 
-  const [snapVisTick, setSnapVisTick] = createSignal(0)
-  onMount(() => {
-    const unsub = useWorkspaceSnapLayoutVisibilityStore.subscribe(() =>
-      setSnapVisTick((n) => n + 1),
-    )
-    onCleanup(unsub)
-  })
+  const snapVisTick = useStoreSync(useWorkspaceSnapLayoutVisibilityStore)
 
   const visibleIds = createMemo(() => {
     void snapVisTick()

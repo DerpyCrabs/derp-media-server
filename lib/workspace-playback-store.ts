@@ -1,4 +1,5 @@
-import { create } from 'zustand'
+import { createStore } from 'solid-js/store'
+import { createStoreListeners } from './client-store-utils'
 
 interface WorkspacePlaybackSlice {
   playing: string | null
@@ -19,60 +20,51 @@ function sliceFor(
   return byKey[key] ?? DEFAULT_SLICE
 }
 
-interface WorkspacePlaybackStore {
-  byKey: Record<string, WorkspacePlaybackSlice>
-  playFile: (key: string, path: string, dir?: string) => void
-  closePlayer: (key: string) => void
-  setAudioOnly: (key: string, enabled: boolean) => void
+const listeners = createStoreListeners()
+
+const [store, setStore] = createStore<{ byKey: Record<string, WorkspacePlaybackSlice> }>({
+  byKey: {},
+})
+
+function playFile(key: string, path: string, dir?: string) {
+  const prev = sliceFor(key, store.byKey)
+  setStore('byKey', key, {
+    ...prev,
+    playing: path,
+    ...(dir !== undefined ? { dir: dir || null } : {}),
+  })
+  listeners.notify()
 }
 
-export const useWorkspacePlaybackStore = create<WorkspacePlaybackStore>((set, _get) => ({
-  byKey: {},
+function closePlayer(key: string) {
+  const prev = sliceFor(key, store.byKey)
+  setStore('byKey', key, {
+    ...prev,
+    playing: null,
+    audioOnly: false,
+  })
+  listeners.notify()
+}
 
-  playFile(key, path, dir) {
-    set((state) => {
-      const prev = sliceFor(key, state.byKey)
-      return {
-        byKey: {
-          ...state.byKey,
-          [key]: {
-            ...prev,
-            playing: path,
-            ...(dir !== undefined ? { dir: dir || null } : {}),
-          },
-        },
-      }
-    })
-  },
+function setAudioOnly(key: string, enabled: boolean) {
+  const prev = sliceFor(key, store.byKey)
+  setStore('byKey', key, {
+    ...prev,
+    audioOnly: enabled,
+  })
+  listeners.notify()
+}
 
-  closePlayer(key) {
-    set((state) => {
-      const prev = sliceFor(key, state.byKey)
-      return {
-        byKey: {
-          ...state.byKey,
-          [key]: {
-            ...prev,
-            playing: null,
-            audioOnly: false,
-          },
-        },
-      }
-    })
+const api = {
+  get byKey() {
+    return store.byKey
   },
+  playFile,
+  closePlayer,
+  setAudioOnly,
+}
 
-  setAudioOnly(key, enabled) {
-    set((state) => {
-      const prev = sliceFor(key, state.byKey)
-      return {
-        byKey: {
-          ...state.byKey,
-          [key]: {
-            ...prev,
-            audioOnly: enabled,
-          },
-        },
-      }
-    })
-  },
-}))
+export const useWorkspacePlaybackStore = {
+  getState: () => api,
+  subscribe: listeners.subscribe,
+}

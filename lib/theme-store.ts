@@ -1,5 +1,5 @@
-import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { createStore } from 'solid-js/store'
+import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
 
 export type ThemePalette = 'default' | 'caffeine' | 'cosmic-night'
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -34,39 +34,46 @@ export function readSyncedPaletteMode(): { palette: ThemePalette; mode: ThemeMod
   if (typeof window === 'undefined') {
     return { palette: 'default', mode: 'dark' }
   }
-  try {
-    const raw = localStorage.getItem(THEME_PERSIST_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as { state?: { palette?: unknown; mode?: unknown } }
-      const p = parsed.state?.palette
-      const m = parsed.state?.mode
-      if (isPalette(p) && isMode(m)) return { palette: p, mode: m }
-    }
-  } catch {}
+  const fromBlob = readPersistedState<{ palette?: unknown; mode?: unknown }>(THEME_PERSIST_KEY)
+  if (fromBlob) {
+    const p = fromBlob.palette
+    const m = fromBlob.mode
+    if (isPalette(p) && isMode(m)) return { palette: p, mode: m }
+  }
   return readLegacyPaletteMode()
-}
-
-interface ThemeStoreState {
-  palette: ThemePalette
-  mode: ThemeMode
-  setTheme: (palette: ThemePalette, mode: ThemeMode) => void
 }
 
 const initialSync = readSyncedPaletteMode()
 
-export const useThemeStore = create<ThemeStoreState>()(
-  persist(
-    (set) => ({
-      palette: initialSync.palette,
-      mode: initialSync.mode,
-      setTheme(palette, mode) {
-        set({ palette, mode })
-      },
-    }),
-    {
-      name: THEME_PERSIST_KEY,
-      storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ palette: s.palette, mode: s.mode }),
-    },
-  ),
-)
+const listeners = createStoreListeners()
+
+const [store, setStore] = createStore({
+  palette: initialSync.palette,
+  mode: initialSync.mode,
+})
+
+function persist() {
+  writePersistedState(THEME_PERSIST_KEY, { palette: store.palette, mode: store.mode })
+}
+
+function setTheme(palette: ThemePalette, mode: ThemeMode) {
+  setStore('palette', palette)
+  setStore('mode', mode)
+  persist()
+  listeners.notify()
+}
+
+const api = {
+  get palette() {
+    return store.palette
+  },
+  get mode() {
+    return store.mode
+  },
+  setTheme,
+}
+
+export const useThemeStore = {
+  getState: () => api,
+  subscribe: listeners.subscribe,
+}

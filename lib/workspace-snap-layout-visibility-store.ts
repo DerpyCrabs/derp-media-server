@@ -1,6 +1,6 @@
-import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { createStore } from 'solid-js/store'
 import { ALL_SNAP_LAYOUT_IDS } from '@/lib/workspace-snap-layouts'
+import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
 
 const KNOWN = new Set(ALL_SNAP_LAYOUT_IDS)
 
@@ -12,37 +12,59 @@ function cleanIds(ids: string[]): string[] {
   return ids.filter((id) => KNOWN.has(id))
 }
 
-interface WorkspaceSnapLayoutVisibilityState {
-  /** Persisted: which template ids appear in the snap picker. */
-  visibleIdList: string[]
-  setVisibleIds: (ids: Set<string>) => void
-  toggleLayout: (id: string) => void
-  showAllLayouts: () => void
+function initialVisibleIds(): string[] {
+  const loaded = readPersistedState<PersistedSnapVisibility>(SNAP_LAYOUT_VISIBILITY_STORAGE_KEY)
+  if (loaded?.visibleIdList?.length) {
+    const cleaned = cleanIds(loaded.visibleIdList)
+    if (cleaned.length > 0) return cleaned
+  }
+  return [...ALL_SNAP_LAYOUT_IDS]
 }
 
-export const useWorkspaceSnapLayoutVisibilityStore = create<WorkspaceSnapLayoutVisibilityState>()(
-  persist(
-    (set, get) => ({
-      visibleIdList: [...ALL_SNAP_LAYOUT_IDS],
+const listeners = createStoreListeners()
 
-      setVisibleIds: (ids) => {
-        set({ visibleIdList: cleanIds([...ids]) })
-      },
+const [store, setStore] = createStore({
+  visibleIdList: initialVisibleIds(),
+})
 
-      toggleLayout: (id) => {
-        if (!KNOWN.has(id)) return
-        const setLike = new Set(get().visibleIdList)
-        if (setLike.has(id)) setLike.delete(id)
-        else setLike.add(id)
-        set({ visibleIdList: [...setLike] })
-      },
+function persist() {
+  writePersistedState(SNAP_LAYOUT_VISIBILITY_STORAGE_KEY, {
+    visibleIdList: [...store.visibleIdList],
+  })
+}
 
-      showAllLayouts: () => set({ visibleIdList: [...ALL_SNAP_LAYOUT_IDS] }),
-    }),
-    {
-      name: SNAP_LAYOUT_VISIBILITY_STORAGE_KEY,
-      storage: createJSONStorage<PersistedSnapVisibility>(() => localStorage),
-      partialize: (s): PersistedSnapVisibility => ({ visibleIdList: s.visibleIdList }),
-    },
-  ),
-)
+function setVisibleIds(ids: Set<string>) {
+  setStore('visibleIdList', cleanIds([...ids]))
+  persist()
+  listeners.notify()
+}
+
+function toggleLayout(id: string) {
+  if (!KNOWN.has(id)) return
+  const setLike = new Set(store.visibleIdList)
+  if (setLike.has(id)) setLike.delete(id)
+  else setLike.add(id)
+  setStore('visibleIdList', [...setLike])
+  persist()
+  listeners.notify()
+}
+
+function showAllLayouts() {
+  setStore('visibleIdList', [...ALL_SNAP_LAYOUT_IDS])
+  persist()
+  listeners.notify()
+}
+
+const api = {
+  get visibleIdList() {
+    return [...store.visibleIdList]
+  },
+  setVisibleIds,
+  toggleLayout,
+  showAllLayouts,
+}
+
+export const useWorkspaceSnapLayoutVisibilityStore = {
+  getState: () => api,
+  subscribe: listeners.subscribe,
+}

@@ -13,7 +13,8 @@ import StepBack from 'lucide-solid/icons/step-back'
 import StepForward from 'lucide-solid/icons/step-forward'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
-import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { useStoreSync } from '../lib/solid-store-sync'
 import { useBrowserHistory } from '../browser-history'
 import {
   buildAudioExtractUrl,
@@ -147,8 +148,7 @@ export function AudioPlayer(props: Props) {
     return audioMetadata()?.coverArt || coverArtUrl()
   })
 
-  const [storeTick, setStoreTick] = createSignal(0)
-  onMount(() => useMediaPlayer.subscribe(() => setStoreTick((n) => n + 1)))
+  const storeTick = useStoreSync(useMediaPlayer)
 
   const [volume, setVolume] = createSignal(1)
   const [isMuted, setIsMuted] = createSignal(false)
