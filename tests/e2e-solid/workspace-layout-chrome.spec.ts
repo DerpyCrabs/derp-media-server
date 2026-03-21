@@ -354,7 +354,12 @@ test.describe('Window Z-Ordering and Focus', () => {
 
     const rndA = getRndWrapper(groups.first())
     const rndB = getRndWrapper(groups.nth(1))
-    const getZ = (el: HTMLElement) => parseInt(el.style?.zIndex || '0', 10)
+    const getZ = (el: HTMLElement) => {
+      const own = parseInt(el.style?.zIndex || '', 10)
+      if (!Number.isNaN(own) && own !== 0) return own
+      const p = el.parentElement as HTMLElement | null
+      return parseInt(p?.style?.zIndex || '0', 10) || 0
+    }
 
     const zB = await rndB.evaluate(getZ)
     const zA = await rndA.evaluate(getZ)
@@ -374,7 +379,12 @@ test.describe('Window Z-Ordering and Focus', () => {
 
     const rndA = getRndWrapper(groups.first())
     const rndB = getRndWrapper(groups.nth(1))
-    const getZ = (el: HTMLElement) => parseInt(el.style?.zIndex || '0', 10)
+    const getZ = (el: HTMLElement) => {
+      const own = parseInt(el.style?.zIndex || '', 10)
+      if (!Number.isNaN(own) && own !== 0) return own
+      const p = el.parentElement as HTMLElement | null
+      return parseInt(p?.style?.zIndex || '0', 10) || 0
+    }
 
     const zB = await rndB.evaluate(getZ)
     const zA = await rndA.evaluate(getZ)

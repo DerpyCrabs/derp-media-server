@@ -251,13 +251,11 @@ test.describe('Share Workspace', () => {
     await expect(content.getByText('public-doc.txt')).toBeVisible()
 
     await content.locator('button[title="Create new file"]').click()
-    const nameInput = page.locator('[role="dialog"]').getByRole('textbox')
+    const createFileDialog = page.getByRole('dialog', { name: /create.*file/i })
+    const nameInput = createFileDialog.getByRole('textbox')
     await nameInput.clear()
     await nameInput.fill('ws-test-file.txt')
-    await page
-      .locator('[role="dialog"]')
-      .getByRole('button', { name: 'Create', exact: true })
-      .click()
+    await createFileDialog.getByRole('button', { name: 'Create', exact: true }).click()
 
     await expect(content.locator('table').getByText('ws-test-file.txt')).toBeVisible()
 
@@ -275,11 +273,9 @@ test.describe('Share Workspace', () => {
     await expect(content.getByText('public-doc.txt')).toBeVisible()
 
     await content.locator('button[title="Create new folder"]').click()
-    await page.locator('input[placeholder="Folder name"]').fill('ws-test-folder')
-    await page
-      .locator('[role="dialog"]')
-      .getByRole('button', { name: 'Create', exact: true })
-      .click()
+    const createFolderDialog = page.getByRole('dialog', { name: /create.*folder/i })
+    await createFolderDialog.locator('input[placeholder="Folder name"]').fill('ws-test-folder')
+    await createFolderDialog.getByRole('button', { name: 'Create', exact: true }).click()
 
     await expect(content.getByText('ws-test-folder')).toBeVisible()
 
@@ -309,12 +305,9 @@ test.describe('Share Workspace', () => {
     await expect(content.getByText('public-doc.txt')).toBeVisible()
 
     await content.locator('button[title="Create new file"]').click()
-    const nameInput = page.locator('[role="dialog"]').getByRole('textbox')
-    await nameInput.fill(name)
-    await page
-      .locator('[role="dialog"]')
-      .getByRole('button', { name: 'Create', exact: true })
-      .click()
+    const createFileDialog = page.getByRole('dialog', { name: /create.*file/i })
+    await createFileDialog.getByRole('textbox').fill(name)
+    await createFileDialog.getByRole('button', { name: 'Create', exact: true }).click()
     await expect(content.locator('table').getByText(name)).toBeVisible()
 
     await content.locator('table tr').filter({ hasText: name }).click({ button: 'right' })
@@ -332,11 +325,9 @@ test.describe('Share Workspace', () => {
     await expect(content.getByText('public-doc.txt')).toBeVisible()
 
     await content.locator('button[title="Create new file"]').click()
-    await page.locator('[role="dialog"]').getByRole('textbox').fill(oldName)
-    await page
-      .locator('[role="dialog"]')
-      .getByRole('button', { name: 'Create', exact: true })
-      .click()
+    const createFileDialog2 = page.getByRole('dialog', { name: /create.*file/i })
+    await createFileDialog2.getByRole('textbox').fill(oldName)
+    await createFileDialog2.getByRole('button', { name: 'Create', exact: true }).click()
     await expect(content.locator('table').getByText(oldName)).toBeVisible()
 
     await content.locator('table tr').filter({ hasText: oldName }).click({ button: 'right' })

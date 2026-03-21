@@ -14,7 +14,7 @@ function applyUpdates(updates: ParamUpdates, mode: 'push' | 'replace') {
 }
 
 export function navigateToFolder(path: string | null) {
-  applyUpdates({ dir: path === '' || path == null ? null : path }, 'push')
+  applyUpdates({ dir: path }, 'push')
 }
 
 export function viewFile(path: string, dir?: string) {

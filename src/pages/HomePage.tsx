@@ -26,7 +26,10 @@ export function HomePage() {
   return (
     <>
       <MediaPlayers editableFolders={editableFolders} />
-      <div className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}>
+      <div
+        className={`min-h-screen flex flex-col ${isAudioPlaying ? 'pb-12' : ''}`}
+        data-testid='media-chrome-pad-root'
+      >
         <div className='container mx-auto lg:p-4 flex flex-col'>
           <Card className='py-0 rounded-none lg:rounded-xl'>
             <FileList files={[]} initialViewMode='list' editableFolders={editableFolders} />

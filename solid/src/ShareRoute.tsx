@@ -24,6 +24,7 @@ type ShareInfo = {
   needsPasscode: boolean
   authorized: boolean
   restrictions?: ShareRestrictions
+  usedBytes?: number
   isKnowledgeBase: boolean
   adminViewMode: 'list' | 'grid'
 }

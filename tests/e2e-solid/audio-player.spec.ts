@@ -12,6 +12,11 @@ test.describe('Audio Player', () => {
     await expect(page.locator('audio')).toBeAttached()
   })
 
+  test('reserves bottom space for the fixed audio bar', async ({ page }) => {
+    await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
+    await expect(page.getByTestId('media-chrome-pad-root')).toHaveClass(/pb-12/)
+  })
+
   test('shows play/pause controls', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
     await expect(page.locator('audio')).toBeAttached()

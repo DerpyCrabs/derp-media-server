@@ -230,24 +230,20 @@ test.describe('Using Shares', () => {
   test('creates a file in editable share', async ({ page }) => {
     await page.goto(editableShareUrl)
     await page.locator('button[title="Create new file"]').click()
-    const nameInput = page.locator('[role="dialog"]').getByRole('textbox')
+    const dialog = page.getByRole('dialog', { name: /create.*file/i })
+    const nameInput = dialog.getByRole('textbox')
     await nameInput.clear()
     await nameInput.fill('share-created.txt')
-    await page
-      .locator('[role="dialog"]')
-      .getByRole('button', { name: 'Create', exact: true })
-      .click()
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
     await expect(page.locator('table').getByText('share-created.txt')).toBeVisible()
   })
 
   test('creates a folder in editable share', async ({ page }) => {
     await page.goto(editableShareUrl)
     await page.locator('button[title="Create new folder"]').click()
-    await page.locator('input[placeholder="Folder name"]').fill('share-folder')
-    await page
-      .locator('[role="dialog"]')
-      .getByRole('button', { name: 'Create', exact: true })
-      .click()
+    const dialog = page.getByRole('dialog', { name: /create.*folder/i })
+    await dialog.locator('input[placeholder="Folder name"]').fill('share-folder')
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
     await expect(page.getByText('share-folder')).toBeVisible()
   })
 
