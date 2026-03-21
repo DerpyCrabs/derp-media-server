@@ -260,8 +260,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       <div
         ref={(el) => setWindowGroupEl(el ?? null)}
         data-window-group={props.groupId}
-        class={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-card shadow-md ${
-          props.isActive ? 'border-border shadow-black/20' : 'border-border'
+        class={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl ${
+          props.isActive ? 'border-border shadow-black/20' : ''
         }`}
       >
         <div

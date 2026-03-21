@@ -55,6 +55,7 @@ export function ShareRoute() {
       mediaType: data.mediaType,
       extension: data.extension,
       restrictions: data.restrictions,
+      isKnowledgeBase: data.isKnowledgeBase,
     }
   })
 

@@ -483,14 +483,14 @@ export function WorkspaceViewerPane(props: Props) {
 
       <Show when={mediaType() === MediaType.TEXT && viewingPath()}>
         <div class='flex h-full min-h-0 flex-col'>
-          <div class='flex h-8 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-2 py-0.5'>
-            <span class='text-muted-foreground text-xs'>
+          <div class='flex h-9 shrink-0 flex-wrap items-center gap-1 border-b border-border bg-muted/50 px-2'>
+            <span class='text-muted-foreground flex items-center gap-1 text-xs'>
               {ext().toUpperCase()}
               <Show when={lineCount() > 0}>
                 <> &middot; {lineCount()} lines</>
               </Show>
             </span>
-            <div class='flex items-center gap-1'>
+            <div class='ml-auto flex items-center gap-0.5'>
               <Show when={showEditor()}>
                 <button
                   type='button'
@@ -553,8 +553,8 @@ export function WorkspaceViewerPane(props: Props) {
                   <Show
                     when={isMarkdown()}
                     fallback={
-                      <div class='h-full overflow-auto p-3'>
-                        <pre class='font-mono text-sm wrap-break-word whitespace-pre-wrap text-foreground'>
+                      <div class='scrollbar-thin h-full overflow-auto'>
+                        <pre class='wrap-break-word font-mono text-sm whitespace-pre-wrap px-3 py-2 text-foreground'>
                           {textQuery.data ?? ''}
                         </pre>
                       </div>
@@ -567,13 +567,27 @@ export function WorkspaceViewerPane(props: Props) {
                   </Show>
                 }
               >
-                <div class='h-full p-3'>
+                <div class='h-full'>
                   <textarea
-                    class='border-input bg-background focus-visible:ring-ring h-full w-full resize-none rounded-lg border p-3 font-mono text-sm focus-visible:ring-2 focus-visible:outline-none'
+                    class='scrollbar-thin h-full w-full resize-none bg-transparent px-3 py-2 font-mono text-sm focus:outline-none'
                     value={editContent()}
                     spellcheck={false}
                     onInput={(e) => setEditContent(e.currentTarget.value)}
                     onBlur={() => void saveText(true)}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === 'ArrowLeft' ||
+                        e.key === 'ArrowRight' ||
+                        e.key === 'ArrowUp' ||
+                        e.key === 'ArrowDown' ||
+                        e.key === 'Home' ||
+                        e.key === 'End' ||
+                        e.key === 'PageUp' ||
+                        e.key === 'PageDown'
+                      ) {
+                        e.stopPropagation()
+                      }
+                    }}
                   />
                 </div>
               </Show>
