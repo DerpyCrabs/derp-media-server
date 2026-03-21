@@ -1,9 +1,9 @@
-import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { workspaceTaskbarRowIcon } from '../lib/use-file-icon'
 import X from 'lucide-solid/icons/x'
-import { For, Show } from 'solid-js'
+import { Show } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { tabsInGroup } from './tab-group-ops'
 

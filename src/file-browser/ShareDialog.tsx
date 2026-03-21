@@ -3,7 +3,7 @@ import { post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import type { ShareLink, ShareRestrictions } from '@/lib/shares'
 import { formatFileSize } from '@/lib/media-utils'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import Check from 'lucide-solid/icons/check'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import ChevronUp from 'lucide-solid/icons/chevron-up'
@@ -114,19 +114,21 @@ function RestrictionsEditor(props: {
       <div class='space-y-2'>
         <p class='text-sm font-medium'>Upload size limit</p>
         <div class='flex gap-1.5'>
-          {(['unlimited', 'preset', 'custom'] as const).map((mode) => (
-            <button
-              type='button'
-              class={`h-7 rounded-md border px-2 text-xs capitalize ${
-                quotaMode() === mode
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-input bg-background hover:bg-accent'
-              }`}
-              onClick={() => setMode(mode)}
-            >
-              {mode}
-            </button>
-          ))}
+          <For each={['unlimited', 'preset', 'custom'] as const}>
+            {(mode) => (
+              <button
+                type='button'
+                class={`h-7 rounded-md border px-2 text-xs capitalize ${
+                  quotaMode() === mode
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-input bg-background hover:bg-accent'
+                }`}
+                onClick={() => setMode(mode)}
+              >
+                {mode}
+              </button>
+            )}
+          </For>
         </div>
         <Show when={quotaMode() === 'preset'}>
           <div class='flex flex-wrap gap-1.5'>
@@ -181,9 +183,9 @@ function ShareLinkCard(props: {
   const queryClient = useQueryClient()
   const [copiedLink, setCopiedLink] = createSignal(false)
   const [showSettings, setShowSettings] = createSignal(false)
-  const [editable, setEditable] = createSignal(props.share.editable)
+  const [editable, setEditable] = createSignal(untrack(() => props.share.editable))
   const [restrictions, setRestrictions] = createSignal<RequiredRestrictions>(
-    extractRestrictions(props.share),
+    untrack(() => extractRestrictions(props.share)),
   )
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
@@ -290,11 +292,9 @@ function ShareLinkCard(props: {
           class='border-input bg-background inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border hover:bg-accent'
           onClick={() => void handleCopyLink()}
         >
-          {copiedLink() ? (
+          <Show when={copiedLink()} fallback={<Copy class='h-4 w-4' stroke-width={2} />}>
             <Check class='h-4 w-4' stroke-width={2} />
-          ) : (
-            <Copy class='h-4 w-4' stroke-width={2} />
-          )}
+          </Show>
         </button>
       </div>
 
@@ -308,11 +308,9 @@ function ShareLinkCard(props: {
         onClick={() => setShowSettings(!showSettings())}
       >
         <span>{settingsSummary()}</span>
-        {showSettings() ? (
+        <Show when={showSettings()} fallback={<ChevronDown class='h-3.5 w-3.5' stroke-width={2} />}>
           <ChevronUp class='h-3.5 w-3.5' stroke-width={2} />
-        ) : (
-          <ChevronDown class='h-3.5 w-3.5' stroke-width={2} />
-        )}
+        </Show>
       </button>
 
       <Show when={showSettings()}>

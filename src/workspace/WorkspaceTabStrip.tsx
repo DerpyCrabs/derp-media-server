@@ -25,9 +25,18 @@ function TabStripDropSlot(props: {
       class={`flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch ${
         props.highlighted ? 'bg-primary/80' : ''
       }`}
-      onDragOver={props.onDropFile ? onDragOver : undefined}
-      onDragLeave={props.onDropFile ? props.onSlotDragLeave : undefined}
-      onDrop={props.onDropFile ? onDropCb : undefined}
+      onDragOver={(e) => {
+        if (!props.onDropFile) return
+        onDragOver(e)
+      }}
+      onDragLeave={(e) => {
+        if (!props.onDropFile) return
+        props.onSlotDragLeave(e)
+      }}
+      onDrop={(e) => {
+        if (!props.onDropFile) return
+        onDropCb(e)
+      }}
     />
   )
 }
@@ -46,7 +55,7 @@ export type WorkspaceTabStripProps = {
 }
 
 export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
-  let scrollEl!: HTMLDivElement
+  let scrollEl: HTMLDivElement | undefined
   const [overflow, setOverflow] = createSignal({ left: false, right: false })
   const [dropSlotIndex, setDropSlotIndex] = createSignal<number | null>(null)
   const [fileDragOver, setFileDragOver] = createSignal(false)
@@ -127,7 +136,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     props.onDropFile(data, props.tabs.length)
   }
 
-  const handleTabPointerDown = (tabId: string) => (e: PointerEvent) => {
+  const handleTabPointerDown = (tabId: string, e: PointerEvent) => {
     if (e.button !== 0) return
     e.stopPropagation()
     props.onSelectTab(props.groupId, tabId)
@@ -177,15 +186,17 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
         </button>
       </Show>
       <div
-        ref={scrollEl}
+        ref={(el) => {
+          scrollEl = el
+        }}
         class='scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto'
         onScroll={checkOverflow}
         onWheel={(e) => {
           e.stopPropagation()
           scrollEl?.scrollBy({ left: e.deltaY || e.deltaX, behavior: 'instant' })
         }}
-        onDragOver={props.onDropFile ? handleScrollAreaDragOver : undefined}
-        onDrop={props.onDropFile ? handleScrollAreaDrop : undefined}
+        onDragOver={handleScrollAreaDragOver}
+        onDrop={handleScrollAreaDrop}
       >
         <For each={props.tabs}>
           {(tab, idx) => (
@@ -205,7 +216,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                 class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2 ${
                   tab.id === props.visibleTabId ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
                 }`}
-                onPointerDown={handleTabPointerDown(tab.id)}
+                onPointerDown={(e) => handleTabPointerDown(tab.id, e)}
               >
                 <div
                   class={`flex h-4 w-4 shrink-0 items-center justify-center ${
@@ -324,8 +335,8 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
   return (
     <div
       class='flex min-w-0 flex-1 items-center'
-      onDragOver={props.onDropFile ? handleHeaderDragOver : undefined}
-      onDrop={props.onDropFile ? handleHeaderDrop : undefined}
+      onDragOver={handleHeaderDragOver}
+      onDrop={handleHeaderDrop}
     >
       <TabStripDropSlot
         groupId={props.groupId}

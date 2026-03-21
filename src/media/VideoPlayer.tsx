@@ -67,13 +67,13 @@ export function VideoPlayer(props: Props) {
 
     if (vid.src !== new URL(url, window.location.origin).href) {
       vid.src = url
-      void vid.load()
+      vid.load()
     }
 
     const play = () => {
       void vid.play().catch(() => {})
     }
-    void play()
+    play()
   })
 
   createEffect(() => {
@@ -83,7 +83,7 @@ export function VideoPlayer(props: Props) {
       if (vid) {
         vid.pause()
         vid.removeAttribute('src')
-        void vid.load()
+        vid.load()
       }
     }
   })
@@ -118,7 +118,7 @@ export function VideoPlayer(props: Props) {
     if (vid) {
       vid.pause()
       vid.removeAttribute('src')
-      void vid.load()
+      vid.load()
     }
     closePlayer()
     setIsMinimized(false)
@@ -129,7 +129,7 @@ export function VideoPlayer(props: Props) {
     if (vid) {
       vid.pause()
       vid.removeAttribute('src')
-      void vid.load()
+      vid.load()
     }
   })
 

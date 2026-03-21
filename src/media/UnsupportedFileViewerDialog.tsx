@@ -20,14 +20,15 @@ type ShareCtx = { token: string; sharePath: string }
 
 function useDirFromUrl() {
   const history = useBrowserHistory()
-  return createMemo(() => {
+  const dirMemo = createMemo(() => {
     const sp = new URLSearchParams(history().search)
     return sp.get('dir') ?? ''
   })
+  return dirMemo
 }
 
 function useDirToFetch(viewingPath: () => string, dirFromUrl: () => string) {
-  return createMemo(() => {
+  const dirToFetchMemo = createMemo(() => {
     let dir = dirFromUrl()
     if (!dir && viewingPath()) {
       const pathParts = viewingPath().split(/[/\\]/)
@@ -36,6 +37,7 @@ function useDirToFetch(viewingPath: () => string, dirFromUrl: () => string) {
     }
     return dir
   })
+  return dirToFetchMemo
 }
 
 function Inner(props: {
@@ -122,7 +124,6 @@ function Inner(props: {
 }
 
 function BodyAdmin(props: { viewingPath: string }): JSX.Element {
-  const history = useBrowserHistory()
   const dirFromUrl = useDirFromUrl()
   const dirToFetch = useDirToFetch(() => props.viewingPath, dirFromUrl)
   const filesQuery = useQuery(() => ({

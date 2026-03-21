@@ -46,7 +46,7 @@ function RedirectShareFileFromWorkspace(props: { token: string }) {
 }
 
 export function ShareWorkspacePage(props: Props) {
-  useShareFileWatcher(props.token)
+  useShareFileWatcher(() => props.token)
 
   const shareQuery = useQuery(() => ({
     queryKey: queryKeys.shareInfo(props.token),

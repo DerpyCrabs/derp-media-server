@@ -1,17 +1,18 @@
 import { useQueryClient } from '@tanstack/solid-query'
 import { queryKeys } from '@/lib/query-keys'
 import { createReconnectScheduler } from '@/lib/sse-reconnect'
-import { onCleanup, onMount } from 'solid-js'
+import { createEffect, onCleanup } from 'solid-js'
 
 function isTabVisible(): boolean {
   return typeof document !== 'undefined' && !document.hidden
 }
 
-export function useShareFileWatcher(token: string | null | undefined, enabled = true) {
+export function useShareFileWatcher(getToken: () => string | null | undefined, enabled = true) {
   const queryClient = useQueryClient()
 
-  onMount(() => {
-    if (!token || !enabled) return
+  createEffect(() => {
+    const token = enabled ? getToken() : null
+    if (!token) return
 
     let eventSource: EventSource | null = null
 

@@ -4,7 +4,7 @@ import type { FileItem } from '@/lib/types'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import Folder from 'lucide-solid/icons/folder'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
-import { createMemo, createResource, createSignal, For, Show } from 'solid-js'
+import { createMemo, createResource, createSignal, For, Show, untrack } from 'solid-js'
 
 type MoveOrCopyMode = 'move' | 'copy'
 
@@ -51,12 +51,14 @@ export function MoveToDialog(props: MoveToDialogProps) {
   const isShare = () => !!props.shareToken
 
   const [selectedRoot, setSelectedRoot] = createSignal(
-    isShare() ? '' : computeSourceRoot(props.filePath, props.editableFolders),
+    untrack(() => (isShare() ? '' : computeSourceRoot(props.filePath, props.editableFolders))),
   )
   const [browsePath, setBrowsePath] = createSignal(
-    isShare()
-      ? sourceDirRelative(props.filePath.replace(/\\/g, '/'))
-      : computeInitialBrowse(props.filePath, props.editableFolders),
+    untrack(() =>
+      isShare()
+        ? sourceDirRelative(props.filePath.replace(/\\/g, '/'))
+        : computeInitialBrowse(props.filePath, props.editableFolders),
+    ),
   )
 
   const listSource = createMemo(() => {

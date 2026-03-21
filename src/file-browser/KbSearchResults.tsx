@@ -76,15 +76,13 @@ export function KbSearchResults(props: Props) {
                   <Show when={result.snippet}>
                     <div class='mt-1 line-clamp-2 text-sm text-muted-foreground'>
                       <Index each={snippetSegments(result.snippet, props.query)}>
-                        {(seg) =>
-                          seg().hl ? (
+                        {(seg) => (
+                          <Show when={seg().hl} fallback={seg().text}>
                             <mark class='rounded bg-yellow-400/40 px-0.5 ring-1 ring-amber-500/60 dark:bg-amber-500/40 dark:ring-amber-400/50'>
                               {seg().text}
                             </mark>
-                          ) : (
-                            seg().text
-                          )
-                        }
+                          </Show>
+                        )}
                       </Index>
                     </div>
                   </Show>

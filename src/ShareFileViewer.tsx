@@ -19,9 +19,9 @@ type Props = {
 
 export function ShareFileViewer(props: Props) {
   const history = useBrowserHistory()
-  useShareFileWatcher(props.token)
+  useShareFileWatcher(() => props.token)
   useDynamicFavicon(() => ({}), {
-    rootName: props.shareInfo.name,
+    rootName: () => props.shareInfo.name,
     getSearch: () => history().search,
   })
 

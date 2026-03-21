@@ -163,7 +163,7 @@ export function WorkspaceBrowserPane(props: Props) {
     if (sh) return { shareToken: sh.token, sharePath: sh.sharePath }
     return {}
   })
-  const viewStats = useViewStats(viewSourceContext)
+  const viewStats = useViewStats(() => viewSourceContext())
 
   const filesQuery = useQuery(() => {
     const sh = share()
@@ -985,6 +985,21 @@ export function WorkspaceBrowserPane(props: Props) {
     setDragOverPath(null)
   }
 
+  function handleFolderRowDragOver(path: string, e: globalThis.DragEvent) {
+    const file = files().find((x) => x.path === path)
+    if (file?.isDirectory) onFolderDragOver(file, e)
+  }
+
+  function handleFolderRowDragLeave(path: string, e: globalThis.DragEvent) {
+    const file = files().find((x) => x.path === path)
+    if (file?.isDirectory) onFolderDragLeave(file, e)
+  }
+
+  function handleFolderRowDrop(path: string, e: globalThis.DragEvent) {
+    const file = files().find((x) => x.path === path)
+    if (file?.isDirectory) onFolderDrop(file, e)
+  }
+
   function onFolderDragOver(file: FileItem, e: globalThis.DragEvent) {
     const dtr = e.dataTransfer
     if (!file.isDirectory || !allowMoveFile() || !dtr) return
@@ -1471,21 +1486,18 @@ export function WorkspaceBrowserPane(props: Props) {
                                 {...createLongPressContextMenuHandlers()}
                                 onDragStart={(e) => onFileDragStart(file, e)}
                                 onDragEnd={onFileDragEnd}
-                                onDragOver={
-                                  file.isDirectory && allowMoveFile()
-                                    ? (e) => onFolderDragOver(file, e)
-                                    : undefined
-                                }
-                                onDragLeave={
-                                  file.isDirectory && allowMoveFile()
-                                    ? (e) => onFolderDragLeave(file, e)
-                                    : undefined
-                                }
-                                onDrop={
-                                  file.isDirectory && allowMoveFile()
-                                    ? (e) => onFolderDrop(file, e)
-                                    : undefined
-                                }
+                                onDragOver={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  handleFolderRowDragOver(file.path, e)
+                                }}
+                                onDragLeave={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  handleFolderRowDragLeave(file.path, e)
+                                }}
+                                onDrop={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  handleFolderRowDrop(file.path, e)
+                                }}
                               >
                                 <td
                                   class='w-12 p-2 align-middle'
