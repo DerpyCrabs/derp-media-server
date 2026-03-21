@@ -39,10 +39,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
-import File from 'lucide-solid/icons/file'
 import FolderOpen from 'lucide-solid/icons/folder-open'
-import Folder from 'lucide-solid/icons/folder'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  untrack,
+} from 'solid-js'
+import type { FileIconContext } from './lib/use-file-icon'
+import { pinnedShellIcon, workspaceTaskbarRowIcon, workspaceTabIcon } from './lib/use-file-icon'
 import { useBrowserHistory, navigateSearchParams } from './browser-history'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { applySnapPreviewLayout } from './workspace/snap-preview'
@@ -1101,6 +1110,25 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     onCleanup(unsub)
   })
 
+  const [mediaIconTick, setMediaIconTick] = createSignal(0)
+  onMount(() => {
+    const u = useMediaPlayer.subscribe(() => setMediaIconTick((n) => n + 1))
+    onCleanup(() => u())
+  })
+
+  const workspaceFileIconContext = (): FileIconContext => {
+    void mediaIconTick()
+    const st = useMediaPlayer.getState()
+    return {
+      customIcons: settingsQuery.data?.customIcons ?? {},
+      knowledgeBases: settingsQuery.data?.knowledgeBases ?? [],
+      playingPath: playbackPlayingPath(),
+      currentFile: st.currentFile,
+      mediaPlayerIsPlaying: st.isPlaying,
+      mediaType: st.mediaType,
+    }
+  }
+
   const taskbarMouseHandled = { current: false }
   const taskbarGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))
   const taskbarActiveWindowId = createMemo(() => workspace()?.activeWindowId ?? null)
@@ -1119,28 +1147,38 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const visibleGroupIds = createMemo(() => orderedVisibleGroupIds(workspace()?.windows ?? []))
   const pinnedItems = createMemo(() => workspace()?.pinnedTaskbarItems ?? [])
+  const pinnedItemsForTaskbar = createMemo(() => {
+    void mediaIconTick()
+    void playbackPlayingPath()
+    return pinnedItems()
+  })
   const hasWorkspaceWindows = createMemo(() => (workspace()?.windows.length ?? 0) > 0)
   const hasAnyTaskbarItems = createMemo(
     () => pinnedItems().length > 0 || taskbarGroupIds().length > 0,
   )
 
   /** Solid <For> passes props.each to mapArray as the list; it must be an array, not a memo fn. */
-  const taskbarWindowRows = createMemo(() => (
-    <For each={taskbarGroupIds()}>
-      {(groupId) => (
-        <TaskbarGroupRow
-          groupId={groupId}
-          workspace={workspace}
-          activeWindowId={taskbarActiveWindowId}
-          playingPath={playbackPlayingPath}
-          taskbarMouseHandled={taskbarMouseHandled}
-          focusWindow={focusWindow}
-          setWindowMinimized={setWindowMinimized}
-          closeWindow={closeWindow}
-        />
-      )}
-    </For>
-  ))
+  const taskbarWindowRows = createMemo(() => {
+    void mediaIconTick()
+    void playbackPlayingPath()
+    return (
+      <For each={taskbarGroupIds()}>
+        {(groupId) => (
+          <TaskbarGroupRow
+            groupId={groupId}
+            workspace={workspace}
+            activeWindowId={taskbarActiveWindowId}
+            playingPath={playbackPlayingPath}
+            fileIconContext={workspaceFileIconContext}
+            taskbarMouseHandled={taskbarMouseHandled}
+            focusWindow={focusWindow}
+            setWindowMinimized={setWindowMinimized}
+            closeWindow={closeWindow}
+          />
+        )}
+      </For>
+    )
+  })
 
   return (
     <div class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'>
@@ -1182,6 +1220,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           />
           <For each={visibleGroupIds()}>
             {(gid) => {
+              void mediaIconTick()
+              void playbackPlayingPath()
               const tabs = () => tabsInGroup(workspace()?.windows ?? [], gid)
               const leader = () => tabs()[0]
               const visibleTabId = () => workspace()?.activeTabMap[gid] ?? leader()?.id ?? ''
@@ -1195,6 +1235,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                     tabWindows={tabList}
                     visibleTabId={visibleTabId}
                     workspace={workspace}
+                    fileIconContext={workspaceFileIconContext}
                     isActive={visibleTabId() === workspace()?.activeWindowId}
                     containerEl={() => workspaceAreaEl}
                     onFocusWindow={focusWindow}
@@ -1240,6 +1281,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                 sharePanel={sharePanel}
                                 shareAllowUpload={props.shareAllowUpload ?? false}
                                 editableFolders={editableFolders()}
+                                fileIconContext={workspaceFileIconContext}
                                 onNavigateDir={navigateDir}
                                 onOpenViewer={openViewerFromBrowser}
                                 onAddToTaskbar={addPinnedItem}
@@ -1319,7 +1361,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
             <Show when={hasAnyTaskbarItems()}>
               <Show when={pinnedItems().length > 0}>
                 <div class='flex shrink-0 items-center gap-2'>
-                  <For each={pinnedItems()}>
+                  <For each={pinnedItemsForTaskbar()}>
                     {(pin) => {
                       const tooltip = `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
                       return (
@@ -1358,12 +1400,11 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                               setPinMenu({ x: e.clientX, y: e.clientY, pinId: pin.id })
                             }}
                           >
-                            <Show
-                              when={pin.isDirectory}
-                              fallback={<File class='h-5 w-5' stroke-width={1.75} />}
-                            >
-                              <Folder class='h-5 w-5' stroke-width={1.75} />
-                            </Show>
+                            {pinnedShellIcon(
+                              pin,
+                              settingsQuery.data?.customIcons ?? {},
+                              workspaceFileIconContext(),
+                            )}
                           </div>
                         </div>
                       )

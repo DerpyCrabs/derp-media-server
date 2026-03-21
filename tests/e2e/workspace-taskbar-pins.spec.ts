@@ -52,6 +52,9 @@ test.describe('Workspace taskbar pins', () => {
     await page.locator('[data-slot="context-menu-item"]').getByText('Add to taskbar').click()
 
     await expect(page.locator('[title="Folder: Documents"]')).toBeVisible()
+    await expect(
+      page.locator('[data-taskbar-pin]').locator('[title="Folder: Documents"] svg.text-blue-500'),
+    ).toBeVisible()
   })
 
   test('clicking pinned folder icon opens browser at that folder', async ({ page }) => {

@@ -1,22 +1,11 @@
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
-import { MediaType } from '@/lib/types'
-import File from 'lucide-solid/icons/file'
-import Folder from 'lucide-solid/icons/folder'
-import Video from 'lucide-solid/icons/video'
+import type { FileIconContext } from '../lib/use-file-icon'
+import { workspaceTaskbarRowIcon } from '../lib/use-file-icon'
 import X from 'lucide-solid/icons/x'
 import { For, Show } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { tabsInGroup } from './tab-group-ops'
-
-function RowIcon(props: { tab: WorkspaceWindowDefinition }) {
-  const t = props.tab
-  if (t.type === 'player' || t.iconType === MediaType.VIDEO)
-    return <Video class='h-4 w-4 shrink-0 text-muted-foreground' stroke-width={2} />
-  if (t.type === 'browser' || t.iconType === MediaType.FOLDER)
-    return <Folder class='h-4 w-4 shrink-0 text-muted-foreground' stroke-width={2} />
-  return <File class='h-4 w-4 shrink-0 text-muted-foreground' stroke-width={2} />
-}
 
 export function TaskbarGroupRow(props: {
   groupId: string
@@ -24,6 +13,7 @@ export function TaskbarGroupRow(props: {
   /** Subscribed separately so the row updates when only focus changes (not only `windows`). */
   activeWindowId: Accessor<string | null>
   playingPath: Accessor<string | null>
+  fileIconContext: () => FileIconContext
   taskbarMouseHandled: { current: boolean }
   focusWindow: (id: string) => void
   setWindowMinimized: (id: string, minimized: boolean) => void
@@ -100,7 +90,13 @@ export function TaskbarGroupRow(props: {
           }}
           class='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left text-xs touch-manipulation'
         >
-          <RowIcon tab={displayWindow()!} />
+          <span class='inline-flex shrink-0'>
+            {workspaceTaskbarRowIcon(
+              displayWindow()!,
+              props.fileIconContext(),
+              props.playingPath(),
+            )}
+          </span>
           <span class='min-w-0 truncate'>{rowLabel()}</span>
         </button>
         <button

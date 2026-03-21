@@ -14,11 +14,13 @@ import {
   Play,
   Pause,
   Book,
+  BookOpen,
   Link,
 } from 'lucide-react'
 
 interface UseFileIconProps {
   customIcons: Record<string, string>
+  knowledgeBases?: string[]
   playingPath: string | null
   currentFile: string | null
   mediaPlayerIsPlaying: boolean
@@ -27,6 +29,7 @@ interface UseFileIconProps {
 
 export function useFileIcon({
   customIcons,
+  knowledgeBases = [],
   playingPath,
   currentFile,
   mediaPlayerIsPlaying,
@@ -129,6 +132,15 @@ export function useFileIcon({
         }
       }
 
+      const normalizedPath = filePath.replace(/\\/g, '/')
+      if (
+        !isVirtual &&
+        type === MediaType.FOLDER &&
+        knowledgeBases.some((kb) => kb.replace(/\\/g, '/') === normalizedPath)
+      ) {
+        return <BookOpen className='h-5 w-5 text-primary' />
+      }
+
       switch (type) {
         case MediaType.FOLDER:
           return <Folder className='h-5 w-5 text-blue-500' />
@@ -141,14 +153,14 @@ export function useFileIcon({
         case MediaType.TEXT:
           return <FileText className='h-5 w-5 text-cyan-500' />
         case MediaType.PDF:
-          return <Book className='h-5 w-5 text-emerald-500' />
+          return <Book className='h-5 w-5 text-orange-500' />
         case MediaType.OTHER:
           return <FileQuestion className='h-5 w-5 text-yellow-500' />
         default:
           return <FileQuestion className='h-5 w-5 text-yellow-500' />
       }
     },
-    [customIcons, playingPath, currentFile, mediaPlayerIsPlaying, mediaType],
+    [customIcons, knowledgeBases, playingPath, currentFile, mediaPlayerIsPlaying, mediaType],
   )
 
   return { getIcon }

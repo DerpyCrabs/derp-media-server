@@ -70,6 +70,12 @@ test.describe('Knowledge Base', () => {
     expect(src).toContain('diagram.png')
   })
 
+  test('shows knowledge-base root icon marker on KB folder rows', async ({ page }) => {
+    await page.goto('/')
+    const notesRow = page.locator('table tbody tr').filter({ hasText: /^Notes$/ })
+    await expect(notesRow.locator('[data-kb-root-icon]')).toBeVisible()
+  })
+
   test('sets a custom icon on a folder', async ({ page }) => {
     await page.goto('/')
     await page.locator('table tr').filter({ hasText: 'Notes' }).click({ button: 'right' })
