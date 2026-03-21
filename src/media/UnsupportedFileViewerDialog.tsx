@@ -8,7 +8,7 @@ import FileQuestion from 'lucide-solid/icons/file-question'
 import FileText from 'lucide-solid/icons/file-text'
 import X from 'lucide-solid/icons/x'
 import { Show, createMemo, type JSX } from 'solid-js'
-import { useBrowserHistory } from '../browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import { closeViewer } from '../lib/url-state-actions'
 
@@ -20,11 +20,8 @@ type ShareCtx = { token: string; sharePath: string }
 
 function useDirFromUrl() {
   const history = useBrowserHistory()
-  const dirMemo = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('dir') ?? ''
-  })
-  return dirMemo
+  const sp = createUrlSearchParamsMemo(history)
+  return createMemo(() => sp().get('dir') ?? '')
 }
 
 function useDirToFetch(viewingPath: () => string, dirFromUrl: () => string) {
@@ -155,10 +152,8 @@ function BodyShare(props: { viewingPath: string; shareContext: ShareCtx }): JSX.
 
 export function UnsupportedFileViewerDialog(props: Props): JSX.Element {
   const history = useBrowserHistory()
-  const viewingPath = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('viewing')
-  })
+  const urlSearchParams = createUrlSearchParamsMemo(history)
+  const viewingPath = createMemo(() => urlSearchParams().get('viewing'))
 
   return (
     <Show when={viewingPath()}>

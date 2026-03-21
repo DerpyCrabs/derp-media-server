@@ -5,7 +5,7 @@ import Download from 'lucide-solid/icons/download'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import X from 'lucide-solid/icons/x'
 import { Show, createMemo } from 'solid-js'
-import { useBrowserHistory } from '../browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import { closeViewer } from '../lib/url-state-actions'
 
@@ -15,11 +15,9 @@ type Props = {
 
 export function PdfViewerDialog(props: Props) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
 
-  const viewingPath = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('viewing')
-  })
+  const viewingPath = createMemo(() => urlSearchParams().get('viewing'))
 
   const extension = createMemo(() => (viewingPath() || '').split('.').pop()?.toLowerCase() || '')
   const isPdf = createMemo(() => !!viewingPath() && getMediaType(extension()) === MediaType.PDF)

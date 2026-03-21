@@ -53,7 +53,11 @@ import {
 import { useStoreSync } from './lib/solid-store-sync'
 import type { FileIconContext } from './lib/use-file-icon'
 import { pinnedShellIcon } from './lib/use-file-icon'
-import { useBrowserHistory, navigateSearchParams } from './browser-history'
+import {
+  createUrlSearchParamsMemo,
+  navigateSearchParams,
+  useBrowserHistory,
+} from './browser-history'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { applySnapPreviewLayout } from './workspace/snap-preview'
 import { WorkspaceTilingPicker } from './workspace/WorkspaceTilingPicker'
@@ -76,59 +80,13 @@ import { WorkspaceWindowChrome, type WorkspaceBounds } from './workspace/Workspa
 import { WorkspaceNamedLayoutMenu } from './workspace/WorkspaceNamedLayoutMenu'
 import { WorkspaceTaskbarAudio } from './workspace/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from './workspace/WorkspaceTaskbarSettings'
-
-const DEFAULT_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
-
-function isWorkspaceRoute(pathname: string) {
-  return pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(pathname)
-}
-
-function defaultPersistedState(source: WorkspaceSource): PersistedWorkspaceState {
-  return {
-    windows: [
-      {
-        id: 'workspace-window-1',
-        type: 'browser',
-        title: 'Browser 1',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source,
-        initialState: {},
-        tabGroupId: null,
-        layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
-      },
-    ],
-    activeWindowId: 'workspace-window-1',
-    activeTabMap: {},
-    nextWindowId: 2,
-    pinnedTaskbarItems: [],
-  }
-}
-
-function persistWorkspaceState(storageKey: string, state: PersistedWorkspaceState) {
-  try {
-    const serializable = {
-      ...state,
-      windows: state.windows.filter((w) => w.id !== PLAYER_WINDOW_ID),
-      pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
-    }
-    localStorage.setItem(storageKey, JSON.stringify(serializable))
-  } catch {}
-}
-
-function loadPersisted(storageKey: string): PersistedWorkspaceState | null {
-  const raw = localStorage.getItem(storageKey)
-  if (!raw) return null
-  try {
-    return normalizePersistedWorkspaceState(JSON.parse(raw) as unknown, {
-      reconcileSnapZones: false,
-    })
-  } catch {
-    return null
-  }
-}
+import {
+  DEFAULT_WORKSPACE_SOURCE,
+  defaultPersistedState,
+  isWorkspaceRoute,
+  loadPersisted,
+  persistWorkspaceState,
+} from './workspace/workspace-page-persistence'
 
 type AuthConfig = { enabled: boolean; editableFolders: string[] }
 
@@ -144,6 +102,7 @@ export type WorkspacePageProps = {
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
 
   const shareConfig = () => props.shareConfig ?? null
@@ -157,12 +116,11 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
             token: shareConfig()!.token,
             sharePath: shareConfig()!.sharePath,
           }
-        : DEFAULT_SOURCE,
+        : DEFAULT_WORKSPACE_SOURCE,
   )
 
   const storageSessionKeyFull = createMemo(() => {
-    const loc = history()
-    const sid = new URLSearchParams(loc.search).get('ws') ?? ''
+    const sid = urlSearchParams().get('ws') ?? ''
     const base = workspaceStorageBaseKey(shareConfig()?.token ?? null)
     return { sid, key: sid ? workspaceStorageSessionKey(base, sid) : '' }
   })
@@ -310,16 +268,16 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   createEffect(() => {
     const loc = history()
     if (!isWorkspaceRoute(loc.pathname)) return
-    let sid = new URLSearchParams(loc.search).get('ws') ?? ''
+    const sp = urlSearchParams()
+    let sid = sp.get('ws') ?? ''
     if (!sid) {
       sid = crypto.randomUUID()
       navigateSearchParams({ ws: sid }, 'replace')
     }
     const base = workspaceStorageBaseKey(shareConfig()?.token ?? null)
     const key = workspaceStorageSessionKey(base, sid)
-    const params = new URLSearchParams(loc.search)
-    const dirParam = params.get('dir')
-    const presetParam = params.get('preset')
+    const dirParam = sp.get('dir')
+    const presetParam = sp.get('preset')
     void settingsQuery.isSuccess
     void serverLayoutPresets()
     const presetsReadyNow = shareConfig() ? true : settingsQuery.isSuccess

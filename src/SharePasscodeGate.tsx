@@ -3,7 +3,7 @@ import { post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import Lock from 'lucide-solid/icons/lock'
 import { Show, createEffect, createMemo, createSignal } from 'solid-js'
-import { useBrowserHistory } from './browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
 
 type Props = {
   token: string
@@ -12,12 +12,13 @@ type Props = {
 
 export function SharePasscodeGate(props: Props) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
   const [passcode, setPasscode] = createSignal('')
   const [error, setError] = createSignal('')
   const [autoTried, setAutoTried] = createSignal(false)
 
-  const passcodeFromUrl = createMemo(() => new URLSearchParams(history().search).get('p') ?? '')
+  const passcodeFromUrl = createMemo(() => urlSearchParams().get('p') ?? '')
 
   const verifyMutation = useMutation(() => ({
     mutationFn: (code: string) => post(`/api/share/${props.token}/verify`, { passcode: code }),

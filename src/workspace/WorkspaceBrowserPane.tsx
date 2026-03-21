@@ -37,21 +37,13 @@ import {
   onCleanup,
   onMount,
 } from 'solid-js'
-import {
-  BreadcrumbContextMenu,
-  type BreadcrumbMenuTarget,
-} from '../file-browser/BreadcrumbContextMenu'
+import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu'
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
-import { IconEditorDialog } from '../file-browser/IconEditorDialog'
-import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
-import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
-import { MoveToDialog } from '../file-browser/MoveToDialog'
-import { RenameDialog } from '../file-browser/RenameDialog'
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
 import type { UploadToastState } from '../file-browser/types'
 import { UploadMenu } from '../file-browser/UploadMenu'
-import { UploadToastStack } from '../file-browser/UploadToastStack'
+import { WorkspaceBrowserModalLayer } from './WorkspaceBrowserModalLayer'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-focus'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
@@ -707,6 +699,15 @@ export function WorkspaceBrowserPane(props: Props) {
     } else {
       void removeCustomIconMutation.mutateAsync(p)
     }
+  }
+
+  function openInNewTabFromRow(file: FileItem) {
+    if (!props.onOpenInNewTab) return
+    props.onOpenInNewTab(
+      props.windowId,
+      { path: file.path, isDirectory: file.isDirectory, isVirtual: file.isVirtual },
+      currentPath(),
+    )
   }
 
   function openCreateFileDialog() {
@@ -1715,217 +1716,76 @@ export function WorkspaceBrowserPane(props: Props) {
         </Show>
       </div>
 
-      <IconEditorDialog
-        isOpen={!!iconEditTarget()}
-        fileName={iconEditTarget()?.name ?? ''}
-        currentIcon={
-          iconEditTarget()
-            ? (workspaceCustomIcons()[iconEditTarget()!.path] ??
-              workspaceCustomIcons()[iconEditTarget()!.path.replace(/\\/g, '/')] ??
-              null)
-            : null
-        }
-        onClose={() => setIconEditTarget(null)}
-        onSave={handleWorkspaceSaveCustomIcon}
-        isPending={setCustomIconMutation.isPending || removeCustomIconMutation.isPending}
-      />
-      <BreadcrumbContextMenu
-        target={breadcrumbMenu}
-        onDismiss={() => setBreadcrumbMenu(null)}
-        showOpenInNewTab={workspaceBreadcrumbMenuActions().showOpenInNewTab}
-        onOpenInNewTab={handleWorkspaceBreadcrumbOpenInNewTab}
-        showOpenInWorkspace={workspaceBreadcrumbMenuActions().showOpenInWorkspace}
-        onOpenInWorkspace={handleWorkspaceBreadcrumbOpenInWorkspace}
-        showSetIcon={workspaceBreadcrumbMenuActions().showSetIcon}
-        onSetIcon={handleWorkspaceBreadcrumbSetIcon}
-      />
-      <FileRowContextMenu
-        menu={fileRowMenu.menu}
-        editableFolders={() => props.editableFolders}
-        isCurrentDirEditable={isContextDirEditable}
-        hasEditableFolders={() => props.editableFolders.length > 0}
+      <WorkspaceBrowserModalLayer
+        iconEditTarget={iconEditTarget}
+        setIconEditTarget={setIconEditTarget}
+        workspaceCustomIcons={workspaceCustomIcons}
+        onSaveWorkspaceCustomIcon={handleWorkspaceSaveCustomIcon}
+        setCustomIconPending={setCustomIconMutation.isPending}
+        removeCustomIconPending={removeCustomIconMutation.isPending}
+        breadcrumbMenu={breadcrumbMenu}
+        setBreadcrumbMenu={setBreadcrumbMenu}
+        workspaceBreadcrumbMenuActions={workspaceBreadcrumbMenuActions}
+        onWorkspaceBreadcrumbOpenInNewTab={handleWorkspaceBreadcrumbOpenInNewTab}
+        onWorkspaceBreadcrumbOpenInWorkspace={handleWorkspaceBreadcrumbOpenInWorkspace}
+        onWorkspaceBreadcrumbSetIcon={handleWorkspaceBreadcrumbSetIcon}
+        fileRowMenu={fileRowMenu}
+        editableFoldersList={props.editableFolders}
+        isContextDirEditable={isContextDirEditable}
         shareDeleteGated={() => !!share()}
-        shareCanDelete={() => !!props.shareCanDelete}
-        onDismiss={fileRowMenu.dismiss}
-        onDownload={handleContextDownload}
-        onDelete={fileRowMenu.confirmDelete}
+        shareCanDelete={!!props.shareCanDelete}
         onAddToTaskbar={props.onAddToTaskbar}
-        onRename={isContextDirEditable() ? openContextRename : undefined}
-        onMove={isContextDirEditable() ? openContextMove : undefined}
-        onSetIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
-        onOpenInNewTab={
-          props.onOpenInNewTab
-            ? (f) =>
-                props.onOpenInNewTab!(
-                  props.windowId,
-                  { path: f.path, isDirectory: f.isDirectory, isVirtual: f.isVirtual },
-                  currentPath(),
-                )
-            : undefined
-        }
+        onFileRowRename={isContextDirEditable() ? openContextRename : undefined}
+        onFileRowMove={isContextDirEditable() ? openContextMove : undefined}
+        onSetRowIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
+        onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
         showOpenInNewTabForFiles={!!props.onOpenInNewTab}
-      />
-      <RenameDialog
-        isOpen={showRename()}
-        itemName={renamingItem()?.name ?? ''}
-        newName={renameNewName()}
-        onNewNameChange={setRenameNewName}
-        onRename={submitRename}
-        onCancel={cancelRename}
-        isPending={renameItemMutation.isPending}
-        error={renameItemMutation.error as Error | undefined}
-        nameExists={renameTargetExists()}
-        isDirectory={renamingItem()?.isDirectory ?? false}
-      />
-      <Show when={moveTarget()}>
-        <MoveToDialog
-          onClose={closeMoveDialog}
-          fileName={moveTarget()!.name}
-          filePath={moveDialogFilePath()}
-          onConfirm={confirmMoveTo}
-          isPending={moveItemMutation.isPending}
-          error={moveItemMutation.error as Error | undefined}
-          editableFolders={props.editableFolders}
-          shareToken={share()?.token}
-          shareRootPath={share()?.sharePath}
-        />
-      </Show>
-      <DeleteFileDialog
-        item={deleteTarget}
-        isPending={deleteMutation.isPending}
-        onDismiss={() => setDeleteTarget(null)}
-        onConfirm={() => {
+        onContextDownload={handleContextDownload}
+        showRename={showRename}
+        renamingItem={renamingItem}
+        renameNewName={renameNewName}
+        setRenameNewName={setRenameNewName}
+        submitRename={submitRename}
+        cancelRename={cancelRename}
+        renamePending={renameItemMutation.isPending}
+        renameError={renameItemMutation.error as Error | undefined}
+        renameTargetExists={renameTargetExists}
+        moveTarget={moveTarget}
+        closeMoveDialog={closeMoveDialog}
+        moveDialogFilePath={moveDialogFilePath}
+        confirmMoveTo={confirmMoveTo}
+        movePending={moveItemMutation.isPending}
+        moveError={moveItemMutation.error as Error | undefined}
+        shareToken={() => share()?.token}
+        shareRootPath={() => share()?.sharePath}
+        deleteTarget={deleteTarget}
+        setDeleteTarget={setDeleteTarget}
+        deletePending={deleteMutation.isPending}
+        onConfirmDelete={() => {
           const it = deleteTarget()
           if (it) void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
         }}
-      />
-
-      <Show when={showCreateFolder()}>
-        <div
-          data-no-window-drag
-          class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
-          role='presentation'
-          onClick={() => setShowCreateFolder(false)}
-        >
-          <div
-            role='dialog'
-            aria-modal='true'
-            aria-labelledby='workspace-create-folder-title'
-            class='bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-lg'
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id='workspace-create-folder-title' class='text-lg font-semibold'>
-              Create folder
-            </h2>
-            <form
-              class='mt-4 space-y-4'
-              onSubmit={(e) => {
-                e.preventDefault()
-                submitCreateFolder()
-              }}
-            >
-              <input
-                type='text'
-                class='mt-0 w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
-                placeholder='Folder name'
-                value={newFolderName()}
-                onInput={(e) => setNewFolderName((e.currentTarget as HTMLInputElement).value)}
-              />
-              <Show when={folderExists()}>
-                <p class='text-sm text-amber-600'>A folder with this name already exists.</p>
-              </Show>
-              <Show when={createFolderMutation.isError}>
-                <p class='text-destructive text-sm'>
-                  {(createFolderMutation.error as Error)?.message ?? 'Create failed'}
-                </p>
-              </Show>
-              <div class='flex justify-end gap-2'>
-                <button
-                  type='button'
-                  class='h-9 rounded-md border border-input px-4 text-sm'
-                  onClick={() => setShowCreateFolder(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type='submit'
-                  class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm disabled:opacity-50'
-                  disabled={
-                    createFolderMutation.isPending || !newFolderName().trim() || folderExists()
-                  }
-                >
-                  {createFolderMutation.isPending ? 'Creating…' : 'Create'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={showCreateFile()}>
-        <div
-          data-no-window-drag
-          class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
-          role='presentation'
-          onClick={() => setShowCreateFile(false)}
-        >
-          <div
-            role='dialog'
-            aria-modal='true'
-            aria-labelledby='workspace-create-file-title'
-            class='bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-lg'
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id='workspace-create-file-title' class='text-lg font-semibold'>
-              Create New File
-            </h2>
-            <p class='text-muted-foreground mt-1 text-sm'>
-              {inKb()
-                ? 'Enter a name. A .md extension will be added if none is provided.'
-                : 'Enter a name. A .txt extension will be added if none is provided.'}
-            </p>
-            <input
-              type='text'
-              class='mt-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
-              placeholder={inKb() ? 'File name (e.g., notes.md)' : 'File name (e.g., notes.txt)'}
-              value={newFileName()}
-              onInput={(e) => setNewFileName((e.currentTarget as HTMLInputElement).value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newFileName().trim() && !fileExists()) submitCreateFile()
-              }}
-            />
-            <Show when={fileExists()}>
-              <p class='mt-2 text-sm text-amber-600'>A file with this name already exists.</p>
-            </Show>
-            <Show when={createFileMutation.isError}>
-              <p class='text-destructive mt-2 text-sm'>
-                {(createFileMutation.error as Error)?.message ?? 'Create failed'}
-              </p>
-            </Show>
-            <div class='mt-6 flex justify-end gap-2'>
-              <button
-                type='button'
-                class='h-9 rounded-md border border-input px-4 text-sm'
-                onClick={() => setShowCreateFile(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type='button'
-                class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm disabled:opacity-50'
-                disabled={createFileMutation.isPending || !newFileName().trim() || fileExists()}
-                onClick={() => submitCreateFile()}
-              >
-                {createFileMutation.isPending ? 'Creating…' : 'Create'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      <UploadToastStack
-        state={uploadToast}
-        onDismissError={() => setUploadToast({ kind: 'hidden' })}
+        showCreateFolder={showCreateFolder}
+        setShowCreateFolder={setShowCreateFolder}
+        newFolderName={newFolderName}
+        setNewFolderName={setNewFolderName}
+        submitCreateFolder={submitCreateFolder}
+        createFolderPending={createFolderMutation.isPending}
+        createFolderIsError={createFolderMutation.isError}
+        createFolderError={createFolderMutation.error as Error | undefined}
+        folderExists={folderExists}
+        showCreateFile={showCreateFile}
+        setShowCreateFile={setShowCreateFile}
+        newFileName={newFileName}
+        setNewFileName={setNewFileName}
+        submitCreateFile={submitCreateFile}
+        createFilePending={createFileMutation.isPending}
+        createFileIsError={createFileMutation.isError}
+        createFileError={createFileMutation.error as Error | undefined}
+        fileExists={fileExists}
+        inKb={inKb}
+        uploadToast={uploadToast}
+        setUploadToastHidden={() => setUploadToast({ kind: 'hidden' })}
       />
     </div>
   )

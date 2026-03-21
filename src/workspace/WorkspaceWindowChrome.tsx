@@ -63,9 +63,9 @@ function handleEnabled(
 }
 
 /**
- * Same rules as react-rnd on `WindowGroup` in components/workspace/window.tsx:
- * `dragHandleClassName='workspace-window-drag-handle'` and
- * `cancel='.workspace-window-content, input, textarea, select, a, audio, video, img, [data-no-window-drag], .workspace-window-buttons'`
+ * Drag starts only from `.workspace-window-drag-handle`. Canceled when the event target is inside
+ * `.workspace-window-content`, form controls, media, links, `[data-no-window-drag]`, or
+ * `.workspace-window-buttons` (mirrors prior react-rnd WindowGroup rules).
  */
 function shouldBlockWindowDragStart(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null
