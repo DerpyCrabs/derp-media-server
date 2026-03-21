@@ -4,13 +4,23 @@ import {
   useWorkspaceFileOpenTargetStore,
   type WorkspaceFileOpenTarget,
 } from '@/lib/workspace-file-open-target'
+import { useWorkspaceSnapLayoutVisibilityStore } from '@/lib/workspace-snap-layout-visibility-store'
+import {
+  SNAP_LAYOUT_ROW_1,
+  SNAP_LAYOUT_ROW_2,
+  SNAP_LAYOUT_ROW_VERTICAL,
+} from '@/lib/workspace-snap-layouts'
 import Check from 'lucide-solid/icons/check'
 import Monitor from 'lucide-solid/icons/monitor'
 import Moon from 'lucide-solid/icons/moon'
 import Settings from 'lucide-solid/icons/settings'
 import Sun from 'lucide-solid/icons/sun'
-import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { cn } from '@/lib/utils'
+import { SnapLayoutTemplateThumbnail } from './SnapLayoutTemplateThumbnail'
+
+const SNAP_SETTINGS_LANDSCAPE_AR = 16 / 12
+const SNAP_SETTINGS_PORTRAIT_AR = 10 / 16
 
 const MODES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -48,13 +58,16 @@ export function WorkspaceTaskbarSettings() {
   const [open, setOpen] = createSignal(false)
   const [targetTick, setTargetTick] = createSignal(0)
   const [themeTick, setThemeTick] = createSignal(0)
+  const [snapTick, setSnapTick] = createSignal(0)
 
   onMount(() => {
     const u1 = useWorkspaceFileOpenTargetStore.subscribe(() => setTargetTick((n) => n + 1))
     const u2 = useThemeStore.subscribe(() => setThemeTick((n) => n + 1))
+    const u3 = useWorkspaceSnapLayoutVisibilityStore.subscribe(() => setSnapTick((n) => n + 1))
     onCleanup(() => {
       u1()
       u2()
+      u3()
     })
   })
 
@@ -73,6 +86,11 @@ export function WorkspaceTaskbarSettings() {
     return useThemeStore.getState().mode
   }
 
+  const visibleSnapIds = createMemo(() => {
+    void snapTick()
+    return new Set(useWorkspaceSnapLayoutVisibilityStore.getState().visibleIdList)
+  })
+
   function setFileTarget(value: WorkspaceFileOpenTarget) {
     useWorkspaceFileOpenTargetStore.getState().setTarget(value)
   }
@@ -81,6 +99,23 @@ export function WorkspaceTaskbarSettings() {
     useThemeStore.getState().setTheme(p, m)
     applyTheme(resolveTheme(p, m))
   }
+
+  function toggleSnapLayout(id: string) {
+    useWorkspaceSnapLayoutVisibilityStore.getState().toggleLayout(id)
+  }
+
+  function showAllSnapLayouts() {
+    useWorkspaceSnapLayoutVisibilityStore.getState().showAllLayouts()
+  }
+
+  createEffect(() => {
+    if (!open()) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    onCleanup(() => document.removeEventListener('keydown', onKey))
+  })
 
   return (
     <div class='relative shrink-0'>
@@ -202,6 +237,108 @@ export function WorkspaceTaskbarSettings() {
                   }}
                 </For>
               </div>
+            </div>
+            <div>
+              <div class='mb-2 text-xs font-medium text-muted-foreground'>Snap layout picker</div>
+              <p class='mb-3 text-xs text-muted-foreground'>
+                Click a thumbnail to show or hide it in the picker (same previews as when snapping).
+              </p>
+              <div class='space-y-3 rounded-md border border-border bg-muted/20 p-3'>
+                <div class='flex flex-wrap gap-2'>
+                  <For each={SNAP_LAYOUT_ROW_1}>
+                    {(t) => {
+                      const on = () => visibleSnapIds().has(t.id)
+                      return (
+                        <button
+                          type='button'
+                          aria-pressed={on()}
+                          title={
+                            on() ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'
+                          }
+                          class={cn(
+                            'rounded-lg p-1 transition-[opacity,box-shadow]',
+                            on()
+                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+                              : 'opacity-45 hover:opacity-80',
+                          )}
+                          onClick={() => toggleSnapLayout(t.id)}
+                        >
+                          <SnapLayoutTemplateThumbnail
+                            template={t}
+                            aspectRatio={SNAP_SETTINGS_LANDSCAPE_AR}
+                          />
+                        </button>
+                      )
+                    }}
+                  </For>
+                </div>
+                <div class='flex flex-wrap gap-2'>
+                  <For each={SNAP_LAYOUT_ROW_2}>
+                    {(t) => {
+                      const on = () => visibleSnapIds().has(t.id)
+                      return (
+                        <button
+                          type='button'
+                          aria-pressed={on()}
+                          title={
+                            on() ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'
+                          }
+                          class={cn(
+                            'rounded-lg p-1 transition-[opacity,box-shadow]',
+                            on()
+                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+                              : 'opacity-45 hover:opacity-80',
+                          )}
+                          onClick={() => toggleSnapLayout(t.id)}
+                        >
+                          <SnapLayoutTemplateThumbnail
+                            template={t}
+                            aspectRatio={SNAP_SETTINGS_LANDSCAPE_AR}
+                          />
+                        </button>
+                      )
+                    }}
+                  </For>
+                </div>
+                <div class='text-[10px] font-medium uppercase tracking-wider text-muted-foreground'>
+                  Portrait workspace
+                </div>
+                <div class='flex flex-wrap gap-2'>
+                  <For each={SNAP_LAYOUT_ROW_VERTICAL}>
+                    {(t) => {
+                      const on = () => visibleSnapIds().has(t.id)
+                      return (
+                        <button
+                          type='button'
+                          aria-pressed={on()}
+                          title={
+                            on() ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'
+                          }
+                          class={cn(
+                            'rounded-lg p-1 transition-[opacity,box-shadow]',
+                            on()
+                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+                              : 'opacity-45 hover:opacity-80',
+                          )}
+                          onClick={() => toggleSnapLayout(t.id)}
+                        >
+                          <SnapLayoutTemplateThumbnail
+                            template={t}
+                            aspectRatio={SNAP_SETTINGS_PORTRAIT_AR}
+                          />
+                        </button>
+                      )
+                    }}
+                  </For>
+                </div>
+              </div>
+              <button
+                type='button'
+                class='mt-3 text-left text-sm text-muted-foreground underline hover:text-foreground'
+                onClick={() => showAllSnapLayouts()}
+              >
+                Show all layouts
+              </button>
             </div>
           </div>
         </div>

@@ -460,20 +460,32 @@ test.describe('Taskbar', () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
-    const taskbarCloseButtons = page.locator('button[aria-label^="Close "]')
-    const firstCloseBtn = taskbarCloseButtons.first()
-    const firstTaskbarItem = firstCloseBtn.locator('..')
-    await firstTaskbarItem.locator('button').first().click()
+    const rows = page.locator('[data-taskbar-window-row]')
+    await expect(rows).toHaveCount(2)
+    await expect(rows.nth(1)).toHaveAttribute('data-taskbar-active', '')
+    await expect(rows.first()).not.toHaveAttribute('data-taskbar-active')
 
-    await expect(firstTaskbarItem).toHaveClass(/bg-muted/)
+    await rows.first().locator('button').first().click()
+
+    await expect(rows.first()).toHaveAttribute('data-taskbar-active', '')
+    await expect(rows.nth(1)).not.toHaveAttribute('data-taskbar-active')
+  })
+
+  test('taskbar shows exactly one active row matching focused window', async ({ page }) => {
+    await gotoWorkspace(page)
+    await expect(page.locator('[data-taskbar-window-row][data-taskbar-active]')).toHaveCount(1)
+
+    await openBrowserWindow(page)
+    await expect(page.locator('[data-taskbar-window-row][data-taskbar-active]')).toHaveCount(1)
+    await expect(page.locator('[data-taskbar-window-row]')).toHaveCount(2)
   })
 
   test('clicking focused window in taskbar minimizes it', async ({ page }) => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
-    const taskbarItems = page.locator('button[aria-label^="Close "]')
-    const firstTaskbarItem = taskbarItems.first().locator('..')
+    const firstTaskbarItem = page.locator('[data-taskbar-window-row]').first()
+    await expect(firstTaskbarItem).toHaveAttribute('data-taskbar-active', '')
     await firstTaskbarItem.locator('button').first().click()
 
     await expect(getWindowGroups(page)).toHaveCount(0)

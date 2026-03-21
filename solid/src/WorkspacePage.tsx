@@ -8,6 +8,7 @@ import {
   createFullscreenBounds,
   createWindowLayout,
   getPlaybackTitle,
+  getPlayerBoundsForAspectRatio,
   isVideoPath,
   PLAYER_WINDOW_ID,
 } from '@/lib/workspace-geometry'
@@ -31,6 +32,7 @@ import {
   workspaceLayoutScopeFromShareToken,
   type WorkspaceLayoutPreset,
 } from '@/lib/workspace-layout-presets'
+import { useMediaPlayer } from '@/lib/use-media-player'
 import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
 import { detectSnapZone, type SnapDetectResult } from '@/lib/use-snap-zones'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
@@ -551,6 +553,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   function requestPlay(source: WorkspaceSource, path: string, dir?: string) {
     const key = storageSessionKeyFull().key
     useWorkspacePlaybackStore.getState().playFile(key, path, dir)
+    const mediaKind = isVideoPath(path) ? 'video' : 'audio'
+    useMediaPlayer.getState().startOrResumePlayback(path, mediaKind)
     const w = workspace()
     if (!w) return
     if (!isVideoPath(path)) {
@@ -603,6 +607,42 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       ...w,
       windows: nextWindows,
       activeWindowId: PLAYER_WINDOW_ID,
+    })
+  }
+
+  function resizePlayerWindowForVideoMetadata(videoWidth: number, videoHeight: number) {
+    if (videoWidth <= 0 || videoHeight <= 0) return
+    const aspect = videoWidth / videoHeight
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      const player = prev.windows.find((x) => x.id === PLAYER_WINDOW_ID)
+      if (!player || player.type !== 'player') return prev
+      const currentBounds = player.layout?.bounds ?? null
+      const newBounds = getPlayerBoundsForAspectRatio(aspect, currentBounds)
+      const pb = player.layout?.bounds
+      if (
+        pb &&
+        pb.x === newBounds.x &&
+        pb.y === newBounds.y &&
+        pb.width === newBounds.width &&
+        pb.height === newBounds.height
+      ) {
+        return prev
+      }
+      return {
+        ...prev,
+        windows: prev.windows.map((win) =>
+          win.id === PLAYER_WINDOW_ID
+            ? {
+                ...win,
+                layout: {
+                  ...win.layout,
+                  bounds: newBounds,
+                },
+              }
+            : win,
+        ),
+      }
     })
   }
 
@@ -1063,6 +1103,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const taskbarMouseHandled = { current: false }
   const taskbarGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))
+  const taskbarActiveWindowId = createMemo(() => workspace()?.activeWindowId ?? null)
 
   createEffect(() => {
     const m = pinMenu()
@@ -1090,6 +1131,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         <TaskbarGroupRow
           groupId={groupId}
           workspace={workspace}
+          activeWindowId={taskbarActiveWindowId}
           playingPath={playbackPlayingPath}
           taskbarMouseHandled={taskbarMouseHandled}
           focusWindow={focusWindow}
@@ -1186,7 +1228,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                 ? 'workspace-window-visible-content'
                                 : undefined
                             }
-                            class={`min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
+                            class={`workspace-window-content relative h-full min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
                               tabId === visibleTabId() ? '' : 'hidden'
                             }`}
                             aria-hidden={tabId !== visibleTabId()}
@@ -1225,6 +1267,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                 storageKey={storageSessionKeyFull().key}
                                 window={() => workspace()?.windows.find((w) => w.id === tabId)}
                                 shareFallback={sharePanel}
+                                onVideoMetadataLoaded={resizePlayerWindowForVideoMetadata}
                               />
                             </Show>
                           </div>

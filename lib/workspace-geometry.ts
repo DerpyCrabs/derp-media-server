@@ -329,11 +329,9 @@ export function getPlaybackTitle(path: string | undefined) {
 
 export const PLAYER_WINDOW_ID = 'workspace-player-window'
 
-export const PLAYER_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
-
 export function isVideoPath(path: string) {
-  const extension = path.split('.').pop()?.toLowerCase()
-  return extension ? PLAYER_EXTENSIONS.has(extension) : false
+  const extension = path.split('.').pop()?.toLowerCase() ?? ''
+  return getMediaType(extension) === MediaType.VIDEO
 }
 
 export function getInitialWindowIcon(

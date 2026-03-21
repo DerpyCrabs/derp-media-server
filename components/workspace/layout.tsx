@@ -125,9 +125,13 @@ export function WorkspaceTaskbarWindowButton({
   return (
     <div
       key={id}
+      data-taskbar-window-row
+      data-taskbar-active={active ? '' : undefined}
       className={cn(
-        'flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border bg-muted/50 px-2 text-muted-foreground',
-        active && 'bg-muted text-foreground',
+        'flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border px-2',
+        active
+          ? 'border-b-2 border-b-primary bg-muted text-foreground'
+          : 'border-b-2 border-b-transparent bg-muted/50 text-muted-foreground',
       )}
       draggable={!!dragData}
       onDragStart={
@@ -142,6 +146,7 @@ export function WorkspaceTaskbarWindowButton({
       <button
         type='button'
         title={tooltip}
+        aria-current={active ? 'true' : undefined}
         onMouseDown={(e) => {
           if (e.button === 0) {
             handledByMouseDownRef.current = true

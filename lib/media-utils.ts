@@ -1,6 +1,6 @@
 import { MediaType } from './types'
 
-const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
+const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico']
 const PDF_EXTENSIONS = ['pdf']
@@ -48,6 +48,7 @@ const MIME_TYPES: Record<string, string> = {
   mov: 'video/quicktime',
   avi: 'video/x-msvideo',
   mkv: 'video/x-matroska',
+  m4v: 'video/x-m4v',
 
   // Audio
   mp3: 'audio/mpeg',

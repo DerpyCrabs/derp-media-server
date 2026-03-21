@@ -1,0 +1,108 @@
+import { test, expect, type Page, type Locator } from '@playwright/test'
+
+async function gotoWorkspace(page: Page) {
+  await page.goto('/workspace')
+  await expect(page.locator('[data-window-group]')).toBeVisible()
+}
+
+function getWindowGroups(page: Page) {
+  return page.locator('[data-window-group]')
+}
+
+function getVisibleContent(group: Locator) {
+  return group.locator('[data-testid="workspace-window-visible-content"]')
+}
+
+test.describe('Workspace audio and video playback', () => {
+  test('clicking an audio file wires taskbar audio and playback can start', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const content = getVisibleContent(groups.first())
+    await content.getByText('Music', { exact: true }).click()
+    await expect(content.locator('table').getByText('track.mp3')).toBeVisible()
+    await content.locator('table').getByText('track.mp3').click()
+    await expect(page.getByRole('button', { name: 'Open audio controls' })).toBeVisible({
+      timeout: 10_000,
+    })
+    const audio = page.locator('[data-workspace-taskbar-media-audio]')
+    await expect(audio).toBeAttached()
+    await expect
+      .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.currentSrc || el.src), {
+        timeout: 15_000,
+      })
+      .toMatch(/\/api\/(media|share)/)
+
+    await page.getByRole('button', { name: 'Open audio controls' }).click()
+    const playToggle = page
+      .locator('[data-workspace-taskbar-audio-root] .bg-popover')
+      .locator('button')
+      .filter({ has: page.locator('.lucide-play') })
+      .first()
+    if (await playToggle.isVisible()) {
+      await playToggle.click()
+    }
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector(
+          '[data-workspace-taskbar-media-audio]',
+        ) as HTMLAudioElement | null
+        return !!el && !el.paused
+      },
+      { timeout: 15_000 },
+    )
+  })
+
+  test('video element fills most of the player window', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const content = getVisibleContent(groups.first())
+    await content.getByText('Videos', { exact: true }).click()
+    await expect(content.getByText('sample.mp4')).toBeVisible()
+    await content.getByText('sample.mp4').click()
+    const playerGroup = groups.nth(1)
+    await expect(playerGroup.locator('video')).toBeVisible({ timeout: 10_000 })
+    await expect
+      .poll(async () => (await playerGroup.boundingBox())?.height ?? 0, { timeout: 15_000 })
+      .toBeGreaterThan(320)
+    const winBox = await playerGroup.boundingBox()
+    expect(winBox).toBeTruthy()
+    const titleChrome = 40
+    const innerH = winBox!.height - titleChrome
+    const mediaAreaH = await playerGroup
+      .locator('video')
+      .evaluate((v) => (v.parentElement as HTMLElement | null)?.getBoundingClientRect().height ?? 0)
+    expect(mediaAreaH).toBeGreaterThan(innerH * 0.5)
+  })
+})
+
+test.describe('Workspace viewer pane height', () => {
+  test('text viewer body region fills most of window below toolbar', async ({ page }) => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const content = getVisibleContent(groups.first())
+    await content.getByText('Documents', { exact: true }).click()
+    await expect(content.getByText('readme.txt')).toBeVisible()
+    await content.getByText('readme.txt').click()
+    await expect(groups).toHaveCount(2)
+    const viewer = groups.nth(1)
+    const visible = viewer.locator('[data-testid="workspace-window-visible-content"]')
+    const pre = visible.locator('pre')
+    await expect(pre).toBeVisible({ timeout: 10_000 })
+    const bodyHeight = await pre.evaluate((el) => {
+      let n: HTMLElement | null = el.parentElement
+      while (n) {
+        const c = n.className
+        if (typeof c === 'string' && c.includes('flex-1') && c.includes('overflow-hidden')) {
+          return n.getBoundingClientRect().height
+        }
+        n = n.parentElement
+      }
+      return 0
+    })
+    const winBox = await viewer.boundingBox()
+    expect(winBox).toBeTruthy()
+    const chrome = 44
+    const innerH = winBox!.height - chrome
+    expect(bodyHeight).toBeGreaterThan(innerH * 0.45)
+  })
+})

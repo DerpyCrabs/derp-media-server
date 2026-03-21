@@ -30,4 +30,61 @@ test.describe('Workspace taskbar chrome', () => {
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
   })
+
+  test('taskbar Show video restores workspace video after listen-only mode', async ({ page }) => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    await content.getByText('Videos', { exact: true }).click()
+    await expect(content.getByText('sample.mp4')).toBeVisible()
+    await content.getByText('sample.mp4').click()
+
+    const videos = page.locator('[data-window-group] video')
+    await expect(videos).toHaveCount(1)
+    await videos.first().hover()
+    await page.locator('button[title="Listen only"]').click()
+    await expect(videos).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Open audio controls' }).click()
+    await page
+      .locator('[data-workspace-taskbar-audio-root]')
+      .getByRole('button', { name: 'Show video' })
+      .click()
+    await expect(page.locator('[data-window-group] video')).toHaveCount(1)
+  })
+
+  test('hiding snap template in workspace settings removes it from layout picker', async ({
+    page,
+  }) => {
+    await gotoWorkspace(page)
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
+    await expect(settingsDialog).toBeVisible()
+    await settingsDialog.getByRole('button', { name: 'Show all layouts' }).click()
+    await page.keyboard.press('Escape')
+    await expect(settingsDialog).not.toBeVisible()
+
+    const groups = page.locator('[data-window-group]')
+    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+    const countBefore = await page.locator('[data-snap-layout-template]').count()
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    const dialogHide = page.getByRole('dialog', { name: 'Settings' })
+    await dialogHide
+      .getByTitle(/Shown in snap picker/)
+      .first()
+      .click()
+    await page.keyboard.press('Escape')
+
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-snap-layout-template]')).toHaveCount(countBefore - 1)
+
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    const dialogRestore = page.getByRole('dialog', { name: 'Settings' })
+    await dialogRestore.getByRole('button', { name: 'Show all layouts' }).click()
+    await page.keyboard.press('Escape')
+  })
 })

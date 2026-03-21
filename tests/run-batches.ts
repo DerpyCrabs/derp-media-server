@@ -19,6 +19,7 @@ const BATCHES = [
     id: '3',
     tests: [
       'workspace-viewers',
+      'workspace-media-layout',
       'workspace-cross-dnd',
       'workspace-taskbar-pins',
       'workspace-taskbar-chrome',
