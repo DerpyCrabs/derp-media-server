@@ -9,7 +9,7 @@ import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
-import { useBrowserHistory } from '../browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { closePlayer, setAudioOnly } from '../lib/url-state-actions'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 
@@ -21,16 +21,11 @@ const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 
 export function VideoPlayer(props: Props) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
 
-  const playingPath = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('playing')
-  })
+  const playingPath = createMemo(() => urlSearchParams().get('playing'))
 
-  const audioOnly = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('audioOnly') === 'true'
-  })
+  const audioOnly = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
 
   const extension = createMemo(() => (playingPath() || '').split('.').pop()?.toLowerCase() || '')
   const isVideoFile = createMemo(

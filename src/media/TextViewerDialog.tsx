@@ -11,7 +11,7 @@ import Save from 'lucide-solid/icons/save'
 import Zap from 'lucide-solid/icons/zap'
 import ZapOff from 'lucide-solid/icons/zap-off'
 import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
-import { useBrowserHistory } from '../browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import {
   getShareTextViewerSettings,
   migrateLegacyShareTextViewerKey,
@@ -579,11 +579,9 @@ export function TextViewerBody(props: {
 
 export function TextViewerDialog(props: Props) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
 
-  const viewingPath = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('viewing')
-  })
+  const viewingPath = createMemo(() => urlSearchParams().get('viewing'))
 
   const extension = createMemo(() => (viewingPath() || '').split('.').pop()?.toLowerCase() || '')
   const mediaType = createMemo(() => getMediaType(extension()))

@@ -1,4 +1,15 @@
+import type { Accessor } from 'solid-js'
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+
+export type BrowserLocation = { pathname: string; search: string }
+
+/**
+ * Single reactive `URLSearchParams` per location update. Prefer this over repeating
+ * `new URLSearchParams(history().search)` in multiple memos.
+ */
+export function createUrlSearchParamsMemo(history: Accessor<BrowserLocation>) {
+  return createMemo(() => new URLSearchParams(history().search))
+}
 
 const subscribers = new Set<() => void>()
 

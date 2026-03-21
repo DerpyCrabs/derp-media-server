@@ -19,7 +19,7 @@ import {
   type Accessor,
   type JSX,
 } from 'solid-js'
-import { useBrowserHistory } from '../browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import { closeViewer, viewFile } from '../lib/url-state-actions'
 
@@ -31,11 +31,8 @@ type ShareCtx = { token: string; sharePath: string }
 
 function useDirFromUrl() {
   const history = useBrowserHistory()
-  const dirMemo = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('dir') ?? ''
-  })
-  return dirMemo
+  const sp = createUrlSearchParamsMemo(history)
+  return createMemo(() => sp().get('dir') ?? '')
 }
 
 function useDirToFetch(viewingPath: () => string, dirFromUrl: Accessor<string>) {
@@ -57,11 +54,9 @@ function ImageViewerInner(props: {
   allFiles: Accessor<FileItem[]>
 }): JSX.Element {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
 
-  const dirFromUrl = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('dir') ?? ''
-  })
+  const dirFromUrl = createMemo(() => urlSearchParams().get('dir') ?? '')
 
   const imageFiles = createMemo(() => props.allFiles().filter((f) => f.type === MediaType.IMAGE))
 
@@ -326,11 +321,9 @@ function ImageViewerBodyShare(props: { viewingPath: string; shareContext: ShareC
 
 export function ImageViewerDialog(props: Props) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
 
-  const viewingPath = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('viewing')
-  })
+  const viewingPath = createMemo(() => urlSearchParams().get('viewing'))
 
   const extension = createMemo(() => (viewingPath() || '').split('.').pop()?.toLowerCase() || '')
   const isImage = createMemo(() => !!viewingPath() && getMediaType(extension()) === MediaType.IMAGE)

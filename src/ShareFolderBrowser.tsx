@@ -29,7 +29,7 @@ import {
   onCleanup,
   onMount,
 } from 'solid-js'
-import { useBrowserHistory } from './browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
 import {
   BreadcrumbContextMenu,
   type BreadcrumbMenuTarget,
@@ -80,6 +80,7 @@ type Props = {
 
 export function ShareFolderBrowser(props: Props) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
   useShareFileWatcher(() => props.token)
   useDynamicFavicon(() => ({}), {
@@ -112,10 +113,7 @@ export function ShareFolderBrowser(props: Props) {
     () => inlineFolderInputEl,
   )
 
-  const currentSubDir = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('dir') ?? ''
-  })
+  const currentSubDir = createMemo(() => urlSearchParams().get('dir') ?? '')
 
   const shareContext = createMemo(
     (): TextViewerShareContext => ({

@@ -15,7 +15,7 @@ import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import { useStoreSync } from '../lib/solid-store-sync'
-import { useBrowserHistory } from '../browser-history'
+import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import {
   buildAudioExtractUrl,
   buildAudioMetadataUrl,
@@ -47,6 +47,7 @@ async function fetchAudioMetadata(url: string): Promise<{
 
 export function AudioPlayer(props: Props) {
   const history = useBrowserHistory()
+  const urlSearchParams = createUrlSearchParamsMemo(history)
 
   const shareCtx = createMemo((): MediaShareContext => {
     const c = props.shareContext
@@ -54,20 +55,11 @@ export function AudioPlayer(props: Props) {
     return { token: c.token, sharePath: c.sharePath }
   })
 
-  const playingPath = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('playing')
-  })
+  const playingPath = createMemo(() => urlSearchParams().get('playing'))
 
-  const currentDir = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('dir') ?? ''
-  })
+  const currentDir = createMemo(() => urlSearchParams().get('dir') ?? '')
 
-  const audioOnly = createMemo(() => {
-    const sp = new URLSearchParams(history().search)
-    return sp.get('audioOnly') === 'true'
-  })
+  const audioOnly = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
 
   const extension = createMemo(() => (playingPath() || '').split('.').pop()?.toLowerCase() || '')
   const isAudioFile = createMemo(() => !!(playingPath() && AUDIO_EXTENSIONS.includes(extension())))
