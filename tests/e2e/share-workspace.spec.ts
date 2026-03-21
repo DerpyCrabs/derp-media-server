@@ -28,6 +28,10 @@ function getShareToken(shareUrl: string): string {
   return new URL(shareUrl, 'http://localhost').pathname.split('/')[2]
 }
 
+function uniqueId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
 function watchRequests(page: Page) {
   const requests: string[] = []
   page.on('request', (req) => requests.push(req.url()))
@@ -278,5 +282,71 @@ test.describe('Share Workspace', () => {
     await expect(
       page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace'),
     ).toBeVisible()
+  })
+
+  test('deletes a file via context menu in editable share workspace', async ({ page }) => {
+    const id = uniqueId()
+    const name = `ws-ctx-del-${id}.txt`
+    await gotoShareWorkspace(page, editableShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await content.locator('button[title="Create new file"]').click()
+    const nameInput = page.locator('[role="dialog"]').getByRole('textbox')
+    await nameInput.fill(name)
+    await page
+      .locator('[role="dialog"]')
+      .getByRole('button', { name: 'Create', exact: true })
+      .click()
+    await expect(content.locator('table').getByText(name)).toBeVisible()
+
+    await content.locator('table tr').filter({ hasText: name }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Delete' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
+    await expect(content.locator('table').getByText(name)).not.toBeVisible()
+  })
+
+  test('renames a file via context menu in editable share workspace', async ({ page }) => {
+    const id = uniqueId()
+    const oldName = `ws-ctx-ren-${id}.txt`
+    const newName = `ws-ctx-ren-${id}-moved.txt`
+    await gotoShareWorkspace(page, editableShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await content.locator('button[title="Create new file"]').click()
+    await page.locator('[role="dialog"]').getByRole('textbox').fill(oldName)
+    await page
+      .locator('[role="dialog"]')
+      .getByRole('button', { name: 'Create', exact: true })
+      .click()
+    await expect(content.locator('table').getByText(oldName)).toBeVisible()
+
+    await content.locator('table tr').filter({ hasText: oldName }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    await page.locator('[role="dialog"]').getByPlaceholder('New name').fill(newName)
+    await page
+      .locator('[role="dialog"]')
+      .getByRole('button', { name: /^Rename$/ })
+      .click()
+    await expect(content.locator('table').getByText(newName)).toBeVisible()
+
+    const token = getShareToken(editableShareWorkspaceUrl)
+    await page.request.post(`/api/share/${token}/delete`, { data: { path: newName } })
+  })
+
+  test('share workspace grid view survives reload', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+
+    await content.getByRole('button', { name: 'Grid view' }).click()
+    await expect(content.locator('.aspect-video').first()).toBeVisible()
+
+    await page.reload()
+    await expect(page.locator('[data-window-group]')).toBeVisible()
+    const contentAfter = getBrowserContent(page)
+    await expect(contentAfter.getByText('public-doc.txt')).toBeVisible()
+    await expect(contentAfter.locator('.aspect-video').first()).toBeVisible()
   })
 })

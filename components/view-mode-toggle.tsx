@@ -19,6 +19,7 @@ export function ViewModeToggle({ viewMode, onChange, mode = 'MediaServer' }: Vie
         size='sm'
         onClick={() => onChange('list')}
         className={`${sizeClass} p-0`}
+        aria-label='List view'
       >
         <List className={iconClass} />
       </Button>
@@ -27,6 +28,7 @@ export function ViewModeToggle({ viewMode, onChange, mode = 'MediaServer' }: Vie
         size='sm'
         onClick={() => onChange('grid')}
         className={`${sizeClass} p-0`}
+        aria-label='Grid view'
       >
         <LayoutGrid className={iconClass} />
       </Button>

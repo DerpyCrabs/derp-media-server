@@ -17,6 +17,9 @@ type FileRowContextMenuProps = {
   editableFolders: Accessor<string[]>
   isCurrentDirEditable: Accessor<boolean>
   hasEditableFolders: Accessor<boolean>
+  /** When true, Delete is only shown if shareCanDelete is true (share workspace restrictions). */
+  shareDeleteGated?: Accessor<boolean>
+  shareCanDelete?: Accessor<boolean>
   onDismiss: () => void
   onDownload: (file: FileItem) => void
   onDelete: (file: FileItem) => void
@@ -56,10 +59,14 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
       {(ctx) => {
         const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
         const showRevokeShare = () => !!ctx.file.shareToken
-        const showDeleteFile = () =>
-          isPathEditable(ctx.file.path, props.editableFolders()) &&
-          !ctx.file.isVirtual &&
-          !ctx.file.shareToken
+        const showDeleteFile = () => {
+          if (ctx.file.isVirtual || ctx.file.shareToken) return false
+          if (!isPathEditable(ctx.file.path, props.editableFolders())) return false
+          if (props.shareDeleteGated?.()) {
+            return !!(props.shareCanDelete?.() ?? false)
+          }
+          return true
+        }
         const showShare = () => !ctx.file.isVirtual && !ctx.file.shareToken && !!props.onShare
         const showCopyShareLink = () => !!ctx.file.shareToken && !!props.onCopyShareLink
         const showCopyTo = () => props.hasEditableFolders() && !ctx.file.isVirtual && !!props.onCopy

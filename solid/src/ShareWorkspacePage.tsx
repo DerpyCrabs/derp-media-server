@@ -55,6 +55,11 @@ export function ShareWorkspacePage(props: Props) {
     return !!d?.editable && d.restrictions?.allowUpload !== false
   })
 
+  const shareCanDelete = createMemo(() => {
+    const d = shareQuery.data
+    return !!d?.editable && d.restrictions?.allowDelete !== false
+  })
+
   return (
     <Switch>
       <Match when={shareQuery.isPending}>
@@ -94,6 +99,7 @@ export function ShareWorkspacePage(props: Props) {
           shareCanEdit={
             !!shareQuery.data?.editable && shareQuery.data?.restrictions?.allowEdit !== false
           }
+          shareCanDelete={shareCanDelete()}
         />
       </Match>
     </Switch>
