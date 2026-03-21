@@ -4,10 +4,6 @@ const EDGE_THRESHOLD = 36
 
 export type SnapDetectResult = SnapZone | 'top'
 
-export interface UseSnapZonesOptions {
-  getZoneBounds?: (zone: SnapZone) => { x: number; y: number; width: number; height: number }
-}
-
 export function detectSnapZone(
   cursorX: number,
   cursorY: number,

@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export const TASKBAR_HEIGHT = 32
+const TASKBAR_HEIGHT = 32
 
 export async function gotoWorkspace(page: Page) {
   await page.goto('/workspace')

@@ -11,6 +11,7 @@ import {
   getPlayerBoundsForAspectRatio,
   isVideoPath,
   PLAYER_WINDOW_ID,
+  snapZoneToBoundsWithOccupied,
 } from '@/lib/workspace-geometry'
 import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
 import type {
@@ -23,7 +24,6 @@ import type {
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
-  snapZoneToBoundsWithOccupied,
   workspaceSourceToMediaContext,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,

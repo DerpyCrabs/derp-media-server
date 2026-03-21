@@ -4,7 +4,7 @@ import { ALL_SNAP_LAYOUT_IDS } from '@/lib/workspace-snap-layouts'
 
 const KNOWN = new Set(ALL_SNAP_LAYOUT_IDS)
 
-export const SNAP_LAYOUT_VISIBILITY_STORAGE_KEY = 'workspace-snap-layout-visibility'
+const SNAP_LAYOUT_VISIBILITY_STORAGE_KEY = 'workspace-snap-layout-visibility'
 
 type PersistedSnapVisibility = { visibleIdList: string[] }
 

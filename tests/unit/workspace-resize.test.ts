@@ -1,10 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
-import {
-  SNAP_SIBLING_MAP,
-  type SnapZone,
-  type WorkspaceWindowDefinition,
-} from '@/lib/use-workspace'
+import type { SnapZone, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { SNAP_SIBLING_MAP } from '@/lib/workspace-geometry'
 
 /**
  * Pure function that computes new sibling bounds when a neighbor is resized.

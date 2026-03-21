@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-export type BrowserViewMode = 'list' | 'grid'
+type BrowserViewMode = 'list' | 'grid'
 
 interface Persisted {
   byKey: Record<string, BrowserViewMode>

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export interface WorkspacePlaybackSlice {
+interface WorkspacePlaybackSlice {
   playing: string | null
   audioOnly: boolean
   dir: string | null

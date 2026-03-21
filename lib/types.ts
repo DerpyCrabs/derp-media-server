@@ -20,18 +20,6 @@ export interface FileItem {
   shareToken?: string
 }
 
-export interface AudioMetadata {
-  title: string | null
-  artist: string | null
-  album: string | null
-  year: number | null
-  genre: string[] | null
-  duration: number | null
-  coverArt: string | null
-  trackNumber: number | null
-  albumArtist: string | null
-}
-
 export interface AutoSaveSettings {
   enabled: boolean
   readOnly?: boolean
