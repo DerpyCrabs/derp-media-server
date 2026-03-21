@@ -21,6 +21,7 @@ const BATCHES = [
       'workspace-viewers',
       'workspace-cross-dnd',
       'workspace-taskbar-pins',
+      'workspace-taskbar-chrome',
       'workspace-layout-sessions',
       'workspace-named-layouts',
     ],

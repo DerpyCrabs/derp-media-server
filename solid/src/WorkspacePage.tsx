@@ -23,6 +23,7 @@ import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
   snapZoneToBoundsWithOccupied,
+  workspaceSourceToMediaContext,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
 } from '@/lib/use-workspace'
@@ -60,6 +61,7 @@ import { WorkspacePlayerPane } from './workspace/WorkspacePlayerPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from './workspace/WorkspaceWindowChrome'
 import { WorkspaceNamedLayoutMenu } from './workspace/WorkspaceNamedLayoutMenu'
+import { WorkspaceTaskbarAudio } from './workspace/WorkspaceTaskbarAudio'
 
 const DEFAULT_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 
@@ -1328,6 +1330,23 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
               declareBaselinePresetId={declareBaselinePresetId}
               isLayoutDirty={isLayoutDirty()}
               layoutBaselinePresetId={layoutBaselinePresetId()}
+            />
+            <WorkspaceTaskbarAudio
+              storageKey={() => storageSessionKeyFull().key}
+              shareCtx={() => {
+                const c = workspaceSourceToMediaContext(browserSource())
+                if (!c?.shareToken || !c.sharePath) return null
+                return { token: c.shareToken, sharePath: c.sharePath }
+              }}
+              onShowVideo={() => {
+                const key = storageSessionKeyFull().key
+                const path = key
+                  ? (useWorkspacePlaybackStore.getState().byKey[key]?.playing ?? null)
+                  : null
+                if (!path) return
+                const dir = key ? useWorkspacePlaybackStore.getState().byKey[key]?.dir : undefined
+                requestPlay(browserSource(), path, dir ?? undefined)
+              }}
             />
           </div>
         </div>

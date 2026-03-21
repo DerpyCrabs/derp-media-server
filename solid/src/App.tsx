@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/solid-query'
 import { Switch, Match, Show, createSignal, createMemo } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
+import { SolidThemeSync } from './SolidThemeSync'
 import { FileBrowser } from './FileBrowser'
 import { ShareRoute } from './ShareRoute'
 import { ShareWorkspacePage } from './ShareWorkspacePage'
@@ -92,18 +93,39 @@ export function App() {
   const shareWorkspaceToken = createMemo(() => parseShareWorkspaceToken(path()))
 
   return (
-    <Switch fallback={<FileBrowser />}>
+    <Switch
+      fallback={
+        <>
+          <SolidThemeSync />
+          <FileBrowser />
+        </>
+      }
+    >
       <Match when={matchRoute(path()) === 'login'}>
-        <LoginPage />
+        <>
+          <SolidThemeSync />
+          <LoginPage />
+        </>
       </Match>
       <Match when={shareWorkspaceToken()} keyed>
-        {(token) => <ShareWorkspacePage token={token} />}
+        {(token) => (
+          <>
+            <SolidThemeSync />
+            <ShareWorkspacePage token={token} />
+          </>
+        )}
       </Match>
       <Match when={matchRoute(path()) === 'share'}>
-        <ShareRoute />
+        <>
+          <SolidThemeSync />
+          <ShareRoute />
+        </>
       </Match>
       <Match when={matchRoute(path()) === 'workspace'}>
-        <WorkspacePage />
+        <>
+          <SolidThemeSync />
+          <WorkspacePage />
+        </>
       </Match>
     </Switch>
   )
