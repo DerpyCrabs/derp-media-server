@@ -39,6 +39,28 @@ test.describe('Workspace File Browser', () => {
     )
   })
 
+  test('workspace browser row context menu includes Set icon', async ({ page }) => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    await content
+      .locator('table')
+      .getByText('Documents', { exact: true })
+      .click({ button: 'right' })
+    await expect(
+      content.locator('[data-slot="file-row-context-menu"]').getByText('Set icon'),
+    ).toBeVisible()
+  })
+
+  test('workspace breadcrumb folder context menu includes Set icon', async ({ page }) => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    await content.getByText('Notes', { exact: true }).click()
+    await content.locator('table').getByText('subfolder', { exact: true }).click()
+    await expect(content.locator('table').getByText('nested-note.md')).toBeVisible()
+    await content.locator('[data-breadcrumb-path="Notes"]').dispatchEvent('contextmenu')
+    await expect(page.getByTestId('breadcrumb-menu-set-icon')).toBeVisible()
+  })
+
   test('navigates to parent using ".." row', async ({ page }) => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)

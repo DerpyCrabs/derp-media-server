@@ -4,7 +4,7 @@ import {
   isCompatibleSource,
   setFileDragData,
 } from '@/lib/file-drag-data'
-import { VIRTUAL_FOLDERS } from '@/lib/constants'
+import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { GlobalSettings } from '@/lib/use-settings'
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
@@ -37,7 +37,12 @@ import {
   onCleanup,
   onMount,
 } from 'solid-js'
+import {
+  BreadcrumbContextMenu,
+  type BreadcrumbMenuTarget,
+} from '../file-browser/BreadcrumbContextMenu'
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
+import { IconEditorDialog } from '../file-browser/IconEditorDialog'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
 import { MoveToDialog } from '../file-browser/MoveToDialog'
@@ -110,6 +115,8 @@ export function WorkspaceBrowserPane(props: Props) {
   const [renamingItem, setRenamingItem] = createSignal<FileItem | null>(null)
   const [renameNewName, setRenameNewName] = createSignal('')
   const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
+  const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
+  const [breadcrumbMenu, setBreadcrumbMenu] = createSignal<BreadcrumbMenuTarget | null>(null)
   const [shareViewModeTick, setShareViewModeTick] = createSignal(0)
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
@@ -353,6 +360,24 @@ export function WorkspaceBrowserPane(props: Props) {
     },
   }))
 
+  const setCustomIconMutation = useMutation(() => ({
+    mutationFn: (vars: { path: string; iconName: string }) => post('/api/settings/icon', vars),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+    },
+  }))
+
+  const removeCustomIconMutation = useMutation(() => ({
+    mutationFn: (path: string) => post('/api/settings/icon/remove', { path }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+    },
+  }))
+
+  const workspaceCustomIcons = createMemo(() =>
+    share() ? ({} as Record<string, string>) : (settingsQuery.data?.customIcons ?? {}),
+  )
+
   createEffect(() => {
     const q = searchQuery()
     const id = window.setTimeout(() => setDebouncedSearch(q), 300)
@@ -576,6 +601,116 @@ export function WorkspaceBrowserPane(props: Props) {
 
   function handleBreadcrumbNavigate(path: string) {
     props.onNavigateDir(props.windowId, path)
+  }
+
+  function workspaceBreadcrumbAsFolderItem(m: BreadcrumbMenuTarget): FileItem {
+    const p = m.serverPath
+    return {
+      name: m.displayName,
+      path: p,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: isVirtualFolderPath(p),
+    }
+  }
+
+  const workspaceBreadcrumbMenuActions = createMemo(() => {
+    const m = breadcrumbMenu()
+    if (!m) {
+      return { showOpenInNewTab: false, showOpenInWorkspace: false, showSetIcon: false }
+    }
+    if (m.isHome) {
+      return { showOpenInNewTab: true, showOpenInWorkspace: true, showSetIcon: false }
+    }
+    const virt = isVirtualFolderPath(m.serverPath)
+    return {
+      showOpenInNewTab: !virt,
+      showOpenInWorkspace: !virt,
+      showSetIcon: !virt && !share(),
+    }
+  })
+
+  function handleWorkspaceBreadcrumbContextMenu(
+    e: MouseEvent,
+    info: { navigatePath: string; displayName: string; isHome: boolean },
+  ) {
+    setBreadcrumbMenu({
+      x: e.clientX,
+      y: e.clientY,
+      serverPath: info.navigatePath.replace(/\\/g, '/'),
+      displayName: info.displayName,
+      isHome: info.isHome,
+    })
+  }
+
+  function handleWorkspaceBreadcrumbOpenInNewTab() {
+    const m = breadcrumbMenu()
+    if (!m) return
+    const sh = share()
+    if (m.isHome) {
+      if (sh) window.open(`/share/${sh.token}/workspace`, '_blank')
+      else window.open(`${window.location.origin}/`, '_blank')
+      return
+    }
+    const item = workspaceBreadcrumbAsFolderItem(m)
+    if (!item.isDirectory || item.isVirtual) return
+    if (props.onOpenInNewTab) {
+      props.onOpenInNewTab(
+        props.windowId,
+        { path: item.path, isDirectory: true, isVirtual: item.isVirtual },
+        currentPath(),
+      )
+      return
+    }
+    const params = new URLSearchParams()
+    if (item.path) params.set('dir', item.path)
+    window.open(`${window.location.origin}/?${params.toString()}`, '_blank')
+  }
+
+  function handleWorkspaceBreadcrumbOpenInWorkspace() {
+    const m = breadcrumbMenu()
+    if (!m) return
+    const sh = share()
+    if (m.isHome) {
+      window.open(sh ? `/share/${sh.token}/workspace` : '/workspace', '_blank')
+      return
+    }
+    const item = workspaceBreadcrumbAsFolderItem(m)
+    if (!item.isDirectory || item.isVirtual) return
+    if (sh) {
+      const rel = stripSharePrefix(item.path, sh.sharePath.replace(/\\/g, '/'))
+      const params = new URLSearchParams()
+      if (rel) params.set('dir', rel)
+      const q = params.toString()
+      window.open(
+        q ? `/share/${sh.token}/workspace?${q}` : `/share/${sh.token}/workspace`,
+        '_blank',
+      )
+      return
+    }
+    const params = new URLSearchParams()
+    if (item.path) params.set('dir', item.path)
+    const q = params.toString()
+    window.open(q ? `/workspace?${q}` : '/workspace', '_blank')
+  }
+
+  function handleWorkspaceBreadcrumbSetIcon() {
+    const m = breadcrumbMenu()
+    if (!m || m.isHome || isVirtualFolderPath(m.serverPath) || share()) return
+    setIconEditTarget(workspaceBreadcrumbAsFolderItem(m))
+  }
+
+  function handleWorkspaceSaveCustomIcon(iconName: string | null) {
+    const t = iconEditTarget()
+    if (!t) return
+    const p = t.path.replace(/\\/g, '/')
+    if (iconName) {
+      void setCustomIconMutation.mutateAsync({ path: p, iconName })
+    } else {
+      void removeCustomIconMutation.mutateAsync(p)
+    }
   }
 
   function openCreateFileDialog() {
@@ -979,6 +1114,7 @@ export function WorkspaceBrowserPane(props: Props) {
             currentPath={currentPath()}
             onNavigate={handleBreadcrumbNavigate}
             mode='Workspace'
+            onCrumbContextMenu={handleWorkspaceBreadcrumbContextMenu}
           />
           <div class='flex flex-wrap items-center justify-end gap-1 md:justify-start'>
             <Show when={inKb()}>
@@ -1571,6 +1707,30 @@ export function WorkspaceBrowserPane(props: Props) {
         </Show>
       </div>
 
+      <IconEditorDialog
+        isOpen={!!iconEditTarget()}
+        fileName={iconEditTarget()?.name ?? ''}
+        currentIcon={
+          iconEditTarget()
+            ? (workspaceCustomIcons()[iconEditTarget()!.path] ??
+              workspaceCustomIcons()[iconEditTarget()!.path.replace(/\\/g, '/')] ??
+              null)
+            : null
+        }
+        onClose={() => setIconEditTarget(null)}
+        onSave={handleWorkspaceSaveCustomIcon}
+        isPending={setCustomIconMutation.isPending || removeCustomIconMutation.isPending}
+      />
+      <BreadcrumbContextMenu
+        target={breadcrumbMenu}
+        onDismiss={() => setBreadcrumbMenu(null)}
+        showOpenInNewTab={workspaceBreadcrumbMenuActions().showOpenInNewTab}
+        onOpenInNewTab={handleWorkspaceBreadcrumbOpenInNewTab}
+        showOpenInWorkspace={workspaceBreadcrumbMenuActions().showOpenInWorkspace}
+        onOpenInWorkspace={handleWorkspaceBreadcrumbOpenInWorkspace}
+        showSetIcon={workspaceBreadcrumbMenuActions().showSetIcon}
+        onSetIcon={handleWorkspaceBreadcrumbSetIcon}
+      />
       <FileRowContextMenu
         menu={fileRowMenu.menu}
         editableFolders={() => props.editableFolders}
@@ -1584,6 +1744,7 @@ export function WorkspaceBrowserPane(props: Props) {
         onAddToTaskbar={props.onAddToTaskbar}
         onRename={isContextDirEditable() ? openContextRename : undefined}
         onMove={isContextDirEditable() ? openContextMove : undefined}
+        onSetIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
         onOpenInNewTab={
           props.onOpenInNewTab
             ? (f) =>

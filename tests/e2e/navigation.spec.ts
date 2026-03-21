@@ -26,6 +26,17 @@ test.describe('Folder Navigation', () => {
     await expect(page.locator('table').getByText('welcome.md')).toBeVisible()
   })
 
+  test('breadcrumb folder context menu includes Set icon and workspace actions', async ({
+    page,
+  }) => {
+    await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
+    await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()
+    await page.locator('[data-breadcrumb-path="Notes"]').click({ button: 'right' })
+    await expect(page.getByTestId('breadcrumb-menu-set-icon')).toBeVisible()
+    await expect(page.getByTestId('breadcrumb-menu-open-workspace')).toBeVisible()
+    await expect(page.getByTestId('breadcrumb-menu-open-new-tab')).toBeVisible()
+  })
+
   test('navigates to parent using ".." row', async ({ page }) => {
     await page.goto('/?dir=Videos')
     await page.locator('table').getByText('..').first().click()

@@ -10,7 +10,7 @@ import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
-import { VIRTUAL_FOLDERS } from '@/lib/constants'
+import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
@@ -42,6 +42,10 @@ import {
 import type { FileIconContext } from './lib/use-file-icon'
 import { fileItemIcon, gridHeroIcon } from './lib/use-file-icon'
 import { useBrowserHistory } from './browser-history'
+import {
+  BreadcrumbContextMenu,
+  type BreadcrumbMenuTarget,
+} from './file-browser/BreadcrumbContextMenu'
 import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { CreateFileDialog } from './file-browser/CreateFileDialog'
 import { CreateFolderDialog } from './file-browser/CreateFolderDialog'
@@ -180,6 +184,7 @@ export function FileBrowser() {
   const [debouncedSearch, setDebouncedSearch] = createSignal('')
   const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
+  const [breadcrumbMenu, setBreadcrumbMenu] = createSignal<BreadcrumbMenuTarget | null>(null)
 
   createEffect(() => {
     const q = searchQuery()
@@ -752,6 +757,74 @@ export function FileBrowser() {
     navigateToFolder(path || null)
   }
 
+  function breadcrumbAsFolderItem(m: BreadcrumbMenuTarget): FileItem {
+    const p = m.serverPath
+    return {
+      name: m.displayName,
+      path: p,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: isVirtualFolderPath(p),
+    }
+  }
+
+  const breadcrumbMenuActions = createMemo(() => {
+    const m = breadcrumbMenu()
+    if (!m) {
+      return { showOpenInNewTab: false, showOpenInWorkspace: false, showSetIcon: false }
+    }
+    if (m.isHome) {
+      return { showOpenInNewTab: true, showOpenInWorkspace: true, showSetIcon: false }
+    }
+    const virt = isVirtualFolderPath(m.serverPath)
+    return {
+      showOpenInNewTab: !virt,
+      showOpenInWorkspace: !virt,
+      showSetIcon: !virt,
+    }
+  })
+
+  function handleBreadcrumbCrumbContextMenu(
+    e: MouseEvent,
+    info: { navigatePath: string; displayName: string; isHome: boolean },
+  ) {
+    setBreadcrumbMenu({
+      x: e.clientX,
+      y: e.clientY,
+      serverPath: info.navigatePath.replace(/\\/g, '/'),
+      displayName: info.displayName,
+      isHome: info.isHome,
+    })
+  }
+
+  function handleBreadcrumbOpenInNewTab() {
+    const m = breadcrumbMenu()
+    if (!m) return
+    if (m.isHome) {
+      window.open(`${window.location.origin}${window.location.pathname || '/'}`, '_blank')
+      return
+    }
+    handleContextOpenInNewTab(breadcrumbAsFolderItem(m))
+  }
+
+  function handleBreadcrumbOpenInWorkspace() {
+    const m = breadcrumbMenu()
+    if (!m) return
+    if (m.isHome) {
+      window.open('/workspace', '_blank')
+      return
+    }
+    handleContextOpenInWorkspace(breadcrumbAsFolderItem(m))
+  }
+
+  function handleBreadcrumbSetIcon() {
+    const m = breadcrumbMenu()
+    if (!m || m.isHome || isVirtualFolderPath(m.serverPath)) return
+    setIconEditTarget(breadcrumbAsFolderItem(m))
+  }
+
   function handleContextDownload(file: FileItem) {
     const link = document.createElement('a')
     link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`
@@ -972,7 +1045,11 @@ export function FileBrowser() {
             <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none lg:rounded-xl py-0 text-sm shadow-xs ring-1'>
               <div class='shrink-0 border-b border-border bg-muted/30 p-1.5 lg:p-2'>
                 <div class='flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'>
-                  <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
+                  <Breadcrumbs
+                    currentPath={currentPath()}
+                    onNavigate={handleBreadcrumbNavigate}
+                    onCrumbContextMenu={handleBreadcrumbCrumbContextMenu}
+                  />
                   <Show when={inKb()}>
                     <div class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'>
                       <div class='relative' data-kb-search-root>
@@ -1597,6 +1674,16 @@ export function FileBrowser() {
           <UploadToastStack
             state={uploadToast}
             onDismissError={() => setUploadToast({ kind: 'hidden' })}
+          />
+          <BreadcrumbContextMenu
+            target={breadcrumbMenu}
+            onDismiss={() => setBreadcrumbMenu(null)}
+            showOpenInNewTab={breadcrumbMenuActions().showOpenInNewTab}
+            onOpenInNewTab={handleBreadcrumbOpenInNewTab}
+            showOpenInWorkspace={breadcrumbMenuActions().showOpenInWorkspace}
+            onOpenInWorkspace={handleBreadcrumbOpenInWorkspace}
+            showSetIcon={breadcrumbMenuActions().showSetIcon}
+            onSetIcon={handleBreadcrumbSetIcon}
           />
           <FileRowContextMenu
             menu={fileRowMenu.menu}

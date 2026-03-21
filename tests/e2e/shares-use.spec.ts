@@ -175,6 +175,15 @@ test.describe('Using Shares', () => {
     await expect(page.getByText('public-doc.txt')).toBeVisible()
   })
 
+  test('share folder breadcrumb context menu offers download and workspace', async ({ page }) => {
+    const sep = folderShareUrl.includes('?') ? '&' : '?'
+    await page.goto(`${folderShareUrl}${sep}dir=subfolder`)
+    const root = page.locator('[data-testid="share-file-browser"]')
+    await root.locator('[data-breadcrumb-path="subfolder"]').click({ button: 'right' })
+    await expect(page.getByTestId('breadcrumb-menu-download-zip')).toBeVisible()
+    await expect(page.getByTestId('breadcrumb-menu-open-workspace')).toBeVisible()
+  })
+
   test('plays video in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.getByText('public-video.mp4').click()
