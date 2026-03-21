@@ -1,11 +1,28 @@
+import { applyTheme, resolveTheme } from '@/lib/theme-dom'
+import { useThemeStore, type ThemeMode, type ThemePalette } from '@/lib/theme-store'
 import {
   useWorkspaceFileOpenTargetStore,
   type WorkspaceFileOpenTarget,
 } from '@/lib/workspace-file-open-target'
 import Check from 'lucide-solid/icons/check'
+import Monitor from 'lucide-solid/icons/monitor'
+import Moon from 'lucide-solid/icons/moon'
 import Settings from 'lucide-solid/icons/settings'
+import Sun from 'lucide-solid/icons/sun'
 import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
 import { cn } from '@/lib/utils'
+
+const MODES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor },
+]
+
+const PALETTES: { value: ThemePalette; label: string }[] = [
+  { value: 'default', label: 'Default' },
+  { value: 'caffeine', label: 'Caffeine' },
+  { value: 'cosmic-night', label: 'Cosmic Night' },
+]
 
 const FILE_OPEN_TARGETS: {
   value: WorkspaceFileOpenTarget
@@ -30,10 +47,15 @@ const triggerClass =
 export function WorkspaceTaskbarSettings() {
   const [open, setOpen] = createSignal(false)
   const [targetTick, setTargetTick] = createSignal(0)
+  const [themeTick, setThemeTick] = createSignal(0)
 
   onMount(() => {
-    const unsub = useWorkspaceFileOpenTargetStore.subscribe(() => setTargetTick((n) => n + 1))
-    onCleanup(unsub)
+    const u1 = useWorkspaceFileOpenTargetStore.subscribe(() => setTargetTick((n) => n + 1))
+    const u2 = useThemeStore.subscribe(() => setThemeTick((n) => n + 1))
+    onCleanup(() => {
+      u1()
+      u2()
+    })
   })
 
   const fileOpenTarget = () => {
@@ -41,8 +63,23 @@ export function WorkspaceTaskbarSettings() {
     return useWorkspaceFileOpenTargetStore.getState().target
   }
 
+  const palette = () => {
+    void themeTick()
+    return useThemeStore.getState().palette
+  }
+
+  const mode = () => {
+    void themeTick()
+    return useThemeStore.getState().mode
+  }
+
   function setFileTarget(value: WorkspaceFileOpenTarget) {
     useWorkspaceFileOpenTargetStore.getState().setTarget(value)
+  }
+
+  function setTheme(p: ThemePalette, m: ThemeMode) {
+    useThemeStore.getState().setTheme(p, m)
+    applyTheme(resolveTheme(p, m))
   }
 
   return (
@@ -103,6 +140,62 @@ export function WorkspaceTaskbarSettings() {
                         <span class='flex-1'>{opt.label}</span>
                         <Show when={selected()}>
                           <Check class='h-4 w-4 shrink-0' stroke-width={2} aria-hidden='true' />
+                        </Show>
+                      </button>
+                    )
+                  }}
+                </For>
+              </div>
+            </div>
+            <div>
+              <div class='mb-2 text-xs font-medium text-muted-foreground'>Mode</div>
+              <div class='flex flex-wrap gap-2'>
+                <For each={MODES}>
+                  {(m) => {
+                    const Icon = m.icon
+                    const selected = () => mode() === m.value
+                    return (
+                      <button
+                        type='button'
+                        class={cn(
+                          'flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                          selected()
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border bg-muted/50 hover:bg-muted',
+                        )}
+                        onClick={() => setTheme(palette(), m.value)}
+                      >
+                        <Icon class='h-4 w-4 shrink-0' stroke-width={2} />
+                        {m.label}
+                        <Show when={selected()}>
+                          <Check class='h-4 w-4 shrink-0' stroke-width={2} />
+                        </Show>
+                      </button>
+                    )
+                  }}
+                </For>
+              </div>
+            </div>
+            <div>
+              <div class='mb-2 text-xs font-medium text-muted-foreground'>Theme</div>
+              <div class='flex flex-wrap gap-2'>
+                <For each={PALETTES}>
+                  {(p) => {
+                    const selected = () => palette() === p.value
+                    return (
+                      <button
+                        type='button'
+                        class={cn(
+                          'flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                          selected()
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border bg-muted/50 hover:bg-muted',
+                        )}
+                        onClick={() => setTheme(p.value, mode())}
+                      >
+                        {p.label}
+                        <Show when={selected()}>
+                          <Check class='h-4 w-4 shrink-0' stroke-width={2} />
                         </Show>
                       </button>
                     )

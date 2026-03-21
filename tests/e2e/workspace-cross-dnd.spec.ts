@@ -1,112 +1,17 @@
-import { test, expect, type Page, type Locator } from '@playwright/test'
-
-const TASKBAR_HEIGHT = 32
-
-async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
-}
-
-async function openBrowserWindow(page: Page) {
-  const countBefore = await page.locator('[data-window-group]').count()
-  await page.locator('button[title="Open browser window"]').click()
-  await expect(page.locator('[data-window-group]')).toHaveCount(countBefore + 1)
-}
-
-function getWindowGroups(page: Page) {
-  return page.locator('[data-window-group]')
-}
-
-function getVisibleContent(windowGroup: Locator) {
-  return windowGroup.locator('[data-testid="workspace-window-visible-content"]')
-}
-
-function getDragHandle(windowGroup: Locator) {
-  return windowGroup.locator('[data-testid="window-drag-handle"]')
-}
-
-async function dragFromTo(
-  page: Page,
-  fromX: number,
-  fromY: number,
-  toX: number,
-  toY: number,
-  steps = 10,
-) {
-  await page.mouse.move(fromX, fromY)
-  await page.mouse.down()
-  await page.mouse.move(toX, toY, { steps })
-  await page.mouse.up()
-}
-
-async function dragToEdge(page: Page, handle: Locator, target: 'left' | 'right') {
-  const viewport = page.viewportSize()!
-  const box = await handle.boundingBox()
-  if (!box) throw new Error('Handle not visible')
-
-  const startX = box.x + box.width / 2
-  const startY = box.y + box.height / 2
-  const containerHeight = viewport.height - TASKBAR_HEIGHT
-  const endX = target === 'left' ? 5 : viewport.width - 5
-  const endY = containerHeight / 2
-
-  await dragFromTo(page, startX, startY, endX, endY)
-  await page.waitForTimeout(30)
-}
-
-async function navigateToSharedContent(content: Locator) {
-  await expect(content.getByText('SharedContent', { exact: true })).toBeVisible()
-  await content.getByText('SharedContent', { exact: true }).click()
-  await expect(content.getByText('public-doc.txt')).toBeVisible({ timeout: 5_000 })
-}
-
-async function createTempFile(page: Page, content: Locator, fileName: string) {
-  await content.locator('button[title="Create new file"]').click()
-  const dialog = page.locator('[role="dialog"]')
-  await dialog.locator('input[placeholder*="File name"]').fill(fileName)
-  await dialog.getByRole('button', { name: 'Create' }).click()
-  await dialog.waitFor({ state: 'hidden' })
-  await expect(content.getByText(fileName)).toBeVisible({ timeout: 5_000 })
-}
-
-async function deleteFileViaContextMenu(page: Page, content: Locator, fileName: string) {
-  await content.locator('tr').filter({ hasText: fileName }).click({ button: 'right' })
-  await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-  await page.getByRole('button', { name: /Delete/i }).click()
-  await expect(content.locator('tr').filter({ hasText: fileName })).not.toBeVisible({
-    timeout: 5_000,
-  })
-}
-
-/**
- * Dispatch a full HTML5 DnD sequence using element handles for precise targeting.
- * Playwright's built-in dragTo doesn't reliably carry custom DataTransfer MIME data.
- */
-async function html5DragDrop(source: Locator, target: Locator) {
-  const srcHandle = await source.elementHandle()
-  const tgtHandle = await target.elementHandle()
-  if (!srcHandle || !tgtHandle) throw new Error('Element handles not found')
-
-  await source.page().evaluate(
-    ([src, tgt]) => {
-      const dt = new DataTransfer()
-      src!.dispatchEvent(
-        new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      tgt!.dispatchEvent(
-        new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      tgt!.dispatchEvent(
-        new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      tgt!.dispatchEvent(
-        new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      src!.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true }))
-    },
-    [srcHandle, tgtHandle],
-  )
-}
+import { test, expect } from '@playwright/test'
+import {
+  createTempFile,
+  deleteFileViaContextMenu,
+  dragFromTo,
+  dragToEdge,
+  getDragHandle,
+  getVisibleContent,
+  getWindowGroups,
+  gotoWorkspace,
+  html5DragDrop,
+  navigateToSharedContent,
+  openBrowserWindow,
+} from './workspace-cross-dnd-helpers'
 
 test.describe('Cross-Window File Move', () => {
   test('drags a file from one browser into a folder in another', async ({ page }) => {

@@ -19,4 +19,15 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(audioControls).toBeVisible()
     await expect(audioControls).toContainText('track.mp3')
   })
+
+  test('persists dark mode from workspace taskbar settings after reload', async ({ page }) => {
+    await gotoWorkspace(page)
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Dark' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
+  })
 })

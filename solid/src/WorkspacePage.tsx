@@ -11,7 +11,7 @@ import {
   isVideoPath,
   PLAYER_WINDOW_ID,
 } from '@/lib/workspace-geometry'
-import type { FileDragData } from '@/lib/file-drag-data'
+import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
 import type {
   PersistedWorkspaceState,
   PinnedTaskbarItem,
@@ -1280,24 +1280,49 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                     {(pin) => {
                       const tooltip = `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
                       return (
-                        <button
-                          type='button'
-                          title={tooltip}
-                          aria-label={tooltip}
-                          class='flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground'
-                          onClick={() => selectPinned(pin)}
-                          onContextMenu={(e) => {
-                            e.preventDefault()
-                            setPinMenu({ x: e.clientX, y: e.clientY, pinId: pin.id })
+                        <div
+                          class='flex shrink-0 items-center justify-center py-1 px-0.5'
+                          data-taskbar-pin
+                          draggable='true'
+                          on:dragstart={(e: DragEvent) => {
+                            const dt = e.dataTransfer
+                            if (!dt) return
+                            const d: FileDragData = {
+                              path: pin.path,
+                              isDirectory: pin.isDirectory,
+                              sourceKind: pin.source.kind,
+                              sourceToken: pin.source.token,
+                            }
+                            setFileDragData(dt, d)
+                            dt.effectAllowed = 'copy'
                           }}
                         >
-                          <Show
-                            when={pin.isDirectory}
-                            fallback={<File class='h-5 w-5' stroke-width={1.75} />}
+                          <div
+                            role='button'
+                            tabindex={0}
+                            title={tooltip}
+                            aria-label={tooltip}
+                            class='flex h-7 w-7 shrink-0 cursor-default items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:pointer-events-none'
+                            onClick={() => selectPinned(pin)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                selectPinned(pin)
+                              }
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              setPinMenu({ x: e.clientX, y: e.clientY, pinId: pin.id })
+                            }}
                           >
-                            <Folder class='h-5 w-5' stroke-width={1.75} />
-                          </Show>
-                        </button>
+                            <Show
+                              when={pin.isDirectory}
+                              fallback={<File class='h-5 w-5' stroke-width={1.75} />}
+                            >
+                              <Folder class='h-5 w-5' stroke-width={1.75} />
+                            </Show>
+                          </div>
+                        </div>
                       )
                     }}
                   </For>
