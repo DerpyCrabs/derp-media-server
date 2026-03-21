@@ -14,11 +14,13 @@ import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import type { WorkspaceSource } from '@/lib/use-workspace'
-import { formatFileSize } from '@/lib/media-utils'
-import { cn, isPathEditable } from '@/lib/utils'
+import { formatFileSize, getMediaType } from '@/lib/media-utils'
+import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
+import AlertCircle from 'lucide-solid/icons/alert-circle'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
+import Search from 'lucide-solid/icons/search'
 import type { Accessor } from 'solid-js'
 import {
   For,
@@ -28,12 +30,15 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
 } from 'solid-js'
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
+import { KbDashboard } from '../file-browser/KbDashboard'
+import { KbSearchResults } from '../file-browser/KbSearchResults'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import type { FileIconContext } from '../lib/use-file-icon'
@@ -48,6 +53,8 @@ type Props = {
   fileIconContext: () => FileIconContext
   /** Share workspace: show create file/folder when upload is allowed (matches React ShareFileBrowser). */
   shareAllowUpload?: boolean
+  /** Share workspace: root is marked as knowledge base (enables KB search / recent / inline create). */
+  shareIsKnowledgeBase?: boolean
   editableFolders: string[]
   onNavigateDir: (windowId: string, dir: string) => void
   onOpenViewer: (windowId: string, file: FileItem) => void
@@ -77,6 +84,11 @@ export function WorkspaceBrowserPane(props: Props) {
   const [newFileName, setNewFileName] = createSignal('')
   const [showCreateFolder, setShowCreateFolder] = createSignal(false)
   const [newFolderName, setNewFolderName] = createSignal('')
+  const [searchQuery, setSearchQuery] = createSignal('')
+  const [debouncedSearch, setDebouncedSearch] = createSignal('')
+  const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
+  const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
+  const [inlineName, setInlineName] = createSignal('')
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
@@ -123,7 +135,6 @@ export function WorkspaceBrowserPane(props: Props) {
     () => !share() && !isVirtualFolder() && isPathEditable(currentPath(), props.editableFolders),
   )
   const showShareCreateToolbar = createMemo(() => !!share() && !!props.shareAllowUpload)
-  const showCreateToolbar = createMemo(() => isAdminPaneEditable() || showShareCreateToolbar())
 
   const parentParts = createMemo(() =>
     currentPath() ? currentPath().split(/[/\\]/).filter(Boolean) : [],
@@ -167,31 +178,6 @@ export function WorkspaceBrowserPane(props: Props) {
 
   const allowMoveFile = createMemo(() => (isAdminPaneEditable() ? handleMoveFile : undefined))
 
-  const createFileMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; content: string; shareToken?: string }) =>
-      vars.shareToken
-        ? post(`/api/share/${vars.shareToken}/create`, {
-            type: 'file',
-            path: vars.path,
-            content: vars.content,
-          })
-        : post('/api/files/create', { type: 'file', path: vars.path, content: vars.content }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      const sh = share()
-      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
-    },
-  }))
-
-  const createFolderMutation = useMutation(() => ({
-    mutationFn: (vars: { token: string; path: string }) =>
-      post(`/api/share/${vars.token}/create`, { type: 'folder', path: vars.path }),
-    onSettled: () => {
-      const sh = share()
-      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
-    },
-  }))
-
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
     queryFn: () => api<GlobalSettings>('/api/settings'),
@@ -207,6 +193,61 @@ export function WorkspaceBrowserPane(props: Props) {
     return file.isDirectory && knowledgeBases().includes(file.path.replace(/\\/g, '/'))
   }
 
+  const kbRootPath = createMemo(() => {
+    if (share()) return null
+    return getKnowledgeBaseRoot(currentPath(), knowledgeBases())
+  })
+
+  const inKb = createMemo(() => (share() ? !!props.shareIsKnowledgeBase : kbRootPath() !== null))
+
+  const showInlineCreate = createMemo(
+    () => inKb() && ((!!share() && !!props.shareAllowUpload) || isAdminPaneEditable()),
+  )
+
+  function invalidateKbQueries() {
+    const sh = share()
+    const dir = listDir()
+    if (sh) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent(sh.token, dir) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent() })
+    } else {
+      const p = currentPath()
+      if (p) void queryClient.invalidateQueries({ queryKey: queryKeys.kbRecent(p) })
+    }
+  }
+
+  const createFileMutation = useMutation(() => ({
+    mutationFn: (vars: { path: string; content: string; shareToken?: string }) =>
+      vars.shareToken
+        ? post(`/api/share/${vars.shareToken}/create`, {
+            type: 'file',
+            path: vars.path,
+            content: vars.content,
+          })
+        : post('/api/files/create', { type: 'file', path: vars.path, content: vars.content }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      const sh = share()
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+      if (inKb()) invalidateKbQueries()
+    },
+  }))
+
+  const createFolderMutation = useMutation(() => ({
+    mutationFn: (
+      vars: { mode: 'share'; token: string; path: string } | { mode: 'local'; path: string },
+    ) =>
+      vars.mode === 'share'
+        ? post(`/api/share/${vars.token}/create`, { type: 'folder', path: vars.path })
+        : post('/api/files/create', { type: 'folder', path: vars.path }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      const sh = share()
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+      if (inKb()) invalidateKbQueries()
+    },
+  }))
+
   const viewMode = createMemo(() => {
     if (share()) return 'list' as const
     const s = settingsQuery.data
@@ -220,6 +261,73 @@ export function WorkspaceBrowserPane(props: Props) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   }))
+
+  createEffect(() => {
+    const q = searchQuery()
+    const id = window.setTimeout(() => setDebouncedSearch(q), 300)
+    onCleanup(() => clearTimeout(id))
+  })
+
+  createEffect(
+    on(currentPath, () => {
+      setSearchQuery('')
+      setDebouncedSearch('')
+      setSearchPopoverOpen(false)
+      setInlineMode(null)
+      setInlineName('')
+    }),
+  )
+
+  createEffect(() => {
+    if (!searchPopoverOpen()) return
+    const onDoc = (e: MouseEvent) => {
+      const root = document.querySelector('[data-kb-search-root]')
+      if (root?.contains(e.target as Node)) return
+      setSearchPopoverOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    onCleanup(() => document.removeEventListener('mousedown', onDoc))
+  })
+
+  const adminKbSearchQuery = useQuery(() => ({
+    queryKey: queryKeys.kbSearch(kbRootPath()!, debouncedSearch()),
+    queryFn: () =>
+      api<{ results: { path: string; name: string; snippet: string }[] }>(
+        `/api/kb/search?root=${encodeURIComponent(kbRootPath()!)}&q=${encodeURIComponent(debouncedSearch())}`,
+      ),
+    enabled: !!kbRootPath() && debouncedSearch().trim().length > 0 && !share(),
+  }))
+
+  const shareKbSearchQuery = useQuery(() => {
+    const sh = share()
+    const q = debouncedSearch().trim()
+    const token = sh?.token ?? ''
+    return {
+      queryKey: queryKeys.shareKbSearch(token, q, listDir()),
+      queryFn: () => {
+        const params = new URLSearchParams({ q })
+        const d = listDir()
+        if (d) params.set('dir', d)
+        return api<{ results: { path: string; name: string; snippet: string }[] }>(
+          `/api/share/${token}/kb/search?${params}`,
+        )
+      },
+      enabled: !!sh && inKb() && q.length > 0,
+    }
+  })
+
+  const kbSearchResults = createMemo(() => {
+    if (share()) return shareKbSearchQuery.data?.results ?? []
+    return adminKbSearchQuery.data?.results ?? []
+  })
+
+  const kbSearchLoading = createMemo(() =>
+    share() ? shareKbSearchQuery.isLoading : adminKbSearchQuery.isLoading,
+  )
+
+  const showKbSearchResults = createMemo(() => inKb() && debouncedSearch().trim().length > 0)
+
+  const showAdminCreateToolbar = createMemo(() => isAdminPaneEditable() && !share())
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
@@ -288,8 +396,9 @@ export function WorkspaceBrowserPane(props: Props) {
     const name = newFileName().trim()
     if (!name || fileExists()) return
     const sh = share()
+    const addExt = inKb() ? '.md' : '.txt'
     if (sh) {
-      const stem = name.includes('.') ? name : `${name}.txt`
+      const stem = name.includes('.') ? name : `${name}${addExt}`
       const rel = listDir() ? `${listDir()}/${stem}` : stem
       void createFileMutation
         .mutateAsync({ path: rel, content: '', shareToken: sh.token })
@@ -300,7 +409,7 @@ export function WorkspaceBrowserPane(props: Props) {
       return
     }
     const base = currentPath() ? `${currentPath()}/${name}` : name
-    const finalPath = base.includes('.') ? base : `${base}.txt`
+    const finalPath = base.includes('.') ? base : `${base}${addExt}`
     void createFileMutation.mutateAsync({ path: finalPath, content: '' }).then(() => {
       setShowCreateFile(false)
       setNewFileName('')
@@ -308,22 +417,36 @@ export function WorkspaceBrowserPane(props: Props) {
   }
 
   function submitCreateFolder() {
-    const sh = share()
-    if (!sh) return
     const name = newFolderName().trim()
     if (!name || folderExists()) return
-    const rel = listDir() ? `${listDir()}/${name}` : name
-    void createFolderMutation.mutateAsync({ token: sh.token, path: rel }).then(() => {
+    const sh = share()
+    if (sh) {
+      const rel = listDir() ? `${listDir()}/${name}` : name
+      void createFolderMutation
+        .mutateAsync({ mode: 'share', token: sh.token, path: rel })
+        .then(() => {
+          setShowCreateFolder(false)
+          setNewFolderName('')
+        })
+      return
+    }
+    const base = currentPath() ? `${currentPath()}/${name}` : name
+    void createFolderMutation.mutateAsync({ mode: 'local', path: base }).then(() => {
       setShowCreateFolder(false)
       setNewFolderName('')
     })
   }
 
   const fileExists = createMemo(() => {
-    const n = newFileName().trim().toLowerCase()
-    if (!n) return false
-    const withExt = n.includes('.') ? n : `${n}.txt`
-    return files().some((f) => f.name.toLowerCase() === withExt || f.name.toLowerCase() === n)
+    const stem = newFileName().trim()
+    if (!stem) return false
+    const addExt = inKb() ? '.md' : '.txt'
+    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    const fl = finalName.toLowerCase()
+    const st = stem.toLowerCase()
+    return files().some(
+      (f) => !f.isDirectory && (f.name.toLowerCase() === fl || f.name.toLowerCase() === st),
+    )
   })
 
   const folderExists = createMemo(() => {
@@ -331,6 +454,104 @@ export function WorkspaceBrowserPane(props: Props) {
     if (!n) return false
     return files().some((f) => f.isDirectory && f.name.toLowerCase() === n)
   })
+
+  function fileItemFromPath(filePath: string, displayName?: string): FileItem {
+    const name = displayName ?? filePath.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
+    const lower = name.toLowerCase()
+    const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
+    return {
+      path: filePath,
+      name,
+      isDirectory: false,
+      size: 0,
+      extension: ext,
+      type: getMediaType(name),
+    }
+  }
+
+  function handleKbResultClick(filePath: string, displayName?: string) {
+    setSearchQuery('')
+    setDebouncedSearch('')
+    setSearchPopoverOpen(false)
+    props.onOpenViewer(props.windowId, fileItemFromPath(filePath, displayName))
+  }
+
+  function handleKbResultClickFromSearch(path: string) {
+    const r = kbSearchResults().find((x) => x.path === path)
+    handleKbResultClick(path, r?.name)
+  }
+
+  const inlineFileExists = createMemo(() => {
+    if (inlineMode() !== 'file') return false
+    const stem = inlineName().trim()
+    if (!stem) return false
+    const addExt = inKb() ? '.md' : '.txt'
+    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
+  })
+
+  const inlineFolderExists = createMemo(() => {
+    if (inlineMode() !== 'folder') return false
+    const n = inlineName().trim().toLowerCase()
+    if (!n) return false
+    return files().some((f) => f.isDirectory && f.name.toLowerCase() === n)
+  })
+
+  function submitInlineFile() {
+    const stem = inlineName().trim()
+    if (!stem || inlineFileExists() || !showInlineCreate()) return
+    const sh = share()
+    const addExt = inKb() ? '.md' : '.txt'
+    if (sh) {
+      const fileStem = stem.includes('.') ? stem : `${stem}${addExt}`
+      const rel = listDir() ? `${listDir()}/${fileStem}` : fileStem
+      void createFileMutation
+        .mutateAsync({ path: rel, content: '', shareToken: sh.token })
+        .then(() => {
+          setInlineMode(null)
+          setInlineName('')
+          createFileMutation.reset()
+        })
+      return
+    }
+    const base = currentPath() ? `${currentPath()}/${stem}` : stem
+    const finalPath = base.includes('.') ? base : `${base}${addExt}`
+    void createFileMutation.mutateAsync({ path: finalPath, content: '' }).then(() => {
+      setInlineMode(null)
+      setInlineName('')
+      createFileMutation.reset()
+    })
+  }
+
+  function submitInlineFolder() {
+    const name = inlineName().trim()
+    if (!name || inlineFolderExists() || !showInlineCreate()) return
+    const sh = share()
+    if (sh) {
+      const rel = listDir() ? `${listDir()}/${name}` : name
+      void createFolderMutation
+        .mutateAsync({ mode: 'share', token: sh.token, path: rel })
+        .then(() => {
+          setInlineMode(null)
+          setInlineName('')
+          createFolderMutation.reset()
+        })
+      return
+    }
+    const base = currentPath() ? `${currentPath()}/${name}` : name
+    void createFolderMutation.mutateAsync({ mode: 'local', path: base }).then(() => {
+      setInlineMode(null)
+      setInlineName('')
+      createFolderMutation.reset()
+    })
+  }
+
+  function resetInlineCreate() {
+    setInlineMode(null)
+    setInlineName('')
+    createFileMutation.reset()
+    createFolderMutation.reset()
+  }
 
   function handleParentDirectory() {
     props.onNavigateDir(props.windowId, parentDir(currentPath()))
@@ -486,7 +707,35 @@ export function WorkspaceBrowserPane(props: Props) {
         class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 p-1.5'
       >
         <Breadcrumbs currentPath={currentPath()} onNavigate={handleBreadcrumbNavigate} />
-        <div class='flex items-center gap-1'>
+        <div class='flex flex-wrap items-center justify-end gap-1 md:justify-start'>
+          <Show when={inKb()}>
+            <div
+              class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
+              data-kb-search-root
+            >
+              <div class='relative'>
+                <button
+                  type='button'
+                  aria-label='Open search'
+                  class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border'
+                  onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
+                >
+                  <Search class='h-3.5 w-3.5' stroke-width={2} />
+                </button>
+                <Show when={searchPopoverOpen()}>
+                  <div class='border-border bg-popover ring-offset-background absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border p-2 shadow-lg outline-none'>
+                    <input
+                      type='search'
+                      placeholder='Search notes...'
+                      class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
+                      value={searchQuery()}
+                      onInput={(e) => setSearchQuery((e.currentTarget as HTMLInputElement).value)}
+                    />
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </Show>
           <Show when={showShareCreateToolbar()}>
             <button
               type='button'
@@ -496,8 +745,24 @@ export function WorkspaceBrowserPane(props: Props) {
             >
               <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
             </button>
+            <button
+              type='button'
+              title='Create new file'
+              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
+              onClick={openCreateFileDialog}
+            >
+              <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+            </button>
           </Show>
-          <Show when={showCreateToolbar()}>
+          <Show when={showAdminCreateToolbar()}>
+            <button
+              type='button'
+              title='Create new folder'
+              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded border border-border'
+              onClick={openCreateFolderDialog}
+            >
+              <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+            </button>
             <button
               type='button'
               title='Create new file'
@@ -520,151 +785,312 @@ export function WorkspaceBrowserPane(props: Props) {
       </Show>
 
       <div class='relative min-h-0 flex-1 overflow-auto px-2 py-2'>
-        <Switch>
-          <Match when={viewMode() === 'grid'}>
-            <div class='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4'>
-              <Show when={currentPath()}>
-                <div
-                  data-no-window-drag
-                  class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
-                  onClick={handleParentDirectory}
-                  onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
-                  role='button'
-                  tabindex={0}
-                >
-                  <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
-                    <ArrowUp
-                      class='mb-2 h-12 w-12 text-muted-foreground'
-                      size={48}
-                      stroke-width={2}
-                    />
-                    <p class='text-center text-sm font-medium'>..</p>
-                  </div>
-                </div>
+        <Show
+          when={showKbSearchResults()}
+          fallback={
+            <>
+              <Show when={inKb() && (!!currentPath() || !!share())}>
+                <KbDashboard
+                  scopePath={share() ? share()!.sharePath.replace(/\\/g, '/') : currentPath()}
+                  shareToken={share()?.token}
+                  dir={share() ? listDir() || undefined : undefined}
+                  onFileClick={(p) => handleKbResultClick(p)}
+                />
               </Show>
-              <For each={files()}>
-                {(file) => (
-                  <div
-                    data-no-window-drag
-                    class={cn(
-                      'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
-                    )}
-                    onClick={() => handleFileClick(file)}
-                    onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
-                    role='button'
-                    tabindex={0}
-                  >
-                    <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+              <Switch>
+                <Match when={viewMode() === 'grid'}>
+                  <div class='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4'>
+                    <Show when={currentPath()}>
                       <div
-                        class='text-muted-foreground'
-                        {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
+                        data-no-window-drag
+                        class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
+                        onClick={handleParentDirectory}
+                        onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
+                        role='button'
+                        tabindex={0}
                       >
-                        {gridHeroIcon(file, props.fileIconContext())}
-                      </div>
-                    </div>
-                    <div class='flex flex-col gap-1 p-3'>
-                      <p class='truncate text-sm font-medium' title={file.name}>
-                        {file.name}
-                      </p>
-                      <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                        <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Match>
-          <Match when={viewMode() === 'list'}>
-            <div class='relative w-full overflow-x-auto'>
-              <table class='w-full caption-bottom text-sm'>
-                <tbody class='[&_tr:last-child]:border-0'>
-                  <Show when={currentPath()}>
-                    <tr
-                      data-no-window-drag
-                      class={cn(
-                        'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
-                        dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
-                      )}
-                      onClick={handleParentDirectory}
-                      onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
-                      onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
-                      onDrop={allowMoveFile() ? parentRowDrop : undefined}
-                    >
-                      <td class='w-12 p-2 align-middle'>
-                        <div class='flex items-center justify-center'>
+                        <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
                           <ArrowUp
-                            class='h-5 w-5 text-muted-foreground'
-                            size={20}
+                            class='mb-2 h-12 w-12 text-muted-foreground'
+                            size={48}
                             stroke-width={2}
                           />
+                          <p class='text-center text-sm font-medium'>..</p>
                         </div>
-                      </td>
-                      <td class='p-2 align-middle font-medium'>..</td>
-                      <td class='p-2 align-middle text-right text-muted-foreground' />
-                    </tr>
-                  </Show>
-                  <For each={files()}>
-                    {(file) => {
-                      const canDragRow =
-                        enableDrag() &&
-                        isPathEditable(file.path, props.editableFolders) &&
-                        !!allowMoveFile()
-                      return (
-                        <tr
+                      </div>
+                    </Show>
+                    <For each={files()}>
+                      {(file) => (
+                        <div
                           data-no-window-drag
                           class={cn(
-                            'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
-                            file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
-                            draggedPath() === file.path ? 'opacity-50' : '',
+                            'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
                           )}
-                          draggable={canDragRow}
                           onClick={() => handleFileClick(file)}
                           onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
-                          onDragStart={(e) => onFileDragStart(file, e)}
-                          onDragEnd={onFileDragEnd}
-                          onDragOver={
-                            file.isDirectory && allowMoveFile()
-                              ? (e) => onFolderDragOver(file, e)
-                              : undefined
-                          }
-                          onDragLeave={
-                            file.isDirectory && allowMoveFile()
-                              ? (e) => onFolderDragLeave(file, e)
-                              : undefined
-                          }
-                          onDrop={
-                            file.isDirectory && allowMoveFile()
-                              ? (e) => onFolderDrop(file, e)
-                              : undefined
-                          }
+                          onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
+                          role='button'
+                          tabindex={0}
                         >
-                          <td
-                            class='w-12 p-2 align-middle'
-                            {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
-                          >
-                            <div class='flex items-center justify-center'>
-                              {fileItemIcon(file, props.fileIconContext())}
+                          <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                            <div
+                              class='text-muted-foreground'
+                              {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
+                            >
+                              {gridHeroIcon(file, props.fileIconContext())}
                             </div>
-                          </td>
-                          <td class='p-2 align-middle font-medium'>
-                            <span class='truncate'>{file.name}</span>
-                          </td>
-                          <td class='p-2 align-middle text-right text-muted-foreground'>
-                            <span class='inline-block w-20 tabular-nums'>
-                              {file.isDirectory ? '' : formatFileSize(file.size)}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    }}
-                  </For>
-                </tbody>
-              </table>
-            </div>
-          </Match>
-        </Switch>
+                          </div>
+                          <div class='flex flex-col gap-1 p-3'>
+                            <p class='truncate text-sm font-medium' title={file.name}>
+                              {file.name}
+                            </p>
+                            <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                              <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Match>
+                <Match when={viewMode() === 'list'}>
+                  <div class='relative w-full overflow-x-auto'>
+                    <table class='w-full caption-bottom text-sm'>
+                      <tbody class='[&_tr:last-child]:border-0'>
+                        <Show when={currentPath()}>
+                          <tr
+                            data-no-window-drag
+                            class={cn(
+                              'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                              dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                            )}
+                            onClick={handleParentDirectory}
+                            onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
+                            onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
+                            onDrop={allowMoveFile() ? parentRowDrop : undefined}
+                          >
+                            <td class='w-12 p-2 align-middle'>
+                              <div class='flex items-center justify-center'>
+                                <ArrowUp
+                                  class='h-5 w-5 text-muted-foreground'
+                                  size={20}
+                                  stroke-width={2}
+                                />
+                              </div>
+                            </td>
+                            <td class='p-2 align-middle font-medium'>..</td>
+                            <td class='p-2 align-middle text-right text-muted-foreground' />
+                          </tr>
+                        </Show>
+                        <For each={files()}>
+                          {(file) => {
+                            const canDragRow =
+                              enableDrag() &&
+                              isPathEditable(file.path, props.editableFolders) &&
+                              !!allowMoveFile()
+                            return (
+                              <tr
+                                data-no-window-drag
+                                class={cn(
+                                  'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                                  file.isDirectory && dragOverPath() === file.path
+                                    ? 'bg-primary/20'
+                                    : '',
+                                  draggedPath() === file.path ? 'opacity-50' : '',
+                                )}
+                                draggable={canDragRow}
+                                onClick={() => handleFileClick(file)}
+                                onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                                onDragStart={(e) => onFileDragStart(file, e)}
+                                onDragEnd={onFileDragEnd}
+                                onDragOver={
+                                  file.isDirectory && allowMoveFile()
+                                    ? (e) => onFolderDragOver(file, e)
+                                    : undefined
+                                }
+                                onDragLeave={
+                                  file.isDirectory && allowMoveFile()
+                                    ? (e) => onFolderDragLeave(file, e)
+                                    : undefined
+                                }
+                                onDrop={
+                                  file.isDirectory && allowMoveFile()
+                                    ? (e) => onFolderDrop(file, e)
+                                    : undefined
+                                }
+                              >
+                                <td
+                                  class='w-12 p-2 align-middle'
+                                  {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
+                                >
+                                  <div class='flex items-center justify-center'>
+                                    {fileItemIcon(file, props.fileIconContext())}
+                                  </div>
+                                </td>
+                                <td class='p-2 align-middle font-medium'>
+                                  <span class='truncate'>{file.name}</span>
+                                </td>
+                                <td class='p-2 align-middle text-right text-muted-foreground'>
+                                  <span class='inline-block w-20 tabular-nums'>
+                                    {file.isDirectory ? '' : formatFileSize(file.size)}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          }}
+                        </For>
+                        <Show when={showInlineCreate() && viewMode() === 'list'}>
+                          <tr
+                            data-no-window-drag
+                            class='hover:bg-muted/30 border-t border-border bg-muted/20'
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <td class='p-0' colspan={3}>
+                              <div class='grid grid-cols-2 gap-px p-2'>
+                                <div class='flex min-w-0 flex-col gap-1'>
+                                  <Show
+                                    when={inlineMode() === 'file'}
+                                    fallback={
+                                      <button
+                                        type='button'
+                                        class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground flex w-full items-center justify-center gap-1.5 rounded border border-dashed px-3 py-2 text-sm transition-colors'
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setInlineName('')
+                                          setInlineMode('file')
+                                        }}
+                                      >
+                                        <FilePlus class='h-4 w-4' stroke-width={2} />
+                                        New file
+                                      </button>
+                                    }
+                                  >
+                                    <input
+                                      type='text'
+                                      class={`border-input bg-background h-8 w-full rounded-md border px-2 text-sm ${
+                                        inlineFileExists()
+                                          ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                          : createFileMutation.isError
+                                            ? 'border-destructive ring-2 ring-destructive/30'
+                                            : ''
+                                      }`}
+                                      placeholder='File name (e.g. notes.md)'
+                                      value={inlineName()}
+                                      disabled={createFileMutation.isPending}
+                                      onInput={(e) =>
+                                        setInlineName((e.currentTarget as HTMLInputElement).value)
+                                      }
+                                      onClick={(e) => e.stopPropagation()}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') submitInlineFile()
+                                        else if (e.key === 'Escape') resetInlineCreate()
+                                      }}
+                                      onBlur={() => resetInlineCreate()}
+                                    />
+                                    <Show when={inlineFileExists()}>
+                                      <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                        <AlertCircle
+                                          class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                          stroke-width={2}
+                                        />
+                                        <span>A file with this name already exists.</span>
+                                      </div>
+                                    </Show>
+                                    <Show when={createFileMutation.isError && !inlineFileExists()}>
+                                      <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                        <AlertCircle
+                                          class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                          stroke-width={2}
+                                        />
+                                        <span>{(createFileMutation.error as Error)?.message}</span>
+                                      </div>
+                                    </Show>
+                                  </Show>
+                                </div>
+                                <div class='flex min-w-0 flex-col gap-1'>
+                                  <Show
+                                    when={inlineMode() === 'folder'}
+                                    fallback={
+                                      <button
+                                        type='button'
+                                        class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground flex w-full items-center justify-center gap-1.5 rounded border border-dashed px-3 py-2 text-sm transition-colors'
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setInlineName('')
+                                          setInlineMode('folder')
+                                        }}
+                                      >
+                                        <FolderPlus class='h-4 w-4' stroke-width={2} />
+                                        New folder
+                                      </button>
+                                    }
+                                  >
+                                    <input
+                                      type='text'
+                                      class={`border-input bg-background h-8 w-full rounded-md border px-2 text-sm ${
+                                        inlineFolderExists()
+                                          ? 'border-yellow-500 ring-2 ring-yellow-500/30'
+                                          : createFolderMutation.isError
+                                            ? 'border-destructive ring-2 ring-destructive/30'
+                                            : ''
+                                      }`}
+                                      placeholder='Folder name'
+                                      value={inlineName()}
+                                      disabled={createFolderMutation.isPending}
+                                      onInput={(e) =>
+                                        setInlineName((e.currentTarget as HTMLInputElement).value)
+                                      }
+                                      onClick={(e) => e.stopPropagation()}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') submitInlineFolder()
+                                        else if (e.key === 'Escape') resetInlineCreate()
+                                      }}
+                                      onBlur={() => resetInlineCreate()}
+                                    />
+                                    <Show when={inlineFolderExists()}>
+                                      <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
+                                        <AlertCircle
+                                          class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                          stroke-width={2}
+                                        />
+                                        <span>A folder with this name already exists.</span>
+                                      </div>
+                                    </Show>
+                                    <Show
+                                      when={createFolderMutation.isError && !inlineFolderExists()}
+                                    >
+                                      <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
+                                        <AlertCircle
+                                          class='mt-0.5 h-3.5 w-3.5 shrink-0'
+                                          stroke-width={2}
+                                        />
+                                        <span>
+                                          {(createFolderMutation.error as Error)?.message}
+                                        </span>
+                                      </div>
+                                    </Show>
+                                  </Show>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        </Show>
+                      </tbody>
+                    </table>
+                  </div>
+                </Match>
+              </Switch>
+            </>
+          }
+        >
+          <KbSearchResults
+            results={kbSearchResults()}
+            query={debouncedSearch()}
+            isLoading={kbSearchLoading()}
+            currentPath={currentPath()}
+            onResultClick={handleKbResultClickFromSearch}
+          />
+        </Show>
 
         <Show when={unsupportedFile()} keyed>
           {(file) => (
@@ -807,12 +1233,14 @@ export function WorkspaceBrowserPane(props: Props) {
               Create New File
             </h2>
             <p class='text-muted-foreground mt-1 text-sm'>
-              Enter a name. A .txt extension will be added if none is provided.
+              {inKb()
+                ? 'Enter a name. A .md extension will be added if none is provided.'
+                : 'Enter a name. A .txt extension will be added if none is provided.'}
             </p>
             <input
               type='text'
               class='mt-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
-              placeholder='File name (e.g., notes.txt)'
+              placeholder={inKb() ? 'File name (e.g., notes.md)' : 'File name (e.g., notes.txt)'}
               value={newFileName()}
               onInput={(e) => setNewFileName((e.currentTarget as HTMLInputElement).value)}
               onKeyDown={(e) => {

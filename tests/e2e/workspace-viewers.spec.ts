@@ -62,6 +62,24 @@ test.describe('Workspace File Browser', () => {
     await expect(content.locator('table').getByText('nested-note.md')).toBeVisible()
   })
 
+  test('workspace browser shows KB recent strip, search, and inline create in Notes', async ({
+    page,
+  }) => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    const notesRow = content.locator('table').getByText('Notes', { exact: true })
+    await expect(notesRow).toBeVisible()
+    await notesRow.click()
+    await expect(content.getByTestId('kb-recent-strip')).toBeVisible()
+    await expect(content.getByRole('button', { name: 'Open search' })).toBeVisible()
+    await content.getByRole('button', { name: 'Open search' }).click()
+    // Search input is portaled outside the window content in React BrowserPane.
+    await expect(page.getByPlaceholder('Search notes...')).toBeVisible()
+    const notesTable = content.locator('table')
+    await expect(notesTable.getByRole('button', { name: 'New file' })).toBeVisible()
+    await expect(notesTable.getByRole('button', { name: 'New folder' })).toBeVisible()
+  })
+
   test('switches to grid view and back', async ({ page }) => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)

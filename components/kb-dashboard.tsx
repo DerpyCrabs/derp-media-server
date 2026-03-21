@@ -98,6 +98,7 @@ export function KbDashboard({ scopePath, onFileClick, shareToken, dir }: KbDashb
   return (
     <div
       ref={scrollRef}
+      data-testid='kb-recent-strip'
       className='min-w-0 shrink-0 overflow-x-auto scrollbar-none border-b border-border bg-muted/20 px-1.5 py-1.5 md:px-2 md:py-2'
     >
       <div className='flex w-max min-w-full flex-nowrap gap-1 md:gap-1.5'>
