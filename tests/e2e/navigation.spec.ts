@@ -162,4 +162,14 @@ test.describe('Folder Navigation', () => {
       page.locator('[data-slot="context-menu-item"]').getByText('Unfavorite').click(),
     ])
   })
+
+  test('unsupported file from URL shows dialog and close clears viewing', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    await page.locator('table').getByText('unsupported.xyz').click()
+    await page.waitForURL(/viewing=/)
+    await expect(page.getByRole('heading', { name: 'Unsupported File Type' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page).not.toHaveURL(/viewing=/)
+    await expect(page.locator('table').getByText('unsupported.xyz')).toBeVisible()
+  })
 })

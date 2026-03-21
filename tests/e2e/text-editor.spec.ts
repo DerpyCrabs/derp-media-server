@@ -109,4 +109,40 @@ test.describe('Text Editor', () => {
     await page.getByRole('button', { name: 'Edit' }).click()
     await expect(page.locator('textarea')).toBeVisible()
   })
+
+  test('with auto-save off, blur does not persist edits', async ({ page }) => {
+    const pathEnc = encodeURIComponent('Notes/autosave-parity.txt')
+    await page.goto(`/?dir=Notes&viewing=${pathEnc}`)
+    const textarea = page.locator('textarea')
+    await expect(textarea).toBeVisible()
+
+    let editResponses = 0
+    page.on('response', (resp) => {
+      if (resp.url().includes('/api/files/edit') && resp.status() === 200) editResponses += 1
+    })
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/settings/autoSave') && r.status() === 200),
+      page.getByRole('button', { name: 'Auto-save' }).click(),
+    ])
+    await textarea.fill('autosave off probe\n\nunique-string-xyz-123\n')
+
+    await page.locator('button[title="Close"]').focus()
+    await page.waitForTimeout(2300)
+
+    expect(editResponses).toBe(0)
+
+    await page.locator('button[title="Close"]').click()
+    await page.locator('table').getByText('autosave-parity.txt').click()
+    await expect(textarea).toBeVisible()
+    expect(await textarea.inputValue()).not.toContain('unique-string-xyz-123')
+
+    await textarea.fill('Autosave parity initial content for e2e only.\n')
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
+      ),
+      page.getByRole('button', { name: 'Save', exact: true }).click(),
+    ])
+  })
 })

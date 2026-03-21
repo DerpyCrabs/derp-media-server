@@ -5,6 +5,7 @@ const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json
 const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
 
 let folderShareUrl: string
+let fileShareUrl: string
 
 async function createShare(page: Page, body: Record<string, unknown>): Promise<string> {
   const res = await page.request.post('/api/shares', { data: body })
@@ -20,6 +21,10 @@ test.describe('Share Viewers & Players', () => {
     folderShareUrl = await createShare(page, {
       path: 'SharedContent',
       isDirectory: true,
+    })
+    fileShareUrl = await createShare(page, {
+      path: 'Documents/readme.txt',
+      isDirectory: false,
     })
     await page.close()
     await context.close()
@@ -231,5 +236,10 @@ test.describe('Share Viewers & Players', () => {
     await expect(page.locator('embed[type="application/pdf"]')).not.toBeVisible()
     await expect(page.locator('table').getByText('sample.pdf')).toBeVisible()
     await expect(page).not.toHaveURL(/viewing=/)
+  })
+
+  test('single-file share page shows theme switcher', async ({ page }) => {
+    await page.goto(fileShareUrl)
+    await expect(page.getByRole('button', { name: 'Open theme settings' })).toBeVisible()
   })
 })

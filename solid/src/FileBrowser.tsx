@@ -65,6 +65,7 @@ import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { useViewStats } from './lib/use-view-stats'
+import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { playFile, viewFile } from './lib/url-state-actions'
 
 export function FileBrowser() {
@@ -1067,6 +1068,7 @@ export function FileBrowser() {
                                     )}
                                     onClick={() => handleFileClick(file)}
                                     onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                                    {...createLongPressContextMenuHandlers()}
                                     onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
                                     role='button'
                                     tabindex={0}
@@ -1251,6 +1253,7 @@ export function FileBrowser() {
                                         onContextMenu={(e) =>
                                           fileRowMenu.openRowContextMenu(e, file)
                                         }
+                                        {...createLongPressContextMenuHandlers()}
                                         onDragStart={(e) => onFileDragStart(file, e)}
                                         onDragEnd={onFileDragEnd}
                                         onDragOver={

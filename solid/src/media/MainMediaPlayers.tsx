@@ -2,6 +2,7 @@ import { AudioPlayer } from './AudioPlayer'
 import { ImageViewerDialog } from './ImageViewerDialog'
 import { PdfViewerDialog } from './PdfViewerDialog'
 import { TextViewerDialog, type TextViewerShareContext } from './TextViewerDialog'
+import { UnsupportedFileViewerDialog } from './UnsupportedFileViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
 
 type Props = {
@@ -24,6 +25,7 @@ export function MainMediaPlayers(props: Props) {
       <PdfViewerDialog shareContext={props.shareContext} />
       <VideoPlayer shareContext={props.shareContext} />
       <AudioPlayer shareContext={props.shareContext} />
+      <UnsupportedFileViewerDialog shareContext={props.shareContext} />
     </>
   )
 }
