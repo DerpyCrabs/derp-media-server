@@ -18,6 +18,7 @@ test.describe('Knowledge Base', () => {
 
   test('shows recent notes', async ({ page }) => {
     await page.goto('/?dir=Notes')
+    await expect(page.getByTestId('kb-recent-strip')).toBeVisible()
     // The KB dashboard shows recently modified notes
     // Recent notes should include our fixture files (may appear in recent list and file list)
     await expect(page.locator('table').getByText('welcome.md').first()).toBeVisible()

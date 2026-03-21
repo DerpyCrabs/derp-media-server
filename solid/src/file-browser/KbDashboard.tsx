@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import FileText from 'lucide-solid/icons/file-text'
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 
 type RecentFile = { path: string; name: string; modifiedAt: string }
 
@@ -23,15 +23,36 @@ function formatRelativeTime(dateStr: string): string {
 type Props = {
   scopePath: string
   onFileClick: (path: string) => void
+  shareToken?: string
+  dir?: string
 }
 
 export function KbDashboard(props: Props) {
-  const recentQuery = useQuery(() => ({
+  const directQuery = useQuery(() => ({
     queryKey: queryKeys.kbRecent(props.scopePath),
     queryFn: () =>
       api<{ results: RecentFile[] }>(`/api/kb/recent?root=${encodeURIComponent(props.scopePath)}`),
-    enabled: !!props.scopePath,
+    enabled: !props.shareToken && !!props.scopePath,
   }))
+
+  const shareQuery = useQuery(() => ({
+    queryKey: queryKeys.shareKbRecent(props.shareToken!, props.dir),
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (props.dir) params.set('dir', props.dir)
+      return api<{ results: RecentFile[] }>(`/api/share/${props.shareToken}/kb/recent?${params}`)
+    },
+    enabled: !!props.shareToken,
+  }))
+
+  const recent = createMemo(() => {
+    const data = props.shareToken ? shareQuery.data : directQuery.data
+    return (data?.results ?? []) as RecentFile[]
+  })
+
+  const isLoading = createMemo(() =>
+    props.shareToken ? shareQuery.isLoading : directQuery.isLoading,
+  )
 
   const [scrollEl, setScrollEl] = createSignal<HTMLDivElement | null>(null)
 
@@ -50,13 +71,14 @@ export function KbDashboard(props: Props) {
   })
 
   return (
-    <Show when={!recentQuery.isLoading && (recentQuery.data?.results?.length ?? 0) > 0}>
+    <Show when={!isLoading() && recent().length > 0}>
       <div
         ref={setScrollEl}
+        data-testid='kb-recent-strip'
         class='min-w-0 shrink-0 overflow-x-auto scrollbar-none border-b border-border bg-muted/20 px-1.5 py-1.5 md:px-2 md:py-2'
       >
         <div class='flex w-max min-w-full flex-nowrap gap-1 md:gap-1.5'>
-          <For each={recentQuery.data?.results ?? []}>
+          <For each={recent()}>
             {(file) => (
               <button
                 type='button'

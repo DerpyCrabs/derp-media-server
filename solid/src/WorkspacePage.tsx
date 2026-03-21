@@ -135,6 +135,7 @@ export type WorkspacePageProps = {
   shareWorkspaceLayoutPresets?: WorkspaceLayoutPreset[]
   shareAllowUpload?: boolean
   shareCanEdit?: boolean
+  shareIsKnowledgeBase?: boolean
 }
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
@@ -1280,6 +1281,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                 workspace={workspace}
                                 sharePanel={sharePanel}
                                 shareAllowUpload={props.shareAllowUpload ?? false}
+                                shareIsKnowledgeBase={props.shareIsKnowledgeBase ?? false}
                                 editableFolders={editableFolders()}
                                 fileIconContext={workspaceFileIconContext}
                                 onNavigateDir={navigateDir}

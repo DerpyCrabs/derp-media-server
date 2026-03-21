@@ -90,6 +90,7 @@ export function ShareWorkspacePage(props: Props) {
           shareWorkspaceTaskbarPins={shareQuery.data?.workspaceTaskbarPins ?? []}
           shareWorkspaceLayoutPresets={shareQuery.data?.workspaceLayoutPresets ?? []}
           shareAllowUpload={shareAllowUpload()}
+          shareIsKnowledgeBase={!!shareQuery.data?.isKnowledgeBase}
           shareCanEdit={
             !!shareQuery.data?.editable && shareQuery.data?.restrictions?.allowEdit !== false
           }
