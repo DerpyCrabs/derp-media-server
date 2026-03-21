@@ -46,6 +46,15 @@ function ensureDir(dir: string) {
   fs.mkdirSync(dir, { recursive: true })
 }
 
+/** Text fixtures added after `.test-media-cache` copy so e2e always sees current files. */
+const AUTOSAVE_PARITY_TXT_CONTENT = 'Autosave parity initial content for e2e only.\n'
+
+export function patchTestMediaAfterCacheCopy(baseDir: string) {
+  const notesDir = path.join(baseDir, 'Notes')
+  ensureDir(notesDir)
+  fs.writeFileSync(path.join(notesDir, 'autosave-parity.txt'), AUTOSAVE_PARITY_TXT_CONTENT)
+}
+
 export function generateTestMedia(baseDir: string) {
   const ff = hasFfmpeg()
   if (!ff) {
@@ -121,6 +130,7 @@ export function generateTestMedia(baseDir: string) {
     path.join(notesDir, 'todo.md'),
     '# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n',
   )
+  fs.writeFileSync(path.join(notesDir, 'autosave-parity.txt'), AUTOSAVE_PARITY_TXT_CONTENT)
   fs.writeFileSync(
     path.join(notesDir, 'subfolder', 'nested-note.md'),
     '# Nested Note\n\nThis is a nested note inside a subfolder.\n',

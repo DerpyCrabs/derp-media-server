@@ -125,7 +125,18 @@ export function TextViewer({
   })
 
   useEffect(() => {
-    if (!viewingPath || loading) return
+    if (!viewingPath) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+      prevViewingPathRef.current = null
+      lastServerContentRef.current = null
+      setIsEditing(false)
+      setEditContent('')
+      return
+    }
+    if (loading) return
 
     if (prevViewingPathRef.current !== viewingPath) {
       prevViewingPathRef.current = viewingPath

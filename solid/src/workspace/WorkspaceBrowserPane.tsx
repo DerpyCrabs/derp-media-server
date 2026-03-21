@@ -49,6 +49,7 @@ import { UploadMenu } from '../file-browser/UploadMenu'
 import { UploadToastStack } from '../file-browser/UploadToastStack'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
+import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
@@ -1119,6 +1120,7 @@ export function WorkspaceBrowserPane(props: Props) {
                           )}
                           onClick={() => handleFileClick(file)}
                           onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                          {...createLongPressContextMenuHandlers()}
                           onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
                           role='button'
                           tabindex={0}
@@ -1330,6 +1332,7 @@ export function WorkspaceBrowserPane(props: Props) {
                                 draggable={canDragRow}
                                 onClick={() => handleFileClick(file)}
                                 onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                                {...createLongPressContextMenuHandlers()}
                                 onDragStart={(e) => onFileDragStart(file, e)}
                                 onDragEnd={onFileDragEnd}
                                 onDragOver={

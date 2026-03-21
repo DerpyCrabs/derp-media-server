@@ -37,6 +37,7 @@ import { UploadToastStack } from './file-browser/UploadToastStack'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
+import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
 import { EMPTY_FILE_ICON_CONTEXT, fileIcon, gridHeroIcon } from './lib/use-file-icon'
 import { ThemeSwitcher } from './ThemeSwitcher'
@@ -861,6 +862,7 @@ export function ShareFolderBrowser(props: Props) {
                             class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                             onClick={() => handleFileClick(file)}
                             onContextMenu={(e) => openRowMenu(e, file)}
+                            {...createLongPressContextMenuHandlers()}
                             role='button'
                             tabindex={0}
                           >
@@ -912,6 +914,7 @@ export function ShareFolderBrowser(props: Props) {
                                 class='hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors'
                                 onClick={() => handleFileClick(file)}
                                 onContextMenu={(e) => openRowMenu(e, file)}
+                                {...createLongPressContextMenuHandlers()}
                               >
                                 <td class='w-12 p-2 align-middle'>
                                   <div class='flex items-center justify-center'>

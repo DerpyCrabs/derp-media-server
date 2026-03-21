@@ -2,7 +2,7 @@ import type { FullConfig } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
 import { scryptSync, createCipheriv, randomBytes } from 'crypto'
-import { generateTestMedia } from './generate-media'
+import { generateTestMedia, patchTestMediaAfterCacheCopy } from './generate-media'
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
@@ -58,6 +58,7 @@ export default async function setup(_config: FullConfig) {
   } else {
     generateTestMedia(TEST_MEDIA_DIR)
   }
+  patchTestMediaAfterCacheCopy(TEST_MEDIA_DIR)
 
   if (DATA_DIR) {
     fs.mkdirSync(DATA_DIR, { recursive: true })

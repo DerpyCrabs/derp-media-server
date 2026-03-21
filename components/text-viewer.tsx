@@ -199,7 +199,18 @@ export function TextViewer({
   })
 
   useEffect(() => {
-    if (!viewingPath || loading) return
+    if (!viewingPath) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+      prevViewingPathRef.current = null
+      lastServerContentRef.current = null
+      setIsEditing(false)
+      setEditContent('')
+      return
+    }
+    if (loading) return
 
     // Reset edit state when switching to a different file
     if (prevViewingPathRef.current !== viewingPath) {
