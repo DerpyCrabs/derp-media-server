@@ -695,6 +695,7 @@ export function WorkspaceBrowserPane(props: Props) {
                 )
             : undefined
         }
+        showOpenInNewTabForFiles={!!props.onOpenInNewTab}
       />
       <DeleteFileDialog
         item={deleteTarget}

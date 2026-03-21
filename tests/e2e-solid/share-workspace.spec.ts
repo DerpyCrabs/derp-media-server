@@ -70,6 +70,14 @@ function getBrowserContent(page: Page) {
   return getWindowGroups(page).first().locator('.workspace-window-content')
 }
 
+async function chooseWorkspaceOpenTarget(page: Page, label: 'New tab' | 'New window') {
+  const dialog = page
+    .getByRole('dialog')
+    .filter({ has: page.getByRole('heading', { name: 'Settings' }) })
+  await dialog.getByRole('button', { name: label }).click()
+  await page.keyboard.press('Escape')
+}
+
 async function gotoShareWorkspace(page: Page, url: string) {
   await page.goto(url)
   await expect(page.locator('[data-window-group]')).toBeVisible()
@@ -137,6 +145,35 @@ test.describe('Share Workspace', () => {
 
     const viewerContent = getWindowGroups(page).nth(1).locator('.workspace-window-content')
     await expect(viewerContent.getByText('public document for share testing')).toBeVisible()
+  })
+
+  test('share workspace opens file in a new tab when setting is New tab', async ({ page }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+    await chooseWorkspaceOpenTarget(page, 'New tab')
+
+    const content = getBrowserContent(page)
+    await expect(content.getByText('public-doc.txt')).toBeVisible()
+    await content.locator('table').getByText('public-doc.txt').click()
+
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    const tabStrip = page.locator('.workspace-tab-strip')
+    await expect(tabStrip.getByText('public-doc.txt')).toBeVisible()
+  })
+
+  test('share workspace opens file in a new window when setting is New window', async ({
+    page,
+  }) => {
+    await gotoShareWorkspace(page, folderShareWorkspaceUrl)
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+    await chooseWorkspaceOpenTarget(page, 'New window')
+
+    const content = getBrowserContent(page)
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    await content.locator('table').getByText('public-doc.txt').click()
+    await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
   test('opens image in viewer window', async ({ page }) => {

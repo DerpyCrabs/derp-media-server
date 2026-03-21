@@ -111,4 +111,47 @@ test.describe('Folder Navigation', () => {
     await expect(page.getByText('Favorites')).toBeVisible()
     await expect(page.getByText('Most Played')).toBeVisible()
   })
+
+  test('context menu Open in Workspace targets workspace with folder dir', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('table').getByText('Documents', { exact: true }).click({ button: 'right' })
+    await expect(
+      page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace'),
+    ).toBeVisible()
+
+    await page.evaluate(() => {
+      const w = window as Window & { __workspaceMenuOpenUrl?: string }
+      w.open = (url?: string | URL) => {
+        w.__workspaceMenuOpenUrl = typeof url === 'string' ? url : String(url ?? '')
+        return null
+      }
+    })
+    await page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace').click()
+    const captured = await page.evaluate(
+      () => (window as Window & { __workspaceMenuOpenUrl?: string }).__workspaceMenuOpenUrl ?? '',
+    )
+    expect(captured).toMatch(/\/workspace\?dir=Documents(?:&|$)/)
+  })
+
+  test('favorites a folder via context menu and removes from Favorites', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('table').getByText('Notes', { exact: true }).click({ button: 'right' })
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      page.locator('[data-slot="context-menu-item"]').getByText('Favorite').click(),
+    ])
+
+    await page.goto('/?dir=Favorites')
+    await expect(page.getByText('Notes').first()).toBeVisible()
+
+    await page.locator('table').getByText('Notes', { exact: true }).click({ button: 'right' })
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      page.locator('[data-slot="context-menu-item"]').getByText('Unfavorite').click(),
+    ])
+  })
 })
