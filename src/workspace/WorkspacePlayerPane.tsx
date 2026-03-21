@@ -7,6 +7,7 @@ import Headphones from 'lucide-solid/icons/headphones'
 import MonitorPlay from 'lucide-solid/icons/monitor-play'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { useStoreSync } from '../lib/solid-store-sync'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import type { WorkspaceShareConfig } from './WorkspaceBrowserPane'
 
@@ -19,6 +20,11 @@ type Props = {
 }
 
 export function WorkspacePlayerPane(props: Props) {
+  const storeTick = useStoreSync(useMediaPlayer)
+  const playPauseSyncRef: { path: string; prevStorePlaying: boolean | undefined } = {
+    path: '',
+    prevStorePlaying: undefined,
+  }
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
 
   const [playing, setPlaying] = createSignal<string | null>(null)
@@ -69,8 +75,134 @@ export function WorkspacePlayerPane(props: Props) {
     if (vid.src !== abs) {
       vid.src = url
       vid.load()
+      if (useMediaPlayer.getState().isPlaying) {
+        void vid.play().catch(() => {})
+      }
     }
-    void vid.play().catch(() => {})
+  })
+
+  createEffect(() => {
+    const vid = videoEl()
+    const path = playing()
+    if (!vid || !showVideo() || !path) return
+
+    const applies = () => {
+      const st = useMediaPlayer.getState()
+      return st.currentFile === path && st.mediaType === 'video'
+    }
+
+    const onTimeUpdate = () => {
+      if (!applies()) return
+      useMediaPlayer.getState().setCurrentTime(vid.currentTime)
+      if (
+        'mediaSession' in navigator &&
+        Number.isFinite(vid.duration) &&
+        vid.duration > 0 &&
+        !vid.paused
+      ) {
+        navigator.mediaSession.setPositionState?.({
+          duration: vid.duration,
+          playbackRate: vid.playbackRate,
+          position: vid.currentTime,
+        })
+      }
+    }
+
+    const setDurationFromVideo = () => {
+      if (!applies()) return
+      const d = vid.duration
+      if (Number.isFinite(d) && !Number.isNaN(d) && d > 0) {
+        useMediaPlayer.getState().setDuration(d)
+      }
+    }
+
+    const onLoadedMetadata = () => {
+      setDurationFromVideo()
+      if (
+        'mediaSession' in navigator &&
+        applies() &&
+        Number.isFinite(vid.duration) &&
+        vid.duration > 0
+      ) {
+        navigator.mediaSession.setPositionState?.({
+          duration: vid.duration,
+          playbackRate: vid.playbackRate,
+          position: vid.currentTime,
+        })
+      }
+    }
+
+    const onPlay = () => {
+      if (applies()) useMediaPlayer.getState().setIsPlaying(true)
+    }
+
+    const onPause = () => {
+      if (applies()) useMediaPlayer.getState().setIsPlaying(false)
+    }
+
+    vid.addEventListener('timeupdate', onTimeUpdate)
+    vid.addEventListener('durationchange', setDurationFromVideo)
+    vid.addEventListener('loadedmetadata', onLoadedMetadata)
+    vid.addEventListener('play', onPlay)
+    vid.addEventListener('pause', onPause)
+
+    onCleanup(() => {
+      vid.removeEventListener('timeupdate', onTimeUpdate)
+      vid.removeEventListener('durationchange', setDurationFromVideo)
+      vid.removeEventListener('loadedmetadata', onLoadedMetadata)
+      vid.removeEventListener('play', onPlay)
+      vid.removeEventListener('pause', onPause)
+    })
+  })
+
+  createEffect(() => {
+    void storeTick()
+    const vid = videoEl()
+    const path = playing()
+    if (!vid || !showVideo() || !path) return
+    const st = useMediaPlayer.getState()
+    if (st.currentFile !== path || st.mediaType !== 'video') return
+    const t = st.currentTime
+    if (!Number.isFinite(t)) return
+    if (Math.abs(vid.currentTime - t) > 0.45) {
+      vid.currentTime = t
+    }
+  })
+
+  createEffect(() => {
+    void storeTick()
+    const vid = videoEl()
+    const path = playing()
+    if (!vid || !showVideo() || !path) return
+    const st = useMediaPlayer.getState()
+    if (st.currentFile !== path || st.mediaType !== 'video') return
+
+    if (playPauseSyncRef.path !== path) {
+      playPauseSyncRef.path = path
+      playPauseSyncRef.prevStorePlaying = undefined
+    }
+
+    const playingNow = st.isPlaying
+    const prev = playPauseSyncRef.prevStorePlaying
+    playPauseSyncRef.prevStorePlaying = playingNow
+
+    if (prev === undefined) {
+      return
+    }
+    if (playingNow && !prev) {
+      void vid.play().catch(() => {})
+    } else if (!playingNow && prev) {
+      vid.pause()
+    }
+  })
+
+  createEffect(() => {
+    void storeTick()
+    const vid = videoEl()
+    if (!vid || !showVideo()) return
+    const st = useMediaPlayer.getState()
+    vid.muted = st.isMuted
+    vid.volume = st.isMuted ? 0 : st.volume
   })
 
   const fileName = createMemo(() => (playing() || '').split('/').pop() || 'Video Player')
