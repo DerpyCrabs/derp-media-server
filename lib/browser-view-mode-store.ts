@@ -1,36 +1,44 @@
-import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { createStore } from 'solid-js/store'
+import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
 
 type BrowserViewMode = 'list' | 'grid'
 
-interface Persisted {
-  byKey: Record<string, BrowserViewMode>
+const STORAGE_KEY = 'browser-view-mode'
+
+type Persisted = { byKey: Record<string, BrowserViewMode> }
+
+const listeners = createStoreListeners()
+
+const loaded = readPersistedState<Persisted>(STORAGE_KEY)
+const initialByKey = loaded?.byKey && typeof loaded.byKey === 'object' ? loaded.byKey : {}
+
+const [store, setStore] = createStore<{ byKey: Record<string, BrowserViewMode> }>({
+  byKey: { ...initialByKey },
+})
+
+function persist() {
+  writePersistedState(STORAGE_KEY, { byKey: { ...store.byKey } })
 }
 
-interface BrowserViewModeStore extends Persisted {
-  setViewMode: (storageKey: string, mode: BrowserViewMode) => void
-  getViewMode: (storageKey: string, fallback: BrowserViewMode) => BrowserViewMode
+function getViewMode(storageKey: string, fallback: BrowserViewMode): BrowserViewMode {
+  return store.byKey[storageKey] ?? fallback
 }
 
-export const useBrowserViewModeStore = create<BrowserViewModeStore>()(
-  persist(
-    (set, get) => ({
-      byKey: {},
+function setViewMode(storageKey: string, mode: BrowserViewMode) {
+  setStore('byKey', storageKey, mode)
+  persist()
+  listeners.notify()
+}
 
-      getViewMode(storageKey, fallback) {
-        return get().byKey[storageKey] ?? fallback
-      },
+const api = {
+  get byKey() {
+    return { ...store.byKey }
+  },
+  getViewMode,
+  setViewMode,
+}
 
-      setViewMode(storageKey, mode) {
-        set((s) => ({
-          byKey: { ...s.byKey, [storageKey]: mode },
-        }))
-      },
-    }),
-    {
-      name: 'browser-view-mode',
-      storage: createJSONStorage<Persisted>(() => localStorage),
-      partialize: (s): Persisted => ({ byKey: s.byKey }),
-    },
-  ),
-)
+export const useBrowserViewModeStore = {
+  getState: () => api,
+  subscribe: listeners.subscribe,
+}

@@ -82,7 +82,7 @@ function parseShareWorkspaceToken(pathname: string): string | null {
   return m?.[1] ?? null
 }
 
-/** Match React src/routes.tsx: `/share/:token` only when token is non-empty (excludes `/share/` and `/share`). */
+/** `/share/:token` only when token is non-empty (excludes `/share/` and `/share`). */
 function parseShareFolderOrFileToken(pathname: string): string | null {
   if (parseShareWorkspaceToken(pathname)) return null
   const m = pathname.match(/^\/share\/([^/]+)/)

@@ -28,6 +28,7 @@ import Eye from 'lucide-solid/icons/eye'
 import Share2 from 'lucide-solid/icons/share-2'
 import LinkIcon from 'lucide-solid/icons/link'
 import {
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -63,11 +64,13 @@ import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
 import { UploadMenu } from './file-browser/UploadMenu'
 import type { AuthConfig, UploadToastState } from './file-browser/types'
 import { UploadToastStack } from './file-browser/UploadToastStack'
+import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
+import { useStoreSync } from './lib/solid-store-sync'
 import { useViewStats } from './lib/use-view-stats'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { playFile, viewFile } from './lib/url-state-actions'
@@ -161,11 +164,7 @@ export function FileBrowser() {
     return sp.get('playing')
   })
 
-  const [mediaPlayerTick, setMediaPlayerTick] = createSignal(0)
-  onMount(() => {
-    const unsub = useMediaPlayer.subscribe(() => setMediaPlayerTick((n) => n + 1))
-    onCleanup(() => unsub())
-  })
+  const mediaPlayerTick = useStoreSync(useMediaPlayer)
 
   const fileIconCtx = createMemo((): FileIconContext => {
     void mediaPlayerTick()
@@ -196,11 +195,13 @@ export function FileBrowser() {
     on(
       currentPath,
       () => {
-        setSearchQuery('')
-        setDebouncedSearch('')
-        setSearchPopoverOpen(false)
-        setInlineMode(null)
-        setInlineName('')
+        batch(() => {
+          setSearchQuery('')
+          setDebouncedSearch('')
+          setSearchPopoverOpen(false)
+          setInlineMode(null)
+          setInlineName('')
+        })
       },
       { defer: true },
     ),
@@ -274,14 +275,11 @@ export function FileBrowser() {
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
 
-  createEffect(() => {
-    const m = inlineMode()
-    if (m === 'file') {
-      queueMicrotask(() => inlineFileInputEl?.focus())
-    } else if (m === 'folder') {
-      queueMicrotask(() => inlineFolderInputEl?.focus())
-    }
-  })
+  useInlineModeInputFocus(
+    inlineMode,
+    () => inlineFileInputEl,
+    () => inlineFolderInputEl,
+  )
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)

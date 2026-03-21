@@ -10,9 +10,14 @@ import { onCleanup, onMount } from 'solid-js'
 export function SolidThemeSync() {
   onMount(() => {
     initThemeFromStorage()
-    const unsubStore = useThemeStore.subscribe((state, prev) => {
-      if (prev && state.palette === prev.palette && state.mode === prev.mode) return
-      applyTheme(resolveTheme(state.palette, state.mode))
+    let lastPalette: string | undefined
+    let lastMode: string | undefined
+    const unsubStore = useThemeStore.subscribe(() => {
+      const s = useThemeStore.getState()
+      if (s.palette === lastPalette && s.mode === lastMode) return
+      lastPalette = s.palette
+      lastMode = s.mode
+      applyTheme(resolveTheme(s.palette, s.mode))
     })
     const unsubMedia = subscribeSystemPreference(() => {
       const { palette, mode } = useThemeStore.getState()

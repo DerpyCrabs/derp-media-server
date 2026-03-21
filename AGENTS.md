@@ -18,7 +18,7 @@
 ## Solid patterns
 
 - Use `useQuery` / `useMutation` from `@tanstack/solid-query` for new data flows.
-- Prefer `solid-js/store` over zustand for new client state; existing code may still use zustand with `getState()` / `subscribe()` from Solid.
+- Client global state uses `solid-js/store` in [`lib/`](lib/) with `getState()` / `subscribe()`; [`useStoreSync`](src/lib/solid-store-sync.ts) bridges into component memos when needed.
 - Don't add redundant "solid" prefixes in file names under `src/`.
 - Don't write useless comments.
 - Keep at most **6** e2e batches in `run-batches.ts` when extending CI.

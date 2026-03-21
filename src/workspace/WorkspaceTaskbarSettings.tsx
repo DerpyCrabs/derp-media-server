@@ -15,7 +15,8 @@ import Monitor from 'lucide-solid/icons/monitor'
 import Moon from 'lucide-solid/icons/moon'
 import Settings from 'lucide-solid/icons/settings'
 import Sun from 'lucide-solid/icons/sun'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { useStoreSync } from '../lib/solid-store-sync'
 import { cn } from '@/lib/utils'
 import { SnapLayoutTemplateThumbnail } from './SnapLayoutTemplateThumbnail'
 
@@ -56,20 +57,9 @@ const triggerClass =
 
 export function WorkspaceTaskbarSettings() {
   const [open, setOpen] = createSignal(false)
-  const [targetTick, setTargetTick] = createSignal(0)
-  const [themeTick, setThemeTick] = createSignal(0)
-  const [snapTick, setSnapTick] = createSignal(0)
-
-  onMount(() => {
-    const u1 = useWorkspaceFileOpenTargetStore.subscribe(() => setTargetTick((n) => n + 1))
-    const u2 = useThemeStore.subscribe(() => setThemeTick((n) => n + 1))
-    const u3 = useWorkspaceSnapLayoutVisibilityStore.subscribe(() => setSnapTick((n) => n + 1))
-    onCleanup(() => {
-      u1()
-      u2()
-      u3()
-    })
-  })
+  const targetTick = useStoreSync(useWorkspaceFileOpenTargetStore)
+  const themeTick = useStoreSync(useThemeStore)
+  const snapTick = useStoreSync(useWorkspaceSnapLayoutVisibilityStore)
 
   const fileOpenTarget = () => {
     void targetTick()

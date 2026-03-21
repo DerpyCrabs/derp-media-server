@@ -50,9 +50,10 @@ export function VideoPlayer(props: Props) {
   const [position, setPositionView] = createSignal(useVideoPlayerPosition.getState().position)
 
   onMount(() => {
-    return useVideoPlayerPosition.subscribe((s) => {
+    const unsub = useVideoPlayerPosition.subscribe((s) => {
       setPositionView(s.position)
     })
+    onCleanup(unsub)
   })
 
   let videoRef: HTMLVideoElement | undefined

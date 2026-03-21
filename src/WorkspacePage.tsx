@@ -50,6 +50,7 @@ import {
   onMount,
   untrack,
 } from 'solid-js'
+import { useStoreSync } from './lib/solid-store-sync'
 import type { FileIconContext } from './lib/use-file-icon'
 import { pinnedShellIcon } from './lib/use-file-icon'
 import { useBrowserHistory, navigateSearchParams } from './browser-history'
@@ -121,7 +122,9 @@ function loadPersisted(storageKey: string): PersistedWorkspaceState | null {
   const raw = localStorage.getItem(storageKey)
   if (!raw) return null
   try {
-    return normalizePersistedWorkspaceState(JSON.parse(raw) as unknown)
+    return normalizePersistedWorkspaceState(JSON.parse(raw) as unknown, {
+      reconcileSnapZones: false,
+    })
   } catch {
     return null
   }
@@ -245,7 +248,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   }))
 
   let lastHydratedStorageKey = ''
-  let presetUrlResolvedForKey = ''
 
   function collectLayoutSnapshot(): PersistedWorkspaceState {
     const w = workspace()
@@ -321,6 +323,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     void settingsQuery.isSuccess
     void serverLayoutPresets()
     const presetsReadyNow = shareConfig() ? true : settingsQuery.isSuccess
+    // Always prefer session draft in localStorage over a named preset in the URL.
     const loaded = loadPersisted(key)
     const src = browserSource()
     const scope = workspaceLayoutScopeFromShareToken(shareConfig()?.token ?? null)
@@ -353,8 +356,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
     if (lastHydratedStorageKey !== key) {
       lastHydratedStorageKey = key
-      presetUrlResolvedForKey = ''
       untrack(() => {
+        let stripPresetFromUrl = false
         if (dirParam != null && dirParam !== '') {
           resetBaseline()
           setWorkspace({
@@ -378,34 +381,36 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
             nextWindowId: 2,
             pinnedTaskbarItems: [],
           })
+          stripPresetFromUrl = !!presetParam
         } else if (loaded) {
           resetBaseline()
           setWorkspace(loaded)
+          stripPresetFromUrl = !!presetParam
         } else if (presetParam && presetsReadyNow) {
-          if (applyPreset(presetParam)) {
-            presetUrlResolvedForKey = key
-          } else {
+          if (!applyPreset(presetParam)) {
             setDefaultWorkspace()
           }
+          stripPresetFromUrl = true
         } else if (presetParam && !presetsReadyNow) {
-          setDefaultWorkspace()
+          // Do not call setDefaultWorkspace(): writing a default draft here blocks the delayed
+          // preset apply (second branch below) because loadPersisted(key) becomes truthy.
         } else {
           setDefaultWorkspace()
+        }
+        if (stripPresetFromUrl) {
+          navigateSearchParams({ preset: null }, 'replace')
         }
         setPinsHydratedFor('')
       })
       return
     }
 
-    if (
-      presetParam &&
-      presetsReadyNow &&
-      !loaded &&
-      presetUrlResolvedForKey !== key &&
-      applyPreset(presetParam)
-    ) {
-      presetUrlResolvedForKey = key
-      untrack(() => setPinsHydratedFor(''))
+    if (presetParam && presetsReadyNow && !loadPersisted(key)) {
+      untrack(() => {
+        applyPreset(presetParam)
+        navigateSearchParams({ preset: null }, 'replace')
+        setPinsHydratedFor('')
+      })
     }
   })
 
@@ -422,12 +427,29 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     persistTimer = setTimeout(() => {
       persistTimer = null
       persistWorkspaceState(key, w)
-    }, 500)
+    }, 300)
     onCleanup(() => {
       if (persistTimer) {
         clearTimeout(persistTimer)
         persistTimer = null
       }
+    })
+  })
+
+  onMount(() => {
+    const flushPersist = () => {
+      const k = storageSessionKeyFull().key
+      const w = workspace()
+      if (k && w) persistWorkspaceState(k, w)
+    }
+    window.addEventListener('beforeunload', flushPersist)
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') flushPersist()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    onCleanup(() => {
+      window.removeEventListener('beforeunload', flushPersist)
+      document.removeEventListener('visibilitychange', onVis)
     })
   })
 
@@ -1113,11 +1135,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     onCleanup(unsub)
   })
 
-  const [mediaIconTick, setMediaIconTick] = createSignal(0)
-  onMount(() => {
-    const u = useMediaPlayer.subscribe(() => setMediaIconTick((n) => n + 1))
-    onCleanup(() => u())
-  })
+  const mediaIconTick = useStoreSync(useMediaPlayer)
 
   const workspaceFileIconContext = (): FileIconContext => {
     void mediaIconTick()

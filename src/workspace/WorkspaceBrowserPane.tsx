@@ -53,8 +53,10 @@ import type { UploadToastState } from '../file-browser/types'
 import { UploadMenu } from '../file-browser/UploadMenu'
 import { UploadToastStack } from '../file-browser/UploadToastStack'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
+import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-focus'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
+import { useStoreSync } from '../lib/solid-store-sync'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
@@ -117,23 +119,18 @@ export function WorkspaceBrowserPane(props: Props) {
   const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
   const [breadcrumbMenu, setBreadcrumbMenu] = createSignal<BreadcrumbMenuTarget | null>(null)
-  const [shareViewModeTick, setShareViewModeTick] = createSignal(0)
+  const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
 
-  createEffect(() => {
-    const m = inlineMode()
-    if (m === 'file') {
-      queueMicrotask(() => inlineFileInputEl?.focus())
-    } else if (m === 'folder') {
-      queueMicrotask(() => inlineFolderInputEl?.focus())
-    }
-  })
+  useInlineModeInputFocus(
+    inlineMode,
+    () => inlineFileInputEl,
+    () => inlineFolderInputEl,
+  )
 
   onMount(() => {
     setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
-    const unsub = useBrowserViewModeStore.subscribe(() => setShareViewModeTick((n) => n + 1))
-    onCleanup(() => unsub())
   })
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
@@ -569,7 +566,6 @@ export function WorkspaceBrowserPane(props: Props) {
     const sh = share()
     if (sh) {
       useBrowserViewModeStore.getState().setViewMode(`share-workspace-viewmode-${sh.token}`, mode)
-      setShareViewModeTick((n) => n + 1)
       return
     }
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })

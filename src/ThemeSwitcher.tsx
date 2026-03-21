@@ -6,7 +6,8 @@ import Monitor from 'lucide-solid/icons/monitor'
 import Moon from 'lucide-solid/icons/moon'
 import Settings from 'lucide-solid/icons/settings'
 import Sun from 'lucide-solid/icons/sun'
-import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createSignal } from 'solid-js'
+import { useStoreSync } from './lib/solid-store-sync'
 
 const MODES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -25,12 +26,7 @@ type Props = { variant?: 'header' | 'floating' }
 export function ThemeSwitcher(props: Props) {
   const variant = () => props.variant ?? 'header'
   const [menuOpen, setMenuOpen] = createSignal(false)
-  const [storeTick, setStoreTick] = createSignal(0)
-
-  onMount(() => {
-    const unsub = useThemeStore.subscribe(() => setStoreTick((n) => n + 1))
-    onCleanup(unsub)
-  })
+  const storeTick = useStoreSync(useThemeStore)
 
   const palette = () => {
     void storeTick()

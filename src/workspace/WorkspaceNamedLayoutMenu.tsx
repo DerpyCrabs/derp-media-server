@@ -63,15 +63,16 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     void persistPresetsMutation.mutateAsync(next)
   }
 
-  function setPresetInUrl(presetId: string | null) {
-    navigateSearchParams({ preset: presetId }, 'replace')
+  /** Per-tab layout is keyed by `ws`; drop `preset` so it cannot override localStorage draft. */
+  function clearPresetQueryParam() {
+    navigateSearchParams({ preset: null }, 'replace')
   }
 
   function handleRestore(id: string) {
     const found = props.presets.find((x) => x.id === id)
     if (!found) return
     props.applyLayoutSnapshot(found.snapshot, { baselinePresetId: found.id })
-    setPresetInUrl(found.id)
+    clearPresetQueryParam()
     setMenuOpen(false)
   }
 
@@ -97,7 +98,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     }
     props.syncLayoutBaselineToCurrent()
     props.declareBaselinePresetId(id)
-    setPresetInUrl(id)
+    clearPresetQueryParam()
     setSaveName('')
     setSaveOpen(false)
   }
@@ -121,7 +122,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     persistPresets(props.presets.filter((p) => p.id !== id))
     if (props.layoutBaselinePresetId === id) {
       props.declareBaselinePresetId(null)
-      setPresetInUrl(null)
+      clearPresetQueryParam()
     }
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { reconcileLayoutBoundsFromSnapZones } from '@/lib/workspace-geometry'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { normalizePersistedWorkspaceState } from '@/lib/use-workspace'
 
 function win(
   id: string,
@@ -42,5 +43,42 @@ describe('reconcileLayoutBoundsFromSnapZones', () => {
     expect(bb?.x).toBe(halfW)
     expect(bb?.width).toBe(vw - halfW)
     expect(bb?.y).toBe(halfH)
+  })
+})
+
+describe('normalizePersistedWorkspaceState', () => {
+  test('session draft (reconcileSnapZones false) keeps saved snapped bounds', () => {
+    const raw = {
+      windows: [
+        {
+          id: 'a',
+          type: 'browser',
+          title: 'a',
+          source: { kind: 'local', rootPath: null },
+          initialState: {},
+          layout: {
+            snapZone: 'top-right',
+            bounds: { x: 900, y: 10, width: 220, height: 240 },
+            fullscreen: false,
+            minimized: false,
+            zIndex: 1,
+          },
+        },
+      ],
+      activeWindowId: 'a',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+    }
+    const draft = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const presetStyle = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: true })
+    expect(draft?.windows[0]?.layout?.bounds).toEqual({
+      x: 900,
+      y: 10,
+      width: 220,
+      height: 240,
+    })
+    expect(presetStyle?.windows[0]?.layout?.bounds?.width).toBe(640)
+    expect(presetStyle?.windows[0]?.layout?.bounds?.x).toBe(640)
   })
 })

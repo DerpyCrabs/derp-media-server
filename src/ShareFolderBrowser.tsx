@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
+import { stripSharePrefix } from '@/lib/source-context'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
@@ -20,6 +21,7 @@ import {
   Match,
   Show,
   Switch,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -38,8 +40,10 @@ import { RenameDialog } from './file-browser/RenameDialog'
 import { UploadMenu } from './file-browser/UploadMenu'
 import type { UploadToastState } from './file-browser/types'
 import { UploadToastStack } from './file-browser/UploadToastStack'
+import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
+import { useStoreSync } from './lib/solid-store-sync'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
@@ -65,12 +69,6 @@ export type ShareInfoPayload = {
   restrictions?: ShareRestrictions
   isKnowledgeBase?: boolean
   adminViewMode: 'list' | 'grid'
-}
-
-function stripSharePrefix(filePath: string, sharePath: string) {
-  const sharePathNorm = sharePath.replace(/\\/g, '/')
-  const fwd = filePath.replace(/\\/g, '/')
-  return fwd.startsWith(sharePathNorm + '/') ? fwd.slice(sharePathNorm.length + 1) : fwd
 }
 
 type MenuState = { x: number; y: number; file: FileItem }
@@ -102,20 +100,17 @@ export function ShareFolderBrowser(props: Props) {
   const [renameNewName, setRenameNewName] = createSignal('')
   const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
-  const [shareViewModeTick, setShareViewModeTick] = createSignal(0)
+  const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
   let externalUploadDragDepth = 0
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
 
-  createEffect(() => {
-    const m = inlineMode()
-    if (m === 'file') {
-      queueMicrotask(() => inlineFileInputEl?.focus())
-    } else if (m === 'folder') {
-      queueMicrotask(() => inlineFolderInputEl?.focus())
-    }
-  })
+  useInlineModeInputFocus(
+    inlineMode,
+    () => inlineFileInputEl,
+    () => inlineFolderInputEl,
+  )
 
   const currentSubDir = createMemo(() => {
     const sp = new URLSearchParams(history().search)
@@ -159,8 +154,10 @@ export function ShareFolderBrowser(props: Props) {
     on(
       currentSubDir,
       () => {
-        setInlineMode(null)
-        setInlineName('')
+        batch(() => {
+          setInlineMode(null)
+          setInlineName('')
+        })
       },
       { defer: true },
     ),
@@ -287,7 +284,6 @@ export function ShareFolderBrowser(props: Props) {
 
   function setViewMode(mode: 'list' | 'grid') {
     useBrowserViewModeStore.getState().setViewMode(viewModeStorageKey(), mode)
-    setShareViewModeTick((n) => n + 1)
   }
 
   const editableFoldersForMove = createMemo(() =>
@@ -314,8 +310,6 @@ export function ShareFolderBrowser(props: Props) {
 
   onMount(() => {
     useMediaPlayer.getState().setShareContext(props.token, props.shareInfo.path)
-    const unsub = useBrowserViewModeStore.subscribe(() => setShareViewModeTick((n) => n + 1))
-    onCleanup(() => unsub())
   })
 
   onCleanup(() => {
@@ -352,9 +346,7 @@ export function ShareFolderBrowser(props: Props) {
   function handleShareBreadcrumbOpenInNewTab() {
     const m = breadcrumbMenu()
     if (!m) return
-    const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
-    const subPath =
-      m.serverPath === sharePathNorm ? '' : stripSharePrefix(m.serverPath, props.shareInfo.path)
+    const subPath = stripSharePrefix(m.serverPath, props.shareInfo.path)
     const params = new URLSearchParams()
     if (subPath) params.set('dir', subPath)
     const query = params.toString()
@@ -364,9 +356,7 @@ export function ShareFolderBrowser(props: Props) {
   function handleShareBreadcrumbOpenInWorkspace() {
     const m = breadcrumbMenu()
     if (!m || !props.shareInfo.isDirectory) return
-    const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
-    const subPath =
-      m.serverPath === sharePathNorm ? '' : stripSharePrefix(m.serverPath, props.shareInfo.path)
+    const subPath = stripSharePrefix(m.serverPath, props.shareInfo.path)
     const params = new URLSearchParams()
     if (subPath) params.set('dir', subPath)
     const query = params.toString()

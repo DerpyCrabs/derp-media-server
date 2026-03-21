@@ -26,10 +26,11 @@ test.describe('workspace named layout presets', () => {
     await saveBtn.click()
     const saveResp = await respPromise
     expect(saveResp.ok()).toBeTruthy()
-
-    await expect(page).toHaveURL(/[?&]preset=/)
-    const presetId = new URL(page.url()).searchParams.get('preset')
+    const saveBody = (await saveResp.json()) as { workspaceLayoutPresets: { id: string }[] }
+    const presetId = saveBody.workspaceLayoutPresets.at(-1)?.id
     expect(presetId).toBeTruthy()
+
+    await expect(page).not.toHaveURL(/[?&]preset=/)
 
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
@@ -42,5 +43,6 @@ test.describe('workspace named layout presets', () => {
     const ws2 = `e2e-named-layout-2-${batch}-${Date.now()}`
     await page.goto(`/workspace?ws=${ws2}&preset=${presetId}`)
     await expect(getWindowGroups(page)).toHaveCount(1)
+    await expect(page).not.toHaveURL(/[?&]preset=/)
   })
 })

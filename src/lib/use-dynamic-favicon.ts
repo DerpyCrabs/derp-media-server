@@ -7,7 +7,8 @@ import {
   setFaviconHref,
 } from '@/lib/dynamic-favicon-core'
 import type { Accessor } from 'solid-js'
-import { createEffect, createSignal, onCleanup, onMount } from 'solid-js'
+import { createEffect, onCleanup, onMount } from 'solid-js'
+import { useStoreSync } from './solid-store-sync'
 
 type Options = {
   rootName?: string | Accessor<string>
@@ -28,7 +29,7 @@ export function useDynamicFavicon(
   customIcons: Accessor<Record<string, string>>,
   options?: Options,
 ) {
-  const [themeTick, setThemeTick] = createSignal(0)
+  const themeTick = useStoreSync(useThemeStore)
   const originals = { title: 'Media Server', href: null as string | null }
   let currentFavicon = 'default'
 
@@ -36,8 +37,6 @@ export function useDynamicFavicon(
     originals.title = document.title
     const existingFavicon = document.querySelector("link[rel*='icon']") as HTMLLinkElement
     originals.href = existingFavicon?.href ?? DEFAULT_FAVICON_DATA_URL
-    const unsub = useThemeStore.subscribe(() => setThemeTick((n) => n + 1))
-    onCleanup(unsub)
   })
 
   createEffect(() => {

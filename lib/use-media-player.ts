@@ -1,8 +1,10 @@
-import { create } from 'zustand'
+import { batch } from 'solid-js'
+import { createStore } from 'solid-js/store'
+import { createStoreListeners } from './client-store-utils'
 
 type MediaType = 'audio' | 'video' | null
 
-interface MediaPlayerState {
+interface MediaPlayerData {
   currentFile: string | null
   mediaType: MediaType
   isPlaying: boolean
@@ -13,24 +15,11 @@ interface MediaPlayerState {
   isRepeat: boolean
   shareToken: string | null
   sharePath: string | null
-
-  playFile: (path: string, type: 'audio' | 'video') => void
-  /** Select track and play; does not toggle pause when the same file is already selected. */
-  startOrResumePlayback: (path: string, type: 'audio' | 'video') => void
-  setCurrentFile: (path: string, type: 'audio' | 'video') => void
-  setIsPlaying: (playing: boolean) => void
-  setCurrentTime: (time: number) => void
-  setDuration: (duration: number) => void
-  setVolume: (volume: number) => void
-  setMuted: (muted: boolean) => void
-  toggleRepeat: () => void
-  setShareContext: (token: string, path: string) => void
-  clearShareContext: () => void
-
-  reset: () => void
 }
 
-export const useMediaPlayer = create<MediaPlayerState>((set, get) => ({
+const listeners = createStoreListeners()
+
+const [store, setStore] = createStore<MediaPlayerData>({
   currentFile: null,
   mediaType: null,
   isPlaying: false,
@@ -41,73 +30,164 @@ export const useMediaPlayer = create<MediaPlayerState>((set, get) => ({
   isRepeat: false,
   shareToken: null,
   sharePath: null,
+})
 
-  playFile: (path, type) => {
-    const state = get()
-
-    if (state.currentFile === path && state.mediaType === type) {
-      set({ isPlaying: !state.isPlaying })
-      return
-    }
-
-    set({
-      currentFile: path,
-      mediaType: type,
-      currentTime: 0,
-      duration: 0,
-      isPlaying: true,
+function playFile(path: string, type: 'audio' | 'video') {
+  if (store.currentFile === path && store.mediaType === type) {
+    setStore('isPlaying', !store.isPlaying)
+  } else {
+    batch(() => {
+      setStore('currentFile', path)
+      setStore('mediaType', type)
+      setStore('currentTime', 0)
+      setStore('duration', 0)
+      setStore('isPlaying', true)
     })
-  },
+  }
+  listeners.notify()
+}
 
-  startOrResumePlayback: (path, type) => {
-    const state = get()
-    if (state.currentFile === path && state.mediaType === type) {
-      set({ isPlaying: true })
-      return
-    }
-    set({
-      currentFile: path,
-      mediaType: type,
-      currentTime: 0,
-      duration: 0,
-      isPlaying: true,
+function startOrResumePlayback(path: string, type: 'audio' | 'video') {
+  if (store.currentFile === path && store.mediaType === type) {
+    setStore('isPlaying', true)
+  } else {
+    batch(() => {
+      setStore('currentFile', path)
+      setStore('mediaType', type)
+      setStore('currentTime', 0)
+      setStore('duration', 0)
+      setStore('isPlaying', true)
     })
+  }
+  listeners.notify()
+}
+
+function setCurrentFile(path: string, type: 'audio' | 'video') {
+  if (store.currentFile !== path || store.mediaType !== type) {
+    const samePath = store.currentFile === path
+    batch(() => {
+      setStore('currentFile', path)
+      setStore('mediaType', type)
+      if (!samePath) {
+        setStore('currentTime', 0)
+        setStore('duration', 0)
+      }
+    })
+    listeners.notify()
+  }
+}
+
+function setIsPlaying(playing: boolean) {
+  setStore('isPlaying', playing)
+  listeners.notify()
+}
+
+function setCurrentTime(time: number) {
+  setStore('currentTime', time)
+  listeners.notify()
+}
+
+function setDuration(duration: number) {
+  setStore('duration', duration)
+  listeners.notify()
+}
+
+function setVolume(volume: number) {
+  batch(() => {
+    setStore('volume', volume)
+    setStore('isMuted', volume === 0)
+  })
+  listeners.notify()
+}
+
+function setMuted(muted: boolean) {
+  batch(() => {
+    setStore('isMuted', muted)
+    setStore('volume', muted ? 0 : store.volume || 0.5)
+  })
+  listeners.notify()
+}
+
+function toggleRepeat() {
+  setStore('isRepeat', !store.isRepeat)
+  listeners.notify()
+}
+
+function setShareContext(token: string, path: string) {
+  batch(() => {
+    setStore('shareToken', token)
+    setStore('sharePath', path)
+  })
+  listeners.notify()
+}
+
+function clearShareContext() {
+  batch(() => {
+    setStore('shareToken', null)
+    setStore('sharePath', null)
+  })
+  listeners.notify()
+}
+
+function reset() {
+  batch(() => {
+    setStore('currentFile', null)
+    setStore('mediaType', null)
+    setStore('isPlaying', false)
+    setStore('currentTime', 0)
+    setStore('duration', 0)
+    setStore('volume', 1)
+    setStore('isMuted', false)
+  })
+  listeners.notify()
+}
+
+const api = {
+  get currentFile() {
+    return store.currentFile
   },
-
-  setCurrentFile: (path, type) => {
-    const state = get()
-
-    // Only update if different, don't change isPlaying
-    if (state.currentFile !== path || state.mediaType !== type) {
-      // When switching video<->audio for same file, preserve position and duration
-      const samePath = state.currentFile === path
-      set({
-        currentFile: path,
-        mediaType: type,
-        ...(samePath ? {} : { currentTime: 0, duration: 0 }),
-      })
-    }
+  get mediaType() {
+    return store.mediaType
   },
+  get isPlaying() {
+    return store.isPlaying
+  },
+  get currentTime() {
+    return store.currentTime
+  },
+  get duration() {
+    return store.duration
+  },
+  get volume() {
+    return store.volume
+  },
+  get isMuted() {
+    return store.isMuted
+  },
+  get isRepeat() {
+    return store.isRepeat
+  },
+  get shareToken() {
+    return store.shareToken
+  },
+  get sharePath() {
+    return store.sharePath
+  },
+  playFile,
+  startOrResumePlayback,
+  setCurrentFile,
+  setIsPlaying,
+  setCurrentTime,
+  setDuration,
+  setVolume,
+  setMuted,
+  toggleRepeat,
+  setShareContext,
+  clearShareContext,
+  reset,
+}
 
-  setIsPlaying: (playing) => set({ isPlaying: playing }),
-  setCurrentTime: (time) => set({ currentTime: time }),
-  setDuration: (duration) => set({ duration }),
-  setVolume: (volume) => set({ volume, isMuted: volume === 0 }),
-  setMuted: (muted) =>
-    set((state) => ({ isMuted: muted, volume: muted ? 0 : state.volume || 0.5 })),
-  toggleRepeat: () => set((state) => ({ isRepeat: !state.isRepeat })),
-
-  setShareContext: (token, path) => set({ shareToken: token, sharePath: path }),
-  clearShareContext: () => set({ shareToken: null, sharePath: null }),
-
-  reset: () =>
-    set({
-      currentFile: null,
-      mediaType: null,
-      isPlaying: false,
-      currentTime: 0,
-      duration: 0,
-      volume: 1,
-      isMuted: false,
-    }),
-}))
+export const useMediaPlayer = {
+  getState: () => api,
+  subscribe: listeners.subscribe,
+}

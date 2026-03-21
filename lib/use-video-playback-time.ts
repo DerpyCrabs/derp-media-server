@@ -1,56 +1,64 @@
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createStore } from 'solid-js/store'
+import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
+
+const STORAGE_KEY = 'video-playback-times'
 
 interface VideoPlaybackTimes {
-  [filePath: string]: number // filePath -> saved time in seconds
+  [filePath: string]: number
 }
 
-interface VideoPlaybackTimeState {
-  playbackTimes: VideoPlaybackTimes
-  getSavedTime: (filePath: string) => number | null
-  saveTime: (filePath: string, time: number, duration: number) => void
-  clearTime: (filePath: string) => void
+function loadTimes(): VideoPlaybackTimes {
+  const s = readPersistedState<{ playbackTimes?: unknown }>(STORAGE_KEY)
+  if (s?.playbackTimes && typeof s.playbackTimes === 'object' && s.playbackTimes !== null) {
+    return { ...(s.playbackTimes as VideoPlaybackTimes) }
+  }
+  return {}
 }
 
-export const useVideoPlaybackTime = create<VideoPlaybackTimeState>()(
-  persist(
-    (set, get) => ({
-      playbackTimes: {},
+const listeners = createStoreListeners()
 
-      getSavedTime: (filePath: string) => {
-        const { playbackTimes } = get()
-        return playbackTimes[filePath] ?? null
-      },
+const [store, setStore] = createStore({
+  playbackTimes: loadTimes(),
+})
 
-      saveTime: (filePath: string, time: number, duration: number) => {
-        // If the video is in the last 10% of its duration, clear the saved time
-        if (duration > 0 && time >= duration * 0.9) {
-          set((state) => {
-            const newPlaybackTimes = { ...state.playbackTimes }
-            delete newPlaybackTimes[filePath]
-            return { playbackTimes: newPlaybackTimes }
-          })
-        } else {
-          // Save the current time
-          set((state) => ({
-            playbackTimes: {
-              ...state.playbackTimes,
-              [filePath]: time,
-            },
-          }))
-        }
-      },
+function persist() {
+  writePersistedState(STORAGE_KEY, { playbackTimes: { ...store.playbackTimes } })
+}
 
-      clearTime: (filePath: string) => {
-        set((state) => {
-          const newPlaybackTimes = { ...state.playbackTimes }
-          delete newPlaybackTimes[filePath]
-          return { playbackTimes: newPlaybackTimes }
-        })
-      },
-    }),
-    {
-      name: 'video-playback-times',
-    },
-  ),
-)
+function getSavedTime(filePath: string): number | null {
+  return store.playbackTimes[filePath] ?? null
+}
+
+function saveTime(filePath: string, time: number, duration: number) {
+  if (duration > 0 && time >= duration * 0.9) {
+    const next = { ...store.playbackTimes }
+    delete next[filePath]
+    setStore('playbackTimes', next)
+  } else {
+    setStore('playbackTimes', filePath, time)
+  }
+  persist()
+  listeners.notify()
+}
+
+function clearTime(filePath: string) {
+  const next = { ...store.playbackTimes }
+  delete next[filePath]
+  setStore('playbackTimes', next)
+  persist()
+  listeners.notify()
+}
+
+const api = {
+  get playbackTimes() {
+    return { ...store.playbackTimes }
+  },
+  getSavedTime,
+  saveTime,
+  clearTime,
+}
+
+export const useVideoPlaybackTime = {
+  getState: () => api,
+  subscribe: listeners.subscribe,
+}
