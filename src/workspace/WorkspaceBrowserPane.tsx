@@ -13,6 +13,11 @@ import {
   finePointerDragEnabled,
   subscribeFinePointerDragEnabled,
 } from '@/lib/enable-fine-pointer-drag'
+import {
+  breadcrumbFloating,
+  resetBreadcrumbFloating,
+  setBreadcrumbFolderMenu,
+} from '@/lib/breadcrumb-floating-store'
 import { api, post } from '@/lib/api'
 import {
   prefetchFolderContentsOnHover,
@@ -121,7 +126,7 @@ export function WorkspaceBrowserPane(props: Props) {
   const [renameNewName, setRenameNewName] = createSignal('')
   const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
-  const [breadcrumbMenu, setBreadcrumbMenu] = createSignal<BreadcrumbMenuTarget | null>(null)
+  const breadcrumbMenu = () => breadcrumbFloating.folderMenu
   const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
@@ -396,6 +401,7 @@ export function WorkspaceBrowserPane(props: Props) {
         setDraggedPath(null)
         setDragOverPath(null)
         setDragAllowsMove(false)
+        resetBreadcrumbFloating()
       })
       externalUploadDragDepth = 0
       setExternalUploadDragOver(false)
@@ -646,7 +652,7 @@ export function WorkspaceBrowserPane(props: Props) {
     e: MouseEvent,
     info: { navigatePath: string; displayName: string; isHome: boolean },
   ) {
-    setBreadcrumbMenu({
+    setBreadcrumbFolderMenu({
       x: e.clientX,
       y: e.clientY,
       serverPath: info.navigatePath.replace(/\\/g, '/'),
@@ -1803,7 +1809,7 @@ export function WorkspaceBrowserPane(props: Props) {
         setCustomIconPending={setCustomIconMutation.isPending}
         removeCustomIconPending={removeCustomIconMutation.isPending}
         breadcrumbMenu={breadcrumbMenu}
-        setBreadcrumbMenu={setBreadcrumbMenu}
+        setBreadcrumbMenu={setBreadcrumbFolderMenu}
         workspaceBreadcrumbMenuActions={workspaceBreadcrumbMenuActions}
         onWorkspaceBreadcrumbOpenInNewTab={handleWorkspaceBreadcrumbOpenInNewTab}
         onWorkspaceBreadcrumbOpenInWorkspace={handleWorkspaceBreadcrumbOpenInWorkspace}

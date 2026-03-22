@@ -1,16 +1,12 @@
+import type { BreadcrumbFolderMenuTarget } from '@/lib/breadcrumb-floating-store'
+import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from 'lucide-solid/icons/app-window'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import Pencil from 'lucide-solid/icons/pencil'
 import type { Accessor } from 'solid-js'
-import { Show, createEffect, onCleanup } from 'solid-js'
+import { Show } from 'solid-js'
 
-export type BreadcrumbMenuTarget = {
-  x: number
-  y: number
-  serverPath: string
-  displayName: string
-  isHome: boolean
-}
+export type BreadcrumbMenuTarget = BreadcrumbFolderMenuTarget
 
 type Props = {
   target: Accessor<BreadcrumbMenuTarget | null>
@@ -26,28 +22,16 @@ type Props = {
 }
 
 export function BreadcrumbContextMenu(props: Props) {
-  createEffect(() => {
-    const t = props.target()
-    if (!t) return
-    const onDoc = (e: MouseEvent) => {
-      const el = e.target as Element | null
-      if (el?.closest?.('[data-slot="breadcrumb-context-menu"]')) return
-      props.onDismiss()
-    }
-    document.addEventListener('mousedown', onDoc)
-    onCleanup(() => document.removeEventListener('mousedown', onDoc))
-  })
-
   return (
-    <Show when={props.target()} keyed>
+    <FloatingContextMenu
+      state={props.target}
+      anchor={(ctx) => ({ x: ctx.x, y: ctx.y })}
+      onDismiss={props.onDismiss}
+      breadcrumbFolderMenuSurface
+      data-slot='breadcrumb-context-menu'
+    >
       {(ctx) => (
-        <div
-          data-no-window-drag
-          data-slot='breadcrumb-context-menu'
-          class='fixed z-500000 min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
-          style={{ left: `${ctx.x}px`, top: `${ctx.y}px` }}
-          role='menu'
-        >
+        <>
           <Show when={props.showSetIcon && !ctx.isHome}>
             <button
               type='button'
@@ -111,8 +95,8 @@ export function BreadcrumbContextMenu(props: Props) {
               Download as ZIP
             </button>
           </Show>
-        </div>
+        </>
       )}
-    </Show>
+    </FloatingContextMenu>
   )
 }

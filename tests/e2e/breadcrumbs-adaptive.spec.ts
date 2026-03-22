@@ -183,4 +183,32 @@ test.describe('Breadcrumbs', () => {
     await page.getByTestId('file-browser').click({ position: { x: 80, y: 420 } })
     await expect(page.getByTestId('breadcrumb-path-menu')).toHaveCount(0)
   })
+
+  test('compact path menu: crumb context menu stacks above path menu', async ({ page }) => {
+    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
+
+    await narrowBreadcrumbSlot(page, 120)
+    await page
+      .getByTestId('breadcrumb-bar')
+      .locator('[data-breadcrumb-segment="path-picker"]')
+      .click()
+    const pathMenu = page.getByTestId('breadcrumb-path-menu')
+    await expect(pathMenu).toBeVisible()
+
+    await pathMenu.getByRole('menuitem', { name: 'Notes', exact: true }).click({ button: 'right' })
+    const ctxMenu = page.locator('[data-slot="breadcrumb-context-menu"]')
+    await expect(ctxMenu).toBeVisible()
+
+    const contextOnTop = await page.evaluate(() => {
+      const ctx = document.querySelector('[data-slot="breadcrumb-context-menu"]')
+      if (!ctx) return false
+      const r = ctx.getBoundingClientRect()
+      const x = r.left + Math.min(r.width / 2, 80)
+      const y = r.top + Math.min(r.height / 2, 80)
+      const top = document.elementFromPoint(x, y)
+      return top != null && top.closest('[data-slot="breadcrumb-context-menu"]') !== null
+    })
+    expect(contextOnTop).toBe(true)
+  })
 })

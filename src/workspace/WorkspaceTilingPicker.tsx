@@ -1,3 +1,4 @@
+import { layoutViewportClientSize } from '@/lib/layout-viewport'
 import type { AssistGridShape, AssistGridSpan } from '@/lib/workspace-assist-grid'
 import type { AssistSlotPick } from '@/lib/workspace-snap-pick'
 import { narrowPickToAssistShape, pickAssistSlotFromPoint } from '@/lib/workspace-snap-pick'
@@ -6,14 +7,6 @@ import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
 
 const PICKER_APPROX_WIDTH = 360
 const PICKER_APPROX_HEIGHT = 520
-
-/** Match the layout viewport used by `getBoundingClientRect()` / `position: fixed` (not `visualViewport`, which can be smaller and clamps too early). */
-function layoutViewportClientSize(): { w: number; h: number } {
-  const de = document.documentElement
-  const w = de && de.clientWidth > 0 ? de.clientWidth : Math.max(1, window.innerWidth)
-  const h = de && de.clientHeight > 0 ? de.clientHeight : Math.max(1, window.innerHeight)
-  return { w: Math.max(1, w), h: Math.max(1, h) }
-}
 
 function shapeLabel(id: AssistGridShape): string {
   switch (id) {
