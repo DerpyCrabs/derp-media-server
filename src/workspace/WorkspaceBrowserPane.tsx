@@ -1286,7 +1286,7 @@ export function WorkspaceBrowserPane(props: Props) {
               </Show>
               <Switch>
                 <Match when={viewMode() === 'grid'}>
-                  <div class='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4'>
+                  <div class='file-browser-grid gap-4'>
                     <Show when={currentPath()}>
                       <div
                         data-no-window-drag
