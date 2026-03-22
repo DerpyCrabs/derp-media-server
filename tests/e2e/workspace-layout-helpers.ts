@@ -1,3 +1,4 @@
+import { TOP_SNAP_ASSIST_CENTER_BAND_PX } from '@/lib/use-snap-zones'
 import type { Page, Locator } from '@playwright/test'
 import { expect } from '@playwright/test'
 
@@ -120,7 +121,8 @@ export async function dragToEdge(
       endY = containerHeight / 2
       break
     case 'top':
-      endX = viewport.width / 2
+      // Avoid top-center snap-assist band (~300px); target first horizontal segment on top edge.
+      endX = Math.min(viewport.width * 0.12, TOP_SNAP_ASSIST_CENTER_BAND_PX / 2)
       endY = 5
       break
     case 'top-half':
@@ -151,4 +153,60 @@ export async function dragToEdge(
 
   await dragFromTo(page, startX, startY, endX, endY)
   await page.waitForTimeout(100)
+}
+
+/** Persists preferred assist grid shape (reload so the client store re-reads localStorage). */
+export async function setAssistGridShapeForTest(page: Page, shape: '3x2' | '2x2' | '2x3') {
+  await page.evaluate((s) => {
+    const key = 'workspace-preferred-snap'
+    let cur: Record<string, unknown> = {}
+    try {
+      const raw = localStorage.getItem(key)
+      if (raw) {
+        const p = JSON.parse(raw) as { state?: Record<string, unknown> }
+        cur =
+          p.state && typeof p.state === 'object'
+            ? { ...p.state }
+            : ({ ...(p as Record<string, unknown>) } as Record<string, unknown>)
+      }
+    } catch {
+      /* ignore */
+    }
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        state: { ...cur, assistGridShape: s, snapAssistOnTopDrag: true },
+        version: 0,
+      }),
+    )
+  }, shape)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
+}
+
+/** Call before the first /workspace navigation on this page so the app hydrates with the given shape. */
+export async function presetAssistGridShapeBeforeGoto(page: Page, shape: '3x2' | '2x2' | '2x3') {
+  await page.addInitScript((s) => {
+    localStorage.setItem(
+      'workspace-preferred-snap',
+      JSON.stringify({ state: { assistGridShape: s, snapAssistOnTopDrag: true }, version: 0 }),
+    )
+  }, shape)
+}
+
+export function assistMiniGrid(page: Page, shape: '3x2' | '2x2' | '2x3') {
+  return page.locator(`[data-assist-mini-grid="${shape}"]`)
+}
+
+/** Single-cell tile inside a mini grid (matches `data-gc*` / `data-gr*` on assist buttons). */
+export function assistMiniGridCell(
+  miniGrid: Locator,
+  gc0: number,
+  gc1: number,
+  gr0: number,
+  gr1: number,
+): Locator {
+  return miniGrid.locator(
+    `button[data-assist-grid-span][data-gc0="${gc0}"][data-gc1="${gc1}"][data-gr0="${gr0}"][data-gr1="${gr1}"]`,
+  )
 }

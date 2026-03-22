@@ -59,7 +59,7 @@ const api = {
 
 export const useWorkspaceFileOpenTargetStore = {
   getState: () => api,
-  subscribe: listeners.subscribe,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
 }
 
 /** Non-reactive read (e.g. inside event handlers). */

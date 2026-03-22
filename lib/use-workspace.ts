@@ -17,6 +17,7 @@ export interface WorkspaceSource {
 }
 
 export type SnapZone =
+  | 'assist-custom'
   | 'left'
   | 'right'
   | 'top-left'

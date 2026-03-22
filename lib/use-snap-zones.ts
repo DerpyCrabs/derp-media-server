@@ -1,8 +1,22 @@
 import type { SnapZone } from '@/lib/use-workspace'
 
-const EDGE_THRESHOLD = 36
+export const SNAP_EDGE_THRESHOLD_PX = 36
 
-export type SnapDetectResult = SnapZone | 'top'
+/** After the top snap band engages assist, keep the bar mounted while the pointer stays within this depth (workspace px) so the cursor can reach thumbnails without a dead zone. */
+export const TOP_SNAP_ASSIST_KEEPALIVE_PX = 320
+
+/** Total width of the top-center region that opens snap assist (centered on the workspace). */
+export const TOP_SNAP_ASSIST_CENTER_BAND_PX = 300
+
+export const TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX = TOP_SNAP_ASSIST_CENTER_BAND_PX / 2
+
+export type SnapDetectResult = SnapZone | 'snap-assist' | 'edge-grid'
+
+export function segmentIndex(localX: number, span: number, segments: number): number {
+  if (span <= 0 || segments <= 0) return 0
+  const t = Math.min(Math.max(localX / span, 0), 1 - Number.EPSILON)
+  return Math.min(segments - 1, Math.floor(t * segments))
+}
 
 export function detectSnapZone(
   cursorX: number,
@@ -10,26 +24,22 @@ export function detectSnapZone(
   containerWidth: number,
   containerHeight: number,
 ): SnapDetectResult | null {
-  const nearLeft = cursorX <= EDGE_THRESHOLD
-  const nearRight = cursorX >= containerWidth - EDGE_THRESHOLD
-  const nearTop = cursorY <= EDGE_THRESHOLD
-  const nearBottom = cursorY >= containerHeight - EDGE_THRESHOLD
+  return detectWorkspaceSnapZone(cursorX, cursorY, containerWidth, containerHeight, {
+    preferredTemplateId: null,
+  })
+}
 
-  if (nearLeft && nearTop) return 'top-left'
-  if (nearRight && nearTop) return 'top-right'
-  if (nearLeft && nearBottom) return 'bottom-left'
-  if (nearRight && nearBottom) return 'bottom-right'
-  if (nearLeft) return 'left'
-  if (nearRight) return 'right'
-  if (nearTop) {
-    const inCenterThird = cursorX >= containerWidth * 0.35 && cursorX <= containerWidth * 0.65
-    if (inCenterThird) return 'top'
-    if (containerHeight > containerWidth) return 'top-half'
-    return 'top'
-  }
-  if (nearBottom) {
-    if (containerHeight > containerWidth) return 'bottom-half'
-  }
+export type DetectSnapOptions = {
+  preferredTemplateId?: string | null
+}
 
+/** @deprecated Edge snapping uses `detectEdgeAssistGridSpan` in workspace-assist-grid. */
+export function detectWorkspaceSnapZone(
+  _cursorX: number,
+  _cursorY: number,
+  _containerWidth: number,
+  _containerHeight: number,
+  _options?: DetectSnapOptions,
+): SnapDetectResult | null {
   return null
 }

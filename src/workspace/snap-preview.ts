@@ -12,12 +12,21 @@ export function applySnapPreviewLayout(
     el.style.display = 'none'
     return
   }
-  if (zone === 'top') {
+  if (zone === 'snap-assist') {
+    el.style.display = 'none'
+    return
+  }
+  if (zone === 'edge-grid') {
+    const b = getZoneBounds('left')
+    if (b.width <= 0) {
+      el.style.display = 'none'
+      return
+    }
     el.style.display = 'block'
-    el.style.left = '0px'
-    el.style.top = '0px'
-    el.style.width = `${container.clientWidth}px`
-    el.style.height = `${container.clientHeight}px`
+    el.style.left = `${b.x}px`
+    el.style.top = `${b.y}px`
+    el.style.width = `${b.width}px`
+    el.style.height = `${b.height}px`
     return
   }
   const b = getZoneBounds(zone as SnapZone)

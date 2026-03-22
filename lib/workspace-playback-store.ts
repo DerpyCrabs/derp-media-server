@@ -66,5 +66,5 @@ const api = {
 
 export const useWorkspacePlaybackStore = {
   getState: () => api,
-  subscribe: listeners.subscribe,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
 }

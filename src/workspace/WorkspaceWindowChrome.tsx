@@ -2,6 +2,7 @@ import type { FileDragData } from '@/lib/file-drag-data'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { createDefaultBounds } from '@/lib/workspace-geometry'
+import { WORKSPACE_TITLE_BAR_PX } from '@/lib/workspace-snap-live'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Minus from 'lucide-solid/icons/minus'
@@ -35,7 +36,7 @@ export type WorkspaceWindowChromeProps = {
   onMinimize: (id: string) => void
   onToggleFullscreen: (id: string) => void
   onOpenLayoutPicker: (windowId: string, rect: DOMRect) => void
-  onRestoreDrag: (windowId: string, clientX: number, clientY: number) => void
+  onRestoreDrag: (windowId: string, clientX: number, clientY: number) => WorkspaceBounds | undefined
   onDragPointerMove: (windowId: string, clientX: number, clientY: number) => void
   onDragPointerEnd: (
     windowId: string,
@@ -111,9 +112,12 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const snapZone = createMemo(() => win()?.layout?.snapZone ?? null)
   const isSnapped = createMemo(() => !!snapZone() && !isFullscreen())
 
-  const resizeMap = createMemo(() =>
-    getWorkspaceSnapResizeHandleMap(isSnapped(), snapZone() ?? undefined),
-  )
+  const resizeMap = createMemo(() => {
+    const container = props.containerEl()
+    const rect = container?.getBoundingClientRect()
+    const canvas = rect ? { width: rect.width, height: rect.height } : null
+    return getWorkspaceSnapResizeHandleMap(isSnapped(), snapZone() ?? undefined, b(), canvas)
+  })
 
   const showResize = createMemo(() => !isFullscreen())
 
@@ -134,11 +138,13 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
 
     const cRect = container.getBoundingClientRect()
 
+    let grabBase = wb
     if (snapZone() || isFullscreen()) {
-      props.onRestoreDrag(lid, e.clientX, e.clientY)
+      const after = props.onRestoreDrag(lid, e.clientX, e.clientY)
+      if (after) grabBase = after
     }
-    const grabDx = e.clientX - cRect.left - wb.x
-    const grabDy = e.clientY - cRect.top - wb.y
+    const grabDx = e.clientX - cRect.left - grabBase.x
+    const grabDy = e.clientY - cRect.top - grabBase.y
 
     const onMove = (ev: PointerEvent) => {
       const id = liveLeaderId()
@@ -148,7 +154,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       let nx = ev.clientX - cRect.left - grabDx
       let ny = ev.clientY - cRect.top - grabDy
       nx = Math.max(0, Math.min(nx, cRect.width - cur.width))
-      ny = Math.max(0, Math.min(ny, cRect.height - cur.height))
+      const maxY = Math.max(0, cRect.height - WORKSPACE_TITLE_BAR_PX)
+      ny = Math.max(0, Math.min(ny, maxY))
       props.onDragDuringMove(id, { ...cur, x: nx, y: ny })
     }
 
@@ -198,8 +205,6 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       let next = { ...nb }
       if (next.width < MIN_W) next.width = MIN_W
       if (next.height < MIN_H) next.height = MIN_H
-      if (next.x + next.width > cRect.width) next.x = Math.max(0, cRect.width - next.width)
-      if (next.y + next.height > cRect.height) next.y = Math.max(0, cRect.height - next.height)
       if (next.x < 0) {
         next.width += next.x
         next.x = 0
@@ -210,6 +215,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       }
       if (next.width < MIN_W) next.width = MIN_W
       if (next.height < MIN_H) next.height = MIN_H
+      if (next.width > cRect.width) next.x = 0
+      else next.x = Math.max(0, Math.min(next.x, cRect.width - next.width))
+      const maxY = Math.max(0, cRect.height - WORKSPACE_TITLE_BAR_PX)
+      next.y = Math.max(0, Math.min(next.y, maxY))
       return next
     }
 

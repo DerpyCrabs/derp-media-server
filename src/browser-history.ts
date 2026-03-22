@@ -8,7 +8,11 @@ export type BrowserLocation = { pathname: string; search: string }
  * `new URLSearchParams(history().search)` in multiple memos.
  */
 export function createUrlSearchParamsMemo(history: Accessor<BrowserLocation>) {
-  return createMemo(() => new URLSearchParams(history().search))
+  const memo = createMemo(() => {
+    const loc = history()
+    return new URLSearchParams(loc.search)
+  })
+  return memo
 }
 
 const subscribers = new Set<() => void>()
