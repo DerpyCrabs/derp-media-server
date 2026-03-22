@@ -17,29 +17,3 @@ export function segmentIndex(localX: number, span: number, segments: number): nu
   const t = Math.min(Math.max(localX / span, 0), 1 - Number.EPSILON)
   return Math.min(segments - 1, Math.floor(t * segments))
 }
-
-export function detectSnapZone(
-  cursorX: number,
-  cursorY: number,
-  containerWidth: number,
-  containerHeight: number,
-): SnapDetectResult | null {
-  return detectWorkspaceSnapZone(cursorX, cursorY, containerWidth, containerHeight, {
-    preferredTemplateId: null,
-  })
-}
-
-export type DetectSnapOptions = {
-  preferredTemplateId?: string | null
-}
-
-/** @deprecated Edge snapping uses `detectEdgeAssistGridSpan` in workspace-assist-grid. */
-export function detectWorkspaceSnapZone(
-  _cursorX: number,
-  _cursorY: number,
-  _containerWidth: number,
-  _containerHeight: number,
-  _options?: DetectSnapOptions,
-): SnapDetectResult | null {
-  return null
-}

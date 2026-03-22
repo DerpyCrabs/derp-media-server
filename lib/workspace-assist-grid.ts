@@ -28,14 +28,6 @@ export function assistShapeMatchingSpan(span: AssistGridSpan): AssistGridShape |
   return null
 }
 
-/** Migrate legacy persisted template ids to grid shape. */
-export function migrateTemplateIdToAssistShape(templateId: string): AssistGridShape {
-  if (templateId === 'thirds-3x2') return '3x2'
-  if (templateId === 'quarters' || templateId === 'left-right') return '2x2'
-  if (templateId === 'vertical-thirds') return '2x3'
-  return '3x2'
-}
-
 export type AssistGridSpan = {
   gridCols: number
   gridRows: number

@@ -1,9 +1,5 @@
 import { createStore } from 'solid-js/store'
-import {
-  type AssistGridShape,
-  isAssistGridShape,
-  migrateTemplateIdToAssistShape,
-} from '@/lib/workspace-assist-grid'
+import { type AssistGridShape, isAssistGridShape } from '@/lib/workspace-assist-grid'
 import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
 
 const STORAGE_KEY = 'workspace-preferred-snap'
@@ -12,8 +8,6 @@ const DEFAULT_SHAPE: AssistGridShape = '3x2'
 
 type Persisted = {
   assistGridShape?: string
-  /** @deprecated migrated to assistGridShape */
-  templateId?: string
   snapAssistOnTopDrag?: boolean
 }
 
@@ -22,8 +16,6 @@ function loadPersisted(): { shape: AssistGridShape; snapAssistOnTopDrag: boolean
   let shape: AssistGridShape = DEFAULT_SHAPE
   if (loaded?.assistGridShape && isAssistGridShape(loaded.assistGridShape)) {
     shape = loaded.assistGridShape
-  } else if (loaded?.templateId) {
-    shape = migrateTemplateIdToAssistShape(loaded.templateId)
   }
   const snapAssistOnTopDrag =
     typeof loaded?.snapAssistOnTopDrag === 'boolean' ? loaded.snapAssistOnTopDrag : true

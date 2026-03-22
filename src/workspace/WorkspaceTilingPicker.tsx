@@ -155,9 +155,6 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
       }}
       on:pointerleave={() => setPointerPick(null)}
     >
-      <div class='mb-2 text-center text-[10px] font-medium tracking-wider text-muted-foreground uppercase'>
-        Tiling
-      </div>
       <div class='flex flex-col gap-3'>
         <WorkspaceSnapAssistMasterGrid
           shape='3x2'
