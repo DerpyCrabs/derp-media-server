@@ -1,126 +1,59 @@
 # Media Server
 
-> **Warning:** This project is 90% vibe coded. Proceed with caution and manage expectations accordingly.
+> Mostly vibe-coded; treat it as a personal tool, not a hardened product.
 
-A media server with a web UI for browsing, playing, and managing your media files. Built with Vite, React, and Fastify, running on Bun. Supports authentication, share links, workspaces, knowledge bases, and real-time sync across clients.
+Self-hosted media library with a **Solid.js** + Vite web UI and a **Fastify** API on **Bun**. Browse, play, and edit files; optional password auth; token-based shares; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
 
-## Features
+## Features (high level)
 
-- **Workspaces** - Multi-window layout with file browsers, viewers (image, video, PDF, text), and audio player. Windows snap to zones, and layout persists across sessions. Available in admin and share views.
-- **Authentication** - Optional password auth with session cookies, rate limiting, and admin domain restrictions
-- **Share Links** - Share files and folders via token-based links with optional passcodes, upload quotas, and granular permissions
-- **Knowledge Base** - Designate folders as knowledge bases with search, recent files, and Obsidian-style markdown support
-- **File Management** - Upload, move, copy, rename, and delete files and folders
-- **Drag & Drop** - Drop files to upload; drag files between folders to move them
-- **Audio Player** - Persistent player that stays active while browsing
-- **Video Player** - Minimizable video player with Picture-in-Picture support
-- **Image Viewer** - Full-screen viewer with zoom, rotate, and keyboard navigation
-- **Markdown Rendering** - GFM support, Obsidian `![[image]]` syntax, and code highlighting
-- **File Browser** - Grid view with thumbnails or list view, breadcrumb navigation with folder menus
-- **Text Editing** - Edit text files in editable folders, create new files and folders inline
-- **Live Sync** - Server-Sent Events keep all connected clients in sync automatically
-- **Search** - Full-text search within knowledge base folders
-- **Modern UI** - Built with Base UI and Tailwind CSS v4, responsive on desktop and mobile
+- Workspaces: snap zones, viewers (image, video, PDF, text), audio player, persisted layout (admin and share views).
+- Shares: tokens, optional passcodes, editable shares with per-permission toggles and upload quota.
+- Knowledge bases: full-text search, recent files, `![[image]]` from `images/`.
+- File ops in editable folders: upload, move/copy, rename, delete, inline text edit; grid/list, thumbnails (FFmpeg optional), drag-and-drop.
+- Auth: session cookies, rate-limited login, optional admin hostname allowlist; shares stay reachable regardless.
 
-## Setup
+## Quick start
 
-### Prerequisites
+**Needs:** [Bun](https://bun.sh). **Optional:** FFmpeg for video thumbnails, audio-only video playback and tests.
 
-- **Bun**
-- **FFmpeg** (optional, for video thumbnails in grid view)
+```bash
+bun install
+```
 
-### Installation
+Create `config.jsonc` (JSON with comments; falls back to `config.json`):
 
-1. Install dependencies:
+```jsonc
+{
+  "mediaDir": "/path/to/your/media",
+  "editableFolders": ["notes", "documents"],
+  "auth": {
+    "enabled": true,
+    "password": "your-secret",
+    "adminAccessDomains": ["127.0.0.1"],
+  },
+}
+```
 
-   ```bash
-   bun install
-   ```
+```bash
+bun run dev
+```
 
-2. Configure the server by editing `config.jsonc`:
-
-   ```jsonc
-   {
-     "mediaDir": "/path/to/your/media",
-     "editableFolders": ["notes", "documents"],
-     // Optional: password auth
-     "auth": {
-       "enabled": true,
-       "password": "your-secret",
-       "adminAccessDomains": ["127.0.0.1"],
-     },
-   }
-   ```
-
-   See [Configuration](#configuration) for all options.
-
-3. Run the server:
-
-   ```bash
-   bun run dev
-   ```
-
-4. Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:3000](http://localhost:3000).
 
 ## Configuration
 
-Configuration lives in `config.jsonc` at the project root (JSONC supports comments and trailing commas). Every option can be overridden via environment variables or `.env`.
+Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environment variables (and `.env`).
 
-### Options
+| Config                    | Env                         | Purpose                                                         |
+| ------------------------- | --------------------------- | --------------------------------------------------------------- |
+| `mediaDir`                | `MEDIA_DIR`                 | Media root                                                      |
+| `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under `mediaDir` where writes are allowed |
+| `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                     |
+| `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                    |
+| `auth.password`           | `AUTH_PASSWORD`             | Login password                                                  |
+| `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                      |
 
-| Config Key                | Env Variable                | Description                                                                               |
-| ------------------------- | --------------------------- | ----------------------------------------------------------------------------------------- |
-| `mediaDir`                | `MEDIA_DIR`                 | Root directory for media files                                                            |
-| `editableFolders`         | `EDITABLE_FOLDERS`          | Folders (relative to `mediaDir`) where file management is allowed. Comma-separated in env |
-| `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (e.g. `share.example.com`). Defaults to the request origin       |
-| `auth.enabled`            | `AUTH_ENABLED`              | Enable password authentication (`true` / `1`)                                             |
-| `auth.password`           | `AUTH_PASSWORD`             | Password for login                                                                        |
-| `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Restrict admin access to specific hostnames. Comma-separated in env                       |
-| `dataPath`                | `DATA_PATH`                 | Directory for data files (shares, settings, stats). Defaults to the config file directory |
-
-The config file path itself can be changed with `CONFIG_PATH` env var or `--config-path` CLI argument. Falls back to `config.json` if `config.jsonc` is not found.
-
-## Authentication
-
-When auth is enabled, all routes except share links require a valid session. Sessions are cookie-based and last 7 days.
-
-- **Login** is rate-limited to 10 attempts per IP per 15 minutes
-- **Admin access domains** restrict which hostnames can access the admin UI and API. This lets you expose share links on a public domain while keeping admin access on a trusted network (e.g. `["127.0.0.1", "192.168.1.100"]`). When the list is empty, all hostnames are allowed.
-- Share links are always accessible regardless of auth settings
-
-## Share Links
-
-Share files or folders via token-based URLs. Right-click a file or folder and select "Share" to create a link.
-
-- **Passcode protection** - When auth is enabled, shares are automatically assigned a 6-character passcode
-- **Editable shares** - Optionally allow recipients to upload, edit, rename, move, and delete files
-- **Granular permissions** - Toggle upload, edit, and delete independently on editable shares
-- **Upload quota** - Set a maximum upload size per share (default 2 GB)
-- **Multiple shares** - Create multiple share links for the same file or folder with different settings
-- Share URLs can include the passcode as a query parameter for one-click access
-
-## Knowledge Base
-
-Designate any folder as a knowledge base via the right-click context menu. Knowledge base folders get:
-
-- **Search** - Full-text search across `.md` and `.txt` files with highlighted snippets
-- **Recent files** - Dashboard showing the 10 most recently modified notes
-- **Obsidian compatibility** - `![[image.png]]` syntax resolves images from an `images/` subdirectory
-- **Markdown-first** - New files default to `.md` extension in knowledge base folders
-- Knowledge base features are also available through share links for shared KB folders
-
-## File Management
-
-In editable folders:
-
-- **Upload** files and folders via the toolbar button or by dragging them into the file list
-- **Move** files by dragging them onto folders, or via right-click "Move to" dialog
-- **Copy** files via right-click "Copy to" dialog
-- **Create** new files and folders inline
-- **Edit** text files directly in the browser
-- **Delete** files and folders via the context menu
-
-All changes broadcast via SSE so every connected client updates in real time.
+`dataPath` (shares DB, etc.) is config-file only; defaults next to the config file.
 
 ## Production
 
@@ -129,30 +62,18 @@ bun run build
 bun run start
 ```
 
-The production server listens on `0.0.0.0` by default.
+Listens on `0.0.0.0` by default.
 
-## Security
+## Development
 
-- Path traversal protection prevents accessing files outside `mediaDir`
-- File editing restricted to `editableFolders`
-- Optional password auth with scrypt hashing and timing-safe comparison
-- Rate-limited login
-- Admin domain restrictions for separating public share access from admin access
-- Share links use independent passcode-based sessions
+- Typecheck: `bun run tsgo`
+- Lint: `bun run lint-errors`
+- E2E: `bun run test` (single worker) or `bun run test:batch` (CI-style batches)
+- Unit: `bun run test:unit`
 
-## Technology Stack
+## Stack
 
-- **Vite** - Build tool and dev server
-- **React 19** - UI framework
-- **Fastify** - HTTP server
-- **Bun** - JavaScript runtime
-- **Base UI** - Accessible UI primitives
-- **Tailwind CSS v4** - Utility-first styling
-- **TanStack Query** - Data fetching and cache
-- **Zustand** - Client state management
-- **Playwright** - E2E testing
-- **TypeScript** - Type-safe development
-- **oxlint / oxfmt** - Linting and formatting
+Solid.js, Vite, TanStack Query (Solid), Tailwind CSS v4, Fastify, Bun, TypeScript, Playwright, oxlint / oxfmt.
 
 ## License
 
