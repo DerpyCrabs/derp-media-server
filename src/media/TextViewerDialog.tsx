@@ -534,7 +534,7 @@ export function TextViewerBody(props: {
                 when={isMarkdown()}
                 fallback={
                   <div class='h-full overflow-auto p-4'>
-                    <pre class='font-mono text-sm wrap-break-word whitespace-pre-wrap'>
+                    <pre class='wrap-break-word whitespace-pre-wrap font-sans text-base leading-[1.75] text-foreground'>
                       {textQuery.data ?? ''}
                     </pre>
                   </div>
@@ -546,7 +546,7 @@ export function TextViewerBody(props: {
           >
             <div class='h-full p-4'>
               <textarea
-                class='border-input bg-background focus-visible:ring-ring h-full w-full resize-none rounded-lg border p-4 font-mono text-sm focus-visible:ring-2 focus-visible:outline-none'
+                class='border-input bg-background focus-visible:ring-ring h-full w-full resize-none rounded-lg border p-4 font-sans text-base leading-[1.75] text-foreground wrap-break-word whitespace-pre-wrap focus-visible:ring-2 focus-visible:outline-none'
                 value={editContent()}
                 spellcheck={false}
                 placeholder='Enter text…'

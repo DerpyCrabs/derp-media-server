@@ -856,7 +856,7 @@ export function WorkspaceViewerPane(props: Props) {
                     when={isMarkdown()}
                     fallback={
                       <div class='scrollbar-thin h-full overflow-auto'>
-                        <pre class='wrap-break-word font-mono text-sm whitespace-pre-wrap px-3 py-2 text-foreground'>
+                        <pre class='text-foreground wrap-break-word whitespace-pre-wrap px-3 py-2 font-sans text-base leading-[1.75]'>
                           {textQuery.data ?? ''}
                         </pre>
                       </div>
@@ -871,7 +871,7 @@ export function WorkspaceViewerPane(props: Props) {
               >
                 <div class='h-full'>
                   <textarea
-                    class='scrollbar-thin h-full w-full resize-none bg-transparent px-3 py-2 font-mono text-sm focus:outline-none'
+                    class='scrollbar-thin h-full w-full resize-none bg-transparent px-3 py-2 font-sans text-base leading-[1.75] text-foreground wrap-break-word whitespace-pre-wrap focus:outline-none'
                     value={editContent()}
                     spellcheck={false}
                     onInput={(e) => setEditContent(e.currentTarget.value)}
