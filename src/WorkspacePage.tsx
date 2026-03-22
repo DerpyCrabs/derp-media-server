@@ -35,7 +35,7 @@ import type {
 } from '@/lib/use-workspace'
 import {
   normalizePersistedWorkspaceState,
-  serializeWorkspacePersistedState,
+  serializeWorkspaceLayoutState,
   workspaceSourceToMediaContext,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
@@ -68,6 +68,17 @@ import {
   onMount,
   untrack,
 } from 'solid-js'
+import {
+  isWorkspaceTabIconColorKey,
+  workspaceTabIconColorKeyToHex,
+} from '@/lib/workspace-tab-icon-colors'
+import { useThemeStore } from '@/lib/theme-store'
+import {
+  DEFAULT_FAVICON_DATA_URL,
+  generateFaviconFromSvg,
+  getLucideIconSvg,
+  setFaviconHref,
+} from '@/lib/dynamic-favicon-core'
 import { useStoreSync } from './lib/solid-store-sync'
 import type { FileIconContext } from './lib/use-file-icon'
 import { pinnedShellIcon } from './lib/use-file-icon'
@@ -164,6 +175,16 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const [mergeTargetPreview, setMergeTargetPreview] = createSignal<MergeTarget | null>(null)
 
   const preferredSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
+  const themeTick = useStoreSync(useThemeStore)
+
+  const tabChromeRestore = { title: 'Media Server', href: DEFAULT_FAVICON_DATA_URL }
+  let tabFaviconGen = 0
+
+  onMount(() => {
+    tabChromeRestore.title = document.title
+    const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement | null
+    if (link?.href) tabChromeRestore.href = link.href
+  })
 
   let draggedWindowIdForSnap: string | null = null
 
@@ -272,6 +293,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       activeTabMap: { ...w.activeTabMap },
       nextWindowId: w.nextWindowId,
       pinnedTaskbarItems: w.pinnedTaskbarItems ?? [],
+      ...(w.browserTabTitle ? { browserTabTitle: w.browserTabTitle } : {}),
+      ...(w.browserTabIcon ? { browserTabIcon: w.browserTabIcon } : {}),
+      ...(w.browserTabIconColor ? { browserTabIconColor: w.browserTabIconColor } : {}),
     }
   }
 
@@ -281,9 +305,16 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   ) {
     const normalized = normalizePersistedWorkspaceState(snapshot)
     if (!normalized?.windows.length) return
-    const clone = JSON.parse(JSON.stringify(normalized)) as PersistedWorkspaceState
-    setWorkspace(normalized)
-    setLayoutBaselineSerialized(serializeWorkspacePersistedState(clone))
+    const prev = workspace()
+    const merged: PersistedWorkspaceState = {
+      ...normalized,
+      browserTabTitle: normalized.browserTabTitle ?? prev?.browserTabTitle,
+      browserTabIcon: normalized.browserTabIcon ?? prev?.browserTabIcon,
+      browserTabIconColor: normalized.browserTabIconColor ?? prev?.browserTabIconColor,
+    }
+    const clone = JSON.parse(JSON.stringify(merged)) as PersistedWorkspaceState
+    setWorkspace(merged)
+    setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
     setLayoutBaselineSnapshot(clone)
     if (options && 'baselinePresetId' in options) {
       setLayoutBaselinePresetId(options.baselinePresetId ?? null)
@@ -299,7 +330,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   function syncLayoutBaselineToCurrent() {
     const snap = collectLayoutSnapshot()
     const clone = JSON.parse(JSON.stringify(snap)) as PersistedWorkspaceState
-    setLayoutBaselineSerialized(serializeWorkspacePersistedState(clone))
+    setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
     setLayoutBaselineSnapshot(clone)
   }
 
@@ -310,7 +341,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const isLayoutDirty = createMemo(() => {
     const b = layoutBaselineSerialized()
     if (b == null) return false
-    return serializeWorkspacePersistedState(collectLayoutSnapshot()) !== b
+    return serializeWorkspaceLayoutState(collectLayoutSnapshot()) !== b
   })
 
   createEffect(() => {
@@ -342,7 +373,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       const clone = JSON.parse(JSON.stringify(normalized)) as PersistedWorkspaceState
       untrack(() => {
         setLayoutBaselinePresetId(param)
-        setLayoutBaselineSerialized(serializeWorkspacePersistedState(clone))
+        setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
         setLayoutBaselineSnapshot(clone)
         setWorkspace(normalized)
       })
@@ -440,6 +471,39 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         persistTimer = null
       }
     })
+  })
+
+  createEffect(() => {
+    void themeTick()
+    const w = workspace()
+    if (typeof document === 'undefined') return
+    if (!w) return
+    const title = (w.browserTabTitle ?? '').trim()
+    document.title = title ? `${title} · Media Server` : 'Workspace · Media Server'
+    const iconName = (w.browserTabIcon ?? '').trim()
+    const gen = ++tabFaviconGen
+    if (!iconName) {
+      setFaviconHref(tabChromeRestore.href)
+      return
+    }
+    const svg = getLucideIconSvg(iconName)
+    if (!svg) {
+      setFaviconHref(tabChromeRestore.href)
+      return
+    }
+    const isDark = document.documentElement.getAttribute('data-theme')?.endsWith('-dark')
+    const colorKey = (w.browserTabIconColor ?? '').trim()
+    const color = workspaceTabIconColorKeyToHex(colorKey) ?? (isDark ? '#ffffff' : '#000000')
+    void generateFaviconFromSvg(svg, color).then((data) => {
+      if (gen !== tabFaviconGen) return
+      if (data) setFaviconHref(data)
+    })
+  })
+
+  onCleanup(() => {
+    if (typeof document === 'undefined') return
+    document.title = tabChromeRestore.title
+    setFaviconHref(tabChromeRestore.href)
   })
 
   onMount(() => {
@@ -1713,19 +1777,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           </div>
 
           <div class='flex shrink-0 items-center gap-1 border-l border-border pl-2'>
-            <Show when={isLayoutDirty()}>
-              <span
-                data-testid='workspace-layout-modified-badge'
-                class='mr-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-400'
-                title={
-                  layoutBaselinePresetId()
-                    ? 'Layout changed since this saved preset was applied'
-                    : 'Layout changed since the last baseline'
-                }
-              >
-                Modified
-              </span>
-            </Show>
             <WorkspaceTaskbarAudio
               storageKey={() => storageSessionKeyFull().key}
               shareCtx={() => {
@@ -1764,7 +1815,36 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
               isLayoutDirty={isLayoutDirty()}
               layoutBaselinePresetId={layoutBaselinePresetId()}
             />
-            <WorkspaceTaskbarSettings />
+            <WorkspaceTaskbarSettings
+              browserTabTitle={() => workspace()?.browserTabTitle ?? ''}
+              browserTabIcon={() => workspace()?.browserTabIcon ?? ''}
+              browserTabIconColor={() => workspace()?.browserTabIconColor ?? ''}
+              onBrowserTabTitleChange={(value) => {
+                const t = value.trim()
+                setWorkspace((prev) =>
+                  prev ? { ...prev, browserTabTitle: t ? t.slice(0, 120) : undefined } : prev,
+                )
+              }}
+              onBrowserTabIconChange={(value) => {
+                const icon = value.trim().slice(0, 64)
+                setWorkspace((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        browserTabIcon: icon || undefined,
+                        ...(!icon ? { browserTabIconColor: undefined } : {}),
+                      }
+                    : prev,
+                )
+              }}
+              onBrowserTabIconColorChange={(value) => {
+                const raw = value.trim()
+                if (raw && !isWorkspaceTabIconColorKey(raw)) return
+                setWorkspace((prev) =>
+                  prev ? { ...prev, browserTabIconColor: raw || undefined } : prev,
+                )
+              }}
+            />
           </div>
         </div>
       </div>

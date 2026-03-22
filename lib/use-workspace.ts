@@ -7,6 +7,7 @@ import {
   getViewportSize,
   reconcileLayoutBoundsFromSnapZones,
 } from '@/lib/workspace-geometry'
+import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 
 export interface WorkspaceSource {
@@ -85,6 +86,9 @@ export interface PersistedWorkspaceState {
   activeTabMap: Record<string, string>
   nextWindowId: number
   pinnedTaskbarItems: PinnedTaskbarItem[]
+  browserTabTitle?: string
+  browserTabIcon?: string
+  browserTabIconColor?: string
 }
 
 export function workspaceStorageBaseKey(shareToken?: string | null): string {
@@ -99,8 +103,44 @@ function sortTabMapKeys(map: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)))
 }
 
-/** Stable serialization for dirty detection and baseline compare. */
+const MAX_BROWSER_TAB_TITLE_LEN = 120
+const MAX_BROWSER_TAB_ICON_LEN = 64
+
+function parseBrowserTabTitle(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const t = v.trim().slice(0, MAX_BROWSER_TAB_TITLE_LEN)
+  return t.length > 0 ? t : undefined
+}
+
+function parseBrowserTabIcon(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const t = v.trim().slice(0, MAX_BROWSER_TAB_ICON_LEN)
+  if (!t.length) return undefined
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(t)) return undefined
+  return t
+}
+
+function parseBrowserTabIconColor(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const t = v.trim()
+  if (!t.length) return undefined
+  return isWorkspaceTabIconColorKey(t) ? t : undefined
+}
+
 export function serializeWorkspacePersistedState(state: PersistedWorkspaceState): string {
+  return JSON.stringify({
+    windows: state.windows,
+    activeWindowId: state.activeWindowId,
+    activeTabMap: sortTabMapKeys(state.activeTabMap ?? {}),
+    nextWindowId: state.nextWindowId,
+    pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
+    ...(state.browserTabTitle ? { browserTabTitle: state.browserTabTitle } : {}),
+    ...(state.browserTabIcon ? { browserTabIcon: state.browserTabIcon } : {}),
+    ...(state.browserTabIconColor ? { browserTabIconColor: state.browserTabIconColor } : {}),
+  })
+}
+
+export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): string {
   return JSON.stringify({
     windows: state.windows,
     activeWindowId: state.activeWindowId,
@@ -174,12 +214,19 @@ export function normalizePersistedWorkspaceState(
   const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
   const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
 
+  const browserTabTitle = parseBrowserTabTitle(parsed.browserTabTitle)
+  const browserTabIcon = parseBrowserTabIcon(parsed.browserTabIcon)
+  const browserTabIconColor = parseBrowserTabIconColor(parsed.browserTabIconColor)
+
   return {
     windows: reconciledWindows,
     activeWindowId: parsed.activeWindowId ?? null,
     activeTabMap: parsed.activeTabMap ?? {},
     nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
     pinnedTaskbarItems,
+    ...(browserTabTitle ? { browserTabTitle } : {}),
+    ...(browserTabIcon ? { browserTabIcon } : {}),
+    ...(browserTabIconColor ? { browserTabIconColor } : {}),
   }
 }
 

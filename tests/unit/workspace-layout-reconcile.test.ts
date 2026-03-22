@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { reconcileLayoutBoundsFromSnapZones } from '@/lib/workspace-geometry'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
-import { normalizePersistedWorkspaceState } from '@/lib/use-workspace'
+import { workspaceTabIconColorKeyToHex } from '@/lib/workspace-tab-icon-colors'
+import {
+  normalizePersistedWorkspaceState,
+  serializeWorkspaceLayoutState,
+  serializeWorkspacePersistedState,
+} from '@/lib/use-workspace'
 
 function win(
   id: string,
@@ -80,5 +85,122 @@ describe('normalizePersistedWorkspaceState', () => {
     })
     expect(presetStyle?.windows[0]?.layout?.bounds?.width).toBe(640)
     expect(presetStyle?.windows[0]?.layout?.bounds?.x).toBe(640)
+  })
+
+  test('browser tab title and icon parse and serialize', () => {
+    const raw = {
+      windows: [
+        {
+          id: 'a',
+          type: 'browser',
+          title: 'a',
+          source: { kind: 'local', rootPath: null },
+          initialState: {},
+          layout: {
+            snapZone: null,
+            bounds: { x: 0, y: 0, width: 400, height: 300 },
+            fullscreen: false,
+            minimized: false,
+            zIndex: 1,
+          },
+        },
+      ],
+      activeWindowId: 'a',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+      browserTabTitle: '  Review  ',
+      browserTabIcon: 'LayoutDashboard',
+    }
+    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    expect(n?.browserTabTitle).toBe('Review')
+    expect(n?.browserTabIcon).toBe('LayoutDashboard')
+    expect(serializeWorkspacePersistedState(n!)).toContain('browserTabTitle')
+    expect(serializeWorkspaceLayoutState(n!)).not.toContain('browserTabTitle')
+  })
+
+  test('invalid browser tab icon is dropped', () => {
+    const raw = {
+      windows: [
+        {
+          id: 'a',
+          type: 'browser',
+          title: 'a',
+          source: { kind: 'local', rootPath: null },
+          initialState: {},
+          layout: {
+            snapZone: null,
+            bounds: { x: 0, y: 0, width: 400, height: 300 },
+            fullscreen: false,
+            minimized: false,
+            zIndex: 1,
+          },
+        },
+      ],
+      activeWindowId: 'a',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+      browserTabIcon: 'not-valid!',
+    }
+    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    expect(n?.browserTabIcon).toBeUndefined()
+  })
+
+  test('browser tab icon color tailwind key', () => {
+    const raw = {
+      windows: [
+        {
+          id: 'a',
+          type: 'browser',
+          title: 'a',
+          source: { kind: 'local', rootPath: null },
+          initialState: {},
+          layout: {
+            snapZone: null,
+            bounds: { x: 0, y: 0, width: 400, height: 300 },
+            fullscreen: false,
+            minimized: false,
+            zIndex: 1,
+          },
+        },
+      ],
+      activeWindowId: 'a',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+      browserTabIconColor: 'blue-500',
+    }
+    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    expect(n?.browserTabIconColor).toBe('blue-500')
+    expect(workspaceTabIconColorKeyToHex('blue-500')).toBe('#3b82f6')
+  })
+
+  test('legacy hex tab icon color is dropped', () => {
+    const raw = {
+      windows: [
+        {
+          id: 'a',
+          type: 'browser',
+          title: 'a',
+          source: { kind: 'local', rootPath: null },
+          initialState: {},
+          layout: {
+            snapZone: null,
+            bounds: { x: 0, y: 0, width: 400, height: 300 },
+            fullscreen: false,
+            minimized: false,
+            zIndex: 1,
+          },
+        },
+      ],
+      activeWindowId: 'a',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+      browserTabIconColor: '#ff0000',
+    }
+    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    expect(n?.browserTabIconColor).toBeUndefined()
   })
 })
