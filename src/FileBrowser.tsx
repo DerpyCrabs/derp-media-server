@@ -7,6 +7,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import type { GlobalSettings } from '@/lib/use-settings'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
+import {
+  finePointerDragEnabled,
+  subscribeFinePointerDragEnabled,
+} from '@/lib/enable-fine-pointer-drag'
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
@@ -247,7 +251,7 @@ export function FileBrowser() {
   const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
   const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
   const [dragAllowsMove, setDragAllowsMove] = createSignal(false)
-  const [enableDrag, setEnableDrag] = createSignal(false)
+  const [enableDrag, setEnableDrag] = createSignal(finePointerDragEnabled())
   let externalUploadDragDepth = 0
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
   const [pasteData, setPasteData] = createSignal<PasteData | null>(null)
@@ -264,10 +268,8 @@ export function FileBrowser() {
   )
 
   onMount(() => {
-    if (typeof window === 'undefined') return
-    const mqHover = window.matchMedia('(hover: hover)')
-    const mqFine = window.matchMedia('(pointer: fine)')
-    setEnableDrag(mqHover.matches || mqFine.matches)
+    setEnableDrag(finePointerDragEnabled())
+    return subscribeFinePointerDragEnabled(setEnableDrag)
   })
 
   const fileRowMenu = useFileRowContextMenu({
@@ -1129,7 +1131,13 @@ export function FileBrowser() {
                   fallback={
                     <>
                       <Show when={inKb() && !!currentPath()}>
-                        <KbDashboard scopePath={currentPath()} onFileClick={handleKbResultClick} />
+                        <KbDashboard
+                          scopePath={currentPath()}
+                          onFileClick={handleKbResultClick}
+                          recentDragCanMove={(p) =>
+                            !!allowMoveFile() && isPathEditable(p, editableFolders())
+                          }
+                        />
                       </Show>
                       <Switch>
                         <Match when={viewMode() === 'grid'}>

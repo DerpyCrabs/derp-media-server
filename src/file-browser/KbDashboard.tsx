@@ -1,9 +1,14 @@
+import { setFileDragData } from '@/lib/file-drag-data'
+import {
+  finePointerDragEnabled,
+  subscribeFinePointerDragEnabled,
+} from '@/lib/enable-fine-pointer-drag'
 import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
 import FileText from 'lucide-solid/icons/file-text'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 
 type RecentFile = { path: string; name: string; modifiedAt: string }
 
@@ -28,10 +33,19 @@ type Props = {
   dir?: string
   /** Tighter strip + chips (workspace window chrome). */
   mode?: 'MediaServer' | 'Workspace'
+  /** When set, recent chips use copyMove when true for this path; otherwise copy only (e.g. tab bar). */
+  recentDragCanMove?: (filePath: string) => boolean
 }
 
 export function KbDashboard(props: Props) {
   const compact = () => (props.mode ?? 'MediaServer') === 'Workspace'
+  const [enableDrag, setEnableDrag] = createSignal(finePointerDragEnabled())
+
+  onMount(() => {
+    setEnableDrag(finePointerDragEnabled())
+    return subscribeFinePointerDragEnabled(setEnableDrag)
+  })
+
   const directQuery = useQuery(() => ({
     queryKey: queryKeys.kbRecent(props.scopePath),
     queryFn: () =>
@@ -74,6 +88,20 @@ export function KbDashboard(props: Props) {
     onCleanup(() => el.removeEventListener('wheel', handleWheel))
   })
 
+  function onRecentDragStart(file: RecentFile, e: globalThis.DragEvent) {
+    const dtr = e.dataTransfer
+    if (!dtr || !enableDrag()) return
+    const token = props.shareToken
+    const canMove = props.recentDragCanMove?.(file.path) ?? false
+    setFileDragData(dtr, {
+      path: file.path,
+      isDirectory: false,
+      sourceKind: token ? 'share' : 'local',
+      ...(token ? { sourceToken: token } : {}),
+    })
+    dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
+  }
+
   return (
     <Show when={!isLoading() && recent().length > 0}>
       <div
@@ -91,15 +119,25 @@ export function KbDashboard(props: Props) {
         >
           <For each={recent()}>
             {(file) => (
-              <button
-                type='button'
+              <div
+                role='button'
+                tabindex={0}
+                {...(compact() ? { 'data-no-window-drag': '' } : {})}
                 class={cn(
-                  'flex shrink-0 items-center rounded border border-border bg-background text-left transition-colors hover:bg-muted/50',
+                  'flex shrink-0 cursor-pointer items-center rounded border border-border bg-background text-left transition-colors hover:bg-muted/50',
                   compact()
                     ? 'gap-1 px-1.5 py-0.5'
                     : 'gap-1 px-1.5 py-1 md:gap-1.5 md:px-2 md:py-1.5',
                 )}
+                draggable={enableDrag()}
                 onClick={() => props.onFileClick(file.path)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    props.onFileClick(file.path)
+                  }
+                }}
+                onDragStart={(e) => onRecentDragStart(file, e)}
               >
                 <FileText
                   class={cn(
@@ -124,7 +162,7 @@ export function KbDashboard(props: Props) {
                 >
                   {formatRelativeTime(file.modifiedAt)}
                 </span>
-              </button>
+              </div>
             )}
           </For>
         </div>
