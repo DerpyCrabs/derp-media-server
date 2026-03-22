@@ -68,7 +68,7 @@ export function MarkdownPane(props: Props): JSX.Element {
       </Show>
       <div
         ref={setMountEl}
-        class='prose prose-neutral dark:prose-invert min-h-full w-full max-w-none px-3 py-2 [&_img]:max-h-48 [&_img]:max-w-sm [&_img]:cursor-zoom-in [&_img]:object-contain'
+        class='markdown-pane-prose prose prose-neutral dark:prose-invert min-h-full w-full max-w-none px-3 py-2 [&_img]:max-h-48 [&_img]:max-w-sm [&_img]:cursor-zoom-in [&_img]:object-contain'
         onClick={(e) => {
           const t = e.target
           if (t instanceof HTMLImageElement) {
