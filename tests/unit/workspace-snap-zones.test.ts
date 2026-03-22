@@ -42,4 +42,16 @@ describe('detectEdgeAssistGridSpan', () => {
     const s = detectEdgeAssistGridSpan(cw / 2, 10, cw, ch, '3x2', { suppressTopEdgeSpans: true })
     expect(s).toBeNull()
   })
+
+  test('top edge center cell for 3x3', () => {
+    const s = detectEdgeAssistGridSpan(cw / 2, 10, cw, ch, '3x3', { suppressTopEdgeSpans: false })
+    expect(s).toEqual({
+      gridCols: 3,
+      gridRows: 3,
+      gc0: 1,
+      gc1: 1,
+      gr0: 0,
+      gr1: 0,
+    })
+  })
 })

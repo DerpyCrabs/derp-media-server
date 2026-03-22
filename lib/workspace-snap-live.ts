@@ -89,6 +89,7 @@ const LIVE_GRID: Record<string, Partial<Record<SnapZone, [number, number]>>> = {
   },
   /** 2×3 grid: named zones not mapped; live preview falls back to template bounds. */
   grid2x3: {},
+  grid3x3: {},
 }
 
 function shapeToLiveGridKey(
@@ -98,6 +99,8 @@ function shapeToLiveGridKey(
   switch (shape) {
     case '3x2':
       return 'thirds3x2'
+    case '3x3':
+      return 'grid3x3'
     case '2x2':
       return 'quarters'
     case '2x3':
@@ -121,6 +124,8 @@ function gridDims(key: keyof typeof LIVE_GRID): { cols: number; rows: number } {
       return { cols: 1, rows: 3 }
     case 'grid2x3':
       return { cols: 2, rows: 3 }
+    case 'grid3x3':
+      return { cols: 3, rows: 3 }
     default:
       return { cols: 1, rows: 1 }
   }

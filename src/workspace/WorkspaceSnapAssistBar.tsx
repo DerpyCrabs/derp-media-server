@@ -8,6 +8,8 @@ function shapeLabel(id: AssistGridShape): string {
   switch (id) {
     case '3x2':
       return '3×2'
+    case '3x3':
+      return '3×3'
     case '2x2':
       return '2×2'
     case '2x3':
@@ -45,6 +47,12 @@ export function WorkspaceSnapAssistBar(props: WorkspaceSnapAssistBarProps) {
             getHoverPick={() => narrowPickToAssistShape(props.hoverPick, '3x2')}
             aspectRatio={aspect()}
             layoutLabel={shapeLabel('3x2')}
+          />
+          <WorkspaceSnapAssistMasterGrid
+            shape='3x3'
+            getHoverPick={() => narrowPickToAssistShape(props.hoverPick, '3x3')}
+            aspectRatio={aspect()}
+            layoutLabel={shapeLabel('3x3')}
           />
           <WorkspaceSnapAssistMasterGrid
             shape='2x2'

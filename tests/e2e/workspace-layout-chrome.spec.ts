@@ -279,14 +279,14 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeLessThan(viewport.height - TASKBAR_HEIGHT)
   })
 
-  test('layout picker shows three mini grids', async () => {
+  test('layout picker shows four mini grids', async () => {
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
     await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    await expect(page.locator('[data-assist-mini-grid]')).toHaveCount(3)
+    await expect(page.locator('[data-assist-mini-grid]')).toHaveCount(4)
   })
 
   test('snapping to top-half via picker fills top half of viewport', async () => {
