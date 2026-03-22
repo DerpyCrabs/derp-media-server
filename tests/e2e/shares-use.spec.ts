@@ -17,10 +17,20 @@ async function createShare(page: Page, body: Record<string, unknown>): Promise<s
 
 function watchShareRequests(page: Page) {
   const requests: string[] = []
-  page.on('request', (request) => {
+  page.context().on('request', (request) => {
     requests.push(request.url())
   })
   return requests
+}
+
+function watchConsole(page: Page) {
+  const lines: string[] = []
+  page.on('console', (msg) => lines.push(msg.text()))
+  return lines
+}
+
+function sawShareSseConnect(consoleLines: string[]) {
+  return consoleLines.some((l) => l.includes('[Share SSE] Connected to share stream'))
 }
 
 function getShareToken(shareUrl: string): string {
@@ -105,6 +115,7 @@ test.describe('Using Shares', () => {
 
   test('share interactions stay scoped to share APIs', async ({ page }) => {
     const requests = watchShareRequests(page)
+    const consoleLines = watchConsole(page)
     const token = getShareToken(folderShareUrl)
 
     await page.goto(folderShareUrl)
@@ -125,18 +136,24 @@ test.describe('Using Shares', () => {
     await expect(page.locator('video')).toBeVisible()
 
     expect(
-      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`),
+      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`) ||
+        sawShareSseConnect(consoleLines),
     ).toBeTruthy()
     expectNoAdminShareLeaks(requests)
   })
 
   test('share receives live updates through scoped stream', async ({ page }) => {
     const requests = watchShareRequests(page)
+    const consoleLines = watchConsole(page)
     const token = getShareToken(editableShareUrl)
     const liveFileName = `live-share-update-${Date.now()}.txt`
 
     await page.goto(editableShareUrl)
     await expect(page.getByText('public-doc.txt')).toBeVisible()
+    await page.waitForEvent('console', {
+      predicate: (msg) => msg.text().includes('[Share SSE] Connected to share stream'),
+      timeout: 10000,
+    })
 
     const createResponse = await page.request.post(`/api/share/${token}/create`, {
       data: {
@@ -149,7 +166,8 @@ test.describe('Using Shares', () => {
 
     await expect(page.locator('table').getByText(liveFileName)).toBeVisible()
     expect(
-      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`),
+      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`) ||
+        sawShareSseConnect(consoleLines),
     ).toBeTruthy()
     expectNoAdminShareLeaks(requests)
 

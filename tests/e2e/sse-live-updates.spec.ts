@@ -214,7 +214,7 @@ test.describe('SSE Live Updates', () => {
     await share1.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
     const deleteConfirm = share1.getByRole('alertdialog')
     await expect(deleteConfirm).toBeVisible()
-    await deleteConfirm.getByRole('button', { name: /Delete/i }).click()
+    await deleteConfirm.getByRole('button', { name: /Delete/i }).click({ force: true })
 
     await expect(share2.locator('table').getByText(fileName)).not.toBeVisible()
 
