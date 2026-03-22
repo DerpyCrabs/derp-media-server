@@ -53,6 +53,24 @@ export function patchTestMediaAfterCacheCopy(baseDir: string) {
   const notesDir = path.join(baseDir, 'Notes')
   ensureDir(notesDir)
   fs.writeFileSync(path.join(notesDir, 'autosave-parity.txt'), AUTOSAVE_PARITY_TXT_CONTENT)
+
+  const deepDir = path.join(notesDir, 'subfolder', 'breadcrumb-deep')
+  ensureDir(deepDir)
+  fs.writeFileSync(
+    path.join(deepDir, 'deep-readme.txt'),
+    'Fixture for breadcrumb depth / ellipsis e2e tests.\n',
+  )
+
+  const deepChain = ['seg-a', 'seg-b', 'seg-c', 'breadcrumb-deep']
+  let chainPath = notesDir
+  for (const part of deepChain) {
+    chainPath = path.join(chainPath, part)
+    ensureDir(chainPath)
+  }
+  fs.writeFileSync(
+    path.join(chainPath, 'chain-readme.txt'),
+    'Fixture for deep breadcrumb ellipsis e2e tests.\n',
+  )
 }
 
 export function generateTestMedia(baseDir: string) {
@@ -134,6 +152,21 @@ export function generateTestMedia(baseDir: string) {
   fs.writeFileSync(
     path.join(notesDir, 'subfolder', 'nested-note.md'),
     '# Nested Note\n\nThis is a nested note inside a subfolder.\n',
+  )
+  ensureDir(path.join(notesDir, 'subfolder', 'breadcrumb-deep'))
+  fs.writeFileSync(
+    path.join(notesDir, 'subfolder', 'breadcrumb-deep', 'deep-readme.txt'),
+    'Fixture for breadcrumb depth / ellipsis e2e tests.\n',
+  )
+  const deepChain = ['seg-a', 'seg-b', 'seg-c', 'breadcrumb-deep']
+  let chainPath = notesDir
+  for (const part of deepChain) {
+    chainPath = path.join(chainPath, part)
+    ensureDir(chainPath)
+  }
+  fs.writeFileSync(
+    path.join(chainPath, 'chain-readme.txt'),
+    'Fixture for deep breadcrumb ellipsis e2e tests.\n',
   )
   fs.writeFileSync(path.join(notesDir, 'images', 'diagram.png'), MINIMAL_PNG)
 
