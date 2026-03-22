@@ -173,7 +173,24 @@ export function openInNewTabInGroupState(
     return w
   })
   const groupMembers = withTabGroup.filter((w) => groupIdForWindow(w) === groupId)
-  const idx = insertIndex ?? groupMembers.length
+  let idx: number
+  if (insertIndex !== undefined) {
+    idx = insertIndex
+  } else {
+    const sourceIdx = groupMembers.findIndex((w) => w.id === sourceWindowId)
+    if (sourceIdx < 0) {
+      idx = groupMembers.length
+    } else {
+      let anchorIdx = sourceIdx
+      for (let i = 0; i < groupMembers.length; i++) {
+        if (groupMembers[i].openedFromWindowId === sourceWindowId) {
+          anchorIdx = Math.max(anchorIdx, i)
+        }
+      }
+      idx = anchorIdx + 1
+      newWindow = { ...newWindow, openedFromWindowId: sourceWindowId }
+    }
+  }
   const nextWindows = insertWindowAtGroupIndex(withTabGroup, newWindow, groupId, idx)
 
   return {
