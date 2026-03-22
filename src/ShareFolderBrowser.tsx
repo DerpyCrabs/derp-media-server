@@ -3,6 +3,11 @@ import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { stripSharePrefix } from '@/lib/source-context'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import { api, post } from '@/lib/api'
+import {
+  prefetchFolderContentsOnHover,
+  prefetchShareDirHover,
+  type PrefetchFolderHoverContext,
+} from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
@@ -382,6 +387,22 @@ export function ShareFolderBrowser(props: Props) {
     e.preventDefault()
     e.stopPropagation()
     setRowMenu({ x: e.clientX, y: e.clientY, file })
+  }
+
+  function sharePrefetchCtx(): PrefetchFolderHoverContext {
+    return {
+      queryClient,
+      share: { token: props.token, sharePath: props.shareInfo.path },
+      shareIsKnowledgeBase: !!props.shareInfo.isKnowledgeBase,
+    }
+  }
+
+  function prefetchShareParentDirectory() {
+    const sub = currentSubDir()
+    if (!sub) return
+    const parts = sub.split('/').filter(Boolean)
+    const parentSub = parts.length <= 1 ? '' : parts.slice(0, -1).join('/')
+    prefetchShareDirHover(sharePrefetchCtx(), parentSub)
   }
 
   function handleParentDirectory() {
@@ -932,6 +953,7 @@ export function ShareFolderBrowser(props: Props) {
                         <div
                           class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                           onClick={handleParentDirectory}
+                          onPointerEnter={prefetchShareParentDirectory}
                           role='button'
                           tabindex={0}
                         >
@@ -950,6 +972,9 @@ export function ShareFolderBrowser(props: Props) {
                           <div
                             class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                             onClick={() => handleFileClick(file)}
+                            onPointerEnter={() =>
+                              prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
+                            }
                             onContextMenu={(e) => openRowMenu(e, file)}
                             {...createLongPressContextMenuHandlers()}
                             role='button'
@@ -983,6 +1008,7 @@ export function ShareFolderBrowser(props: Props) {
                             <tr
                               class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
                               onClick={handleParentDirectory}
+                              onPointerEnter={prefetchShareParentDirectory}
                             >
                               <td class='w-12 p-2 align-middle'>
                                 <div class='flex items-center justify-center'>
@@ -1002,6 +1028,9 @@ export function ShareFolderBrowser(props: Props) {
                               <tr
                                 class='hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors'
                                 onClick={() => handleFileClick(file)}
+                                onPointerEnter={() =>
+                                  prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
+                                }
                                 onContextMenu={(e) => openRowMenu(e, file)}
                                 {...createLongPressContextMenuHandlers()}
                               >

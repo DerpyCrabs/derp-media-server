@@ -14,6 +14,11 @@ import {
   subscribeFinePointerDragEnabled,
 } from '@/lib/enable-fine-pointer-drag'
 import { api, post } from '@/lib/api'
+import {
+  prefetchFolderContentsOnHover,
+  prefetchParentDirectoryHover,
+  type PrefetchFolderHoverContext,
+} from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
@@ -898,6 +903,18 @@ export function WorkspaceBrowserPane(props: Props) {
     createFolderMutation.reset()
   }
 
+  function workspacePrefetchCtx(): PrefetchFolderHoverContext {
+    const sh = share()
+    if (sh) {
+      return {
+        queryClient,
+        share: { token: sh.token, sharePath: sh.sharePath },
+        shareIsKnowledgeBase: !!props.shareIsKnowledgeBase,
+      }
+    }
+    return { queryClient, knowledgeBases: knowledgeBases() }
+  }
+
   function handleParentDirectory() {
     props.onNavigateDir(props.windowId, parentDir(currentPath()))
   }
@@ -1270,6 +1287,12 @@ export function WorkspaceBrowserPane(props: Props) {
                           dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
                         )}
                         onClick={handleParentDirectory}
+                        onPointerEnter={() =>
+                          prefetchParentDirectoryHover(workspacePrefetchCtx(), {
+                            currentPath: currentPath(),
+                            isVirtualFolder: isVirtualFolder(),
+                          })
+                        }
                         onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
                         onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
                         onDrop={allowMoveFile() ? parentRowDrop : undefined}
@@ -1298,6 +1321,9 @@ export function WorkspaceBrowserPane(props: Props) {
                           )}
                           draggable={enableDrag()}
                           onClick={() => handleFileClick(file)}
+                          onPointerEnter={() =>
+                            prefetchFolderContentsOnHover(workspacePrefetchCtx(), file)
+                          }
                           onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
                           {...createLongPressContextMenuHandlers()}
                           onDragStart={(e) => onFileDragStart(file, e)}
@@ -1489,6 +1515,12 @@ export function WorkspaceBrowserPane(props: Props) {
                               dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
                             )}
                             onClick={handleParentDirectory}
+                            onPointerEnter={() =>
+                              prefetchParentDirectoryHover(workspacePrefetchCtx(), {
+                                currentPath: currentPath(),
+                                isVirtualFolder: isVirtualFolder(),
+                              })
+                            }
                             onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
                             onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
                             onDrop={allowMoveFile() ? parentRowDrop : undefined}
@@ -1521,6 +1553,9 @@ export function WorkspaceBrowserPane(props: Props) {
                                 )}
                                 draggable={canDragRow}
                                 onClick={() => handleFileClick(file)}
+                                onPointerEnter={() =>
+                                  prefetchFolderContentsOnHover(workspacePrefetchCtx(), file)
+                                }
                                 onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
                                 {...createLongPressContextMenuHandlers()}
                                 onDragStart={(e) => onFileDragStart(file, e)}

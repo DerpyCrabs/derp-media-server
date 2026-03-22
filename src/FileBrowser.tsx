@@ -13,6 +13,11 @@ import {
 } from '@/lib/enable-fine-pointer-drag'
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import { api, post } from '@/lib/api'
+import {
+  prefetchFolderContentsOnHover,
+  prefetchParentDirectoryHover,
+  type PrefetchFolderHoverContext,
+} from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
@@ -981,6 +986,10 @@ export function FileBrowser() {
     )
   }
 
+  function fileBrowserPrefetchCtx(): PrefetchFolderHoverContext {
+    return { queryClient, knowledgeBases: knowledgeBases() }
+  }
+
   function handleFileClick(file: FileItem) {
     if (file.isDirectory) {
       navigateToFolder(file.path)
@@ -1147,6 +1156,12 @@ export function FileBrowser() {
                                 <div
                                   class='ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col'
                                   onClick={handleParentDirectory}
+                                  onPointerEnter={() =>
+                                    prefetchParentDirectoryHover(fileBrowserPrefetchCtx(), {
+                                      currentPath: currentPath(),
+                                      isVirtualFolder: isVirtualFolder(),
+                                    })
+                                  }
                                   onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
                                   role='button'
                                   tabindex={0}
@@ -1173,6 +1188,12 @@ export function FileBrowser() {
                                         'ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col',
                                       )}
                                       onClick={() => handleFileClick(file)}
+                                      onPointerEnter={() =>
+                                        prefetchFolderContentsOnHover(
+                                          fileBrowserPrefetchCtx(),
+                                          file,
+                                        )
+                                      }
                                       onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
                                       {...createLongPressContextMenuHandlers()}
                                       onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
@@ -1308,6 +1329,12 @@ export function FileBrowser() {
                                         dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
                                       )}
                                       onClick={handleParentDirectory}
+                                      onPointerEnter={() =>
+                                        prefetchParentDirectoryHover(fileBrowserPrefetchCtx(), {
+                                          currentPath: currentPath(),
+                                          isVirtualFolder: isVirtualFolder(),
+                                        })
+                                      }
                                       onDragOver={
                                         allowMoveFile() && canDropOnParent()
                                           ? parentRowDragOver
@@ -1353,6 +1380,12 @@ export function FileBrowser() {
                                           )}
                                           draggable={canDragRow}
                                           onClick={() => handleFileClick(file)}
+                                          onPointerEnter={() =>
+                                            prefetchFolderContentsOnHover(
+                                              fileBrowserPrefetchCtx(),
+                                              file,
+                                            )
+                                          }
                                           onContextMenu={(e) =>
                                             fileRowMenu.openRowContextMenu(e, file)
                                           }
