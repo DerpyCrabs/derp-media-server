@@ -13,7 +13,13 @@ const BATCHES = [
   },
   {
     id: '2',
-    tests: ['workspace-controls', 'navigation', 'upload', 'file-browser-misc'],
+    tests: [
+      'workspace-controls',
+      'navigation',
+      'breadcrumbs-adaptive',
+      'upload',
+      'file-browser-misc',
+    ],
   },
   {
     id: '3',

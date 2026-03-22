@@ -47,9 +47,10 @@ test.describe('Workspace File Browser', () => {
       await content.getByText('Documents', { exact: true }).click()
       await expect(content.getByText('readme.txt')).toBeVisible()
       await content.getByRole('button', { name: 'Home' }).click()
+      const table = content.locator('table')
       await Promise.all(
         ['Videos', 'Music', 'Images', 'Documents'].map((folder) =>
-          expect(content.getByText(folder, { exact: true })).toBeVisible(),
+          expect(table.getByText(folder, { exact: true })).toBeVisible(),
         ),
       )
     })
@@ -93,7 +94,14 @@ test.describe('Workspace File Browser', () => {
       await content.getByText('Notes', { exact: true }).click()
       await content.locator('table').getByText('subfolder', { exact: true }).click()
       await expect(content.locator('table').getByText('nested-note.md')).toBeVisible()
-      await content.locator('[data-breadcrumb-path="Notes"]').dispatchEvent('contextmenu')
+      let notesBreadcrumb = content.locator('[data-breadcrumb-path="Notes"]')
+      if ((await notesBreadcrumb.count()) === 0) {
+        await content.locator('[data-breadcrumb-segment="path-picker"]').click()
+        notesBreadcrumb = page
+          .getByTestId('breadcrumb-path-menu')
+          .locator('[data-breadcrumb-path="Notes"]')
+      }
+      await notesBreadcrumb.dispatchEvent('contextmenu')
       await expect(page.getByTestId('breadcrumb-menu-set-icon')).toBeVisible()
     })
   })

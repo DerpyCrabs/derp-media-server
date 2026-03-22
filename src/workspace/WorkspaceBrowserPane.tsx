@@ -1157,14 +1157,16 @@ export function WorkspaceBrowserPane(props: Props) {
         data-no-window-drag
         class='flex h-9 shrink-0 items-center border-b border-border bg-muted/50 px-2 py-0'
       >
-        <div class='flex w-full flex-wrap items-center justify-between gap-1'>
-          <Breadcrumbs
-            currentPath={currentPath()}
-            onNavigate={handleBreadcrumbNavigate}
-            mode='Workspace'
-            onCrumbContextMenu={handleWorkspaceBreadcrumbContextMenu}
-          />
-          <div class='flex flex-wrap items-center justify-end gap-1 md:justify-start'>
+        <div class='flex w-full min-w-0 flex-wrap items-center justify-between gap-1'>
+          <div data-breadcrumb-slot class='flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden'>
+            <Breadcrumbs
+              currentPath={currentPath()}
+              onNavigate={handleBreadcrumbNavigate}
+              mode='Workspace'
+              onCrumbContextMenu={handleWorkspaceBreadcrumbContextMenu}
+            />
+          </div>
+          <div class='flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'>
             <Show when={inKb()}>
               <div
                 class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'

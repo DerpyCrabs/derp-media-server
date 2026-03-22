@@ -1060,11 +1060,17 @@ export function FileBrowser() {
             <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none lg:rounded-xl py-0 text-sm shadow-xs ring-1'>
               <div class='shrink-0 border-b border-border bg-muted/30 p-1.5 lg:p-2'>
                 <div class='flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'>
-                  <Breadcrumbs
-                    currentPath={currentPath()}
-                    onNavigate={handleBreadcrumbNavigate}
-                    onCrumbContextMenu={handleBreadcrumbCrumbContextMenu}
-                  />
+                  <div
+                    data-breadcrumb-slot
+                    data-testid='breadcrumb-slot'
+                    class='flex min-h-0 min-w-0 flex-1 overflow-hidden'
+                  >
+                    <Breadcrumbs
+                      currentPath={currentPath()}
+                      onNavigate={handleBreadcrumbNavigate}
+                      onCrumbContextMenu={handleBreadcrumbCrumbContextMenu}
+                    />
+                  </div>
                   <Show when={inKb()}>
                     <div class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'>
                       <div class='relative' data-kb-search-root>
