@@ -44,11 +44,9 @@ test.describe('Image Viewer', () => {
   test('fit-to-screen button resets zoom and rotation', async ({ page }) => {
     await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
 
-    // Zoom in and rotate first
     await page.locator('button:has(.lucide-zoom-in)').click()
     await page.locator('button:has(.lucide-rotate-cw)').click()
 
-    // Hit fit to screen
     await page.locator('button[title="Fit to screen"]').click()
     await expect(page.getByText('Fit')).toBeVisible()
     const img = page.locator('img[alt="photo.jpg"]')

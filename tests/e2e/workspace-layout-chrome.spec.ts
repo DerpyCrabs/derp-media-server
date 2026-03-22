@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import {
   TASKBAR_HEIGHT,
   gotoWorkspace,
@@ -9,21 +9,40 @@ import {
   getWindowBounds,
   waitForWindowBoundsStable,
   dragFromTo,
+  assistMiniGrid,
+  assistMiniGridCell,
   dragToEdge,
-} from './workspace-layout-helpers'
+  presetAssistGridShapeBeforeGoto,
+  WORKSPACE_VISIBLE_WINDOW_GROUP,
+} from '../e2e/workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 test.describe('Tiling Layout Picker', () => {
-  test('selects full-screen layout', async ({ page }) => {
+  test('selects full-screen layout', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
-    await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
-
-    const templates = page.locator('[data-snap-layout-template]')
-    const fullTemplate = templates.first()
-    await fullTemplate.locator('button').first().click()
+    await maximizeBtn.click()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
@@ -34,39 +53,67 @@ test.describe('Tiling Layout Picker', () => {
     expect(bounds.height).toBeGreaterThan(containerH - 10)
   })
 
-  test('selects left-right split', async ({ page }) => {
+  test('selects left column tile on default 3×2 grid', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    const templates = page.locator('[data-snap-layout-template]')
-    const leftRightTemplate = templates.nth(1)
-    await leftRightTemplate.locator('button').first().click()
+    await assistMiniGrid(page, '3x2').getByTestId('snap-assist-master-cell').click()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
-    const halfW = Math.round(viewport.width / 2)
+    const thirdW = Math.round(viewport.width / 3)
+    const containerH = viewport.height - TASKBAR_HEIGHT
+    const halfH = Math.round(containerH / 2)
 
     expect(bounds.x).toBeLessThanOrEqual(2)
-    expect(bounds.width).toBeGreaterThan(halfW - 20)
-    expect(bounds.width).toBeLessThan(halfW + 20)
+    expect(bounds.y).toBeLessThanOrEqual(2)
+    expect(bounds.width).toBeGreaterThan(thirdW - 24)
+    expect(bounds.width).toBeLessThan(thirdW + 24)
+    expect(bounds.height).toBeGreaterThan(halfH - 24)
+    expect(bounds.height).toBeLessThan(halfH + 24)
   })
 
-  test('selects quarter layout', async ({ page }) => {
+  test('tiling picker hover highlight moves from first quarter cell to second', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    const templates = page.locator('[data-snap-layout-template]')
-    const quartersTemplate = templates.nth(4)
-    await quartersTemplate.locator('button').first().click()
+    const mini = assistMiniGrid(page, '2x2')
+    const leftTop = assistMiniGridCell(mini, 0, 0, 0, 0)
+    const rightTop = assistMiniGridCell(mini, 1, 1, 0, 0)
+    await expect(leftTop).toBeVisible()
+    await expect(rightTop).toBeVisible()
+
+    const lbox = await leftTop.boundingBox()
+    const rbox = await rightTop.boundingBox()
+    if (!lbox || !rbox) throw new Error('Mini grid cells not laid out')
+
+    await page.mouse.move(lbox.x + lbox.width / 2, lbox.y + lbox.height / 2)
+    await expect(leftTop).toHaveAttribute('data-snap-assist-hover-active', '')
+    await expect(rightTop).not.toHaveAttribute('data-snap-assist-hover-active', '')
+
+    await page.mouse.move(rbox.x + rbox.width / 2, rbox.y + rbox.height / 2, { steps: 12 })
+    await expect(rightTop).toHaveAttribute('data-snap-assist-hover-active', '')
+    await expect(leftTop).not.toHaveAttribute('data-snap-assist-hover-active', '')
+  })
+
+  test('selects quarter layout via 2×2 grid', async () => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+
+    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
+
+    await assistMiniGrid(page, '2x2').getByTestId('snap-assist-master-cell').click()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
@@ -83,36 +130,37 @@ test.describe('Tiling Layout Picker', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
-  test('picker closes on escape', async ({ page }) => {
+  test('picker closes on escape', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
     await page.keyboard.press('Escape')
 
-    await expect(page.getByText('Snap layout')).not.toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).not.toBeVisible()
   })
 
-  test('picker closes on outside click', async ({ page }) => {
+  test('picker closes on outside click', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
     const content = groups.first().locator('.workspace-window-content')
     await content.click({ position: { x: 10, y: 10 } })
 
-    await expect(page.getByText('Snap layout')).not.toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).not.toBeVisible()
   })
 })
 
 test.describe('Drag Restore', () => {
-  test('dragging a snapped window restores its pre-snap size', async ({ page }) => {
+  test('dragging a snapped window restores its pre-snap size', async () => {
+    await presetAssistGridShapeBeforeGoto(page, '3x2')
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -122,7 +170,9 @@ test.describe('Drag Restore', () => {
     await dragToEdge(page, handle, 'left')
 
     const snappedBounds = await getWindowBounds(groups.first())
-    expect(snappedBounds.width).toBeGreaterThan(preBounds.width + 50)
+    const thirdW = Math.round(page.viewportSize()!.width / 3)
+    expect(snappedBounds.width).toBeGreaterThan(thirdW - 40)
+    expect(snappedBounds.width).toBeLessThan(thirdW + 40)
 
     const handle2 = getDragHandle(groups.first())
     const box = await handle2.boundingBox()
@@ -142,7 +192,7 @@ test.describe('Drag Restore', () => {
     expect(restoredBounds.width).toBeLessThan(preBounds.width + 50)
   })
 
-  test('dragging a maximized window restores it', async ({ page }) => {
+  test('dragging a maximized window restores it', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const viewport = page.viewportSize()!
@@ -170,7 +220,7 @@ test.describe('Drag Restore', () => {
     expect(restoredBounds.width).toBeLessThan(viewport.width - 50)
   })
 
-  test('restored window follows cursor position', async ({ page }) => {
+  test('restored window follows cursor position', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -193,7 +243,7 @@ test.describe('Drag Restore', () => {
 })
 
 test.describe('Window Minimum Size', () => {
-  test('window cannot be resized below 360x260', async ({ page }) => {
+  test('window cannot be resized below 360x260', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -211,10 +261,13 @@ test.describe('Window Minimum Size', () => {
 })
 
 test.describe('Vertical viewport (portrait)', () => {
-  test.use({ viewport: { width: 700, height: 1100 } })
-
-  test('default window uses most of width and is not slim', async ({ page }) => {
+  test.beforeEach(async () => {
+    await page.setViewportSize({ width: 700, height: 1100 })
+    await presetAssistGridShapeBeforeGoto(page, '3x2')
     await gotoWorkspace(page)
+  })
+
+  test('default window uses most of width and is not slim', async () => {
     const groups = getWindowGroups(page)
     await expect(groups).toHaveCount(1)
 
@@ -226,36 +279,24 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeLessThan(viewport.height - TASKBAR_HEIGHT)
   })
 
-  test('layout picker shows vertical row with vertical thirds, half-top-two-quarters-bottom, top+bottom options', async ({
-    page,
-  }) => {
-    await gotoWorkspace(page)
+  test('layout picker shows three mini grids', async () => {
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    const templates = page.locator('[data-snap-layout-template]')
-    await expect(templates).toHaveCount(12)
-    const firstRowGrids = page
-      .locator('div.flex.flex-col.gap-2 > div.flex.gap-2')
-      .first()
-      .locator('[data-snap-layout-template]')
-    await expect(firstRowGrids).toHaveCount(4)
+    await expect(page.locator('[data-assist-mini-grid]')).toHaveCount(3)
   })
 
-  test('snapping to top-half via picker fills top half of viewport', async ({ page }) => {
-    await gotoWorkspace(page)
+  test('snapping to top-half via picker fills top half of viewport', async () => {
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    const templates = page.locator('[data-snap-layout-template]')
-    const topBottomStackTemplate = templates.nth(3)
-    await topBottomStackTemplate.locator('button').first().click()
+    await assistMiniGrid(page, '2x2').getByTestId('snap-assist-vgutter-two-cols-top').click()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
@@ -270,17 +311,18 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
-  test('snapping to bottom-half via picker fills bottom half of viewport', async ({ page }) => {
-    await gotoWorkspace(page)
+  test('snapping to bottom-half via picker fills bottom half of viewport', async () => {
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    const templates = page.locator('[data-snap-layout-template]')
-    const topBottomStackTemplate = templates.nth(3)
-    await topBottomStackTemplate.locator('button').nth(1).click()
+    await assistMiniGrid(page, '2x2')
+      .locator(
+        '[data-assist-master-grid] button[data-grid-cols="2"][data-gc0="0"][data-gc1="1"][data-gr0="1"][data-gr1="1"]',
+      )
+      .click()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
@@ -295,8 +337,7 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeGreaterThan(halfH - 20)
   })
 
-  test('dragging to top edge (off center) snaps to top-half', async ({ page }) => {
-    await gotoWorkspace(page)
+  test('dragging to top edge (off center) snaps merged pair of top-row tiles on 3×2', async () => {
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
     await dragToEdge(page, handle, 'top-half')
@@ -304,16 +345,17 @@ test.describe('Vertical viewport (portrait)', () => {
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
     const containerH = viewport.height - TASKBAR_HEIGHT
+    const twoThirdsW = Math.round((viewport.width * 2) / 3)
     const halfH = Math.round(containerH / 2)
 
     expect(bounds.y).toBeLessThanOrEqual(2)
-    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
-    expect(bounds.height).toBeGreaterThan(halfH - 20)
-    expect(bounds.height).toBeLessThan(halfH + 20)
+    expect(bounds.width).toBeGreaterThan(twoThirdsW - 28)
+    expect(bounds.width).toBeLessThan(twoThirdsW + 28)
+    expect(bounds.height).toBeGreaterThan(halfH - 24)
+    expect(bounds.height).toBeLessThan(halfH + 24)
   })
 
-  test('dragging to bottom edge snaps to bottom-half', async ({ page }) => {
-    await gotoWorkspace(page)
+  test('dragging to bottom edge snaps to bottom-row tile on 3×2', async () => {
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
     await dragToEdge(page, handle, 'bottom-half')
@@ -321,16 +363,17 @@ test.describe('Vertical viewport (portrait)', () => {
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
     const containerH = viewport.height - TASKBAR_HEIGHT
+    const thirdW = Math.round(viewport.width / 3)
     const halfH = Math.round(containerH / 2)
 
-    expect(bounds.y).toBeGreaterThan(halfH - 20)
-    expect(bounds.y).toBeLessThan(halfH + 20)
-    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
-    expect(bounds.height).toBeGreaterThan(halfH - 20)
+    expect(bounds.y).toBeGreaterThan(halfH - 24)
+    expect(bounds.y).toBeLessThan(halfH + 24)
+    expect(bounds.width).toBeGreaterThan(thirdW - 24)
+    expect(bounds.width).toBeLessThan(thirdW + 24)
+    expect(bounds.height).toBeGreaterThan(halfH - 24)
   })
 
-  test('dragging to center of top edge maximizes window', async ({ page }) => {
-    await gotoWorkspace(page)
+  test('dragging to top edge off assist band snaps to first top-row tile in portrait', async () => {
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
     await dragToEdge(page, handle, 'top')
@@ -338,24 +381,31 @@ test.describe('Vertical viewport (portrait)', () => {
     const bounds = await getWindowBounds(groups.first())
     const viewport = page.viewportSize()!
     const containerH = viewport.height - TASKBAR_HEIGHT
+    const thirdW = Math.round(viewport.width / 3)
+    const halfH = Math.round(containerH / 2)
 
-    expect(bounds.x).toBeLessThanOrEqual(2)
     expect(bounds.y).toBeLessThanOrEqual(2)
-    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
-    expect(bounds.height).toBeGreaterThan(containerH - 10)
+    expect(bounds.width).toBeGreaterThan(thirdW - 30)
+    expect(bounds.width).toBeLessThan(thirdW + 30)
+    expect(bounds.height).toBeGreaterThan(halfH - 30)
+    expect(bounds.height).toBeLessThan(halfH + 30)
   })
 })
 
 test.describe('Window Z-Ordering and Focus', () => {
-  test('clicking background window brings it to front', async ({ page }) => {
+  test('clicking background window brings it to front', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
 
     const rndA = getRndWrapper(groups.first())
     const rndB = getRndWrapper(groups.nth(1))
-    const getZ = (el: HTMLElement) =>
-      parseInt((el.parentElement as HTMLElement)?.style?.zIndex || '0', 10)
+    const getZ = (el: HTMLElement) => {
+      const own = parseInt(el.style?.zIndex || '', 10)
+      if (!Number.isNaN(own) && own !== 0) return own
+      const p = el.parentElement as HTMLElement | null
+      return parseInt(p?.style?.zIndex || '0', 10) || 0
+    }
 
     const zB = await rndB.evaluate(getZ)
     const zA = await rndA.evaluate(getZ)
@@ -368,29 +418,33 @@ test.describe('Window Z-Ordering and Focus', () => {
     expect(newZA).toBeGreaterThan(zB)
   })
 
-  test('clicking window content brings it to front', async ({ page }) => {
+  test('clicking window content brings it to front', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
 
     const rndA = getRndWrapper(groups.first())
     const rndB = getRndWrapper(groups.nth(1))
-    const getZ = (el: HTMLElement) =>
-      parseInt((el.parentElement as HTMLElement)?.style?.zIndex || '0', 10)
+    const getZ = (el: HTMLElement) => {
+      const own = parseInt(el.style?.zIndex || '', 10)
+      if (!Number.isNaN(own) && own !== 0) return own
+      const p = el.parentElement as HTMLElement | null
+      return parseInt(p?.style?.zIndex || '0', 10) || 0
+    }
 
     const zB = await rndB.evaluate(getZ)
     const zA = await rndA.evaluate(getZ)
     expect(zB).toBeGreaterThan(zA)
 
-    const contentA = groups.first().locator('.workspace-window-content')
-    await contentA.click({ position: { x: 10, y: 50 } })
+    const contentA = groups.first().getByTestId('workspace-chrome-content')
+    await contentA.click({ position: { x: 10, y: 50 }, force: true })
     await page.waitForTimeout(50)
 
     const newZA = await rndA.evaluate(getZ)
     expect(newZA).toBeGreaterThan(zB)
   })
 
-  test('newly opened window is focused', async ({ page }) => {
+  test('newly opened window is focused', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
@@ -398,7 +452,7 @@ test.describe('Window Z-Ordering and Focus', () => {
     await expect(groups.nth(1)).toHaveClass(/shadow-black\/20/)
   })
 
-  test('active window has distinct border', async ({ page }) => {
+  test('active window has distinct border', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     await expect(groups.first()).toHaveClass(/border-border/)
@@ -411,7 +465,7 @@ test.describe('Window Z-Ordering and Focus', () => {
 })
 
 test.describe('State Persistence', () => {
-  test('windows survive page reload', async ({ page }) => {
+  test('windows survive page reload', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
@@ -425,7 +479,7 @@ test.describe('State Persistence', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
-  test('snap state persists across reload', async ({ page }) => {
+  test('snap state persists across reload', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -444,7 +498,7 @@ test.describe('State Persistence', () => {
     expect(reloadedBounds.width).toBeLessThan(snappedBounds.width + 20)
   })
 
-  test('tab groups persist across reload', async ({ page }) => {
+  test('tab groups persist across reload', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -473,11 +527,11 @@ test.describe('State Persistence', () => {
     await expect(tabStrip).toBeVisible()
   })
 
-  test('player window is excluded from persistence', async ({ page }) => {
+  test('player window is excluded from persistence', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
-    const content = groups.first().locator('.workspace-window-content')
+    const content = groups.first().getByTestId('workspace-window-visible-content')
     await content.getByText('Videos', { exact: true }).click()
     await page.waitForTimeout(300)
     await content.getByText('sample.mp4').click()
@@ -491,7 +545,7 @@ test.describe('State Persistence', () => {
     await page.waitForLoadState('domcontentloaded')
     await expect(getWindowGroups(page).first()).toBeVisible()
 
-    const reloadedVideo = page.locator('[data-window-group] video')
+    const reloadedVideo = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
     await expect(reloadedVideo).toHaveCount(0)
   })
 })

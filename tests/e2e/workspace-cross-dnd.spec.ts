@@ -1,115 +1,40 @@
-import { test, expect, type Page, type Locator } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
+import {
+  createTempFile,
+  deleteFileViaContextMenu,
+  dragFromTo,
+  dragToEdge,
+  getDragHandle,
+  getVisibleContent,
+  getWindowGroups,
+  gotoWorkspace,
+  html5DragDrop,
+  navigateToSharedContent,
+  openBrowserWindow,
+} from '../e2e/workspace-cross-dnd-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
 
-const TASKBAR_HEIGHT = 32
+let sharedContext: BrowserContext
+let page: Page
 
-async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
-  await expect(page.locator('[data-window-group]')).toBeVisible()
-}
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
 
-async function openBrowserWindow(page: Page) {
-  const countBefore = await page.locator('[data-window-group]').count()
-  await page.locator('button[title="Open browser window"]').click()
-  await expect(page.locator('[data-window-group]')).toHaveCount(countBefore + 1)
-}
+test.afterAll(async () => {
+  await sharedContext.close()
+})
 
-function getWindowGroups(page: Page) {
-  return page.locator('[data-window-group]')
-}
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
 
-function getVisibleContent(windowGroup: Locator) {
-  return windowGroup.locator('[data-testid="workspace-window-visible-content"]')
-}
-
-function getDragHandle(windowGroup: Locator) {
-  return windowGroup.locator('[data-testid="window-drag-handle"]')
-}
-
-async function dragFromTo(
-  page: Page,
-  fromX: number,
-  fromY: number,
-  toX: number,
-  toY: number,
-  steps = 10,
-) {
-  await page.mouse.move(fromX, fromY)
-  await page.mouse.down()
-  await page.mouse.move(toX, toY, { steps })
-  await page.mouse.up()
-}
-
-async function dragToEdge(page: Page, handle: Locator, target: 'left' | 'right') {
-  const viewport = page.viewportSize()!
-  const box = await handle.boundingBox()
-  if (!box) throw new Error('Handle not visible')
-
-  const startX = box.x + box.width / 2
-  const startY = box.y + box.height / 2
-  const containerHeight = viewport.height - TASKBAR_HEIGHT
-  const endX = target === 'left' ? 5 : viewport.width - 5
-  const endY = containerHeight / 2
-
-  await dragFromTo(page, startX, startY, endX, endY)
-  await page.waitForTimeout(30)
-}
-
-async function navigateToSharedContent(content: Locator) {
-  await expect(content.getByText('SharedContent', { exact: true })).toBeVisible()
-  await content.getByText('SharedContent', { exact: true }).click()
-  await expect(content.getByText('public-doc.txt')).toBeVisible({ timeout: 5_000 })
-}
-
-async function createTempFile(page: Page, content: Locator, fileName: string) {
-  await content.locator('button[title="Create new file"]').click()
-  const dialog = page.locator('[role="dialog"]')
-  await dialog.locator('input[placeholder*="File name"]').fill(fileName)
-  await dialog.getByRole('button', { name: 'Create' }).click()
-  await dialog.waitFor({ state: 'hidden' })
-  await expect(content.getByText(fileName)).toBeVisible({ timeout: 5_000 })
-}
-
-async function deleteFileViaContextMenu(page: Page, content: Locator, fileName: string) {
-  await content.locator('tr').filter({ hasText: fileName }).click({ button: 'right' })
-  await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-  await page.getByRole('button', { name: /Delete/i }).click()
-  await expect(content.locator('tr').filter({ hasText: fileName })).not.toBeVisible({
-    timeout: 5_000,
-  })
-}
-
-/**
- * Dispatch a full HTML5 DnD sequence using element handles for precise targeting.
- * Playwright's built-in dragTo doesn't reliably carry custom DataTransfer MIME data.
- */
-async function html5DragDrop(source: Locator, target: Locator) {
-  const srcHandle = await source.elementHandle()
-  const tgtHandle = await target.elementHandle()
-  if (!srcHandle || !tgtHandle) throw new Error('Element handles not found')
-
-  await source.page().evaluate(
-    ([src, tgt]) => {
-      const dt = new DataTransfer()
-      src!.dispatchEvent(
-        new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      tgt!.dispatchEvent(
-        new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      tgt!.dispatchEvent(
-        new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      tgt!.dispatchEvent(
-        new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }),
-      )
-      src!.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true }))
-    },
-    [srcHandle, tgtHandle],
-  )
-}
+test.afterEach(async () => {
+  await page.close()
+})
 
 test.describe('Cross-Window File Move', () => {
-  test('drags a file from one browser into a folder in another', async ({ page }) => {
+  test('drags a file from one browser into a folder in another', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -141,7 +66,7 @@ test.describe('Cross-Window File Move', () => {
     await deleteFileViaContextMenu(page, contentB, tempFile)
   })
 
-  test('non-editable files are not draggable', async ({ page }) => {
+  test('non-editable files stay draggable for tab bar (copy) even when move is disallowed', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
@@ -153,12 +78,12 @@ test.describe('Cross-Window File Move', () => {
     const readmeRow = content.locator('tr').filter({ hasText: 'readme.txt' })
     const draggable = await readmeRow.getAttribute('draggable')
 
-    expect(draggable).not.toBe('true')
+    expect(draggable).toBe('true')
   })
 })
 
 test.describe('Drop File onto Tab Bar', () => {
-  test('dropping a folder onto the tab bar opens it as a new browser tab', async ({ page }) => {
+  test('dropping a folder onto the tab bar opens it as a new browser tab', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -180,9 +105,10 @@ test.describe('Drop File onto Tab Bar', () => {
 
     const tabStrip = groups.nth(1).locator('.workspace-tab-strip')
     await expect(tabStrip).toBeVisible({ timeout: 5_000 })
+    await expect(tabStrip.getByText('subfolder', { exact: true })).toBeVisible()
   })
 
-  test('dropping a file onto the tab bar opens a viewer tab', async ({ page }) => {
+  test('dropping a file onto the tab bar opens a viewer tab', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -203,11 +129,43 @@ test.describe('Drop File onto Tab Bar', () => {
 
     const tabStrip = groups.nth(1).locator('.workspace-tab-strip')
     await expect(tabStrip).toBeVisible({ timeout: 5_000 })
+    await expect(tabStrip.getByText('public-doc.txt', { exact: true })).toBeVisible()
+  })
+
+  test('dropping a video onto the tab bar shows video in viewer tab', async () => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+    await dragToEdge(page, getDragHandle(groups.first()), 'left')
+    await groups.nth(1).dispatchEvent('mousedown')
+    await page.waitForTimeout(30)
+    await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
+
+    const contentA = getVisibleContent(groups.first())
+    await navigateToSharedContent(contentA)
+
+    const videoRow = contentA.locator('tr').filter({ hasText: 'public-video.mp4' })
+    if ((await videoRow.count()) === 0) {
+      test.skip()
+      return
+    }
+
+    const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
+    await html5DragDrop(videoRow.first(), headerB)
+    await page.waitForTimeout(200)
+
+    const targetGroup = groups.nth(1)
+    await expect(targetGroup.locator('video')).toBeVisible({ timeout: 10_000 })
+    await expect(targetGroup.locator('.workspace-tab-strip')).toBeVisible()
+    await expect(
+      targetGroup.locator('.workspace-tab-strip').getByText('public-video.mp4', { exact: true }),
+    ).toBeVisible()
   })
 })
 
 test.describe('Window Merge Still Works', () => {
-  test('dragging window title bar onto another still merges them', async ({ page }) => {
+  test('dragging window title bar onto another still merges them', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 

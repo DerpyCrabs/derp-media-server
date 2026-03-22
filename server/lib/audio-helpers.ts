@@ -4,7 +4,7 @@ import { parseFile } from 'music-metadata'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import path from 'path'
 
-const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv']
+const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 
 export async function extractAudioMetadata(fullPath: string) {
   const metadata = await parseFile(fullPath)

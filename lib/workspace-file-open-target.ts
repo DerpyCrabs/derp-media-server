@@ -1,9 +1,10 @@
-import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { createStore } from 'solid-js/store'
+import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
 
 export type WorkspaceFileOpenTarget = 'new-tab' | 'new-window'
 
 const LEGACY_STORAGE_KEY = 'workspace-file-open-target'
+const PERSIST_KEY = 'workspace-file-open-target-v2'
 const DEFAULT: WorkspaceFileOpenTarget = 'new-window'
 
 function parseStored(raw: string | null): WorkspaceFileOpenTarget {
@@ -19,46 +20,49 @@ function readLegacyTarget(): WorkspaceFileOpenTarget | null {
 }
 
 function initialTarget(): WorkspaceFileOpenTarget {
+  const fromV2 = readPersistedState<{ target?: unknown }>(PERSIST_KEY)
+  if (fromV2 && (fromV2.target === 'new-tab' || fromV2.target === 'new-window')) {
+    return fromV2.target
+  }
   const legacy = readLegacyTarget()
   if (legacy != null) return legacy
   return DEFAULT
 }
 
-interface WorkspaceFileOpenTargetState {
-  target: WorkspaceFileOpenTarget
-  setTarget: (value: WorkspaceFileOpenTarget) => void
+const listeners = createStoreListeners()
+
+const [store, setStore] = createStore({
+  target: initialTarget(),
+})
+
+function persist() {
+  writePersistedState(PERSIST_KEY, { target: store.target })
 }
 
-export const useWorkspaceFileOpenTargetStore = create<WorkspaceFileOpenTargetState>()(
-  persist(
-    (set) => ({
-      target: initialTarget(),
-      setTarget(value) {
-        set({ target: value })
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.removeItem(LEGACY_STORAGE_KEY)
-          } catch {}
-        }
-      },
-    }),
-    {
-      name: 'workspace-file-open-target-v2',
-      storage: createJSONStorage<{ target: WorkspaceFileOpenTarget }>(() => localStorage),
-      partialize: (s) => ({ target: s.target }),
-    },
-  ),
-)
+function setTarget(value: WorkspaceFileOpenTarget) {
+  setStore('target', value)
+  persist()
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY)
+    } catch {}
+  }
+  listeners.notify()
+}
+
+const api = {
+  get target() {
+    return store.target
+  },
+  setTarget,
+}
+
+export const useWorkspaceFileOpenTargetStore = {
+  getState: () => api,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
+}
 
 /** Non-reactive read (e.g. inside event handlers). */
 export function getWorkspaceFileOpenTarget(): WorkspaceFileOpenTarget {
   return useWorkspaceFileOpenTargetStore.getState().target
-}
-
-export function setWorkspaceFileOpenTarget(value: WorkspaceFileOpenTarget): void {
-  useWorkspaceFileOpenTargetStore.getState().setTarget(value)
-}
-
-export function useWorkspaceFileOpenTarget(): WorkspaceFileOpenTarget {
-  return useWorkspaceFileOpenTargetStore((s) => s.target)
 }

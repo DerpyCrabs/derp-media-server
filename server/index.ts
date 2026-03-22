@@ -22,7 +22,6 @@ import fs from 'fs'
 const isDev = process.env.NODE_ENV !== 'production'
 const isTest = process.env.NODE_ENV === 'test'
 const PORT = Number(process.env.PORT) || 3000
-
 async function start() {
   const app = Fastify({ logger: false })
 
@@ -84,10 +83,12 @@ async function start() {
     })
     app.use(vite.middlewares)
 
+    const devIndexHtml = path.resolve('index.html')
+
     app.get('*', async (request, reply) => {
       try {
         const url = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`)
-        let template = fs.readFileSync(path.resolve('index.html'), 'utf-8')
+        let template = fs.readFileSync(devIndexHtml, 'utf-8')
         template = await vite.transformIndexHtml(url.pathname, template)
         const dehydrated = await dehydrateForRoute(
           url.pathname,
@@ -105,13 +106,14 @@ async function start() {
       }
     })
   } else {
+    const staticRoot = 'dist/client'
     await app.register(import('@fastify/static'), {
-      root: path.resolve('dist/client'),
+      root: path.resolve(staticRoot),
       prefix: '/',
       wildcard: false,
     })
 
-    const templateHtml = fs.readFileSync(path.resolve('dist/client/index.html'), 'utf-8')
+    const templateHtml = fs.readFileSync(path.resolve(staticRoot, 'index.html'), 'utf-8')
 
     app.get('*', async (request, reply) => {
       try {

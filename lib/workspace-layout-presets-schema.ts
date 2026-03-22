@@ -9,8 +9,8 @@ import type {
   WorkspaceLayoutScope,
 } from '@/lib/workspace-layout-presets-types'
 
-export const MAX_WORKSPACE_LAYOUT_PRESETS = 32
-export const MAX_LAYOUT_PRESET_NAME_LENGTH = 120
+const MAX_WORKSPACE_LAYOUT_PRESETS = 32
+const MAX_LAYOUT_PRESET_NAME_LENGTH = 120
 
 function pathHasDotDot(p: string): boolean {
   return p.split(/[/\\]/).some((s) => s === '..')
@@ -57,7 +57,7 @@ function snapshotStructurallyOk(snapshot: unknown): snapshot is PersistedWorkspa
   return Array.isArray(s.windows) && s.windows.length > 0
 }
 
-export function snapshotAllowedForAdminSnapshot(snapshot: unknown): boolean {
+function snapshotAllowedForAdminSnapshot(snapshot: unknown): boolean {
   if (!snapshotStructurallyOk(snapshot)) return false
   for (const w of snapshot.windows) {
     if (typeof w !== 'object' || !w) return false
@@ -72,7 +72,7 @@ export function snapshotAllowedForAdminSnapshot(snapshot: unknown): boolean {
   return filterAdminWorkspaceTaskbarPins(pins).length === pins.length
 }
 
-export function snapshotAllowedForShareSnapshot(
+function snapshotAllowedForShareSnapshot(
   snapshot: unknown,
   sharePath: string,
   token: string,

@@ -1,6 +1,5 @@
 import { getMediaType } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
-import type { NavigationState } from '@/lib/navigation-session'
 import type {
   SnapZone,
   WorkspaceSource,
@@ -13,6 +12,7 @@ export function getSourceLabel(source: WorkspaceSource): string {
 }
 
 export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
+  'assist-custom': {},
   left: { right: ['right', 'top-right', 'bottom-right'] },
   right: { left: ['left', 'top-left', 'bottom-left'] },
   'top-left': { right: ['top-right'], bottom: ['bottom-left'] },
@@ -61,6 +61,9 @@ export function getViewportSize() {
 }
 
 export type WorkspaceBounds = NonNullable<WorkspaceWindowLayout['bounds']>
+
+/** Pixel size of the workspace tiling area (browser pane above the taskbar). */
+export type WorkspaceCanvasSize = { width: number; height: number }
 
 export function getPlayerBoundsForAspectRatio(
   aspectRatio: number,
@@ -141,8 +144,10 @@ export function createDefaultBounds(
   }
 }
 
-export function createFullscreenBounds(): NonNullable<WorkspaceWindowLayout['bounds']> {
-  const viewport = getViewportSize()
+export function createFullscreenBounds(
+  canvas?: WorkspaceCanvasSize | null,
+): NonNullable<WorkspaceWindowLayout['bounds']> {
+  const viewport = resolveCanvas(canvas)
 
   return {
     x: 0,
@@ -206,8 +211,15 @@ const BOTTOM_SIDE_ZONES: SnapZone[] = [
   'bottom-right-third',
 ]
 
-export function snapZoneToBounds(zone: SnapZone): NonNullable<WorkspaceWindowLayout['bounds']> {
-  return snapZoneToBoundsWithOccupied(zone, [])
+function resolveCanvas(canvas: WorkspaceCanvasSize | null | undefined): WorkspaceCanvasSize {
+  return canvas ?? getViewportSize()
+}
+
+function snapZoneToBounds(
+  zone: SnapZone,
+  canvas?: WorkspaceCanvasSize | null,
+): NonNullable<WorkspaceWindowLayout['bounds']> {
+  return snapZoneToBoundsWithOccupied(zone, [], canvas)
 }
 
 export function snapZoneToBoundsWithOccupied(
@@ -216,8 +228,9 @@ export function snapZoneToBoundsWithOccupied(
     bounds: NonNullable<WorkspaceWindowLayout['bounds']>
     snapZone: SnapZone
   }>,
+  canvas?: WorkspaceCanvasSize | null,
 ): NonNullable<WorkspaceWindowLayout['bounds']> {
-  const viewport = getViewportSize()
+  const viewport = resolveCanvas(canvas)
   const halfW = Math.round(viewport.width / 2)
   const halfH = Math.round(viewport.height / 2)
   const thirdW = Math.round(viewport.width / 3)
@@ -227,6 +240,8 @@ export function snapZoneToBoundsWithOccupied(
 
   const defaultBounds: NonNullable<WorkspaceWindowLayout['bounds']> = (() => {
     switch (zone) {
+      case 'assist-custom':
+        return { x: 0, y: 0, width: viewport.width, height: viewport.height }
       case 'left':
         return { x: 0, y: 0, width: halfW, height: viewport.height }
       case 'right':
@@ -319,6 +334,131 @@ export function snapZoneToBoundsWithOccupied(
   return { x, y, width, height }
 }
 
+const EDGE_FLUSH_TOL = 4
+
+/**
+ * When the workspace canvas is resized, scale snapped window bounds proportionally
+ * so custom split ratios are preserved, then nudge tiles flush to the new right/bottom.
+ */
+export function scaleSnappedWindowsBoundsForCanvasResize(
+  windows: WorkspaceWindowDefinition[],
+  prev: WorkspaceCanvasSize,
+  next: WorkspaceCanvasSize,
+): WorkspaceWindowDefinition[] {
+  if (prev.width <= 0 || prev.height <= 0) return windows
+  const sx = next.width / prev.width
+  const sy = next.height / prev.height
+  const scaled = windows.map((w) => {
+    const lz = w.layout
+    if (!lz?.snapZone || lz.fullscreen || lz.minimized || !lz.bounds) return w
+    const b = lz.bounds
+    return {
+      ...w,
+      layout: {
+        ...lz,
+        bounds: {
+          x: Math.round(b.x * sx),
+          y: Math.round(b.y * sy),
+          width: Math.round(b.width * sx),
+          height: Math.round(b.height * sy),
+        },
+      },
+    }
+  })
+  return nudgeSnappedBoundsToCanvasEdges(scaled, next)
+}
+
+function nudgeSnappedBoundsToCanvasEdges(
+  windows: WorkspaceWindowDefinition[],
+  canvas: WorkspaceCanvasSize,
+): WorkspaceWindowDefinition[] {
+  const cw = Math.max(canvas.width, 1)
+  const ch = Math.max(canvas.height, 1)
+  return windows.map((w) => {
+    const lz = w.layout
+    if (!lz?.snapZone || lz.fullscreen || lz.minimized || !lz.bounds) return w
+    const b = { ...lz.bounds }
+    if (Math.abs(b.x + b.width - cw) <= EDGE_FLUSH_TOL || b.x + b.width > cw) {
+      b.width = Math.max(100, cw - b.x)
+    }
+    if (Math.abs(b.y + b.height - ch) <= EDGE_FLUSH_TOL || b.y + b.height > ch) {
+      b.height = Math.max(100, ch - b.y)
+    }
+    return { ...w, layout: { ...lz, bounds: b } }
+  })
+}
+
+function layoutGroupKey(w: WorkspaceWindowDefinition): string {
+  return w.tabGroupId ?? w.id
+}
+
+/**
+ * Recompute pixel bounds from `snapZone` for every snapped window group.
+ * Named layout presets and localStorage often keep stale bounds (different viewport, old clamping);
+ * without this, tiles look fine but shared-edge resize can miss neighbors.
+ */
+export function reconcileLayoutBoundsFromSnapZones(
+  windows: WorkspaceWindowDefinition[],
+  canvas?: WorkspaceCanvasSize | null,
+): WorkspaceWindowDefinition[] {
+  if (windows.length === 0) return windows
+
+  const repByGroup = new Map<string, WorkspaceWindowDefinition>()
+  for (const w of windows) {
+    const g = layoutGroupKey(w)
+    if (!repByGroup.has(g)) repByGroup.set(g, w)
+  }
+
+  const snappedReps = [...repByGroup.values()].filter(
+    (w) =>
+      w.layout?.snapZone &&
+      w.layout.snapZone !== 'assist-custom' &&
+      !w.layout.fullscreen &&
+      !w.layout.minimized,
+  )
+  if (snappedReps.length === 0) return windows
+
+  const sorted = [...snappedReps].sort((a, b) => {
+    const za = a.layout!.snapZone!
+    const zb = b.layout!.snapZone!
+    const aa = snapZoneToBounds(za, canvas)
+    const bb = snapZoneToBounds(zb, canvas)
+    if (aa.x !== bb.x) return aa.x - bb.x
+    if (aa.y !== bb.y) return aa.y - bb.y
+    const areaA = aa.width * aa.height
+    const areaB = bb.width * bb.height
+    if (areaA !== areaB) return areaB - areaA
+    return za.localeCompare(zb)
+  })
+
+  const occupied: {
+    bounds: NonNullable<WorkspaceWindowLayout['bounds']>
+    snapZone: SnapZone
+  }[] = []
+  const boundsByGroup = new Map<string, NonNullable<WorkspaceWindowLayout['bounds']>>()
+
+  for (const w of sorted) {
+    const zone = w.layout!.snapZone!
+    const b = snapZoneToBoundsWithOccupied(zone, occupied, canvas)
+    boundsByGroup.set(layoutGroupKey(w), b)
+    occupied.push({ bounds: b, snapZone: zone })
+  }
+
+  return windows.map((w) => {
+    const lz = w.layout
+    if (!lz?.snapZone || lz.fullscreen || lz.minimized) return w
+    const b = boundsByGroup.get(layoutGroupKey(w))
+    if (!b) return w
+    return {
+      ...w,
+      layout: {
+        ...lz,
+        bounds: b,
+      },
+    }
+  })
+}
+
 export function getPlaybackTitle(path: string | undefined) {
   if (!path) return 'Video Player'
 
@@ -329,46 +469,9 @@ export function getPlaybackTitle(path: string | undefined) {
 
 export const PLAYER_WINDOW_ID = 'workspace-player-window'
 
-export const PLAYER_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'])
-
 export function isVideoPath(path: string) {
-  const extension = path.split('.').pop()?.toLowerCase()
-  return extension ? PLAYER_EXTENSIONS.has(extension) : false
-}
-
-export function getInitialWindowIcon(
-  type: WorkspaceWindowDefinition['type'],
-  initialState: Partial<NavigationState>,
-): Pick<WorkspaceWindowDefinition, 'iconPath' | 'iconType' | 'iconIsVirtual'> {
-  if (type === 'browser') {
-    return {
-      iconPath: initialState.dir ?? '',
-      iconType: MediaType.FOLDER,
-      iconIsVirtual: false,
-    }
-  }
-
-  if (type === 'player') {
-    return {
-      iconPath: initialState.playing ?? '',
-      iconType: MediaType.VIDEO,
-      iconIsVirtual: false,
-    }
-  }
-
-  if (type === 'viewer' && initialState.viewing) {
-    return {
-      iconPath: initialState.viewing,
-      iconType: getMediaType(initialState.viewing.split('.').pop() ?? ''),
-      iconIsVirtual: false,
-    }
-  }
-
-  return {
-    iconPath: '',
-    iconType: MediaType.OTHER,
-    iconIsVirtual: false,
-  }
+  const extension = path.split('.').pop()?.toLowerCase() ?? ''
+  return getMediaType(extension) === MediaType.VIDEO
 }
 
 export function insertWindowAtGroupIndex(

@@ -18,6 +18,7 @@ test.describe('Knowledge Base', () => {
 
   test('shows recent notes', async ({ page }) => {
     await page.goto('/?dir=Notes')
+    await expect(page.getByTestId('kb-recent-strip')).toBeVisible()
     // The KB dashboard shows recently modified notes
     // Recent notes should include our fixture files (may appear in recent list and file list)
     await expect(page.locator('table').getByText('welcome.md').first()).toBeVisible()
@@ -68,6 +69,12 @@ test.describe('Knowledge Base', () => {
     const src = await img.getAttribute('src')
     expect(src).toContain('images')
     expect(src).toContain('diagram.png')
+  })
+
+  test('shows knowledge-base root icon marker on KB folder rows', async ({ page }) => {
+    await page.goto('/')
+    const notesRow = page.locator('table tbody tr').filter({ hasText: /^Notes$/ })
+    await expect(notesRow.locator('[data-kb-root-icon]')).toBeVisible()
   })
 
   test('sets a custom icon on a folder', async ({ page }) => {

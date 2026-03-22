@@ -5,6 +5,7 @@ const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json
 const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
 
 let folderShareUrl: string
+let fileShareUrl: string
 
 async function createShare(page: Page, body: Record<string, unknown>): Promise<string> {
   const res = await page.request.post('/api/shares', { data: body })
@@ -21,17 +22,33 @@ test.describe('Share Viewers & Players', () => {
       path: 'SharedContent',
       isDirectory: true,
     })
+    fileShareUrl = await createShare(page, {
+      path: 'Documents/readme.txt',
+      isDirectory: false,
+    })
     await page.close()
     await context.close()
   })
-
-  // ── Video Player in Share ───────────────────────────────────────────
 
   test('opens video player when clicking a video file in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('public-video.mp4').click()
     await page.waitForURL(/playing=/)
     await expect(page.locator('video')).toBeVisible()
+  })
+
+  test('video thumbnails appear in grid view in shared folder', async ({ page }) => {
+    await page.goto(folderShareUrl)
+    await page.locator('button:has(.lucide-layout-grid)').click()
+    const card = page.locator('[data-testid=share-file-browser] .grid [role=button]').filter({
+      hasText: 'public-video.mp4',
+    })
+    const thumb = card.locator('[data-testid=file-browser-video-thumbnail]')
+    await expect(thumb).toBeVisible()
+    await expect(thumb).toHaveAttribute('src', /\/api\/share\/.*\/thumbnail\//)
+    await expect
+      .poll(async () => thumb.evaluate((el: HTMLImageElement) => el.naturalWidth))
+      .toBeGreaterThan(0)
   })
 
   test('video player has controls and valid share source URL', async ({ page }) => {
@@ -49,9 +66,9 @@ test.describe('Share Viewers & Players', () => {
     await page.locator('table').getByText('public-video.mp4').click()
     await page.waitForURL(/playing=/)
     await expect(page.locator('video')).toBeVisible()
-    await page.locator('button:has(.lucide-minimize-2)').click()
+    await page.getByRole('button', { name: 'Minimize player' }).click()
     await expect(page.locator('video')).toBeVisible()
-    await page.locator('button:has(.lucide-maximize-2)').click()
+    await page.getByRole('button', { name: 'Maximize player' }).click()
     await expect(page.locator('video')).toBeVisible()
   })
 
@@ -69,13 +86,10 @@ test.describe('Share Viewers & Players', () => {
     await page.locator('table').getByText('public-video.mp4').click()
     await page.waitForURL(/playing=/)
     await expect(page.locator('video')).toBeVisible()
-    const playerHeader = page.locator('video').locator('..')
-    await playerHeader.locator('button:has(.lucide-x)').click()
+    await page.getByRole('button', { name: 'Close player' }).click()
     await expect(page.locator('video')).not.toBeVisible()
     await expect(page).not.toHaveURL(/playing=/)
   })
-
-  // ── Audio Player in Share ───────────────────────────────────────────
 
   test('opens audio player bar when clicking an audio file in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
@@ -148,8 +162,6 @@ test.describe('Share Viewers & Players', () => {
     await expect(albumArt).toHaveAttribute('src', /\/api\/share\/.*\/thumbnail\//)
   })
 
-  // ── Image Viewer in Share ───────────────────────────────────────────
-
   test('opens image viewer when clicking an image in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('photo.jpg').click()
@@ -207,8 +219,6 @@ test.describe('Share Viewers & Players', () => {
     await expect(page).not.toHaveURL(/viewing=/)
   })
 
-  // ── PDF Viewer in Share ─────────────────────────────────────────────
-
   test('opens PDF viewer when clicking a PDF file in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('sample.pdf').click()
@@ -231,5 +241,10 @@ test.describe('Share Viewers & Players', () => {
     await expect(page.locator('embed[type="application/pdf"]')).not.toBeVisible()
     await expect(page.locator('table').getByText('sample.pdf')).toBeVisible()
     await expect(page).not.toHaveURL(/viewing=/)
+  })
+
+  test('single-file share page shows theme switcher', async ({ page }) => {
+    await page.goto(fileShareUrl)
+    await expect(page.getByRole('button', { name: 'Open theme settings' })).toBeVisible()
   })
 })

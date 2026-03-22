@@ -26,6 +26,17 @@ test.describe('Folder Navigation', () => {
     await expect(page.locator('table').getByText('welcome.md')).toBeVisible()
   })
 
+  test('breadcrumb folder context menu includes Set icon and workspace actions', async ({
+    page,
+  }) => {
+    await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
+    await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()
+    await page.locator('[data-breadcrumb-path="Notes"]').click({ button: 'right' })
+    await expect(page.getByTestId('breadcrumb-menu-set-icon')).toBeVisible()
+    await expect(page.getByTestId('breadcrumb-menu-open-workspace')).toBeVisible()
+    await expect(page.getByTestId('breadcrumb-menu-open-new-tab')).toBeVisible()
+  })
+
   test('navigates to parent using ".." row', async ({ page }) => {
     await page.goto('/?dir=Videos')
     await page.locator('table').getByText('..').first().click()
@@ -84,12 +95,13 @@ test.describe('Folder Navigation', () => {
   })
 
   test('tracks views and shows Most Played', async ({ page }) => {
-    await page.request.post('/api/stats/views', {
+    const res = await page.request.post('/api/stats/views', {
       data: { filePath: 'Documents/readme.txt' },
     })
+    expect(res.ok()).toBeTruthy()
 
     await page.goto('/?dir=Most Played')
-    await expect(page.getByText('readme.txt')).toBeVisible()
+    await expect(page.locator('table').getByText('readme.txt')).toBeVisible()
   })
 
   test('loads folder from direct URL', async ({ page }) => {
@@ -105,9 +117,70 @@ test.describe('Folder Navigation', () => {
     await expect(row).toContainText(/\d+\s*(B|KB|MB)/)
   })
 
+  test('increments view count when opening a file in list view', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    await page.locator('table').getByText('readme.txt', { exact: true }).click()
+    await expect(page).toHaveURL(/viewing=/)
+    const row = page.locator('table tr').filter({ hasText: 'readme.txt' })
+    await expect(row.locator('[data-testid=file-view-count]')).toHaveText(/[1-9]/)
+  })
+
   test('shows virtual folders at root', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByText('Favorites')).toBeVisible()
     await expect(page.getByText('Most Played')).toBeVisible()
+  })
+
+  test('context menu Open in Workspace targets workspace with folder dir', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('table').getByText('Documents', { exact: true }).click({ button: 'right' })
+    await expect(
+      page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace'),
+    ).toBeVisible()
+
+    await page.evaluate(() => {
+      const w = window as Window & { __workspaceMenuOpenUrl?: string }
+      w.open = (url?: string | URL) => {
+        w.__workspaceMenuOpenUrl = typeof url === 'string' ? url : String(url ?? '')
+        return null
+      }
+    })
+    await page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace').click()
+    const captured = await page.evaluate(
+      () => (window as Window & { __workspaceMenuOpenUrl?: string }).__workspaceMenuOpenUrl ?? '',
+    )
+    expect(captured).toMatch(/\/workspace\?dir=Documents(?:&|$)/)
+  })
+
+  test('favorites a folder via context menu and removes from Favorites', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('table').getByText('Notes', { exact: true }).click({ button: 'right' })
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      page.locator('[data-slot="context-menu-item"]').getByText('Favorite').click(),
+    ])
+
+    await page.goto('/?dir=Favorites')
+    await expect(page.getByText('Notes').first()).toBeVisible()
+
+    await page.locator('table').getByText('Notes', { exact: true }).click({ button: 'right' })
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      page.locator('[data-slot="context-menu-item"]').getByText('Unfavorite').click(),
+    ])
+  })
+
+  test('unsupported file from URL shows dialog and close clears viewing', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    await page.locator('table').getByText('unsupported.xyz').click()
+    await page.waitForURL(/viewing=/)
+    await expect(page.getByRole('heading', { name: 'Unsupported File Type' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page).not.toHaveURL(/viewing=/)
+    await expect(page.locator('table').getByText('unsupported.xyz')).toBeVisible()
   })
 })

@@ -1,10 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
-import {
-  SNAP_SIBLING_MAP,
-  type SnapZone,
-  type WorkspaceWindowDefinition,
-} from '@/lib/use-workspace'
+import type { SnapZone, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { SNAP_SIBLING_MAP } from '@/lib/workspace-geometry'
 
 /**
  * Pure function that computes new sibling bounds when a neighbor is resized.
@@ -81,6 +78,104 @@ describe('SNAP_SIBLING_MAP for third zones', () => {
 })
 
 describe('computeSnappedResizeWindows (extracted from session store)', () => {
+  test('resizes spatial right neighbor when snap zone tag does not match resize direction', () => {
+    const viewportWidth = 1200
+    const viewportHeight = 800
+    const halfW = Math.round(viewportWidth / 2)
+    const halfH = Math.round(viewportHeight / 2)
+    const delta = 80
+
+    const topLeft: WorkspaceWindowDefinition = {
+      id: 'tl',
+      type: 'browser',
+      title: 'TL',
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      layout: {
+        snapZone: 'top-left',
+        bounds: { x: 0, y: 0, width: halfW, height: halfH },
+      },
+    }
+    const bottomRightMisTagged: WorkspaceWindowDefinition = {
+      id: 'br',
+      type: 'viewer',
+      title: 'BR',
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      layout: {
+        snapZone: 'bottom-left',
+        bounds: {
+          x: halfW,
+          y: halfH,
+          width: viewportWidth - halfW,
+          height: viewportHeight - halfH,
+        },
+      },
+    }
+
+    const targetNew = { x: 0, y: 0, width: halfW + delta, height: halfH }
+    const next = computeSnappedResizeWindows(
+      [topLeft, bottomRightMisTagged],
+      'tl',
+      targetNew,
+      'right',
+    )
+    const nb = next.find((w) => w.id === 'br')?.layout?.bounds
+    expect(nb?.x).toBe(halfW + delta)
+    expect(nb?.width).toBe(viewportWidth - halfW - delta)
+  })
+
+  test('left column resize updates both top-right and bottom-right windows', () => {
+    const vw = 1280
+    const vh = 720 - 32
+    const halfW = Math.round(vw / 2)
+    const halfH = Math.round(vh / 2)
+    const delta = 80
+
+    const left: WorkspaceWindowDefinition = {
+      id: 'l',
+      type: 'browser',
+      title: 'L',
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      layout: {
+        snapZone: 'left',
+        bounds: { x: 0, y: 0, width: halfW, height: vh },
+      },
+    }
+    const topRight: WorkspaceWindowDefinition = {
+      id: 't',
+      type: 'browser',
+      title: 'T',
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      layout: {
+        snapZone: 'top-right',
+        bounds: { x: halfW, y: 0, width: vw - halfW, height: halfH },
+      },
+    }
+    const bottomRight: WorkspaceWindowDefinition = {
+      id: 'b',
+      type: 'browser',
+      title: 'B',
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      layout: {
+        snapZone: 'bottom-right',
+        bounds: { x: halfW, y: halfH, width: vw - halfW, height: vh - halfH },
+      },
+    }
+
+    const newLeft = { x: 0, y: 0, width: halfW + delta, height: vh }
+    const next = computeSnappedResizeWindows([left, topRight, bottomRight], 'l', newLeft, 'right')
+    const tb = next.find((w) => w.id === 't')?.layout?.bounds
+    const bb = next.find((w) => w.id === 'b')?.layout?.bounds
+    expect(tb?.x).toBe(halfW + delta)
+    expect(bb?.x).toBe(halfW + delta)
+    expect(tb?.width).toBe(vw - halfW - delta)
+    expect(bb?.width).toBe(vw - halfW - delta)
+  })
+
   test('matches sibling resize for top-left-third / top-center-third pair', () => {
     const viewportWidth = 1200
     const viewportHeight = 800
