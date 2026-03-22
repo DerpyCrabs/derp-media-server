@@ -61,8 +61,15 @@ test.describe('Video Player', () => {
   test('video thumbnails appear in grid view', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
     await page.locator('button:has(.lucide-layout-grid)').click()
-    const cards = page.locator('.grid').getByText('sample.mp4').locator('..')
-    await expect(cards).toBeVisible()
+    const card = page.locator('[data-testid=file-browser] .grid [role=button]').filter({
+      hasText: 'sample.mp4',
+    })
+    const thumb = card.locator('[data-testid=file-browser-video-thumbnail]')
+    await expect(thumb).toBeVisible()
+    await expect(thumb).toHaveAttribute('src', /\/api\/thumbnail\//)
+    await expect
+      .poll(async () => thumb.evaluate((el: HTMLImageElement) => el.naturalWidth))
+      .toBeGreaterThan(0)
   })
 
   test('maximize restores from minimized state', async ({ page }) => {
