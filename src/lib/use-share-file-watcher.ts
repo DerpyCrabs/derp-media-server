@@ -1,11 +1,7 @@
 import { useQueryClient } from '@tanstack/solid-query'
 import { queryKeys } from '@/lib/query-keys'
-import { createReconnectScheduler } from '@/lib/sse-reconnect'
+import { subscribeSseShare } from './sse-shared-worker-client'
 import { createEffect, onCleanup } from 'solid-js'
-
-function isTabVisible(): boolean {
-  return typeof document !== 'undefined' && !document.hidden
-}
 
 export function useShareFileWatcher(getToken: () => string | null | undefined, enabled = true) {
   const queryClient = useQueryClient()
@@ -14,61 +10,25 @@ export function useShareFileWatcher(getToken: () => string | null | undefined, e
     const token = enabled ? getToken() : null
     if (!token) return
 
-    let eventSource: EventSource | null = null
-
-    const connect = () => {
-      if (!isTabVisible()) return
-      if (eventSource) return
-
-      eventSource = new EventSource(`/api/share/${encodeURIComponent(token)}/stream`)
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data) as { type?: string }
-          if (data.type === 'connected') {
-            console.log('[Share SSE] Connected to share stream')
-            return
-          }
-          if (data.type !== 'files-changed') return
-
-          void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(token) })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent(token) })
-          void queryClient.invalidateQueries({ queryKey: ['share-kb-search', token] })
-          void queryClient.invalidateQueries({ queryKey: ['share-text', token] })
-        } catch (error) {
-          console.error('[Share SSE] Error parsing message:', error)
+    const onData = (data: { type?: string }) => {
+      try {
+        if (data.type === 'connected') {
+          console.log('[Share SSE] Connected to share stream')
+          return
         }
-      }
+        if (data.type !== 'files-changed') return
 
-      eventSource.onerror = () => {
-        console.warn('[Share SSE] Connection error, reconnecting...')
-        if (eventSource) {
-          eventSource.close()
-          eventSource = null
-        }
-        schedule()
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(token) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent(token) })
+        void queryClient.invalidateQueries({ queryKey: ['share-kb-search', token] })
+        void queryClient.invalidateQueries({ queryKey: ['share-text', token] })
+      } catch (error) {
+        console.error('[Share SSE] Error handling message:', error)
       }
     }
 
-    const handleVisibilityChange = () => {
-      if (!isTabVisible() && eventSource) {
-        eventSource.close()
-        eventSource = null
-      } else if (isTabVisible()) {
-        connect()
-      }
-    }
-
-    const { schedule, cleanup } = createReconnectScheduler(connect)
-    connect()
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    onCleanup(() => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      cleanup()
-      if (eventSource) {
-        eventSource.close()
-      }
-    })
+    const unsubscribe = subscribeSseShare(token, onData)
+    onCleanup(unsubscribe)
   })
 }

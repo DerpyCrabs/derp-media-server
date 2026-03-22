@@ -34,8 +34,18 @@ function uniqueId() {
 
 function watchRequests(page: Page) {
   const requests: string[] = []
-  page.on('request', (req) => requests.push(req.url()))
+  page.context().on('request', (req) => requests.push(req.url()))
   return requests
+}
+
+function watchConsole(page: Page) {
+  const lines: string[] = []
+  page.on('console', (msg) => lines.push(msg.text()))
+  return lines
+}
+
+function sawShareSseConnect(consoleLines: string[]) {
+  return consoleLines.some((l) => l.includes('[Share SSE] Connected to share stream'))
 }
 
 function expectNoAdminShareLeaks(requests: string[]) {
@@ -214,6 +224,7 @@ test.describe('Share Workspace', () => {
 
   test('workspace share requests stay scoped to share APIs', async ({ page }) => {
     const requests = watchRequests(page)
+    const consoleLines = watchConsole(page)
     const token = getShareToken(folderShareWorkspaceUrl)
 
     await gotoShareWorkspace(page, folderShareWorkspaceUrl)
@@ -224,7 +235,8 @@ test.describe('Share Workspace', () => {
     await expect(content.getByText('nested.txt')).toBeVisible()
 
     expect(
-      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`),
+      requests.some((url) => new URL(url).pathname === `/api/share/${token}/stream`) ||
+        sawShareSseConnect(consoleLines),
     ).toBeTruthy()
     expectNoAdminShareLeaks(requests)
   })
