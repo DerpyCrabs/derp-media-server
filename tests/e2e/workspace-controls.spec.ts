@@ -590,19 +590,13 @@ test.describe('Window Buttons', () => {
     await expect(tabStrip).toBeVisible()
   })
 
-  test('right-click maximize opens layout picker and snapping fills workspace', async () => {
+  test('maximize button expands window to fill workspace', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
 
-    await test.step('opens snap layout picker', async () => {
-      await maximizeBtn.click({ button: 'right' })
-      await expect(page.getByText('Snap layout')).toBeVisible()
-    })
-
-    await test.step('selecting a template snaps window', async () => {
-      const pickerSlots = page.locator('[data-snap-layout-template] button')
-      await pickerSlots.first().click()
+    await test.step('maximize fills workspace', async () => {
+      await maximizeBtn.click()
       await page.waitForTimeout(50)
       const bounds = await getWindowBounds(groups.first())
       const viewport = page.viewportSize()!

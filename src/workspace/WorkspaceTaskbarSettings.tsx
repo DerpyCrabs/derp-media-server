@@ -4,12 +4,7 @@ import {
   useWorkspaceFileOpenTargetStore,
   type WorkspaceFileOpenTarget,
 } from '@/lib/workspace-file-open-target'
-import { useWorkspaceSnapLayoutVisibilityStore } from '@/lib/workspace-snap-layout-visibility-store'
-import {
-  SNAP_LAYOUT_ROW_1,
-  SNAP_LAYOUT_ROW_2,
-  SNAP_LAYOUT_ROW_VERTICAL,
-} from '@/lib/workspace-snap-layouts'
+import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
 import Check from 'lucide-solid/icons/check'
 import Monitor from 'lucide-solid/icons/monitor'
 import Moon from 'lucide-solid/icons/moon'
@@ -18,10 +13,6 @@ import Sun from 'lucide-solid/icons/sun'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { cn } from '@/lib/utils'
-import { SnapLayoutTemplateThumbnail } from './SnapLayoutTemplateThumbnail'
-
-const SNAP_SETTINGS_LANDSCAPE_AR = 16 / 12
-const SNAP_SETTINGS_PORTRAIT_AR = 10 / 16
 
 const MODES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -59,7 +50,7 @@ export function WorkspaceTaskbarSettings() {
   const [open, setOpen] = createSignal(false)
   const targetTick = useStoreSync(useWorkspaceFileOpenTargetStore)
   const themeTick = useStoreSync(useThemeStore)
-  const snapTick = useStoreSync(useWorkspaceSnapLayoutVisibilityStore)
+  const prefSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
 
   const fileOpenTarget = () => {
     void targetTick()
@@ -76,9 +67,9 @@ export function WorkspaceTaskbarSettings() {
     return useThemeStore.getState().mode
   }
 
-  const visibleSnapIds = createMemo(() => {
-    void snapTick()
-    return new Set(useWorkspaceSnapLayoutVisibilityStore.getState().visibleIdList)
+  const snapAssistOnTopDrag = createMemo(() => {
+    void prefSnapTick()
+    return useWorkspacePreferredSnapStore.getState().snapAssistOnTopDrag
   })
 
   function setFileTarget(value: WorkspaceFileOpenTarget) {
@@ -88,14 +79,6 @@ export function WorkspaceTaskbarSettings() {
   function setTheme(p: ThemePalette, m: ThemeMode) {
     useThemeStore.getState().setTheme(p, m)
     applyTheme(resolveTheme(p, m))
-  }
-
-  function toggleSnapLayout(id: string) {
-    useWorkspaceSnapLayoutVisibilityStore.getState().toggleLayout(id)
-  }
-
-  function showAllSnapLayouts() {
-    useWorkspaceSnapLayoutVisibilityStore.getState().showAllLayouts()
   }
 
   createEffect(() => {
@@ -229,106 +212,24 @@ export function WorkspaceTaskbarSettings() {
               </div>
             </div>
             <div>
-              <div class='mb-2 text-xs font-medium text-muted-foreground'>Snap layout picker</div>
+              <div class='mb-2 text-xs font-medium text-muted-foreground'>Tiling</div>
               <p class='mb-3 text-xs text-muted-foreground'>
-                Click a thumbnail to show or hide it in the picker (same previews as when snapping).
+                Grids are 3×2, 2×2, or 2×3. Drag window edges to snap single tiles or merge
+                neighbors; drag to the top-center strip to open the assist bar.
               </p>
-              <div class='space-y-3 rounded-md border border-border bg-muted/20 p-3'>
-                <div class='flex flex-wrap gap-2'>
-                  <For each={SNAP_LAYOUT_ROW_1}>
-                    {(t) => {
-                      const on = () => visibleSnapIds().has(t.id)
-                      return (
-                        <button
-                          type='button'
-                          aria-pressed={on()}
-                          title={
-                            on() ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'
-                          }
-                          class={cn(
-                            'rounded-lg p-1 transition-[opacity,box-shadow]',
-                            on()
-                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-                              : 'opacity-45 hover:opacity-80',
-                          )}
-                          onClick={() => toggleSnapLayout(t.id)}
-                        >
-                          <SnapLayoutTemplateThumbnail
-                            template={t}
-                            aspectRatio={SNAP_SETTINGS_LANDSCAPE_AR}
-                          />
-                        </button>
-                      )
-                    }}
-                  </For>
-                </div>
-                <div class='flex flex-wrap gap-2'>
-                  <For each={SNAP_LAYOUT_ROW_2}>
-                    {(t) => {
-                      const on = () => visibleSnapIds().has(t.id)
-                      return (
-                        <button
-                          type='button'
-                          aria-pressed={on()}
-                          title={
-                            on() ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'
-                          }
-                          class={cn(
-                            'rounded-lg p-1 transition-[opacity,box-shadow]',
-                            on()
-                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-                              : 'opacity-45 hover:opacity-80',
-                          )}
-                          onClick={() => toggleSnapLayout(t.id)}
-                        >
-                          <SnapLayoutTemplateThumbnail
-                            template={t}
-                            aspectRatio={SNAP_SETTINGS_LANDSCAPE_AR}
-                          />
-                        </button>
-                      )
-                    }}
-                  </For>
-                </div>
-                <div class='text-[10px] font-medium uppercase tracking-wider text-muted-foreground'>
-                  Portrait workspace
-                </div>
-                <div class='flex flex-wrap gap-2'>
-                  <For each={SNAP_LAYOUT_ROW_VERTICAL}>
-                    {(t) => {
-                      const on = () => visibleSnapIds().has(t.id)
-                      return (
-                        <button
-                          type='button'
-                          aria-pressed={on()}
-                          title={
-                            on() ? 'Shown in snap picker — click to hide' : 'Hidden — click to show'
-                          }
-                          class={cn(
-                            'rounded-lg p-1 transition-[opacity,box-shadow]',
-                            on()
-                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-                              : 'opacity-45 hover:opacity-80',
-                          )}
-                          onClick={() => toggleSnapLayout(t.id)}
-                        >
-                          <SnapLayoutTemplateThumbnail
-                            template={t}
-                            aspectRatio={SNAP_SETTINGS_PORTRAIT_AR}
-                          />
-                        </button>
-                      )
-                    }}
-                  </For>
-                </div>
-              </div>
-              <button
-                type='button'
-                class='mt-3 text-left text-sm text-muted-foreground underline hover:text-foreground'
-                onClick={() => showAllSnapLayouts()}
-              >
-                Show all layouts
-              </button>
+              <label class='mb-3 flex cursor-pointer items-start gap-2 text-sm'>
+                <input
+                  type='checkbox'
+                  class='mt-0.5'
+                  checked={snapAssistOnTopDrag()}
+                  onInput={(e) =>
+                    useWorkspacePreferredSnapStore
+                      .getState()
+                      .setSnapAssistOnTopDrag(e.currentTarget.checked)
+                  }
+                />
+                <span>Show snap assist when dragging to the top-center strip (~300px wide)</span>
+              </label>
             </div>
           </div>
         </div>

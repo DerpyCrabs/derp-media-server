@@ -3,6 +3,11 @@ import { groupIdForWindow } from './tab-group-ops'
 
 export type MergeTarget = { groupId: string; insertIndex: number }
 
+function isUnderWindowGroup(el: Element, groupId: string): boolean {
+  const g = el.closest('[data-window-group]')
+  return g?.getAttribute('data-window-group') === groupId
+}
+
 export function findMergeTarget(
   windows: WorkspaceWindowDefinition[],
   draggedWindowId: string,
@@ -14,6 +19,8 @@ export function findMergeTarget(
 
   const elements = document.elementsFromPoint(clientX, clientY)
   for (const el of elements) {
+    if (!(el instanceof Element)) continue
+    if (isUnderWindowGroup(el, draggedGroupId)) continue
     const slotEl =
       el.closest?.('[data-tab-drop-slot]') ?? (el.hasAttribute?.('data-tab-drop-slot') ? el : null)
     if (slotEl && slotEl instanceof HTMLElement) {
@@ -26,6 +33,8 @@ export function findMergeTarget(
     }
   }
   for (const el of elements) {
+    if (!(el instanceof Element)) continue
+    if (isUnderWindowGroup(el, draggedGroupId)) continue
     const groupEl = el.closest('[data-window-group]')
     if (!groupEl) continue
     const gid = groupEl.getAttribute('data-window-group')
@@ -36,7 +45,6 @@ export function findMergeTarget(
       const groupWindows = windows.filter((w) => groupIdForWindow(w) === gid)
       return { groupId: gid, insertIndex: groupWindows.length }
     }
-    return null
   }
   return null
 }

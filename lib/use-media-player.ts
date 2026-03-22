@@ -189,5 +189,5 @@ const api = {
 
 export const useMediaPlayer = {
   getState: () => api,
-  subscribe: listeners.subscribe,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
 }

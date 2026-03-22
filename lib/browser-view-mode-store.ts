@@ -40,5 +40,5 @@ const api = {
 
 export const useBrowserViewModeStore = {
   getState: () => api,
-  subscribe: listeners.subscribe,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
 }

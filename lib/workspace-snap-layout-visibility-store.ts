@@ -1,70 +1,69 @@
+import { ASSIST_GRID_SHAPES } from '@/lib/workspace-assist-grid'
 import { createStore } from 'solid-js/store'
-import { ALL_SNAP_LAYOUT_IDS } from '@/lib/workspace-snap-layouts'
 import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
-
-const KNOWN = new Set(ALL_SNAP_LAYOUT_IDS)
 
 const SNAP_LAYOUT_VISIBILITY_STORAGE_KEY = 'workspace-snap-layout-visibility'
 
-type PersistedSnapVisibility = { visibleIdList: string[] }
-
-function cleanIds(ids: string[]): string[] {
-  return ids.filter((id) => KNOWN.has(id))
-}
-
-function initialVisibleIds(): string[] {
-  const loaded = readPersistedState<PersistedSnapVisibility>(SNAP_LAYOUT_VISIBILITY_STORAGE_KEY)
-  if (loaded?.visibleIdList?.length) {
-    const cleaned = cleanIds(loaded.visibleIdList)
-    if (cleaned.length > 0) return cleaned
-  }
-  return [...ALL_SNAP_LAYOUT_IDS]
+type PersistedSnapVisibility = {
+  visibleIdList?: string[]
 }
 
 const listeners = createStoreListeners()
 
+const KNOWN = new Set<string>(ASSIST_GRID_SHAPES)
+
+function normalizeList(list: string[] | undefined): string[] {
+  if (!list?.length) return [...ASSIST_GRID_SHAPES]
+  const next = list.filter((id) => KNOWN.has(id))
+  return next.length > 0 ? next : [...ASSIST_GRID_SHAPES]
+}
+
+function loadVisibleIds(): string[] {
+  const loaded = readPersistedState<PersistedSnapVisibility>(SNAP_LAYOUT_VISIBILITY_STORAGE_KEY)
+  return normalizeList(loaded?.visibleIdList)
+}
+
 const [store, setStore] = createStore({
-  visibleIdList: initialVisibleIds(),
+  visibleIdList: loadVisibleIds(),
 })
 
 function persist() {
   writePersistedState(SNAP_LAYOUT_VISIBILITY_STORAGE_KEY, {
-    visibleIdList: [...store.visibleIdList],
+    visibleIdList: store.visibleIdList,
   })
-}
-
-function setVisibleIds(ids: Set<string>) {
-  setStore('visibleIdList', cleanIds([...ids]))
-  persist()
-  listeners.notify()
 }
 
 function toggleLayout(id: string) {
   if (!KNOWN.has(id)) return
-  const setLike = new Set(store.visibleIdList)
-  if (setLike.has(id)) setLike.delete(id)
-  else setLike.add(id)
-  setStore('visibleIdList', [...setLike])
+  const cur = store.visibleIdList
+  if (cur.includes(id)) {
+    if (cur.length <= 1) return
+    setStore(
+      'visibleIdList',
+      cur.filter((x) => x !== id),
+    )
+  } else {
+    setStore('visibleIdList', [...cur, id])
+  }
   persist()
   listeners.notify()
 }
 
 function showAllLayouts() {
-  setStore('visibleIdList', [...ALL_SNAP_LAYOUT_IDS])
+  setStore('visibleIdList', [...ASSIST_GRID_SHAPES])
   persist()
   listeners.notify()
 }
 
 const api = {
   get visibleIdList() {
-    return [...store.visibleIdList]
+    return store.visibleIdList
   },
-  setVisibleIds,
   toggleLayout,
   showAllLayouts,
 }
 
 export const useWorkspaceSnapLayoutVisibilityStore = {
   getState: () => api,
-  subscribe: listeners.subscribe,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
 }

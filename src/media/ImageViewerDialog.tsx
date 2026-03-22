@@ -32,7 +32,11 @@ type ShareCtx = { token: string; sharePath: string }
 function useDirFromUrl() {
   const history = useBrowserHistory()
   const sp = createUrlSearchParamsMemo(history)
-  return createMemo(() => sp().get('dir') ?? '')
+  const dir = createMemo(() => {
+    const p = sp()
+    return p.get('dir') ?? ''
+  })
+  return dir
 }
 
 function useDirToFetch(viewingPath: () => string, dirFromUrl: Accessor<string>) {

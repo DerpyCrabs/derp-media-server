@@ -75,5 +75,5 @@ const api = {
 
 export const useThemeStore = {
   getState: () => api,
-  subscribe: listeners.subscribe,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
 }

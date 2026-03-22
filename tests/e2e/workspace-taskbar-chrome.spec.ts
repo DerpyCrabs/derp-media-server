@@ -68,37 +68,32 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)).toHaveCount(1)
   })
 
-  test('hiding snap template in workspace settings removes it from layout picker', async () => {
+  test('snap assist toggle persists after reload', async () => {
     await gotoWorkspace(page)
     await page.getByRole('button', { name: 'Open settings' }).click()
     const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
     await expect(settingsDialog).toBeVisible()
-    await settingsDialog.getByRole('button', { name: 'Show all layouts' }).click()
+    const assistLabel = settingsDialog.getByText(
+      'Show snap assist when dragging to the top-center strip (~300px wide)',
+    )
+    const assistCheckbox = assistLabel.locator('..').locator('input[type="checkbox"]')
+    await assistCheckbox.setChecked(false)
     await page.keyboard.press('Escape')
     await expect(settingsDialog).not.toBeVisible()
 
-    const groups = page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)
-    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
-    await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
-    const countBefore = await page.locator('[data-snap-layout-template]').count()
-    await page.keyboard.press('Escape')
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
 
     await page.getByRole('button', { name: 'Open settings' }).click()
-    const dialogHide = page.getByRole('dialog', { name: 'Settings' })
-    await dialogHide
-      .getByTitle(/Shown in snap picker/)
-      .first()
-      .click()
-    await page.keyboard.press('Escape')
+    const dialogAfter = page.getByRole('dialog', { name: 'Settings' })
+    await expect(dialogAfter).toBeVisible()
+    const assistLabelAfter = dialogAfter.getByText(
+      'Show snap assist when dragging to the top-center strip (~300px wide)',
+    )
+    await expect(assistLabelAfter.locator('..').locator('input[type="checkbox"]')).not.toBeChecked()
 
-    await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
-    await expect(page.locator('[data-snap-layout-template]')).toHaveCount(countBefore - 1)
-
-    await page.getByRole('button', { name: 'Open settings' }).click()
-    const dialogRestore = page.getByRole('dialog', { name: 'Settings' })
-    await dialogRestore.getByRole('button', { name: 'Show all layouts' }).click()
+    await assistLabelAfter.locator('..').locator('input[type="checkbox"]').setChecked(true)
     await page.keyboard.press('Escape')
   })
 })
