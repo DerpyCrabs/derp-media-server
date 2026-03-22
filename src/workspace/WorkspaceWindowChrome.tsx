@@ -6,7 +6,6 @@ import { WORKSPACE_TITLE_BAR_PX } from '@/lib/workspace-snap-live'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Minus from 'lucide-solid/icons/minus'
-import Plus from 'lucide-solid/icons/plus'
 import X from 'lucide-solid/icons/x'
 import { type Accessor, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import type { JSX } from 'solid-js'
@@ -14,6 +13,7 @@ import {
   type ResizeHandleKey,
   getWorkspaceSnapResizeHandleMap,
 } from './workspace-snap-resize-handles'
+import type { MergeTarget } from './merge-target'
 import { groupIdForWindow } from './tab-group-ops'
 import { WorkspaceSingleTabHeader, WorkspaceTabStrip } from './WorkspaceTabStrip'
 
@@ -49,9 +49,10 @@ export type WorkspaceWindowChromeProps = {
   onUpdateBounds: (windowId: string, bounds: WorkspaceBounds) => void
   onSelectTab?: (groupId: string, tabId: string) => void
   onCloseTab?: (tabId: string) => void
-  onDetachTab?: (tabId: string, clientX: number, clientY: number) => void
-  onAddTab?: () => void
+  onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
   onDropFileToTabBar?: (data: FileDragData, insertIndex?: number) => void
+  mergeTargetPreview?: Accessor<MergeTarget | null>
+  draggingWindowId?: Accessor<string | null>
   children: JSX.Element
 }
 
@@ -120,6 +121,16 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   })
 
   const showResize = createMemo(() => !isFullscreen())
+
+  const mergeHighlightInsertIndex = createMemo(() => {
+    const p = props.mergeTargetPreview?.()
+    if (!p || p.groupId !== props.groupId) return null as number | null
+    return p.insertIndex
+  })
+
+  const mergeDim = createMemo(
+    () => props.draggingWindowId?.() === liveLeaderId() && props.mergeTargetPreview?.() != null,
+  )
 
   const startWindowDrag = (e: PointerEvent, pointerCaptureEl: HTMLElement) => {
     if (shouldBlockWindowDragStart(e.target)) return
@@ -273,7 +284,9 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
               'pointer-events': 'none',
               overflow: 'hidden',
             }
-          : {}),
+          : mergeDim()
+            ? { opacity: 0.55 }
+            : {}),
       }}
       aria-hidden={isMinimized()}
     >
@@ -304,6 +317,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                   isWindowActive={props.isActive}
                   fileIconContext={props.fileIconContext}
                   onDropFile={props.onDropFileToTabBar}
+                  mergeHighlightInsertIndex={mergeHighlightInsertIndex}
                 />
               }
             >
@@ -316,8 +330,9 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                 onSelectTab={(gid, tid) => props.onSelectTab?.(gid, tid)}
                 onFocusWindow={(tid) => props.onFocusWindow(tid)}
                 onCloseTab={(tid) => props.onCloseTab?.(tid)}
-                onDetachTab={props.onDetachTab}
+                onTabPullStart={props.onTabPullStart}
                 onDropFile={props.onDropFileToTabBar}
+                mergeHighlightInsertIndex={mergeHighlightInsertIndex}
               />
             </Show>
           </div>
@@ -330,20 +345,6 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             class='workspace-window-buttons flex shrink-0 items-stretch'
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <Show when={props.onAddTab}>
-              <button
-                type='button'
-                data-no-window-drag
-                class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
-                onClick={(e) => {
-                  e.stopPropagation()
-                  props.onAddTab?.()
-                }}
-                aria-label='New tab'
-              >
-                <Plus class='lucide-plus h-3.5 w-3.5' stroke-width={2} />
-              </button>
-            </Show>
             <button
               type='button'
               class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'

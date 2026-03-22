@@ -52,6 +52,7 @@ import {
   TOP_SNAP_ASSIST_KEEPALIVE_PX,
   type SnapDetectResult,
 } from '@/lib/use-snap-zones'
+import { WORKSPACE_TITLE_BAR_PX } from '@/lib/workspace-snap-live'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
@@ -79,9 +80,8 @@ import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { applySnapPreviewLayout } from './workspace/snap-preview'
 import { WorkspaceSnapAssistBar } from './workspace/WorkspaceSnapAssistBar'
 import { WorkspaceTilingPicker } from './workspace/WorkspaceTilingPicker'
-import { findMergeTarget } from './workspace/merge-target'
+import { findMergeTarget, type MergeTarget } from './workspace/merge-target'
 import {
-  addTabToGroupState,
   groupIdForWindow,
   mergeWindowIntoGroupState,
   openInNewTabInGroupState,
@@ -156,11 +156,12 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     anchor: DOMRect
   } | null>(null)
   const [_dragSnapZone, setDragSnapZone] = createSignal<SnapDetectResult | null>(null)
-  const [_dragSnapWindowId, setDragSnapWindowId] = createSignal<string | null>(null)
+  const [dragSnapWindowId, setDragSnapWindowId] = createSignal<string | null>(null)
   const [snapAssistShown, setSnapAssistShown] = createSignal(false)
   const [snapAssistEngaged, setSnapAssistEngaged] = createSignal(false)
   const [assistHoverPick, setAssistHoverPick] = createSignal<AssistSlotPick | null>(null)
   const [dragEdgeGridSpan, setDragEdgeGridSpan] = createSignal<AssistGridSpan | null>(null)
+  const [mergeTargetPreview, setMergeTargetPreview] = createSignal<MergeTarget | null>(null)
 
   const preferredSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
 
@@ -535,6 +536,18 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
+  function dismissFloatingPlayerForViewer(focusWindowId: string) {
+    setWorkspace((w) => {
+      if (!w || !w.windows.some((x) => x.id === PLAYER_WINDOW_ID)) return w
+      const next = w.windows.filter((x) => x.id !== PLAYER_WINDOW_ID)
+      let activeWindowId = w.activeWindowId
+      if (activeWindowId === PLAYER_WINDOW_ID) {
+        activeWindowId = focusWindowId
+      }
+      return { ...w, windows: next, activeWindowId }
+    })
+  }
+
   function closeWindow(windowId: string) {
     const w = workspace()
     if (!w) return
@@ -604,25 +617,93 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
-  function addTab(leaderId: string) {
-    setWorkspace((prev) => (prev ? addTabToGroupState(prev, leaderId) : prev))
-  }
-
-  function handleDetachTab(tabId: string, clientX: number, clientY: number) {
+  function handleTabPullStart(groupId: string, tabId: string, e: PointerEvent) {
     const c = workspaceAreaEl?.getBoundingClientRect()
     if (!c) return
-    const w = workspace()
-    const win = w?.windows.find((x) => x.id === tabId)
-    const currentBounds = win?.layout?.bounds
-    const restoreBounds = win?.layout?.restoreBounds
-    const width = restoreBounds?.width ?? currentBounds?.width ?? 500
-    const height = restoreBounds?.height ?? currentBounds?.height ?? 400
-    const newX = clientX - c.left - width / 2
-    const newY = Math.max(0, clientY - c.top - 16)
-    setWorkspace((prev) =>
-      prev ? splitWindowFromGroupState(prev, tabId, { x: newX, y: newY, width, height }) : prev,
-    )
-    focusWindow(tabId)
+
+    const prev = workspace()
+    if (!prev) return
+    const members = prev.windows.filter((w) => groupIdForWindow(w) === groupId)
+    if (members.length <= 1) return
+
+    const startX = e.clientX
+    const startY = e.clientY
+    const threshold = 40
+    let pulled = false
+    let grabDx = 0
+    let grabDy = 0
+
+    const onMove = (ev: PointerEvent) => {
+      if (!pulled) {
+        const dy = ev.clientY - startY
+        const dx = Math.abs(ev.clientX - startX)
+        if (dy <= threshold && dx <= threshold) return
+        pulled = true
+
+        const win = prev.windows.find((x) => x.id === tabId)
+        if (!win) {
+          cleanup()
+          return
+        }
+        const currentBounds = win.layout?.bounds
+        const restoreBounds = win.layout?.restoreBounds
+        const width = restoreBounds?.width ?? currentBounds?.width ?? 500
+        const height = restoreBounds?.height ?? currentBounds?.height ?? 400
+        const newX = ev.clientX - c.left - width / 2
+        const newY = Math.max(0, ev.clientY - c.top - 16)
+
+        const next = splitWindowFromGroupState(prev, tabId, { x: newX, y: newY, width, height })
+        setWorkspace(next)
+        focusWindow(tabId)
+
+        const wb = next.windows.find((w) => w.id === tabId)?.layout?.bounds
+        if (!wb) {
+          cleanup()
+          return
+        }
+        grabDx = ev.clientX - c.left - wb.x
+        grabDy = ev.clientY - c.top - wb.y
+
+        handleDragPointerMove(tabId, ev.clientX, ev.clientY)
+        const cur = next.windows.find((w) => w.id === tabId)?.layout?.bounds ?? wb
+        let nx = ev.clientX - c.left - grabDx
+        let ny = ev.clientY - c.top - grabDy
+        nx = Math.max(0, Math.min(nx, c.width - cur.width))
+        const maxY = Math.max(0, c.height - WORKSPACE_TITLE_BAR_PX)
+        ny = Math.max(0, Math.min(ny, maxY))
+        updateWindowBounds(tabId, { ...cur, x: nx, y: ny })
+        return
+      }
+
+      handleDragPointerMove(tabId, ev.clientX, ev.clientY)
+      const cur = workspace()?.windows.find((w) => w.id === tabId)?.layout?.bounds
+      if (!cur) return
+      let nx = ev.clientX - c.left - grabDx
+      let ny = ev.clientY - c.top - grabDy
+      nx = Math.max(0, Math.min(nx, c.width - cur.width))
+      const maxY = Math.max(0, c.height - WORKSPACE_TITLE_BAR_PX)
+      ny = Math.max(0, Math.min(ny, maxY))
+      updateWindowBounds(tabId, { ...cur, x: nx, y: ny })
+    }
+
+    const onUp = (ev: PointerEvent) => {
+      cleanup()
+      if (!pulled) return
+      const final = workspace()?.windows.find((w) => w.id === tabId)?.layout?.bounds
+      if (final) {
+        onDragPointerEnd(tabId, final, ev.clientX, ev.clientY)
+      }
+    }
+
+    function cleanup() {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onUp)
+    }
+
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onUp)
   }
 
   function requestPlay(source: WorkspaceSource, path: string, dir?: string) {
@@ -952,10 +1033,14 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     setDragSnapWindowId(windowId)
     const c = workspaceAreaEl
     const p = snapPreviewEl
-    if (!c) return
 
     const ws = workspace()
-    if (ws && findMergeTarget(ws.windows, windowId, clientX, clientY)) {
+    const hit = ws && c ? findMergeTarget(ws.windows, windowId, clientX, clientY) : null
+    setMergeTargetPreview(hit)
+
+    if (!c) return
+
+    if (ws && hit) {
       setSnapAssistEngaged(false)
       setSnapAssistShown(false)
       setAssistHoverPick(null)
@@ -1197,6 +1282,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     setAssistHoverPick(null)
     setDragEdgeGridSpan(null)
     setDragSnapWindowId(null)
+    setMergeTargetPreview(null)
     draggedWindowIdForSnap = null
   }
 
@@ -1440,8 +1526,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                     onUpdateBounds={updateWindowBounds}
                     onSelectTab={setActiveTab}
                     onCloseTab={closeTab}
-                    onDetachTab={handleDetachTab}
-                    onAddTab={() => addTab(leader()!.id)}
+                    onTabPullStart={handleTabPullStart}
+                    mergeTargetPreview={mergeTargetPreview}
+                    draggingWindowId={dragSnapWindowId}
                     onDropFileToTabBar={(data, insertIndex) =>
                       dropFileToTabBar(leader()!.id, data, insertIndex)
                     }
@@ -1488,6 +1575,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                             <Show when={windowDef()?.type === 'viewer'}>
                               <WorkspaceViewerPane
                                 windowId={tabId}
+                                storageKey={storageSessionKeyFull().key}
+                                contentVisible={() => tabId === visibleTabId()}
                                 workspace={workspace}
                                 sharePanel={sharePanel}
                                 editableFolders={editableFolders()}
@@ -1495,6 +1584,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                   props.shareConfig ? (props.shareCanEdit ?? false) : false
                                 }
                                 onUpdateViewing={updateWindowViewing}
+                                onDismissFloatingPlayer={dismissFloatingPlayerForViewer}
                               />
                             </Show>
                             <Show when={windowDef()?.type === 'player'}>
@@ -1650,6 +1740,14 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                   : null
                 if (!path) return
                 const dir = key ? useWorkspacePlaybackStore.getState().byKey[key]?.dir : undefined
+                const w = workspace()
+                const viewerWin = w?.windows.find(
+                  (win) => win.type === 'viewer' && win.initialState?.viewing === path,
+                )
+                if (viewerWin) {
+                  focusWindow(viewerWin.id)
+                  return
+                }
                 requestPlay(browserSource(), path, dir ?? undefined)
               }}
             />

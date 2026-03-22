@@ -51,38 +51,50 @@ export function mergeWindowIntoGroupState(
   const moved = current.find((w) => w.id === windowId)
   if (!target || !moved) return state
 
-  const groupId = target.tabGroupId || targetWindowId
-  const updatedMoved: WorkspaceWindowDefinition = {
-    ...moved,
-    tabGroupId: groupId,
+  const sourceGid = groupIdForWindow(moved)
+  const destGid = target.tabGroupId || targetWindowId
+
+  if (sourceGid === destGid) return state
+
+  const sourceMembers = current.filter((w) => groupIdForWindow(w) === sourceGid)
+  const sharedBounds = target.layout?.bounds ?? moved.layout?.bounds
+  const sharedZ = target.layout?.zIndex ?? moved.layout?.zIndex ?? 1
+
+  const migrated = sourceMembers.map((w) => ({
+    ...w,
+    tabGroupId: destGid,
     layout: {
-      ...moved.layout,
-      bounds: target.layout?.bounds ?? moved.layout?.bounds,
-      zIndex: target.layout?.zIndex ?? moved.layout?.zIndex,
+      ...w.layout,
+      bounds: sharedBounds ?? w.layout?.bounds,
+      zIndex: sharedZ,
+      minimized: false,
     },
+  }))
+
+  const withoutSource = current.filter((w) => groupIdForWindow(w) !== sourceGid)
+
+  let work = withoutSource.map((w) => {
+    if (w.id === targetWindowId && !w.tabGroupId) {
+      return { ...w, tabGroupId: destGid }
+    }
+    return w
+  })
+
+  const destCount = work.filter((w) => groupIdForWindow(w) === destGid).length
+  const idx = insertIndex ?? destCount
+
+  for (let i = 0; i < migrated.length; i++) {
+    work = insertWindowAtGroupIndex(work, migrated[i], destGid, idx + i)
   }
 
-  let next: WorkspaceWindowDefinition[]
-  if (insertIndex == null) {
-    next = current.map((w) => {
-      if (w.id === targetWindowId && !w.tabGroupId) return { ...w, tabGroupId: groupId }
-      if (w.id === windowId) return updatedMoved
-      return w
-    })
-  } else {
-    const withTabGroup = current.map((w) => {
-      if (w.id === targetWindowId && !w.tabGroupId) return { ...w, tabGroupId: groupId }
-      return w
-    })
-    const withoutMoved = withTabGroup.filter((w) => w.id !== windowId)
-    next = insertWindowAtGroupIndex(withoutMoved, updatedMoved, groupId, insertIndex)
-  }
+  const nextTabMap = { ...state.activeTabMap, [destGid]: windowId }
+  delete nextTabMap[sourceGid]
 
   return {
     ...state,
-    windows: next,
+    windows: work,
     activeWindowId: windowId,
-    activeTabMap: { ...state.activeTabMap, [groupId]: windowId },
+    activeTabMap: nextTabMap,
   }
 }
 
@@ -116,12 +128,13 @@ export function openInNewTabInGroupState(
 
   let newWindow: WorkspaceWindowDefinition
   if (file.isDirectory) {
+    const folderTitle = file.path.split(/[/\\]/).filter(Boolean).pop() ?? 'Folder'
     newWindow = {
       id,
       type: 'browser',
-      title: '',
+      title: folderTitle,
       iconName: null,
-      iconPath: '',
+      iconPath: file.path,
       iconType: MediaType.FOLDER,
       iconIsVirtual: false,
       source,

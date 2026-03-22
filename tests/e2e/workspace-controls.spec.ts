@@ -115,7 +115,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
-  test('detach tab then drag back onto tab bar merges at chosen place', async () => {
+  test('detaching tab onto another tab bar merges in one gesture', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -139,29 +139,14 @@ test.describe('Tab Merging and Splitting', () => {
     const tabs = workspaceTabs(tabStrip)
     const secondTab = tabs.nth(1)
     const tabBox = await secondTab.boundingBox()
-    if (!tabBox) throw new Error('Tab not visible')
-
-    await dragFromTo(
-      page,
-      tabBox.x + tabBox.width / 2,
-      tabBox.y + tabBox.height / 2,
-      tabBox.x + tabBox.width / 2,
-      tabBox.y + tabBox.height / 2 + 60,
-    )
-    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
-    await expect(getWindowGroups(page)).toHaveCount(2)
-
-    const detachedGroup = getWindowGroups(page).nth(1)
-    const detachedHandle = getDragHandle(detachedGroup)
-    const detachedBox = await detachedHandle.boundingBox()
     const firstGroup = getWindowGroups(page).first()
     const targetHandleBox = await getDragHandle(firstGroup).boundingBox()
-    if (!detachedBox || !targetHandleBox) throw new Error('Handles not visible')
+    if (!tabBox || !targetHandleBox) throw new Error('Handles not visible')
 
     await dragFromTo(
       page,
-      detachedBox.x + detachedBox.width / 2,
-      detachedBox.y + 16,
+      tabBox.x + tabBox.width * 0.7,
+      tabBox.y + tabBox.height / 2,
       targetHandleBox.x + targetHandleBox.width / 2,
       targetHandleBox.y + 16,
     )
@@ -577,17 +562,6 @@ test.describe('Window Buttons', () => {
     await closeBtn.click()
 
     await expect(getWindowGroups(page)).toHaveCount(0)
-  })
-
-  test('add tab button adds a new tab', async () => {
-    await gotoWorkspace(page)
-    const groups = getWindowGroups(page)
-
-    const addTabBtn = groups.first().locator('button:has(.lucide-plus)')
-    await addTabBtn.click()
-
-    const tabStrip = page.locator('.workspace-tab-strip')
-    await expect(tabStrip).toBeVisible()
   })
 
   test('maximize button expands window to fill workspace', async () => {

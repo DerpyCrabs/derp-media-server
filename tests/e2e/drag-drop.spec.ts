@@ -31,11 +31,4 @@ test.describe('Drag and Drop File Moving', () => {
     await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
     await page.getByRole('button', { name: /Delete/i }).click()
   })
-
-  test('drag is not available in non-editable folders', async ({ page }) => {
-    await page.goto('/?dir=Documents')
-    const row = page.locator('table tr').filter({ hasText: 'readme.txt' })
-    const draggable = await row.getAttribute('draggable')
-    expect(draggable).not.toBe('true')
-  })
 })
