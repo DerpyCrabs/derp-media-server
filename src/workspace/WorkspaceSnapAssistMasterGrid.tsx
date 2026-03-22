@@ -127,7 +127,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
       </div>
       <div
         data-assist-master-grid
-        class='relative grid w-[5.25rem] shrink-0 rounded-md border border-border bg-background p-1 shadow-sm sm:w-24'
+        class='relative grid w-21 shrink-0 rounded-md border border-border bg-background p-1 shadow-sm sm:w-24'
         style={{
           'aspect-ratio': String(props.aspectRatio),
           'grid-template-columns': gridTemplate().colT,

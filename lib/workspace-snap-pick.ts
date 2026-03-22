@@ -20,12 +20,81 @@ function rectArea(r: DOMRectReadOnly): number {
   return Math.max(0, r.width) * Math.max(0, r.height)
 }
 
+/** Pixels to extend gutter/junction hit testing into adjacent tiles (visual gutters stay 6px). */
+const ASSIST_GUTTER_SLOP_PX = 3
+
+function spanGutterKind(span: AssistGridSpan): 'v' | 'h' | 'j' | null {
+  const cw = span.gc1 - span.gc0
+  const rh = span.gr1 - span.gr0
+  if (cw === 0 && rh === 0) return null
+  if (cw > 0 && rh === 0) return 'v'
+  if (cw === 0 && rh > 0) return 'h'
+  if (cw > 0 && rh > 0) return 'j'
+  return null
+}
+
+function pointInRect(clientX: number, clientY: number, r: DOMRectReadOnly): boolean {
+  return (
+    clientX >= r.left &&
+    clientX <= r.right &&
+    clientY >= r.top &&
+    clientY <= r.bottom &&
+    r.width > 0 &&
+    r.height > 0
+  )
+}
+
+function slopInflatedRect(r: DOMRectReadOnly, kind: 'v' | 'h' | 'j'): DOMRect {
+  const s = ASSIST_GUTTER_SLOP_PX
+  switch (kind) {
+    case 'v':
+      return new DOMRect(r.left - s, r.top, r.width + 2 * s, r.height)
+    case 'h':
+      return new DOMRect(r.left, r.top - s, r.width, r.height + 2 * s)
+    case 'j':
+      return new DOMRect(r.left - s, r.top - s, r.width + 2 * s, r.height + 2 * s)
+  }
+}
+
+function pickFromGutterSlop(
+  clientX: number,
+  clientY: number,
+  root: HTMLElement,
+): AssistSlotPick | null {
+  const matches: { el: HTMLElement; span: AssistGridSpan; area: number }[] = []
+  for (const el of root.querySelectorAll<HTMLElement>('[data-assist-grid-span]')) {
+    const span = parseGridSpan(el)
+    if (!span) continue
+    const kind = spanGutterKind(span)
+    if (!kind) continue
+    const r = el.getBoundingClientRect()
+    if (pointInRect(clientX, clientY, slopInflatedRect(r, kind))) {
+      matches.push({ el, span, area: rectArea(r) })
+    }
+  }
+  if (matches.length === 0) return null
+  let best = matches[0]!
+  for (let i = 1; i < matches.length; i++) {
+    const m = matches[i]!
+    if (m.area < best.area) best = m
+  }
+  return { kind: 'grid-span', span: best.span }
+}
+
 export function pickAssistSlotFromPoint(
   clientX: number,
   clientY: number,
   root: HTMLElement | undefined,
 ): AssistSlotPick | null {
   if (!root || typeof document === 'undefined' || !root.isConnected) return null
+
+  const rr = root.getBoundingClientRect()
+  if (clientX < rr.left || clientX > rr.right || clientY < rr.top || clientY > rr.bottom) {
+    return null
+  }
+
+  const slop = pickFromGutterSlop(clientX, clientY, root)
+  if (slop) return slop
 
   const stack = document.elementsFromPoint(clientX, clientY)
   const candidates: HTMLElement[] = []
@@ -57,24 +126,12 @@ export function pickAssistSlotFromPoint(
     if (span) return { kind: 'grid-span', span }
   }
 
-  const rr = root.getBoundingClientRect()
-  if (clientX < rr.left || clientX > rr.right || clientY < rr.top || clientY > rr.bottom) {
-    return null
-  }
-
   const spanCells = root.querySelectorAll<HTMLElement>('[data-assist-grid-span]')
   let best: HTMLElement | null = null
   let bestArea = Infinity
   for (const el of spanCells) {
     const r = el.getBoundingClientRect()
-    if (
-      clientX >= r.left &&
-      clientX <= r.right &&
-      clientY >= r.top &&
-      clientY <= r.bottom &&
-      r.width > 0 &&
-      r.height > 0
-    ) {
+    if (pointInRect(clientX, clientY, r)) {
       const area = r.width * r.height
       if (area < bestArea) {
         bestArea = area
