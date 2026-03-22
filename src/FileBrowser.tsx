@@ -246,6 +246,7 @@ export function FileBrowser() {
   const [newItemName, setNewItemName] = createSignal('')
   const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
   const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
+  const [dragAllowsMove, setDragAllowsMove] = createSignal(false)
   const [enableDrag, setEnableDrag] = createSignal(false)
   let externalUploadDragDepth = 0
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
@@ -263,7 +264,10 @@ export function FileBrowser() {
   )
 
   onMount(() => {
-    setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
+    if (typeof window === 'undefined') return
+    const mqHover = window.matchMedia('(hover: hover)')
+    const mqFine = window.matchMedia('(pointer: fine)')
+    setEnableDrag(mqHover.matches || mqFine.matches)
   })
 
   const fileRowMenu = useFileRowContextMenu({
@@ -401,6 +405,7 @@ export function FileBrowser() {
     const mv = allowMoveFile()
     const dtr = e.dataTransfer
     if (!mv || !canDropOnParent() || !dtr || (!draggedPath() && !hasFileDragData(dtr))) return
+    if (draggedPath() && !dragAllowsMove()) return
     e.preventDefault()
     dtr.dropEffect = 'move'
     setDragOverPath('__parent__')
@@ -421,6 +426,7 @@ export function FileBrowser() {
     const dest = parentDirFromCurrent()
     const dp = draggedPath()
     if (dp) {
+      if (!dragAllowsMove()) return
       mv(dp, dest)
       return
     }
@@ -438,20 +444,22 @@ export function FileBrowser() {
 
   function onFileDragStart(file: FileItem, e: globalThis.DragEvent) {
     const dtr = e.dataTransfer
-    if (!dtr || !enableDrag() || !isPathEditable(file.path, editableFolders()) || !allowMoveFile())
-      return
+    if (!dtr || !enableDrag()) return
+    const canMove = !!allowMoveFile() && isPathEditable(file.path, editableFolders())
+    setDragAllowsMove(canMove)
     setFileDragData(dtr, {
       path: file.path,
       isDirectory: file.isDirectory,
       sourceKind: 'local',
     })
-    dtr.effectAllowed = 'copyMove'
+    dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
     setDraggedPath(file.path)
   }
 
   function onFileDragEnd() {
     setDraggedPath(null)
     setDragOverPath(null)
+    setDragAllowsMove(false)
   }
 
   function onFolderDragOver(file: FileItem, e: globalThis.DragEvent) {
@@ -460,6 +468,7 @@ export function FileBrowser() {
     const hasCross = !draggedPath() && hasFileDragData(dtr)
     if (!draggedPath() && !hasCross) return
     const dp = draggedPath()
+    if (dp && !dragAllowsMove()) return
     if (dp && !canDropOn(file.path)) return
     if (!isPathEditable(file.path, editableFolders())) return
     e.preventDefault()
@@ -496,6 +505,7 @@ export function FileBrowser() {
     if (!mv || !file.isDirectory) return
     const dp = draggedPath()
     if (dp && canDropOn(file.path)) {
+      if (!dragAllowsMove()) return
       mv(dp, file.path)
       return
     }
@@ -1322,10 +1332,7 @@ export function FileBrowser() {
                                   <For each={files()}>
                                     {(file) => {
                                       const isFav = () => favoriteSet().has(file.path)
-                                      const canDragRow =
-                                        enableDrag() &&
-                                        isPathEditable(file.path, editableFolders()) &&
-                                        !!allowMoveFile()
+                                      const canDragRow = enableDrag()
                                       return (
                                         <tr
                                           class={cn(

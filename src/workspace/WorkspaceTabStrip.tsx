@@ -4,6 +4,7 @@ import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { workspaceTabIcon } from '../lib/use-file-icon'
+import { insertIndexFromSingleTabRowPointer, insertIndexFromTabBodyPointer } from './tab-drop-hit'
 import X from 'lucide-solid/icons/x'
 import { For, Show, createSignal, onMount } from 'solid-js'
 
@@ -11,6 +12,7 @@ function TabStripDropSlot(props: {
   groupId: string
   index: number
   highlighted?: boolean
+  mergeHighlight?: boolean
   onDropFile?: (data: FileDragData, insertIndex?: number) => void
   onSlotDragOver: (e: globalThis.DragEvent, index: number) => void
   onSlotDragLeave: (e: globalThis.DragEvent) => void
@@ -21,6 +23,7 @@ function TabStripDropSlot(props: {
   return (
     <div
       data-tab-drop-slot={`${props.groupId}:${props.index}`}
+      data-merge-highlight={props.mergeHighlight ? '' : undefined}
       data-no-window-drag
       class={`flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch ${
         props.highlighted ? 'bg-primary/80' : ''
@@ -50,8 +53,9 @@ export type WorkspaceTabStripProps = {
   onSelectTab: (groupId: string, tabId: string) => void
   onFocusWindow: (tabId: string) => void
   onCloseTab: (tabId: string) => void
-  onDetachTab?: (tabId: string, clientX: number, clientY: number) => void
+  onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
   onDropFile?: (data: FileDragData, insertIndex?: number) => void
+  mergeHighlightInsertIndex?: () => number | null
 }
 
 export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
@@ -121,6 +125,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     e.stopPropagation()
     dtr.dropEffect = 'copy'
     setFileDragOver(true)
+    setDropSlotIndex(props.tabs.length)
   }
 
   const handleScrollAreaDrop = (e: globalThis.DragEvent) => {
@@ -142,29 +147,45 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     props.onSelectTab(props.groupId, tabId)
     props.onFocusWindow(tabId)
 
-    if (!props.onDetachTab || props.tabs.length <= 1) return
+    if (props.tabs.length <= 1) return
+    props.onTabPullStart?.(props.groupId, tabId, e)
+  }
 
-    const startY = e.clientY
-    const startX = e.clientX
-    const threshold = 40
+  const mergeSlot = () => props.mergeHighlightInsertIndex?.() ?? null
 
-    const onMove = (ev: PointerEvent) => {
-      const dy = ev.clientY - startY
-      const dx = Math.abs(ev.clientX - startX)
-      if (dy > threshold || dx > threshold) {
-        props.onDetachTab!(tabId, ev.clientX, ev.clientY)
-        cleanup()
-      }
+  const handleTabFileDragOver = (e: globalThis.DragEvent, tabIndex: number) => {
+    const dtr = e.dataTransfer
+    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dtr.dropEffect = 'copy'
+    const el = e.currentTarget as HTMLElement
+    const r = el.getBoundingClientRect()
+    setDropSlotIndex(insertIndexFromTabBodyPointer(e.clientX, r.left, r.width, tabIndex))
+    setFileDragOver(true)
+  }
+
+  const handleTabFileDragLeave = (e: globalThis.DragEvent) => {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node)) {
+      setDropSlotIndex(null)
     }
-    const onUp = () => cleanup()
-    const cleanup = () => {
-      document.removeEventListener('pointermove', onMove)
-      document.removeEventListener('pointerup', onUp)
-      document.removeEventListener('pointercancel', onUp)
-    }
-    document.addEventListener('pointermove', onMove)
-    document.addEventListener('pointerup', onUp)
-    document.addEventListener('pointercancel', onUp)
+  }
+
+  const handleTabFileDrop = (e: globalThis.DragEvent, tabIndex: number) => {
+    setFileDragOver(false)
+    setDropSlotIndex(null)
+    if (!props.onDropFile) return
+    const dtr = e.dataTransfer
+    if (!dtr) return
+    const data = getFileDragData(dtr)
+    if (!data) return
+    e.preventDefault()
+    e.stopPropagation()
+    const el = e.currentTarget as HTMLElement
+    const r = el.getBoundingClientRect()
+    const insertIndex = insertIndexFromTabBodyPointer(e.clientX, r.left, r.width, tabIndex)
+    props.onDropFile(data, insertIndex)
   }
 
   return (
@@ -205,6 +226,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                 groupId={props.groupId}
                 index={idx()}
                 highlighted={dropSlotIndex() === idx()}
+                mergeHighlight={mergeSlot() === idx()}
                 onDropFile={props.onDropFile}
                 onSlotDragOver={handleSlotDragOver}
                 onSlotDragLeave={handleSlotDragLeave}
@@ -217,6 +239,9 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                   tab.id === props.visibleTabId ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
                 }`}
                 onPointerDown={(e) => handleTabPointerDown(tab.id, e)}
+                onDragOver={(e) => handleTabFileDragOver(e, idx())}
+                onDragLeave={handleTabFileDragLeave}
+                onDrop={(e) => handleTabFileDrop(e, idx())}
               >
                 <div
                   class={`flex h-4 w-4 shrink-0 items-center justify-center ${
@@ -253,6 +278,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
           groupId={props.groupId}
           index={props.tabs.length}
           highlighted={dropSlotIndex() === props.tabs.length}
+          mergeHighlight={mergeSlot() === props.tabs.length}
           onDropFile={props.onDropFile}
           onSlotDragOver={handleSlotDragOver}
           onSlotDragLeave={handleSlotDragLeave}
@@ -280,10 +306,14 @@ export type WorkspaceSingleTabHeaderProps = {
   isWindowActive: boolean
   fileIconContext: () => FileIconContext
   onDropFile?: (data: FileDragData, insertIndex?: number) => void
+  mergeHighlightInsertIndex?: () => number | null
 }
 
 export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
   const [dropSlotIndex, setDropSlotIndex] = createSignal<number | null>(null)
+  const [fileDragOver, setFileDragOver] = createSignal(false)
+
+  const mergeSlot = () => props.mergeHighlightInsertIndex?.() ?? null
 
   const handleSlotDragOver = (e: globalThis.DragEvent, index: number) => {
     const dtr = e.dataTransfer
@@ -292,6 +322,7 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
     e.stopPropagation()
     dtr.dropEffect = 'copy'
     setDropSlotIndex(index)
+    setFileDragOver(true)
   }
 
   const handleSlotDragLeave = (e: globalThis.DragEvent) => {
@@ -303,6 +334,7 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
 
   const handleSlotDrop = (e: globalThis.DragEvent, index: number) => {
     setDropSlotIndex(null)
+    setFileDragOver(false)
     if (!props.onDropFile) return
     const dtr = e.dataTransfer
     if (!dtr) return
@@ -313,15 +345,28 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
     props.onDropFile(data, index)
   }
 
-  const handleHeaderDragOver = (e: globalThis.DragEvent) => {
+  const handleRowDragOver = (e: globalThis.DragEvent) => {
     const dtr = e.dataTransfer
     if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
     e.preventDefault()
     e.stopPropagation()
     dtr.dropEffect = 'copy'
+    const el = e.currentTarget as HTMLElement
+    const r = el.getBoundingClientRect()
+    setDropSlotIndex(insertIndexFromSingleTabRowPointer(e.clientX, r.left, r.width))
+    setFileDragOver(true)
   }
 
-  const handleHeaderDrop = (e: globalThis.DragEvent) => {
+  const handleRowDragLeave = (e: globalThis.DragEvent) => {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node)) {
+      setDropSlotIndex(null)
+    }
+  }
+
+  const handleRowDrop = (e: globalThis.DragEvent) => {
+    setDropSlotIndex(null)
+    setFileDragOver(false)
     if (!props.onDropFile) return
     const dtr = e.dataTransfer
     if (!dtr) return
@@ -329,37 +374,49 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
     if (!data) return
     e.preventDefault()
     e.stopPropagation()
-    props.onDropFile(data, 1)
+    const el = e.currentTarget as HTMLElement
+    const r = el.getBoundingClientRect()
+    const insertIndex = insertIndexFromSingleTabRowPointer(e.clientX, r.left, r.width)
+    props.onDropFile(data, insertIndex)
+  }
+
+  const handleOuterDragLeave = (e: globalThis.DragEvent) => {
+    const cur = e.currentTarget as Node | null
+    if (cur && !cur.contains(e.relatedTarget as Node)) {
+      setFileDragOver(false)
+      setDropSlotIndex(null)
+    }
   }
 
   return (
     <div
-      class='flex min-w-0 flex-1 items-center'
-      onDragOver={handleHeaderDragOver}
-      onDrop={handleHeaderDrop}
+      class={`flex min-w-0 flex-1 items-center ${fileDragOver() ? 'ring-1 ring-inset ring-primary bg-primary/10' : ''}`}
+      onDragLeave={handleOuterDragLeave}
     >
       <TabStripDropSlot
         groupId={props.groupId}
         index={0}
         highlighted={dropSlotIndex() === 0}
+        mergeHighlight={mergeSlot() === 0}
         onDropFile={props.onDropFile}
         onSlotDragOver={handleSlotDragOver}
         onSlotDragLeave={handleSlotDragLeave}
         onSlotDrop={handleSlotDrop}
       />
-      <div class='flex min-w-0 flex-1 items-center gap-1.5 px-2'>
-        <div
-          class={`flex h-5 w-5 shrink-0 items-center justify-center ${
-            props.isWindowActive ? 'text-foreground' : 'text-muted-foreground'
-          }`}
-        >
+      <div
+        data-workspace-single-tab-row
+        data-no-window-drag
+        class={`flex min-w-0 shrink items-center gap-1.5 px-2 ${
+          props.isWindowActive ? 'text-foreground' : 'text-muted-foreground'
+        }`}
+        onDragOver={handleRowDragOver}
+        onDragLeave={handleRowDragLeave}
+        onDrop={handleRowDrop}
+      >
+        <div class='flex h-5 w-5 shrink-0 items-center justify-center'>
           {workspaceTabIcon(props.tab, props.fileIconContext())}
         </div>
-        <div
-          class={`min-w-0 truncate text-[11px] font-medium ${
-            props.isWindowActive ? 'text-foreground' : 'text-muted-foreground'
-          }`}
-        >
+        <div class='max-w-[180px] min-w-0 truncate text-[11px] font-medium'>
           {getWorkspaceWindowTitle(props.tab)}
         </div>
       </div>
@@ -367,11 +424,13 @@ export function WorkspaceSingleTabHeader(props: WorkspaceSingleTabHeaderProps) {
         groupId={props.groupId}
         index={1}
         highlighted={dropSlotIndex() === 1}
+        mergeHighlight={mergeSlot() === 1}
         onDropFile={props.onDropFile}
         onSlotDragOver={handleSlotDragOver}
         onSlotDragLeave={handleSlotDragLeave}
         onSlotDrop={handleSlotDrop}
       />
+      <div class='min-w-0 flex-1' />
     </div>
   )
 }

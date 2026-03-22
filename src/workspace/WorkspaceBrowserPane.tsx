@@ -92,6 +92,7 @@ export function WorkspaceBrowserPane(props: Props) {
   const [unsupportedFile, setUnsupportedFile] = createSignal<FileItem | null>(null)
   const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
   const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
+  const [dragAllowsMove, setDragAllowsMove] = createSignal(false)
   const [enableDrag, setEnableDrag] = createSignal(false)
   const [showCreateFile, setShowCreateFile] = createSignal(false)
   const [newFileName, setNewFileName] = createSignal('')
@@ -122,7 +123,10 @@ export function WorkspaceBrowserPane(props: Props) {
   )
 
   onMount(() => {
-    setEnableDrag(typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches)
+    if (typeof window === 'undefined') return
+    const mqHover = window.matchMedia('(hover: hover)')
+    const mqFine = window.matchMedia('(pointer: fine)')
+    setEnableDrag(mqHover.matches || mqFine.matches)
   })
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
@@ -921,6 +925,7 @@ export function WorkspaceBrowserPane(props: Props) {
     const dtr = e.dataTransfer
     if (!canDropOnParent() || !allowMoveFile()) return
     if (!dtr || (!draggedPath() && !hasFileDragData(dtr))) return
+    if (draggedPath() && !dragAllowsMove()) return
     e.preventDefault()
     dtr.dropEffect = 'move'
     setDragOverPath('__parent__')
@@ -941,6 +946,7 @@ export function WorkspaceBrowserPane(props: Props) {
     const dest = parentDir(currentPath())
     const dp = draggedPath()
     if (dp) {
+      if (!dragAllowsMove()) return
       mv(dp, dest)
       return
     }
@@ -958,13 +964,9 @@ export function WorkspaceBrowserPane(props: Props) {
 
   function onFileDragStart(file: FileItem, e: globalThis.DragEvent) {
     const dtr = e.dataTransfer
-    if (
-      !dtr ||
-      !enableDrag() ||
-      !isPathEditable(file.path, props.editableFolders) ||
-      !allowMoveFile()
-    )
-      return
+    if (!dtr || !enableDrag()) return
+    const canMove = !!allowMoveFile() && isPathEditable(file.path, props.editableFolders)
+    setDragAllowsMove(canMove)
     const kind = dragSourceKind()
     const tok = dragSourceToken()
     setFileDragData(dtr, {
@@ -973,13 +975,14 @@ export function WorkspaceBrowserPane(props: Props) {
       sourceKind: kind,
       ...(kind === 'share' && tok ? { sourceToken: tok } : {}),
     })
-    dtr.effectAllowed = 'copyMove'
+    dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
     setDraggedPath(file.path)
   }
 
   function onFileDragEnd() {
     setDraggedPath(null)
     setDragOverPath(null)
+    setDragAllowsMove(false)
   }
 
   function handleFolderRowDragOver(path: string, e: globalThis.DragEvent) {
@@ -1003,6 +1006,7 @@ export function WorkspaceBrowserPane(props: Props) {
     const hasCross = !draggedPath() && hasFileDragData(dtr)
     if (!draggedPath() && !hasCross) return
     const dp = draggedPath()
+    if (dp && !dragAllowsMove()) return
     if (dp && !canDropOn(file.path)) return
     if (!isPathEditable(file.path, props.editableFolders)) return
     e.preventDefault()
@@ -1024,6 +1028,7 @@ export function WorkspaceBrowserPane(props: Props) {
     if (!mv || !file.isDirectory) return
     const dp = draggedPath()
     if (dp && canDropOn(file.path)) {
+      if (!dragAllowsMove()) return
       mv(dp, file.path)
       return
     }
@@ -1463,10 +1468,7 @@ export function WorkspaceBrowserPane(props: Props) {
                         </Show>
                         <For each={files()}>
                           {(file) => {
-                            const canDragRow =
-                              enableDrag() &&
-                              isPathEditable(file.path, props.editableFolders) &&
-                              !!allowMoveFile()
+                            const canDragRow = enableDrag()
                             return (
                               <tr
                                 data-no-window-drag

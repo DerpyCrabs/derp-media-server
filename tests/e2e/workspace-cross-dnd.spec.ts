@@ -66,7 +66,7 @@ test.describe('Cross-Window File Move', () => {
     await deleteFileViaContextMenu(page, contentB, tempFile)
   })
 
-  test('non-editable files are not draggable', async () => {
+  test('non-editable files stay draggable for tab bar (copy) even when move is disallowed', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
@@ -78,7 +78,7 @@ test.describe('Cross-Window File Move', () => {
     const readmeRow = content.locator('tr').filter({ hasText: 'readme.txt' })
     const draggable = await readmeRow.getAttribute('draggable')
 
-    expect(draggable).not.toBe('true')
+    expect(draggable).toBe('true')
   })
 })
 
@@ -105,6 +105,7 @@ test.describe('Drop File onto Tab Bar', () => {
 
     const tabStrip = groups.nth(1).locator('.workspace-tab-strip')
     await expect(tabStrip).toBeVisible({ timeout: 5_000 })
+    await expect(tabStrip.getByText('subfolder', { exact: true })).toBeVisible()
   })
 
   test('dropping a file onto the tab bar opens a viewer tab', async () => {
@@ -128,6 +129,38 @@ test.describe('Drop File onto Tab Bar', () => {
 
     const tabStrip = groups.nth(1).locator('.workspace-tab-strip')
     await expect(tabStrip).toBeVisible({ timeout: 5_000 })
+    await expect(tabStrip.getByText('public-doc.txt', { exact: true })).toBeVisible()
+  })
+
+  test('dropping a video onto the tab bar shows video in viewer tab', async () => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+    await dragToEdge(page, getDragHandle(groups.first()), 'left')
+    await groups.nth(1).dispatchEvent('mousedown')
+    await page.waitForTimeout(30)
+    await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
+
+    const contentA = getVisibleContent(groups.first())
+    await navigateToSharedContent(contentA)
+
+    const videoRow = contentA.locator('tr').filter({ hasText: 'public-video.mp4' })
+    if ((await videoRow.count()) === 0) {
+      test.skip()
+      return
+    }
+
+    const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
+    await html5DragDrop(videoRow.first(), headerB)
+    await page.waitForTimeout(200)
+
+    const targetGroup = groups.nth(1)
+    await expect(targetGroup.locator('video')).toBeVisible({ timeout: 10_000 })
+    await expect(targetGroup.locator('.workspace-tab-strip')).toBeVisible()
+    await expect(
+      targetGroup.locator('.workspace-tab-strip').getByText('public-video.mp4', { exact: true }),
+    ).toBeVisible()
   })
 })
 
