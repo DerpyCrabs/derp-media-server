@@ -24,7 +24,7 @@ test.afterEach(async () => {
 })
 
 test.describe('workspace named layout presets', () => {
-  test('save preset, dirty badge, revert, hydrate via preset URL', async () => {
+  test('save preset, layout dirty revert, hydrate via preset URL', async () => {
     const ws = `e2e-named-layout-${batch}-${Date.now()}`
     await page.goto(`/workspace?ws=${ws}`)
     await expect(page.getByTestId('workspace-named-layout-trigger')).toBeEnabled()
@@ -54,9 +54,9 @@ test.describe('workspace named layout presets', () => {
 
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
-    await expect(page.getByTestId('workspace-layout-modified-badge')).toBeVisible()
 
     await page.getByTestId('workspace-named-layout-trigger').click()
+    await expect(page.getByRole('menuitem', { name: 'Revert to baseline' })).toBeVisible()
     await page.getByRole('menuitem', { name: 'Revert to baseline' }).click()
     await expect(getWindowGroups(page)).toHaveCount(1)
 
