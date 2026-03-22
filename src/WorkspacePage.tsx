@@ -1097,6 +1097,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const workspaceFileIconContext = (): FileIconContext => {
     void mediaIconTick()
     const st = useMediaPlayer.getState()
+    const sp = sharePanel()
     return {
       customIcons: settingsQuery.data?.customIcons ?? {},
       knowledgeBases: settingsQuery.data?.knowledgeBases ?? [],
@@ -1104,6 +1105,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       currentFile: st.currentFile,
       mediaPlayerIsPlaying: st.isPlaying,
       mediaType: st.mediaType,
+      mediaShare: sp ? { token: sp.token, sharePath: sp.sharePath } : null,
     }
   }
 

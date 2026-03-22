@@ -61,7 +61,7 @@ export function buildAudioMetadataUrl(filePath: string, ctx: MediaShareContext):
 }
 
 function buildAdminThumbnailUrl(filePath: string): string {
-  return `/api/thumbnail/${filePath}`
+  return `/api/thumbnail/${encodeSegments(filePath)}`
 }
 
 function buildShareThumbnailUrl(

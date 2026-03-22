@@ -47,6 +47,7 @@ import { useStoreSync } from './lib/solid-store-sync'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
+import type { FileIconContext } from './lib/use-file-icon'
 import { EMPTY_FILE_ICON_CONTEXT, fileIcon, gridHeroIcon } from './lib/use-file-icon'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
@@ -120,6 +121,13 @@ export function ShareFolderBrowser(props: Props) {
       token: props.token,
       sharePath: props.shareInfo.path,
       isDirectory: props.shareInfo.isDirectory,
+    }),
+  )
+
+  const shareFileIconContext = createMemo(
+    (): FileIconContext => ({
+      ...EMPTY_FILE_ICON_CONTEXT,
+      mediaShare: { token: props.token, sharePath: props.shareInfo.path },
     }),
   )
 
@@ -949,7 +957,7 @@ export function ShareFolderBrowser(props: Props) {
                           >
                             <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
                               <div class='text-muted-foreground'>
-                                {gridHeroIcon(file, EMPTY_FILE_ICON_CONTEXT)}
+                                {gridHeroIcon(file, shareFileIconContext())}
                               </div>
                             </div>
                             <div class='flex flex-col gap-1 p-3'>

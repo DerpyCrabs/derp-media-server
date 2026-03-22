@@ -1,3 +1,4 @@
+import { buildThumbnailUrl, type MediaShareContext } from './build-media-url'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { getMediaType } from '@/lib/media-utils'
 import { getSolidIconComponent } from './solid-available-icons'
@@ -17,7 +18,7 @@ import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
 import Star from 'lucide-solid/icons/star'
 import Video from 'lucide-solid/icons/video'
-import type { JSX } from 'solid-js'
+import { Show, createSignal, type JSX } from 'solid-js'
 import type { WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 
 export type FileIconContext = {
@@ -27,6 +28,7 @@ export type FileIconContext = {
   currentFile: string | null
   mediaPlayerIsPlaying: boolean
   mediaType: 'audio' | 'video' | null
+  mediaShare?: MediaShareContext
 }
 
 export const EMPTY_FILE_ICON_CONTEXT: FileIconContext = {
@@ -182,11 +184,53 @@ export function fileIcon(file: FileItem): JSX.Element {
   return fileItemIcon(file, EMPTY_FILE_ICON_CONTEXT)
 }
 
+function gridHeroIconScaleWrap(inner: JSX.Element): JSX.Element {
+  return <div class='scale-[2.5] [&_svg]:h-6 [&_svg]:w-6'>{inner}</div>
+}
+
+function GridVideoThumbnail(props: { file: FileItem; ctx: FileIconContext }): JSX.Element {
+  const [imgFailed, setImgFailed] = createSignal(false)
+  const src = () => buildThumbnailUrl(props.file.path, props.ctx.mediaShare ?? null)
+
+  return (
+    <Show
+      when={!imgFailed()}
+      fallback={
+        <div class='flex h-full min-h-full w-full items-center justify-center text-muted-foreground'>
+          {gridHeroIconScaleWrap(fileItemIcon(props.file, props.ctx))}
+        </div>
+      }
+    >
+      <div class='absolute inset-0'>
+        <img
+          src={src()}
+          alt=''
+          loading='lazy'
+          decoding='async'
+          class='h-full w-full object-cover'
+          data-testid='file-browser-video-thumbnail'
+          onError={() => setImgFailed(true)}
+        />
+      </div>
+    </Show>
+  )
+}
+
 export function gridHeroIcon(
   file: FileItem,
   ctx: FileIconContext = EMPTY_FILE_ICON_CONTEXT,
 ): JSX.Element {
-  return <div class='scale-[2.5] [&_svg]:h-6 [&_svg]:w-6'>{fileItemIcon(file, ctx)}</div>
+  const fp = norm(file.path)
+  const customIconName = ctx.customIcons[file.path] ?? ctx.customIcons[fp]
+  if (customIconName && getSolidIconComponent(customIconName)) {
+    return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
+  }
+
+  if (file.type === MediaType.VIDEO && !file.isDirectory && !file.isVirtual) {
+    return <GridVideoThumbnail file={file} ctx={ctx} />
+  }
+
+  return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
 }
 
 export function workspaceTabIcon(

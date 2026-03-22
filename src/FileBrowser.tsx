@@ -156,6 +156,7 @@ export function FileBrowser() {
       currentFile: st.currentFile,
       mediaPlayerIsPlaying: st.isPlaying,
       mediaType: st.mediaType,
+      mediaShare: null,
     }
   })
 
