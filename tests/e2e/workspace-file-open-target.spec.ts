@@ -1,5 +1,25 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 function getBrowserContent(page: Page) {
   return getWindowGroups(page).first().locator('.workspace-window-content')
@@ -14,7 +34,7 @@ async function chooseWorkspaceOpenTarget(page: Page, label: 'New tab' | 'New win
 }
 
 test.describe('Workspace file open target', () => {
-  test('opens file in a new tab when setting is New tab', async ({ page }) => {
+  test('opens file in a new tab when setting is New tab', async () => {
     await gotoWorkspace(page)
     await page.getByRole('button', { name: 'Open settings' }).click()
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
@@ -30,7 +50,7 @@ test.describe('Workspace file open target', () => {
     await expect(tabStrip.getByText('readme.txt')).toBeVisible()
   })
 
-  test('opens file in a new window when setting is New window', async ({ page }) => {
+  test('opens file in a new window when setting is New window', async () => {
     await gotoWorkspace(page)
     await page.getByRole('button', { name: 'Open settings' }).click()
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()

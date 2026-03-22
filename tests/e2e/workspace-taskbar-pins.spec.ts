@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import {
   createTempFile,
   deleteFileViaContextMenu,
@@ -12,6 +12,26 @@ import {
   openBrowserWindow,
 } from '../e2e/workspace-cross-dnd-helpers'
 import { WORKSPACE_VISIBLE_WINDOW_GROUP } from './workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 async function createShare(page: Page, body: Record<string, unknown>) {
   const res = await page.request.post('/api/shares', { data: body })
@@ -41,7 +61,7 @@ function getBrowserContent(page: Page) {
 }
 
 test.describe('Workspace taskbar pins', () => {
-  test('Add to taskbar from context menu adds pinned icon', async ({ page }) => {
+  test('Add to taskbar from context menu adds pinned icon', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await expect(content.getByText('Documents', { exact: true })).toBeVisible()
@@ -58,7 +78,7 @@ test.describe('Workspace taskbar pins', () => {
     ).toBeVisible()
   })
 
-  test('clicking pinned folder icon opens browser at that folder', async ({ page }) => {
+  test('clicking pinned folder icon opens browser at that folder', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await content
@@ -76,7 +96,7 @@ test.describe('Workspace taskbar pins', () => {
     await expect(secondContent.getByText('readme.txt')).toBeVisible()
   })
 
-  test('Unpin from context menu removes pinned icon', async ({ page }) => {
+  test('Unpin from context menu removes pinned icon', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await content
@@ -93,7 +113,7 @@ test.describe('Workspace taskbar pins', () => {
     await expect(page.locator('[title="Folder: Documents"]')).not.toBeVisible()
   })
 
-  test('clicking pinned file icon opens viewer for that file', async ({ page }) => {
+  test('clicking pinned file icon opens viewer for that file', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await content.getByText('Documents', { exact: true }).click()
@@ -111,7 +131,7 @@ test.describe('Workspace taskbar pins', () => {
     })
   })
 
-  test('clicking pinned unsupported file shows unsupported file viewer', async ({ page }) => {
+  test('clicking pinned unsupported file shows unsupported file viewer', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await content.getByText('Documents', { exact: true }).click()
@@ -133,7 +153,7 @@ test.describe('Workspace taskbar pins', () => {
     await expect(viewerContent.getByRole('link', { name: 'Download File' })).toBeVisible()
   })
 
-  test('admin workspace: pins persist in settings after reload', async ({ page }) => {
+  test('admin workspace: pins persist in settings after reload', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     const savePinned = page.waitForResponse(
@@ -156,7 +176,7 @@ test.describe('Workspace taskbar pins', () => {
     await expect(page.locator('[title="Folder: Documents"]')).toBeVisible()
   })
 
-  test('share workspace: pins persist on share after reload', async ({ page }) => {
+  test('share workspace: pins persist on share after reload', async () => {
     const shareUrl = await createShare(page, {
       path: 'SharedContent',
       isDirectory: true,
@@ -185,7 +205,7 @@ test.describe('Workspace taskbar pins', () => {
     await expect(page.locator('[title="Folder: SharedContent/subfolder"]')).toBeVisible()
   })
 
-  test('dragging pinned file to folder in another browser moves the file', async ({ page }) => {
+  test('dragging pinned file to folder in another browser moves the file', async () => {
     await gotoWorkspaceDnd(page)
     await openBrowserWindow(page)
 

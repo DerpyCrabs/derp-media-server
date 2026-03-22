@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Locator } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page, type Locator } from '@playwright/test'
 import {
   TASKBAR_HEIGHT,
   gotoWorkspace,
@@ -10,6 +10,26 @@ import {
   dragFromTo,
   WORKSPACE_VISIBLE_WINDOW_GROUP,
 } from '../e2e/workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 function getVisibleContent(windowGroup: Locator) {
   return windowGroup.locator('[data-testid="workspace-window-visible-content"]')
@@ -32,7 +52,7 @@ async function closeAllWindows(page: Page) {
 }
 
 test.describe('Tab Merging and Splitting', () => {
-  test('merges window into another as tab', async ({ page }) => {
+  test('merges window into another as tab', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
@@ -57,7 +77,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(tabStrip).toBeVisible()
   })
 
-  test('splits tab into separate window', async ({ page }) => {
+  test('splits tab into separate window', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -95,7 +115,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
-  test('detach tab then drag back onto tab bar merges at chosen place', async ({ page }) => {
+  test('detach tab then drag back onto tab bar merges at chosen place', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -150,7 +170,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
   })
 
-  test('merge at slot inserts tab at chosen position', async ({ page }) => {
+  test('merge at slot inserts tab at chosen position', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
@@ -179,7 +199,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(tabs.first()).toBeVisible()
   })
 
-  test('shows correct tab count in taskbar after merge', async ({ page }) => {
+  test('shows correct tab count in taskbar after merge', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -203,7 +223,7 @@ test.describe('Tab Merging and Splitting', () => {
     expect(label).toContain('+1')
   })
 
-  test('taskbar shows title and icon of current tab, not first', async ({ page }) => {
+  test('taskbar shows title and icon of current tab, not first', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
@@ -250,7 +270,7 @@ test.describe('Tab Merging and Splitting', () => {
     expect(labelAfterSecondTab).toContain('readme.txt')
   })
 
-  test('switching tabs changes active tab styling', async ({ page }) => {
+  test('switching tabs changes active tab styling', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -277,7 +297,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(tabs.first()).toHaveClass(/bg-background/)
   })
 
-  test('closing one tab keeps the other', async ({ page }) => {
+  test('closing one tab keeps the other', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -303,7 +323,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
   })
 
-  test('closing second (active) tab returns to first tab content', async ({ page }) => {
+  test('closing second (active) tab returns to first tab content', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -345,7 +365,7 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(visibleContent.getByText('readme.txt')).toBeVisible({ timeout: 10000 })
   })
 
-  test('closing window with multiple tabs closes all tabs', async ({ page }) => {
+  test('closing window with multiple tabs closes all tabs', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -376,25 +396,25 @@ test.describe('Tab Merging and Splitting', () => {
 })
 
 test.describe('Taskbar', () => {
-  test('shows empty state when no windows open', async ({ page }) => {
+  test('shows empty state when no windows open', async () => {
     await gotoWorkspace(page)
     await closeAllWindows(page)
     await expect(page.getByText('No windows are open')).toBeVisible()
   })
 
-  test('shows open browser button', async ({ page }) => {
+  test('open browser control is visible and opens a second window', async () => {
     await gotoWorkspace(page)
-    await expect(page.locator('button[title="Open browser window"]')).toBeVisible()
+    await test.step('shows Open browser window button', async () => {
+      await expect(page.locator('button[title="Open browser window"]')).toBeVisible()
+    })
+    await test.step('opens a browser window from taskbar', async () => {
+      await expect(getWindowGroups(page)).toHaveCount(1)
+      await openBrowserWindow(page)
+      await expect(getWindowGroups(page)).toHaveCount(2)
+    })
   })
 
-  test('opens a browser window from taskbar', async ({ page }) => {
-    await gotoWorkspace(page)
-    await expect(getWindowGroups(page)).toHaveCount(1)
-    await openBrowserWindow(page)
-    await expect(getWindowGroups(page)).toHaveCount(2)
-  })
-
-  test('clicking taskbar item focuses window', async ({ page }) => {
+  test('clicking taskbar item focuses window', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -409,7 +429,7 @@ test.describe('Taskbar', () => {
     await expect(rows.nth(1)).not.toHaveAttribute('data-taskbar-active')
   })
 
-  test('taskbar shows exactly one active row matching focused window', async ({ page }) => {
+  test('taskbar shows exactly one active row matching focused window', async () => {
     await gotoWorkspace(page)
     await expect(page.locator('[data-taskbar-window-row][data-taskbar-active]')).toHaveCount(1)
 
@@ -418,7 +438,7 @@ test.describe('Taskbar', () => {
     await expect(page.locator('[data-taskbar-window-row]')).toHaveCount(2)
   })
 
-  test('clicking focused window in taskbar minimizes it', async ({ page }) => {
+  test('clicking focused window in taskbar minimizes it', async () => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
@@ -429,7 +449,7 @@ test.describe('Taskbar', () => {
     await expect(getWindowGroups(page)).toHaveCount(0)
   })
 
-  test('restores minimized window from taskbar', async ({ page }) => {
+  test('restores minimized window from taskbar', async () => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
@@ -444,7 +464,7 @@ test.describe('Taskbar', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
   })
 
-  test('minimizing focused window focuses the next window', async ({ page }) => {
+  test('minimizing focused window focuses the next window', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
@@ -470,7 +490,7 @@ test.describe('Taskbar', () => {
     await expect(getVisibleContent(groups.first())).toContainText('Documents')
   })
 
-  test('closes window from taskbar', async ({ page }) => {
+  test('closes window from taskbar', async () => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
@@ -482,7 +502,7 @@ test.describe('Taskbar', () => {
 })
 
 test.describe('Window Buttons', () => {
-  test('minimize button hides window', async ({ page }) => {
+  test('minimize button hides window', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     await expect(groups).toHaveCount(1)
@@ -493,46 +513,36 @@ test.describe('Window Buttons', () => {
     await expect(getWindowGroups(page)).toHaveCount(0)
   })
 
-  test('maximize button expands to fullscreen', async ({ page }) => {
+  test('maximize expands to fullscreen then restores with bounds', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-
-    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
-    await maximizeBtn.click()
-    await page.waitForTimeout(50)
-
-    const bounds = await getWindowBounds(groups.first())
-    const viewport = page.viewportSize()!
-    const containerH = viewport.height - TASKBAR_HEIGHT
-
-    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
-    expect(bounds.height).toBeGreaterThan(containerH - 10)
-  })
-
-  test('maximize button restores from fullscreen', async ({ page }) => {
-    await gotoWorkspace(page)
-    const groups = getWindowGroups(page)
-
     const preBounds = await getWindowBounds(groups.first())
 
-    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
-    await maximizeBtn.click()
-    await page.waitForTimeout(50)
+    await test.step('expands to fullscreen', async () => {
+      const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
+      await maximizeBtn.click()
+      await page.waitForTimeout(50)
+      const bounds = await getWindowBounds(groups.first())
+      const viewport = page.viewportSize()!
+      const containerH = viewport.height - TASKBAR_HEIGHT
+      expect(bounds.width).toBeGreaterThan(viewport.width - 10)
+      expect(bounds.height).toBeGreaterThan(containerH - 10)
+    })
 
-    const restoreBtn = groups.first().locator('button:has(.lucide-minimize-2)')
-    await restoreBtn.click()
-    await page.waitForTimeout(50)
-
-    const restoredBounds = await getWindowBounds(groups.first())
-    const viewport = page.viewportSize()!
-
-    expect(restoredBounds.width).toBeLessThan(viewport.width - 50)
-    expect(restoredBounds.height).toBeLessThan(viewport.height - 50)
-    expect(restoredBounds.width).toBeGreaterThan(preBounds.width - 20)
-    expect(restoredBounds.width).toBeLessThan(preBounds.width + 20)
+    await test.step('restores from fullscreen', async () => {
+      const restoreBtn = groups.first().locator('button:has(.lucide-minimize-2)')
+      await restoreBtn.click()
+      await page.waitForTimeout(50)
+      const restoredBounds = await getWindowBounds(groups.first())
+      const viewport = page.viewportSize()!
+      expect(restoredBounds.width).toBeLessThan(viewport.width - 50)
+      expect(restoredBounds.height).toBeLessThan(viewport.height - 50)
+      expect(restoredBounds.width).toBeGreaterThan(preBounds.width - 20)
+      expect(restoredBounds.width).toBeLessThan(preBounds.width + 20)
+    })
   })
 
-  test('close button removes window', async ({ page }) => {
+  test('close button removes window', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     await expect(groups).toHaveCount(1)
@@ -543,7 +553,7 @@ test.describe('Window Buttons', () => {
     await expect(getWindowGroups(page)).toHaveCount(0)
   })
 
-  test('close button on window with multiple tabs closes all tabs', async ({ page }) => {
+  test('close button on window with multiple tabs closes all tabs', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -569,7 +579,7 @@ test.describe('Window Buttons', () => {
     await expect(getWindowGroups(page)).toHaveCount(0)
   })
 
-  test('add tab button adds a new tab', async ({ page }) => {
+  test('add tab button adds a new tab', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -580,61 +590,50 @@ test.describe('Window Buttons', () => {
     await expect(tabStrip).toBeVisible()
   })
 
-  test('right-click maximize opens layout picker', async ({ page }) => {
+  test('right-click maximize opens layout picker and snapping fills workspace', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
-
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
-    await maximizeBtn.click({ button: 'right' })
 
-    await expect(page.getByText('Snap layout')).toBeVisible()
-  })
+    await test.step('opens snap layout picker', async () => {
+      await maximizeBtn.click({ button: 'right' })
+      await expect(page.getByText('Snap layout')).toBeVisible()
+    })
 
-  test('selecting a layout from picker snaps window', async ({ page }) => {
-    await gotoWorkspace(page)
-    const groups = getWindowGroups(page)
-
-    const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
-    await maximizeBtn.click({ button: 'right' })
-    await expect(page.getByText('Snap layout')).toBeVisible()
-
-    const pickerSlots = page.locator('[data-snap-layout-template] button')
-    await pickerSlots.first().click()
-    await page.waitForTimeout(50)
-
-    const bounds = await getWindowBounds(groups.first())
-    const viewport = page.viewportSize()!
-    const containerH = viewport.height - TASKBAR_HEIGHT
-
-    expect(bounds.width).toBeGreaterThan(viewport.width - 10)
-    expect(bounds.height).toBeGreaterThan(containerH - 10)
+    await test.step('selecting a template snaps window', async () => {
+      const pickerSlots = page.locator('[data-snap-layout-template] button')
+      await pickerSlots.first().click()
+      await page.waitForTimeout(50)
+      const bounds = await getWindowBounds(groups.first())
+      const viewport = page.viewportSize()!
+      const containerH = viewport.height - TASKBAR_HEIGHT
+      expect(bounds.width).toBeGreaterThan(viewport.width - 10)
+      expect(bounds.height).toBeGreaterThan(containerH - 10)
+    })
   })
 })
 
 test.describe('File Browsing and Viewers', () => {
-  test('workspace browser shows root folders', async ({ page }) => {
+  test('workspace browser shows root folders and can open a folder', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
 
-    await Promise.all(
-      ['Videos', 'Music', 'Images', 'Documents'].map((folder) =>
-        expect(content.getByText(folder, { exact: true })).toBeVisible(),
-      ),
-    )
+    await test.step('shows root folders', async () => {
+      await Promise.all(
+        ['Videos', 'Music', 'Images', 'Documents'].map((folder) =>
+          expect(content.getByText(folder, { exact: true })).toBeVisible(),
+        ),
+      )
+    })
+
+    await test.step('navigating into a folder updates browser content', async () => {
+      await content.getByText('Videos', { exact: true }).click()
+      await expect(content.getByText('sample.mp4')).toBeVisible({ timeout: 10000 })
+    })
   })
 
-  test('navigating into a folder updates browser content', async ({ page }) => {
-    await gotoWorkspace(page)
-    const groups = getWindowGroups(page)
-    const content = getVisibleContent(groups.first())
-
-    await content.getByText('Videos', { exact: true }).click()
-
-    await expect(content.getByText('sample.mp4')).toBeVisible({ timeout: 10000 })
-  })
-
-  test('clicking a text file opens a viewer window', async ({ page }) => {
+  test('clicking a text file opens a viewer window', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
@@ -648,7 +647,7 @@ test.describe('File Browsing and Viewers', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
-  test('clicking an image opens an image viewer window', async ({ page }) => {
+  test('clicking an image opens an image viewer window', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
@@ -662,7 +661,7 @@ test.describe('File Browsing and Viewers', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
-  test('"Open in new tab" for folder opens in same window as new tab', async ({ page }) => {
+  test('"Open in new tab" for folder opens in same window as new tab', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
@@ -674,7 +673,7 @@ test.describe('File Browsing and Viewers', () => {
     await expect(content.getByText('sample.mp4')).toBeVisible({ timeout: 10000 })
   })
 
-  test('"Open in new tab" for file opens in same window as new tab', async ({ page }) => {
+  test('"Open in new tab" for file opens in same window as new tab', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
@@ -691,37 +690,26 @@ test.describe('File Browsing and Viewers', () => {
 })
 
 test.describe('Player Window Reuse', () => {
-  test('playing a video creates a player window', async ({ page }) => {
+  test('video player window is created once and reused for same file', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
 
-    await content.getByText('Videos', { exact: true }).click()
-    await expect(content.getByText('sample.mp4')).toBeVisible()
-    await content.getByText('sample.mp4').click()
+    await test.step('playing a video creates a player window', async () => {
+      await content.getByText('Videos', { exact: true }).click()
+      await expect(content.getByText('sample.mp4')).toBeVisible()
+      await content.getByText('sample.mp4').click()
+      const videos = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
+      await expect(videos).toHaveCount(1)
+    })
 
-    const videos = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
-    await expect(videos).toHaveCount(1)
-  })
-
-  test('playing the same video again reuses the player window', async ({ page }) => {
-    await gotoWorkspace(page)
-    const groups = getWindowGroups(page)
-    const content = getVisibleContent(groups.first())
-
-    await content.getByText('Videos', { exact: true }).click()
-    await expect(content.getByText('sample.mp4')).toBeVisible()
-    await content.getByText('sample.mp4').click()
-
-    const videos = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
-    await expect(videos).toHaveCount(1)
-    const windowCountAfterFirst = await getWindowGroups(page).count()
-
-    const browserContent = getVisibleContent(groups.first())
-    await browserContent.getByText('sample.mp4').click({ force: true })
-
-    await expect(page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)).toHaveCount(1)
-    const windowCountAfterSecond = await getWindowGroups(page).count()
-    expect(windowCountAfterSecond).toBe(windowCountAfterFirst)
+    await test.step('playing the same video again reuses the player window', async () => {
+      const windowCountAfterFirst = await getWindowGroups(page).count()
+      const browserContent = getVisibleContent(groups.first())
+      await browserContent.getByText('sample.mp4').click({ force: true })
+      await expect(page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)).toHaveCount(1)
+      const windowCountAfterSecond = await getWindowGroups(page).count()
+      expect(windowCountAfterSecond).toBe(windowCountAfterFirst)
+    })
   })
 })
