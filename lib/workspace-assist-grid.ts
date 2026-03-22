@@ -1,7 +1,7 @@
 import type { WorkspaceBounds, WorkspaceCanvasSize } from '@/lib/workspace-geometry'
 import { SNAP_EDGE_THRESHOLD_PX } from '@/lib/use-snap-zones'
 
-export const ASSIST_GRID_SHAPES = ['3x2', '2x2', '2x3'] as const
+export const ASSIST_GRID_SHAPES = ['3x2', '3x3', '2x2', '2x3'] as const
 export type AssistGridShape = (typeof ASSIST_GRID_SHAPES)[number]
 
 export function isAssistGridShape(s: string): s is AssistGridShape {
@@ -12,6 +12,8 @@ export function assistShapeToDims(shape: AssistGridShape): { cols: number; rows:
   switch (shape) {
     case '3x2':
       return { cols: 3, rows: 2 }
+    case '3x3':
+      return { cols: 3, rows: 3 }
     case '2x2':
       return { cols: 2, rows: 2 }
     case '2x3':

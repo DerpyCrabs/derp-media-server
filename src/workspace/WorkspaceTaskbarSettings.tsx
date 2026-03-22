@@ -214,7 +214,7 @@ export function WorkspaceTaskbarSettings() {
             <div>
               <div class='mb-2 text-xs font-medium text-muted-foreground'>Tiling</div>
               <p class='mb-3 text-xs text-muted-foreground'>
-                Grids are 3×2, 2×2, or 2×3. Drag window edges to snap single tiles or merge
+                Grids are 3×2, 3×3, 2×2, or 2×3. Drag window edges to snap single tiles or merge
                 neighbors; drag to the top-center strip to open the assist bar.
               </p>
               <label class='mb-3 flex cursor-pointer items-start gap-2 text-sm'>

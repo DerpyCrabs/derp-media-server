@@ -1,3 +1,4 @@
+import type { AssistGridShape } from '@/lib/workspace-assist-grid'
 import { TOP_SNAP_ASSIST_CENTER_BAND_PX } from '@/lib/use-snap-zones'
 import type { Page, Locator } from '@playwright/test'
 import { expect } from '@playwright/test'
@@ -156,7 +157,7 @@ export async function dragToEdge(
 }
 
 /** Persists preferred assist grid shape (reload so the client store re-reads localStorage). */
-export async function setAssistGridShapeForTest(page: Page, shape: '3x2' | '2x2' | '2x3') {
+export async function setAssistGridShapeForTest(page: Page, shape: AssistGridShape) {
   await page.evaluate((s) => {
     const key = 'workspace-preferred-snap'
     let cur: Record<string, unknown> = {}
@@ -185,7 +186,7 @@ export async function setAssistGridShapeForTest(page: Page, shape: '3x2' | '2x2'
 }
 
 /** Call before the first /workspace navigation on this page so the app hydrates with the given shape. */
-export async function presetAssistGridShapeBeforeGoto(page: Page, shape: '3x2' | '2x2' | '2x3') {
+export async function presetAssistGridShapeBeforeGoto(page: Page, shape: AssistGridShape) {
   await page.addInitScript((s) => {
     localStorage.setItem(
       'workspace-preferred-snap',
@@ -194,7 +195,7 @@ export async function presetAssistGridShapeBeforeGoto(page: Page, shape: '3x2' |
   }, shape)
 }
 
-export function assistMiniGrid(page: Page, shape: '3x2' | '2x2' | '2x3') {
+export function assistMiniGrid(page: Page, shape: AssistGridShape) {
   return page.locator(`[data-assist-mini-grid="${shape}"]`)
 }
 

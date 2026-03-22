@@ -19,6 +19,8 @@ function shapeLabel(id: AssistGridShape): string {
   switch (id) {
     case '3x2':
       return '3×2'
+    case '3x3':
+      return '3×3'
     case '2x2':
       return '2×2'
     case '2x3':
@@ -161,6 +163,14 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('3x2')}
+          pickMode
+          onPickSpan={(span) => props.onSelectSpan(span)}
+        />
+        <WorkspaceSnapAssistMasterGrid
+          shape='3x3'
+          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
+          aspectRatio={aspect()}
+          layoutLabel={shapeLabel('3x3')}
           pickMode
           onPickSpan={(span) => props.onSelectSpan(span)}
         />
