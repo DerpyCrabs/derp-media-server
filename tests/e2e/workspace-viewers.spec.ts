@@ -84,7 +84,7 @@ test.describe('Workspace File Browser', () => {
         .getByText('Documents', { exact: true })
         .click({ button: 'right' })
       await expect(
-        content.locator('[data-slot="file-row-context-menu"]').getByText('Set icon'),
+        page.locator('[data-slot="file-row-context-menu"]').getByText('Set icon'),
       ).toBeVisible()
     })
 

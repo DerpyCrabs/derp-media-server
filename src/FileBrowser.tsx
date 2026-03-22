@@ -12,6 +12,11 @@ import {
   subscribeFinePointerDragEnabled,
 } from '@/lib/enable-fine-pointer-drag'
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
+import {
+  breadcrumbFloating,
+  resetBreadcrumbFloating,
+  setBreadcrumbFolderMenu,
+} from '@/lib/breadcrumb-floating-store'
 import { api, post } from '@/lib/api'
 import {
   prefetchFolderContentsOnHover,
@@ -173,7 +178,7 @@ export function FileBrowser() {
   const [debouncedSearch, setDebouncedSearch] = createSignal('')
   const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
-  const [breadcrumbMenu, setBreadcrumbMenu] = createSignal<BreadcrumbMenuTarget | null>(null)
+  const breadcrumbMenu = () => breadcrumbFloating.folderMenu
 
   createEffect(() => {
     const q = searchQuery()
@@ -191,6 +196,7 @@ export function FileBrowser() {
           setSearchPopoverOpen(false)
           setInlineMode(null)
           setInlineName('')
+          resetBreadcrumbFloating()
         })
       },
       { defer: true },
@@ -801,7 +807,7 @@ export function FileBrowser() {
     e: MouseEvent,
     info: { navigatePath: string; displayName: string; isHome: boolean },
   ) {
-    setBreadcrumbMenu({
+    setBreadcrumbFolderMenu({
       x: e.clientX,
       y: e.clientY,
       serverPath: info.navigatePath.replace(/\\/g, '/'),
@@ -1712,7 +1718,7 @@ export function FileBrowser() {
             uploadToast={uploadToast}
             setUploadToastHidden={() => setUploadToast({ kind: 'hidden' })}
             breadcrumbMenu={breadcrumbMenu}
-            setBreadcrumbMenu={setBreadcrumbMenu}
+            setBreadcrumbMenu={setBreadcrumbFolderMenu}
             breadcrumbMenuActions={breadcrumbMenuActions}
             onBreadcrumbOpenInNewTab={handleBreadcrumbOpenInNewTab}
             onBreadcrumbOpenInWorkspace={handleBreadcrumbOpenInWorkspace}

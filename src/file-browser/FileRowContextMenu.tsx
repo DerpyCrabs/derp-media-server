@@ -1,5 +1,6 @@
 import type { FileItem } from '@/lib/types'
 import { isPathEditable } from '@/lib/utils'
+import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from 'lucide-solid/icons/app-window'
 import BookOpen from 'lucide-solid/icons/book-open'
 import ExternalLink from 'lucide-solid/icons/external-link'
@@ -8,7 +9,7 @@ import Pencil from 'lucide-solid/icons/pencil'
 import Pin from 'lucide-solid/icons/pin'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
-import { createEffect, onCleanup, Show } from 'solid-js'
+import { Show } from 'solid-js'
 
 type MenuState = { x: number; y: number; file: FileItem }
 
@@ -42,20 +43,13 @@ type FileRowContextMenuProps = {
 }
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
-  createEffect(() => {
-    const ctx = props.menu()
-    if (!ctx) return
-    const onDoc = (e: MouseEvent) => {
-      const t = e.target as Element | null
-      if (t?.closest?.('[data-slot="file-row-context-menu"]')) return
-      props.onDismiss()
-    }
-    document.addEventListener('mousedown', onDoc)
-    onCleanup(() => document.removeEventListener('mousedown', onDoc))
-  })
-
   return (
-    <Show when={props.menu()} keyed>
+    <FloatingContextMenu
+      state={props.menu}
+      anchor={(ctx) => ({ x: ctx.x, y: ctx.y })}
+      onDismiss={props.onDismiss}
+      data-slot='file-row-context-menu'
+    >
       {(ctx) => {
         const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
         const showRevokeShare = () => !!ctx.file.shareToken
@@ -85,13 +79,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
         const manageLabel = () => (props.getPathHasShare?.(ctx.file) ? 'Manage Share' : 'Share')
 
         return (
-          <div
-            data-no-window-drag
-            data-slot='file-row-context-menu'
-            class='fixed z-500000 min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
-            style={{ left: `${ctx.x}px`, top: `${ctx.y}px` }}
-            role='menu'
-          >
+          <>
             <Show when={props.onSetIcon && !ctx.file.isVirtual}>
               <button
                 type='button'
@@ -308,9 +296,9 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Delete
               </button>
             </Show>
-          </div>
+          </>
         )
       }}
-    </Show>
+    </FloatingContextMenu>
   )
 }

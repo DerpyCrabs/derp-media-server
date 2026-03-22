@@ -54,6 +54,7 @@ import {
 } from '@/lib/use-snap-zones'
 import { WORKSPACE_TITLE_BAR_PX } from '@/lib/workspace-snap-live'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
@@ -79,6 +80,7 @@ import {
   getLucideIconSvg,
   setFaviconHref,
 } from '@/lib/dynamic-favicon-core'
+import { FloatingContextMenu } from './file-browser/FloatingContextMenu'
 import { useStoreSync } from './lib/solid-store-sync'
 import type { FileIconContext } from './lib/use-file-icon'
 import { pinnedShellIcon } from './lib/use-file-icon'
@@ -1457,18 +1459,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const taskbarGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))
   const taskbarActiveWindowId = createMemo(() => workspace()?.activeWindowId ?? null)
 
-  createEffect(() => {
-    const m = pinMenu()
-    if (!m) return
-    const onDoc = (e: MouseEvent) => {
-      const t = e.target as Element | null
-      if (t?.closest?.('[data-pin-context-menu]')) return
-      setPinMenu(null)
-    }
-    document.addEventListener('mousedown', onDoc)
-    onCleanup(() => document.removeEventListener('mousedown', onDoc))
-  })
-
   const renderedGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))
   const pinnedItems = createMemo(() => workspace()?.pinnedTaskbarItems ?? [])
   const pinnedItemsForTaskbar = createMemo(() => {
@@ -1849,32 +1839,29 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         </div>
       </div>
 
-      <Show when={pinMenu()}>
-        {(get) => {
-          const m = get()
-          return (
-            <div
-              data-pin-context-menu
-              class='fixed z-[1000000] min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
-              style={{ left: `${m.x}px`, top: `${m.y}px` }}
-              role='menu'
-            >
-              <button
-                type='button'
-                data-slot='context-menu-item'
-                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                role='menuitem'
-                onClick={() => {
-                  removePinnedItem(m.pinId)
-                  setPinMenu(null)
-                }}
-              >
-                Unpin
-              </button>
-            </div>
-          )
-        }}
-      </Show>
+      <FloatingContextMenu
+        state={pinMenu}
+        anchor={(m) => ({ x: m.x, y: m.y })}
+        onDismiss={() => setPinMenu(null)}
+        zIndex={FLOATING_Z_PIN_MENU}
+        data-slot='pin-context-menu'
+        pinContextMenuRoot
+      >
+        {(m) => (
+          <button
+            type='button'
+            data-slot='context-menu-item'
+            class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+            role='menuitem'
+            onClick={() => {
+              removePinnedItem(m.pinId)
+              setPinMenu(null)
+            }}
+          >
+            Unpin
+          </button>
+        )}
+      </FloatingContextMenu>
     </div>
   )
 }

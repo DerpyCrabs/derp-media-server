@@ -1,10 +1,16 @@
+import {
+  breadcrumbFloating,
+  clearCompactPathOpenOnly,
+  setBreadcrumbCompactPathOpen,
+  setBreadcrumbFolderMenu,
+} from '@/lib/breadcrumb-floating-store'
 import { cn } from '@/lib/utils'
+import { FloatingContextMenu } from './FloatingContextMenu'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import House from 'lucide-solid/icons/house'
 import MoreHorizontal from 'lucide-solid/icons/more-horizontal'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import { Portal } from 'solid-js/web'
 
 type BreadcrumbsProps = {
   currentPath: string
@@ -45,14 +51,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
   const [isManuallyExpanded, setIsManuallyExpanded] = createSignal(false)
   const [wouldOverflowIfExpanded, setWouldOverflowIfExpanded] = createSignal(false)
   const [compactPathOnly, setCompactPathOnly] = createSignal(false)
-  const [pathPickerOpen, setPathPickerOpen] = createSignal(false)
   const [pathPickerButtonEl, setPathPickerButtonEl] = createSignal<HTMLButtonElement | null>(null)
-  const [pathPickerMenuEl, setPathPickerMenuEl] = createSignal<HTMLDivElement | null>(null)
-  const [pathPickerMenuBox, setPathPickerMenuBox] = createSignal<{
-    top: number
-    left: number
-    minWidth: number
-  } | null>(null)
 
   const effectiveVisible = createMemo(() => {
     const s = visibleIndices()
@@ -83,43 +82,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
       isWorkspace() ? 'h-7 px-2 text-xs' : 'h-8 px-2.5 text-sm',
       'hover:bg-muted hover:text-foreground',
     )
-
-  createEffect(() => {
-    if (!pathPickerOpen()) return
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node
-      const btn = pathPickerButtonEl()
-      const menu = pathPickerMenuEl()
-      if (btn?.contains(t) || menu?.contains(t)) return
-      setPathPickerOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    onCleanup(() => document.removeEventListener('mousedown', onDown))
-  })
-
-  createEffect(() => {
-    if (!pathPickerOpen()) {
-      setPathPickerMenuBox(null)
-      return
-    }
-    const update = () => {
-      const btn = pathPickerButtonEl()
-      if (!btn) return
-      const r = btn.getBoundingClientRect()
-      setPathPickerMenuBox({
-        top: r.bottom + 4,
-        left: r.left,
-        minWidth: Math.max(192, r.width),
-      })
-    }
-    update()
-    window.addEventListener('scroll', update, true)
-    window.addEventListener('resize', update)
-    onCleanup(() => {
-      window.removeEventListener('scroll', update, true)
-      window.removeEventListener('resize', update)
-    })
-  })
 
   createEffect(() => {
     crumbs()
@@ -270,6 +232,22 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
     const observeEl = layoutObserverTarget() ?? container
     ro.observe(observeEl)
     onCleanup(() => ro.disconnect())
+  })
+
+  createEffect(() => {
+    if (!compactPathOnly()) {
+      clearCompactPathOpenOnly()
+    }
+  })
+
+  const [prevCompactLayout, setPrevCompactLayout] = createSignal<boolean | undefined>(undefined)
+  createEffect(() => {
+    const c = compactPathOnly()
+    const p = prevCompactLayout()
+    if (p !== undefined && p !== c) {
+      setBreadcrumbFolderMenu(null)
+    }
+    setPrevCompactLayout(c)
   })
 
   const toggleEllipsis = () => setIsManuallyExpanded((v) => !v)
@@ -509,67 +487,64 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
               data-breadcrumb-segment='path-picker'
               data-breadcrumb-path={currentCrumb().path}
               class={compactPathPickerBtnClass()}
-              aria-expanded={pathPickerOpen()}
+              aria-expanded={breadcrumbFloating.compactPathOpen}
               aria-haspopup='menu'
               title={currentCrumb().name}
-              onClick={() => setPathPickerOpen((o) => !o)}
+              onClick={() => {
+                if (breadcrumbFloating.compactPathOpen) setBreadcrumbCompactPathOpen(false)
+                else setBreadcrumbCompactPathOpen(true)
+              }}
             >
               <span class='min-w-0 whitespace-normal text-left break-words'>
                 {currentCrumb().name}
               </span>
               <ChevronDown class='h-4 w-4 shrink-0 opacity-70' stroke-width={2} />
             </button>
-            <Show when={pathPickerOpen() && pathPickerMenuBox()}>
-              <Portal>
-                <div
-                  ref={setPathPickerMenuEl}
-                  data-testid='breadcrumb-path-menu'
-                  class='ring-foreground/10 fixed z-[200] max-h-64 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md ring-1'
-                  role='menu'
-                  style={{
-                    top: `${pathPickerMenuBox()!.top}px`,
-                    left: `${pathPickerMenuBox()!.left}px`,
-                    'min-width': `${pathPickerMenuBox()!.minWidth}px`,
-                  }}
-                >
-                  <For each={crumbs()}>
-                    {(crumb, index) => (
-                      <button
-                        type='button'
-                        role='menuitem'
-                        data-breadcrumb-segment={index() === 0 ? 'home' : 'crumb'}
-                        data-breadcrumb-path={crumb.path}
-                        class={cn(
-                          'flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground',
-                          index() === crumbs().length - 1 && 'bg-accent/50 font-medium',
-                        )}
-                        onClick={() => {
-                          props.onNavigate(crumb.path)
-                          setPathPickerOpen(false)
-                        }}
-                        onContextMenu={(e) => {
-                          if (!props.onCrumbContextMenu) return
-                          e.preventDefault()
-                          e.stopPropagation()
-                          props.onCrumbContextMenu(e, {
-                            navigatePath: crumb.path,
-                            displayName: crumb.name,
-                            isHome: index() === 0,
-                          })
-                        }}
-                      >
-                        <Show when={index() === 0}>
-                          <House class='h-4 w-4 shrink-0' stroke-width={2} />
-                        </Show>
-                        <span class='min-w-0 flex-1 whitespace-normal break-words text-left'>
-                          {crumb.name}
-                        </span>
-                      </button>
+            <FloatingContextMenu
+              open={() => breadcrumbFloating.compactPathOpen}
+              anchorRef={pathPickerButtonEl}
+              onDismiss={() => setBreadcrumbCompactPathOpen(false)}
+              dismissIgnoreInsideSelector=':is([data-slot="breadcrumb-context-menu"], [data-breadcrumb-folder-menu])'
+              dismissIgnoreSelectorActive={() => breadcrumbFloating.folderMenu != null}
+              data-testid='breadcrumb-path-menu'
+              class='ring-foreground/10 max-h-64 overflow-y-auto ring-1'
+            >
+              <For each={crumbs()}>
+                {(crumb, index) => (
+                  <button
+                    type='button'
+                    role='menuitem'
+                    data-breadcrumb-segment={index() === 0 ? 'home' : 'crumb'}
+                    data-breadcrumb-path={crumb.path}
+                    class={cn(
+                      'flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+                      index() === crumbs().length - 1 && 'bg-accent/50 font-medium',
                     )}
-                  </For>
-                </div>
-              </Portal>
-            </Show>
+                    onClick={() => {
+                      props.onNavigate(crumb.path)
+                      setBreadcrumbCompactPathOpen(false)
+                    }}
+                    onContextMenu={(e) => {
+                      if (!props.onCrumbContextMenu) return
+                      e.preventDefault()
+                      e.stopPropagation()
+                      props.onCrumbContextMenu(e, {
+                        navigatePath: crumb.path,
+                        displayName: crumb.name,
+                        isHome: index() === 0,
+                      })
+                    }}
+                  >
+                    <Show when={index() === 0}>
+                      <House class='h-4 w-4 shrink-0' stroke-width={2} />
+                    </Show>
+                    <span class='min-w-0 flex-1 whitespace-normal break-words text-left'>
+                      {crumb.name}
+                    </span>
+                  </button>
+                )}
+              </For>
+            </FloatingContextMenu>
           </div>
         </div>
       </Show>

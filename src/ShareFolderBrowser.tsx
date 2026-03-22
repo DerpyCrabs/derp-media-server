@@ -1,3 +1,4 @@
+import { FLOATING_Z_ROW_MENU, FLOATING_Z_ROW_MENU_BACKDROP } from '@/lib/floating-z-index'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { stripSharePrefix } from '@/lib/source-context'
@@ -614,14 +615,20 @@ export function ShareFolderBrowser(props: Props) {
             return (
               <>
                 <div
-                  class='fixed inset-0 z-[400000]'
+                  class='fixed inset-0'
+                  style={{ 'z-index': FLOATING_Z_ROW_MENU_BACKDROP }}
                   role='presentation'
                   onClick={() => dismissMenu()}
                 />
                 <div
                   data-slot='share-row-context-menu'
-                  class='fixed z-[500000] min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
-                  style={{ left: `${ctx.x}px`, top: `${ctx.y}px` }}
+                  data-floating-surface
+                  class='fixed min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
+                  style={{
+                    left: `${ctx.x}px`,
+                    top: `${ctx.y}px`,
+                    'z-index': FLOATING_Z_ROW_MENU,
+                  }}
                   role='menu'
                   onClick={(e) => e.stopPropagation()}
                 >
