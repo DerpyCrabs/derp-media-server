@@ -9,6 +9,10 @@ import type { GlobalSettings } from '@/lib/use-settings'
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
+import {
+  finePointerDragEnabled,
+  subscribeFinePointerDragEnabled,
+} from '@/lib/enable-fine-pointer-drag'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
@@ -30,6 +34,7 @@ import {
   Match,
   Show,
   Switch,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -93,7 +98,7 @@ export function WorkspaceBrowserPane(props: Props) {
   const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
   const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
   const [dragAllowsMove, setDragAllowsMove] = createSignal(false)
-  const [enableDrag, setEnableDrag] = createSignal(false)
+  const [enableDrag, setEnableDrag] = createSignal(finePointerDragEnabled())
   const [showCreateFile, setShowCreateFile] = createSignal(false)
   const [newFileName, setNewFileName] = createSignal('')
   const [showCreateFolder, setShowCreateFolder] = createSignal(false)
@@ -123,10 +128,8 @@ export function WorkspaceBrowserPane(props: Props) {
   )
 
   onMount(() => {
-    if (typeof window === 'undefined') return
-    const mqHover = window.matchMedia('(hover: hover)')
-    const mqFine = window.matchMedia('(pointer: fine)')
-    setEnableDrag(mqHover.matches || mqFine.matches)
+    setEnableDrag(finePointerDragEnabled())
+    return subscribeFinePointerDragEnabled(setEnableDrag)
   })
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
@@ -379,11 +382,18 @@ export function WorkspaceBrowserPane(props: Props) {
 
   createEffect(
     on(currentPath, () => {
-      setSearchQuery('')
-      setDebouncedSearch('')
-      setSearchPopoverOpen(false)
-      setInlineMode(null)
-      setInlineName('')
+      batch(() => {
+        setSearchQuery('')
+        setDebouncedSearch('')
+        setSearchPopoverOpen(false)
+        setInlineMode(null)
+        setInlineName('')
+        setDraggedPath(null)
+        setDragOverPath(null)
+        setDragAllowsMove(false)
+      })
+      externalUploadDragDepth = 0
+      setExternalUploadDragOver(false)
     }),
   )
 
@@ -404,7 +414,8 @@ export function WorkspaceBrowserPane(props: Props) {
       api<{ results: { path: string; name: string; snippet: string }[] }>(
         `/api/kb/search?root=${encodeURIComponent(kbRootPath()!)}&q=${encodeURIComponent(debouncedSearch())}`,
       ),
-    enabled: !!kbRootPath() && debouncedSearch().trim().length > 0 && !share(),
+    enabled:
+      !!kbRootPath() && searchPopoverOpen() && debouncedSearch().trim().length > 0 && !share(),
   }))
 
   const shareKbSearchQuery = useQuery(() => {
@@ -421,7 +432,7 @@ export function WorkspaceBrowserPane(props: Props) {
           `/api/share/${token}/kb/search?${params}`,
         )
       },
-      enabled: !!sh && inKb() && q.length > 0,
+      enabled: !!sh && inKb() && searchPopoverOpen() && q.length > 0,
     }
   })
 
@@ -434,7 +445,9 @@ export function WorkspaceBrowserPane(props: Props) {
     share() ? shareKbSearchQuery.isLoading : adminKbSearchQuery.isLoading,
   )
 
-  const showKbSearchResults = createMemo(() => inKb() && debouncedSearch().trim().length > 0)
+  const showKbSearchResults = createMemo(
+    () => inKb() && searchPopoverOpen() && debouncedSearch().trim().length > 0,
+  )
 
   const showAdminCreateToolbar = createMemo(() => isAdminPaneEditable() && !share())
 
@@ -1093,8 +1106,9 @@ export function WorkspaceBrowserPane(props: Props) {
   }
 
   function onExternalUploadDragLeave(e: globalThis.DragEvent) {
-    if (!allowWorkspaceUpload()) return
+    if (!isOsFileUploadDrag(e)) return
     e.preventDefault()
+    if (externalUploadDragDepth <= 0) return
     externalUploadDragDepth--
     if (externalUploadDragDepth <= 0) {
       externalUploadDragDepth = 0
@@ -1240,6 +1254,9 @@ export function WorkspaceBrowserPane(props: Props) {
                   shareToken={share()?.token}
                   dir={share() ? listDir() || undefined : undefined}
                   onFileClick={(p) => handleKbResultClick(p)}
+                  recentDragCanMove={(p) =>
+                    !!(allowMoveFile() && isPathEditable(p, props.editableFolders))
+                  }
                 />
               </Show>
               <Switch>
@@ -1248,8 +1265,14 @@ export function WorkspaceBrowserPane(props: Props) {
                     <Show when={currentPath()}>
                       <div
                         data-no-window-drag
-                        class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
+                        class={cn(
+                          'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
+                          dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                        )}
                         onClick={handleParentDirectory}
+                        onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
+                        onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
+                        onDrop={allowMoveFile() ? parentRowDrop : undefined}
                         onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
                         role='button'
                         tabindex={0}
@@ -1270,10 +1293,27 @@ export function WorkspaceBrowserPane(props: Props) {
                           data-no-window-drag
                           class={cn(
                             'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
+                            file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
+                            draggedPath() === file.path ? 'opacity-50' : '',
                           )}
+                          draggable={enableDrag()}
                           onClick={() => handleFileClick(file)}
                           onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
                           {...createLongPressContextMenuHandlers()}
+                          onDragStart={(e) => onFileDragStart(file, e)}
+                          onDragEnd={onFileDragEnd}
+                          onDragOver={(e) => {
+                            if (!file.isDirectory || !allowMoveFile()) return
+                            onFolderDragOver(file, e)
+                          }}
+                          onDragLeave={(e) => {
+                            if (!file.isDirectory || !allowMoveFile()) return
+                            onFolderDragLeave(file, e)
+                          }}
+                          onDrop={(e) => {
+                            if (!file.isDirectory || !allowMoveFile()) return
+                            onFolderDrop(file, e)
+                          }}
                           onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
                           role='button'
                           tabindex={0}
