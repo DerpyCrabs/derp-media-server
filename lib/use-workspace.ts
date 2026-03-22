@@ -71,6 +71,7 @@ export interface WorkspaceWindowDefinition {
   source: WorkspaceSource
   initialState: Partial<NavigationState>
   tabGroupId?: string | null
+  openedFromWindowId?: string | null
   layout?: WorkspaceWindowLayout
 }
 
