@@ -3,10 +3,24 @@
 - Use `bun run tsgo` for TypeScript checks. Do not use `tsc`.
 - Check `bun run lint-errors` after changes.
 - After larger changes, run `bun run test:batch`.
-- Prefer modern React patterns: derive state, keep components focused, and extract custom hooks when logic is reusable.
-- Avoid `useEffect` and `useRef` unless there is a clear need. Prefer declarative data flow, event handlers, memoization, and derived state.
-- For data fetching, caching, invalidation, and request state, use `@tanstack/react-query`. New request flows should go through TanStack Query.
-- When implementing features in admin view you need to think if they should also be added to shared view.
-- Shared view should never access admin view routes and should have their own routes scoped by shareToken.
-- When adding e2e tests try to not depend on other tests so that test files can run in parallel without changes
-- `test:batch` sets `BATCH_ID`; Playwright then uses **4 workers** (parallel **files**, `fullyParallel: false` keeps tests inside a file ordered). Local `bun run test` stays **1 worker** so it’s easier to debug.
+- The UI is **Solid.js** under [`src/`](src/) with Vite ([`vite.config.ts`](vite.config.ts)), Tailwind ([`src/globals.css`](src/globals.css)), and [`@tanstack/solid-query`](https://tanstack.com/query/latest/docs/framework/solid/overview) for server-prefetched data (`window.__DEHYDRATED_STATE__` from [`server/html.ts`](server/html.ts)).
+- Prefer explicit reactivity: signals, memos, `<Show>` / `<For>`; use `class` for CSS. Avoid breaking prop reactivity when spreading props.
+- Shared view must not use admin-only routes; share flows stay scoped by `shareToken`.
+- When adding e2e tests, keep files independent so they can run in parallel without ordering assumptions.
+- `test:batch` sets `BATCH_ID`; Playwright uses **4 workers** (parallel **files**; `fullyParallel: false` keeps tests inside a file ordered). Local `bun run test` uses **1 worker** for easier debugging.
+
+## Commands
+
+- **Dev:** `bun run dev` — Fastify + Vite middleware ([`server/index.ts`](server/index.ts)).
+- **Production:** `bun run build` then `bun run start` (static `dist/client`).
+- **E2E:** `bun run test` or `bun run test:batch` — specs in [`tests/e2e/`](tests/e2e/), config [`playwright.config.ts`](playwright.config.ts), batches in [`tests/run-batches.ts`](tests/run-batches.ts).
+
+## Solid patterns
+
+- Use `useQuery` / `useMutation` from `@tanstack/solid-query` for new data flows.
+- Client global state uses `solid-js/store` in [`lib/`](lib/) with `getState()` / `subscribe()`; [`useStoreSync`](src/lib/solid-store-sync.ts) bridges into component memos when needed.
+- Don't add redundant "solid" prefixes in file names under `src/`.
+- Don't write useless comments.
+- Keep at most **6** e2e batches in `run-batches.ts` when extending CI.
+
+For framework docs, see the [Solid.js reference](https://docs.solidjs.com/).

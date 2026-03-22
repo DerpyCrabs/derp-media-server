@@ -1,8 +1,7 @@
-import { useCallback, useMemo } from 'react'
-import { create } from 'zustand'
-import type { NavigationSession } from '@/lib/navigation-session'
+import { createStore } from 'solid-js/store'
+import { createStoreListeners } from './client-store-utils'
 
-export interface WorkspacePlaybackSlice {
+interface WorkspacePlaybackSlice {
   playing: string | null
   audioOnly: boolean
   dir: string | null
@@ -21,106 +20,51 @@ function sliceFor(
   return byKey[key] ?? DEFAULT_SLICE
 }
 
-interface WorkspacePlaybackStore {
-  byKey: Record<string, WorkspacePlaybackSlice>
-  playFile: (key: string, path: string, dir?: string) => void
-  closePlayer: (key: string) => void
-  setAudioOnly: (key: string, enabled: boolean) => void
+const listeners = createStoreListeners()
+
+const [store, setStore] = createStore<{ byKey: Record<string, WorkspacePlaybackSlice> }>({
+  byKey: {},
+})
+
+function playFile(key: string, path: string, dir?: string) {
+  const prev = sliceFor(key, store.byKey)
+  setStore('byKey', key, {
+    ...prev,
+    playing: path,
+    ...(dir !== undefined ? { dir: dir || null } : {}),
+  })
+  listeners.notify()
 }
 
-export const useWorkspacePlaybackStore = create<WorkspacePlaybackStore>((set, _get) => ({
-  byKey: {},
+function closePlayer(key: string) {
+  const prev = sliceFor(key, store.byKey)
+  setStore('byKey', key, {
+    ...prev,
+    playing: null,
+    audioOnly: false,
+  })
+  listeners.notify()
+}
 
-  playFile(key, path, dir) {
-    set((state) => {
-      const prev = sliceFor(key, state.byKey)
-      return {
-        byKey: {
-          ...state.byKey,
-          [key]: {
-            ...prev,
-            playing: path,
-            ...(dir !== undefined ? { dir: dir || null } : {}),
-          },
-        },
-      }
-    })
+function setAudioOnly(key: string, enabled: boolean) {
+  const prev = sliceFor(key, store.byKey)
+  setStore('byKey', key, {
+    ...prev,
+    audioOnly: enabled,
+  })
+  listeners.notify()
+}
+
+const api = {
+  get byKey() {
+    return store.byKey
   },
+  playFile,
+  closePlayer,
+  setAudioOnly,
+}
 
-  closePlayer(key) {
-    set((state) => {
-      const prev = sliceFor(key, state.byKey)
-      return {
-        byKey: {
-          ...state.byKey,
-          [key]: {
-            ...prev,
-            playing: null,
-            audioOnly: false,
-          },
-        },
-      }
-    })
-  },
-
-  setAudioOnly(key, enabled) {
-    set((state) => {
-      const prev = sliceFor(key, state.byKey)
-      return {
-        byKey: {
-          ...state.byKey,
-          [key]: {
-            ...prev,
-            audioOnly: enabled,
-          },
-        },
-      }
-    })
-  },
-}))
-
-/** Workspace taskbar / player: subscribe to playback slice for one storage key. */
-export function useWorkspacePlaybackSession(storageKey: string): NavigationSession {
-  const playing = useWorkspacePlaybackStore((s) => s.byKey[storageKey]?.playing ?? null)
-  const audioOnly = useWorkspacePlaybackStore((s) => s.byKey[storageKey]?.audioOnly ?? false)
-  const dir = useWorkspacePlaybackStore((s) => s.byKey[storageKey]?.dir ?? null)
-
-  const playFile = useCallback(
-    (path: string, d?: string) => {
-      useWorkspacePlaybackStore.getState().playFile(storageKey, path, d)
-    },
-    [storageKey],
-  )
-  const closePlayer = useCallback(() => {
-    useWorkspacePlaybackStore.getState().closePlayer(storageKey)
-  }, [storageKey])
-  const setAudioOnly = useCallback(
-    (enabled: boolean) => {
-      useWorkspacePlaybackStore.getState().setAudioOnly(storageKey, enabled)
-    },
-    [storageKey],
-  )
-
-  const state = useMemo(
-    () => ({
-      dir,
-      viewing: null,
-      playing,
-      audioOnly,
-    }),
-    [dir, playing, audioOnly],
-  )
-
-  return useMemo(
-    () => ({
-      state,
-      navigateToFolder: () => {},
-      viewFile: () => {},
-      playFile,
-      closeViewer: () => {},
-      closePlayer,
-      setAudioOnly,
-    }),
-    [state, playFile, closePlayer, setAudioOnly],
-  )
+export const useWorkspacePlaybackStore = {
+  getState: () => api,
+  subscribe: (fn: () => void) => listeners.subscribe(fn),
 }

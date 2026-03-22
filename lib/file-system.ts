@@ -270,14 +270,6 @@ export async function writeBinaryFile(relativePath: string, base64Content: strin
 }
 
 /**
- * Reads file content as text
- */
-export async function readFileContent(relativePath: string): Promise<string> {
-  const fullPath = validatePath(relativePath)
-  return await fs.readFile(fullPath, 'utf-8')
-}
-
-/**
  * Deletes a directory and all its contents recursively
  */
 export async function deleteDirectory(relativePath: string): Promise<void> {

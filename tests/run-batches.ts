@@ -13,20 +13,31 @@ const BATCHES = [
   },
   {
     id: '2',
-    tests: ['workspace-controls', 'navigation', 'upload'],
+    tests: ['workspace-controls', 'navigation', 'upload', 'file-browser-misc'],
   },
   {
     id: '3',
     tests: [
       'workspace-viewers',
+      'workspace-media-layout',
       'workspace-cross-dnd',
       'workspace-taskbar-pins',
+      'workspace-taskbar-chrome',
       'workspace-layout-sessions',
+      'workspace-named-layouts',
+      'workspace-file-open-target',
     ],
   },
   {
     id: '4',
-    tests: ['editable-folders', 'share-security', 'url-state', 'login', 'share-workspace'],
+    tests: [
+      'editable-folders',
+      'share-security',
+      'url-state',
+      'login',
+      'share-workspace',
+      'share-browser-parity',
+    ],
   },
   {
     id: '5',
