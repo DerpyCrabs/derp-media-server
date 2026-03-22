@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import {
   createTempFile,
   deleteFileViaContextMenu,
@@ -12,9 +12,29 @@ import {
   navigateToSharedContent,
   openBrowserWindow,
 } from '../e2e/workspace-cross-dnd-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 test.describe('Cross-Window File Move', () => {
-  test('drags a file from one browser into a folder in another', async ({ page }) => {
+  test('drags a file from one browser into a folder in another', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -46,7 +66,7 @@ test.describe('Cross-Window File Move', () => {
     await deleteFileViaContextMenu(page, contentB, tempFile)
   })
 
-  test('non-editable files are not draggable', async ({ page }) => {
+  test('non-editable files are not draggable', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
@@ -63,7 +83,7 @@ test.describe('Cross-Window File Move', () => {
 })
 
 test.describe('Drop File onto Tab Bar', () => {
-  test('dropping a folder onto the tab bar opens it as a new browser tab', async ({ page }) => {
+  test('dropping a folder onto the tab bar opens it as a new browser tab', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -87,7 +107,7 @@ test.describe('Drop File onto Tab Bar', () => {
     await expect(tabStrip).toBeVisible({ timeout: 5_000 })
   })
 
-  test('dropping a file onto the tab bar opens a viewer tab', async ({ page }) => {
+  test('dropping a file onto the tab bar opens a viewer tab', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -112,7 +132,7 @@ test.describe('Drop File onto Tab Bar', () => {
 })
 
 test.describe('Window Merge Still Works', () => {
-  test('dragging window title bar onto another still merges them', async ({ page }) => {
+  test('dragging window title bar onto another still merges them', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 

@@ -1,12 +1,32 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { WORKSPACE_VISIBLE_WINDOW_GROUP, gotoWorkspace } from './workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 function getBrowserContent(page: Page) {
   return page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first().locator('.workspace-window-content')
 }
 
 test.describe('Workspace taskbar chrome', () => {
-  test('taskbar audio shows current track after playing mp3 from browser', async ({ page }) => {
+  test('taskbar audio shows current track after playing mp3 from browser', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await content.getByText('Music', { exact: true }).click()
@@ -16,7 +36,7 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(audioControls).toContainText('track.mp3')
   })
 
-  test('persists dark mode from workspace taskbar settings after reload', async ({ page }) => {
+  test('persists dark mode from workspace taskbar settings after reload', async () => {
     await gotoWorkspace(page)
     await page.getByRole('button', { name: 'Open settings' }).click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
@@ -27,7 +47,7 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
   })
 
-  test('taskbar Show video restores workspace video after listen-only mode', async ({ page }) => {
+  test('taskbar Show video restores workspace video after listen-only mode', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await content.getByText('Videos', { exact: true }).click()
@@ -48,9 +68,7 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)).toHaveCount(1)
   })
 
-  test('hiding snap template in workspace settings removes it from layout picker', async ({
-    page,
-  }) => {
+  test('hiding snap template in workspace settings removes it from layout picker', async () => {
     await gotoWorkspace(page)
     await page.getByRole('button', { name: 'Open settings' }).click()
     const settingsDialog = page.getByRole('dialog', { name: 'Settings' })

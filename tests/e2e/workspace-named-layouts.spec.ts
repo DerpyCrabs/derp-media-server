@@ -1,10 +1,30 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { openBrowserWindow, getWindowGroups } from '../e2e/workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
 
 const batch = process.env.BATCH_ID ?? 'local'
 
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
+
 test.describe('workspace named layout presets', () => {
-  test('save preset, dirty badge, revert, hydrate via preset URL', async ({ page }) => {
+  test('save preset, dirty badge, revert, hydrate via preset URL', async () => {
     const ws = `e2e-named-layout-${batch}-${Date.now()}`
     await page.goto(`/workspace?ws=${ws}`)
     await expect(page.getByTestId('workspace-named-layout-trigger')).toBeEnabled()

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import {
   TASKBAR_HEIGHT,
   gotoWorkspace,
@@ -12,9 +12,29 @@ import {
   dragToEdge,
   WORKSPACE_VISIBLE_WINDOW_GROUP,
 } from '../e2e/workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 test.describe('Tiling Layout Picker', () => {
-  test('selects full-screen layout', async ({ page }) => {
+  test('selects full-screen layout', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -35,7 +55,7 @@ test.describe('Tiling Layout Picker', () => {
     expect(bounds.height).toBeGreaterThan(containerH - 10)
   })
 
-  test('selects left-right split', async ({ page }) => {
+  test('selects left-right split', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -57,7 +77,7 @@ test.describe('Tiling Layout Picker', () => {
     expect(bounds.width).toBeLessThan(halfW + 20)
   })
 
-  test('selects quarter layout', async ({ page }) => {
+  test('selects quarter layout', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -84,7 +104,7 @@ test.describe('Tiling Layout Picker', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
-  test('picker closes on escape', async ({ page }) => {
+  test('picker closes on escape', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -97,7 +117,7 @@ test.describe('Tiling Layout Picker', () => {
     await expect(page.getByText('Snap layout')).not.toBeVisible()
   })
 
-  test('picker closes on outside click', async ({ page }) => {
+  test('picker closes on outside click', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -113,7 +133,7 @@ test.describe('Tiling Layout Picker', () => {
 })
 
 test.describe('Drag Restore', () => {
-  test('dragging a snapped window restores its pre-snap size', async ({ page }) => {
+  test('dragging a snapped window restores its pre-snap size', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -143,7 +163,7 @@ test.describe('Drag Restore', () => {
     expect(restoredBounds.width).toBeLessThan(preBounds.width + 50)
   })
 
-  test('dragging a maximized window restores it', async ({ page }) => {
+  test('dragging a maximized window restores it', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const viewport = page.viewportSize()!
@@ -171,7 +191,7 @@ test.describe('Drag Restore', () => {
     expect(restoredBounds.width).toBeLessThan(viewport.width - 50)
   })
 
-  test('restored window follows cursor position', async ({ page }) => {
+  test('restored window follows cursor position', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -194,7 +214,7 @@ test.describe('Drag Restore', () => {
 })
 
 test.describe('Window Minimum Size', () => {
-  test('window cannot be resized below 360x260', async ({ page }) => {
+  test('window cannot be resized below 360x260', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -212,9 +232,11 @@ test.describe('Window Minimum Size', () => {
 })
 
 test.describe('Vertical viewport (portrait)', () => {
-  test.use({ viewport: { width: 700, height: 1100 } })
+  test.beforeEach(async () => {
+    await page.setViewportSize({ width: 700, height: 1100 })
+  })
 
-  test('default window uses most of width and is not slim', async ({ page }) => {
+  test('default window uses most of width and is not slim', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     await expect(groups).toHaveCount(1)
@@ -227,9 +249,7 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeLessThan(viewport.height - TASKBAR_HEIGHT)
   })
 
-  test('layout picker shows vertical row with vertical thirds, half-top-two-quarters-bottom, top+bottom options', async ({
-    page,
-  }) => {
+  test('layout picker shows vertical row with vertical thirds, half-top-two-quarters-bottom, top+bottom options', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -246,7 +266,7 @@ test.describe('Vertical viewport (portrait)', () => {
     await expect(firstRowGrids).toHaveCount(4)
   })
 
-  test('snapping to top-half via picker fills top half of viewport', async ({ page }) => {
+  test('snapping to top-half via picker fills top half of viewport', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -271,7 +291,7 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
-  test('snapping to bottom-half via picker fills bottom half of viewport', async ({ page }) => {
+  test('snapping to bottom-half via picker fills bottom half of viewport', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -296,7 +316,7 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeGreaterThan(halfH - 20)
   })
 
-  test('dragging to top edge (off center) snaps to top-half', async ({ page }) => {
+  test('dragging to top edge (off center) snaps to top-half', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -313,7 +333,7 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
-  test('dragging to bottom edge snaps to bottom-half', async ({ page }) => {
+  test('dragging to bottom edge snaps to bottom-half', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -330,7 +350,7 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeGreaterThan(halfH - 20)
   })
 
-  test('dragging to center of top edge maximizes window', async ({ page }) => {
+  test('dragging to center of top edge maximizes window', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -348,7 +368,7 @@ test.describe('Vertical viewport (portrait)', () => {
 })
 
 test.describe('Window Z-Ordering and Focus', () => {
-  test('clicking background window brings it to front', async ({ page }) => {
+  test('clicking background window brings it to front', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
@@ -373,7 +393,7 @@ test.describe('Window Z-Ordering and Focus', () => {
     expect(newZA).toBeGreaterThan(zB)
   })
 
-  test('clicking window content brings it to front', async ({ page }) => {
+  test('clicking window content brings it to front', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
@@ -399,7 +419,7 @@ test.describe('Window Z-Ordering and Focus', () => {
     expect(newZA).toBeGreaterThan(zB)
   })
 
-  test('newly opened window is focused', async ({ page }) => {
+  test('newly opened window is focused', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     const groups = getWindowGroups(page)
@@ -407,7 +427,7 @@ test.describe('Window Z-Ordering and Focus', () => {
     await expect(groups.nth(1)).toHaveClass(/shadow-black\/20/)
   })
 
-  test('active window has distinct border', async ({ page }) => {
+  test('active window has distinct border', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     await expect(groups.first()).toHaveClass(/border-border/)
@@ -420,7 +440,7 @@ test.describe('Window Z-Ordering and Focus', () => {
 })
 
 test.describe('State Persistence', () => {
-  test('windows survive page reload', async ({ page }) => {
+  test('windows survive page reload', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
@@ -434,7 +454,7 @@ test.describe('State Persistence', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
 
-  test('snap state persists across reload', async ({ page }) => {
+  test('snap state persists across reload', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -453,7 +473,7 @@ test.describe('State Persistence', () => {
     expect(reloadedBounds.width).toBeLessThan(snappedBounds.width + 20)
   })
 
-  test('tab groups persist across reload', async ({ page }) => {
+  test('tab groups persist across reload', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -482,7 +502,7 @@ test.describe('State Persistence', () => {
     await expect(tabStrip).toBeVisible()
   })
 
-  test('player window is excluded from persistence', async ({ page }) => {
+  test('player window is excluded from persistence', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)

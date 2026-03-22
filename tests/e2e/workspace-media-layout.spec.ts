@@ -1,12 +1,32 @@
-import { test, expect, type Locator } from '@playwright/test'
+import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 function getVisibleContent(group: Locator) {
   return group.locator('[data-testid="workspace-window-visible-content"]')
 }
 
 test.describe('Workspace audio and video playback', () => {
-  test('clicking an audio file wires taskbar audio and playback can start', async ({ page }) => {
+  test('clicking an audio file wires taskbar audio and playback can start', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
@@ -44,7 +64,7 @@ test.describe('Workspace audio and video playback', () => {
     )
   })
 
-  test('video element fills most of the player window', async ({ page }) => {
+  test('video element fills most of the player window', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())
@@ -68,7 +88,7 @@ test.describe('Workspace audio and video playback', () => {
 })
 
 test.describe('Workspace viewer pane height', () => {
-  test('text viewer body region fills most of window below toolbar', async ({ page }) => {
+  test('text viewer body region fills most of window below toolbar', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const content = getVisibleContent(groups.first())

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import {
   TASKBAR_HEIGHT,
   gotoWorkspace,
@@ -12,9 +12,29 @@ import {
   dragFromTo,
   dragToEdge,
 } from '../e2e/workspace-layout-helpers'
+import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+
+let sharedContext: BrowserContext
+let page: Page
+
+test.beforeAll(async ({ browser }) => {
+  sharedContext = await createWorkspaceE2EContext(browser)
+})
+
+test.afterAll(async () => {
+  await sharedContext.close()
+})
+
+test.beforeEach(async () => {
+  page = await sharedContext.newPage()
+})
+
+test.afterEach(async () => {
+  await page.close()
+})
 
 test.describe('Edge Snapping', () => {
-  test('snaps window to left half', async ({ page }) => {
+  test('snaps window to left half', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     await expect(groups).toHaveCount(1)
@@ -31,7 +51,7 @@ test.describe('Edge Snapping', () => {
     expect(bounds.width).toBeLessThan(halfW + 20)
   })
 
-  test('snaps window to right half', async ({ page }) => {
+  test('snaps window to right half', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -46,7 +66,7 @@ test.describe('Edge Snapping', () => {
     expect(bounds.width).toBeGreaterThan(halfW - 20)
   })
 
-  test('snaps window to top-left quarter', async ({ page }) => {
+  test('snaps window to top-left quarter', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -66,7 +86,7 @@ test.describe('Edge Snapping', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
-  test('snaps window to top-right quarter', async ({ page }) => {
+  test('snaps window to top-right quarter', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -85,7 +105,7 @@ test.describe('Edge Snapping', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
-  test('snaps window to bottom-left quarter', async ({ page }) => {
+  test('snaps window to bottom-left quarter', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -100,7 +120,7 @@ test.describe('Edge Snapping', () => {
     expect(bounds.y).toBeLessThan(halfH + 20)
   })
 
-  test('snaps window to bottom-right quarter', async ({ page }) => {
+  test('snaps window to bottom-right quarter', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -116,7 +136,7 @@ test.describe('Edge Snapping', () => {
     expect(bounds.y).toBeGreaterThan(halfH - 20)
   })
 
-  test('maximizes window by dragging to top edge', async ({ page }) => {
+  test('maximizes window by dragging to top edge', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -132,7 +152,7 @@ test.describe('Edge Snapping', () => {
     expect(bounds.height).toBeGreaterThan(containerH - 10)
   })
 
-  test('minimize button works on first click after snapping window', async ({ page }) => {
+  test('minimize button works on first click after snapping window', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     await expect(groups).toHaveCount(1)
@@ -146,7 +166,7 @@ test.describe('Edge Snapping', () => {
     await expect(getWindowGroups(page)).toHaveCount(0)
   })
 
-  test('shows snap preview while dragging near edge', async ({ page }) => {
+  test('shows snap preview while dragging near edge', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const handle = getDragHandle(groups.first())
@@ -166,7 +186,7 @@ test.describe('Edge Snapping', () => {
     await page.mouse.up()
   })
 
-  test('restores window from snapped state when dragged away', async ({ page }) => {
+  test('restores window from snapped state when dragged away', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
 
@@ -196,7 +216,7 @@ test.describe('Edge Snapping', () => {
 })
 
 test.describe('Resizing Snapped Windows', () => {
-  test('resizes shared edge between left and right snapped windows', async ({ page }) => {
+  test('resizes shared edge between left and right snapped windows', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -240,9 +260,7 @@ test.describe('Resizing Snapped Windows', () => {
     expect(newRightBounds.x).toBeGreaterThan(rightBounds.x)
   })
 
-  test('resizing left snapped column moves both top-right and bottom-right windows', async ({
-    page,
-  }) => {
+  test('resizing left snapped column moves both top-right and bottom-right windows', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
     await openBrowserWindow(page)
@@ -318,7 +336,7 @@ test.describe('Resizing Snapped Windows', () => {
     expect(Math.abs(topRightAfter.width - bottomRightAfter.width)).toBeLessThanOrEqual(8)
   })
 
-  test('resizes shared edge between top and bottom quarter windows', async ({ page }) => {
+  test('resizes shared edge between top and bottom quarter windows', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -362,9 +380,7 @@ test.describe('Resizing Snapped Windows', () => {
     expect(newBottomBounds.y).toBeGreaterThan(bottomBounds.y)
   })
 
-  test('resizes shared edge between third layout windows (top-left-third and top-center-third)', async ({
-    page,
-  }) => {
+  test('resizes shared edge between third layout windows (top-left-third and top-center-third)', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -424,9 +440,7 @@ test.describe('Resizing Snapped Windows', () => {
     expect(newRightBounds.x).toBeGreaterThan(rightBounds.x)
   })
 
-  test('resizes shared edge between left-third and right-two-thirds (1/3 + 2/3 layout)', async ({
-    page,
-  }) => {
+  test('resizes shared edge between left-third and right-two-thirds (1/3 + 2/3 layout)', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -490,9 +504,7 @@ test.describe('Resizing Snapped Windows', () => {
     expect(newRightBounds.x).toBeGreaterThan(rightBounds.x)
   })
 
-  test('snapping second window to right half fills remaining space after left is resized', async ({
-    page,
-  }) => {
+  test('snapping second window to right half fills remaining space after left is resized', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
@@ -533,9 +545,7 @@ test.describe('Resizing Snapped Windows', () => {
     expect(rightBounds.width).toBeGreaterThan(viewport.width - leftRightEdge - 10)
   })
 
-  test('snapping second window to bottom quarter fills remaining space after top-left is resized', async ({
-    page,
-  }) => {
+  test('snapping second window to bottom quarter fills remaining space after top-left is resized', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
