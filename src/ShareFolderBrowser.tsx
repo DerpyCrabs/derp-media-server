@@ -955,7 +955,7 @@ export function ShareFolderBrowser(props: Props) {
               <Switch>
                 <Match when={viewMode() === 'grid'}>
                   <div class='px-4 py-4'>
-                    <div class='grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'>
+                    <div class='file-browser-grid gap-4'>
                       <Show when={currentSubDir()}>
                         <div
                           class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'

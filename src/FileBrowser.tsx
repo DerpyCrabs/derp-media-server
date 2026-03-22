@@ -1163,7 +1163,7 @@ export function FileBrowser() {
                       <Switch>
                         <Match when={viewMode() === 'grid'}>
                           <div class='py-4 px-4'>
-                            <div class='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+                            <div class='file-browser-grid gap-4'>
                               <Show when={currentPath()}>
                                 <div
                                   class='ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col'

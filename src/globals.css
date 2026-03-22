@@ -434,6 +434,15 @@ body {
   display: none;
 }
 
+.file-browser-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, max(calc((100% - 5 * 1rem) / 6), min(8rem, calc((100% - 1rem) / 2)))), 1fr)
+  );
+}
+
 /* Match markdown preview copy to app foreground (prose-neutral body is slightly muted). */
 .markdown-pane-prose {
   --tw-prose-body: var(--foreground);
