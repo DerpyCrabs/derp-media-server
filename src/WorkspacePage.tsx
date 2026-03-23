@@ -1,3 +1,4 @@
+import { isVirtualFolderPath } from '@/lib/constants'
 import type { GlobalSettings } from '@/lib/use-settings'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
@@ -404,11 +405,11 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
               {
                 id: 'workspace-window-1',
                 type: 'browser',
-                title: 'Browser 1',
+                title: dirParam.split(/[/\\]/).filter(Boolean).pop() ?? 'Browser 1',
                 iconName: null,
                 iconPath: dirParam,
                 iconType: MediaType.FOLDER,
-                iconIsVirtual: false,
+                iconIsVirtual: isVirtualFolderPath(dirParam),
                 source: src,
                 initialState: { dir: dirParam },
                 tabGroupId: null,
@@ -887,9 +888,19 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     if (!w) return
     setWorkspace({
       ...w,
-      windows: w.windows.map((win) =>
-        win.id === windowId ? { ...win, initialState: { ...win.initialState, dir } } : win,
-      ),
+      windows: w.windows.map((win) => {
+        if (win.id !== windowId) return win
+        const next = { ...win, initialState: { ...win.initialState, dir } }
+        if (win.type !== 'browser') return next
+        const title = dir.split(/[/\\]/).filter(Boolean).pop() ?? 'Folder'
+        return {
+          ...next,
+          title,
+          iconPath: dir,
+          iconType: MediaType.FOLDER,
+          iconIsVirtual: isVirtualFolderPath(dir),
+        }
+      }),
     })
   }
 
@@ -949,16 +960,21 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const n = w.nextWindowId
     const id = `workspace-window-${n}`
     const source = options?.source ?? browserSource()
+    const dirOpt = options?.initialState?.dir
+    const initialState = dirOpt != null ? { dir: dirOpt } : {}
+    const usePathChrome = typeof dirOpt === 'string' && dirOpt.length > 0
     const newWin: WorkspaceWindowDefinition = {
       id,
       type: 'browser',
-      title: `Browser ${n}`,
+      title: usePathChrome
+        ? (dirOpt.split(/[/\\]/).filter(Boolean).pop() ?? 'Folder')
+        : `Browser ${n}`,
       iconName: null,
-      iconPath: '',
+      iconPath: usePathChrome ? dirOpt : '',
       iconType: MediaType.FOLDER,
-      iconIsVirtual: false,
+      iconIsVirtual: usePathChrome ? isVirtualFolderPath(dirOpt) : false,
       source,
-      initialState: options?.initialState?.dir != null ? { dir: options.initialState.dir } : {},
+      initialState,
       tabGroupId: null,
       layout: createWindowLayout(undefined, createDefaultBounds(w.windows.length, 'browser'), n),
     }
