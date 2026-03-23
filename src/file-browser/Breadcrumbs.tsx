@@ -10,7 +10,10 @@ import ChevronDown from 'lucide-solid/icons/chevron-down'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import House from 'lucide-solid/icons/house'
 import MoreHorizontal from 'lucide-solid/icons/more-horizontal'
+import type { Accessor } from 'solid-js'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+
+type PathMenuEntry = { name: string; path: string; originIndex: number }
 
 type BreadcrumbsProps = {
   currentPath: string
@@ -26,7 +29,6 @@ type BreadcrumbRow =
   | { id: string; kind: 'home'; path: string; name: string; isLast: boolean }
   | { id: string; kind: 'crumb'; path: string; name: string; isLast: boolean }
   | { id: string; kind: 'ellipsis-inline' }
-  | { id: string; kind: 'ellipsis-end' }
 
 export function Breadcrumbs(props: BreadcrumbsProps) {
   const isWorkspace = () => (props.mode ?? 'MediaServer') === 'Workspace'
@@ -48,16 +50,32 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
   const [showPathEllipsis, setShowPathEllipsis] = createSignal(false)
   /** When true, inline trail is Home > … > current (parent folder not in the bar). */
   const [ellipsisSkipsParent, setEllipsisSkipsParent] = createSignal(false)
-  const [isManuallyExpanded, setIsManuallyExpanded] = createSignal(false)
-  const [wouldOverflowIfExpanded, setWouldOverflowIfExpanded] = createSignal(false)
   const [compactPathOnly, setCompactPathOnly] = createSignal(false)
   const [pathPickerButtonEl, setPathPickerButtonEl] = createSignal<HTMLButtonElement | null>(null)
+  const [inlinePathMenuOpen, setInlinePathMenuOpen] = createSignal(false)
+  const [ellipsisMenuAnchorEl, setEllipsisMenuAnchorEl] = createSignal<HTMLButtonElement | null>(
+    null,
+  )
 
   const effectiveVisible = createMemo(() => {
     const s = visibleIndices()
     const c = crumbs()
     if (s.size === 0 && c.length > 0) return new Set(c.map((_, i) => i))
     return s
+  })
+
+  const fullPathMenuEntries = createMemo((): PathMenuEntry[] =>
+    crumbs().map((crumb, i) => ({ name: crumb.name, path: crumb.path, originIndex: i })),
+  )
+
+  const hiddenInlinePathMenuEntries = createMemo((): PathMenuEntry[] => {
+    const list = crumbs()
+    const vis = effectiveVisible()
+    const out: PathMenuEntry[] = []
+    for (let i = 0; i < list.length; i++) {
+      if (!vis.has(i)) out.push({ name: list[i].name, path: list[i].path, originIndex: i })
+    }
+    return out
   })
 
   const btnClass = (isCurrent: boolean) =>
@@ -85,7 +103,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
 
   createEffect(() => {
     crumbs()
-    isManuallyExpanded()
     const container = containerEl()
     const measure = measureEl()
     if (!container || !measure) return
@@ -99,14 +116,12 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
 
     const calculate = () => {
       const bc = crumbs()
-      const expanded = isManuallyExpanded()
       if (!containerEl() || !measureEl()) return
 
       if (bc.length === 0) {
         setVisibleIndices(new Set<number>())
         setShowPathEllipsis(false)
         setEllipsisSkipsParent(false)
-        setWouldOverflowIfExpanded(false)
         setCompactPathOnly(false)
         return
       }
@@ -135,23 +150,12 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
 
       const allIndices = bc.map((_, i) => i)
 
-      if (expanded) {
-        const fullTotal = rowTotalFor(allIndices, false)
-        setVisibleIndices(new Set(allIndices))
-        setShowPathEllipsis(false)
-        setEllipsisSkipsParent(false)
-        setWouldOverflowIfExpanded(fullTotal > availableWidth)
-        setCompactPathOnly(false)
-        return
-      }
-
       const n = bc.length
 
       if (n === 1) {
         setVisibleIndices(new Set([0]))
         setShowPathEllipsis(false)
         setEllipsisSkipsParent(false)
-        setWouldOverflowIfExpanded(false)
         setCompactPathOnly(false)
         return
       }
@@ -167,9 +171,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
           setShowPathEllipsis(false)
           setEllipsisSkipsParent(false)
           setCompactPathOnly(true)
-          setIsManuallyExpanded(false)
         }
-        setWouldOverflowIfExpanded(false)
         return
       }
 
@@ -184,9 +186,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
           setShowPathEllipsis(false)
           setEllipsisSkipsParent(false)
           setCompactPathOnly(true)
-          setIsManuallyExpanded(false)
         }
-        setWouldOverflowIfExpanded(false)
         return
       }
 
@@ -195,7 +195,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
         setShowPathEllipsis(false)
         setEllipsisSkipsParent(false)
         setCompactPathOnly(false)
-        setWouldOverflowIfExpanded(false)
         return
       }
 
@@ -205,7 +204,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
         setShowPathEllipsis(true)
         setEllipsisSkipsParent(false)
         setCompactPathOnly(false)
-        setWouldOverflowIfExpanded(false)
         return
       }
 
@@ -215,7 +213,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
         setShowPathEllipsis(true)
         setEllipsisSkipsParent(true)
         setCompactPathOnly(false)
-        setWouldOverflowIfExpanded(false)
         return
       }
 
@@ -223,8 +220,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
       setShowPathEllipsis(false)
       setEllipsisSkipsParent(false)
       setCompactPathOnly(true)
-      setWouldOverflowIfExpanded(false)
-      setIsManuallyExpanded(false)
     }
 
     calculate()
@@ -246,11 +241,50 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
     const p = prevCompactLayout()
     if (p !== undefined && p !== c) {
       setBreadcrumbFolderMenu(null)
+      setInlinePathMenuOpen(false)
     }
     setPrevCompactLayout(c)
   })
 
-  const toggleEllipsis = () => setIsManuallyExpanded((v) => !v)
+  createEffect(() => {
+    if (!showPathEllipsis() || compactPathOnly()) setInlinePathMenuOpen(false)
+  })
+
+  const PathMenuItems = (menu: { onAfterPick: () => void; entries: Accessor<PathMenuEntry[]> }) => (
+    <For each={menu.entries()}>
+      {(entry) => (
+        <button
+          type='button'
+          role='menuitem'
+          data-breadcrumb-segment={entry.originIndex === 0 ? 'home' : 'crumb'}
+          data-breadcrumb-path={entry.path}
+          class={cn(
+            'flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+            entry.originIndex === crumbs().length - 1 && 'bg-accent/50 font-medium',
+          )}
+          onClick={() => {
+            props.onNavigate(entry.path)
+            menu.onAfterPick()
+          }}
+          onContextMenu={(e) => {
+            if (!props.onCrumbContextMenu) return
+            e.preventDefault()
+            e.stopPropagation()
+            props.onCrumbContextMenu(e, {
+              navigatePath: entry.path,
+              displayName: entry.name,
+              isHome: entry.originIndex === 0,
+            })
+          }}
+        >
+          <Show when={entry.originIndex === 0}>
+            <House class='h-4 w-4 shrink-0' stroke-width={2} />
+          </Show>
+          <span class='min-w-0 flex-1 whitespace-normal break-words text-left'>{entry.name}</span>
+        </button>
+      )}
+    </For>
+  )
 
   const breadcrumbRows = createMemo((): BreadcrumbRow[] => {
     if (compactPathOnly()) return []
@@ -315,10 +349,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
           isLast: index === list.length - 1,
         })
       }
-    }
-
-    if (isManuallyExpanded() && wouldOverflowIfExpanded()) {
-      rows.push({ id: 'ellipsis-end', kind: 'ellipsis-end' })
     }
 
     return rows
@@ -436,30 +466,16 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
                         />
                         <button
                           type='button'
+                          ref={setEllipsisMenuAnchorEl}
                           data-testid='breadcrumb-ellipsis'
                           class={ellipsisBtnClass()}
-                          onClick={toggleEllipsis}
-                          aria-label={
-                            isManuallyExpanded() ? 'Collapse breadcrumbs' : 'Expand breadcrumbs'
-                          }
-                        >
-                          <MoreHorizontal class='h-4 w-4 shrink-0' stroke-width={2} />
-                        </button>
-                      </div>
-                    )
-                  case 'ellipsis-end':
-                    return (
-                      <div class='flex shrink-0 items-center gap-2'>
-                        <ChevronRight
-                          class='h-4 w-4 shrink-0 text-muted-foreground'
-                          stroke-width={2}
-                        />
-                        <button
-                          type='button'
-                          data-testid='breadcrumb-ellipsis'
-                          class={ellipsisBtnClass()}
-                          onClick={toggleEllipsis}
-                          title='Collapse breadcrumbs'
+                          aria-expanded={inlinePathMenuOpen()}
+                          aria-haspopup='menu'
+                          aria-label='Show hidden path segments'
+                          onClick={() => {
+                            if (inlinePathMenuOpen()) setInlinePathMenuOpen(false)
+                            else setInlinePathMenuOpen(true)
+                          }}
                         >
                           <MoreHorizontal class='h-4 w-4 shrink-0' stroke-width={2} />
                         </button>
@@ -470,6 +486,20 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
                 }
               }}
             </For>
+            <FloatingContextMenu
+              open={inlinePathMenuOpen}
+              anchorRef={ellipsisMenuAnchorEl}
+              onDismiss={() => setInlinePathMenuOpen(false)}
+              dismissIgnoreInsideSelector=':is([data-slot="breadcrumb-context-menu"], [data-breadcrumb-folder-menu])'
+              dismissIgnoreSelectorActive={() => breadcrumbFloating.folderMenu != null}
+              data-testid='breadcrumb-path-menu'
+              class='ring-foreground/10 max-h-64 overflow-y-auto ring-1'
+            >
+              <PathMenuItems
+                onAfterPick={() => setInlinePathMenuOpen(false)}
+                entries={hiddenInlinePathMenuEntries}
+              />
+            </FloatingContextMenu>
           </div>
         }
       >
@@ -509,41 +539,10 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
               data-testid='breadcrumb-path-menu'
               class='ring-foreground/10 max-h-64 overflow-y-auto ring-1'
             >
-              <For each={crumbs()}>
-                {(crumb, index) => (
-                  <button
-                    type='button'
-                    role='menuitem'
-                    data-breadcrumb-segment={index() === 0 ? 'home' : 'crumb'}
-                    data-breadcrumb-path={crumb.path}
-                    class={cn(
-                      'flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground',
-                      index() === crumbs().length - 1 && 'bg-accent/50 font-medium',
-                    )}
-                    onClick={() => {
-                      props.onNavigate(crumb.path)
-                      setBreadcrumbCompactPathOpen(false)
-                    }}
-                    onContextMenu={(e) => {
-                      if (!props.onCrumbContextMenu) return
-                      e.preventDefault()
-                      e.stopPropagation()
-                      props.onCrumbContextMenu(e, {
-                        navigatePath: crumb.path,
-                        displayName: crumb.name,
-                        isHome: index() === 0,
-                      })
-                    }}
-                  >
-                    <Show when={index() === 0}>
-                      <House class='h-4 w-4 shrink-0' stroke-width={2} />
-                    </Show>
-                    <span class='min-w-0 flex-1 whitespace-normal break-words text-left'>
-                      {crumb.name}
-                    </span>
-                  </button>
-                )}
-              </For>
+              <PathMenuItems
+                onAfterPick={() => setBreadcrumbCompactPathOpen(false)}
+                entries={fullPathMenuEntries}
+              />
             </FloatingContextMenu>
           </div>
         </div>
