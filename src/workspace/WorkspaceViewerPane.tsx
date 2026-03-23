@@ -9,6 +9,7 @@ import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
+import { tryPasteKnowledgeBaseImage } from '@/lib/handle-kb-image-paste'
 import { isPathEditable } from '@/lib/utils'
 import Download from 'lucide-solid/icons/download'
 import ExternalLink from 'lucide-solid/icons/external-link'
@@ -833,6 +834,17 @@ export function WorkspaceViewerPane(props: Props) {
                     value={editContent()}
                     spellcheck={false}
                     onInput={(e) => setEditContent(e.currentTarget.value)}
+                    onPaste={(e) => {
+                      void tryPasteKnowledgeBaseImage(e, {
+                        viewingPath: viewingPath(),
+                        knowledgeBases: kbList(),
+                        editableFolders: props.editableFolders,
+                        shareContext: textViewerShareCtx(),
+                        shareCanEdit: props.shareCanEdit,
+                        editContent: editContent(),
+                        setEditContent,
+                      })
+                    }}
                     onBlur={() => void saveText(true)}
                     onKeyDown={(e) => {
                       if (

@@ -25,6 +25,7 @@ type ShareInfo = {
   restrictions?: ShareRestrictions
   usedBytes?: number
   isKnowledgeBase: boolean
+  knowledgeBaseRoot?: string
   adminViewMode: 'list' | 'grid'
 }
 
@@ -51,6 +52,7 @@ export function ShareRoute(props: Props) {
       extension: data.extension,
       restrictions: data.restrictions,
       isKnowledgeBase: data.isKnowledgeBase,
+      ...(data.knowledgeBaseRoot !== undefined && { knowledgeBaseRoot: data.knowledgeBaseRoot }),
       adminViewMode: data.adminViewMode || 'list',
     }
   })

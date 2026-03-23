@@ -75,6 +75,8 @@ export type ShareInfoPayload = {
   extension: string
   restrictions?: ShareRestrictions
   isKnowledgeBase?: boolean
+  /** Present when this share path lies inside a configured knowledge base (for KB markdown / paste). */
+  knowledgeBaseRoot?: string
   adminViewMode: 'list' | 'grid'
 }
 
@@ -597,6 +599,9 @@ export function ShareFolderBrowser(props: Props) {
         shareContext={shareContext()}
         shareCanEdit={shareCanEdit()}
         editableFolders={[]}
+        knowledgeBases={
+          props.shareInfo.knowledgeBaseRoot ? [props.shareInfo.knowledgeBaseRoot] : []
+        }
       />
       <div class='min-h-screen' data-testid='share-file-browser'>
         <BreadcrumbContextMenu

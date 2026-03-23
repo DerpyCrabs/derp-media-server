@@ -60,11 +60,17 @@ export function ShareFileViewer(props: Props) {
               shareContext={shareContext()}
               shareCanEdit={shareCanEdit()}
               editableFolders={[]}
+              knowledgeBases={
+                props.shareInfo.knowledgeBaseRoot ? [props.shareInfo.knowledgeBaseRoot] : []
+              }
             />
             <TextViewerBody
               viewingPath={props.shareInfo.path}
               shareContext={shareContext()}
               editableFolders={[]}
+              knowledgeBases={
+                props.shareInfo.knowledgeBaseRoot ? [props.shareInfo.knowledgeBaseRoot] : []
+              }
               shareCanEdit={shareCanEdit()}
             />
           </>
