@@ -69,19 +69,28 @@ test.describe('Breadcrumbs', () => {
     await expect(bar.getByRole('button', { name: 'breadcrumb-deep', exact: true })).toBeVisible()
   })
 
-  test('path ellipsis toggles expanded full trail', async ({ page }) => {
+  test('path ellipsis opens portaled path menu (like compact)', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 520)
     const bar = page.getByTestId('breadcrumb-bar')
+    await expect(page.getByTestId('breadcrumb-path-menu')).toHaveCount(0)
     await bar.getByTestId('breadcrumb-ellipsis').first().click()
-    await expect(bar.getByRole('button', { name: 'seg-a', exact: true })).toBeVisible()
+    const menu = page.getByTestId('breadcrumb-path-menu')
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'seg-a', exact: true })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Home', exact: true })).toHaveCount(0)
+    await expect(menu.getByRole('menuitem', { name: 'seg-c', exact: true })).toHaveCount(0)
+    await expect(menu.getByRole('menuitem', { name: 'breadcrumb-deep', exact: true })).toHaveCount(
+      0,
+    )
     await bar.getByTestId('breadcrumb-ellipsis').first().click()
+    await expect(page.getByTestId('breadcrumb-path-menu')).toHaveCount(0)
     await expect(bar.getByRole('button', { name: 'seg-a', exact: true })).toHaveCount(0)
   })
 
-  test('tighter inline: Home + … + current only (parent in menu after compact or expand)', async ({
+  test('tighter inline: Home + … + current only (parent reachable via ellipsis menu)', async ({
     page,
   }) => {
     await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
