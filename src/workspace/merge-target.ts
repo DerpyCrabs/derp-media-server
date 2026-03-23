@@ -1,6 +1,6 @@
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { groupIdForWindow } from './tab-group-ops'
-import { insertIndexFromSingleTabRowPointer, insertIndexFromTabBodyPointer } from './tab-drop-hit'
+import { insertIndexFromTabBodyPointer } from './tab-drop-hit'
 
 export type MergeTarget = { groupId: string; insertIndex: number }
 
@@ -39,16 +39,6 @@ function mergeTargetFromElement(
     if (idx < 0) return null
     const rect = tabCell.getBoundingClientRect()
     const insertIndex = insertIndexFromTabBodyPointer(clientX, rect.left, rect.width, idx)
-    return { groupId: gid, insertIndex }
-  }
-
-  const singleRow = el.closest('[data-workspace-single-tab-row]')
-  if (singleRow instanceof HTMLElement) {
-    const groupEl = singleRow.closest('[data-window-group]')
-    const gid = groupEl?.getAttribute('data-window-group')
-    if (!gid || gid === draggedGroupId) return null
-    const rect = singleRow.getBoundingClientRect()
-    const insertIndex = insertIndexFromSingleTabRowPointer(clientX, rect.left, rect.width)
     return { groupId: gid, insertIndex }
   }
 

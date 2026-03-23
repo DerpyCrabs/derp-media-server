@@ -15,7 +15,7 @@ import {
 } from './workspace-snap-resize-handles'
 import type { MergeTarget } from './merge-target'
 import { groupIdForWindow } from './tab-group-ops'
-import { WorkspaceSingleTabHeader, WorkspaceTabStrip } from './WorkspaceTabStrip'
+import { WorkspaceTabStrip } from './WorkspaceTabStrip'
 
 const MIN_W = 360
 const MIN_H = 260
@@ -104,7 +104,6 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   })
 
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === liveLeaderId()))
-  const hasTabs = createMemo(() => props.tabWindows().length > 1)
   const b = createMemo(
     () => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'),
   )
@@ -308,33 +307,19 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             data-testid='window-drag-handle'
             class='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center text-xs font-medium select-none active:cursor-grabbing'
           >
-            <Show
-              when={hasTabs()}
-              fallback={
-                <WorkspaceSingleTabHeader
-                  groupId={props.groupId}
-                  tab={props.tabWindows()[0]}
-                  isWindowActive={props.isActive}
-                  fileIconContext={props.fileIconContext}
-                  onDropFile={props.onDropFileToTabBar}
-                  mergeHighlightInsertIndex={mergeHighlightInsertIndex}
-                />
-              }
-            >
-              <WorkspaceTabStrip
-                groupId={props.groupId}
-                tabs={props.tabWindows()}
-                visibleTabId={props.visibleTabId()}
-                isWindowActive={props.isActive}
-                fileIconContext={props.fileIconContext}
-                onSelectTab={(gid, tid) => props.onSelectTab?.(gid, tid)}
-                onFocusWindow={(tid) => props.onFocusWindow(tid)}
-                onCloseTab={(tid) => props.onCloseTab?.(tid)}
-                onTabPullStart={props.onTabPullStart}
-                onDropFile={props.onDropFileToTabBar}
-                mergeHighlightInsertIndex={mergeHighlightInsertIndex}
-              />
-            </Show>
+            <WorkspaceTabStrip
+              groupId={props.groupId}
+              tabs={props.tabWindows()}
+              visibleTabId={props.visibleTabId()}
+              isWindowActive={props.isActive}
+              fileIconContext={props.fileIconContext}
+              onSelectTab={(gid, tid) => props.onSelectTab?.(gid, tid)}
+              onFocusWindow={(tid) => props.onFocusWindow(tid)}
+              onCloseTab={(tid) => props.onCloseTab?.(tid)}
+              onTabPullStart={props.onTabPullStart}
+              onDropFile={props.onDropFileToTabBar}
+              mergeHighlightInsertIndex={mergeHighlightInsertIndex}
+            />
           </div>
           <div
             class='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
