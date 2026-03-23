@@ -48,6 +48,9 @@ export type WorkspaceBrowserModalLayerProps = {
   onOpenInNewTabFromRow?: (file: FileItem) => void
   showOpenInNewTabForFiles: boolean
   onContextDownload: (file: FileItem) => void
+  /** Admin workspace only; toggles folder as knowledge base (same as main file browser). */
+  onContextToggleKnowledgeBase?: (file: FileItem) => void
+  isRowKnowledgeBase?: (file: FileItem) => boolean
   showRename: Accessor<boolean>
   renamingItem: Accessor<FileItem | null>
   renameNewName: Accessor<string>
@@ -135,6 +138,8 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onSetIcon={props.onSetRowIcon}
         onOpenInNewTab={props.onOpenInNewTabFromRow}
         showOpenInNewTabForFiles={props.showOpenInNewTabForFiles}
+        onToggleKnowledgeBase={props.onContextToggleKnowledgeBase}
+        isKnowledgeBase={props.isRowKnowledgeBase}
       />
       <RenameDialog
         isOpen={props.showRename()}

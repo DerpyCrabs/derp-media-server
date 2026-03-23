@@ -490,6 +490,17 @@ export function WorkspaceBrowserPane(props: Props) {
     },
   }))
 
+  const knowledgeBaseMutation = useMutation(() => ({
+    mutationFn: (filePath: string) => post('/api/settings/knowledgeBase', { filePath }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+    },
+  }))
+
+  function handleContextToggleKnowledgeBase(file: FileItem) {
+    knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/'))
+  }
+
   const renameTargetExists = createMemo(() => {
     const item = renamingItem()
     const name = renameNewName().trim()
@@ -1826,6 +1837,8 @@ export function WorkspaceBrowserPane(props: Props) {
         onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
         showOpenInNewTabForFiles={!!props.onOpenInNewTab}
         onContextDownload={handleContextDownload}
+        onContextToggleKnowledgeBase={share() ? undefined : handleContextToggleKnowledgeBase}
+        isRowKnowledgeBase={isRowKnowledgeBase}
         showRename={showRename}
         renamingItem={renamingItem}
         renameNewName={renameNewName}

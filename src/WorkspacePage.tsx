@@ -1650,6 +1650,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                 workspace={workspace}
                                 sharePanel={sharePanel}
                                 editableFolders={editableFolders()}
+                                knowledgeBases={settingsQuery.data?.knowledgeBases ?? []}
                                 shareCanEdit={
                                   props.shareConfig ? (props.shareCanEdit ?? false) : false
                                 }
