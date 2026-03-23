@@ -8,6 +8,7 @@ import { getMediaType } from '@/lib/media-utils'
 import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
 import { isPathEditable } from '@/lib/utils'
 import Download from 'lucide-solid/icons/download'
 import ExternalLink from 'lucide-solid/icons/external-link'
@@ -32,6 +33,8 @@ type Props = {
   workspace: Accessor<PersistedWorkspaceState | null>
   sharePanel: Accessor<WorkspaceShareConfig | null>
   editableFolders: string[]
+  /** Same as main file browser — required for Obsidian-style images in knowledge bases. */
+  knowledgeBases?: string[]
   shareCanEdit: boolean
   onUpdateViewing: (windowId: string, path: string) => void
   onDismissFloatingPlayer?: (windowId: string) => void
@@ -41,52 +44,6 @@ function shareEditRelativePath(viewingPath: string, sharePath: string): string {
   const sp = sharePath.replace(/\\/g, '/')
   const fileFwd = viewingPath.replace(/\\/g, '/')
   return fileFwd.startsWith(sp + '/') ? fileFwd.slice(sp.length + 1) : fileFwd
-}
-
-function buildResolveImageUrl(
-  viewingPath: string,
-  share: TextViewerShareContext | null,
-): (src: string) => string | null {
-  return (rawSrc: string) => {
-    let src = rawSrc
-    try {
-      src = decodeURIComponent(src)
-    } catch {
-      /* noop */
-    }
-
-    if (share) {
-      if (src.startsWith('http://') || src.startsWith('https://')) return src
-      const fileDir = viewingPath.replace(/\\/g, '/').replace(/\/[^/]*$/, '')
-      const shareRoot = share.sharePath.replace(/\\/g, '/')
-      const firstSeg = (p: string) => p.split('/').filter(Boolean)[0] ?? ''
-      const isAbsolute =
-        src.startsWith('/') ||
-        (fileDir && (src === fileDir || src.startsWith(fileDir + '/'))) ||
-        (shareRoot && (src === shareRoot || src.startsWith(shareRoot + '/'))) ||
-        (firstSeg(src) && firstSeg(src) === firstSeg(viewingPath))
-      let resolvedPath = isAbsolute
-        ? src.startsWith('/')
-          ? src.slice(1)
-          : src
-        : `${fileDir ? fileDir + '/' : ''}${src}`.replace(/\/+/g, '/').replace(/^\/+/, '')
-      if (share.isDirectory && shareRoot && resolvedPath.startsWith(shareRoot + '/')) {
-        resolvedPath = resolvedPath.slice(shareRoot.length).replace(/^\/+/, '')
-      } else if (share.isDirectory && shareRoot && resolvedPath === shareRoot) {
-        return null
-      } else if (!share.isDirectory && resolvedPath !== shareRoot) {
-        return null
-      }
-      const encoded = resolvedPath
-        .split('/')
-        .filter(Boolean)
-        .map((s) => encodeURIComponent(s))
-        .join('/')
-      return encoded ? `/api/share/${share.token}/media/${encoded}` : null
-    }
-
-    return `/api/media/${src.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
-  }
 }
 
 export function WorkspaceViewerPane(props: Props) {
@@ -583,8 +540,9 @@ export function WorkspaceViewerPane(props: Props) {
     return t ? t.split('\n').length : 0
   })
 
+  const kbList = createMemo(() => props.knowledgeBases ?? [])
   const resolveImageUrl = createMemo(() =>
-    buildResolveImageUrl(viewingPath(), textViewerShareCtx()),
+    buildResolveMarkdownImageUrl(viewingPath(), textViewerShareCtx(), kbList()),
   )
 
   return (
