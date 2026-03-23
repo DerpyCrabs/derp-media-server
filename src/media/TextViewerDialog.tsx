@@ -8,6 +8,7 @@ import {
   buildResolveMarkdownImageUrl,
   type MarkdownImageShareContext,
 } from '@/lib/resolve-markdown-image-url'
+import { tryPasteKnowledgeBaseImage } from '@/lib/handle-kb-image-paste'
 import { isPathEditable } from '@/lib/utils'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
 import Download from 'lucide-solid/icons/download'
@@ -497,6 +498,17 @@ export function TextViewerBody(props: {
                 spellcheck={false}
                 placeholder='Enter text…'
                 onInput={(e) => setEditContent(e.currentTarget.value)}
+                onPaste={(e) => {
+                  void tryPasteKnowledgeBaseImage(e, {
+                    viewingPath: props.viewingPath,
+                    knowledgeBases: kbList(),
+                    editableFolders: props.editableFolders,
+                    shareContext: props.shareContext ?? null,
+                    shareCanEdit: props.shareCanEdit,
+                    editContent: editContent(),
+                    setEditContent,
+                  })
+                }}
                 onBlur={() => {
                   if (autoSaveEnabled()) void saveInternal(true)
                 }}

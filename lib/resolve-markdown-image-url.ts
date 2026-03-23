@@ -27,14 +27,22 @@ export function buildResolveMarkdownImageUrl(
 
     if (share) {
       if (src.startsWith('http://') || src.startsWith('https://')) return src
-      const fileDir = viewingPath.replace(/\\/g, '/').replace(/\/[^/]*$/, '')
+      const normView = viewingPath.replace(/\\/g, '/')
+      // Bare filename in a KB note → vault `images/` (same as admin `/api/media` path).
+      if (!src.startsWith('/') && !src.includes('/')) {
+        const kbRoot = getKnowledgeBaseRoot(normView, knowledgeBases)
+        if (kbRoot) {
+          src = `${kbRoot}/images/${src}`
+        }
+      }
+      const fileDir = normView.replace(/\/[^/]*$/, '')
       const shareRoot = share.sharePath.replace(/\\/g, '/')
       const firstSeg = (p: string) => p.split('/').filter(Boolean)[0] ?? ''
       const isAbsolute =
         src.startsWith('/') ||
         (fileDir && (src === fileDir || src.startsWith(fileDir + '/'))) ||
         (shareRoot && (src === shareRoot || src.startsWith(shareRoot + '/'))) ||
-        (firstSeg(src) && firstSeg(src) === firstSeg(viewingPath))
+        (firstSeg(src) && firstSeg(src) === firstSeg(normView))
       let resolvedPath = isAbsolute
         ? src.startsWith('/')
           ? src.slice(1)

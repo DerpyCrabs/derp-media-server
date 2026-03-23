@@ -155,9 +155,12 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     const restrictions = share.editable ? getEffectiveRestrictions(share) : undefined
     const usedBytes = share.editable ? share.usedBytes || 0 : undefined
 
-    const knowledgeBases = share.isDirectory ? await getKnowledgeBases() : []
-    const isKnowledgeBase =
-      share.isDirectory && getKnowledgeBaseRootForPath(share.path, knowledgeBases) !== null
+    const knowledgeBasesList = await getKnowledgeBases()
+    const knowledgeBaseRoot = getKnowledgeBaseRootForPath(
+      share.path.replace(/\\/g, '/'),
+      knowledgeBasesList,
+    )
+    const isKnowledgeBase = share.isDirectory && knowledgeBaseRoot !== null
 
     let adminViewMode: 'list' | 'grid' = 'list'
     if (share.isDirectory) {
@@ -199,6 +202,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       ...(restrictions && { restrictions }),
       ...(usedBytes !== undefined && { usedBytes }),
       isKnowledgeBase,
+      ...(authorized && knowledgeBaseRoot !== null && { knowledgeBaseRoot }),
       adminViewMode,
       ...(workspaceTaskbarPins !== undefined && { workspaceTaskbarPins }),
       ...(workspaceLayoutPresets !== undefined && { workspaceLayoutPresets }),

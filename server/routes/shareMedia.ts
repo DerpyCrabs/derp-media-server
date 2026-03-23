@@ -5,7 +5,13 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import archiver from 'archiver'
 import path from 'path'
-import { getFilePath, validatePath, isPathEditable, writeBinaryFile } from '@/lib/file-system'
+import {
+  getFilePath,
+  validatePath,
+  isPathEditable,
+  writeBinaryFile,
+  fileExists,
+} from '@/lib/file-system'
 import { getMimeType, formatFileSize } from '@/lib/media-utils'
 import { extractAudioMetadata, extractAudioTrack } from '@/server/lib/audio-helpers'
 import {
@@ -25,6 +31,18 @@ import {
 import { broadcastFileChange } from '@/lib/file-change-emitter'
 
 const execAsync = promisify(exec)
+
+/** Safe basename for KB pasted images (Obsidian-style names include spaces). */
+function sanitizeKbPastedImageFileName(name: unknown): string | null {
+  if (typeof name !== 'string') return null
+  const t = name.trim()
+  if (t.length === 0 || t.length > 180) return null
+  const base = path.basename(t.replace(/\\/g, '/'))
+  if (base !== t.replace(/\\/g, '/') || base.includes('..')) return null
+  if (!/\.(png|jpe?g|gif|webp)$/i.test(base)) return null
+  if (!/^[\w\s().-]+$/i.test(base.replace(/\.[^.]+$/, ''))) return null
+  return base
+}
 
 // ── Thumbnail helpers (mirrored from thumbnail.ts for share scope) ───
 
@@ -466,8 +484,8 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Uploads are not allowed for this share' })
       }
 
-      const body = request.body as { base64Content?: string; mimeType?: string }
-      const { base64Content, mimeType } = body
+      const body = request.body as { base64Content?: string; mimeType?: string; fileName?: string }
+      const { base64Content, mimeType, fileName: requestedName } = body
 
       if (!base64Content || typeof base64Content !== 'string') {
         return reply.status(400).send({ error: 'base64Content is required' })
@@ -484,17 +502,10 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
       const kbRoot = getKnowledgeBaseRootForPath(sharePath, knowledgeBases)
 
       let imagesDir: string
-      if (kbRoot && share.isDirectory) {
-        // For directory shares at or below KB root, write images inside the share
-        if (sharePath === kbRoot) {
-          imagesDir = `${kbRoot}/images`
-        } else {
-          imagesDir = `${sharePath}/images`
-        }
-      } else if (kbRoot && !share.isDirectory) {
-        // Single-file shares write to an images dir next to the file
-        const fileDir = path.dirname(sharePath).replace(/\\/g, '/')
-        imagesDir = `${fileDir}/images`
+      if (kbRoot) {
+        imagesDir = `${kbRoot}/images`
+      } else if (share.isDirectory) {
+        imagesDir = `${sharePath}/images`
       } else {
         const fileDir = path.dirname(sharePath).replace(/\\/g, '/')
         imagesDir = `${fileDir}/images`
@@ -506,8 +517,21 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
 
       const ext = (mimeType || 'image/png').split('/')[1] || 'png'
       const safeExt = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext) ? ext : 'png'
-      const fileName = `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`
-      const imagePath = `${imagesDir}/${fileName}`
+      const sanitized = sanitizeKbPastedImageFileName(requestedName)
+      let baseFileName =
+        sanitized ??
+        `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt === 'jpeg' ? 'jpg' : safeExt}`
+
+      let imagePath = `${imagesDir}/${baseFileName}`
+      let n = 1
+      while (await fileExists(imagePath)) {
+        const stem = baseFileName.replace(/\.[^.]+$/, '')
+        const dotExt =
+          baseFileName.match(/(\.[^.]+)$/)?.[1] ?? `.${safeExt === 'jpeg' ? 'jpg' : safeExt}`
+        baseFileName = `${stem}_${n}${dotExt}`
+        n++
+        imagePath = `${imagesDir}/${baseFileName}`
+      }
 
       await writeBinaryFile(imagePath, base64Content)
       await addShareUsedBytes(token, contentSize)
@@ -515,7 +539,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
       const parentDir = path.dirname(imagePath).replace(/\\/g, '/')
       broadcastFileChange(parentDir === '.' ? '' : parentDir, imagePath)
 
-      return reply.send({ success: true, path: imagePath })
+      return reply.send({ success: true, path: imagePath, fileName: baseFileName })
     } catch (error) {
       console.error('Error uploading image:', error)
       return reply

@@ -58,6 +58,63 @@ test.describe('Knowledge Base', () => {
     await removeKbItem.click({ noWaitAfter: true })
   })
 
+  test('paste image in KB text editor saves under images/ and inserts ![[Pasted image …]]', async ({
+    page,
+  }) => {
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
+    const textarea = page.locator('textarea')
+    await expect(textarea).toBeVisible()
+    const before = await textarea.inputValue()
+
+    await textarea.click()
+    await textarea.evaluate((el) => {
+      const ta = el as HTMLTextAreaElement
+      ta.setSelectionRange(0, 0)
+    })
+
+    const createPromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes('/api/files/create') &&
+        resp.request().method() === 'POST' &&
+        resp.status() === 200,
+    )
+
+    await textarea.evaluate(async (el) => {
+      const ta = el as HTMLTextAreaElement
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        const c = document.createElement('canvas')
+        c.width = 1
+        c.height = 1
+        const ctx = c.getContext('2d')
+        if (!ctx) {
+          reject(new Error('no canvas context'))
+          return
+        }
+        ctx.fillStyle = '#ff0000'
+        ctx.fillRect(0, 0, 1, 1)
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png')
+      })
+      const file = new File([blob], 'clip.png', { type: 'image/png' })
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      const ev = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dt,
+      } as ClipboardEventInit)
+      ta.dispatchEvent(ev)
+    })
+
+    const createResp = await createPromise
+    const body = createResp.request().postDataJSON() as { path?: string; base64Content?: string }
+    expect(body.path).toMatch(/^Notes\/images\/Pasted image \d{14}(_\d+)?\.png$/)
+    expect(typeof body.base64Content).toBe('string')
+    expect(body.base64Content!.length).toBeGreaterThan(10)
+
+    await expect(textarea).toHaveValue(/\[\[Pasted image \d{14}(_\d+)?\.png\]\]/)
+    expect(await textarea.inputValue()).toContain(before)
+  })
+
   test('renders Obsidian-style ![[image]] embeds', async ({ page }) => {
     await page.goto('/?dir=Notes')
     await page.locator('table').getByText('welcome.md').click()
