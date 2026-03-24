@@ -110,7 +110,7 @@ export function KbDashboard(props: Props) {
         class={cn(
           'min-w-0 shrink-0 overflow-x-auto scrollbar-none border-b border-border',
           compact()
-            ? 'flex items-center -mx-2 -mt-2 px-2 py-1.5 mb-1'
+            ? 'flex items-center px-1.5 py-1.5 mb-1'
             : 'bg-muted/20 px-1.5 py-1.5 md:px-2 md:py-2',
         )}
       >
