@@ -15,7 +15,6 @@ import { MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
-import AlertCircle from 'lucide-solid/icons/alert-circle'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import AppWindow from 'lucide-solid/icons/app-window'
@@ -41,6 +40,7 @@ import {
   type BreadcrumbMenuTarget,
 } from './file-browser/BreadcrumbContextMenu'
 import { DeleteFileDialog } from './file-browser/DeleteFileDialog'
+import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
 import { MoveToDialog } from './file-browser/MoveToDialog'
 import { RenameDialog } from './file-browser/RenameDialog'
 import { UploadMenu } from './file-browser/UploadMenu'
@@ -225,6 +225,7 @@ export function ShareFolderBrowser(props: Props) {
           setInlineMode(null)
           setInlineName('')
           createFolderMutation.reset()
+          if (inKb()) navigateToFolder(subPath)
         },
       },
     )
@@ -458,7 +459,7 @@ export function ShareFolderBrowser(props: Props) {
     e.preventDefault()
     let name = newItemName().trim()
     if (!name) return
-    if (!name.includes('.')) name = `${name}.txt`
+    if (!name.includes('.')) name = `${name}${inKb() ? '.md' : '.txt'}`
     const sub = currentSubDir() ? `${currentSubDir()}/${name}` : name
     createFileMutation.mutate({ type: 'file', path: sub, content: '' })
   }
@@ -957,259 +958,144 @@ export function ShareFolderBrowser(props: Props) {
                   <p class='text-destructive text-sm'>Failed to load files.</p>
                 </div>
               </Show>
-              <Switch>
-                <Match when={viewMode() === 'grid'}>
-                  <div class='px-4 py-4'>
-                    <div class='file-browser-grid gap-4'>
-                      <Show when={currentSubDir()}>
-                        <div
-                          class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
-                          onClick={handleParentDirectory}
-                          onPointerEnter={prefetchShareParentDirectory}
-                          role='button'
-                          tabindex={0}
-                        >
-                          <div class='flex aspect-video flex-col items-center justify-center bg-muted/80 p-4'>
-                            <ArrowUp
-                              class='mb-2 h-12 w-12 text-muted-foreground'
-                              size={48}
-                              stroke-width={2}
-                            />
-                            <p class='text-center text-sm font-medium'>..</p>
-                          </div>
-                        </div>
-                      </Show>
-                      <For each={files()}>
-                        {(file) => (
+              <div class='min-h-0 flex-1 overflow-auto'>
+                <Switch>
+                  <Match when={viewMode() === 'grid'}>
+                    <div class='px-4 py-4'>
+                      <div class='file-browser-grid gap-4'>
+                        <Show when={currentSubDir()}>
                           <div
                             class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
-                            onClick={() => handleFileClick(file)}
-                            onPointerEnter={() =>
-                              prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
-                            }
-                            onContextMenu={(e) => openRowMenu(e, file)}
-                            {...createLongPressContextMenuHandlers()}
+                            onClick={handleParentDirectory}
+                            onPointerEnter={prefetchShareParentDirectory}
                             role='button'
                             tabindex={0}
                           >
-                            <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-                              <div class='text-muted-foreground'>
-                                {gridHeroIcon(file, shareFileIconContext())}
-                              </div>
-                            </div>
-                            <div class='flex flex-col gap-1 p-3'>
-                              <p class='truncate text-sm font-medium' title={file.name}>
-                                {file.name}
-                              </p>
-                              <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                              </div>
+                            <div class='flex aspect-video flex-col items-center justify-center bg-muted/80 p-4'>
+                              <ArrowUp
+                                class='mb-2 h-12 w-12 text-muted-foreground'
+                                size={48}
+                                stroke-width={2}
+                              />
+                              <p class='text-center text-sm font-medium'>..</p>
                             </div>
                           </div>
-                        )}
-                      </For>
-                    </div>
-                  </div>
-                </Match>
-                <Match when={viewMode() === 'list'}>
-                  <div class='py-2 sm:px-4'>
-                    <div class='relative w-full overflow-x-auto'>
-                      <table class='w-full caption-bottom text-sm'>
-                        <tbody class='[&_tr:last-child]:border-0'>
-                          <Show when={currentSubDir()}>
-                            <tr
-                              class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
-                              onClick={handleParentDirectory}
-                              onPointerEnter={prefetchShareParentDirectory}
+                        </Show>
+                        <For each={files()}>
+                          {(file) => (
+                            <div
+                              class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
+                              onClick={() => handleFileClick(file)}
+                              onPointerEnter={() =>
+                                prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
+                              }
+                              onContextMenu={(e) => openRowMenu(e, file)}
+                              {...createLongPressContextMenuHandlers()}
+                              role='button'
+                              tabindex={0}
                             >
-                              <td class='w-12 p-2 align-middle'>
-                                <div class='flex items-center justify-center'>
-                                  <ArrowUp
-                                    class='h-5 w-5 text-muted-foreground'
-                                    size={20}
-                                    stroke-width={2}
-                                  />
+                              <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                                <div class='text-muted-foreground'>
+                                  {gridHeroIcon(file, shareFileIconContext())}
                                 </div>
-                              </td>
-                              <td class='p-2 align-middle font-medium'>..</td>
-                              <td class='p-2 align-middle text-right text-muted-foreground' />
-                            </tr>
-                          </Show>
-                          <For each={files()}>
-                            {(file) => (
+                              </div>
+                              <div class='flex flex-col gap-1 p-3'>
+                                <p class='truncate text-sm font-medium' title={file.name}>
+                                  {file.name}
+                                </p>
+                                <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                                  <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Match>
+                  <Match when={viewMode() === 'list'}>
+                    <div class='py-2 sm:px-4'>
+                      <div class='relative w-full overflow-x-auto'>
+                        <table class='w-full caption-bottom text-sm'>
+                          <tbody class='[&_tr:last-child]:border-0'>
+                            <Show when={currentSubDir()}>
                               <tr
-                                class='hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors'
-                                onClick={() => handleFileClick(file)}
-                                onPointerEnter={() =>
-                                  prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
-                                }
-                                onContextMenu={(e) => openRowMenu(e, file)}
-                                {...createLongPressContextMenuHandlers()}
+                                class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
+                                onClick={handleParentDirectory}
+                                onPointerEnter={prefetchShareParentDirectory}
                               >
                                 <td class='w-12 p-2 align-middle'>
                                   <div class='flex items-center justify-center'>
-                                    {fileIcon(file)}
+                                    <ArrowUp
+                                      class='h-5 w-5 text-muted-foreground'
+                                      size={20}
+                                      stroke-width={2}
+                                    />
                                   </div>
                                 </td>
-                                <td class='p-2 align-middle font-medium'>
-                                  <span class='truncate'>{file.name}</span>
-                                </td>
-                                <td class='p-2 align-middle text-right text-muted-foreground tabular-nums'>
-                                  <span class='inline-block w-20'>
-                                    {file.isDirectory ? '' : formatFileSize(file.size)}
-                                  </span>
-                                </td>
+                                <td class='p-2 align-middle font-medium'>..</td>
+                                <td class='p-2 align-middle text-right text-muted-foreground' />
                               </tr>
-                            )}
-                          </For>
-                          <Show when={showInlineCreate()}>
-                            <tr class='border-t border-border' onClick={(e) => e.stopPropagation()}>
-                              <td class='p-0' colspan={3}>
-                                <div class='grid grid-cols-2 gap-2 px-2 py-1.5'>
-                                  <div class='flex min-w-0 flex-col gap-1'>
-                                    <Show
-                                      when={inlineMode() === 'file'}
-                                      fallback={
-                                        <button
-                                          type='button'
-                                          class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            setInlineName('')
-                                            setInlineMode('file')
-                                          }}
-                                        >
-                                          <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
-                                          New file
-                                        </button>
-                                      }
-                                    >
-                                      <input
-                                        type='text'
-                                        ref={(el) => {
-                                          inlineFileInputEl = el ?? undefined
-                                        }}
-                                        class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
-                                          inlineFileExists()
-                                            ? 'border-yellow-500 ring-2 ring-yellow-500/30'
-                                            : createFileMutation.isError
-                                              ? 'border-destructive ring-2 ring-destructive/30'
-                                              : ''
-                                        }`}
-                                        placeholder='File name (e.g. notes.md)'
-                                        value={inlineName()}
-                                        disabled={createFileMutation.isPending}
-                                        onInput={(e) =>
-                                          setInlineName((e.currentTarget as HTMLInputElement).value)
-                                        }
-                                        onClick={(e) => e.stopPropagation()}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') submitInlineFile()
-                                          else if (e.key === 'Escape') resetInlineCreate()
-                                        }}
-                                        onBlur={() => resetInlineCreate()}
-                                      />
-                                      <Show when={inlineFileExists()}>
-                                        <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
-                                          <AlertCircle
-                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                            stroke-width={2}
-                                          />
-                                          <span>A file with this name already exists.</span>
-                                        </div>
-                                      </Show>
-                                      <Show
-                                        when={createFileMutation.isError && !inlineFileExists()}
-                                      >
-                                        <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
-                                          <AlertCircle
-                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                            stroke-width={2}
-                                          />
-                                          <span>
-                                            {(createFileMutation.error as Error)?.message}
-                                          </span>
-                                        </div>
-                                      </Show>
-                                    </Show>
-                                  </div>
-                                  <div class='flex min-w-0 flex-col gap-1'>
-                                    <Show
-                                      when={inlineMode() === 'folder'}
-                                      fallback={
-                                        <button
-                                          type='button'
-                                          class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            setInlineName('')
-                                            setInlineMode('folder')
-                                          }}
-                                        >
-                                          <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
-                                          New folder
-                                        </button>
-                                      }
-                                    >
-                                      <input
-                                        type='text'
-                                        ref={(el) => {
-                                          inlineFolderInputEl = el ?? undefined
-                                        }}
-                                        class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
-                                          inlineFolderExists()
-                                            ? 'border-yellow-500 ring-2 ring-yellow-500/30'
-                                            : createFolderMutation.isError
-                                              ? 'border-destructive ring-2 ring-destructive/30'
-                                              : ''
-                                        }`}
-                                        placeholder='Folder name'
-                                        value={inlineName()}
-                                        disabled={createFolderMutation.isPending}
-                                        onInput={(e) =>
-                                          setInlineName((e.currentTarget as HTMLInputElement).value)
-                                        }
-                                        onClick={(e) => e.stopPropagation()}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') submitInlineFolder()
-                                          else if (e.key === 'Escape') resetInlineCreate()
-                                        }}
-                                        onBlur={() => resetInlineCreate()}
-                                      />
-                                      <Show when={inlineFolderExists()}>
-                                        <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
-                                          <AlertCircle
-                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                            stroke-width={2}
-                                          />
-                                          <span>A folder with this name already exists.</span>
-                                        </div>
-                                      </Show>
-                                      <Show
-                                        when={createFolderMutation.isError && !inlineFolderExists()}
-                                      >
-                                        <div class='border-destructive/50 bg-destructive/10 text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs'>
-                                          <AlertCircle
-                                            class='mt-0.5 h-3.5 w-3.5 shrink-0'
-                                            stroke-width={2}
-                                          />
-                                          <span>
-                                            {(createFolderMutation.error as Error)?.message}
-                                          </span>
-                                        </div>
-                                      </Show>
-                                    </Show>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          </Show>
-                        </tbody>
-                      </table>
+                            </Show>
+                            <For each={files()}>
+                              {(file) => (
+                                <tr
+                                  class='hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors'
+                                  onClick={() => handleFileClick(file)}
+                                  onPointerEnter={() =>
+                                    prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
+                                  }
+                                  onContextMenu={(e) => openRowMenu(e, file)}
+                                  {...createLongPressContextMenuHandlers()}
+                                >
+                                  <td class='w-12 p-2 align-middle'>
+                                    <div class='flex items-center justify-center'>
+                                      {fileIcon(file)}
+                                    </div>
+                                  </td>
+                                  <td class='p-2 align-middle font-medium'>
+                                    <span class='truncate'>{file.name}</span>
+                                  </td>
+                                  <td class='p-2 align-middle text-right text-muted-foreground tabular-nums'>
+                                    <span class='inline-block w-20'>
+                                      {file.isDirectory ? '' : formatFileSize(file.size)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              )}
+                            </For>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                </Match>
-              </Switch>
+                  </Match>
+                </Switch>
+              </div>
+              <Show when={showInlineCreate()}>
+                <KbInlineCreateFooter
+                  inlineMode={inlineMode}
+                  setInlineMode={setInlineMode}
+                  inlineName={inlineName}
+                  setInlineName={setInlineName}
+                  inlineFileExists={inlineFileExists}
+                  inlineFolderExists={inlineFolderExists}
+                  createFilePending={() => createFileMutation.isPending}
+                  createFileIsError={() => createFileMutation.isError}
+                  createFileError={() => createFileMutation.error as Error | undefined}
+                  createFolderPending={() => createFolderMutation.isPending}
+                  createFolderIsError={() => createFolderMutation.isError}
+                  createFolderError={() => createFolderMutation.error as Error | undefined}
+                  submitInlineFile={submitInlineFile}
+                  submitInlineFolder={submitInlineFolder}
+                  resetInlineCreate={resetInlineCreate}
+                  onFileInputRef={(el) => {
+                    inlineFileInputEl = el
+                  }}
+                  onFolderInputRef={(el) => {
+                    inlineFolderInputEl = el
+                  }}
+                />
+              </Show>
             </div>
           </div>
         </div>
