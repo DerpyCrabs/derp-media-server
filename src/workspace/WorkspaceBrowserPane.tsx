@@ -1280,7 +1280,7 @@ export function WorkspaceBrowserPane(props: Props) {
       </Show>
 
       <div
-        class='relative flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-2'
+        class='relative flex min-h-0 flex-1 flex-col overflow-hidden'
         data-testid='workspace-upload-drop-zone'
         onDragEnter={onExternalUploadDragEnter}
         onDragLeave={onExternalUploadDragLeave}
@@ -1306,7 +1306,7 @@ export function WorkspaceBrowserPane(props: Props) {
                 </Show>
                 <Switch>
                   <Match when={viewMode() === 'grid'}>
-                    <div class='file-browser-grid gap-4'>
+                    <div class='file-browser-grid gap-4 px-2 py-2'>
                       <Show when={currentPath()}>
                         <div
                           data-no-window-drag
