@@ -112,11 +112,43 @@ async function pasteDataFromFile(file: File): Promise<PasteData> {
   }
 }
 
+export type ExtractPasteDataOptions = {
+  textSuggestedExtension?: 'md' | 'txt'
+}
+
+/** Strips HTML to plain text for clipboard fallbacks (e.g. web chat UIs). */
+export function clipboardHtmlToPlainText(html: string): string {
+  let raw = ''
+  if (typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    raw = doc.body?.textContent ?? ''
+  }
+  const trimmed = raw
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .trim()
+  if (trimmed) return trimmed
+  return html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function textPasteSuggestedName(ext: 'md' | 'txt'): string {
+  return `pasted-${Date.now()}.${ext}`
+}
+
 /** Mirrors `usePaste` clipboard handling (first matching payload wins). */
 export async function extractPasteDataFromClipboardData(
   clipboardData: DataTransfer | null,
+  opts?: ExtractPasteDataOptions,
 ): Promise<PasteData | null> {
   if (!clipboardData) return null
+
+  const textExt = opts?.textSuggestedExtension ?? 'txt'
 
   const files = clipboardData.files
   if (files && files.length > 0) {
@@ -148,16 +180,32 @@ export async function extractPasteDataFromClipboardData(
     }
   }
 
-  const text = clipboardData.getData('text/plain')
-  if (text) {
-    const textSize = new Blob([text]).size
+  const rawPlain = clipboardData.getData('text/plain')
+  if (rawPlain.trim()) {
+    const textSize = new Blob([rawPlain]).size
     return {
       type: 'text',
-      content: text,
-      suggestedName: `pasted-${Date.now()}.txt`,
+      content: rawPlain,
+      suggestedName: textPasteSuggestedName(textExt),
       fileSize: textSize,
       showPreview: true,
       isTextContent: true,
+    }
+  }
+
+  const html = clipboardData.getData('text/html')
+  if (html) {
+    const fromHtml = clipboardHtmlToPlainText(html)
+    if (fromHtml) {
+      const textSize = new Blob([fromHtml]).size
+      return {
+        type: 'text',
+        content: fromHtml,
+        suggestedName: textPasteSuggestedName(textExt),
+        fileSize: textSize,
+        showPreview: true,
+        isTextContent: true,
+      }
     }
   }
 

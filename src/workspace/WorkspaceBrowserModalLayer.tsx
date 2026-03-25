@@ -1,3 +1,4 @@
+import type { PasteData } from '@/lib/paste-data'
 import type { FileItem } from '@/lib/types'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
@@ -7,6 +8,7 @@ import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
 import { IconEditorDialog } from '../file-browser/IconEditorDialog'
 import { MoveToDialog } from '../file-browser/MoveToDialog'
+import { PasteDialog } from '../file-browser/PasteDialog'
 import { RenameDialog } from '../file-browser/RenameDialog'
 import type { UploadToastState } from '../file-browser/types'
 import { UploadToastStack } from '../file-browser/UploadToastStack'
@@ -91,6 +93,13 @@ export type WorkspaceBrowserModalLayerProps = {
   createFileError: Error | undefined
   fileExists: Accessor<boolean>
   inKb: Accessor<boolean>
+  showPasteDialog: Accessor<boolean>
+  pasteData: Accessor<PasteData | null>
+  pastePending: boolean
+  pasteError: Error | null
+  pasteExistingLowerNames: Accessor<string[]>
+  onPasteFileSubmit: (fileName: string) => void
+  closePasteDialog: () => void
   uploadToast: Accessor<UploadToastState>
   setUploadToastHidden: () => void
 }
@@ -302,6 +311,16 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
           </div>
         </div>
       </Show>
+
+      <PasteDialog
+        isOpen={props.showPasteDialog()}
+        pasteData={props.pasteData()}
+        isPending={props.pastePending}
+        error={props.pasteError}
+        existingFiles={props.pasteExistingLowerNames()}
+        onPaste={props.onPasteFileSubmit}
+        onClose={props.closePasteDialog}
+      />
 
       <UploadToastStack state={props.uploadToast} onDismissError={props.setUploadToastHidden} />
     </>

@@ -2,7 +2,7 @@ import AlertCircle from 'lucide-solid/icons/alert-circle'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import type { Accessor } from 'solid-js'
-import { Show } from 'solid-js'
+import { Show, createEffect, onCleanup } from 'solid-js'
 
 export type KbInlineCreateFooterProps = {
   inlineMode: Accessor<'file' | 'folder' | null>
@@ -17,8 +17,8 @@ export type KbInlineCreateFooterProps = {
   createFolderPending: Accessor<boolean>
   createFolderIsError: Accessor<boolean>
   createFolderError: Accessor<Error | undefined>
-  submitInlineFile: () => void
-  submitInlineFolder: () => void
+  submitInlineFile: () => void | Promise<void>
+  submitInlineFolder: () => void | Promise<void>
   resetInlineCreate: () => void
   onFileInputRef: (el: HTMLInputElement | undefined) => void
   onFolderInputRef: (el: HTMLInputElement | undefined) => void
@@ -30,8 +30,25 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
   const dragProps = () =>
     props.noWindowDrag ? ({ 'data-no-window-drag': true } as const) : ({} as const)
 
+  let rootEl: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (props.inlineMode() === null) return
+    const handler = (ev: PointerEvent) => {
+      const el = rootEl
+      const target = ev.target
+      if (!el || !(target instanceof Node) || el.contains(target)) return
+      props.resetInlineCreate()
+    }
+    document.addEventListener('pointerdown', handler, true)
+    onCleanup(() => document.removeEventListener('pointerdown', handler, true))
+  })
+
   return (
     <div
+      ref={(el) => {
+        rootEl = el ?? undefined
+      }}
       class='border-border bg-card shrink-0 border-t px-2 py-1.5'
       {...dragProps()}
       onClick={(e) => e.stopPropagation()}
@@ -72,10 +89,9 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
               onInput={(e) => props.setInlineName((e.currentTarget as HTMLInputElement).value)}
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') props.submitInlineFile()
+                if (e.key === 'Enter') void props.submitInlineFile()
                 else if (e.key === 'Escape') props.resetInlineCreate()
               }}
-              onBlur={() => props.resetInlineCreate()}
             />
             <Show when={props.inlineFileExists()}>
               <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>
@@ -126,10 +142,9 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
               onInput={(e) => props.setInlineName((e.currentTarget as HTMLInputElement).value)}
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') props.submitInlineFolder()
+                if (e.key === 'Enter') void props.submitInlineFolder()
                 else if (e.key === 'Escape') props.resetInlineCreate()
               }}
-              onBlur={() => props.resetInlineCreate()}
             />
             <Show when={props.inlineFolderExists()}>
               <div class='flex items-start gap-1.5 rounded border border-yellow-500/50 bg-yellow-500/10 px-2 py-1.5 text-xs text-yellow-800 dark:text-yellow-200'>

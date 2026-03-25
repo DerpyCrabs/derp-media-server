@@ -12,6 +12,7 @@ import {
   subscribeFinePointerDragEnabled,
 } from '@/lib/enable-fine-pointer-drag'
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
+import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import {
   breadcrumbFloating,
   resetBreadcrumbFloating,
@@ -33,6 +34,7 @@ import { useMediaPlayer } from '@/lib/use-media-player'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
+import FileText from 'lucide-solid/icons/file-text'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
 import Star from 'lucide-solid/icons/star'
@@ -342,10 +344,11 @@ export function FileBrowser() {
         content: vars.content,
         base64Content: vars.base64Content,
       }),
-    onSuccess: () => {
+    onSuccess: (_d, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       setShowPasteDialog(false)
       setPasteData(null)
+      viewFile(variables.path, currentPath())
     },
   }))
 
@@ -357,8 +360,11 @@ export function FileBrowser() {
 
   async function handlePasteEvent(e: ClipboardEvent) {
     if (!isEditable()) return
+    if (!shouldOfferPasteAsNewFile(e)) return
     e.preventDefault()
-    const data = await extractPasteDataFromClipboardData(e.clipboardData)
+    const data = await extractPasteDataFromClipboardData(e.clipboardData, {
+      textSuggestedExtension: inKb() ? 'md' : 'txt',
+    })
     if (!data) return
     setPasteData(data)
     setShowPasteDialog(true)
@@ -921,6 +927,13 @@ export function FileBrowser() {
     )
   }
 
+  function submitQuickNote() {
+    if (!isEditable() || !inKb()) return
+    const stem = `note-${Date.now()}.md`
+    const filePath = currentPath() ? `${currentPath()}/${stem}` : stem
+    createFileMutation.mutate({ type: 'file', path: filePath, content: '' })
+  }
+
   function handleContextRename(file: FileItem) {
     setRenameItem(file)
     setNewItemName(file.name)
@@ -1061,6 +1074,11 @@ export function FileBrowser() {
           data-testid='file-browser'
           class='flex min-h-0 flex-1 flex-col'
           tabIndex={0}
+          title={
+            isEditable() && inKb()
+              ? 'Focus here and paste (Ctrl+V) to create a file from the clipboard.'
+              : undefined
+          }
           onPaste={(e) => void handlePasteEvent(e)}
         >
           <div class='container mx-auto lg:p-4'>
@@ -1123,6 +1141,18 @@ export function FileBrowser() {
                       >
                         <FilePlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
                       </button>
+                      <Show when={inKb()}>
+                        <button
+                          type='button'
+                          title='Quick note (empty file, opens for editing)'
+                          aria-label='Quick note'
+                          class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                          onClick={() => submitQuickNote()}
+                          disabled={createFileMutation.isPending}
+                        >
+                          <FileText class='h-4 w-4' aria-hidden='true' stroke-width={2} />
+                        </button>
+                      </Show>
                       <UploadMenu
                         disabled={isUploading()}
                         onUpload={(files) => void uploadFilesToServer(files, currentPath())}

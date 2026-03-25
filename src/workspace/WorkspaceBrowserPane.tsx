@@ -24,7 +24,10 @@ import {
   prefetchParentDirectoryHover,
   type PrefetchFolderHoverContext,
 } from '@/lib/prefetch-folder-hover'
+import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
+import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
+import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
@@ -34,6 +37,7 @@ import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
+import FileText from 'lucide-solid/icons/file-text'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
 import Upload from 'lucide-solid/icons/upload'
@@ -126,6 +130,8 @@ export function WorkspaceBrowserPane(props: Props) {
   const [renameNewName, setRenameNewName] = createSignal('')
   const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
+  const [showPasteDialog, setShowPasteDialog] = createSignal(false)
+  const [pasteData, setPasteData] = createSignal<PasteData | null>(null)
   const breadcrumbMenu = () => breadcrumbFloating.folderMenu
   const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   let inlineFileInputEl: HTMLInputElement | undefined
@@ -193,6 +199,8 @@ export function WorkspaceBrowserPane(props: Props) {
   })
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
+
+  const pasteExistingLowerNames = createMemo(() => files().map((f) => f.name.toLowerCase()))
 
   const isVirtualFolder = createMemo(() =>
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
@@ -354,6 +362,48 @@ export function WorkspaceBrowserPane(props: Props) {
     },
   }))
 
+  const pasteMutation = useMutation(() => ({
+    mutationFn: (vars: {
+      path: string
+      content?: string
+      base64Content?: string
+      shareToken?: string
+    }) =>
+      vars.shareToken
+        ? post(`/api/share/${vars.shareToken}/create`, {
+            type: 'file',
+            path: vars.path,
+            content: vars.content,
+            base64Content: vars.base64Content,
+          })
+        : post('/api/files/create', {
+            type: 'file',
+            path: vars.path,
+            content: vars.content,
+            base64Content: vars.base64Content,
+          }),
+    onSuccess: (_d, variables) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      const sh = share()
+      if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+      if (inKb()) invalidateKbQueries()
+      setShowPasteDialog(false)
+      setPasteData(null)
+      const pathToOpen = share() ? mediaPathForShareChild(variables.path) : variables.path
+      const popName = pathToOpen.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
+      const lower = popName.toLowerCase()
+      const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
+      props.onOpenViewer(props.windowId, {
+        path: pathToOpen,
+        name: popName,
+        isDirectory: false,
+        size: 0,
+        extension: ext,
+        type: getMediaType(ext),
+      })
+    },
+  }))
+
   const viewMode = createMemo(() => {
     const sh = share()
     if (sh) {
@@ -410,6 +460,9 @@ export function WorkspaceBrowserPane(props: Props) {
         setDragOverPath(null)
         setDragAllowsMove(false)
         resetBreadcrumbFloating()
+        setShowPasteDialog(false)
+        setPasteData(null)
+        pasteMutation.reset()
       })
       externalUploadDragDepth = 0
       setExternalUploadDragOver(false)
@@ -812,6 +865,77 @@ export function WorkspaceBrowserPane(props: Props) {
     })
   }
 
+  function closePasteDialog() {
+    setShowPasteDialog(false)
+    setPasteData(null)
+    pasteMutation.reset()
+  }
+
+  function handlePasteFileSubmit(fileName: string) {
+    const pd = pasteData()
+    if (!pd) return
+    const sh = share()
+    if (sh) {
+      const rel = listDir() ? `${listDir()}/${fileName}` : fileName
+      if (pd.type === 'image') {
+        pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token })
+      } else if (pd.type === 'file') {
+        if (pd.isTextContent) {
+          pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token })
+        } else {
+          pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token })
+        }
+      } else {
+        pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token })
+      }
+      return
+    }
+    const rel = currentPath() ? `${currentPath()}/${fileName}` : fileName
+    if (pd.type === 'image') {
+      pasteMutation.mutate({ path: rel, base64Content: pd.content })
+    } else if (pd.type === 'file') {
+      if (pd.isTextContent) {
+        pasteMutation.mutate({ path: rel, content: pd.content })
+      } else {
+        pasteMutation.mutate({ path: rel, base64Content: pd.content })
+      }
+    } else {
+      pasteMutation.mutate({ path: rel, content: pd.content })
+    }
+  }
+
+  async function handlePasteEvent(e: ClipboardEvent) {
+    if (!allowWorkspaceUpload()) return
+    if (!shouldOfferPasteAsNewFile(e)) return
+    e.preventDefault()
+    const data = await extractPasteDataFromClipboardData(e.clipboardData, {
+      textSuggestedExtension: inKb() ? 'md' : 'txt',
+    })
+    if (!data) return
+    setPasteData(data)
+    setShowPasteDialog(true)
+  }
+
+  async function submitQuickNote() {
+    if (!allowWorkspaceUpload() || !inKb()) return
+    const stem = `note-${Date.now()}.md`
+    const sh = share()
+    try {
+      if (sh) {
+        const rel = listDir() ? `${listDir()}/${stem}` : stem
+        const fullOpenPath = mediaPathForShareChild(rel)
+        await createFileMutation.mutateAsync({ path: rel, content: '', shareToken: sh.token })
+        props.onOpenViewer(props.windowId, fileItemFromPath(fullOpenPath))
+        return
+      }
+      const base = currentPath() ? `${currentPath()}/${stem}` : stem
+      await createFileMutation.mutateAsync({ path: base, content: '' })
+      props.onOpenViewer(props.windowId, fileItemFromPath(base))
+    } catch {
+      /* errors surface via createFileMutation.isError */
+    }
+  }
+
   const fileExists = createMemo(() => {
     const stem = newFileName().trim()
     if (!stem) return false
@@ -872,31 +996,37 @@ export function WorkspaceBrowserPane(props: Props) {
     return files().some((f) => f.isDirectory && f.name.toLowerCase() === n)
   })
 
-  function submitInlineFile() {
+  async function submitInlineFile() {
     const stem = inlineName().trim()
     if (!stem || inlineFileExists() || !showInlineCreate()) return
     const sh = share()
     const addExt = inKb() ? '.md' : '.txt'
     const fileStem = stem.includes('.') ? stem : `${stem}${addExt}`
-    const afterFileCreate = (fullMediaPath: string) => {
+    try {
+      if (sh) {
+        const rel = listDir() ? `${listDir()}/${fileStem}` : fileStem
+        const fullOpenPath = mediaPathForShareChild(rel)
+        await createFileMutation.mutateAsync({
+          path: rel,
+          content: '',
+          shareToken: sh.token,
+        })
+        setInlineMode(null)
+        setInlineName('')
+        createFileMutation.reset()
+        props.onOpenViewer(props.windowId, fileItemFromPath(fullOpenPath))
+        return
+      }
+      const base = currentPath() ? `${currentPath()}/${stem}` : stem
+      const finalPath = base.includes('.') ? base : `${base}${addExt}`
+      await createFileMutation.mutateAsync({ path: finalPath, content: '' })
       setInlineMode(null)
       setInlineName('')
       createFileMutation.reset()
-      props.onOpenViewer(props.windowId, fileItemFromPath(fullMediaPath))
+      props.onOpenViewer(props.windowId, fileItemFromPath(finalPath))
+    } catch {
+      /* createFileMutation.isError surfaces failures */
     }
-    if (sh) {
-      const rel = listDir() ? `${listDir()}/${fileStem}` : fileStem
-      const fullOpenPath = mediaPathForShareChild(rel)
-      void createFileMutation
-        .mutateAsync({ path: rel, content: '', shareToken: sh.token })
-        .then(() => afterFileCreate(fullOpenPath))
-      return
-    }
-    const base = currentPath() ? `${currentPath()}/${stem}` : stem
-    const finalPath = base.includes('.') ? base : `${base}${addExt}`
-    void createFileMutation
-      .mutateAsync({ path: finalPath, content: '' })
-      .then(() => afterFileCreate(finalPath))
   }
 
   function submitInlineFolder() {
@@ -1237,6 +1367,18 @@ export function WorkspaceBrowserPane(props: Props) {
               >
                 <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
               </button>
+              <Show when={inKb()}>
+                <button
+                  type='button'
+                  title='Quick note (empty file, opens for editing)'
+                  aria-label='Quick note'
+                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                  onClick={() => void submitQuickNote()}
+                  disabled={createFileMutation.isPending}
+                >
+                  <FileText class='h-3.5 w-3.5' stroke-width={2} />
+                </button>
+              </Show>
               <UploadMenu
                 mode='Workspace'
                 disabled={isUploading()}
@@ -1261,6 +1403,18 @@ export function WorkspaceBrowserPane(props: Props) {
               >
                 <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
               </button>
+              <Show when={inKb()}>
+                <button
+                  type='button'
+                  title='Quick note (empty file, opens for editing)'
+                  aria-label='Quick note'
+                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                  onClick={() => void submitQuickNote()}
+                  disabled={createFileMutation.isPending}
+                >
+                  <FileText class='h-3.5 w-3.5' stroke-width={2} />
+                </button>
+              </Show>
               <UploadMenu
                 mode='Workspace'
                 disabled={isUploading()}
@@ -1271,6 +1425,11 @@ export function WorkspaceBrowserPane(props: Props) {
             <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} mode='Workspace' />
           </div>
         </div>
+        <Show when={inKb() && allowWorkspaceUpload()}>
+          <p class='text-muted-foreground border-border w-full border-t px-2 py-1 text-[11px] leading-tight'>
+            Tip: Focus the file list below and paste (Ctrl+V) to create a note from the clipboard.
+          </p>
+        </Show>
       </div>
 
       <Show when={filesQuery.isError}>
@@ -1280,12 +1439,19 @@ export function WorkspaceBrowserPane(props: Props) {
       </Show>
 
       <div
-        class='relative flex min-h-0 flex-1 flex-col overflow-hidden'
+        class='relative flex min-h-0 flex-1 flex-col overflow-hidden outline-none'
         data-testid='workspace-upload-drop-zone'
+        tabIndex={0}
+        title={
+          inKb() && allowWorkspaceUpload()
+            ? 'Focus this pane and paste (Ctrl+V) to create a file from the clipboard.'
+            : undefined
+        }
         onDragEnter={onExternalUploadDragEnter}
         onDragLeave={onExternalUploadDragLeave}
         onDragOver={onExternalUploadDragOver}
         onDrop={(e) => void onExternalUploadDrop(e)}
+        onPaste={(e) => void handlePasteEvent(e)}
       >
         <div class='min-h-0 flex-1 overflow-auto'>
           <Show
@@ -1641,6 +1807,13 @@ export function WorkspaceBrowserPane(props: Props) {
         createFileError={createFileMutation.error as Error | undefined}
         fileExists={fileExists}
         inKb={inKb}
+        showPasteDialog={showPasteDialog}
+        pasteData={pasteData}
+        pastePending={pasteMutation.isPending}
+        pasteError={(pasteMutation.error as Error) ?? null}
+        pasteExistingLowerNames={pasteExistingLowerNames}
+        onPasteFileSubmit={handlePasteFileSubmit}
+        closePasteDialog={closePasteDialog}
         uploadToast={uploadToast}
         setUploadToastHidden={() => setUploadToast({ kind: 'hidden' })}
       />
