@@ -4,13 +4,19 @@ import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { workspaceTabIcon } from '../lib/use-file-icon'
+import { FloatingContextMenu } from '../file-browser/FloatingContextMenu'
 import { insertIndexFromTabBodyPointer } from './tab-drop-hit'
+import { leadingPinnedTabCount } from './tab-group-ops'
+import Pin from 'lucide-solid/icons/pin'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createSignal, onMount } from 'solid-js'
+import type { Accessor } from 'solid-js'
+import { For, Show, createMemo, createSignal, onMount } from 'solid-js'
 
 function TabStripDropSlot(props: {
   groupId: string
   index: number
+  /** false: no hit target, no gap, file/window merge use tab bodies instead. */
+  active: boolean
   highlighted?: boolean
   mergeHighlight?: boolean
   onDropFile?: (data: FileDragData, insertIndex?: number) => void
@@ -18,27 +24,28 @@ function TabStripDropSlot(props: {
   onSlotDragLeave: (e: globalThis.DragEvent) => void
   onSlotDrop: (e: globalThis.DragEvent, index: number) => void
 }) {
-  const onDragOver = (e: globalThis.DragEvent) => props.onSlotDragOver(e, props.index)
-  const onDropCb = (e: globalThis.DragEvent) => props.onSlotDrop(e, props.index)
   return (
     <div
-      data-tab-drop-slot={`${props.groupId}:${props.index}`}
-      data-merge-highlight={props.mergeHighlight ? '' : undefined}
+      data-tab-drop-slot={props.active ? `${props.groupId}:${props.index}` : undefined}
+      data-merge-highlight={props.active && props.mergeHighlight ? '' : undefined}
       data-no-window-drag
-      class={`flex h-8 min-w-[12px] w-[12px] shrink-0 items-stretch ${
-        props.highlighted ? 'bg-primary/80' : ''
+      class={`flex h-8 shrink-0 items-stretch border-0 p-0 ${
+        props.active
+          ? `min-w-[12px] w-[12px] ${props.highlighted ? 'bg-primary/80' : ''}`
+          : 'pointer-events-none max-w-0 min-w-0 w-0 overflow-hidden select-none'
       }`}
+      aria-hidden={props.active ? undefined : true}
       onDragOver={(e) => {
-        if (!props.onDropFile) return
-        onDragOver(e)
+        if (!props.active || !props.onDropFile) return
+        props.onSlotDragOver(e, props.index)
       }}
       onDragLeave={(e) => {
-        if (!props.onDropFile) return
+        if (!props.active || !props.onDropFile) return
         props.onSlotDragLeave(e)
       }}
       onDrop={(e) => {
-        if (!props.onDropFile) return
-        onDropCb(e)
+        if (!props.active || !props.onDropFile) return
+        props.onSlotDrop(e, props.index)
       }}
     />
   )
@@ -46,23 +53,29 @@ function TabStripDropSlot(props: {
 
 export type WorkspaceTabStripProps = {
   groupId: string
-  tabs: WorkspaceWindowDefinition[]
+  tabs: Accessor<WorkspaceWindowDefinition[]>
   visibleTabId: string
   isWindowActive: boolean
   fileIconContext: () => FileIconContext
   onSelectTab: (groupId: string, tabId: string) => void
   onFocusWindow: (tabId: string) => void
   onCloseTab: (tabId: string) => void
+  onToggleTabPinned?: (tabId: string) => void
   onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
   onDropFile?: (data: FileDragData, insertIndex?: number) => void
   mergeHighlightInsertIndex?: () => number | null
 }
+
+type TabContextTarget = { x: number; y: number; tabId: string }
 
 export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
   let scrollEl: HTMLDivElement | undefined
   const [overflow, setOverflow] = createSignal({ left: false, right: false })
   const [dropSlotIndex, setDropSlotIndex] = createSignal<number | null>(null)
   const [fileDragOver, setFileDragOver] = createSignal(false)
+  const [tabMenu, setTabMenu] = createSignal<TabContextTarget | null>(null)
+
+  const tabsList = createMemo(() => props.tabs())
 
   const checkOverflow = () => {
     const el = scrollEl
@@ -75,12 +88,17 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 
   onMount(() => requestAnimationFrame(checkOverflow))
 
+  const pinnedLead = createMemo(() => leadingPinnedTabCount(tabsList()))
+  const fileDropSlotActive = (slotIndex: number) =>
+    slotIndex === tabsList().length || slotIndex >= pinnedLead()
+
   const scrollBy = (delta: number) => {
     scrollEl?.scrollBy({ left: delta, behavior: 'smooth' })
     requestAnimationFrame(checkOverflow)
   }
 
   const handleSlotDragOver = (e: globalThis.DragEvent, index: number) => {
+    if (!fileDropSlotActive(index)) return
     const dtr = e.dataTransfer
     if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
     e.preventDefault()
@@ -100,6 +118,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
   const handleSlotDrop = (e: globalThis.DragEvent, index: number) => {
     setFileDragOver(false)
     setDropSlotIndex(null)
+    if (!fileDropSlotActive(index)) return
     if (!props.onDropFile) return
     const dtr = e.dataTransfer
     if (!dtr) return
@@ -125,7 +144,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     e.stopPropagation()
     dtr.dropEffect = 'copy'
     setFileDragOver(true)
-    setDropSlotIndex(props.tabs.length)
+    setDropSlotIndex(tabsList().length)
   }
 
   const handleScrollAreaDrop = (e: globalThis.DragEvent) => {
@@ -138,7 +157,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     e.stopPropagation()
     setFileDragOver(false)
     setDropSlotIndex(null)
-    props.onDropFile(data, props.tabs.length)
+    props.onDropFile(data, tabsList().length)
   }
 
   const handleTabPointerDown = (tabId: string, e: PointerEvent) => {
@@ -147,11 +166,16 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     props.onSelectTab(props.groupId, tabId)
     props.onFocusWindow(tabId)
 
-    if (props.tabs.length <= 1) return
+    if (tabsList().length <= 1) return
     props.onTabPullStart?.(props.groupId, tabId, e)
   }
 
-  const mergeSlot = () => props.mergeHighlightInsertIndex?.() ?? null
+  const mergeSlotDisplayIndex = () => {
+    const mh = props.mergeHighlightInsertIndex?.() ?? null
+    if (mh == null) return null
+    const p = pinnedLead()
+    return Math.max(mh, p)
+  }
 
   const handleTabFileDragOver = (e: globalThis.DragEvent, tabIndex: number) => {
     const dtr = e.dataTransfer
@@ -161,7 +185,8 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     dtr.dropEffect = 'copy'
     const el = e.currentTarget as HTMLElement
     const r = el.getBoundingClientRect()
-    setDropSlotIndex(insertIndexFromTabBodyPointer(e.clientX, r.left, r.width, tabIndex))
+    const insert = insertIndexFromTabBodyPointer(e.clientX, r.left, r.width, tabIndex)
+    setDropSlotIndex(Math.max(insert, pinnedLead()))
     setFileDragOver(true)
   }
 
@@ -184,7 +209,10 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     e.stopPropagation()
     const el = e.currentTarget as HTMLElement
     const r = el.getBoundingClientRect()
-    const insertIndex = insertIndexFromTabBodyPointer(e.clientX, r.left, r.width, tabIndex)
+    const insertIndex = Math.max(
+      insertIndexFromTabBodyPointer(e.clientX, r.left, r.width, tabIndex),
+      pinnedLead(),
+    )
     props.onDropFile(data, insertIndex)
   }
 
@@ -195,6 +223,36 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
       }`}
       onDragLeave={handleStripDragLeave}
     >
+      <FloatingContextMenu
+        state={tabMenu}
+        anchor={(ctx) => ({ x: ctx.x, y: ctx.y })}
+        onDismiss={() => setTabMenu(null)}
+        pinContextMenuRoot
+        data-slot='workspace-tab-context-menu'
+        data-testid='workspace-tab-context-menu'
+      >
+        {(ctx) => {
+          const tab = tabsList().find((t) => t.id === ctx.tabId)
+          const toggle = props.onToggleTabPinned
+          if (!tab || tab.type === 'player' || !toggle) return null
+          return (
+            <button
+              type='button'
+              data-slot='context-menu-item'
+              data-testid={tab.tabPinned ? 'workspace-tab-menu-unpin' : 'workspace-tab-menu-pin'}
+              class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+              role='menuitem'
+              onClick={() => {
+                toggle(ctx.tabId)
+                setTabMenu(null)
+              }}
+            >
+              <Pin class='h-4 w-4 shrink-0' stroke-width={2} />
+              {tab.tabPinned ? 'Unpin tab' : 'Pin tab'}
+            </button>
+          )
+        }}
+      </FloatingContextMenu>
       <Show when={overflow().left}>
         <button
           type='button'
@@ -219,14 +277,15 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
         onDragOver={handleScrollAreaDragOver}
         onDrop={handleScrollAreaDrop}
       >
-        <For each={props.tabs}>
+        <For each={tabsList()}>
           {(tab, idx) => (
-            <>
+            <div class='flex shrink-0 items-stretch'>
               <TabStripDropSlot
                 groupId={props.groupId}
                 index={idx()}
+                active={fileDropSlotActive(idx())}
                 highlighted={dropSlotIndex() === idx()}
-                mergeHighlight={mergeSlot() === idx()}
+                mergeHighlight={mergeSlotDisplayIndex() === idx()}
                 onDropFile={props.onDropFile}
                 onSlotDragOver={handleSlotDragOver}
                 onSlotDragLeave={handleSlotDragLeave}
@@ -238,6 +297,13 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                 class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2 ${
                   tab.id === props.visibleTabId ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
                 }`}
+                onContextMenu={(e) => {
+                  if (tab.type === 'player') return
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (!props.onToggleTabPinned) return
+                  setTabMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
+                }}
                 onPointerDown={(e) => handleTabPointerDown(tab.id, e)}
                 onDragOver={(e) => handleTabFileDragOver(e, idx())}
                 onDragLeave={handleTabFileDragLeave}
@@ -251,34 +317,38 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                   {workspaceTabIcon(tab, props.fileIconContext())}
                 </div>
                 <span
-                  class={`min-w-0 truncate text-[11px] font-medium ${
+                  class={`min-w-0 flex-1 truncate text-[11px] font-medium ${
                     props.isWindowActive ? 'text-foreground' : 'text-muted-foreground'
                   }`}
                 >
                   {getWorkspaceWindowTitle(tab)}
                 </span>
-                <button
-                  type='button'
-                  data-no-window-drag
-                  class='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    props.onCloseTab(tab.id)
-                  }}
-                >
-                  <X class='lucide-x h-3 w-3' stroke-width={2} />
-                </button>
+                <Show when={!tab.tabPinned}>
+                  <button
+                    type='button'
+                    data-no-window-drag
+                    data-testid='workspace-tab-close'
+                    class='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      props.onCloseTab(tab.id)
+                    }}
+                  >
+                    <X class='lucide-x h-3 w-3' stroke-width={2} />
+                  </button>
+                </Show>
               </div>
-            </>
+            </div>
           )}
         </For>
         <TabStripDropSlot
           groupId={props.groupId}
-          index={props.tabs.length}
-          highlighted={dropSlotIndex() === props.tabs.length}
-          mergeHighlight={mergeSlot() === props.tabs.length}
+          index={tabsList().length}
+          active={fileDropSlotActive(tabsList().length)}
+          highlighted={dropSlotIndex() === tabsList().length}
+          mergeHighlight={mergeSlotDisplayIndex() === tabsList().length}
           onDropFile={props.onDropFile}
           onSlotDragOver={handleSlotDragOver}
           onSlotDragLeave={handleSlotDragLeave}

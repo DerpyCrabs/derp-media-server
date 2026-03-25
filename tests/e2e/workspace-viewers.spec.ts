@@ -174,8 +174,6 @@ test.describe('Workspace File Browser', () => {
 })
 
 test.describe('Workspace clipboard paste', () => {
-  test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
-
   test('paste in Notes creates file and opens viewer with clipboard text', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)

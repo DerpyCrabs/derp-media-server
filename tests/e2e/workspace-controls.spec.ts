@@ -380,6 +380,42 @@ test.describe('Tab Merging and Splitting', () => {
   })
 })
 
+test.describe('Tab pin', () => {
+  test('context menu pin hides close; unpin restores', async () => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+    const handleB = getDragHandle(groups.nth(1))
+    const boxB = await handleB.boundingBox()
+    const boxA = await getDragHandle(groups.first()).boundingBox()
+    if (!boxB || !boxA) throw new Error('Handles not visible')
+
+    await dragFromTo(
+      page,
+      boxB.x + boxB.width / 2,
+      boxB.y + boxB.height / 2,
+      boxA.x + boxA.width / 2,
+      boxA.y + 16,
+    )
+    await waitForWindowBoundsStable(page, getWindowGroups(page).first())
+    await expect(getWindowGroups(page)).toHaveCount(1)
+
+    const tabStrip = page.locator('.workspace-tab-strip')
+    const tabs = workspaceTabs(tabStrip)
+    await expect(tabs).toHaveCount(2)
+
+    await tabs.first().click({ button: 'right' })
+    await page.getByTestId('workspace-tab-menu-pin').click()
+    await expect(tabs.first().getByTestId('workspace-tab-close')).toHaveCount(0)
+    await expect(tabs.nth(1).getByTestId('workspace-tab-close')).toHaveCount(1)
+
+    await tabs.first().click({ button: 'right' })
+    await page.getByTestId('workspace-tab-menu-unpin').click()
+    await expect(tabs.first().getByTestId('workspace-tab-close')).toHaveCount(1)
+  })
+})
+
 test.describe('Taskbar', () => {
   test('shows empty state when no windows open', async () => {
     await gotoWorkspace(page)

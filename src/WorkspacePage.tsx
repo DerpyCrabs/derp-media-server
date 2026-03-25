@@ -100,6 +100,7 @@ import {
   mergeWindowIntoGroupState,
   openInNewTabInGroupState,
   orderedAllGroupIds,
+  setTabPinnedAndReorderState,
   splitWindowFromGroupState,
   tabsInGroup,
 } from './workspace/tab-group-ops'
@@ -657,6 +658,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       }
       const victim = prev.windows.find((w) => w.id === tabId)
       if (!victim) return prev
+      if (victim.tabPinned) return prev
       const gid = groupIdForWindow(victim)
       const members = prev.windows.filter((w) => groupIdForWindow(w) === gid)
       if (members.length <= 1) {
@@ -684,12 +686,23 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
+  function toggleTabPinned(tabId: string) {
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      const w = prev.windows.find((x) => x.id === tabId)
+      if (!w || w.type === 'player') return prev
+      return setTabPinnedAndReorderState(prev, tabId, !w.tabPinned)
+    })
+  }
+
   function handleTabPullStart(groupId: string, tabId: string, e: PointerEvent) {
     const c = workspaceAreaEl?.getBoundingClientRect()
     if (!c) return
 
     const prev = workspace()
     if (!prev) return
+    const pulledWin = prev.windows.find((x) => x.id === tabId)
+    if (pulledWin?.tabPinned) return
     const members = prev.windows.filter((w) => groupIdForWindow(w) === groupId)
     if (members.length <= 1) return
 
@@ -1596,6 +1609,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                     onUpdateBounds={updateWindowBounds}
                     onSelectTab={setActiveTab}
                     onCloseTab={closeTab}
+                    onToggleTabPinned={toggleTabPinned}
                     onTabPullStart={handleTabPullStart}
                     mergeTargetPreview={mergeTargetPreview}
                     draggingWindowId={dragSnapWindowId}

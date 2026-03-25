@@ -73,6 +73,8 @@ export interface WorkspaceWindowDefinition {
   initialState: Partial<NavigationState>
   tabGroupId?: string | null
   openedFromWindowId?: string | null
+  /** Pinned tabs stay on the left and cannot be closed from the strip. */
+  tabPinned?: boolean
   layout?: WorkspaceWindowLayout
 }
 

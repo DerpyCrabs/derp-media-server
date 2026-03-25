@@ -49,6 +49,7 @@ export type WorkspaceWindowChromeProps = {
   onUpdateBounds: (windowId: string, bounds: WorkspaceBounds) => void
   onSelectTab?: (groupId: string, tabId: string) => void
   onCloseTab?: (tabId: string) => void
+  onToggleTabPinned?: (tabId: string) => void
   onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
   onDropFileToTabBar?: (data: FileDragData, insertIndex?: number) => void
   mergeTargetPreview?: Accessor<MergeTarget | null>
@@ -68,13 +69,26 @@ function handleEnabled(
  * Drag starts only from `.workspace-window-drag-handle`. Canceled when the event target is inside
  * `.workspace-window-content`, form controls, media, links, `[data-no-window-drag]`, or
  * `.workspace-window-buttons` (mirrors prior react-rnd WindowGroup rules).
+ *
+ * When `allowWindowDragFromLoneTabRow` is true and the group has only one tab, the tab row (not
+ * its buttons) is treated like the drag handle so the window can still be moved.
  */
-function shouldBlockWindowDragStart(target: EventTarget | null): boolean {
+function shouldBlockWindowDragStart(
+  target: EventTarget | null,
+  allowWindowDragFromLoneTabRow: boolean,
+): boolean {
   const el = target as HTMLElement | null
   if (!el?.closest) return true
   if (!el.closest('.workspace-window-drag-handle')) return true
   if (el.closest('.workspace-window-content')) return true
   if (el.closest('input, textarea, select, a, audio, video, img')) return true
+  if (
+    allowWindowDragFromLoneTabRow &&
+    el.closest('[data-workspace-tab-id]') &&
+    !el.closest('button')
+  ) {
+    return false
+  }
   if (el.closest('[data-no-window-drag]')) return true
   if (el.closest('.workspace-window-buttons')) return true
   return false
@@ -131,8 +145,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     () => props.draggingWindowId?.() === liveLeaderId() && props.mergeTargetPreview?.() != null,
   )
 
+  const loneTabStripDrag = createMemo(() => props.tabWindows().length <= 1)
+
   const startWindowDrag = (e: PointerEvent, pointerCaptureEl: HTMLElement) => {
-    if (shouldBlockWindowDragStart(e.target)) return
+    if (shouldBlockWindowDragStart(e.target, loneTabStripDrag())) return
 
     const container = props.containerEl()
     if (!container) return
@@ -191,7 +207,6 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     if (!bar) return
     const onPointerDownCapture = (e: PointerEvent) => {
       if (e.button !== 0) return
-      if (shouldBlockWindowDragStart(e.target)) return
       startWindowDrag(e, bar)
     }
     bar.addEventListener('pointerdown', onPointerDownCapture, true)
@@ -309,13 +324,14 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
           >
             <WorkspaceTabStrip
               groupId={props.groupId}
-              tabs={props.tabWindows()}
+              tabs={props.tabWindows}
               visibleTabId={props.visibleTabId()}
               isWindowActive={props.isActive}
               fileIconContext={props.fileIconContext}
               onSelectTab={(gid, tid) => props.onSelectTab?.(gid, tid)}
               onFocusWindow={(tid) => props.onFocusWindow(tid)}
               onCloseTab={(tid) => props.onCloseTab?.(tid)}
+              onToggleTabPinned={props.onToggleTabPinned}
               onTabPullStart={props.onTabPullStart}
               onDropFile={props.onDropFileToTabBar}
               mergeHighlightInsertIndex={mergeHighlightInsertIndex}
