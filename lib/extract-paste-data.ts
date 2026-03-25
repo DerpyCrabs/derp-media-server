@@ -1,4 +1,20 @@
+import TurndownService from 'turndown'
+
 import type { PasteData } from '@/lib/paste-data'
+
+const CLIPBOARD_STRUCTURED_SELECTORS = [
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'ol',
+  'ul',
+  'blockquote',
+  'pre',
+  'table',
+] as const
 
 function isTextFileType(mimeType: string, fileName: string): boolean {
   if (mimeType.startsWith('text/')) return true
@@ -116,6 +132,35 @@ export type ExtractPasteDataOptions = {
   textSuggestedExtension?: 'md' | 'txt'
 }
 
+function clipboardHtmlBodyLooksStructured(body: HTMLElement | null): boolean {
+  if (!body) return false
+  for (const tag of CLIPBOARD_STRUCTURED_SELECTORS) {
+    if (body.getElementsByTagName(tag).length > 0) return true
+  }
+  return false
+}
+
+function newClipboardTurndown(doc: Document) {
+  return new TurndownService({
+    headingStyle: 'atx',
+    bulletListMarker: '-',
+    document: doc,
+  } as ConstructorParameters<typeof TurndownService>[0] & { document: Document })
+}
+
+function documentBodyToMarkdown(doc: Document): string {
+  return newClipboardTurndown(doc).turndown(doc.body).trim()
+}
+
+/** Converts clipboard HTML to Markdown (browser/KB pastes). */
+export function clipboardHtmlToMarkdown(html: string): string {
+  if (typeof DOMParser === 'undefined') return clipboardHtmlToPlainText(html)
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const md = documentBodyToMarkdown(doc)
+  if (md) return md
+  return clipboardHtmlToPlainText(html)
+}
+
 /** Strips HTML to plain text for clipboard fallbacks (e.g. web chat UIs). */
 export function clipboardHtmlToPlainText(html: string): string {
   let raw = ''
@@ -181,6 +226,26 @@ export async function extractPasteDataFromClipboardData(
   }
 
   const rawPlain = clipboardData.getData('text/plain')
+  const html = clipboardData.getData('text/html')
+
+  if (textExt === 'md' && html && typeof DOMParser !== 'undefined') {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    if (clipboardHtmlBodyLooksStructured(doc.body)) {
+      const md = documentBodyToMarkdown(doc)
+      if (md) {
+        const textSize = new Blob([md]).size
+        return {
+          type: 'text',
+          content: md,
+          suggestedName: textPasteSuggestedName(textExt),
+          fileSize: textSize,
+          showPreview: true,
+          isTextContent: true,
+        }
+      }
+    }
+  }
+
   if (rawPlain.trim()) {
     const textSize = new Blob([rawPlain]).size
     return {
@@ -193,9 +258,9 @@ export async function extractPasteDataFromClipboardData(
     }
   }
 
-  const html = clipboardData.getData('text/html')
   if (html) {
-    const fromHtml = clipboardHtmlToPlainText(html)
+    const fromHtml =
+      textExt === 'md' ? clipboardHtmlToMarkdown(html) : clipboardHtmlToPlainText(html)
     if (fromHtml) {
       const textSize = new Blob([fromHtml]).size
       return {
