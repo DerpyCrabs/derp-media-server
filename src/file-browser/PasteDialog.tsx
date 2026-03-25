@@ -1,9 +1,62 @@
 import type { PasteData } from '@/lib/paste-data'
 import { formatFileSize } from '@/lib/media-utils'
+import { createMarkdownRenderer, preprocessObsidianImages } from '../media/text-viewer-markdown'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
 import FileIcon from 'lucide-solid/icons/file'
 import HardDrive from 'lucide-solid/icons/hard-drive'
-import { Show, createMemo, createSignal } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, type Accessor } from 'solid-js'
+
+const PASTE_TEXT_PREVIEW_MAX = 10_000
+
+function PasteTextPreview(props: { content: string; renderAsMarkdown: Accessor<boolean> }) {
+  const previewSlice = createMemo(() => {
+    const c = props.content
+    if (c.length <= PASTE_TEXT_PREVIEW_MAX) return c
+    return c.slice(0, PASTE_TEXT_PREVIEW_MAX)
+  })
+
+  const truncated = createMemo(() => props.content.length > PASTE_TEXT_PREVIEW_MAX)
+
+  const [mdMount, setMdMount] = createSignal<HTMLDivElement | null>(null)
+  const mdHtml = createMemo(() => {
+    if (!props.renderAsMarkdown()) return ''
+    const md = createMarkdownRenderer(() => null)
+    return md.render(preprocessObsidianImages(previewSlice()))
+  })
+
+  createEffect(() => {
+    if (!props.renderAsMarkdown()) return
+    const el = mdMount()
+    const h = mdHtml()
+    if (el) el.innerHTML = h
+  })
+
+  return (
+    <div class='bg-muted/30 rounded-lg border'>
+      <Show
+        when={props.renderAsMarkdown()}
+        fallback={
+          <pre class='max-h-96 overflow-auto p-4 font-mono text-xs whitespace-pre-wrap wrap-break-word'>
+            {previewSlice()}
+          </pre>
+        }
+      >
+        <div class='max-h-96 overflow-auto p-4'>
+          <div
+            ref={setMdMount}
+            class='markdown-pane-prose prose prose-sm prose-neutral dark:prose-invert max-w-none [&_img]:max-h-32 [&_img]:max-w-full [&_img]:object-contain'
+          />
+        </div>
+      </Show>
+      <Show when={truncated()}>
+        <div class='text-muted-foreground border-t px-4 py-2 text-xs'>
+          Showing first {PASTE_TEXT_PREVIEW_MAX.toLocaleString()} characters of{' '}
+          {props.content.length.toLocaleString()} total
+        </div>
+      </Show>
+    </div>
+  )
+}
 
 type Props = {
   isOpen: boolean
@@ -25,6 +78,8 @@ export function PasteDialog(props: Props) {
     if (!n) return false
     return props.existingFiles.includes(n)
   })
+
+  const previewAsMarkdown = createMemo(() => displayName().trim().toLowerCase().endsWith('.md'))
 
   function handlePaste() {
     const n = displayName().trim()
@@ -96,18 +151,10 @@ export function PasteDialog(props: Props) {
                     }
                   >
                     <div class='space-y-2'>
-                      <div class='bg-muted/30 rounded-lg border'>
-                        <pre class='max-h-48 overflow-auto p-4 font-mono text-xs whitespace-pre-wrap wrap-break-word'>
-                          {pd().content.length > 500
-                            ? `${pd().content.substring(0, 500)}...`
-                            : pd().content}
-                        </pre>
-                        <Show when={pd().content.length > 500}>
-                          <div class='text-muted-foreground border-t px-4 py-2 text-xs'>
-                            Showing first 500 characters of {pd().content.length} total
-                          </div>
-                        </Show>
-                      </div>
+                      <PasteTextPreview
+                        content={pd().content}
+                        renderAsMarkdown={previewAsMarkdown}
+                      />
                       <Show when={pd().fileSize}>
                         <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
                           <HardDrive class='h-3 w-3' stroke-width={2} />

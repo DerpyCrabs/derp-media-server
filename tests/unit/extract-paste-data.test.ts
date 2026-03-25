@@ -1,8 +1,14 @@
+import './test-dom-globals'
+
 import { describe, expect, test } from 'bun:test'
 import {
+  clipboardHtmlToMarkdown,
   clipboardHtmlToPlainText,
   extractPasteDataFromClipboardData,
 } from '@/lib/extract-paste-data'
+
+const GEMINI_STYLE_HTML =
+  '<h3><b>Section Title</b></h3><p><i>(note)</i></p><h4><b>Block</b></h4><ol><li><p><b>Item:</b> one.</p><ul><li><p><i>How:</i> detail</p></li></ul></li></ol>'
 
 class MockDataTransfer {
   private readonly data = new Map<string, string>()
@@ -29,6 +35,17 @@ describe('clipboardHtmlToPlainText', () => {
 
   test('normalizes nbsp', () => {
     expect(clipboardHtmlToPlainText('<span>a\u00a0b</span>')).toBe('a b')
+  })
+})
+
+describe('clipboardHtmlToMarkdown', () => {
+  test('preserves headings, lists, and emphasis', () => {
+    const md = clipboardHtmlToMarkdown(GEMINI_STYLE_HTML)
+    expect(md).toContain('###')
+    expect(md).toContain('Section Title')
+    expect(md).toContain('**Item:**')
+    expect(md).toMatch(/[_*]How:[_*]/)
+    expect(md).toMatch(/1\.|1\s/)
   })
 })
 
@@ -64,5 +81,41 @@ describe('extractPasteDataFromClipboardData', () => {
     dt.setData('text/html', '<p>html</p>')
     const data = await extractPasteDataFromClipboardData(dt)
     expect(data?.content).toBe('plain only')
+  })
+
+  test('md prefers structured html over plain when both present', async () => {
+    const dt = makeTransfer()
+    dt.setData('text/plain', 'flat gemini plain without structure')
+    dt.setData('text/html', GEMINI_STYLE_HTML)
+    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' })
+    expect(data?.type).toBe('text')
+    expect(data?.content).toContain('###')
+    expect(data?.content).not.toBe('flat gemini plain without structure')
+  })
+
+  test('md keeps plain when html is trivial', async () => {
+    const dt = makeTransfer()
+    dt.setData('text/plain', 'hello')
+    dt.setData('text/html', '<p>hello</p>')
+    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' })
+    expect(data?.content).toBe('hello')
+  })
+
+  test('txt still prefers plain when html is structured', async () => {
+    const dt = makeTransfer()
+    dt.setData('text/plain', 'plain wins')
+    dt.setData('text/html', GEMINI_STYLE_HTML)
+    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'txt' })
+    expect(data?.content).toBe('plain wins')
+  })
+
+  test('txt falls back to flattened html when plain empty', async () => {
+    const dt = makeTransfer()
+    dt.setData('text/html', GEMINI_STYLE_HTML)
+    const data = await extractPasteDataFromClipboardData(dt)
+    expect(data?.type).toBe('text')
+    expect(data?.suggestedName.endsWith('.txt')).toBe(true)
+    expect(data?.content).toContain('Section Title')
+    expect(data?.content).not.toContain('###')
   })
 })
