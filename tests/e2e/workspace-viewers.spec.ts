@@ -173,6 +173,33 @@ test.describe('Workspace File Browser', () => {
   })
 })
 
+test.describe('Workspace clipboard paste', () => {
+  test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+
+  test('paste in Notes creates file and opens viewer with clipboard text', async () => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    await content.locator('table').getByText('Notes', { exact: true }).click()
+    const dropZone = content.getByTestId('workspace-upload-drop-zone')
+    await dropZone.focus()
+    const marker = `ws paste e2e ${Date.now()}`
+    await page.evaluate(async (text) => {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        }),
+      ])
+    }, marker)
+    await page.keyboard.press('Control+v')
+    await expect(page.getByRole('heading', { name: /Paste Text/i })).toBeVisible()
+    await page.getByRole('button', { name: 'Paste' }).click()
+    await expect(getWindowGroups(page)).toHaveCount(2)
+    const viewer = getWindowGroups(page).nth(1).locator('.workspace-window-content')
+    await expect(viewer.locator('textarea')).toBeVisible({ timeout: 10_000 })
+    await expect(viewer.locator('textarea')).toHaveValue(marker)
+  })
+})
+
 test.describe('Workspace Image Viewer', () => {
   test('image viewer: controls, fit, counter, and keyboard navigation', async () => {
     await gotoWorkspace(page)

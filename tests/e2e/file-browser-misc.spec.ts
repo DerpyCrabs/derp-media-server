@@ -77,5 +77,8 @@ test.describe('File browser clipboard paste', () => {
     })
     await page.keyboard.press('Control+v')
     await expect(page.getByRole('heading', { name: /Paste Text/i })).toBeVisible()
+    await page.getByRole('button', { name: 'Paste' }).click()
+    await expect(page.locator('textarea').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('textarea').first()).toHaveValue('paste dialog e2e')
   })
 })
