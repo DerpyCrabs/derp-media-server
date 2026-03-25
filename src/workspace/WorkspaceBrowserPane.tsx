@@ -1425,11 +1425,6 @@ export function WorkspaceBrowserPane(props: Props) {
             <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} mode='Workspace' />
           </div>
         </div>
-        <Show when={inKb() && allowWorkspaceUpload()}>
-          <p class='text-muted-foreground border-border w-full border-t px-2 py-1 text-[11px] leading-tight'>
-            Tip: Focus the file list below and paste (Ctrl+V) to create a note from the clipboard.
-          </p>
-        </Show>
       </div>
 
       <Show when={filesQuery.isError}>

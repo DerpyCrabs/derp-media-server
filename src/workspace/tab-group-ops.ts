@@ -40,6 +40,62 @@ export function tabsInGroup(
   return windows.filter((w) => groupIdForWindow(w) === groupId)
 }
 
+export function pinnedCountInGroup(windows: WorkspaceWindowDefinition[], groupId: string): number {
+  return tabsInGroup(windows, groupId).filter((w) => w.tabPinned).length
+}
+
+/** Pinned tabs are contiguous at the start of the strip; count that prefix. */
+export function leadingPinnedTabCount(tabs: WorkspaceWindowDefinition[]): number {
+  let n = 0
+  for (const t of tabs) {
+    if (t.tabPinned) n++
+    else break
+  }
+  return n
+}
+
+/** New tabs and merges cannot insert before the pinned block. */
+export function clampTabInsertIndex(
+  windows: WorkspaceWindowDefinition[],
+  groupId: string,
+  insertIndex: number,
+): number {
+  return Math.max(insertIndex, pinnedCountInGroup(windows, groupId))
+}
+
+export function replaceGroupMemberOrder(
+  fullWindows: WorkspaceWindowDefinition[],
+  groupId: string,
+  orderedMembers: WorkspaceWindowDefinition[],
+): WorkspaceWindowDefinition[] {
+  const queue = [...orderedMembers]
+  return fullWindows.map((w) => {
+    if (groupIdForWindow(w) !== groupId) return w
+    const next = queue.shift()
+    return next ?? w
+  })
+}
+
+export function setTabPinnedAndReorderState(
+  state: PersistedWorkspaceState,
+  tabId: string,
+  pinned: boolean,
+): PersistedWorkspaceState {
+  const victim = state.windows.find((w) => w.id === tabId)
+  if (!victim) return state
+  const groupId = groupIdForWindow(victim)
+  const members = tabsInGroup(state.windows, groupId)
+  const pinnedExisting = members.filter((m) => m.tabPinned && m.id !== tabId)
+  const unpinned = members.filter((m) => !m.tabPinned && m.id !== tabId)
+  const nextMembers = pinned
+    ? [...pinnedExisting, { ...victim, tabPinned: true }, ...unpinned]
+    : [...pinnedExisting, { ...victim, tabPinned: false }, ...unpinned]
+  return {
+    ...state,
+    windows: replaceGroupMemberOrder(state.windows, groupId, nextMembers),
+  }
+}
+
 export function mergeWindowIntoGroupState(
   state: PersistedWorkspaceState,
   windowId: string,
@@ -81,7 +137,8 @@ export function mergeWindowIntoGroupState(
   })
 
   const destCount = work.filter((w) => groupIdForWindow(w) === destGid).length
-  const idx = insertIndex ?? destCount
+  let idx = insertIndex ?? destCount
+  idx = clampTabInsertIndex(work, destGid, idx)
 
   for (let i = 0; i < migrated.length; i++) {
     work = insertWindowAtGroupIndex(work, migrated[i], destGid, idx + i)
@@ -191,6 +248,7 @@ export function openInNewTabInGroupState(
       newWindow = { ...newWindow, openedFromWindowId: sourceWindowId }
     }
   }
+  idx = clampTabInsertIndex(withTabGroup, groupId, idx)
   const nextWindows = insertWindowAtGroupIndex(withTabGroup, newWindow, groupId, idx)
 
   return {
