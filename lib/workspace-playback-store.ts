@@ -31,6 +31,7 @@ function playFile(key: string, path: string, dir?: string) {
   setStore('byKey', key, {
     ...prev,
     playing: path,
+    ...(prev.playing !== path ? { audioOnly: false } : {}),
     ...(dir !== undefined ? { dir: dir || null } : {}),
   })
   listeners.notify()

@@ -96,6 +96,7 @@ type Props = {
     file: { path: string; isDirectory: boolean; isVirtual?: boolean },
     currentPath: string,
   ) => void
+  onOpenInSplitView?: (windowId: string, file: FileItem) => void
   onRequestPlay?: (source: WorkspaceSource, path: string, dir?: string) => void
 }
 
@@ -808,6 +809,10 @@ export function WorkspaceBrowserPane(props: Props) {
       { path: file.path, isDirectory: file.isDirectory, isVirtual: file.isVirtual },
       currentPath(),
     )
+  }
+
+  function openInSplitViewFromRow(file: FileItem) {
+    props.onOpenInSplitView?.(props.windowId, file)
   }
 
   function openCreateFileDialog() {
@@ -1756,6 +1761,7 @@ export function WorkspaceBrowserPane(props: Props) {
         onSetRowIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
         onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
         showOpenInNewTabForFiles={!!props.onOpenInNewTab}
+        onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
         onContextDownload={handleContextDownload}
         onContextToggleKnowledgeBase={share() ? undefined : handleContextToggleKnowledgeBase}
         isRowKnowledgeBase={isRowKnowledgeBase}

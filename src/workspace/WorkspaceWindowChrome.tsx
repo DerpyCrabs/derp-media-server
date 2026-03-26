@@ -51,9 +51,12 @@ export type WorkspaceWindowChromeProps = {
   onCloseTab?: (tabId: string) => void
   onToggleTabPinned?: (tabId: string) => void
   onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
-  onDropFileToTabBar?: (data: FileDragData, insertIndex?: number) => void
+  onDropFileToTabBar?: (data: FileDragData, groupInsertIndex?: number) => void
   mergeTargetPreview?: Accessor<MergeTarget | null>
   draggingWindowId?: Accessor<string | null>
+  splitLeftTabId?: Accessor<string | null | undefined>
+  onExitSplitView?: () => void
+  onUseAsSplitLeftTab?: (tabId: string) => void
   children: JSX.Element
 }
 
@@ -325,7 +328,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             <WorkspaceTabStrip
               groupId={props.groupId}
               tabs={props.tabWindows}
-              visibleTabId={props.visibleTabId()}
+              visibleTabId={props.visibleTabId}
               isWindowActive={props.isActive}
               fileIconContext={props.fileIconContext}
               onSelectTab={(gid, tid) => props.onSelectTab?.(gid, tid)}
@@ -335,6 +338,9 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
               onTabPullStart={props.onTabPullStart}
               onDropFile={props.onDropFileToTabBar}
               mergeHighlightInsertIndex={mergeHighlightInsertIndex}
+              splitLeftTabId={props.splitLeftTabId?.() ?? null}
+              onExitSplitView={props.onExitSplitView}
+              onUseAsSplitLeftTab={props.onUseAsSplitLeftTab}
             />
           </div>
           <div

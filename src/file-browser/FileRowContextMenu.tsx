@@ -1,8 +1,9 @@
-import type { FileItem } from '@/lib/types'
+import { MediaType, type FileItem } from '@/lib/types'
 import { isPathEditable } from '@/lib/utils'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from 'lucide-solid/icons/app-window'
 import BookOpen from 'lucide-solid/icons/book-open'
+import Columns2 from 'lucide-solid/icons/columns-2'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import Link from 'lucide-solid/icons/link'
 import Pencil from 'lucide-solid/icons/pencil'
@@ -31,6 +32,8 @@ type FileRowContextMenuProps = {
   onOpenInNewTab?: (file: FileItem) => void
   /** When true, show "Open in new tab" for files too (workspace). Default: folders only. */
   showOpenInNewTabForFiles?: boolean
+  /** Workspace: open beside file browser in split view. */
+  onOpenInSplitView?: (file: FileItem) => void
   onOpenInWorkspace?: (file: FileItem) => void
   onToggleFavorite?: (file: FileItem) => void
   isFavorite?: (file: FileItem) => boolean
@@ -114,6 +117,26 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
               >
                 <ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />
                 Open in new tab
+              </button>
+            </Show>
+            <Show
+              when={
+                props.onOpenInSplitView && !ctx.file.isVirtual && ctx.file.type !== MediaType.AUDIO
+              }
+            >
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                data-testid='workspace-file-menu-open-split-view'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onOpenInSplitView?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                <Columns2 class='h-4 w-4 shrink-0' stroke-width={2} />
+                Open in split view
               </button>
             </Show>
             <Show when={props.onOpenInWorkspace && ctx.file.isDirectory && !ctx.file.isVirtual}>

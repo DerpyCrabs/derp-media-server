@@ -32,6 +32,7 @@ const BATCHES = [
       'workspace-layout-sessions',
       'workspace-named-layouts',
       'workspace-file-open-target',
+      'workspace-split-view',
     ],
   },
   {

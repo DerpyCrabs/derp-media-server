@@ -5,7 +5,7 @@ import { workspaceTaskbarRowIcon } from '../lib/use-file-icon'
 import X from 'lucide-solid/icons/x'
 import { Show } from 'solid-js'
 import type { Accessor } from 'solid-js'
-import { tabsInGroup } from './tab-group-ops'
+import { resolveGroupVisibleTabId, tabsInGroup } from './tab-group-ops'
 
 export function TaskbarGroupRow(props: {
   groupId: string
@@ -21,7 +21,11 @@ export function TaskbarGroupRow(props: {
 }) {
   const groupWindows = () => tabsInGroup(props.workspace()?.windows ?? [], props.groupId)
   const leader = () => groupWindows()[0]
-  const activeTabId = () => props.workspace()?.activeTabMap[props.groupId] ?? leader()?.id ?? ''
+  const activeTabId = () => {
+    const wk = props.workspace()
+    if (!wk) return ''
+    return resolveGroupVisibleTabId(wk, props.groupId)
+  }
   const displayWindow = () =>
     groupWindows().find((w) => w.id === activeTabId()) ?? leader() ?? groupWindows()[0]
   const rowLabel = () => {
