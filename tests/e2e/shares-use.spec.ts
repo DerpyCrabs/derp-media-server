@@ -261,7 +261,12 @@ test.describe('Using Shares', () => {
     const nameInput = dialog.getByRole('textbox')
     await nameInput.clear()
     await nameInput.fill('share-created.txt')
-    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+    await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/share/') && r.url().includes('/create') && r.status() === 200,
+      ),
+      nameInput.press('Enter'),
+    ])
     await expect(page.locator('table').getByText('share-created.txt')).toBeVisible()
   })
 

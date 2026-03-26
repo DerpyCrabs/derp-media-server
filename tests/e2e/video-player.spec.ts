@@ -61,9 +61,11 @@ test.describe('Video Player', () => {
   test('video thumbnails appear in grid view', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
     await page.locator('button:has(.lucide-layout-grid)').click()
-    const card = page.locator('[data-testid=file-browser] .grid [role=button]').filter({
-      hasText: 'sample.mp4',
-    })
+    const card = page
+      .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
+      .filter({
+        hasText: 'sample.mp4',
+      })
     const thumb = card.locator('[data-testid=file-browser-video-thumbnail]')
     await expect(thumb).toBeVisible()
     await expect(thumb).toHaveAttribute('src', /\/api\/thumbnail\//)
