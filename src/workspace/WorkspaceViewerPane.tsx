@@ -8,6 +8,7 @@ import { getMediaType } from '@/lib/media-utils'
 import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import { isVideoPath } from '@/lib/workspace-geometry'
 import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from '@/lib/handle-kb-image-paste'
 import { isPathEditable } from '@/lib/utils'
@@ -112,6 +113,18 @@ export function WorkspaceViewerPane(props: Props) {
     () => mediaType() === MediaType.VIDEO && !workspaceAudioOnly(),
   )
 
+  /**
+   * When the workspace session is explicitly playing non-video (e.g. audio from requestPlay), never
+   * re-assert this tab's video path — even if activeWindowId is still the viewer (common after
+   * clicking a file in the browser).
+   * Opening a new video tab must set playback first (see openInNewTabInSameWindow on WorkspacePage).
+   */
+  function viewerDefersVideoToAudioTakeover(): boolean {
+    void wxPlaybackTick()
+    const playing = useWorkspacePlaybackStore.getState().byKey[props.storageKey]?.playing ?? null
+    return playing != null && !isVideoPath(playing)
+  }
+
   createEffect(() => {
     const path = viewingPath()
     const mt = mediaType()
@@ -133,11 +146,13 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   createEffect(() => {
+    void wxPlaybackTick()
     const path = viewingPath()
     const mt = mediaType()
     const key = props.storageKey
     const visible = props.contentVisible()
     if (!key || mt !== MediaType.VIDEO || !path || !visible) return
+    if (viewerDefersVideoToAudioTakeover()) return
 
     const dir = dirFromWindow() || undefined
     useWorkspacePlaybackStore.getState().playFile(key, path, dir)
@@ -158,10 +173,12 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   createEffect(() => {
+    void wxPlaybackTick()
     const path = viewingPath()
     const url = mediaUrl()
     const vid = videoEl()
     if (!path || !viewerShowVideoSurface() || !vid || !url) return
+    if (viewerDefersVideoToAudioTakeover()) return
 
     useMediaPlayer.getState().setCurrentFile(path, 'video')
 

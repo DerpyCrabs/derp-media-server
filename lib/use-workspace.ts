@@ -80,7 +80,22 @@ export interface WorkspaceWindowDefinition {
 
 export type PinnedTaskbarItem = WorkspaceTaskbarPin
 
+export interface TabGroupSplitState {
+  leftTabId: string
+  /** Left pane width as a fraction of content width (0.3–0.7). */
+  leftPaneFraction: number
+}
+
 const STORAGE_KEY = 'workspace-state'
+
+export const SPLIT_PANE_FRACTION_MIN = 0.3
+export const SPLIT_PANE_FRACTION_MAX = 0.7
+export const SPLIT_PANE_FRACTION_DEFAULT = 0.5
+
+export function clampSplitPaneFraction(f: number): number {
+  if (!Number.isFinite(f)) return SPLIT_PANE_FRACTION_DEFAULT
+  return Math.min(SPLIT_PANE_FRACTION_MAX, Math.max(SPLIT_PANE_FRACTION_MIN, f))
+}
 
 export interface PersistedWorkspaceState {
   windows: WorkspaceWindowDefinition[]
@@ -91,6 +106,7 @@ export interface PersistedWorkspaceState {
   browserTabTitle?: string
   browserTabIcon?: string
   browserTabIconColor?: string
+  tabGroupSplits?: Record<string, TabGroupSplitState>
 }
 
 export function workspaceStorageBaseKey(shareToken?: string | null): string {
@@ -136,6 +152,9 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
     activeTabMap: sortTabMapKeys(state.activeTabMap ?? {}),
     nextWindowId: state.nextWindowId,
     pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
+    ...(state.tabGroupSplits && Object.keys(state.tabGroupSplits).length > 0
+      ? { tabGroupSplits: state.tabGroupSplits }
+      : {}),
     ...(state.browserTabTitle ? { browserTabTitle: state.browserTabTitle } : {}),
     ...(state.browserTabIcon ? { browserTabIcon: state.browserTabIcon } : {}),
     ...(state.browserTabIconColor ? { browserTabIconColor: state.browserTabIconColor } : {}),
@@ -149,10 +168,59 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
     activeTabMap: sortTabMapKeys(state.activeTabMap ?? {}),
     nextWindowId: state.nextWindowId,
     pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
+    ...(state.tabGroupSplits && Object.keys(state.tabGroupSplits).length > 0
+      ? { tabGroupSplits: state.tabGroupSplits }
+      : {}),
   })
 }
 
 const MIN_VISIBLE_WINDOW = 100
+
+function groupIdForWorkspaceMember(w: WorkspaceWindowDefinition): string {
+  return w.tabGroupId ?? w.id
+}
+
+function sanitizeTabGroupSplitsField(
+  windows: WorkspaceWindowDefinition[],
+  raw: unknown,
+): Record<string, TabGroupSplitState> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Record<string, TabGroupSplitState> = {}
+  for (const [gid, sp] of Object.entries(raw as Record<string, unknown>)) {
+    if (!sp || typeof sp !== 'object') continue
+    const leftTabId = (sp as { leftTabId?: unknown }).leftTabId
+    if (typeof leftTabId !== 'string') continue
+    const members = windows.filter((w) => groupIdForWorkspaceMember(w) === gid)
+    const leftWin = members.find((w) => w.id === leftTabId)
+    if (!leftWin || leftWin.type === 'player') continue
+    if (members.filter((w) => w.id !== leftTabId).length < 1) continue
+    const rawFrac = (sp as { leftPaneFraction?: unknown }).leftPaneFraction
+    const frac =
+      typeof rawFrac === 'number' && Number.isFinite(rawFrac)
+        ? clampSplitPaneFraction(rawFrac)
+        : SPLIT_PANE_FRACTION_DEFAULT
+    out[gid] = { leftTabId, leftPaneFraction: frac }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+function ensureSplitWorkspaceFocus(
+  windows: WorkspaceWindowDefinition[],
+  activeTabMap: Record<string, string>,
+  activeWindowId: string | null,
+  splits: Record<string, TabGroupSplitState> | undefined,
+): { activeTabMap: Record<string, string>; activeWindowId: string | null } {
+  if (!splits) return { activeTabMap, activeWindowId }
+  let nextMap = { ...activeTabMap }
+  let nextActive = activeWindowId
+  for (const [gid, sp] of Object.entries(splits)) {
+    const members = windows.filter((w) => groupIdForWorkspaceMember(w) === gid)
+    const firstRight = members.find((w) => w.id !== sp.leftTabId)
+    if (nextMap[gid] === sp.leftTabId && firstRight) nextMap[gid] = firstRight.id
+    if (nextActive === sp.leftTabId && firstRight) nextActive = firstRight.id
+  }
+  return { activeTabMap: nextMap, activeWindowId: nextActive }
+}
 
 function clampBoundsToViewport(
   b: NonNullable<WorkspaceWindowLayout['bounds']>,
@@ -219,13 +287,21 @@ export function normalizePersistedWorkspaceState(
   const browserTabTitle = parseBrowserTabTitle(parsed.browserTabTitle)
   const browserTabIcon = parseBrowserTabIcon(parsed.browserTabIcon)
   const browserTabIconColor = parseBrowserTabIconColor(parsed.browserTabIconColor)
+  const tabGroupSplits = sanitizeTabGroupSplitsField(reconciledWindows, parsed.tabGroupSplits)
+  const focus = ensureSplitWorkspaceFocus(
+    reconciledWindows,
+    parsed.activeTabMap ?? {},
+    parsed.activeWindowId ?? null,
+    tabGroupSplits,
+  )
 
   return {
     windows: reconciledWindows,
-    activeWindowId: parsed.activeWindowId ?? null,
-    activeTabMap: parsed.activeTabMap ?? {},
+    activeWindowId: focus.activeWindowId,
+    activeTabMap: focus.activeTabMap,
     nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
     pinnedTaskbarItems,
+    ...(tabGroupSplits ? { tabGroupSplits } : {}),
     ...(browserTabTitle ? { browserTabTitle } : {}),
     ...(browserTabIcon ? { browserTabIcon } : {}),
     ...(browserTabIconColor ? { browserTabIconColor } : {}),

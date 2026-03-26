@@ -49,6 +49,7 @@ export type WorkspaceBrowserModalLayerProps = {
   onSetRowIcon?: (file: FileItem) => void
   onOpenInNewTabFromRow?: (file: FileItem) => void
   showOpenInNewTabForFiles: boolean
+  onOpenInSplitViewFromRow?: (file: FileItem) => void
   onContextDownload: (file: FileItem) => void
   /** Admin workspace only; toggles folder as knowledge base (same as main file browser). */
   onContextToggleKnowledgeBase?: (file: FileItem) => void
@@ -147,6 +148,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onSetIcon={props.onSetRowIcon}
         onOpenInNewTab={props.onOpenInNewTabFromRow}
         showOpenInNewTabForFiles={props.showOpenInNewTabForFiles}
+        onOpenInSplitView={props.onOpenInSplitViewFromRow}
         onToggleKnowledgeBase={props.onContextToggleKnowledgeBase}
         isKnowledgeBase={props.isRowKnowledgeBase}
       />
