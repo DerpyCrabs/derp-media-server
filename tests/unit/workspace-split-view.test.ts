@@ -157,12 +157,13 @@ describe('workspace split view', () => {
     expect(merged.tabGroupSplits?.g1).toBeUndefined()
   })
 
-  test('splitWindowFromGroupState prunes split when group dissolves', () => {
+  test('splitWindowFromGroupState dissolves group and clears split metadata', () => {
     const w1 = browserTab('t1', { tabGroupId: 'g1' })
     const w2 = viewerTab('t2', 'g1')
     let state = enterSplitViewState(baseState([w1, w2]), 'g1', 't1')
     state = splitWindowFromGroupState(state, 't2')
-    const still = state.windows.filter((x) => x.tabGroupId === 'g1')
-    expect(still.length <= 1 || !state.tabGroupSplits?.g1).toBeTruthy()
+    expect(state.windows.every((w) => w.tabGroupId !== 'g1')).toBe(true)
+    expect(state.tabGroupSplits?.g1).toBeUndefined()
+    expect(state.activeWindowId).toBe('t2')
   })
 })
