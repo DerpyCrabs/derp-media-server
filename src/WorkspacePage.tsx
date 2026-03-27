@@ -77,6 +77,7 @@ import { TaskbarGroupRow } from './workspace/WorkspaceTaskbarRows'
 import type { WorkspaceVideoListenOnlyDetail } from './workspace/WorkspaceViewerPane'
 import {
   DEFAULT_WORKSPACE_SOURCE,
+  defaultInitialBrowserTitle,
   isWorkspaceRoute,
   loadPersisted,
 } from './workspace/workspace-page-persistence'
@@ -763,10 +764,16 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const dirOpt = options?.initialState?.dir
     const initialState = dirOpt != null ? { dir: dirOpt } : {}
     const effectiveDir = dirOpt ?? ''
+    const browserTitle =
+      effectiveDir !== ''
+        ? workspaceBrowserDirTitle(effectiveDir)
+        : source.kind === 'share'
+          ? defaultInitialBrowserTitle(source)
+          : workspaceBrowserDirTitle('')
     const newWin: WorkspaceWindowDefinition = {
       id,
       type: 'browser',
-      title: workspaceBrowserDirTitle(effectiveDir),
+      title: browserTitle,
       iconName: null,
       iconPath: effectiveDir,
       iconType: MediaType.FOLDER,

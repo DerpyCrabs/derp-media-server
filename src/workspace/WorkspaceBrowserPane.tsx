@@ -27,6 +27,7 @@ import {
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
+import type { ShareLink } from '@/lib/shares'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
@@ -113,6 +114,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
   const [showPasteDialog, setShowPasteDialog] = createSignal(false)
   const [pasteData, setPasteData] = createSignal<PasteData | null>(null)
+  const [shareDialogTarget, setShareDialogTarget] = createSignal<FileItem | null>(null)
   const breadcrumbMenu = () => breadcrumbFloating.folderMenu
   const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   let inlineFileInputEl: HTMLInputElement | undefined
@@ -291,6 +293,36 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     staleTime: Infinity,
     enabled: !share(),
   }))
+
+  const sharesQuery = useQuery(() => ({
+    queryKey: queryKeys.shares(),
+    queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
+    staleTime: Infinity,
+    enabled: !share(),
+  }))
+
+  const shares = createMemo(() => sharesQuery.data?.shares ?? [])
+
+  const sharedPathSet = createMemo(() => {
+    const set = new Set<string>()
+    for (const s of shares()) {
+      set.add(s.path.replace(/\\/g, '/'))
+    }
+    return set
+  })
+
+  const shareDialogExistingShares = createMemo((): ShareLink[] => {
+    const t = shareDialogTarget()
+    if (!t) return []
+    const np = t.path.replace(/\\/g, '/')
+    return shares().filter((s) => s.path.replace(/\\/g, '/') === np)
+  })
+
+  const shareDialogIsEditable = createMemo(() => {
+    const t = shareDialogTarget()
+    if (!t) return false
+    return isPathEditable(t.path, props.editableFolders)
+  })
 
   const knowledgeBases = createMemo(() =>
     share() ? [] : (settingsQuery.data?.knowledgeBases ?? []),
@@ -566,7 +598,17 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       const sh = share()
       if (sh) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+      } else {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
       }
+    },
+  }))
+
+  const revokeShareMutation = useMutation(() => ({
+    mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
     },
   }))
 
@@ -698,6 +740,14 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  function handleContextShare(file: FileItem) {
+    setShareDialogTarget(file)
+  }
+
+  function getPathHasShareForFile(file: FileItem) {
+    return sharedPathSet().has(file.path.replace(/\\/g, '/'))
   }
 
   async function handleCopyShareLink(file: FileItem) {
@@ -1827,8 +1877,14 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         showOpenInNewTabForFiles={!!props.onOpenInNewTab}
         onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
         onContextDownload={handleContextDownload}
+        onContextShare={share() ? undefined : handleContextShare}
+        shareDialogTarget={shareDialogTarget}
+        setShareDialogTarget={setShareDialogTarget}
+        shareDialogIsEditable={shareDialogIsEditable}
+        shareDialogExistingShares={shareDialogExistingShares}
+        shareLinkBaseForDialog={shareLinkBase}
         onCopyShareLink={handleCopyShareLink}
-        getPathHasShare={() => false}
+        getPathHasShare={share() ? undefined : getPathHasShareForFile}
         onContextToggleKnowledgeBase={share() ? undefined : handleContextToggleKnowledgeBase}
         isRowKnowledgeBase={isRowKnowledgeBase}
         showRename={showRename}
@@ -1851,9 +1907,17 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         deleteTarget={deleteTarget}
         setDeleteTarget={setDeleteTarget}
         deletePending={deleteMutation.isPending}
+        revokeSharePending={share() ? false : revokeShareMutation.isPending}
         onConfirmDelete={() => {
           const it = deleteTarget()
-          if (it) void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+          if (!it) return
+          if (!share() && it.shareToken) {
+            void revokeShareMutation
+              .mutateAsync({ token: it.shareToken })
+              .then(() => setDeleteTarget(null))
+          } else {
+            void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+          }
         }}
         showCreateFolder={showCreateFolder}
         setShowCreateFolder={setShowCreateFolder}

@@ -452,15 +452,19 @@ export async function dehydrateForRoute(
           }
           const authorized = isShareAccessAuthorized(share, cookieAdapter)
           const restrictions = share.editable ? getEffectiveRestrictions(share) : undefined
-          const knowledgeBasesList = await getKnowledgeBases()
-          const knowledgeBaseRoot = getKnowledgeBaseRootForPath(
-            share.path.replace(/\\/g, '/'),
-            knowledgeBasesList,
-          )
-          const isKnowledgeBase = share.isDirectory && knowledgeBaseRoot !== null
 
+          let isKnowledgeBase = false
+          let knowledgeBaseRoot: string | null = null
           let adminViewMode: 'list' | 'grid' = 'list'
-          if (share.isDirectory) {
+
+          if (authorized && share.isDirectory) {
+            const knowledgeBasesList = await getKnowledgeBases()
+            knowledgeBaseRoot = getKnowledgeBaseRootForPath(
+              share.path.replace(/\\/g, '/'),
+              knowledgeBasesList,
+            )
+            isKnowledgeBase = knowledgeBaseRoot !== null
+
             try {
               const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
               const allSettings = JSON.parse(data)
@@ -481,9 +485,9 @@ export async function dehydrateForRoute(
               needsPasscode,
               authorized,
               ...(restrictions && { restrictions }),
-              isKnowledgeBase,
+              ...(authorized && { isKnowledgeBase }),
               ...(authorized && knowledgeBaseRoot !== null && { knowledgeBaseRoot }),
-              adminViewMode,
+              ...(authorized && share.isDirectory && { adminViewMode }),
             }),
           })
 

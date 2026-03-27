@@ -6,6 +6,7 @@ import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import { Match, Switch, createMemo, onMount } from 'solid-js'
 import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { SharePasscodeGate } from './SharePasscodeGate'
+import { ThemeSwitcher } from './ThemeSwitcher'
 import { WorkspacePage } from './WorkspacePage'
 
 type ShareRestrictions = {
@@ -25,8 +26,9 @@ type ShareInfo = {
   needsPasscode: boolean
   authorized: boolean
   restrictions?: ShareRestrictions
-  isKnowledgeBase: boolean
-  adminViewMode: 'list' | 'grid'
+  /** Present after passcode/session authorization (not sent on unauthenticated info). */
+  isKnowledgeBase?: boolean
+  adminViewMode?: 'list' | 'grid'
   workspaceTaskbarPins?: PinnedTaskbarItem[]
   workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
@@ -39,7 +41,8 @@ function RedirectShareFileFromWorkspace(props: { token: string }) {
     history.replaceState(null, '', `/share/${props.token}${qs}`)
   })
   return (
-    <div class='flex min-h-screen items-center justify-center'>
+    <div class='relative flex min-h-screen items-center justify-center'>
+      <ThemeSwitcher variant='floating' />
       <p class='text-muted-foreground text-sm'>Loading…</p>
     </div>
   )
@@ -75,12 +78,14 @@ export function ShareWorkspacePage(props: Props) {
   return (
     <Switch>
       <Match when={shareQuery.isPending}>
-        <div class='flex min-h-screen items-center justify-center'>
+        <div class='relative flex min-h-screen items-center justify-center'>
+          <ThemeSwitcher variant='floating' />
           <p class='text-muted-foreground text-sm'>Loading…</p>
         </div>
       </Match>
       <Match when={shareQuery.isError}>
-        <div class='flex min-h-screen items-center justify-center p-4'>
+        <div class='relative flex min-h-screen items-center justify-center p-4'>
+          <ThemeSwitcher variant='floating' />
           <div class='border-destructive max-w-md w-full rounded-xl border p-6'>
             <h1 class='text-destructive text-lg font-semibold'>Share Not Found</h1>
             <p class='text-muted-foreground mt-2 text-sm'>

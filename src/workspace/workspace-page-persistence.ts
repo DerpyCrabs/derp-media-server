@@ -1,4 +1,5 @@
 import { MediaType } from '@/lib/types'
+import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
@@ -13,13 +14,19 @@ export function isWorkspaceRoute(pathname: string) {
   return pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(pathname)
 }
 
+/** First browser tab label when opening workspace (share root → folder name, e.g. "Work"). */
+export function defaultInitialBrowserTitle(source: WorkspaceSource): string {
+  if (source.kind === 'share') return workspaceBrowserDirTitle(source.sharePath ?? '')
+  return 'Browser 1'
+}
+
 export function defaultPersistedState(source: WorkspaceSource): PersistedWorkspaceState {
   return {
     windows: [
       {
         id: 'workspace-window-1',
         type: 'browser',
-        title: 'Browser 1',
+        title: defaultInitialBrowserTitle(source),
         iconName: null,
         iconPath: '',
         iconType: MediaType.FOLDER,
