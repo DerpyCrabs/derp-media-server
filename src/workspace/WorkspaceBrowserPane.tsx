@@ -6,7 +6,6 @@ import {
 } from '@/lib/file-drag-data'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { GlobalSettings } from '@/lib/use-settings'
-import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import {
@@ -33,7 +32,6 @@ import { fileDownloadHref } from '@/lib/download-urls'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
-import type { WorkspaceSource } from '@/lib/use-workspace'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
@@ -43,7 +41,6 @@ import FileText from 'lucide-solid/icons/file-text'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
 import Upload from 'lucide-solid/icons/upload'
-import type { Accessor } from 'solid-js'
 import {
   For,
   Match,
@@ -71,45 +68,17 @@ import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-f
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
 import { useStoreSync } from '../lib/solid-store-sync'
-import type { FileIconContext } from '../lib/use-file-icon'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
+import { workspaceBrowserPaneParentDir } from './workspace-browser-pane-paths'
+import type {
+  WorkspaceBrowserPaneProps,
+  WorkspaceShareConfig,
+} from './workspace-browser-pane-types'
 
-export type WorkspaceShareConfig = { token: string; sharePath: string }
+export type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 
-type Props = {
-  windowId: string
-  workspace: Accessor<PersistedWorkspaceState | null>
-  sharePanel: Accessor<WorkspaceShareConfig | null>
-  fileIconContext: () => FileIconContext
-  /** Share workspace: show create file/folder when upload is allowed (matches React ShareFileBrowser). */
-  shareAllowUpload?: boolean
-  /** Share workspace: rename/move and drag-move within share. */
-  shareCanEdit?: boolean
-  /** Share workspace: delete from context menu. */
-  shareCanDelete?: boolean
-  /** Share workspace: root is marked as knowledge base (enables KB search / recent / inline create). */
-  shareIsKnowledgeBase?: boolean
-  editableFolders: string[]
-  onNavigateDir: (windowId: string, dir: string) => void
-  onOpenViewer: (windowId: string, file: FileItem) => void
-  onAddToTaskbar: (file: FileItem) => void
-  onOpenInNewTab?: (
-    windowId: string,
-    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
-    currentPath: string,
-  ) => void
-  onOpenInSplitView?: (windowId: string, file: FileItem) => void
-  onRequestPlay?: (source: WorkspaceSource, path: string, dir?: string) => void
-}
-
-function parentDir(fullPath: string): string {
-  const parts = fullPath.split(/[/\\]/).filter(Boolean)
-  if (parts.length <= 1) return ''
-  return parts.slice(0, -1).join('/')
-}
-
-export function WorkspaceBrowserPane(props: Props) {
+export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
   const [unsupportedFile, setUnsupportedFile] = createSignal<FileItem | null>(null)
@@ -603,7 +572,7 @@ export function WorkspaceBrowserPane(props: Props) {
       )
     } else {
       const oldPath = item.path.replace(/\\/g, '/')
-      const par = parentDir(oldPath)
+      const par = workspaceBrowserPaneParentDir(oldPath)
       const newPath = par ? `${par}/${newName}` : newName
       renameItemMutation.mutate(
         { kind: 'admin', oldPath, newPath },
@@ -1085,7 +1054,7 @@ export function WorkspaceBrowserPane(props: Props) {
   }
 
   function handleParentDirectory() {
-    props.onNavigateDir(props.windowId, parentDir(currentPath()))
+    props.onNavigateDir(props.windowId, workspaceBrowserPaneParentDir(currentPath()))
   }
 
   function handleFileClick(file: FileItem) {
@@ -1147,7 +1116,7 @@ export function WorkspaceBrowserPane(props: Props) {
     setDragOverPath(null)
     const mv = allowMoveFile()
     if (!mv) return
-    const dest = parentDir(currentPath())
+    const dest = workspaceBrowserPaneParentDir(currentPath())
     const dp = draggedPath()
     if (dp) {
       if (!dragAllowsMove()) return

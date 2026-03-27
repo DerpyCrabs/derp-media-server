@@ -1,5 +1,9 @@
 import { getMediaType } from '@/lib/media-utils'
-import { createDefaultBounds, insertWindowAtGroupIndex } from '@/lib/workspace-geometry'
+import {
+  createDefaultBounds,
+  insertWindowAtGroupIndex,
+  maxWorkspaceWindowZ,
+} from '@/lib/workspace-geometry'
 import { MediaType } from '@/lib/types'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
@@ -572,7 +576,7 @@ export function splitWindowFromGroupState(
   const groupId = w.tabGroupId
   const groupWindows = current.filter((win) => win.tabGroupId === groupId)
   const groupLayout = w.layout
-  const maxZ = Math.max(...current.map((x) => x.layout?.zIndex ?? 1), 1)
+  const maxZ = maxWorkspaceWindowZ(current)
   let nextZ = maxZ + 1
 
   const defaultBounds =

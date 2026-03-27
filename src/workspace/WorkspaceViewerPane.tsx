@@ -23,7 +23,7 @@ import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } fro
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import { MarkdownPane } from '../media/MarkdownPane'
 import type { TextViewerShareContext } from '../media/TextViewerDialog'
-import type { WorkspaceShareConfig } from './WorkspaceBrowserPane'
+import type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 
 export type WorkspaceVideoListenOnlyDetail = {
   path: string

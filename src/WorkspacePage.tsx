@@ -10,6 +10,7 @@ import {
   getPlayerBoundsForAspectRatio,
   insertWindowAtGroupIndex,
   isVideoPath,
+  maxWorkspaceWindowZ,
   WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from '@/lib/workspace-geometry'
 import type { FileDragData } from '@/lib/file-drag-data'
@@ -35,15 +36,8 @@ import {
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
-import { For, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
-import { workspaceTabIconColorKeyToHex } from '@/lib/workspace-tab-icon-colors'
+import { For, createEffect, createMemo, createSignal, untrack } from 'solid-js'
 import { useThemeStore } from '@/lib/theme-store'
-import {
-  DEFAULT_FAVICON_DATA_URL,
-  generateFaviconFromSvg,
-  getLucideIconSvg,
-  setFaviconHref,
-} from '@/lib/dynamic-favicon-core'
 import { useStoreSync } from './lib/solid-store-sync'
 import type { FileIconContext } from './lib/use-file-icon'
 import {
@@ -56,7 +50,9 @@ import { WorkspacePageCanvas } from './workspace/workspace-page/WorkspacePageCan
 import { WorkspacePageTaskbar } from './workspace/workspace-page/WorkspacePageTaskbar'
 import type { WorkspacePageProps } from './workspace/workspace-page/workspace-page-types'
 import { createWorkspaceSnapDragModel } from './workspace/workspace-page/create-workspace-snap-drag-model'
+import { useWorkspacePageDocumentChrome } from './workspace/workspace-page/use-workspace-page-document-chrome'
 import { useWorkspacePageLayoutBaseline } from './workspace/workspace-page/use-workspace-page-layout-baseline'
+import { useWorkspacePageLocalPersistence } from './workspace/workspace-page/use-workspace-page-local-persistence'
 import { useWorkspacePageServerData } from './workspace/workspace-page/use-workspace-page-server-data'
 
 export type { WorkspacePageProps } from './workspace/workspace-page/workspace-page-types'
@@ -82,7 +78,6 @@ import {
   DEFAULT_WORKSPACE_SOURCE,
   isWorkspaceRoute,
   loadPersisted,
-  persistWorkspaceState,
 } from './workspace/workspace-page-persistence'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
@@ -122,13 +117,12 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const baseline = useWorkspacePageLayoutBaseline(workspace, setWorkspace)
   const snap = createWorkspaceSnapDragModel({ workspace, setWorkspace, preferredSnapTick })
 
-  const tabChromeRestore = { title: 'Media Server', href: DEFAULT_FAVICON_DATA_URL }
-  let tabFaviconGen = 0
+  useWorkspacePageDocumentChrome(workspace, themeTick)
 
-  onMount(() => {
-    tabChromeRestore.title = document.title
-    const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement | null
-    if (link?.href) tabChromeRestore.href = link.href
+  useWorkspacePageLocalPersistence({
+    storageSessionKeyFull,
+    workspace,
+    isShareSession: () => !!shareConfig(),
   })
 
   const [pinsHydratedFor, setPinsHydratedFor] = createSignal('')
@@ -215,78 +209,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   })
 
-  let persistTimer: ReturnType<typeof setTimeout> | null = null
-  createEffect(() => {
-    const { key } = storageSessionKeyFull()
-    const w = workspace()
-    if (!key || !w) return
-    if (shareConfig()) {
-      persistWorkspaceState(key, w)
-      return
-    }
-    if (persistTimer) clearTimeout(persistTimer)
-    persistTimer = setTimeout(() => {
-      persistTimer = null
-      persistWorkspaceState(key, w)
-    }, 300)
-    onCleanup(() => {
-      if (persistTimer) {
-        clearTimeout(persistTimer)
-        persistTimer = null
-      }
-    })
-  })
-
-  createEffect(() => {
-    void themeTick()
-    const w = workspace()
-    if (typeof document === 'undefined') return
-    if (!w) return
-    const title = (w.browserTabTitle ?? '').trim()
-    document.title = title ? `${title} · Media Server` : 'Workspace · Media Server'
-    const iconName = (w.browserTabIcon ?? '').trim()
-    const gen = ++tabFaviconGen
-    if (!iconName) {
-      setFaviconHref(tabChromeRestore.href)
-      return
-    }
-    const svg = getLucideIconSvg(iconName)
-    if (!svg) {
-      setFaviconHref(tabChromeRestore.href)
-      return
-    }
-    const isDark = document.documentElement.getAttribute('data-theme')?.endsWith('-dark')
-    const colorKey = (w.browserTabIconColor ?? '').trim()
-    const color = workspaceTabIconColorKeyToHex(colorKey) ?? (isDark ? '#ffffff' : '#000000')
-    void generateFaviconFromSvg(svg, color).then((data) => {
-      if (gen !== tabFaviconGen) return
-      if (data) setFaviconHref(data)
-    })
-  })
-
-  onCleanup(() => {
-    if (typeof document === 'undefined') return
-    document.title = tabChromeRestore.title
-    setFaviconHref(tabChromeRestore.href)
-  })
-
-  onMount(() => {
-    const flushPersist = () => {
-      const k = storageSessionKeyFull().key
-      const w = workspace()
-      if (k && w) persistWorkspaceState(k, w)
-    }
-    window.addEventListener('beforeunload', flushPersist)
-    const onVis = () => {
-      if (document.visibilityState === 'hidden') flushPersist()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    onCleanup(() => {
-      window.removeEventListener('beforeunload', flushPersist)
-      document.removeEventListener('visibilitychange', onVis)
-    })
-  })
-
   createEffect(() => {
     if (!server.serverPinsReady()) return
     const { key } = storageSessionKeyFull()
@@ -326,7 +248,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const leader = tabsInGroup(w.windows, gid)[0]
     const groupMinimized = leader?.layout?.minimized ?? false
     if (w.activeWindowId === focusWindowId && !groupMinimized) return
-    const maxZ = Math.max(...w.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+    const maxZ = maxWorkspaceWindowZ(w.windows)
     const newZ = maxZ + 1
     setWorkspace({
       ...w,
@@ -374,7 +296,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         const cur = prev.activeTabMap[groupId]
         const effectiveRight =
           cur && cur !== split.leftTabId && members.some((m) => m.id === cur) ? cur : firstRight.id
-        const maxZ = Math.max(...prev.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+        const maxZ = maxWorkspaceWindowZ(prev.windows)
         const newZ = maxZ + 1
         return {
           ...prev,
@@ -582,7 +504,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     let work: PersistedWorkspaceState = w
 
     const focusExistingMediaWindow = (target: WorkspaceWindowDefinition) => {
-      const maxZ = Math.max(...work.windows.map((x) => x.layout?.zIndex ?? 1), 1) + 1
+      const maxZ = maxWorkspaceWindowZ(work.windows) + 1
       const gid = groupIdForWindow(target)
       setWorkspace({
         ...work,
@@ -621,7 +543,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const viewerId = `workspace-win-${work.nextWindowId}`
     const nextNextId = work.nextWindowId + 1
     const baseWindows = work.windows
-    const zIndex = Math.max(...baseWindows.map((x) => x.layout?.zIndex ?? 1), 1) + 1
+    const zIndex = maxWorkspaceWindowZ(baseWindows) + 1
     const nextTabMap = { ...work.activeTabMap }
 
     if (attachGroupId) {
@@ -855,7 +777,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       tabGroupId: null,
       layout: createWindowLayout(undefined, createDefaultBounds(w.windows.length, 'browser'), n),
     }
-    const maxZ = Math.max(...w.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+    const maxZ = maxWorkspaceWindowZ(w.windows)
     newWin.layout = { ...newWin.layout, zIndex: maxZ + 1 }
     setWorkspace({
       ...w,
@@ -959,7 +881,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         n,
       ),
     }
-    const maxZ = Math.max(...w.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+    const maxZ = maxWorkspaceWindowZ(w.windows)
     newWin.layout = { ...newWin.layout, zIndex: maxZ + 1 }
     setWorkspace({
       ...w,

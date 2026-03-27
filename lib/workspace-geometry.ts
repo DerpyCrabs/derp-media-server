@@ -68,6 +68,16 @@ export type WorkspaceBounds = NonNullable<WorkspaceWindowLayout['bounds']>
 /** Pixel size of the workspace tiling area (browser pane above the taskbar). */
 export type WorkspaceCanvasSize = { width: number; height: number }
 
+/** Highest z-index among workspace windows (minimum 1). */
+export function maxWorkspaceWindowZ(windows: WorkspaceWindowDefinition[]): number {
+  let max = 1
+  for (const w of windows) {
+    const z = w.layout?.zIndex ?? 1
+    if (z > max) max = z
+  }
+  return max
+}
+
 export function getPlayerBoundsForAspectRatio(
   aspectRatio: number,
   currentBounds: WorkspaceBounds | null,
