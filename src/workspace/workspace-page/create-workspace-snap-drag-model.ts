@@ -12,6 +12,7 @@ import {
   createDefaultBounds,
   createFullscreenBounds,
   getViewportSize,
+  maxWorkspaceWindowZ,
   scaleSnappedWindowsBoundsForCanvasResize,
   snapZoneToBoundsWithOccupied,
   type WorkspaceCanvasSize,
@@ -23,7 +24,13 @@ import {
   TOP_SNAP_ASSIST_KEEPALIVE_PX,
   type SnapDetectResult,
 } from '@/lib/use-snap-zones'
-import { findMergeTarget, type MergeTarget } from '@/src/workspace/merge-target'
+import {
+  findMergeTarget,
+  mergeTargetGroupSignature,
+  mergeTargetHitTest,
+  workspaceWindowsByGroupId,
+  type MergeTarget,
+} from '@/src/workspace/merge-target'
 import { groupIdForWindow, mergeWindowIntoGroupState } from '@/src/workspace/tab-group-ops'
 import { applySnapPreviewLayout } from '@/src/workspace/snap-preview'
 import { createEffect, createSignal, onCleanup, type Accessor, type Setter } from 'solid-js'
@@ -51,6 +58,38 @@ export function createWorkspaceSnapDragModel(options: {
   const [dragEdgeGridSpan, setDragEdgeGridSpan] = createSignal<AssistGridSpan | null>(null)
   const [mergeTargetPreview, setMergeTargetPreview] = createSignal<MergeTarget | null>(null)
   let draggedWindowIdForSnap: string | null = null
+
+  let mergeByGroupCache: {
+    sig: string
+    byGroup: ReturnType<typeof workspaceWindowsByGroupId>
+  } | null = null
+
+  function invalidateMergeGroupCache() {
+    mergeByGroupCache = null
+  }
+
+  function mergePreviewForPointer(
+    windows: PersistedWorkspaceState['windows'],
+    windowId: string,
+    clientX: number,
+    clientY: number,
+  ): MergeTarget | null {
+    const sig = mergeTargetGroupSignature(windows)
+    if (!mergeByGroupCache || mergeByGroupCache.sig !== sig) {
+      mergeByGroupCache = { sig, byGroup: workspaceWindowsByGroupId(windows) }
+    }
+    const draggedW = windows.find((w) => w.id === windowId)
+    const draggedGroupId = draggedW ? groupIdForWindow(draggedW) : windowId
+    const c = workspaceAreaEl
+    const rect = c?.getBoundingClientRect()
+    return mergeTargetHitTest(
+      mergeByGroupCache.byGroup,
+      draggedGroupId,
+      clientX,
+      clientY,
+      rect ? { canvasRect: rect } : undefined,
+    )
+  }
 
   function getWorkspaceCanvas(): WorkspaceCanvasSize {
     const s = workspaceCanvasSize()
@@ -136,7 +175,7 @@ export function createWorkspaceSnapDragModel(options: {
     const p = snapPreviewEl
 
     const ws = workspace()
-    const hit = ws && c ? findMergeTarget(ws.windows, windowId, clientX, clientY) : null
+    const hit = ws && c ? mergePreviewForPointer(ws.windows, windowId, clientX, clientY) : null
     setMergeTargetPreview(hit)
 
     if (!c) return
@@ -264,7 +303,7 @@ export function createWorkspaceSnapDragModel(options: {
     // oxlint-disable-next-line solid/reactivity -- setState functional update from snap/drag, not a tracked derivation
     setWorkspace((prev) => {
       if (!prev) return prev
-      const maxZ = Math.max(...prev.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+      const maxZ = maxWorkspaceWindowZ(prev.windows)
       const win = prev.windows.find((x) => x.id === windowId)
       const gid = win ? groupIdForWindow(win) : null
       const canvas = getWorkspaceCanvas()
@@ -302,7 +341,7 @@ export function createWorkspaceSnapDragModel(options: {
       if (!prev) return prev
       const win = prev.windows.find((x) => x.id === windowId)
       const gid = win ? groupIdForWindow(win) : null
-      const maxZ = Math.max(...prev.windows.map((x) => x.layout?.zIndex ?? 1), 1)
+      const maxZ = maxWorkspaceWindowZ(prev.windows)
       return {
         ...prev,
         activeWindowId: windowId,
@@ -379,6 +418,7 @@ export function createWorkspaceSnapDragModel(options: {
   }
 
   function clearSnapAssistDragUi() {
+    invalidateMergeGroupCache()
     setSnapAssistShown(false)
     setSnapAssistEngaged(false)
     setAssistHoverPick(null)
@@ -405,7 +445,14 @@ export function createWorkspaceSnapDragModel(options: {
 
     const wsMerge = workspace()
     if (wsMerge) {
-      const hit = findMergeTarget(wsMerge.windows, windowId, clientX, clientY)
+      const rect = workspaceAreaEl?.getBoundingClientRect()
+      const hit = findMergeTarget(
+        wsMerge.windows,
+        windowId,
+        clientX,
+        clientY,
+        rect ? { canvasRect: rect } : undefined,
+      )
       if (hit) {
         const targetWindow = wsMerge.windows.find((w) => groupIdForWindow(w) === hit.groupId)
         if (targetWindow) {

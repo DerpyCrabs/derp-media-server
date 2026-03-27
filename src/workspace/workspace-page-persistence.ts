@@ -1,6 +1,7 @@
 import { MediaType } from '@/lib/types'
 import {
   normalizePersistedWorkspaceState,
+  serializeWorkspacePersistedState,
   type PersistedWorkspaceState,
   type WorkspaceSource,
 } from '@/lib/use-workspace'
@@ -38,11 +39,11 @@ export function defaultPersistedState(source: WorkspaceSource): PersistedWorkspa
 
 export function persistWorkspaceState(storageKey: string, state: PersistedWorkspaceState) {
   try {
-    const serializable = {
+    const toStore: PersistedWorkspaceState = {
       ...state,
       pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
     }
-    localStorage.setItem(storageKey, JSON.stringify(serializable))
+    localStorage.setItem(storageKey, serializeWorkspacePersistedState(toStore))
   } catch {}
 }
 

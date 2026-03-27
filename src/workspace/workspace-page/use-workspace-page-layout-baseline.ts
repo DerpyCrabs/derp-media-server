@@ -50,7 +50,7 @@ export function useWorkspacePageLayoutBaseline(
       browserTabIcon: normalized.browserTabIcon ?? prev?.browserTabIcon,
       browserTabIconColor: normalized.browserTabIconColor ?? prev?.browserTabIconColor,
     }
-    const clone = JSON.parse(JSON.stringify(merged)) as PersistedWorkspaceState
+    const clone = structuredClone(merged)
     setWorkspace(merged)
     setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
     setLayoutBaselineSnapshot(clone)
@@ -62,12 +62,12 @@ export function useWorkspacePageLayoutBaseline(
   function revertLayoutToBaseline() {
     const snap = layoutBaselineSnapshot()
     if (!snap) return
-    applyLayoutSnapshot(JSON.parse(JSON.stringify(snap)) as PersistedWorkspaceState)
+    applyLayoutSnapshot(structuredClone(snap))
   }
 
   function syncLayoutBaselineToCurrent() {
     const snap = collectLayoutSnapshot()
-    const clone = JSON.parse(JSON.stringify(snap)) as PersistedWorkspaceState
+    const clone = structuredClone(snap)
     setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
     setLayoutBaselineSnapshot(clone)
   }

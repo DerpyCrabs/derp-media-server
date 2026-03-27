@@ -174,12 +174,12 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     }
     const grabDx = e.clientX - cRect.left - grabBase.x
     const grabDy = e.clientY - cRect.top - grabBase.y
+    let liveBounds: WorkspaceBounds = { ...grabBase }
 
     const onMove = (ev: PointerEvent) => {
       const id = liveLeaderId()
       props.onDragPointerMove(id, ev.clientX, ev.clientY)
-      const cur = props.workspace()?.windows.find((w) => w.id === id)?.layout?.bounds
-      if (!cur) return
+      const cur = liveBounds
       let nx = ev.clientX - cRect.left - grabDx
       let ny = ev.clientY - cRect.top - grabDy
       const vis = WORKSPACE_WINDOW_MIN_VISIBLE_PX
@@ -189,7 +189,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       const minY = vis - cur.height
       const maxY = cRect.height - vis
       ny = Math.max(minY, Math.min(ny, maxY))
-      props.onDragDuringMove(id, { ...cur, x: nx, y: ny })
+      liveBounds = { ...cur, x: nx, y: ny }
+      props.onDragDuringMove(id, liveBounds)
     }
 
     const onUp = (ev: PointerEvent) => {
@@ -198,10 +199,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       document.removeEventListener('pointerup', onUp)
       document.removeEventListener('pointercancel', onUp)
       const id = liveLeaderId()
-      const final = props.workspace()?.windows.find((w) => w.id === id)?.layout?.bounds
-      if (final) {
-        props.onDragPointerEnd(id, final, ev.clientX, ev.clientY)
-      }
+      props.onDragPointerEnd(id, liveBounds, ev.clientX, ev.clientY)
     }
 
     document.addEventListener('pointermove', onMove)
@@ -271,8 +269,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       }
 
       const id = liveLeaderId()
-      const snappedNow = !!props.workspace()?.windows.find((w) => w.id === id)?.layout?.snapZone
-      if (snappedNow) {
+      if (isSnapped()) {
         props.onResizeSnapped(id, applyFreeResize(nb), direction)
       } else {
         props.onUpdateBounds(id, applyFreeResize(nb))

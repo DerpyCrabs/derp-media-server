@@ -62,15 +62,23 @@ export function mergeTargetFromElement(
   return null
 }
 
-export function findMergeTarget(
-  windows: WorkspaceWindowDefinition[],
-  draggedWindowId: string,
+export type MergeTargetHitTestOptions = {
+  /** When set, skip hit-testing when the pointer is outside this rect (merge UI lives in the canvas). */
+  canvasRect?: DOMRect
+}
+
+/** DOM hit-test only; supply `byGroup` from {@link workspaceWindowsByGroupId} (possibly cached across moves). */
+export function mergeTargetHitTest(
+  byGroup: Map<string, WorkspaceWindowDefinition[]>,
+  draggedGroupId: string,
   clientX: number,
   clientY: number,
+  options?: MergeTargetHitTestOptions,
 ): MergeTarget | null {
-  const draggedW = windows.find((w) => w.id === draggedWindowId)
-  const draggedGroupId = draggedW ? groupIdForWindow(draggedW) : draggedWindowId
-  const byGroup = workspaceWindowsByGroupId(windows)
+  const r = options?.canvasRect
+  if (r && (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom)) {
+    return null
+  }
 
   const elements = document.elementsFromPoint(clientX, clientY)
   for (const el of elements) {
@@ -93,4 +101,29 @@ export function findMergeTarget(
     }
   }
   return null
+}
+
+/** Stable while tab membership does not change (e.g. bounds-only updates while dragging). */
+export function mergeTargetGroupSignature(windows: WorkspaceWindowDefinition[]): string {
+  let sig = ''
+  for (const w of windows) {
+    sig += w.id
+    sig += '\0'
+    sig += groupIdForWindow(w)
+    sig += '\0'
+  }
+  return sig
+}
+
+export function findMergeTarget(
+  windows: WorkspaceWindowDefinition[],
+  draggedWindowId: string,
+  clientX: number,
+  clientY: number,
+  options?: MergeTargetHitTestOptions,
+): MergeTarget | null {
+  const draggedW = windows.find((w) => w.id === draggedWindowId)
+  const draggedGroupId = draggedW ? groupIdForWindow(draggedW) : draggedWindowId
+  const byGroup = workspaceWindowsByGroupId(windows)
+  return mergeTargetHitTest(byGroup, draggedGroupId, clientX, clientY, options)
 }
