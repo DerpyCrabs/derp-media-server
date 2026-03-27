@@ -11,6 +11,7 @@ import {
   clampSplitPaneFraction,
   type TabGroupSplitState,
 } from '@/lib/use-workspace'
+import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 
 export function groupIdForWindow(w: WorkspaceWindowDefinition): string {
   return w.tabGroupId ?? w.id
@@ -438,7 +439,7 @@ export function openInNewTabInGroupState(
 
   let newWindow: WorkspaceWindowDefinition
   if (file.isDirectory) {
-    const folderTitle = file.path.split(/[/\\]/).filter(Boolean).pop() ?? 'Folder'
+    const folderTitle = workspaceBrowserDirTitle(file.path)
     newWindow = {
       id,
       type: 'browser',
@@ -513,6 +514,124 @@ export function openInNewTabInGroupState(
     nextWindowId: n + 1,
     activeWindowId: id,
     activeTabMap: { ...state.activeTabMap, [groupId]: id },
+  }
+}
+
+export type ClosedTabHistoryEntry = {
+  window: WorkspaceWindowDefinition
+  groupId: string
+  insertIndex: number
+  soloWindow: boolean
+}
+
+/** Returns null for pinned tabs, split-left tab, or group leader when other tabs remain. */
+export function makeClosedTabHistoryEntry(
+  state: PersistedWorkspaceState,
+  tabId: string,
+): ClosedTabHistoryEntry | null {
+  const victim = state.windows.find((w) => w.id === tabId)
+  if (!victim || victim.tabPinned) return null
+  const gid = groupIdForWindow(victim)
+  if (state.tabGroupSplits?.[gid]?.leftTabId === tabId) return null
+  const members = state.windows.filter((w) => groupIdForWindow(w) === gid)
+  const idx = members.findIndex((w) => w.id === tabId)
+  if (idx < 0) return null
+  const isLeader = !victim.tabGroupId && victim.id === gid
+  if (members.length > 1 && isLeader) return null
+  const soloWindow = members.length <= 1
+  return {
+    window: JSON.parse(JSON.stringify(victim)) as WorkspaceWindowDefinition,
+    groupId: gid,
+    insertIndex: idx,
+    soloWindow,
+  }
+}
+
+export function reopenClosedTabEntry(
+  state: PersistedWorkspaceState,
+  entry: ClosedTabHistoryEntry,
+): PersistedWorkspaceState {
+  const n = state.nextWindowId
+  const newId = `workspace-window-${n}`
+  const win = JSON.parse(JSON.stringify(entry.window)) as WorkspaceWindowDefinition
+  win.id = newId
+  win.tabPinned = false
+  win.openedFromWindowId = undefined
+
+  if (entry.soloWindow) {
+    win.tabGroupId = null
+    return pruneTabGroupSplitsState({
+      ...state,
+      windows: [...state.windows, win],
+      nextWindowId: n + 1,
+      activeWindowId: newId,
+    })
+  }
+
+  const groupStillThere = state.windows.some((w) => groupIdForWindow(w) === entry.groupId)
+  if (!groupStillThere) {
+    win.tabGroupId = null
+    return pruneTabGroupSplitsState({
+      ...state,
+      windows: [...state.windows, win],
+      nextWindowId: n + 1,
+      activeWindowId: newId,
+    })
+  }
+
+  win.tabGroupId = entry.window.tabGroupId ?? entry.groupId
+
+  const nextWindows = insertWindowAtGroupIndex(state.windows, win, entry.groupId, entry.insertIndex)
+
+  return pruneTabGroupSplitsState({
+    ...state,
+    windows: nextWindows,
+    nextWindowId: n + 1,
+    activeWindowId: newId,
+    activeTabMap: { ...state.activeTabMap, [entry.groupId]: newId },
+  })
+}
+
+export function duplicateTabInGroupState(
+  state: PersistedWorkspaceState,
+  tabId: string,
+): PersistedWorkspaceState {
+  const sourceWindow = state.windows.find((w) => w.id === tabId)
+  if (!sourceWindow) return state
+  const groupId = sourceWindow.tabGroupId || tabId
+  const split = state.tabGroupSplits?.[groupId]
+  if (split?.leftTabId === tabId) return state
+
+  const members = state.windows.filter((w) => groupIdForWindow(w) === groupId)
+  const idx = members.findIndex((w) => w.id === tabId)
+  if (idx < 0) return state
+
+  const n = state.nextWindowId
+  const newId = `workspace-window-${n}`
+  const clone: WorkspaceWindowDefinition = {
+    ...sourceWindow,
+    id: newId,
+    tabPinned: false,
+    openedFromWindowId: tabId,
+    initialState: { ...sourceWindow.initialState },
+    layout: sourceWindow.layout ? { ...sourceWindow.layout } : undefined,
+  }
+
+  const withTabGroup = state.windows.map((w) => {
+    if (w.id === tabId && !w.tabGroupId) {
+      return { ...w, tabGroupId: groupId }
+    }
+    return w
+  })
+
+  const nextWindows = insertWindowAtGroupIndex(withTabGroup, clone, groupId, idx + 1)
+
+  return {
+    ...state,
+    windows: nextWindows,
+    nextWindowId: n + 1,
+    activeWindowId: newId,
+    activeTabMap: { ...state.activeTabMap, [groupId]: newId },
   }
 }
 
