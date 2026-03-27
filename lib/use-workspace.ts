@@ -63,7 +63,7 @@ export interface WorkspaceWindowLayout {
 
 export interface WorkspaceWindowDefinition {
   id: string
-  type: 'browser' | 'viewer' | 'player'
+  type: 'browser' | 'viewer'
   title: string
   iconName?: string | null
   iconPath?: string | null
@@ -192,7 +192,7 @@ function sanitizeTabGroupSplitsField(
     if (typeof leftTabId !== 'string') continue
     const members = windows.filter((w) => groupIdForWorkspaceMember(w) === gid)
     const leftWin = members.find((w) => w.id === leftTabId)
-    if (!leftWin || leftWin.type === 'player') continue
+    if (!leftWin) continue
     if (members.filter((w) => w.id !== leftTabId).length < 1) continue
     const rawFrac = (sp as { leftPaneFraction?: unknown }).leftPaneFraction
     const frac =
@@ -259,7 +259,7 @@ export function normalizePersistedWorkspaceState(
       (w): w is WorkspaceWindowDefinition =>
         !!w &&
         typeof w.id === 'string' &&
-        typeof w.type === 'string' &&
+        (w.type === 'browser' || w.type === 'viewer') &&
         !!w.source &&
         isValidSource(w.source),
     )
@@ -338,10 +338,6 @@ export function getWorkspaceWindowTitle(
 ): string {
   if (window.title.trim()) {
     return window.title
-  }
-
-  if (window.type === 'player') {
-    return 'Video Player'
   }
 
   return window.type === 'viewer'

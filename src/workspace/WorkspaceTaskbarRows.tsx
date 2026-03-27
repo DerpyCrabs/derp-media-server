@@ -42,9 +42,7 @@ export function TaskbarGroupRow(props: {
       d.iconPath ??
       (d.type === 'browser'
         ? (d.initialState.dir ?? '')
-        : d.type === 'player'
-          ? (props.playingPath() ?? '')
-          : (d.initialState.viewing ?? ''))
+        : (d.initialState.viewing ?? d.initialState.playing ?? props.playingPath() ?? ''))
     const isDir = d.type === 'browser'
     return path ? `${isDir ? 'Folder' : 'File'}: ${path}` : getWorkspaceWindowTitle(d)
   }

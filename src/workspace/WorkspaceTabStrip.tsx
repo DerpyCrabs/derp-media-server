@@ -284,7 +284,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
       >
         {(ctx) => {
           const tab = allTabs().find((t) => t.id === ctx.tabId)
-          if (!tab || tab.type === 'player') return null
+          if (!tab) return null
           const toggle = props.onToggleTabPinned
           const splitLeftId = props.splitLeftTabId
           const isSplitLeft = !!splitLeftId && ctx.tabId === splitLeftId
@@ -357,7 +357,6 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
               title='Split left tab (fixed pane)'
               class='flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border border-l-0 bg-chart-1/22 px-2 shadow-none outline-none hover:bg-chart-1/35'
               onContextMenu={(e) => {
-                if (tab.type === 'player') return
                 e.preventDefault()
                 e.stopPropagation()
                 setTabMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
@@ -427,7 +426,6 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                           : 'bg-muted/50 hover:bg-muted'
                       }`}
                       onContextMenu={(e) => {
-                        if (tab.type === 'player') return
                         e.preventDefault()
                         e.stopPropagation()
                         setTabMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
@@ -525,7 +523,6 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                           : 'bg-muted/50 hover:bg-muted'
                       }`}
                       onContextMenu={(e) => {
-                        if (tab.type === 'player') return
                         e.preventDefault()
                         e.stopPropagation()
                         setTabMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })

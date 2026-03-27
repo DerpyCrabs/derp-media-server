@@ -22,9 +22,9 @@ import {
   getViewportSize,
   insertWindowAtGroupIndex,
   isVideoPath,
-  PLAYER_WINDOW_ID,
   scaleSnappedWindowsBoundsForCanvasResize,
   snapZoneToBoundsWithOccupied,
+  WORKSPACE_TITLE_BAR_PX,
   type WorkspaceCanvasSize,
 } from '@/lib/workspace-geometry'
 import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
@@ -47,15 +47,13 @@ import {
   workspaceLayoutScopeFromShareToken,
   type WorkspaceLayoutPreset,
 } from '@/lib/workspace-layout-presets'
-import { useMediaPlayer } from '@/lib/use-media-player'
-import { useWorkspacePlaybackStore } from '@/lib/workspace-playback-store'
+import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import {
   SNAP_EDGE_THRESHOLD_PX,
   TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX,
   TOP_SNAP_ASSIST_KEEPALIVE_PX,
   type SnapDetectResult,
 } from '@/lib/use-snap-zones'
-import { WORKSPACE_TITLE_BAR_PX } from '@/lib/workspace-snap-live'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import { api, post } from '@/lib/api'
@@ -116,12 +114,13 @@ import {
   setTabPinnedAndReorderState,
   splitWindowFromGroupState,
   tabsInGroup,
-  visibleTabIdAfterPlayerRemoved,
 } from './workspace/tab-group-ops'
 import { TaskbarGroupRow } from './workspace/WorkspaceTaskbarRows'
 import { WorkspaceBrowserPane, type WorkspaceShareConfig } from './workspace/WorkspaceBrowserPane'
-import { WorkspacePlayerPane } from './workspace/WorkspacePlayerPane'
-import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
+import {
+  WorkspaceViewerPane,
+  type WorkspaceVideoListenOnlyDetail,
+} from './workspace/WorkspaceViewerPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from './workspace/WorkspaceWindowChrome'
 import { WorkspaceNamedLayoutMenu } from './workspace/WorkspaceNamedLayoutMenu'
 import { WorkspaceTaskbarAudio } from './workspace/WorkspaceTaskbarAudio'
@@ -306,7 +305,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       }
     }
     return {
-      windows: w.windows.filter((x) => x.id !== PLAYER_WINDOW_ID),
+      windows: w.windows,
       activeWindowId: w.activeWindowId,
       activeTabMap: { ...w.activeTabMap },
       nextWindowId: w.nextWindowId,
@@ -630,24 +629,10 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
-  function dismissFloatingPlayerForViewer(focusWindowId: string) {
-    setWorkspace((w) => {
-      if (!w || !w.windows.some((x) => x.id === PLAYER_WINDOW_ID)) return w
-      const next = w.windows.filter((x) => x.id !== PLAYER_WINDOW_ID)
-      let activeWindowId = w.activeWindowId
-      if (activeWindowId === PLAYER_WINDOW_ID) {
-        activeWindowId = focusWindowId
-      }
-      const nextTabMap = { ...w.activeTabMap }
-      for (const g of Object.keys(nextTabMap)) {
-        if (nextTabMap[g] === PLAYER_WINDOW_ID) {
-          const rep = visibleTabIdAfterPlayerRemoved(next, g, w.tabGroupSplits)
-          if (rep) nextTabMap[g] = rep
-          else delete nextTabMap[g]
-        }
-      }
-      return { ...w, windows: next, activeWindowId, activeTabMap: nextTabMap }
-    })
+  function stopWorkspacePlaybackFromTaskbar() {
+    const key = storageSessionKeyFull().key
+    if (!key) return
+    useWorkspaceAudio.getState().closePlayer(key)
   }
 
   function closeWindow(windowId: string) {
@@ -656,12 +641,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const t = w.windows.find((x) => x.id === windowId)
     const gid = t ? groupIdForWindow(t) : windowId
     const toRemove = new Set(w.windows.filter((x) => groupIdForWindow(x) === gid).map((x) => x.id))
-    const key = storageSessionKeyFull().key
-    for (const id of toRemove) {
-      if (id === PLAYER_WINDOW_ID) {
-        useWorkspacePlaybackStore.getState().closePlayer(key)
-      }
-    }
     const next = w.windows.filter((x) => !toRemove.has(x.id))
     let active = w.activeWindowId
     if (active != null && toRemove.has(active)) {
@@ -705,12 +684,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
-  function closeTab(tabId: string) {
+  function closeTab(tabId: string, opts?: { ignoreTabPinForListenOnlyDismiss?: boolean }) {
     setWorkspace((prev) => {
       if (!prev) return prev
-      if (tabId === PLAYER_WINDOW_ID) {
-        useWorkspacePlaybackStore.getState().closePlayer(storageSessionKeyFull().key)
-      }
       let work = prev
       const v0 = work.windows.find((w) => w.id === tabId)
       if (!v0) return prev
@@ -720,13 +696,13 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       }
       const victim = work.windows.find((w) => w.id === tabId)
       if (!victim) return pruneTabGroupSplitsState(work)
-      if (victim.tabPinned) return work
+      if (victim.tabPinned && !opts?.ignoreTabPinForListenOnlyDismiss) return work
       const gid = groupIdForWindow(victim)
       const members = work.windows.filter((w) => groupIdForWindow(w) === gid)
       if (members.length <= 1) {
         const next = work.windows.filter((w) => w.id !== tabId)
         let active = work.activeWindowId
-        if (active === tabId) active = next[next.length - 1]?.id ?? active
+        if (active === tabId) active = next.length > 0 ? (next[next.length - 1]?.id ?? null) : null
         const nextMap = { ...work.activeTabMap }
         delete nextMap[gid]
         return pruneTabGroupSplitsState({
@@ -758,11 +734,27 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
+  function listenOnlyHandoffFromWorkspaceViewer(
+    tabId: string,
+    detail: WorkspaceVideoListenOnlyDetail,
+  ) {
+    if (!storageSessionKeyFull().key) return
+    useWorkspaceAudio.getState().setCurrentTime(detail.videoCurrentTime)
+    useWorkspaceAudio.getState().armUserGestureTransport(detail.path)
+    useWorkspaceAudio.getState().playAudio(detail.path, detail.dir)
+    useWorkspaceAudio.getState().setAudioOnly(undefined, true)
+    closeTab(tabId, { ignoreTabPinForListenOnlyDismiss: true })
+  }
+
   function toggleTabPinned(tabId: string) {
     setWorkspace((prev) => {
       if (!prev) return prev
       const w = prev.windows.find((x) => x.id === tabId)
-      if (!w || w.type === 'player') return prev
+      if (
+        !w ||
+        (w.type === 'viewer' && w.initialState?.viewing && isVideoPath(w.initialState.viewing))
+      )
+        return prev
       const gid = groupIdForWindow(w)
       if (isSplitLeftTab(prev, gid, tabId)) return prev
       return setTabPinnedAndReorderState(prev, tabId, !w.tabPinned)
@@ -863,58 +855,67 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   function requestPlay(source: WorkspaceSource, path: string, dir?: string) {
     const key = storageSessionKeyFull().key
-    useWorkspacePlaybackStore.getState().playFile(key, path, dir)
-    const mediaKind = isVideoPath(path) ? 'video' : 'audio'
-    useMediaPlayer.getState().startOrResumePlayback(path, mediaKind)
+    if (!key) return
+    if (!isVideoPath(path)) {
+      useWorkspaceAudio.getState().armUserGestureTransport(path)
+      useWorkspaceAudio.getState().playAudio(path, dir)
+      return
+    }
     const w = workspace()
     if (!w) return
-    if (!isVideoPath(path)) {
-      const next = w.windows.filter((x) => x.id !== PLAYER_WINDOW_ID)
-      let active = w.activeWindowId
-      if (active === PLAYER_WINDOW_ID) {
-        active = next[next.length - 1]?.id ?? active
-      }
-      const nextTabMap = { ...w.activeTabMap }
-      for (const g of Object.keys(nextTabMap)) {
-        if (nextTabMap[g] === PLAYER_WINDOW_ID) {
-          const rep = visibleTabIdAfterPlayerRemoved(next, g, w.tabGroupSplits)
-          if (rep) nextTabMap[g] = rep
-          else delete nextTabMap[g]
-        }
-      }
-      setWorkspace({ ...w, windows: next, activeWindowId: active, activeTabMap: nextTabMap })
+
+    useWorkspaceAudio.getState().setAudioOnly(undefined, false)
+
+    let work: PersistedWorkspaceState = w
+
+    const focusExistingMediaWindow = (target: WorkspaceWindowDefinition) => {
+      const maxZ = Math.max(...work.windows.map((x) => x.layout?.zIndex ?? 1), 1) + 1
+      const gid = groupIdForWindow(target)
+      setWorkspace({
+        ...work,
+        activeWindowId: target.id,
+        activeTabMap: { ...work.activeTabMap, [gid]: target.id },
+        windows: work.windows.map((win) =>
+          groupIdForWindow(win) === gid
+            ? { ...win, layout: { ...win.layout, zIndex: maxZ, minimized: false } }
+            : win,
+        ),
+      })
+    }
+
+    const existingViewer = work.windows.find(
+      (win) => win.type === 'viewer' && win.initialState?.viewing === path,
+    )
+    if (existingViewer) {
+      focusExistingMediaWindow(existingViewer)
       return
     }
 
-    const baseWindows = w.windows.filter((win) => win.id !== PLAYER_WINDOW_ID)
-    const activeWin = w.windows.find((x) => x.id === w.activeWindowId)
+    const activeWin = work.windows.find((x) => x.id === work.activeWindowId)
     let attachGroupId: string | null = null
-    if (activeWin && activeWin.id !== PLAYER_WINDOW_ID) {
+    if (activeWin) {
       const gid = groupIdForWindow(activeWin)
-      const members = tabsInGroup(w.windows, gid)
-      const hasSplit = !!w.tabGroupSplits?.[gid]
+      const members = tabsInGroup(work.windows, gid)
+      const hasSplit = !!work.tabGroupSplits?.[gid]
       if (hasSplit || members.length > 1) {
         attachGroupId = gid
       }
     }
 
+    const parentDir = path.split(/[/\\]/).slice(0, -1).join('/') || ''
+    const initialDir = dir && dir.length > 0 ? dir : parentDir || null
+
+    const viewerId = `workspace-win-${work.nextWindowId}`
+    const nextNextId = work.nextWindowId + 1
+    const baseWindows = work.windows
     const zIndex = Math.max(...baseWindows.map((x) => x.layout?.zIndex ?? 1), 1) + 1
-    const tabMapSansPlayer = { ...w.activeTabMap }
-    for (const g of Object.keys(tabMapSansPlayer)) {
-      if (tabMapSansPlayer[g] === PLAYER_WINDOW_ID) {
-        const rep = visibleTabIdAfterPlayerRemoved(baseWindows, g, w.tabGroupSplits)
-        if (rep) tabMapSansPlayer[g] = rep
-        else delete tabMapSansPlayer[g]
-      }
-    }
+    const nextTabMap = { ...work.activeTabMap }
 
     if (attachGroupId) {
       const anchor =
         baseWindows.find((x) => x.id === activeWin!.id) ??
         tabsInGroup(baseWindows, attachGroupId)[0]
-      if (!anchor) {
-        attachGroupId = null
-      } else {
+      if (anchor) {
         const lb = anchor.layout
         const sharedLayout = lb
           ? {
@@ -925,10 +926,10 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
               zIndex: lb.zIndex ?? zIndex,
               restoreBounds: lb.restoreBounds,
             }
-          : createWindowLayout(undefined, createDefaultBounds(baseWindows.length, 'player'), zIndex)
+          : createWindowLayout(undefined, createDefaultBounds(baseWindows.length, 'viewer'), zIndex)
 
         const groupMembers = tabsInGroup(baseWindows, attachGroupId)
-        const split = w.tabGroupSplits?.[attachGroupId]
+        const split = work.tabGroupSplits?.[attachGroupId]
         let idx =
           split && split.leftTabId
             ? insertIndexAfterAllRightTabs(groupMembers, split.leftTabId)
@@ -936,66 +937,72 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         idx = clampTabInsertIndex(baseWindows, attachGroupId, idx)
 
         const newWin: WorkspaceWindowDefinition = {
-          id: PLAYER_WINDOW_ID,
-          type: 'player',
+          id: viewerId,
+          type: 'viewer',
           title: getPlaybackTitle(path),
           iconName: null,
           iconPath: path,
           iconType: MediaType.VIDEO,
           iconIsVirtual: false,
           source,
-          initialState: {},
+          initialState: { viewing: path, dir: initialDir },
           tabGroupId: attachGroupId,
           layout: sharedLayout,
         }
         const nextWindows = insertWindowAtGroupIndex(baseWindows, newWin, attachGroupId, idx)
-        let next: PersistedWorkspaceState = {
-          ...w,
+        let nextState: PersistedWorkspaceState = {
+          ...work,
           windows: nextWindows,
-          activeWindowId: PLAYER_WINDOW_ID,
-          activeTabMap: { ...tabMapSansPlayer, [attachGroupId]: PLAYER_WINDOW_ID },
+          nextWindowId: nextNextId,
+          activeWindowId: viewerId,
+          activeTabMap: { ...nextTabMap, [attachGroupId]: viewerId },
         }
-        next = ensureSplitActiveNotLeft(next)
-        setWorkspace(next)
+        nextState = ensureSplitActiveNotLeft(nextState)
+        setWorkspace(nextState)
         return
       }
     }
 
     const newWin: WorkspaceWindowDefinition = {
-      id: PLAYER_WINDOW_ID,
-      type: 'player',
+      id: viewerId,
+      type: 'viewer',
       title: getPlaybackTitle(path),
       iconName: null,
       iconPath: path,
       iconType: MediaType.VIDEO,
       iconIsVirtual: false,
       source,
-      initialState: {},
+      initialState: { viewing: path, dir: initialDir },
       tabGroupId: null,
       layout: createWindowLayout(
         undefined,
-        createDefaultBounds(baseWindows.length, 'player'),
+        createDefaultBounds(baseWindows.length, 'viewer'),
         zIndex,
       ),
     }
     setWorkspace({
-      ...w,
+      ...work,
       windows: [...baseWindows, newWin],
-      activeWindowId: PLAYER_WINDOW_ID,
-      activeTabMap: tabMapSansPlayer,
+      nextWindowId: nextNextId,
+      activeWindowId: viewerId,
+      activeTabMap: nextTabMap,
     })
   }
 
-  function resizePlayerWindowForVideoMetadata(videoWidth: number, videoHeight: number) {
+  function resizeViewerWindowForVideoMetadata(
+    windowId: string,
+    videoWidth: number,
+    videoHeight: number,
+  ) {
     if (videoWidth <= 0 || videoHeight <= 0) return
     const aspect = videoWidth / videoHeight
     setWorkspace((prev) => {
       if (!prev) return prev
-      const player = prev.windows.find((x) => x.id === PLAYER_WINDOW_ID)
-      if (!player || player.type !== 'player') return prev
-      const currentBounds = player.layout?.bounds ?? null
+      const viewer = prev.windows.find((x) => x.id === windowId)
+      if (!viewer || viewer.type !== 'viewer') return prev
+      const currentBounds = viewer.layout?.bounds ?? null
       const newBounds = getPlayerBoundsForAspectRatio(aspect, currentBounds)
-      const pb = player.layout?.bounds
+      const pb = viewer.layout?.bounds
       if (
         pb &&
         pb.x === newBounds.x &&
@@ -1008,7 +1015,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       return {
         ...prev,
         windows: prev.windows.map((win) =>
-          win.id === PLAYER_WINDOW_ID
+          win.id === windowId
             ? {
                 ...win,
                 layout: {
@@ -1076,12 +1083,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           )
         : prev,
     )
-    if (!file.isDirectory && isVideoPath(file.path)) {
-      const key = storageSessionKeyFull().key
-      const dir = file.path.split(/[/\\]/).slice(0, -1).join('/') || currentPath || undefined
-      useWorkspacePlaybackStore.getState().playFile(key, file.path, dir)
-      useMediaPlayer.getState().startOrResumePlayback(file.path, 'video')
-    }
   }
 
   function dropFileToTabBar(
@@ -1111,11 +1112,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           )
         : prev,
     )
-    if (!data.isDirectory && isVideoPath(data.path)) {
-      const key = storageSessionKeyFull().key
-      useWorkspacePlaybackStore.getState().playFile(key, data.path, dir || undefined)
-      useMediaPlayer.getState().startOrResumePlayback(data.path, 'video')
-    }
   }
 
   function openBrowser(options?: { source?: WorkspaceSource; initialState?: { dir?: string } }) {
@@ -1195,12 +1191,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           )
         : prev,
     )
-    if (!file.isDirectory && file.type === MediaType.VIDEO) {
-      const key = storageSessionKeyFull().key
-      const d = file.path.split(/[/\\]/).slice(0, -1).join('/') || dir || undefined
-      useWorkspacePlaybackStore.getState().playFile(key, file.path, d)
-      useMediaPlayer.getState().startOrResumePlayback(file.path, 'video')
-    }
   }
 
   function setSplitPaneFraction(groupId: string, fraction: number) {
@@ -1667,28 +1657,35 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const [playbackPlayingPath, setPlaybackPlayingPath] = createSignal<string | null>(null)
   createEffect(() => {
-    const key = storageSessionKeyFull().key
-    if (!key) return
-    const read = () => useWorkspacePlaybackStore.getState().byKey[key]?.playing ?? null
+    const read = () => useWorkspaceAudio.getState().playing ?? null
     setPlaybackPlayingPath(read())
-    const unsub = useWorkspacePlaybackStore.subscribe(() => setPlaybackPlayingPath(read()))
+    const unsub = useWorkspaceAudio.subscribe(() => setPlaybackPlayingPath(read()))
     onCleanup(unsub)
   })
 
-  const mediaIconTick = useStoreSync(useMediaPlayer)
+  const wxAudioTick = useStoreSync(useWorkspaceAudio)
 
   const workspaceFileIconContext = (): FileIconContext => {
-    void mediaIconTick()
-    const st = useMediaPlayer.getState()
+    void wxAudioTick()
+    const key = storageSessionKeyFull().key
+    const slice = key ? useWorkspaceAudio.getState().byKey[key] : undefined
+    const tm = useWorkspaceAudio.getState()
     const sp = sharePanel()
+    const playing = slice?.playing ?? null
+    const audioOnly = slice?.audioOnly ?? false
+    const audioMode = !!(playing && (!isVideoPath(playing) || audioOnly))
+    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
+    const transportAudioForRow = !!playing && !!tm.playing && norm(playing) === norm(tm.playing)
+    const taskbarDrivesIcon = audioMode && transportAudioForRow
+
     return {
       customIcons: settingsQuery.data?.customIcons ?? {},
       knowledgeBases: settingsQuery.data?.knowledgeBases ?? [],
-      playingPath: playbackPlayingPath(),
-      currentFile: st.currentFile,
-      mediaPlayerIsPlaying: st.isPlaying,
-      mediaType: st.mediaType,
-      mediaShare: sp ? { token: sp.token, sharePath: sp.sharePath } : null,
+      playingPath: playing,
+      currentFile: audioMode ? playing : null,
+      mediaPlayerIsPlaying: taskbarDrivesIcon ? tm.isPlaying : false,
+      mediaType: audioMode ? 'audio' : null,
+      mediaShare: sp ? { token: sp.token, sharePath: sp.sharePath } : undefined,
     }
   }
 
@@ -1699,7 +1696,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const renderedGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))
   const pinnedItems = createMemo(() => workspace()?.pinnedTaskbarItems ?? [])
   const pinnedItemsForTaskbar = createMemo(() => {
-    void mediaIconTick()
+    void wxAudioTick()
     void playbackPlayingPath()
     return pinnedItems()
   })
@@ -1710,7 +1707,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   /** Solid <For> passes props.each to mapArray as the list; it must be an array, not a memo fn. */
   const taskbarWindowRows = createMemo(() => {
-    void mediaIconTick()
+    void wxAudioTick()
     void playbackPlayingPath()
     return (
       <For each={taskbarGroupIds()}>
@@ -1784,7 +1781,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           </Show>
           <For each={renderedGroupIds()}>
             {(gid) => {
-              void mediaIconTick()
+              void wxAudioTick()
               void playbackPlayingPath()
               const tabs = () => tabsInGroup(workspace()?.windows ?? [], gid)
               const leader = () => tabs()[0]
@@ -1896,16 +1893,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                       props.shareConfig ? (props.shareCanEdit ?? false) : false
                                     }
                                     onUpdateViewing={updateWindowViewing}
-                                    onDismissFloatingPlayer={dismissFloatingPlayerForViewer}
-                                  />
-                                </Show>
-                                <Show when={windowDef()?.type === 'player'}>
-                                  <WorkspacePlayerPane
-                                    windowId={tabId}
-                                    storageKey={storageSessionKeyFull().key}
-                                    window={() => workspace()?.windows.find((w) => w.id === tabId)}
-                                    shareFallback={sharePanel}
-                                    onVideoMetadataLoaded={resizePlayerWindowForVideoMetadata}
+                                    onVideoMetadataLoaded={(vw, vh) =>
+                                      resizeViewerWindowForVideoMetadata(tabId, vw, vh)
+                                    }
+                                    onListenOnlyHandoff={(d) =>
+                                      listenOnlyHandoffFromWorkspaceViewer(tabId, d)
+                                    }
+                                    onListenOnlyDismissViewer={() =>
+                                      closeTab(tabId, { ignoreTabPinForListenOnlyDismiss: true })
+                                    }
                                   />
                                 </Show>
                               </div>
@@ -1971,18 +1967,17 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                     props.shareConfig ? (props.shareCanEdit ?? false) : false
                                   }
                                   onUpdateViewing={updateWindowViewing}
-                                  onDismissFloatingPlayer={dismissFloatingPlayerForViewer}
-                                />
-                              </Show>
-                              <Show when={leftWindowDef()?.type === 'player'}>
-                                <WorkspacePlayerPane
-                                  windowId={leftTabId()}
-                                  storageKey={storageSessionKeyFull().key}
-                                  window={() =>
-                                    workspace()?.windows.find((w) => w.id === leftTabId())
+                                  onVideoMetadataLoaded={(vw, vh) =>
+                                    resizeViewerWindowForVideoMetadata(leftTabId(), vw, vh)
                                   }
-                                  shareFallback={sharePanel}
-                                  onVideoMetadataLoaded={resizePlayerWindowForVideoMetadata}
+                                  onListenOnlyHandoff={(d) =>
+                                    listenOnlyHandoffFromWorkspaceViewer(leftTabId(), d)
+                                  }
+                                  onListenOnlyDismissViewer={() =>
+                                    closeTab(leftTabId(), {
+                                      ignoreTabPinForListenOnlyDismiss: true,
+                                    })
+                                  }
                                 />
                               </Show>
                             </div>
@@ -2039,18 +2034,17 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                                       props.shareConfig ? (props.shareCanEdit ?? false) : false
                                     }
                                     onUpdateViewing={updateWindowViewing}
-                                    onDismissFloatingPlayer={dismissFloatingPlayerForViewer}
-                                  />
-                                </Show>
-                                <Show when={rightWindowDef()?.type === 'player'}>
-                                  <WorkspacePlayerPane
-                                    windowId={visibleTabId()}
-                                    storageKey={storageSessionKeyFull().key}
-                                    window={() =>
-                                      workspace()?.windows.find((w) => w.id === visibleTabId())
+                                    onVideoMetadataLoaded={(vw, vh) =>
+                                      resizeViewerWindowForVideoMetadata(visibleTabId(), vw, vh)
                                     }
-                                    shareFallback={sharePanel}
-                                    onVideoMetadataLoaded={resizePlayerWindowForVideoMetadata}
+                                    onListenOnlyHandoff={(d) =>
+                                      listenOnlyHandoffFromWorkspaceViewer(visibleTabId(), d)
+                                    }
+                                    onListenOnlyDismissViewer={() =>
+                                      closeTab(visibleTabId(), {
+                                        ignoreTabPinForListenOnlyDismiss: true,
+                                      })
+                                    }
                                   />
                                 </Show>
                               </div>
@@ -2181,11 +2175,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
               }}
               onShowVideo={() => {
                 const key = storageSessionKeyFull().key
-                const path = key
-                  ? (useWorkspacePlaybackStore.getState().byKey[key]?.playing ?? null)
-                  : null
+                const path = key ? (useWorkspaceAudio.getState().byKey[key]?.playing ?? null) : null
                 if (!path) return
-                const dir = key ? useWorkspacePlaybackStore.getState().byKey[key]?.dir : undefined
+                const dir = key ? useWorkspaceAudio.getState().byKey[key]?.dir : undefined
                 const w = workspace()
                 const viewerWin = w?.windows.find(
                   (win) => win.type === 'viewer' && win.initialState?.viewing === path,
@@ -2196,6 +2188,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
                 }
                 requestPlay(browserSource(), path, dir ?? undefined)
               }}
+              onStopPlayback={stopWorkspacePlaybackFromTaskbar}
             />
             <WorkspaceNamedLayoutMenu
               scope={layoutScope()}

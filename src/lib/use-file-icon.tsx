@@ -131,7 +131,9 @@ function renderFileIcon(
   if (isCurrentFile && (isAudioFile || isVideoFile)) {
     const isActuallyPlaying =
       mediaPlayerIsPlaying &&
-      ((isAudioFile && mediaType === 'audio') || (isVideoFile && mediaType === 'video'))
+      ((isAudioFile && mediaType === 'audio') ||
+        (isVideoFile && mediaType === 'video') ||
+        (isVideoFile && mediaType === 'audio'))
     return isActuallyPlaying ? (
       <Play class={`${cls} text-primary`} size={sz} stroke-width={sw} />
     ) : (
@@ -261,18 +263,16 @@ export function workspaceTaskbarRowIcon(
     tab.iconPath ??
     (tab.type === 'browser'
       ? (tab.initialState.dir ?? '')
-      : tab.type === 'player'
-        ? (playbackPath ?? '')
-        : (tab.initialState.viewing ?? ''))
+      : (tab.initialState.viewing ?? tab.initialState.playing ?? playbackPath ?? ''))
   const iconType =
     tab.iconType ??
     (tab.type === 'browser'
       ? MediaType.FOLDER
-      : tab.type === 'player'
-        ? MediaType.VIDEO
-        : tab.initialState.viewing
-          ? getMediaType(tab.initialState.viewing.split('.').pop() ?? '')
-          : MediaType.OTHER)
+      : tab.initialState.viewing || tab.initialState.playing
+        ? getMediaType(
+            (tab.initialState.viewing ?? tab.initialState.playing ?? '').split('.').pop() ?? '',
+          )
+        : MediaType.OTHER)
   return renderFileIcon(
     iconType,
     path,
