@@ -114,7 +114,7 @@ export function getPlayerBoundsForAspectRatio(
 
 export function createDefaultBounds(
   index: number,
-  type: WorkspaceWindowDefinition['type'],
+  _type: WorkspaceWindowDefinition['type'],
 ): NonNullable<WorkspaceWindowLayout['bounds']> {
   const viewport = getViewportSize()
   const maxWidth = Math.max(viewport.width - 48, 420)

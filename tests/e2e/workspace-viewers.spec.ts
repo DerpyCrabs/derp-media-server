@@ -256,6 +256,28 @@ test.describe('Workspace Image Viewer', () => {
       await expect(prevViewer.locator('img[alt="photo.jpg"]')).toBeVisible()
     })
   })
+
+  test('image viewer: arrow keys do not navigate while a search field is focused', async () => {
+    await gotoWorkspace(page)
+    await openFileFromBrowser(page, 'Images', 'photo.jpg')
+    const viewer = getWindowGroups(page).nth(1).locator('.workspace-window-content')
+    await expect(viewer.locator('img[alt="photo.jpg"]')).toBeVisible()
+    await expect(viewer.getByText('1 of 2')).toBeVisible()
+
+    const browserGroup = getWindowGroups(page).first()
+    await browserGroup.locator('[data-workspace-tab-id]').first().click()
+    const browser = getBrowserContent(page)
+    await browser.getByRole('button', { name: 'Home' }).click()
+    await browser.getByText('Notes', { exact: true }).click()
+    await browser.getByRole('button', { name: 'Open search' }).click()
+    const search = page.getByPlaceholder('Search notes...')
+    await expect(search).toBeVisible()
+    await search.focus()
+    await page.keyboard.press('ArrowRight')
+
+    await expect(viewer.locator('img[alt="photo.jpg"]')).toBeVisible()
+    await expect(viewer.getByText('1 of 2')).toBeVisible()
+  })
 })
 
 test.describe('Workspace PDF Viewer', () => {

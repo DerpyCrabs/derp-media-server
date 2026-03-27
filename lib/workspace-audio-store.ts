@@ -17,6 +17,7 @@ interface WorkspaceAudioState extends WorkspaceAudioSessionSlice {
 }
 
 const listeners = createStoreListeners()
+const progressListeners = createStoreListeners()
 
 /** Set from click handlers so `<audio>.play()` runs under user activation (see WorkspaceTaskbarAudio). */
 let userGestureTransportPath: string | null = null
@@ -41,14 +42,19 @@ function sessionSlice(): WorkspaceAudioSessionSlice {
   }
 }
 
+function setCurrentTime(time: number) {
+  setStore('currentTime', time)
+  progressListeners.notify()
+}
+
 /** Select audio track and start transport. */
 function playAudio(path: string, dir?: string) {
   const prev = store.playing
   setStore('playing', path)
   if (prev !== path) {
     setStore('audioOnly', false)
-    setStore('currentTime', 0)
     setStore('duration', 0)
+    setCurrentTime(0)
   }
   setStore('isPlaying', true)
   if (dir !== undefined) setStore('dir', dir || null)
@@ -65,7 +71,7 @@ function closePlayer(_key?: string) {
   setStore('audioOnly', false)
   setStore('dir', null)
   setStore('isPlaying', false)
-  setStore('currentTime', 0)
+  setCurrentTime(0)
   setStore('duration', 0)
   setStore('volume', 1)
   setStore('isMuted', false)
@@ -82,8 +88,8 @@ function startOrResumePlayback(path: string) {
     setStore('isPlaying', true)
   } else {
     setStore('playing', path)
-    setStore('currentTime', 0)
     setStore('duration', 0)
+    setCurrentTime(0)
     setStore('isPlaying', true)
   }
   listeners.notify()
@@ -95,8 +101,8 @@ function toggleOrSelectFile(path: string) {
     setStore('isPlaying', !store.isPlaying)
   } else {
     setStore('playing', path)
-    setStore('currentTime', 0)
     setStore('duration', 0)
+    setCurrentTime(0)
     setStore('isPlaying', true)
     userGestureTransportPath = path
   }
@@ -106,19 +112,14 @@ function toggleOrSelectFile(path: string) {
 function setCurrentFile(path: string) {
   if (store.playing !== path) {
     setStore('playing', path)
-    setStore('currentTime', 0)
     setStore('duration', 0)
+    setCurrentTime(0)
     listeners.notify()
   }
 }
 
 function setIsPlaying(playing: boolean) {
   setStore('isPlaying', playing)
-  listeners.notify()
-}
-
-function setCurrentTime(time: number) {
-  setStore('currentTime', time)
   listeners.notify()
 }
 
@@ -147,7 +148,7 @@ function toggleRepeat() {
 /** Transport-only clear; keeps `playing` / `dir` / `audioOnly`. */
 function reset() {
   setStore('isPlaying', false)
-  setStore('currentTime', 0)
+  setCurrentTime(0)
   setStore('duration', 0)
   setStore('volume', 1)
   setStore('isMuted', false)
@@ -224,4 +225,5 @@ const api = {
 export const useWorkspaceAudio = {
   getState: () => api,
   subscribe: (fn: () => void) => listeners.subscribe(fn),
+  subscribeProgress: (fn: () => void) => progressListeners.subscribe(fn),
 }
