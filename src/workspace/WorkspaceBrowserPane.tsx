@@ -28,6 +28,7 @@ import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
+import { fileDownloadHref } from '@/lib/download-urls'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
@@ -667,22 +668,16 @@ export function WorkspaceBrowserPane(props: Props) {
 
   function unsupportedDownloadHref(file: FileItem) {
     const sh = share()
-    if (sh) {
-      const rel = stripSharePrefix(file.path, sh.sharePath.replace(/\\/g, '/'))
-      return `/api/share/${sh.token}/download?path=${encodeURIComponent(rel)}`
-    }
-    return `/api/files/download?path=${encodeURIComponent(file.path)}`
+    return fileDownloadHref(file.path, sh ? { token: sh.token, sharePath: sh.sharePath } : null)
   }
 
   function handleContextDownload(file: FileItem) {
     const link = document.createElement('a')
     const sh = share()
-    if (sh) {
-      const rel = stripSharePrefix(file.path, sh.sharePath.replace(/\\/g, '/'))
-      link.href = `/api/share/${sh.token}/download?path=${encodeURIComponent(rel)}`
-    } else {
-      link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`
-    }
+    link.href = fileDownloadHref(
+      file.path,
+      sh ? { token: sh.token, sharePath: sh.sharePath } : null,
+    )
     link.download = file.isDirectory ? `${file.name}.zip` : file.name
     document.body.appendChild(link)
     link.click()

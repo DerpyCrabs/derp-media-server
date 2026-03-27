@@ -3,6 +3,7 @@ import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { fileDownloadHref } from '@/lib/download-urls'
 import { getMediaType } from '@/lib/media-utils'
 import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
@@ -93,11 +94,7 @@ export function WorkspaceViewerPane(props: Props) {
     const path = viewingPath()
     if (!path) return '#'
     const sh = share()
-    if (sh) {
-      const rel = stripSharePrefix(path.replace(/\\/g, '/'), sh.sharePath)
-      return `/api/share/${sh.token}/download?path=${encodeURIComponent(rel)}`
-    }
-    return `/api/files/download?path=${encodeURIComponent(path)}`
+    return fileDownloadHref(path, sh ? { token: sh.token, sharePath: sh.sharePath } : null)
   })
 
   const dirFromWindow = createMemo(() => win()?.initialState?.dir ?? '')
@@ -201,6 +198,10 @@ export function WorkspaceViewerPane(props: Props) {
   createEffect(() => {
     if (mediaType() !== MediaType.IMAGE || !viewingPath()) return
     const handler = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('input, textarea, select, [contenteditable="true"]') != null) {
+        return
+      }
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
         goPrevImage()

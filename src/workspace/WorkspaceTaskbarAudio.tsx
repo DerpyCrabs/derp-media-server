@@ -17,7 +17,7 @@ import VolumeX from 'lucide-solid/icons/volume-x'
 import X from 'lucide-solid/icons/x'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import { useStoreSync } from '../lib/solid-store-sync'
+import { useStoreProgressSync, useStoreSync } from '../lib/solid-store-sync'
 import {
   buildAudioExtractUrl,
   buildAudioMetadataUrl,
@@ -82,7 +82,8 @@ type Props = {
 }
 
 export function WorkspaceTaskbarAudio(props: Props) {
-  const audioTick = useStoreSync(useWorkspaceAudio)
+  const transportTick = useStoreSync(useWorkspaceAudio)
+  const progressTick = useStoreProgressSync(useWorkspaceAudio)
   const [detailsOpen, setDetailsOpen] = createSignal(false)
   const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
   const srcLoadGenRef = { current: 0 }
@@ -90,7 +91,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const swappingSrcRef = { current: false }
 
   const slice = createMemo(() => {
-    void audioTick()
+    void transportTick()
     const st = useWorkspaceAudio.getState()
     return {
       playing: st.playing,
@@ -196,12 +197,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
   })
 
   const storeSlice = createMemo(() => {
-    void audioTick()
+    void transportTick()
     return useWorkspaceAudio.getState()
   })
 
   const displayDuration = createMemo(() => {
-    void audioTick()
+    void transportTick()
     const meta = audioMetadata()
     const d = useWorkspaceAudio.getState().duration
     if (isVideoFile() && audioOnlyWs() && meta?.duration != null && meta.duration > 0 && d <= 0) {
@@ -210,7 +211,10 @@ export function WorkspaceTaskbarAudio(props: Props) {
     return d
   })
 
-  const currentTimeDisplay = createMemo(() => storeSlice().currentTime)
+  const currentTimeDisplay = createMemo(() => {
+    void progressTick()
+    return useWorkspaceAudio.getState().currentTime
+  })
 
   function playNextAudio() {
     const st = useWorkspaceAudio.getState()
@@ -385,7 +389,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
   })
 
   createEffect(() => {
-    void audioTick()
+    void transportTick()
     const audio = getTaskbarAudioElement(audioEl())
     if (!audio) return
 
@@ -468,40 +472,66 @@ export function WorkspaceTaskbarAudio(props: Props) {
   createEffect(() => {
     if (!('mediaSession' in navigator)) return
     const path = playingPath()
+    const handle = shouldHandleAudio()
     const audio = getTaskbarAudioElement(audioEl())
-    if (!path || !shouldHandleAudio() || !audio) return
+    void audioMetadata()
+    void displayImageUrl()
 
-    navigator.mediaSession.setActionHandler('play', () => {
-      useWorkspaceAudio.getState().setIsPlaying(true)
-      void getTaskbarAudioElement(audioEl())
-        ?.play()
-        .catch(() => {})
-    })
-    navigator.mediaSession.setActionHandler('pause', () => {
-      useWorkspaceAudio.getState().setIsPlaying(false)
-      getTaskbarAudioElement(audioEl())?.pause()
-    })
-    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-      const a = getTaskbarAudioElement(audioEl())
-      if (!a) return
-      const skipTime = details.seekOffset || 10
-      a.currentTime = Math.max(0, a.currentTime - skipTime)
-    })
-    navigator.mediaSession.setActionHandler('seekforward', (details) => {
-      const a = getTaskbarAudioElement(audioEl())
-      if (!a) return
-      const skipTime = details.seekOffset || 10
-      a.currentTime = Math.min(a.duration, a.currentTime + skipTime)
-    })
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
-      const a = getTaskbarAudioElement(audioEl())
-      if (!a || details.seekTime == null) return
-      a.currentTime = details.seekTime
-    })
-    navigator.mediaSession.setActionHandler('previoustrack', playPreviousAudio)
-    navigator.mediaSession.setActionHandler('nexttrack', playNextAudio)
+    if (path && handle) {
+      const isVideoAudio = isVideoFile() && audioOnlyWs()
+      const meta = audioMetadata()
+      const metadata: MediaMetadataInit = {
+        title: isVideoAudio ? `${fileName()} (Audio)` : meta?.title || fileName(),
+        artist: isVideoAudio ? 'Video Audio' : meta?.artist || 'Unknown Artist',
+        album: meta?.album || currentDir() || 'Unknown Album',
+      }
+
+      const artworkUrl = displayImageUrl()
+      if (artworkUrl) {
+        const fullArtworkUrl = artworkUrl.startsWith('data:')
+          ? artworkUrl
+          : new URL(artworkUrl, window.location.origin).href
+        metadata.artwork = [
+          { src: fullArtworkUrl, sizes: '512x512', type: 'image/jpeg' },
+          { src: fullArtworkUrl, sizes: '256x256', type: 'image/jpeg' },
+          { src: fullArtworkUrl, sizes: '128x128', type: 'image/jpeg' },
+        ]
+      }
+
+      navigator.mediaSession.metadata = new MediaMetadata(metadata)
+    }
+
+    if (path && handle && audio) {
+      const sessionAudio = audio
+      navigator.mediaSession.setActionHandler('play', () => {
+        useWorkspaceAudio.getState().setIsPlaying(true)
+        void sessionAudio.play().catch(() => {})
+      })
+      navigator.mediaSession.setActionHandler('pause', () => {
+        useWorkspaceAudio.getState().setIsPlaying(false)
+        sessionAudio.pause()
+      })
+      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        const skipTime = details.seekOffset || 10
+        sessionAudio.currentTime = Math.max(0, sessionAudio.currentTime - skipTime)
+      })
+      navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        const skipTime = details.seekOffset || 10
+        sessionAudio.currentTime = Math.min(
+          sessionAudio.duration,
+          sessionAudio.currentTime + skipTime,
+        )
+      })
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime == null) return
+        sessionAudio.currentTime = details.seekTime
+      })
+      navigator.mediaSession.setActionHandler('previoustrack', playPreviousAudio)
+      navigator.mediaSession.setActionHandler('nexttrack', playNextAudio)
+    }
 
     onCleanup(() => {
+      if (!('mediaSession' in navigator)) return
       navigator.mediaSession.setActionHandler('play', null)
       navigator.mediaSession.setActionHandler('pause', null)
       navigator.mediaSession.setActionHandler('seekbackward', null)
@@ -510,33 +540,6 @@ export function WorkspaceTaskbarAudio(props: Props) {
       navigator.mediaSession.setActionHandler('previoustrack', null)
       navigator.mediaSession.setActionHandler('nexttrack', null)
     })
-  })
-
-  createEffect(() => {
-    const path = playingPath()
-    if (!path || !shouldHandleAudio() || !('mediaSession' in navigator)) return
-
-    const isVideoAudio = isVideoFile() && audioOnlyWs()
-    const meta = audioMetadata()
-    const metadata: MediaMetadataInit = {
-      title: isVideoAudio ? `${fileName()} (Audio)` : meta?.title || fileName(),
-      artist: isVideoAudio ? 'Video Audio' : meta?.artist || 'Unknown Artist',
-      album: meta?.album || currentDir() || 'Unknown Album',
-    }
-
-    const artworkUrl = displayImageUrl()
-    if (artworkUrl) {
-      const fullArtworkUrl = artworkUrl.startsWith('data:')
-        ? artworkUrl
-        : new URL(artworkUrl, window.location.origin).href
-      metadata.artwork = [
-        { src: fullArtworkUrl, sizes: '512x512', type: 'image/jpeg' },
-        { src: fullArtworkUrl, sizes: '256x256', type: 'image/jpeg' },
-        { src: fullArtworkUrl, sizes: '128x128', type: 'image/jpeg' },
-      ]
-    }
-
-    navigator.mediaSession.metadata = new MediaMetadata(metadata)
   })
 
   createEffect(() => {
