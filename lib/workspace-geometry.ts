@@ -46,8 +46,8 @@ export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
 }
 
 const TASKBAR_HEIGHT = 32
-/** Height of the player window title bar (drag handle + border). Must match workspace window header. */
-const PLAYER_WINDOW_HEADER_HEIGHT = 33
+
+export const WORKSPACE_TITLE_BAR_PX = 32
 
 export function getViewportSize() {
   if (typeof window === 'undefined') {
@@ -72,7 +72,7 @@ export function getPlayerBoundsForAspectRatio(
   const viewport = getViewportSize()
   const maxWidth = Math.max(viewport.width - 48, 420)
   const maxWindowHeight = Math.max(viewport.height - 48, 320)
-  const maxContentHeight = maxWindowHeight - PLAYER_WINDOW_HEADER_HEIGHT
+  const maxContentHeight = maxWindowHeight - WORKSPACE_TITLE_BAR_PX
   const minWidth = 360
   const minWindowHeight = 240
 
@@ -86,14 +86,14 @@ export function getPlayerBoundsForAspectRatio(
     contentHeight = Math.round(contentWidth / aspectRatio)
   }
   let width = Math.max(minWidth, Math.min(maxWidth, contentWidth))
-  let height = Math.round(width / aspectRatio) + PLAYER_WINDOW_HEADER_HEIGHT
+  let height = Math.round(width / aspectRatio) + WORKSPACE_TITLE_BAR_PX
   if (height > maxWindowHeight) {
     height = maxWindowHeight
-    width = Math.round((height - PLAYER_WINDOW_HEADER_HEIGHT) * aspectRatio)
+    width = Math.round((height - WORKSPACE_TITLE_BAR_PX) * aspectRatio)
     width = Math.max(minWidth, Math.min(maxWidth, width))
   } else if (height < minWindowHeight) {
     height = minWindowHeight
-    width = Math.round((height - PLAYER_WINDOW_HEADER_HEIGHT) * aspectRatio)
+    width = Math.round((height - WORKSPACE_TITLE_BAR_PX) * aspectRatio)
     width = Math.max(minWidth, Math.min(maxWidth, width))
   }
 
@@ -120,10 +120,6 @@ export function createDefaultBounds(
   const maxWidth = Math.max(viewport.width - 48, 420)
   const maxHeight = Math.max(viewport.height - 48, 320)
   const isVertical = viewport.height > viewport.width
-
-  if (type === 'player') {
-    return getPlayerBoundsForAspectRatio(16 / 9, null)
-  }
 
   let width: number
   let height: number
@@ -466,8 +462,6 @@ export function getPlaybackTitle(path: string | undefined) {
   const fileName = normalized.split('/').pop()
   return fileName || 'Video Player'
 }
-
-export const PLAYER_WINDOW_ID = 'workspace-player-window'
 
 export function isVideoPath(path: string) {
   const extension = path.split('.').pop()?.toLowerCase() ?? ''

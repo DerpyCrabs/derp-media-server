@@ -527,7 +527,7 @@ test.describe('State Persistence', () => {
     await expect(tabStrip).toBeVisible()
   })
 
-  test('player window is excluded from persistence', async () => {
+  test('video viewer tab is restored after reload', async () => {
     await gotoWorkspace(page)
 
     const groups = getWindowGroups(page)
@@ -546,6 +546,6 @@ test.describe('State Persistence', () => {
     await expect(getWindowGroups(page).first()).toBeVisible()
 
     const reloadedVideo = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
-    await expect(reloadedVideo).toHaveCount(0)
+    await expect(reloadedVideo).toBeVisible({ timeout: 10_000 })
   })
 })

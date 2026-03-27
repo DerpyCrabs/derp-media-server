@@ -8,9 +8,6 @@ import {
 
 const MERGE_TOL = 6
 
-/** Browser workspace window chrome title bar (matches `h-8`). */
-export const WORKSPACE_TITLE_BAR_PX = 32
-
 function mergeCloseSorted(sorted: number[]): number[] {
   if (sorted.length === 0) return []
   const out: number[] = [sorted[0]!]

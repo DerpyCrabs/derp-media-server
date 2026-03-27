@@ -1,9 +1,5 @@
 import { getMediaType } from '@/lib/media-utils'
-import {
-  PLAYER_WINDOW_ID,
-  createDefaultBounds,
-  insertWindowAtGroupIndex,
-} from '@/lib/workspace-geometry'
+import { createDefaultBounds, insertWindowAtGroupIndex } from '@/lib/workspace-geometry'
 import { MediaType } from '@/lib/types'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
@@ -50,15 +46,15 @@ export function tabsInGroup(
 }
 
 /**
- * After removing the player tab, choose activeTabMap[groupId] so the right pane / tab strip does not
- * fall back to groupTabs[0] (often the split-left browser), which duplicates the file browser on the right.
+ * After removing a tab from a group, pick the next visible tab so the right pane does not
+ * fall back to groupTabs[0] (often the split-left browser), which would duplicate the file browser on the right.
  */
 export function visibleTabIdAfterPlayerRemoved(
   windows: WorkspaceWindowDefinition[],
   groupId: string,
   tabGroupSplits: PersistedWorkspaceState['tabGroupSplits'],
 ): string | null {
-  const members = tabsInGroup(windows, groupId).filter((m) => m.id !== PLAYER_WINDOW_ID)
+  const members = tabsInGroup(windows, groupId)
   if (members.length === 0) return null
   const split = tabGroupSplits?.[groupId]
   const leftId = split?.leftTabId
@@ -133,7 +129,7 @@ export function pruneTabGroupSplitsState(state: PersistedWorkspaceState): Persis
   for (const [gid, sp] of Object.entries(splits)) {
     const members = tabsInGroup(state.windows, gid)
     const left = members.find((w) => w.id === sp.leftTabId)
-    if (!left || left.type === 'player') continue
+    if (!left) continue
     if (members.filter((w) => w.id !== sp.leftTabId).length < 1) continue
     next[gid] = {
       ...sp,
@@ -219,7 +215,7 @@ export function enterSplitViewState(
 ): PersistedWorkspaceState {
   const members = tabsInGroup(state.windows, groupId)
   const left = members.find((w) => w.id === leftTabId)
-  if (!left || left.type === 'player') return state
+  if (!left) return state
   if (members.filter((w) => w.id !== leftTabId).length < 1) return state
   const nextSplits = {
     ...(state.tabGroupSplits ?? {}),
@@ -264,7 +260,7 @@ export function setSplitLeftTabFromContextState(
   tabId: string,
 ): PersistedWorkspaceState {
   const w = state.windows.find((win) => win.id === tabId)
-  if (!w || w.type === 'player') return state
+  if (!w) return state
   const groupId = groupIdForWindow(w)
   return enterSplitViewState(state, groupId, tabId)
 }

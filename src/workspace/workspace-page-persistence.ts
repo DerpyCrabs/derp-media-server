@@ -4,7 +4,7 @@ import {
   type PersistedWorkspaceState,
   type WorkspaceSource,
 } from '@/lib/use-workspace'
-import { PLAYER_WINDOW_ID, createDefaultBounds, createWindowLayout } from '@/lib/workspace-geometry'
+import { createDefaultBounds, createWindowLayout } from '@/lib/workspace-geometry'
 
 export const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 
@@ -40,7 +40,6 @@ export function persistWorkspaceState(storageKey: string, state: PersistedWorksp
   try {
     const serializable = {
       ...state,
-      windows: state.windows.filter((w) => w.id !== PLAYER_WINDOW_ID),
       pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
     }
     localStorage.setItem(storageKey, JSON.stringify(serializable))

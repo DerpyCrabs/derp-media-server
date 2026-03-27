@@ -62,6 +62,7 @@ import { KbInlineCreateFooter } from '../file-browser/KbInlineCreateFooter'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
 import type { UploadToastState } from '../file-browser/types'
 import { UploadMenu } from '../file-browser/UploadMenu'
+import { DEFAULT_WORKSPACE_SOURCE } from './workspace-page-persistence'
 import { WorkspaceBrowserModalLayer } from './WorkspaceBrowserModalLayer'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-focus'
@@ -1089,8 +1090,13 @@ export function WorkspaceBrowserPane(props: Props) {
     const mt = file.type
     if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
       const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)
-      const src = wdef?.source
-      if (src) props.onRequestPlay?.(src, file.path, currentPath() || undefined)
+      const sh = share()
+      const src =
+        wdef?.source ??
+        (sh
+          ? { kind: 'share', token: sh.token, sharePath: sh.sharePath }
+          : DEFAULT_WORKSPACE_SOURCE)
+      props.onRequestPlay?.(src, file.path, currentPath() || undefined)
       return
     }
     if (mt === MediaType.OTHER) {
