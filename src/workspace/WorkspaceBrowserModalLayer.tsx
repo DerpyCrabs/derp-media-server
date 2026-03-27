@@ -1,4 +1,5 @@
 import type { PasteData } from '@/lib/paste-data'
+import type { ShareLink } from '@/lib/shares'
 import type { FileItem } from '@/lib/types'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
@@ -10,6 +11,7 @@ import { IconEditorDialog } from '../file-browser/IconEditorDialog'
 import { MoveToDialog } from '../file-browser/MoveToDialog'
 import { PasteDialog } from '../file-browser/PasteDialog'
 import { RenameDialog } from '../file-browser/RenameDialog'
+import { ShareDialog } from '../file-browser/ShareDialog'
 import type { UploadToastState } from '../file-browser/types'
 import { UploadToastStack } from '../file-browser/UploadToastStack'
 
@@ -51,6 +53,14 @@ export type WorkspaceBrowserModalLayerProps = {
   showOpenInNewTabForFiles: boolean
   onOpenInSplitViewFromRow?: (file: FileItem) => void
   onContextDownload: (file: FileItem) => void
+  /** Admin workspace: create / manage share links (same as main file browser). */
+  shareDialogTarget?: Accessor<FileItem | null>
+  setShareDialogTarget?: (v: FileItem | null) => void
+  onContextShare?: (file: FileItem) => void
+  getPathHasShare?: (file: FileItem) => boolean
+  shareDialogIsEditable?: Accessor<boolean>
+  shareDialogExistingShares?: Accessor<ShareLink[]>
+  shareLinkBaseForDialog?: Accessor<string>
   /** Admin workspace only; toggles folder as knowledge base (same as main file browser). */
   onContextToggleKnowledgeBase?: (file: FileItem) => void
   isRowKnowledgeBase?: (file: FileItem) => boolean
@@ -74,6 +84,7 @@ export type WorkspaceBrowserModalLayerProps = {
   deleteTarget: Accessor<FileItem | null>
   setDeleteTarget: (v: FileItem | null) => void
   deletePending: boolean
+  revokeSharePending?: boolean
   onConfirmDelete: () => void
   showCreateFolder: Accessor<boolean>
   setShowCreateFolder: (v: boolean) => void
@@ -104,7 +115,6 @@ export type WorkspaceBrowserModalLayerProps = {
   uploadToast: Accessor<UploadToastState>
   setUploadToastHidden: () => void
   onCopyShareLink?: (file: FileItem) => void
-  getPathHasShare?: (file: FileItem) => boolean
 }
 
 export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProps) {
@@ -153,9 +163,22 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onOpenInSplitView={props.onOpenInSplitViewFromRow}
         onToggleKnowledgeBase={props.onContextToggleKnowledgeBase}
         isKnowledgeBase={props.isRowKnowledgeBase}
+        onShare={props.onContextShare}
         onCopyShareLink={props.onCopyShareLink}
         getPathHasShare={props.getPathHasShare}
       />
+      <Show when={props.onContextShare}>
+        <ShareDialog
+          isOpen={!!props.shareDialogTarget?.()}
+          onClose={() => props.setShareDialogTarget?.(null)}
+          filePath={props.shareDialogTarget?.()?.path ?? ''}
+          fileName={props.shareDialogTarget?.()?.name ?? ''}
+          isDirectory={props.shareDialogTarget?.()?.isDirectory ?? false}
+          isEditable={props.shareDialogIsEditable?.() ?? false}
+          existingShares={props.shareDialogExistingShares?.() ?? []}
+          shareLinkBase={props.shareLinkBaseForDialog?.() ?? ''}
+        />
+      </Show>
       <RenameDialog
         isOpen={props.showRename()}
         itemName={props.renamingItem()?.name ?? ''}
@@ -183,7 +206,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
       </Show>
       <DeleteFileDialog
         item={props.deleteTarget}
-        isPending={props.deletePending}
+        isPending={props.deletePending || !!props.revokeSharePending}
         onDismiss={() => props.setDeleteTarget(null)}
         onConfirm={props.onConfirmDelete}
       />

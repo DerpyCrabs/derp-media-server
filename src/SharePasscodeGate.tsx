@@ -4,6 +4,7 @@ import { queryKeys } from '@/lib/query-keys'
 import Lock from 'lucide-solid/icons/lock'
 import { Show, createEffect, createMemo, createSignal } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
+import { ThemeSwitcher } from './ThemeSwitcher'
 
 type Props = {
   token: string
@@ -54,7 +55,8 @@ export function SharePasscodeGate(props: Props) {
   }
 
   return (
-    <div class='flex min-h-screen items-center justify-center p-4'>
+    <div class='relative flex min-h-screen items-center justify-center p-4'>
+      <ThemeSwitcher variant='floating' />
       <div class='bg-card w-full max-w-sm rounded-xl border border-border p-6 shadow-sm'>
         <div class='mb-4 text-center'>
           <div class='bg-muted mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full'>

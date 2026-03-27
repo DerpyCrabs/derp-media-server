@@ -37,7 +37,7 @@ const FILE_OPEN_TARGETS: {
   {
     value: 'new-tab',
     label: 'New tab',
-    hint: 'Open in the same window group as the file browser (tab strip).',
+    hint: 'Open in the active tab’s window group (next to the focused tab when possible).',
   },
   {
     value: 'new-window',
@@ -47,9 +47,11 @@ const FILE_OPEN_TARGETS: {
 ]
 
 const triggerClass =
-  'h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-none text-amber-500 hover:bg-amber-500/15 hover:text-amber-400 cursor-pointer outline-none border-0 bg-transparent'
+  'h-8 w-8 shrink-0 inline-flex cursor-pointer items-center justify-center rounded-none border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
 
 export type WorkspaceTaskbarSettingsProps = {
+  reopenClosedTab?: () => void
+  canReopenClosed?: Accessor<boolean>
   browserTabTitle: Accessor<string>
   browserTabIcon: Accessor<string>
   browserTabIconColor: Accessor<string>
@@ -211,6 +213,25 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                 Reset tab appearance
               </button>
             </div>
+            <Show when={props.reopenClosedTab}>
+              <div>
+                <div class='mb-2 text-xs font-medium text-muted-foreground'>Tabs</div>
+                <button
+                  type='button'
+                  class='flex h-9 w-full items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-40'
+                  disabled={!props.canReopenClosed?.()}
+                  onClick={() => {
+                    props.reopenClosedTab?.()
+                    setOpen(false)
+                  }}
+                >
+                  Reopen closed tab
+                </button>
+                <p class='mt-2 text-xs text-muted-foreground'>
+                  Shortcut: Ctrl+Shift+T (⌘+Shift+T on Mac)
+                </p>
+              </div>
+            </Show>
             <div>
               <div class='mb-2 text-xs font-medium text-muted-foreground'>Open files in</div>
               <div class='flex flex-col gap-2'>

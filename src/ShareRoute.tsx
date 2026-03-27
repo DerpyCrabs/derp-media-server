@@ -5,6 +5,7 @@ import { Match, Switch, createMemo } from 'solid-js'
 import { ShareFileViewer } from './ShareFileViewer'
 import { ShareFolderBrowser, type ShareInfoPayload } from './ShareFolderBrowser'
 import { SharePasscodeGate } from './SharePasscodeGate'
+import { ThemeSwitcher } from './ThemeSwitcher'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -24,9 +25,9 @@ type ShareInfo = {
   authorized: boolean
   restrictions?: ShareRestrictions
   usedBytes?: number
-  isKnowledgeBase: boolean
+  isKnowledgeBase?: boolean
   knowledgeBaseRoot?: string
-  adminViewMode: 'list' | 'grid'
+  adminViewMode?: 'list' | 'grid'
 }
 
 type Props = {
@@ -76,15 +77,17 @@ export function ShareRoute(props: Props) {
   return (
     <Switch>
       <Match when={shareQuery.isPending}>
-        <div class='flex min-h-screen items-center justify-center'>
+        <div class='relative flex min-h-screen items-center justify-center'>
+          <ThemeSwitcher variant='floating' />
           <p class='text-muted-foreground text-sm'>Loading…</p>
         </div>
       </Match>
       <Match when={showNotFound()}>
         <div
-          class='flex min-h-screen items-center justify-center p-4'
+          class='relative flex min-h-screen items-center justify-center p-4'
           data-testid='share-not-found'
         >
+          <ThemeSwitcher variant='floating' />
           <div class='border-destructive max-w-md w-full rounded-xl border p-6'>
             <h1 class='text-destructive text-lg font-semibold'>Share Not Found</h1>
             <p class='text-muted-foreground mt-2 text-sm'>
@@ -103,7 +106,8 @@ export function ShareRoute(props: Props) {
         {(p) => <ShareFileViewer token={p.token} shareInfo={p.shareInfo} />}
       </Match>
       <Match when={true}>
-        <div class='flex min-h-screen items-center justify-center p-4'>
+        <div class='relative flex min-h-screen items-center justify-center p-4'>
+          <ThemeSwitcher variant='floating' />
           <p class='text-muted-foreground text-sm'>Unable to display this share.</p>
         </div>
       </Match>

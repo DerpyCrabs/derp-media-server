@@ -1,3 +1,4 @@
+import { navigateShareWorkspaceToClassicPage } from '@/lib/navigate-share-classic-from-workspace'
 import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
 import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
@@ -8,6 +9,7 @@ import {
   type WorkspaceLayoutPreset,
 } from '@/lib/workspace-layout-presets'
 import { workspaceSourceToMediaContext } from '@/lib/use-workspace'
+import ArrowLeftFromLine from 'lucide-solid/icons/arrow-left-from-line'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import { For, Show, type JSX } from 'solid-js'
 import { FloatingContextMenu } from '@/src/file-browser/FloatingContextMenu'
@@ -140,6 +142,22 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
           </div>
 
           <div class='flex shrink-0 items-center gap-1 border-l border-border pl-2'>
+            <Show when={props.pageProps.shareConfig}>
+              <button
+                type='button'
+                data-testid='workspace-exit-to-share'
+                title='Standard share page — exit workspace layout'
+                aria-label='Exit workspace: open standard share page'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+                onClick={() => {
+                  const t = props.pageProps.shareConfig?.token
+                  if (!t) return
+                  navigateShareWorkspaceToClassicPage(t)
+                }}
+              >
+                <ArrowLeftFromLine class='h-4 w-4' stroke-width={2} />
+              </button>
+            </Show>
             <WorkspaceTaskbarAudio
               storageKey={() => props.storageSessionKey()}
               shareCtx={() => {

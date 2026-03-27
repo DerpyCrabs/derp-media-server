@@ -155,15 +155,18 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     const restrictions = share.editable ? getEffectiveRestrictions(share) : undefined
     const usedBytes = share.editable ? share.usedBytes || 0 : undefined
 
-    const knowledgeBasesList = await getKnowledgeBases()
-    const knowledgeBaseRoot = getKnowledgeBaseRootForPath(
-      share.path.replace(/\\/g, '/'),
-      knowledgeBasesList,
-    )
-    const isKnowledgeBase = share.isDirectory && knowledgeBaseRoot !== null
-
+    let isKnowledgeBase = false
+    let knowledgeBaseRoot: string | null = null
     let adminViewMode: 'list' | 'grid' = 'list'
-    if (share.isDirectory) {
+
+    if (authorized && share.isDirectory) {
+      const knowledgeBasesList = await getKnowledgeBases()
+      knowledgeBaseRoot = getKnowledgeBaseRootForPath(
+        share.path.replace(/\\/g, '/'),
+        knowledgeBasesList,
+      )
+      isKnowledgeBase = knowledgeBaseRoot !== null
+
       try {
         const settingsData = await fs.readFile(getDataFilePath('settings.json'), 'utf-8')
         const allSettings = JSON.parse(settingsData)
@@ -201,9 +204,9 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       authorized,
       ...(restrictions && { restrictions }),
       ...(usedBytes !== undefined && { usedBytes }),
-      isKnowledgeBase,
+      ...(authorized && { isKnowledgeBase }),
       ...(authorized && knowledgeBaseRoot !== null && { knowledgeBaseRoot }),
-      adminViewMode,
+      ...(authorized && share.isDirectory && { adminViewMode }),
       ...(workspaceTaskbarPins !== undefined && { workspaceTaskbarPins }),
       ...(workspaceLayoutPresets !== undefined && { workspaceLayoutPresets }),
     })

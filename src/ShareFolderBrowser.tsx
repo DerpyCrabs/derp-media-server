@@ -19,6 +19,7 @@ import ArrowUp from 'lucide-solid/icons/arrow-up'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import AppWindow from 'lucide-solid/icons/app-window'
 import FilePlus from 'lucide-solid/icons/file-plus'
+import Settings from 'lucide-solid/icons/settings'
 import Folder from 'lucide-solid/icons/folder'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import {
@@ -62,7 +63,7 @@ import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
 import type { FileIconContext } from './lib/use-file-icon'
 import { EMPTY_FILE_ICON_CONTEXT, fileIcon, gridHeroIcon } from './lib/use-file-icon'
 import { useDeferredLoading } from './lib/use-deferred-loading'
-import { ThemeSwitcher } from './ThemeSwitcher'
+import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import type { TextViewerShareContext } from './media/TextViewerDialog'
 
@@ -119,6 +120,11 @@ export function ShareFolderBrowser(props: Props) {
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
   const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
+  const [shareSettingsOpen, setShareSettingsOpen] = createSignal(false)
+  const [shareSettingsMenuPos, setShareSettingsMenuPos] = createSignal<{
+    top: number
+    right: number
+  } | null>(null)
   let externalUploadDragDepth = 0
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
@@ -190,6 +196,18 @@ export function ShareFolderBrowser(props: Props) {
       { defer: true },
     ),
   )
+
+  createEffect(() => {
+    if (!shareSettingsOpen()) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShareSettingsOpen(false)
+        setShareSettingsMenuPos(null)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    onCleanup(() => document.removeEventListener('keydown', onKey))
+  })
 
   const inlineFileExists = createMemo(() => {
     if (inlineMode() !== 'file') return false
@@ -393,6 +411,11 @@ export function ShareFolderBrowser(props: Props) {
       query ? `/share/${props.token}/workspace?${query}` : `/share/${props.token}/workspace`,
       '_blank',
     )
+  }
+
+  function openShareWorkspaceSameTab() {
+    const qs = urlSearchParams().toString()
+    window.history.pushState(null, '', `/share/${props.token}/workspace${qs ? `?${qs}` : ''}`)
   }
 
   function handleShareBreadcrumbDownloadZip() {
@@ -951,7 +974,64 @@ export function ShareFolderBrowser(props: Props) {
                     </div>
                   </Show>
                   <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
-                  <ThemeSwitcher />
+                  <div class='relative shrink-0'>
+                    <button
+                      type='button'
+                      title='Share settings (theme, workspace view)'
+                      aria-label='Open share settings'
+                      aria-expanded={shareSettingsOpen()}
+                      class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-muted dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                      onClick={(e) => {
+                        const open = !shareSettingsOpen()
+                        setShareSettingsOpen(open)
+                        if (open) {
+                          const r = e.currentTarget.getBoundingClientRect()
+                          setShareSettingsMenuPos({
+                            top: r.bottom + 6,
+                            right: Math.max(8, window.innerWidth - r.right),
+                          })
+                        } else {
+                          setShareSettingsMenuPos(null)
+                        }
+                      }}
+                    >
+                      <Settings class='h-4 w-4' stroke-width={2} aria-hidden='true' />
+                    </button>
+                    <Show when={shareSettingsOpen() && shareSettingsMenuPos()}>
+                      <div
+                        class='fixed inset-0 z-[100000]'
+                        role='presentation'
+                        onClick={() => {
+                          setShareSettingsOpen(false)
+                          setShareSettingsMenuPos(null)
+                        }}
+                      />
+                      <div
+                        class='ring-foreground/10 fixed z-[100001] max-h-[min(85vh,28rem)] w-52 overflow-y-auto overflow-x-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg ring-1'
+                        style={{
+                          top: `${shareSettingsMenuPos()!.top}px`,
+                          right: `${shareSettingsMenuPos()!.right}px`,
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type='button'
+                          role='menuitem'
+                          class='hover:bg-accent hover:text-accent-foreground flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none select-none'
+                          onClick={() => {
+                            openShareWorkspaceSameTab()
+                            setShareSettingsOpen(false)
+                            setShareSettingsMenuPos(null)
+                          }}
+                        >
+                          <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+                          Workspace view
+                        </button>
+                        <div class='bg-border my-1 h-px' />
+                        <ThemeSwitcherMenuContent closeOnPick={false} />
+                      </div>
+                    </Show>
+                  </div>
                 </div>
               </div>
             </div>
