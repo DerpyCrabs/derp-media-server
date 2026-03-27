@@ -103,6 +103,8 @@ export type WorkspaceBrowserModalLayerProps = {
   closePasteDialog: () => void
   uploadToast: Accessor<UploadToastState>
   setUploadToastHidden: () => void
+  onCopyShareLink?: (file: FileItem) => void
+  getPathHasShare?: (file: FileItem) => boolean
 }
 
 export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProps) {
@@ -151,6 +153,8 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onOpenInSplitView={props.onOpenInSplitViewFromRow}
         onToggleKnowledgeBase={props.onContextToggleKnowledgeBase}
         isKnowledgeBase={props.isRowKnowledgeBase}
+        onCopyShareLink={props.onCopyShareLink}
+        getPathHasShare={props.getPathHasShare}
       />
       <RenameDialog
         isOpen={props.showRename()}
