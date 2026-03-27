@@ -36,6 +36,7 @@ import {
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
+import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 import { For, createEffect, createMemo, createSignal, untrack } from 'solid-js'
 import { useThemeStore } from '@/lib/theme-store'
 import { useStoreSync } from './lib/solid-store-sync'
@@ -691,7 +692,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         if (win.id !== windowId) return win
         const next = { ...win, initialState: { ...win.initialState, dir } }
         if (win.type !== 'browser') return next
-        const title = dir.split(/[/\\]/).filter(Boolean).pop() ?? 'Folder'
+        const title = workspaceBrowserDirTitle(dir)
         return {
           ...next,
           title,
@@ -761,17 +762,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const source = options?.source ?? browserSource()
     const dirOpt = options?.initialState?.dir
     const initialState = dirOpt != null ? { dir: dirOpt } : {}
-    const usePathChrome = typeof dirOpt === 'string' && dirOpt.length > 0
+    const effectiveDir = dirOpt ?? ''
     const newWin: WorkspaceWindowDefinition = {
       id,
       type: 'browser',
-      title: usePathChrome
-        ? (dirOpt.split(/[/\\]/).filter(Boolean).pop() ?? 'Folder')
-        : `Browser ${n}`,
+      title: workspaceBrowserDirTitle(effectiveDir),
       iconName: null,
-      iconPath: usePathChrome ? dirOpt : '',
+      iconPath: effectiveDir,
       iconType: MediaType.FOLDER,
-      iconIsVirtual: usePathChrome ? isVirtualFolderPath(dirOpt) : false,
+      iconIsVirtual: isVirtualFolderPath(effectiveDir),
       source,
       initialState,
       tabGroupId: null,
