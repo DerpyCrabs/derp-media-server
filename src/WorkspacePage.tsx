@@ -10,7 +10,7 @@ import {
   getPlayerBoundsForAspectRatio,
   insertWindowAtGroupIndex,
   isVideoPath,
-  WORKSPACE_TITLE_BAR_PX,
+  WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from '@/lib/workspace-geometry'
 import type { FileDragData } from '@/lib/file-drag-data'
 import type {
@@ -24,6 +24,10 @@ import {
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
 } from '@/lib/use-workspace'
+import {
+  rememberWorkspaceVideoIntrinsics,
+  viewerBoundsForVideoOpen,
+} from '@/lib/workspace-video-intrinsics-preload'
 import {
   resolveWorkspaceDeferredPresetApply,
   resolveWorkspaceInitialHydration,
@@ -486,6 +490,14 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     let pulled = false
     let grabDx = 0
     let grabDy = 0
+    const clampPullDragX = (nx: number, curWidth: number) => {
+      const vis = WORKSPACE_WINDOW_MIN_VISIBLE_PX
+      return Math.max(vis - curWidth, Math.min(nx, c.width - vis))
+    }
+    const clampPullDragY = (ny: number, curHeight: number) => {
+      const vis = WORKSPACE_WINDOW_MIN_VISIBLE_PX
+      return Math.max(vis - curHeight, Math.min(ny, c.height - vis))
+    }
 
     const onMove = (ev: PointerEvent) => {
       if (!pulled) {
@@ -520,11 +532,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
         snap.handleDragPointerMove(tabId, ev.clientX, ev.clientY)
         const cur = next.windows.find((w) => w.id === tabId)?.layout?.bounds ?? wb
-        let nx = ev.clientX - c.left - grabDx
-        let ny = ev.clientY - c.top - grabDy
-        nx = Math.max(0, Math.min(nx, c.width - cur.width))
-        const maxY = Math.max(0, c.height - WORKSPACE_TITLE_BAR_PX)
-        ny = Math.max(0, Math.min(ny, maxY))
+        let nx = clampPullDragX(ev.clientX - c.left - grabDx, cur.width)
+        let ny = clampPullDragY(ev.clientY - c.top - grabDy, cur.height)
         snap.updateWindowBounds(tabId, { ...cur, x: nx, y: ny })
         return
       }
@@ -532,11 +541,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       snap.handleDragPointerMove(tabId, ev.clientX, ev.clientY)
       const cur = workspace()?.windows.find((w) => w.id === tabId)?.layout?.bounds
       if (!cur) return
-      let nx = ev.clientX - c.left - grabDx
-      let ny = ev.clientY - c.top - grabDy
-      nx = Math.max(0, Math.min(nx, c.width - cur.width))
-      const maxY = Math.max(0, c.height - WORKSPACE_TITLE_BAR_PX)
-      ny = Math.max(0, Math.min(ny, maxY))
+      let nx = clampPullDragX(ev.clientX - c.left - grabDx, cur.width)
+      let ny = clampPullDragY(ev.clientY - c.top - grabDy, cur.height)
       snap.updateWindowBounds(tabId, { ...cur, x: nx, y: ny })
     }
 
@@ -683,7 +689,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       tabGroupId: null,
       layout: createWindowLayout(
         undefined,
-        createDefaultBounds(baseWindows.length, 'viewer'),
+        viewerBoundsForVideoOpen(path, source, baseWindows.length),
         zIndex,
       ),
     }
@@ -709,6 +715,10 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       if (!viewer || viewer.type !== 'viewer') return prev
       const currentBounds = viewer.layout?.bounds ?? null
       const newBounds = getPlayerBoundsForAspectRatio(aspect, currentBounds)
+      const viewing = viewer.initialState?.viewing
+      if (viewing) {
+        rememberWorkspaceVideoIntrinsics(viewer.source, viewing, videoWidth, videoHeight)
+      }
       const pb = viewer.layout?.bounds
       if (
         pb &&
@@ -941,7 +951,13 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       source,
       initialState: { dir: parentDir, viewing: file.path },
       tabGroupId: null,
-      layout: createWindowLayout(undefined, createDefaultBounds(w.windows.length, 'viewer'), n),
+      layout: createWindowLayout(
+        undefined,
+        file.type === MediaType.VIDEO
+          ? viewerBoundsForVideoOpen(file.path, source, w.windows.length)
+          : createDefaultBounds(w.windows.length, 'viewer'),
+        n,
+      ),
     }
     const maxZ = Math.max(...w.windows.map((x) => x.layout?.zIndex ?? 1), 1)
     newWin.layout = { ...newWin.layout, zIndex: maxZ + 1 }

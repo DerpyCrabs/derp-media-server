@@ -6,6 +6,7 @@ import {
   getSourceLabel,
   getViewportSize,
   reconcileLayoutBoundsFromSnapZones,
+  WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from '@/lib/workspace-geometry'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
@@ -174,8 +175,6 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
   })
 }
 
-const MIN_VISIBLE_WINDOW = 100
-
 function groupIdForWorkspaceMember(w: WorkspaceWindowDefinition): string {
   return w.tabGroupId ?? w.id
 }
@@ -226,12 +225,17 @@ function clampBoundsToViewport(
   b: NonNullable<WorkspaceWindowLayout['bounds']>,
   viewport: { width: number; height: number },
 ): NonNullable<WorkspaceWindowLayout['bounds']> {
-  const vw = Math.max(viewport.width, MIN_VISIBLE_WINDOW)
-  const vh = Math.max(viewport.height, MIN_VISIBLE_WINDOW)
-  const width = Math.min(Math.max(b.width, MIN_VISIBLE_WINDOW), vw)
-  const height = Math.min(Math.max(b.height, MIN_VISIBLE_WINDOW), vh)
-  const x = Math.max(0, Math.min(b.x, vw - width))
-  const y = Math.max(0, Math.min(b.y, vh - height))
+  const vis = WORKSPACE_WINDOW_MIN_VISIBLE_PX
+  const vw = Math.max(viewport.width, vis)
+  const vh = Math.max(viewport.height, vis)
+  const width = Math.min(Math.max(b.width, vis), vw)
+  const height = Math.min(Math.max(b.height, vis), vh)
+  const minX = vis - width
+  const maxX = vw - vis
+  const minY = vis - height
+  const maxY = vh - vis
+  const x = Math.max(minX, Math.min(b.x, maxX))
+  const y = Math.max(minY, Math.min(b.y, maxY))
   return { x, y, width, height }
 }
 

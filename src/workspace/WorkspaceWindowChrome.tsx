@@ -2,7 +2,7 @@ import type { FileDragData } from '@/lib/file-drag-data'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { createDefaultBounds } from '@/lib/workspace-geometry'
-import { WORKSPACE_TITLE_BAR_PX } from '@/lib/workspace-geometry'
+import { WORKSPACE_WINDOW_MIN_VISIBLE_PX } from '@/lib/workspace-geometry'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Minus from 'lucide-solid/icons/minus'
@@ -182,9 +182,13 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       if (!cur) return
       let nx = ev.clientX - cRect.left - grabDx
       let ny = ev.clientY - cRect.top - grabDy
-      nx = Math.max(0, Math.min(nx, cRect.width - cur.width))
-      const maxY = Math.max(0, cRect.height - WORKSPACE_TITLE_BAR_PX)
-      ny = Math.max(0, Math.min(ny, maxY))
+      const vis = WORKSPACE_WINDOW_MIN_VISIBLE_PX
+      const minX = vis - cur.width
+      const maxX = cRect.width - vis
+      nx = Math.max(minX, Math.min(nx, maxX))
+      const minY = vis - cur.height
+      const maxY = cRect.height - vis
+      ny = Math.max(minY, Math.min(ny, maxY))
       props.onDragDuringMove(id, { ...cur, x: nx, y: ny })
     }
 
@@ -245,8 +249,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       if (next.height < MIN_H) next.height = MIN_H
       if (next.width > cRect.width) next.x = 0
       else next.x = Math.max(0, Math.min(next.x, cRect.width - next.width))
-      const maxY = Math.max(0, cRect.height - WORKSPACE_TITLE_BAR_PX)
-      next.y = Math.max(0, Math.min(next.y, maxY))
+      const vis = WORKSPACE_WINDOW_MIN_VISIBLE_PX
+      next.y = Math.max(vis - next.height, Math.min(next.y, cRect.height - vis))
       return next
     }
 

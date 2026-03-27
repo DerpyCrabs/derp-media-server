@@ -13,6 +13,7 @@ import {
   finePointerDragEnabled,
   subscribeFinePointerDragEnabled,
 } from '@/lib/enable-fine-pointer-drag'
+import { preloadWorkspaceVideoIntrinsics } from '@/lib/workspace-video-intrinsics-preload'
 import {
   breadcrumbFloating,
   resetBreadcrumbFloating,
@@ -1071,6 +1072,18 @@ export function WorkspaceBrowserPane(props: Props) {
     return { queryClient, knowledgeBases: knowledgeBases() }
   }
 
+  function prefetchFileRowHover(file: FileItem) {
+    prefetchFolderContentsOnHover(workspacePrefetchCtx(), file)
+    if (file.type !== MediaType.VIDEO) return
+    const paneWin = win()
+    if (!paneWin) return
+    const sh = share()
+    const base =
+      sh?.sharePath.replace(/\\/g, '/') ??
+      (paneWin.source.kind === 'share' ? (paneWin.source.sharePath ?? '').replace(/\\/g, '/') : '')
+    preloadWorkspaceVideoIntrinsics(paneWin.source, file.path, base)
+  }
+
   function handleParentDirectory() {
     props.onNavigateDir(props.windowId, parentDir(currentPath()))
   }
@@ -1518,9 +1531,7 @@ export function WorkspaceBrowserPane(props: Props) {
                             )}
                             draggable={enableDrag()}
                             onClick={() => handleFileClick(file)}
-                            onPointerEnter={() =>
-                              prefetchFolderContentsOnHover(workspacePrefetchCtx(), file)
-                            }
+                            onPointerEnter={() => prefetchFileRowHover(file)}
                             onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
                             {...createLongPressContextMenuHandlers()}
                             onDragStart={(e) => onFileDragStart(file, e)}
@@ -1612,9 +1623,7 @@ export function WorkspaceBrowserPane(props: Props) {
                                   )}
                                   draggable={canDragRow}
                                   onClick={() => handleFileClick(file)}
-                                  onPointerEnter={() =>
-                                    prefetchFolderContentsOnHover(workspacePrefetchCtx(), file)
-                                  }
+                                  onPointerEnter={() => prefetchFileRowHover(file)}
                                   onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
                                   {...createLongPressContextMenuHandlers()}
                                   onDragStart={(e) => onFileDragStart(file, e)}
