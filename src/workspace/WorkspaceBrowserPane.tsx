@@ -59,14 +59,22 @@ import { Breadcrumbs } from '../file-browser/Breadcrumbs'
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbInlineCreateFooter } from '../file-browser/KbInlineCreateFooter'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
-import type { UploadToastState } from '../file-browser/types'
+import type { AuthConfig, UploadToastState } from '../file-browser/types'
+import {
+  DirectoryListingEmpty,
+  DirectoryListingEmptyTableRow,
+  DirectoryListingErrorPanel,
+  DirectoryListingLoading,
+} from '../file-browser/DirectoryListingFeedback'
 import { UploadMenu } from '../file-browser/UploadMenu'
 import { DEFAULT_WORKSPACE_SOURCE } from './workspace-page-persistence'
 import { WorkspaceBrowserModalLayer } from './WorkspaceBrowserModalLayer'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
+import { registerKbSearchHotkeys } from '../file-browser/use-kb-search-hotkey'
 import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-focus'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
+import { useDeferredLoading } from '../lib/use-deferred-loading'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
@@ -109,6 +117,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
+  let kbSearchInputEl: HTMLInputElement | undefined
 
   useInlineModeInputFocus(
     inlineMode,
@@ -172,6 +181,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   })
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
+  const isFilesLoadingInitial = createMemo(
+    () => filesQuery.isPending && filesQuery.data === undefined,
+  )
+  const showFilesDeferredLoading = useDeferredLoading(() => isFilesLoadingInitial())
 
   const pasteExistingLowerNames = createMemo(() => files().map((f) => f.name.toLowerCase()))
 
@@ -268,6 +281,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
     queryFn: () => api<GlobalSettings>('/api/settings'),
+    staleTime: Infinity,
+    enabled: !share(),
+  }))
+
+  const authQuery = useQuery(() => ({
+    queryKey: queryKeys.authConfig(),
+    queryFn: () => api<AuthConfig>('/api/auth/config'),
     staleTime: Infinity,
     enabled: !share(),
   }))
@@ -453,6 +473,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     onCleanup(() => document.removeEventListener('mousedown', onDoc))
   })
 
+  registerKbSearchHotkeys({
+    active: inKb,
+    isOpen: searchPopoverOpen,
+    setOpen: setSearchPopoverOpen,
+    focusInput: () => kbSearchInputEl?.focus(),
+  })
+
   const adminKbSearchQuery = useQuery(() => ({
     queryKey: queryKeys.kbSearch(kbRootPath()!, debouncedSearch()),
     queryFn: () =>
@@ -492,6 +519,25 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   const showKbSearchResults = createMemo(
     () => inKb() && searchPopoverOpen() && debouncedSearch().trim().length > 0,
+  )
+
+  const shareLinkBase = createMemo(() => {
+    if (share()) {
+      if (typeof window !== 'undefined') return window.location.origin
+      return ''
+    }
+    const d = authQuery.data?.shareLinkDomain
+    if (typeof d === 'string' && d.trim()) return d.trim().replace(/\/$/, '')
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  })
+
+  const showEmptyFolder = createMemo(
+    () =>
+      !filesQuery.isError &&
+      filesQuery.data !== undefined &&
+      files().length === 0 &&
+      !showKbSearchResults(),
   )
 
   const showAdminCreateToolbar = createMemo(() => isAdminPaneEditable() && !share())
@@ -652,6 +698,23 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  async function handleCopyShareLink(file: FileItem) {
+    if (!file.shareToken) return
+    const url = `${shareLinkBase()}/share/${file.shareToken}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setUploadToast({ kind: 'copied', label: 'Share link copied' })
+      window.setTimeout(() => {
+        setUploadToast((prev) => (prev.kind === 'copied' ? { kind: 'hidden' } : prev))
+      }, 2000)
+    } catch (err) {
+      setUploadToast({
+        kind: 'clipboardError',
+        message: err instanceof Error ? err.message : 'Clipboard denied or unavailable',
+      })
+    }
   }
 
   function handleBreadcrumbNavigate(path: string) {
@@ -1319,6 +1382,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                   <button
                     type='button'
                     aria-label='Open search'
+                    title='Search notes (Ctrl+K)'
                     class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent outline-none'
                     onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
                   >
@@ -1327,6 +1391,9 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                   <Show when={searchPopoverOpen()}>
                     <div class='border-border bg-popover ring-offset-background absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border p-2 shadow-lg outline-none'>
                       <input
+                        ref={(el) => {
+                          kbSearchInputEl = el ?? undefined
+                        }}
                         type='search'
                         placeholder='Search notes...'
                         class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
@@ -1416,141 +1483,57 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       </div>
 
       <Show when={filesQuery.isError}>
-        <div class='p-4'>
-          <p class='text-destructive text-sm'>Failed to load files.</p>
-        </div>
+        <DirectoryListingErrorPanel
+          onRetry={() => void filesQuery.refetch()}
+          detail={filesQuery.error?.message}
+        />
       </Show>
 
-      <div
-        class='relative flex min-h-0 flex-1 flex-col overflow-hidden outline-none'
-        data-testid='workspace-upload-drop-zone'
-        tabIndex={0}
-        title={
-          inKb() && allowWorkspaceUpload()
-            ? 'Focus this pane and paste (Ctrl+V) to create a file from the clipboard.'
-            : undefined
-        }
-        onDragEnter={onExternalUploadDragEnter}
-        onDragLeave={onExternalUploadDragLeave}
-        onDragOver={onExternalUploadDragOver}
-        onDrop={(e) => void onExternalUploadDrop(e)}
-        onPaste={(e) => void handlePasteEvent(e)}
-      >
-        <div class='min-h-0 flex-1 overflow-auto'>
-          <Show
-            when={showKbSearchResults()}
-            fallback={
-              <>
-                <Show when={inKb() && (!!currentPath() || !!share())}>
-                  <KbDashboard
-                    mode='Workspace'
-                    scopePath={share() ? share()!.sharePath.replace(/\\/g, '/') : currentPath()}
-                    shareToken={share()?.token}
-                    dir={share() ? listDir() || undefined : undefined}
-                    onFileClick={(p) => handleKbResultClick(p)}
-                    recentDragCanMove={(p) =>
-                      !!(allowMoveFile() && isPathEditable(p, props.editableFolders))
-                    }
+      <Show when={!filesQuery.isError}>
+        <div
+          class='relative flex min-h-0 flex-1 flex-col overflow-hidden outline-none'
+          data-testid='workspace-upload-drop-zone'
+          tabIndex={0}
+          title={
+            inKb() && allowWorkspaceUpload()
+              ? 'Focus this pane and paste (Ctrl+V) to create a file from the clipboard.'
+              : undefined
+          }
+          onDragEnter={onExternalUploadDragEnter}
+          onDragLeave={onExternalUploadDragLeave}
+          onDragOver={onExternalUploadDragOver}
+          onDrop={(e) => void onExternalUploadDrop(e)}
+          onPaste={(e) => void handlePasteEvent(e)}
+        >
+          <div class='min-h-0 flex-1 overflow-auto'>
+            <Show
+              when={showKbSearchResults()}
+              fallback={
+                <>
+                  <Show when={inKb() && (!!currentPath() || !!share())}>
+                    <KbDashboard
+                      mode='Workspace'
+                      scopePath={share() ? share()!.sharePath.replace(/\\/g, '/') : currentPath()}
+                      shareToken={share()?.token}
+                      dir={share() ? listDir() || undefined : undefined}
+                      onFileClick={(p) => handleKbResultClick(p)}
+                      recentDragCanMove={(p) =>
+                        !!(allowMoveFile() && isPathEditable(p, props.editableFolders))
+                      }
+                    />
+                  </Show>
+                  <DirectoryListingLoading
+                    show={isFilesLoadingInitial() && showFilesDeferredLoading()}
                   />
-                </Show>
-                <Switch>
-                  <Match when={viewMode() === 'grid'}>
-                    <div class='file-browser-grid gap-4 px-2 py-2'>
-                      <Show when={currentPath()}>
-                        <div
-                          data-no-window-drag
-                          class={cn(
-                            'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
-                            dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
-                          )}
-                          onClick={handleParentDirectory}
-                          onPointerEnter={() =>
-                            prefetchParentDirectoryHover(workspacePrefetchCtx(), {
-                              currentPath: currentPath(),
-                              isVirtualFolder: isVirtualFolder(),
-                            })
-                          }
-                          onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
-                          onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
-                          onDrop={allowMoveFile() ? parentRowDrop : undefined}
-                          onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
-                          role='button'
-                          tabindex={0}
-                        >
-                          <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
-                            <ArrowUp
-                              class='mb-2 h-12 w-12 text-muted-foreground'
-                              size={48}
-                              stroke-width={2}
-                            />
-                            <p class='text-center text-sm font-medium'>..</p>
-                          </div>
-                        </div>
-                      </Show>
-                      <For each={files()}>
-                        {(file) => (
-                          <div
-                            data-no-window-drag
-                            class={cn(
-                              'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
-                              file.isDirectory && dragOverPath() === file.path
-                                ? 'bg-primary/20'
-                                : '',
-                              draggedPath() === file.path ? 'opacity-50' : '',
-                            )}
-                            draggable={enableDrag()}
-                            onClick={() => handleFileClick(file)}
-                            onPointerEnter={() => prefetchFileRowHover(file)}
-                            onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
-                            {...createLongPressContextMenuHandlers()}
-                            onDragStart={(e) => onFileDragStart(file, e)}
-                            onDragEnd={onFileDragEnd}
-                            onDragOver={(e) => {
-                              if (!file.isDirectory || !allowMoveFile()) return
-                              onFolderDragOver(file, e)
-                            }}
-                            onDragLeave={(e) => {
-                              if (!file.isDirectory || !allowMoveFile()) return
-                              onFolderDragLeave(file, e)
-                            }}
-                            onDrop={(e) => {
-                              if (!file.isDirectory || !allowMoveFile()) return
-                              onFolderDrop(file, e)
-                            }}
-                            onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
-                            role='button'
-                            tabindex={0}
-                          >
-                            <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-                              <div
-                                class='text-muted-foreground'
-                                {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
-                              >
-                                {gridHeroIcon(file, props.fileIconContext())}
-                              </div>
-                            </div>
-                            <div class='flex flex-col gap-1 p-3'>
-                              <p class='truncate text-sm font-medium' title={file.name}>
-                                {file.name}
-                              </p>
-                              <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Match>
-                  <Match when={viewMode() === 'list'}>
-                    <div class='relative w-full overflow-x-auto'>
-                      <table class='w-full caption-bottom text-sm'>
-                        <tbody class='[&_tr:last-child]:border-0'>
+                  <Show when={!isFilesLoadingInitial()}>
+                    <Switch>
+                      <Match when={viewMode() === 'grid'}>
+                        <div class='file-browser-grid gap-4 px-2 py-2'>
                           <Show when={currentPath()}>
-                            <tr
+                            <div
                               data-no-window-drag
                               class={cn(
-                                'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                                'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
                                 dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
                               )}
                               onClick={handleParentDirectory}
@@ -1563,158 +1546,260 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                               onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
                               onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
                               onDrop={allowMoveFile() ? parentRowDrop : undefined}
+                              onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
+                              role='button'
+                              tabindex={0}
                             >
-                              <td class='w-12 p-2 align-middle'>
-                                <div class='flex items-center justify-center'>
-                                  <ArrowUp
-                                    class='h-5 w-5 text-muted-foreground'
-                                    size={20}
-                                    stroke-width={2}
-                                  />
-                                </div>
-                              </td>
-                              <td class='p-2 align-middle font-medium'>..</td>
-                              <td class='p-2 align-middle text-right text-muted-foreground' />
-                            </tr>
+                              <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
+                                <ArrowUp
+                                  class='mb-2 h-12 w-12 text-muted-foreground'
+                                  size={48}
+                                  stroke-width={2}
+                                />
+                                <p class='text-center text-sm font-medium'>..</p>
+                              </div>
+                            </div>
                           </Show>
                           <For each={files()}>
-                            {(file) => {
-                              const canDragRow = enableDrag()
-                              return (
-                                <tr
-                                  data-no-window-drag
-                                  class={cn(
-                                    'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
-                                    file.isDirectory && dragOverPath() === file.path
-                                      ? 'bg-primary/20'
-                                      : '',
-                                    draggedPath() === file.path ? 'opacity-50' : '',
-                                  )}
-                                  draggable={canDragRow}
-                                  onClick={() => handleFileClick(file)}
-                                  onPointerEnter={() => prefetchFileRowHover(file)}
-                                  onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
-                                  {...createLongPressContextMenuHandlers()}
-                                  onDragStart={(e) => onFileDragStart(file, e)}
-                                  onDragEnd={onFileDragEnd}
-                                  onDragOver={(e) => {
-                                    if (!file.isDirectory || !allowMoveFile()) return
-                                    handleFolderRowDragOver(file.path, e)
-                                  }}
-                                  onDragLeave={(e) => {
-                                    if (!file.isDirectory || !allowMoveFile()) return
-                                    handleFolderRowDragLeave(file.path, e)
-                                  }}
-                                  onDrop={(e) => {
-                                    if (!file.isDirectory || !allowMoveFile()) return
-                                    handleFolderRowDrop(file.path, e)
-                                  }}
-                                >
-                                  <td
-                                    class='w-12 p-2 align-middle'
+                            {(file) => (
+                              <div
+                                data-no-window-drag
+                                class={cn(
+                                  'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
+                                  file.isDirectory && dragOverPath() === file.path
+                                    ? 'bg-primary/20'
+                                    : '',
+                                  draggedPath() === file.path ? 'opacity-50' : '',
+                                )}
+                                draggable={enableDrag()}
+                                onClick={() => handleFileClick(file)}
+                                onPointerEnter={() => prefetchFileRowHover(file)}
+                                onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                                {...createLongPressContextMenuHandlers()}
+                                onDragStart={(e) => onFileDragStart(file, e)}
+                                onDragEnd={onFileDragEnd}
+                                onDragOver={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  onFolderDragOver(file, e)
+                                }}
+                                onDragLeave={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  onFolderDragLeave(file, e)
+                                }}
+                                onDrop={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  onFolderDrop(file, e)
+                                }}
+                                onKeyDown={(e) => e.key === 'Enter' && handleFileClick(file)}
+                                role='button'
+                                tabindex={0}
+                              >
+                                <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                                  <div
+                                    class='text-muted-foreground'
                                     {...(isRowKnowledgeBase(file)
                                       ? { 'data-kb-root-icon': '' }
                                       : {})}
                                   >
+                                    {gridHeroIcon(file, props.fileIconContext())}
+                                  </div>
+                                </div>
+                                <div class='flex flex-col gap-1 p-3'>
+                                  <p class='truncate text-sm font-medium' title={file.name}>
+                                    {file.name}
+                                  </p>
+                                  <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                                    <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </For>
+                          <DirectoryListingEmpty
+                            show={showEmptyFolder()}
+                            canUpload={allowWorkspaceUpload()}
+                          />
+                        </div>
+                      </Match>
+                      <Match when={viewMode() === 'list'}>
+                        <div class='relative w-full overflow-x-auto'>
+                          <table class='w-full caption-bottom text-sm'>
+                            <tbody class='[&_tr:last-child]:border-0'>
+                              <Show when={currentPath()}>
+                                <tr
+                                  data-no-window-drag
+                                  class={cn(
+                                    'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                                    dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                                  )}
+                                  onClick={handleParentDirectory}
+                                  onPointerEnter={() =>
+                                    prefetchParentDirectoryHover(workspacePrefetchCtx(), {
+                                      currentPath: currentPath(),
+                                      isVirtualFolder: isVirtualFolder(),
+                                    })
+                                  }
+                                  onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
+                                  onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
+                                  onDrop={allowMoveFile() ? parentRowDrop : undefined}
+                                >
+                                  <td class='w-12 p-2 align-middle'>
                                     <div class='flex items-center justify-center'>
-                                      {fileItemIcon(file, props.fileIconContext())}
+                                      <ArrowUp
+                                        class='h-5 w-5 text-muted-foreground'
+                                        size={20}
+                                        stroke-width={2}
+                                      />
                                     </div>
                                   </td>
-                                  <td class='p-2 align-middle font-medium'>
-                                    <span class='truncate'>{file.name}</span>
-                                  </td>
-                                  <td class='p-2 align-middle text-right text-muted-foreground'>
-                                    <span class='inline-block w-20 tabular-nums'>
-                                      {file.isDirectory ? '' : formatFileSize(file.size)}
-                                    </span>
-                                  </td>
+                                  <td class='p-2 align-middle font-medium'>..</td>
+                                  <td class='p-2 align-middle text-right text-muted-foreground' />
                                 </tr>
-                              )
-                            }}
-                          </For>
-                        </tbody>
-                      </table>
-                    </div>
-                  </Match>
-                </Switch>
-              </>
-            }
-          >
-            <KbSearchResults
-              results={kbSearchResults()}
-              query={debouncedSearch()}
-              isLoading={kbSearchLoading()}
-              currentPath={currentPath()}
-              onResultClick={handleKbResultClickFromSearch}
+                              </Show>
+                              <For each={files()}>
+                                {(file) => {
+                                  const canDragRow = enableDrag()
+                                  return (
+                                    <tr
+                                      data-no-window-drag
+                                      class={cn(
+                                        'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                                        file.isDirectory && dragOverPath() === file.path
+                                          ? 'bg-primary/20'
+                                          : '',
+                                        draggedPath() === file.path ? 'opacity-50' : '',
+                                      )}
+                                      draggable={canDragRow}
+                                      onClick={() => handleFileClick(file)}
+                                      onPointerEnter={() => prefetchFileRowHover(file)}
+                                      onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                                      {...createLongPressContextMenuHandlers()}
+                                      onDragStart={(e) => onFileDragStart(file, e)}
+                                      onDragEnd={onFileDragEnd}
+                                      onDragOver={(e) => {
+                                        if (!file.isDirectory || !allowMoveFile()) return
+                                        handleFolderRowDragOver(file.path, e)
+                                      }}
+                                      onDragLeave={(e) => {
+                                        if (!file.isDirectory || !allowMoveFile()) return
+                                        handleFolderRowDragLeave(file.path, e)
+                                      }}
+                                      onDrop={(e) => {
+                                        if (!file.isDirectory || !allowMoveFile()) return
+                                        handleFolderRowDrop(file.path, e)
+                                      }}
+                                    >
+                                      <td
+                                        class='w-12 p-2 align-middle'
+                                        {...(isRowKnowledgeBase(file)
+                                          ? { 'data-kb-root-icon': '' }
+                                          : {})}
+                                      >
+                                        <div class='flex items-center justify-center'>
+                                          {fileItemIcon(file, props.fileIconContext())}
+                                        </div>
+                                      </td>
+                                      <td class='p-2 align-middle font-medium'>
+                                        <span class='truncate'>{file.name}</span>
+                                      </td>
+                                      <td class='p-2 align-middle text-right text-muted-foreground'>
+                                        <span class='inline-block w-20 tabular-nums'>
+                                          {file.isDirectory ? '' : formatFileSize(file.size)}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  )
+                                }}
+                              </For>
+                              <DirectoryListingEmptyTableRow
+                                show={showEmptyFolder()}
+                                canUpload={allowWorkspaceUpload()}
+                              />
+                            </tbody>
+                          </table>
+                        </div>
+                      </Match>
+                    </Switch>
+                  </Show>
+                </>
+              }
+            >
+              <KbSearchResults
+                results={kbSearchResults()}
+                query={debouncedSearch()}
+                isLoading={kbSearchLoading()}
+                currentPath={currentPath()}
+                onResultClick={handleKbResultClickFromSearch}
+              />
+            </Show>
+          </div>
+
+          <Show when={showInlineCreate()}>
+            <KbInlineCreateFooter
+              noWindowDrag
+              inlineMode={inlineMode}
+              setInlineMode={setInlineMode}
+              inlineName={inlineName}
+              setInlineName={setInlineName}
+              inlineFileExists={inlineFileExists}
+              inlineFolderExists={inlineFolderExists}
+              createFilePending={() => createFileMutation.isPending}
+              createFileIsError={() => createFileMutation.isError}
+              createFileError={() => createFileMutation.error as Error | undefined}
+              createFolderPending={() => createFolderMutation.isPending}
+              createFolderIsError={() => createFolderMutation.isError}
+              createFolderError={() => createFolderMutation.error as Error | undefined}
+              submitInlineFile={submitInlineFile}
+              submitInlineFolder={submitInlineFolder}
+              resetInlineCreate={resetInlineCreate}
+              onFileInputRef={(el) => {
+                inlineFileInputEl = el
+              }}
+              onFolderInputRef={(el) => {
+                inlineFolderInputEl = el
+              }}
             />
           </Show>
-        </div>
 
-        <Show when={showInlineCreate()}>
-          <KbInlineCreateFooter
-            noWindowDrag
-            inlineMode={inlineMode}
-            setInlineMode={setInlineMode}
-            inlineName={inlineName}
-            setInlineName={setInlineName}
-            inlineFileExists={inlineFileExists}
-            inlineFolderExists={inlineFolderExists}
-            createFilePending={() => createFileMutation.isPending}
-            createFileIsError={() => createFileMutation.isError}
-            createFileError={() => createFileMutation.error as Error | undefined}
-            createFolderPending={() => createFolderMutation.isPending}
-            createFolderIsError={() => createFolderMutation.isError}
-            createFolderError={() => createFolderMutation.error as Error | undefined}
-            submitInlineFile={submitInlineFile}
-            submitInlineFolder={submitInlineFolder}
-            resetInlineCreate={resetInlineCreate}
-            onFileInputRef={(el) => {
-              inlineFileInputEl = el
-            }}
-            onFolderInputRef={(el) => {
-              inlineFolderInputEl = el
-            }}
-          />
-        </Show>
-
-        <Show when={externalUploadDragOver()}>
-          <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>
-            <div class='text-primary flex flex-col items-center gap-2'>
-              <Upload class='h-10 w-10' stroke-width={2} />
-              <span class='text-lg font-medium'>Drop files to upload</span>
-            </div>
-          </div>
-        </Show>
-
-        <Show when={unsupportedFile()} keyed>
-          {(file) => (
-            <div
-              data-no-window-drag
-              class='bg-background/85 absolute inset-0 z-20 flex items-center justify-center p-4 backdrop-blur-sm'
-              role='presentation'
-              onClick={(e) => e.target === e.currentTarget && setUnsupportedFile(null)}
-            >
-              <div
-                class='bg-card border-border w-full max-w-sm rounded-lg border p-6 shadow-lg'
-                role='dialog'
-                aria-modal='true'
-                onClick={(e) => e.stopPropagation()}
-              >
-                <p class='text-muted-foreground mb-4 text-center text-sm'>
-                  This file type cannot be previewed.
-                </p>
-                <a
-                  href={unsupportedDownloadHref(file)}
-                  download={file.name}
-                  class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
-                >
-                  Download File
-                </a>
+          <Show when={externalUploadDragOver()}>
+            <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>
+              <div class='text-primary flex flex-col items-center gap-2'>
+                <Upload class='h-10 w-10' stroke-width={2} />
+                <span class='text-lg font-medium'>Drop files to upload</span>
               </div>
             </div>
-          )}
-        </Show>
-      </div>
+          </Show>
+
+          <Show when={unsupportedFile()} keyed>
+            {(file) => (
+              <div
+                data-no-window-drag
+                class='bg-background/85 absolute inset-0 z-20 flex items-center justify-center p-4 backdrop-blur-sm'
+                role='presentation'
+                onClick={(e) => e.target === e.currentTarget && setUnsupportedFile(null)}
+              >
+                <div
+                  class='bg-card border-border w-full max-w-sm rounded-lg border p-6 shadow-lg'
+                  role='dialog'
+                  aria-modal='true'
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p class='text-muted-foreground mb-4 text-center text-sm'>
+                    This file type cannot be previewed.
+                  </p>
+                  <a
+                    href={unsupportedDownloadHref(file)}
+                    download={file.name}
+                    class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
+                  >
+                    Download File
+                  </a>
+                </div>
+              </div>
+            )}
+          </Show>
+        </div>
+      </Show>
 
       <WorkspaceBrowserModalLayer
         iconEditTarget={iconEditTarget}
@@ -1742,6 +1827,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         showOpenInNewTabForFiles={!!props.onOpenInNewTab}
         onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
         onContextDownload={handleContextDownload}
+        onCopyShareLink={handleCopyShareLink}
+        getPathHasShare={() => false}
         onContextToggleKnowledgeBase={share() ? undefined : handleContextToggleKnowledgeBase}
         isRowKnowledgeBase={isRowKnowledgeBase}
         showRename={showRename}

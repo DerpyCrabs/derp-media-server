@@ -7,6 +7,22 @@ test.describe('Knowledge Base', () => {
     await expect(page.locator('input[type="search"][placeholder*="Search"]')).toBeVisible()
   })
 
+  test('opens KB search with Ctrl+K and focuses input', async ({ page }) => {
+    await page.goto('/?dir=Notes')
+    await page.keyboard.press('Control+k')
+    const searchInput = page.locator('input[type="search"][placeholder*="Search"]')
+    await expect(searchInput).toBeVisible()
+    await expect(searchInput).toBeFocused()
+  })
+
+  test('opens KB search with slash when not in a text field', async ({ page }) => {
+    await page.goto('/?dir=Notes')
+    await page.keyboard.press('/')
+    const searchInput = page.locator('input[type="search"][placeholder*="Search"]')
+    await expect(searchInput).toBeVisible()
+    await expect(searchInput).toBeFocused()
+  })
+
   test('searches notes and shows results', async ({ page }) => {
     await page.goto('/?dir=Notes')
     await page.getByRole('button', { name: 'Open search' }).click()

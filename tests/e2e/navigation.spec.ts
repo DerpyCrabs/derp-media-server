@@ -65,8 +65,10 @@ test.describe('Folder Navigation', () => {
   test('shows empty state for empty folder', async ({ page }) => {
     await page.goto('/?dir=EmptyFolder')
     await expect(page.getByText('..')).toBeVisible()
+    await expect(page.getByTestId('directory-empty')).toBeVisible()
+    await expect(page.getByText('This folder is empty')).toBeVisible()
     const dataRows = page.locator('table tbody tr')
-    await expect(dataRows).toHaveCount(1)
+    await expect(dataRows).toHaveCount(2)
   })
 
   test('favorites a file and sees it in Favorites virtual folder', async ({ page }) => {
