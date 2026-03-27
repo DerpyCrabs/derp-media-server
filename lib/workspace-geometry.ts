@@ -49,6 +49,9 @@ const TASKBAR_HEIGHT = 32
 
 export const WORKSPACE_TITLE_BAR_PX = 32
 
+/** Minimum width/height and horizontal “peek” kept inside the canvas when normalizing or dragging. */
+export const WORKSPACE_WINDOW_MIN_VISIBLE_PX = 100
+
 export function getViewportSize() {
   if (typeof window === 'undefined') {
     return { width: 1280, height: 720 }
