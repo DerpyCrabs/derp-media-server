@@ -7,6 +7,8 @@ interface AuthConfig {
   /** Password required when enabled */
   password?: string
   adminAccessDomains?: string[]
+  /** Session cookie max age in seconds (optional; default 7 days). */
+  sessionMaxAgeSeconds?: number
 }
 
 interface AppConfig {
@@ -75,6 +77,14 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
       .filter(Boolean)
   }
 
+  if (process.env.AUTH_SESSION_MAX_AGE !== undefined) {
+    if (!cfg.auth) cfg.auth = { enabled: false }
+    const n = parseInt(process.env.AUTH_SESSION_MAX_AGE, 10)
+    if (!Number.isNaN(n) && n > 0) {
+      cfg.auth.sessionMaxAgeSeconds = n
+    }
+  }
+
   return cfg
 }
 
@@ -114,12 +124,18 @@ function loadConfigOnce(): AppConfig {
     const adminAccessDomains = Array.isArray(parsed.auth?.adminAccessDomains)
       ? parsed.auth.adminAccessDomains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
       : undefined
+    const sessionRaw = parsed.auth?.sessionMaxAgeSeconds
+    const sessionMaxAgeSeconds =
+      typeof sessionRaw === 'number' && Number.isFinite(sessionRaw) && sessionRaw > 0
+        ? Math.floor(sessionRaw)
+        : undefined
     const auth =
       parsed.auth && typeof parsed.auth === 'object'
         ? {
             enabled: Boolean(parsed.auth.enabled),
             password: typeof parsed.auth.password === 'string' ? parsed.auth.password : undefined,
             adminAccessDomains,
+            sessionMaxAgeSeconds,
           }
         : { enabled: false }
 
