@@ -1,6 +1,9 @@
 import { Show } from 'solid-js'
+import type { ModalOverlayScope } from './modal-overlay-scope'
+import { modalDialogBackdropClass } from './modal-overlay-scope'
 
 type RenameDialogProps = {
+  overlayScope?: ModalOverlayScope
   isOpen: boolean
   itemName: string
   newName: string
@@ -17,7 +20,7 @@ export function RenameDialog(props: RenameDialogProps) {
   return (
     <Show when={props.isOpen}>
       <div
-        class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+        class={modalDialogBackdropClass(props.overlayScope)}
         role='presentation'
         onClick={() => props.onCancel()}
       >

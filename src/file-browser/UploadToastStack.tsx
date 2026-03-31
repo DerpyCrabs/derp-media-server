@@ -4,22 +4,24 @@ import CircleCheck from 'lucide-solid/icons/circle-check'
 import CircleX from 'lucide-solid/icons/circle-x'
 import Info from 'lucide-solid/icons/info'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
-import type { UploadToastState } from './types'
+import type { UploadToastAnchor, UploadToastState } from './types'
 import { uploadToastPanelClass } from './types'
 
 type UploadToastStackProps = {
   state: Accessor<UploadToastState>
   onDismissError: () => void
+  toastAnchor?: UploadToastAnchor
 }
 
 export function UploadToastStack(props: UploadToastStackProps) {
+  const panelClass = () => uploadToastPanelClass(props.toastAnchor)
   return (
     <Switch>
       <Match when={props.state().kind === 'uploading' ? props.state() : false}>
         {(get) => {
           const s = get() as Extract<UploadToastState, { kind: 'uploading' }>
           return (
-            <div class={uploadToastPanelClass}>
+            <div class={panelClass()}>
               <div class='flex items-center gap-3'>
                 <LoaderCircle
                   class='h-5 w-5 text-primary shrink-0 animate-spin'
@@ -36,7 +38,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
         }}
       </Match>
       <Match when={props.state().kind === 'success'}>
-        <div class={uploadToastPanelClass}>
+        <div class={panelClass()}>
           <div class='flex items-center gap-3'>
             <CircleCheck class='h-5 w-5 text-green-500 shrink-0' size={20} stroke-width={2} />
             <span class='text-sm font-medium'>Upload complete</span>
@@ -47,7 +49,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
         {(get) => {
           const { label } = get() as Extract<UploadToastState, { kind: 'copied' }>
           return (
-            <div class={uploadToastPanelClass}>
+            <div class={panelClass()}>
               <div class='flex items-center gap-3'>
                 <CircleCheck class='h-5 w-5 text-green-500 shrink-0' size={20} stroke-width={2} />
                 <span class='text-sm font-medium'>{label ?? 'Copied to clipboard'}</span>
@@ -60,7 +62,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
         {(get) => {
           const s = get() as Extract<UploadToastState, { kind: 'clipboardError' }>
           return (
-            <div class={uploadToastPanelClass}>
+            <div class={panelClass()}>
               <div class='flex items-start gap-3'>
                 <Info class='text-destructive h-5 w-5 shrink-0 mt-0.5' size={20} stroke-width={2} />
                 <div class='min-w-0 flex-1'>
@@ -84,7 +86,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
         {(get) => {
           const s = get() as Extract<UploadToastState, { kind: 'error' }>
           return (
-            <div class={uploadToastPanelClass}>
+            <div class={panelClass()}>
               <div class='flex items-start gap-3'>
                 <CircleX
                   class='h-5 w-5 text-destructive shrink-0 mt-0.5'

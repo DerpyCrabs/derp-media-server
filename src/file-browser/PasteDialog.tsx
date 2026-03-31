@@ -1,4 +1,6 @@
 import type { PasteData } from '@/lib/paste-data'
+import type { ModalOverlayScope } from './modal-overlay-scope'
+import { modalDialogBackdropClass } from './modal-overlay-scope'
 import { formatFileSize } from '@/lib/media-utils'
 import { createMarkdownRenderer, preprocessObsidianImages } from '../media/text-viewer-markdown'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
@@ -59,6 +61,7 @@ function PasteTextPreview(props: { content: string; renderAsMarkdown: Accessor<b
 }
 
 type Props = {
+  overlayScope?: ModalOverlayScope
   isOpen: boolean
   pasteData: PasteData | null
   isPending: boolean
@@ -111,7 +114,7 @@ export function PasteDialog(props: Props) {
   return (
     <Show when={props.isOpen}>
       <div
-        class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+        class={modalDialogBackdropClass(props.overlayScope)}
         role='presentation'
         onClick={() => handleClose()}
       >

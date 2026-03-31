@@ -1,6 +1,8 @@
 import { api } from '@/lib/api'
 import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
+import type { ModalOverlayScope } from './modal-overlay-scope'
+import { modalDialogBackdropClass } from './modal-overlay-scope'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import Folder from 'lucide-solid/icons/folder'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
@@ -9,6 +11,7 @@ import { createMemo, createResource, createSignal, For, Show, untrack } from 'so
 type MoveOrCopyMode = 'move' | 'copy'
 
 type MoveToDialogProps = {
+  overlayScope?: ModalOverlayScope
   onClose: () => void
   fileName: string
   /** Admin: full path. Share: path relative to share root. */
@@ -137,7 +140,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
 
   return (
     <div
-      class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+      class={modalDialogBackdropClass(props.overlayScope)}
       role='presentation'
       onClick={() => props.onClose()}
     >

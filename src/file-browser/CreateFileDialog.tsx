@@ -1,6 +1,9 @@
 import { Show } from 'solid-js'
+import type { ModalOverlayScope } from './modal-overlay-scope'
+import { modalDialogBackdropClass } from './modal-overlay-scope'
 
 type CreateFileDialogProps = {
+  overlayScope?: ModalOverlayScope
   isOpen: boolean
   fileName: string
   onFileNameChange: (name: string) => void
@@ -17,7 +20,8 @@ export function CreateFileDialog(props: CreateFileDialogProps) {
   return (
     <Show when={props.isOpen}>
       <div
-        class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+        data-no-window-drag
+        class={modalDialogBackdropClass(props.overlayScope)}
         role='presentation'
         onClick={() => props.onCancel()}
       >

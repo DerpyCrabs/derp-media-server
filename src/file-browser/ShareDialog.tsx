@@ -11,6 +11,8 @@ import Copy from 'lucide-solid/icons/copy'
 import LinkIcon from 'lucide-solid/icons/link'
 import Plus from 'lucide-solid/icons/plus'
 import Trash2 from 'lucide-solid/icons/trash-2'
+import type { ModalOverlayScope } from './modal-overlay-scope'
+import { shareDialogBackdropClass } from './modal-overlay-scope'
 
 const SIZE_PRESETS = [
   { label: '500 MB', value: 500 * 1024 * 1024 },
@@ -365,6 +367,7 @@ function ShareLinkCard(props: {
 }
 
 export type ShareDialogProps = {
+  overlayScope?: ModalOverlayScope
   isOpen: boolean
   onClose: () => void
   filePath: string
@@ -439,7 +442,7 @@ export function ShareDialog(props: ShareDialogProps) {
   return (
     <Show when={props.isOpen}>
       <div
-        class='fixed inset-0 z-550000 flex items-center justify-center bg-black/50 p-4'
+        class={shareDialogBackdropClass(props.overlayScope)}
         role='presentation'
         onClick={() => props.onClose()}
       >
