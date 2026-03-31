@@ -1,8 +1,11 @@
 import { For, Show, createEffect, createMemo, createSignal, untrack, type JSX } from 'solid-js'
 import { getSolidIconComponent, SOLID_AVAILABLE_ICONS } from '../lib/solid-available-icons'
 import X from 'lucide-solid/icons/x'
+import type { ModalOverlayScope } from './modal-overlay-scope'
+import { modalDialogBackdropClass } from './modal-overlay-scope'
 
 type Props = {
+  overlayScope?: ModalOverlayScope
   isOpen: boolean
   fileName: string
   currentIcon: string | null
@@ -44,7 +47,7 @@ export function IconEditorDialog(props: Props) {
   return (
     <Show when={props.isOpen}>
       <div
-        class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+        class={modalDialogBackdropClass(props.overlayScope)}
         role='presentation'
         onClick={() => props.onClose()}
       >

@@ -6,6 +6,7 @@ import { Show } from 'solid-js'
 import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu'
 import { BreadcrumbContextMenu } from '../file-browser/BreadcrumbContextMenu'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
+import { modalDialogBackdropClass } from '../file-browser/modal-overlay-scope'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
 import { IconEditorDialog } from '../file-browser/IconEditorDialog'
 import { MoveToDialog } from '../file-browser/MoveToDialog'
@@ -121,6 +122,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
   return (
     <>
       <IconEditorDialog
+        overlayScope='window'
         isOpen={!!props.iconEditTarget()}
         fileName={props.iconEditTarget()?.name ?? ''}
         currentIcon={
@@ -169,6 +171,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
       />
       <Show when={props.onContextShare}>
         <ShareDialog
+          overlayScope='window'
           isOpen={!!props.shareDialogTarget?.()}
           onClose={() => props.setShareDialogTarget?.(null)}
           filePath={props.shareDialogTarget?.()?.path ?? ''}
@@ -180,6 +183,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         />
       </Show>
       <RenameDialog
+        overlayScope='window'
         isOpen={props.showRename()}
         itemName={props.renamingItem()?.name ?? ''}
         newName={props.renameNewName()}
@@ -193,6 +197,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
       />
       <Show when={props.moveTarget()}>
         <MoveToDialog
+          overlayScope='window'
           onClose={props.closeMoveDialog}
           fileName={props.moveTarget()!.name}
           filePath={props.moveDialogFilePath()}
@@ -205,6 +210,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         />
       </Show>
       <DeleteFileDialog
+        overlayScope='window'
         item={props.deleteTarget}
         isPending={props.deletePending || !!props.revokeSharePending}
         onDismiss={() => props.setDeleteTarget(null)}
@@ -214,7 +220,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
       <Show when={props.showCreateFolder()}>
         <div
           data-no-window-drag
-          class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+          class={modalDialogBackdropClass('window')}
           role='presentation'
           onClick={() => props.setShowCreateFolder(false)}
         >
@@ -278,7 +284,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
       <Show when={props.showCreateFile()}>
         <div
           data-no-window-drag
-          class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+          class={modalDialogBackdropClass('window')}
           role='presentation'
           onClick={() => props.setShowCreateFile(false)}
         >
@@ -342,6 +348,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
       </Show>
 
       <PasteDialog
+        overlayScope='window'
         isOpen={props.showPasteDialog()}
         pasteData={props.pasteData()}
         isPending={props.pastePending}
@@ -351,7 +358,11 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onClose={props.closePasteDialog}
       />
 
-      <UploadToastStack state={props.uploadToast} onDismissError={props.setUploadToastHidden} />
+      <UploadToastStack
+        toastAnchor='window'
+        state={props.uploadToast}
+        onDismissError={props.setUploadToastHidden}
+      />
     </>
   )
 }

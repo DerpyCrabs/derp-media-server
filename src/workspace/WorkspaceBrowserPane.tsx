@@ -1848,106 +1848,106 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               </div>
             )}
           </Show>
+
+          <WorkspaceBrowserModalLayer
+            iconEditTarget={iconEditTarget}
+            setIconEditTarget={setIconEditTarget}
+            workspaceCustomIcons={workspaceCustomIcons}
+            onSaveWorkspaceCustomIcon={handleWorkspaceSaveCustomIcon}
+            setCustomIconPending={setCustomIconMutation.isPending}
+            removeCustomIconPending={removeCustomIconMutation.isPending}
+            breadcrumbMenu={breadcrumbMenu}
+            setBreadcrumbMenu={setBreadcrumbFolderMenu}
+            workspaceBreadcrumbMenuActions={workspaceBreadcrumbMenuActions}
+            onWorkspaceBreadcrumbOpenInNewTab={handleWorkspaceBreadcrumbOpenInNewTab}
+            onWorkspaceBreadcrumbOpenInWorkspace={handleWorkspaceBreadcrumbOpenInWorkspace}
+            onWorkspaceBreadcrumbSetIcon={handleWorkspaceBreadcrumbSetIcon}
+            fileRowMenu={fileRowMenu}
+            editableFoldersList={props.editableFolders}
+            isContextDirEditable={isContextDirEditable}
+            shareDeleteGated={() => !!share()}
+            shareCanDelete={!!props.shareCanDelete}
+            onAddToTaskbar={props.onAddToTaskbar}
+            onFileRowRename={isContextDirEditable() ? openContextRename : undefined}
+            onFileRowMove={isContextDirEditable() ? openContextMove : undefined}
+            onSetRowIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
+            onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
+            showOpenInNewTabForFiles={!!props.onOpenInNewTab}
+            onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
+            onContextDownload={handleContextDownload}
+            onContextShare={share() ? undefined : handleContextShare}
+            shareDialogTarget={shareDialogTarget}
+            setShareDialogTarget={setShareDialogTarget}
+            shareDialogIsEditable={shareDialogIsEditable}
+            shareDialogExistingShares={shareDialogExistingShares}
+            shareLinkBaseForDialog={shareLinkBase}
+            onCopyShareLink={handleCopyShareLink}
+            getPathHasShare={share() ? undefined : getPathHasShareForFile}
+            onContextToggleKnowledgeBase={share() ? undefined : handleContextToggleKnowledgeBase}
+            isRowKnowledgeBase={isRowKnowledgeBase}
+            showRename={showRename}
+            renamingItem={renamingItem}
+            renameNewName={renameNewName}
+            setRenameNewName={setRenameNewName}
+            submitRename={submitRename}
+            cancelRename={cancelRename}
+            renamePending={renameItemMutation.isPending}
+            renameError={renameItemMutation.error as Error | undefined}
+            renameTargetExists={renameTargetExists}
+            moveTarget={moveTarget}
+            closeMoveDialog={closeMoveDialog}
+            moveDialogFilePath={moveDialogFilePath}
+            confirmMoveTo={confirmMoveTo}
+            movePending={moveItemMutation.isPending}
+            moveError={moveItemMutation.error as Error | undefined}
+            shareToken={() => share()?.token}
+            shareRootPath={() => share()?.sharePath}
+            deleteTarget={deleteTarget}
+            setDeleteTarget={setDeleteTarget}
+            deletePending={deleteMutation.isPending}
+            revokeSharePending={share() ? false : revokeShareMutation.isPending}
+            onConfirmDelete={() => {
+              const it = deleteTarget()
+              if (!it) return
+              if (!share() && it.shareToken) {
+                void revokeShareMutation
+                  .mutateAsync({ token: it.shareToken })
+                  .then(() => setDeleteTarget(null))
+              } else {
+                void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+              }
+            }}
+            showCreateFolder={showCreateFolder}
+            setShowCreateFolder={setShowCreateFolder}
+            newFolderName={newFolderName}
+            setNewFolderName={setNewFolderName}
+            submitCreateFolder={submitCreateFolder}
+            createFolderPending={createFolderMutation.isPending}
+            createFolderIsError={createFolderMutation.isError}
+            createFolderError={createFolderMutation.error as Error | undefined}
+            folderExists={folderExists}
+            showCreateFile={showCreateFile}
+            setShowCreateFile={setShowCreateFile}
+            newFileName={newFileName}
+            setNewFileName={setNewFileName}
+            submitCreateFile={submitCreateFile}
+            createFilePending={createFileMutation.isPending}
+            createFileIsError={createFileMutation.isError}
+            createFileError={createFileMutation.error as Error | undefined}
+            fileExists={fileExists}
+            inKb={inKb}
+            showPasteDialog={showPasteDialog}
+            pasteData={pasteData}
+            pastePending={pasteMutation.isPending}
+            pasteError={(pasteMutation.error as Error) ?? null}
+            pasteExistingLowerNames={pasteExistingLowerNames}
+            onPasteFileSubmit={handlePasteFileSubmit}
+            closePasteDialog={closePasteDialog}
+            uploadToast={uploadToast}
+            setUploadToastHidden={() => setUploadToast({ kind: 'hidden' })}
+          />
         </div>
       </Show>
-
-      <WorkspaceBrowserModalLayer
-        iconEditTarget={iconEditTarget}
-        setIconEditTarget={setIconEditTarget}
-        workspaceCustomIcons={workspaceCustomIcons}
-        onSaveWorkspaceCustomIcon={handleWorkspaceSaveCustomIcon}
-        setCustomIconPending={setCustomIconMutation.isPending}
-        removeCustomIconPending={removeCustomIconMutation.isPending}
-        breadcrumbMenu={breadcrumbMenu}
-        setBreadcrumbMenu={setBreadcrumbFolderMenu}
-        workspaceBreadcrumbMenuActions={workspaceBreadcrumbMenuActions}
-        onWorkspaceBreadcrumbOpenInNewTab={handleWorkspaceBreadcrumbOpenInNewTab}
-        onWorkspaceBreadcrumbOpenInWorkspace={handleWorkspaceBreadcrumbOpenInWorkspace}
-        onWorkspaceBreadcrumbSetIcon={handleWorkspaceBreadcrumbSetIcon}
-        fileRowMenu={fileRowMenu}
-        editableFoldersList={props.editableFolders}
-        isContextDirEditable={isContextDirEditable}
-        shareDeleteGated={() => !!share()}
-        shareCanDelete={!!props.shareCanDelete}
-        onAddToTaskbar={props.onAddToTaskbar}
-        onFileRowRename={isContextDirEditable() ? openContextRename : undefined}
-        onFileRowMove={isContextDirEditable() ? openContextMove : undefined}
-        onSetRowIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
-        onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
-        showOpenInNewTabForFiles={!!props.onOpenInNewTab}
-        onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
-        onContextDownload={handleContextDownload}
-        onContextShare={share() ? undefined : handleContextShare}
-        shareDialogTarget={shareDialogTarget}
-        setShareDialogTarget={setShareDialogTarget}
-        shareDialogIsEditable={shareDialogIsEditable}
-        shareDialogExistingShares={shareDialogExistingShares}
-        shareLinkBaseForDialog={shareLinkBase}
-        onCopyShareLink={handleCopyShareLink}
-        getPathHasShare={share() ? undefined : getPathHasShareForFile}
-        onContextToggleKnowledgeBase={share() ? undefined : handleContextToggleKnowledgeBase}
-        isRowKnowledgeBase={isRowKnowledgeBase}
-        showRename={showRename}
-        renamingItem={renamingItem}
-        renameNewName={renameNewName}
-        setRenameNewName={setRenameNewName}
-        submitRename={submitRename}
-        cancelRename={cancelRename}
-        renamePending={renameItemMutation.isPending}
-        renameError={renameItemMutation.error as Error | undefined}
-        renameTargetExists={renameTargetExists}
-        moveTarget={moveTarget}
-        closeMoveDialog={closeMoveDialog}
-        moveDialogFilePath={moveDialogFilePath}
-        confirmMoveTo={confirmMoveTo}
-        movePending={moveItemMutation.isPending}
-        moveError={moveItemMutation.error as Error | undefined}
-        shareToken={() => share()?.token}
-        shareRootPath={() => share()?.sharePath}
-        deleteTarget={deleteTarget}
-        setDeleteTarget={setDeleteTarget}
-        deletePending={deleteMutation.isPending}
-        revokeSharePending={share() ? false : revokeShareMutation.isPending}
-        onConfirmDelete={() => {
-          const it = deleteTarget()
-          if (!it) return
-          if (!share() && it.shareToken) {
-            void revokeShareMutation
-              .mutateAsync({ token: it.shareToken })
-              .then(() => setDeleteTarget(null))
-          } else {
-            void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
-          }
-        }}
-        showCreateFolder={showCreateFolder}
-        setShowCreateFolder={setShowCreateFolder}
-        newFolderName={newFolderName}
-        setNewFolderName={setNewFolderName}
-        submitCreateFolder={submitCreateFolder}
-        createFolderPending={createFolderMutation.isPending}
-        createFolderIsError={createFolderMutation.isError}
-        createFolderError={createFolderMutation.error as Error | undefined}
-        folderExists={folderExists}
-        showCreateFile={showCreateFile}
-        setShowCreateFile={setShowCreateFile}
-        newFileName={newFileName}
-        setNewFileName={setNewFileName}
-        submitCreateFile={submitCreateFile}
-        createFilePending={createFileMutation.isPending}
-        createFileIsError={createFileMutation.isError}
-        createFileError={createFileMutation.error as Error | undefined}
-        fileExists={fileExists}
-        inKb={inKb}
-        showPasteDialog={showPasteDialog}
-        pasteData={pasteData}
-        pastePending={pasteMutation.isPending}
-        pasteError={(pasteMutation.error as Error) ?? null}
-        pasteExistingLowerNames={pasteExistingLowerNames}
-        onPasteFileSubmit={handlePasteFileSubmit}
-        closePasteDialog={closePasteDialog}
-        uploadToast={uploadToast}
-        setUploadToastHidden={() => setUploadToast({ kind: 'hidden' })}
-      />
     </div>
   )
 }

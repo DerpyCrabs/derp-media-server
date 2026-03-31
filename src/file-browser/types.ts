@@ -12,5 +12,9 @@ export type UploadToastState =
   | { kind: 'copied'; label?: string }
   | { kind: 'clipboardError'; message: string }
 
-export const uploadToastPanelClass =
-  'fixed bottom-4 right-4 z-50 min-w-[280px] max-w-sm rounded-lg border border-border bg-background shadow-lg p-3 text-foreground'
+export type UploadToastAnchor = 'viewport' | 'window'
+
+export function uploadToastPanelClass(anchor: UploadToastAnchor = 'viewport'): string {
+  const pos = anchor === 'window' ? 'absolute' : 'fixed'
+  return `${pos} bottom-4 right-4 z-50 min-w-[280px] max-w-sm rounded-lg border border-border bg-background shadow-lg p-3 text-foreground`
+}

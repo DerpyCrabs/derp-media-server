@@ -1,8 +1,11 @@
 import type { FileItem } from '@/lib/types'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
+import type { ModalOverlayScope } from './modal-overlay-scope'
+import { modalDialogBackdropClass } from './modal-overlay-scope'
 
 type DeleteFileDialogProps = {
+  overlayScope?: ModalOverlayScope
   item: Accessor<FileItem | null>
   isPending: boolean
   onDismiss: () => void
@@ -18,7 +21,7 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
         return (
           <div
             data-no-window-drag
-            class='fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4'
+            class={modalDialogBackdropClass(props.overlayScope)}
             role='presentation'
             onClick={() => props.onDismiss()}
           >

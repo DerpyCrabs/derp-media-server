@@ -14,7 +14,7 @@ export function GlobalForbiddenToast() {
   return (
     <Show when={message()}>
       {(msg) => (
-        <div class={uploadToastPanelClass}>
+        <div class={uploadToastPanelClass()}>
           <div class='flex items-start gap-3'>
             <CircleX class='h-5 w-5 text-destructive shrink-0 mt-0.5' size={20} stroke-width={2} />
             <div class='flex-1 min-w-0'>
