@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { config } from '@/lib/config'
-import { verifySessionValue, SESSION_COOKIE } from '@/lib/auth'
+import { verifySessionValue, SESSION_COOKIE, createAuthSessionValue } from '@/lib/auth'
 
 const PUBLIC_PREFIXES = ['/login', '/api/auth/', '/share', '/api/share/']
 
@@ -51,6 +51,10 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
       }
       reply.redirect('/login')
       return
+    }
+    const renewed = createAuthSessionValue()
+    if (renewed) {
+      reply.setCookie(renewed.name, renewed.value, renewed.options)
     }
     return
   }

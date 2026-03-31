@@ -1,10 +1,16 @@
-class ApiError extends Error {
+import { pushForbiddenNotice } from './forbidden-notify'
+
+export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
   ) {
     super(message)
   }
+}
+
+export function isApiError(e: unknown): e is ApiError {
+  return e instanceof ApiError
 }
 
 function mergeFetchHeaders(base: Record<string, string>, extra?: HeadersInit): Headers {
@@ -36,8 +42,12 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
     headers,
   })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, body.error || res.statusText)
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    const message = body.error || res.statusText
+    if (res.status === 403) {
+      pushForbiddenNotice(message)
+    }
+    throw new ApiError(res.status, message)
   }
   return res.json()
 }

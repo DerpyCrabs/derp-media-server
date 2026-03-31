@@ -6,7 +6,13 @@ const scryptAsync = promisify(scrypt)
 const SALT = 'derp-media-server'
 const KEY_LEN = 64
 export const SESSION_COOKIE = 'auth_session'
-const SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
+const DEFAULT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
+
+export function getAuthSessionMaxAgeSeconds(): number {
+  const n = config.auth?.sessionMaxAgeSeconds
+  if (typeof n === 'number' && n > 0 && Number.isFinite(n)) return Math.floor(n)
+  return DEFAULT_SESSION_MAX_AGE_SECONDS
+}
 
 function signSession(secret: string, payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url')
@@ -71,6 +77,7 @@ export function createAuthSessionValue(): {
   const timestamp = Math.floor(Date.now() / 1000).toString()
   const signature = signSession(secret, timestamp)
   const value = `${timestamp}.${signature}`
+  const maxAge = getAuthSessionMaxAgeSeconds()
 
   return {
     name: SESSION_COOKIE,
@@ -79,7 +86,7 @@ export function createAuthSessionValue(): {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: SESSION_MAX_AGE,
+      maxAge,
       path: '/',
     },
   }
@@ -93,5 +100,5 @@ export function verifySessionValue(value: string | undefined): boolean {
   const dot = value.indexOf('.')
   const timestamp = parseInt(value.slice(0, dot), 10)
   const now = Math.floor(Date.now() / 1000)
-  return now - timestamp <= SESSION_MAX_AGE
+  return now - timestamp <= getAuthSessionMaxAgeSeconds()
 }

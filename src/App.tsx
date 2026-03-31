@@ -7,24 +7,15 @@ import { FileBrowser } from './FileBrowser'
 import { ShareRoute } from './ShareRoute'
 import { ShareWorkspacePage } from './ShareWorkspacePage'
 import { WorkspacePage } from './WorkspacePage'
-
-async function postLogin(password: string) {
-  const res = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  })
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error || res.statusText)
-  }
-}
+import { GlobalForbiddenToast } from './GlobalForbiddenToast'
+import { post } from '@/lib/api'
 
 function LoginPage() {
   const [password, setPassword] = createSignal('')
 
   const loginMutation = useMutation(() => ({
-    mutationFn: (vars: { password: string }) => postLogin(vars.password),
+    mutationFn: (vars: { password: string }) =>
+      post<{ success: boolean }>('/api/auth/login', { password: vars.password }),
     onSuccess: () => window.location.assign('/'),
   }))
 
@@ -95,42 +86,45 @@ export function App() {
   const shareWorkspaceToken = createMemo(() => parseShareWorkspaceToken(path()))
 
   return (
-    <Switch
-      fallback={
-        <>
-          <SolidThemeSync />
-          <FileBrowser />
-        </>
-      }
-    >
-      <Match when={path() === '/login'}>
-        <>
-          <SolidThemeSync />
-          <LoginPage />
-        </>
-      </Match>
-      <Match when={shareWorkspaceToken()} keyed>
-        {(token) => (
+    <>
+      <GlobalForbiddenToast />
+      <Switch
+        fallback={
           <>
             <SolidThemeSync />
-            <ShareWorkspacePage token={token} />
+            <FileBrowser />
           </>
-        )}
-      </Match>
-      <Match when={parseShareFolderOrFileToken(path())} keyed>
-        {(token) => (
+        }
+      >
+        <Match when={path() === '/login'}>
           <>
             <SolidThemeSync />
-            <ShareRoute token={token} />
+            <LoginPage />
           </>
-        )}
-      </Match>
-      <Match when={path() === '/workspace'}>
-        <>
-          <SolidThemeSync />
-          <WorkspacePage />
-        </>
-      </Match>
-    </Switch>
+        </Match>
+        <Match when={shareWorkspaceToken()} keyed>
+          {(token) => (
+            <>
+              <SolidThemeSync />
+              <ShareWorkspacePage token={token} />
+            </>
+          )}
+        </Match>
+        <Match when={parseShareFolderOrFileToken(path())} keyed>
+          {(token) => (
+            <>
+              <SolidThemeSync />
+              <ShareRoute token={token} />
+            </>
+          )}
+        </Match>
+        <Match when={path() === '/workspace'}>
+          <>
+            <SolidThemeSync />
+            <WorkspacePage />
+          </>
+        </Match>
+      </Switch>
+    </>
   )
 }
