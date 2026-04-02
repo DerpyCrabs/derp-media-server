@@ -36,6 +36,9 @@ export function useWorkspacePageLayoutBaseline(
       activeTabMap: { ...w.activeTabMap },
       nextWindowId: w.nextWindowId,
       pinnedTaskbarItems: w.pinnedTaskbarItems ?? [],
+      ...(w.tabGroupSplits && Object.keys(w.tabGroupSplits).length > 0
+        ? { tabGroupSplits: { ...w.tabGroupSplits } }
+        : {}),
       ...(w.browserTabTitle ? { browserTabTitle: w.browserTabTitle } : {}),
       ...(w.browserTabIcon ? { browserTabIcon: w.browserTabIcon } : {}),
       ...(w.browserTabIconColor ? { browserTabIconColor: w.browserTabIconColor } : {}),
