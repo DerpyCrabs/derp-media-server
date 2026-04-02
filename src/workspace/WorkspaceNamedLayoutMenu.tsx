@@ -9,13 +9,15 @@ import {
 import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import LayoutGrid from 'lucide-solid/icons/layout-grid'
 import RotateCcw from 'lucide-solid/icons/rotate-ccw'
+import Save from 'lucide-solid/icons/save'
 import Trash2 from 'lucide-solid/icons/trash-2'
 import { For, Show, createSignal } from 'solid-js'
 import { navigateSearchParams } from '../browser-history'
 
 function snapshotForLayoutPreset(s: PersistedWorkspaceState): PersistedWorkspaceState {
+  const plain = JSON.parse(JSON.stringify(s)) as PersistedWorkspaceState
   return {
-    ...s,
+    ...plain,
     browserTabTitle: undefined,
     browserTabIcon: undefined,
     browserTabIconColor: undefined,
@@ -98,17 +100,34 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
       createdAt: now,
       updatedAt: now,
     }
-    await persistPresetsMutation.mutateAsync([...props.presets, next])
+    try {
+      await persistPresetsMutation.mutateAsync([...props.presets, next])
+    } catch {
+      return
+    }
+    setSaveName('')
+    setSaveOpen(false)
     if (props.shareToken) {
-      await queryClient.refetchQueries({ queryKey: queryKeys.shareInfo(props.shareToken) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(props.shareToken) })
     } else {
-      await queryClient.refetchQueries({ queryKey: queryKeys.settings() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     }
     props.syncLayoutBaselineToCurrent()
     props.declareBaselinePresetId(id)
     clearPresetQueryParam()
-    setSaveName('')
-    setSaveOpen(false)
+  }
+
+  function handleUpdatePresetFromCurrent(id: string) {
+    if (!props.presetsReady) return
+    const found = props.presets.find((x) => x.id === id)
+    if (!found) return
+    const snapshot = snapshotForLayoutPreset(props.collectLayoutSnapshot())
+    const now = new Date().toISOString()
+    persistPresets(props.presets.map((p) => (p.id === id ? { ...p, snapshot, updatedAt: now } : p)))
+    if (props.layoutBaselinePresetId === id) {
+      props.syncLayoutBaselineToCurrent()
+    }
+    setMenuOpen(false)
   }
 
   function handleUpdateSaved() {
@@ -162,7 +181,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
         <div
           class='fixed inset-0 z-[999998]'
           role='presentation'
-          onPointerDown={() => setMenuOpen(false)}
+          onClick={() => setMenuOpen(false)}
         />
         <div
           data-workspace-layout-menu
@@ -173,7 +192,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
             transform: 'translateY(-100%)',
           }}
           role='menu'
-          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           <button
             type='button'
@@ -197,14 +216,36 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
           </Show>
           <For each={props.presets}>
             {(p) => (
-              <div class='flex min-h-8 items-center gap-0.5 rounded-sm pr-1 hover:bg-accent/50'>
+              <div
+                class='flex min-h-8 items-center gap-0.5 rounded-sm pr-1 hover:bg-accent/50'
+                role='presentation'
+              >
                 <button
                   type='button'
                   role='menuitem'
                   class='min-w-0 flex-1 cursor-pointer truncate rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground'
-                  onClick={() => handleRestore(p.id)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleRestore(p.id)
+                  }}
                 >
                   {p.name}
+                </button>
+                <button
+                  type='button'
+                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+                  title={`Update “${p.name}” from current windows`}
+                  aria-label={`Update layout “${p.name}” from current windows`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleUpdatePresetFromCurrent(p.id)
+                  }}
+                >
+                  <Save class='size-3.5' stroke-width={2} />
                 </button>
                 <button
                   type='button'
