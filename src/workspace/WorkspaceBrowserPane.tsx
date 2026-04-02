@@ -1673,7 +1673,12 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                       </Match>
                       <Match when={viewMode() === 'list'}>
                         <div class='relative w-full overflow-x-auto'>
-                          <table class='w-full caption-bottom text-sm'>
+                          <table class='w-full table-fixed caption-bottom text-sm'>
+                            <colgroup>
+                              <col class='w-[40px]' />
+                              <col />
+                              <col class='w-24' />
+                            </colgroup>
                             <tbody class='[&_tr:last-child]:border-0'>
                               <Show when={currentPath()}>
                                 <tr
@@ -1693,7 +1698,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                                   onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
                                   onDrop={allowMoveFile() ? parentRowDrop : undefined}
                                 >
-                                  <td class='w-12 p-2 align-middle'>
+                                  <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
                                     <div class='flex items-center justify-center'>
                                       <ArrowUp
                                         class='h-5 w-5 text-muted-foreground'
@@ -1702,8 +1707,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                                       />
                                     </div>
                                   </td>
-                                  <td class='p-2 align-middle font-medium'>..</td>
-                                  <td class='p-2 align-middle text-right text-muted-foreground' />
+                                  <td class='min-w-0 p-2 align-middle font-medium'>..</td>
+                                  <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
                                 </tr>
                               </Show>
                               <For each={files()}>
@@ -1740,7 +1745,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                                       }}
                                     >
                                       <td
-                                        class='w-12 p-2 align-middle'
+                                        class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'
                                         {...(isRowKnowledgeBase(file)
                                           ? { 'data-kb-root-icon': '' }
                                           : {})}
@@ -1749,10 +1754,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                                           {fileItemIcon(file, props.fileIconContext())}
                                         </div>
                                       </td>
-                                      <td class='p-2 align-middle font-medium'>
+                                      <td class='min-w-0 p-2 align-middle font-medium'>
                                         <span class='truncate'>{file.name}</span>
                                       </td>
-                                      <td class='p-2 align-middle text-right text-muted-foreground'>
+                                      <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
                                         <span class='inline-block w-20 tabular-nums'>
                                           {file.isDirectory ? '' : formatFileSize(file.size)}
                                         </span>

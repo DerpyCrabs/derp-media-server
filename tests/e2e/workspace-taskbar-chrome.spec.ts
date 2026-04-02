@@ -68,6 +68,28 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)).toHaveCount(1)
   })
 
+  test('workspace: listen-only ↔ show video round-trip twice', async () => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    await content.getByText('Videos', { exact: true }).click()
+    await content.getByText('sample.mp4').click()
+
+    const videos = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
+    const audioRoot = page.locator('[data-workspace-taskbar-audio-root]')
+
+    for (let i = 0; i < 2; i++) {
+      await expect(videos).toHaveCount(1)
+      await videos.first().hover()
+      await page.locator('button[title="Listen only"]').click()
+      await expect(videos).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Open audio controls' })).toBeVisible()
+
+      await page.getByRole('button', { name: 'Open audio controls' }).click()
+      await audioRoot.getByRole('button', { name: 'Show video' }).click()
+      await expect(videos).toHaveCount(1)
+    }
+  })
+
   test('snap assist toggle persists after reload', async () => {
     await gotoWorkspace(page)
     await page.getByRole('button', { name: 'Open settings' }).click()
