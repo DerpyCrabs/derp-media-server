@@ -27,6 +27,8 @@ export type WorkspaceTilingPickerProps = {
   container: HTMLElement
   onSelectSpan: (span: AssistGridSpan) => void
   onClose: () => void
+  /** Fired when the hovered grid span changes; cleared on unmount / pointer leaving all spans. */
+  onHoverSpanChange?: (span: AssistGridSpan | null) => void
 }
 
 export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
@@ -118,6 +120,16 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     const onWindow = (e: PointerEvent) => updateHoverFromEvent(e)
     window.addEventListener('pointermove', onWindow, { capture: true, passive: true })
     onCleanup(() => window.removeEventListener('pointermove', onWindow, { capture: true }))
+  })
+
+  createEffect(() => {
+    const cb = props.onHoverSpanChange
+    if (!cb) return
+    cb(pointerPick()?.span ?? null)
+  })
+
+  onCleanup(() => {
+    props.onHoverSpanChange?.(null)
   })
 
   onMount(() => {

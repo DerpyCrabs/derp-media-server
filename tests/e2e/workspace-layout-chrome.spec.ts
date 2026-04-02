@@ -96,13 +96,24 @@ test.describe('Tiling Layout Picker', () => {
     const rbox = await rightTop.boundingBox()
     if (!lbox || !rbox) throw new Error('Mini grid cells not laid out')
 
+    const workspacePreview = page.locator('[data-snap-preview]')
+
     await page.mouse.move(lbox.x + lbox.width / 2, lbox.y + lbox.height / 2)
     await expect(leftTop).toHaveAttribute('data-snap-assist-hover-active', '')
     await expect(rightTop).not.toHaveAttribute('data-snap-assist-hover-active', '')
+    await expect(workspacePreview).toBeVisible()
+    const previewBoxLeft = await workspacePreview.boundingBox()
+    if (!previewBoxLeft) throw new Error('Workspace layout preview not laid out')
+    expect(previewBoxLeft.x).toBeLessThanOrEqual(8)
+    expect(previewBoxLeft.width).toBeGreaterThan(64)
 
     await page.mouse.move(rbox.x + rbox.width / 2, rbox.y + rbox.height / 2, { steps: 12 })
     await expect(rightTop).toHaveAttribute('data-snap-assist-hover-active', '')
     await expect(leftTop).not.toHaveAttribute('data-snap-assist-hover-active', '')
+    await expect(workspacePreview).toBeVisible()
+    const previewBoxRight = await workspacePreview.boundingBox()
+    if (!previewBoxRight) throw new Error('Workspace layout preview not laid out after move')
+    expect(previewBoxRight.x).toBeGreaterThan(previewBoxLeft.x + 8)
   })
 
   test('selects quarter layout via 2×2 grid', async () => {

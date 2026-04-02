@@ -57,6 +57,9 @@ export function createWorkspaceSnapDragModel(options: {
   const [assistHoverPick, setAssistHoverPick] = createSignal<AssistSlotPick | null>(null)
   const [dragEdgeGridSpan, setDragEdgeGridSpan] = createSignal<AssistGridSpan | null>(null)
   const [mergeTargetPreview, setMergeTargetPreview] = createSignal<MergeTarget | null>(null)
+  const [tilingPickerHoverSpan, setTilingPickerHoverSpan] = createSignal<AssistGridSpan | null>(
+    null,
+  )
   let draggedWindowIdForSnap: string | null = null
 
   let mergeByGroupCache: {
@@ -142,6 +145,28 @@ export function createWorkspaceSnapDragModel(options: {
     })
     ro.observe(el)
     onCleanup(() => ro.disconnect())
+  })
+
+  createEffect(() => {
+    const span = tilingPickerHoverSpan()
+    void workspaceCanvasSize()
+    const c = workspaceAreaEl
+    const p = snapPreviewEl
+    if (!c || !p) return
+    if (!span) {
+      if (!dragSnapWindowId()) {
+        applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag)
+      }
+      return
+    }
+    const r = c.getBoundingClientRect()
+    const canvas = { width: Math.max(1, r.width), height: Math.max(1, r.height) }
+    const b = assistGridSpanToBounds(canvas, span)
+    p.style.display = 'block'
+    p.style.left = `${b.x}px`
+    p.style.top = `${b.y}px`
+    p.style.width = `${b.width}px`
+    p.style.height = `${b.height}px`
   })
 
   function getZoneBoundsForDrag(zone: SnapZone): WorkspaceBounds {
@@ -511,6 +536,7 @@ export function createWorkspaceSnapDragModel(options: {
   }
 
   function applyTilingPickerPick(windowId: string, span: AssistGridSpan) {
+    setTilingPickerHoverSpan(null)
     const c = workspaceAreaEl
     if (!c) return
     const r = c.getBoundingClientRect()
@@ -545,5 +571,6 @@ export function createWorkspaceSnapDragModel(options: {
     resizeSnappedWindowBounds,
     onDragPointerEnd,
     applyTilingPickerPick,
+    setTilingPickerHoverPreview: setTilingPickerHoverSpan,
   }
 }
