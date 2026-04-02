@@ -5,6 +5,11 @@ import {
 } from '@/lib/use-workspace'
 import { createMemo, createSignal, type Accessor, type Setter } from 'solid-js'
 
+/** Deep copy via JSON — safe for layout baselines; `structuredClone` throws on non-cloneable runtime refs. */
+function clonePersistedWorkspaceJson(s: PersistedWorkspaceState): PersistedWorkspaceState {
+  return JSON.parse(JSON.stringify(s)) as PersistedWorkspaceState
+}
+
 export function useWorkspacePageLayoutBaseline(
   workspace: Accessor<PersistedWorkspaceState | null>,
   setWorkspace: Setter<PersistedWorkspaceState | null>,
@@ -50,7 +55,7 @@ export function useWorkspacePageLayoutBaseline(
       browserTabIcon: normalized.browserTabIcon ?? prev?.browserTabIcon,
       browserTabIconColor: normalized.browserTabIconColor ?? prev?.browserTabIconColor,
     }
-    const clone = structuredClone(merged)
+    const clone = clonePersistedWorkspaceJson(merged)
     setWorkspace(merged)
     setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
     setLayoutBaselineSnapshot(clone)
@@ -62,12 +67,12 @@ export function useWorkspacePageLayoutBaseline(
   function revertLayoutToBaseline() {
     const snap = layoutBaselineSnapshot()
     if (!snap) return
-    applyLayoutSnapshot(structuredClone(snap))
+    applyLayoutSnapshot(clonePersistedWorkspaceJson(snap))
   }
 
   function syncLayoutBaselineToCurrent() {
     const snap = collectLayoutSnapshot()
-    const clone = structuredClone(snap)
+    const clone = clonePersistedWorkspaceJson(snap)
     setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
     setLayoutBaselineSnapshot(clone)
   }
