@@ -89,6 +89,8 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const [detailsOpen, setDetailsOpen] = createSignal(false)
   const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
   const srcLoadGenRef = { current: 0 }
+  /** Aligns with `useWorkspaceAudio.playNonce` so a new session after stop always reloads `<audio>`, even if `currentSrc` still matches. */
+  const lastLoadedTransportNonceRef = { current: -1 }
   /** True while pausing to swap `src` so `onPause` does not clobber `isPlaying`. */
   const swappingSrcRef = { current: false }
 
@@ -404,6 +406,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
     const wantPlaying = useWorkspaceAudio.getState().isPlaying
 
     if (!handle || !path) {
+      lastLoadedTransportNonceRef.current = -1
       audio.pause()
       audio.removeAttribute('src')
       audio.load()
@@ -419,7 +422,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
     const tryGesturePlay = gesturePath != null && gesturePath === path && wantPlaying
 
-    if (!audioElementShowsUrl(audio, fullUrl)) {
+    const playNonce = useWorkspaceAudio.getState().playNonce
+    const needsSrcLoad =
+      !audioElementShowsUrl(audio, fullUrl) || playNonce !== lastLoadedTransportNonceRef.current
+
+    if (needsSrcLoad) {
+      lastLoadedTransportNonceRef.current = playNonce
       srcLoadGenRef.current += 1
       const token = srcLoadGenRef.current
       const state = useWorkspaceAudio.getState()
