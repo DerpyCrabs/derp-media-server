@@ -561,8 +561,8 @@ export function AudioPlayer(props: Props) {
       <audio ref={setAudioEl} preload='auto' class='hidden' />
 
       <Show when={shouldHandleAudio()}>
-        <div class='fixed bottom-0 left-0 right-0 bg-background z-50'>
-          <div class='min-[650px]:hidden relative w-full h-1 bg-secondary'>
+        <div class='fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background pb-[env(safe-area-inset-bottom,0px)]'>
+          <div class='min-[650px]:hidden relative h-px w-full bg-secondary'>
             <div
               class='absolute top-0 left-0 h-full bg-white transition-all duration-100'
               style={{
@@ -580,24 +580,22 @@ export function AudioPlayer(props: Props) {
             />
           </div>
 
-          <div class='border-t border-border' />
-
-          <div class='container mx-auto px-4 py-3'>
-            <div class='flex items-center gap-4'>
-              <div class='flex items-center gap-2'>
+          <div class='container mx-auto px-2 py-1.5 min-[650px]:px-4 min-[650px]:py-3'>
+            <div class='flex min-w-0 items-center gap-2 min-[650px]:gap-4'>
+              <div class='flex shrink-0 items-center gap-0.5 min-[650px]:gap-2'>
                 <button
                   type='button'
                   disabled={!hasPreviousAudio()}
                   onClick={() => playPrevRef.current()}
-                  class='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50'
+                  class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
                 >
-                  <StepBack class='h-4 w-4' />
+                  <StepBack class='size-3.5 min-[650px]:size-4' />
                 </button>
                 <button
                   type='button'
                   disabled={!playingPath()}
                   onClick={handleTogglePlayPause}
-                  class='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'
+                  class='inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 min-[650px]:size-10'
                 >
                   <Show
                     when={
@@ -605,18 +603,18 @@ export function AudioPlayer(props: Props) {
                       storeSlice().mediaType === 'audio' &&
                       storeSlice().currentFile === playingPath()
                     }
-                    fallback={<Play class='h-4 w-4' />}
+                    fallback={<Play class='size-3.5 min-[650px]:size-4' />}
                   >
-                    <Pause class='h-4 w-4' />
+                    <Pause class='size-3.5 min-[650px]:size-4' />
                   </Show>
                 </button>
                 <button
                   type='button'
                   disabled={!hasNextAudio()}
                   onClick={() => playNextRef.current()}
-                  class='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50'
+                  class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
                 >
-                  <StepForward class='h-4 w-4' />
+                  <StepForward class='size-3.5 min-[650px]:size-4' />
                 </button>
                 <button
                   type='button'
@@ -624,11 +622,11 @@ export function AudioPlayer(props: Props) {
                   onClick={toggleRepeat}
                   class={
                     isRepeat()
-                      ? 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-50'
-                      : 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50'
+                      ? 'inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-50 min-[650px]:size-10'
+                      : 'inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
                   }
                 >
-                  <Repeat class='h-4 w-4' />
+                  <Repeat class='size-3.5 min-[650px]:size-4' />
                 </button>
                 <Show when={isVideoFile()}>
                   <button
@@ -636,9 +634,9 @@ export function AudioPlayer(props: Props) {
                     disabled={!playingPath()}
                     onClick={handleShowVideo}
                     aria-label='Show video'
-                    class='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50'
+                    class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
                   >
-                    <Monitor class='h-4 w-4' />
+                    <Monitor class='size-3.5 min-[650px]:size-4' />
                   </button>
                 </Show>
               </div>
@@ -684,23 +682,19 @@ export function AudioPlayer(props: Props) {
 
               <div class='hidden md:block w-px h-8 bg-border shrink-0' />
 
-              <div class='w-[200px] lg:w-[280px] flex items-center gap-3'>
-                <div class='shrink-0 w-12 h-12 rounded overflow-hidden bg-secondary'>
+              <div class='flex min-w-0 flex-1 items-center gap-2 min-[650px]:w-[200px] min-[650px]:flex-none min-[650px]:gap-3 lg:w-[280px]'>
+                <div class='size-9 shrink-0 overflow-hidden rounded bg-secondary min-[650px]:size-12'>
                   <Show when={displayImageUrl()}>
-                    <img
-                      src={displayImageUrl()!}
-                      alt='Album art'
-                      class='w-full h-full object-cover'
-                    />
+                    <img src={displayImageUrl()!} alt='Album art' class='size-full object-cover' />
                   </Show>
                 </div>
 
-                <div class='flex-1 min-w-0'>
+                <div class='min-w-0 flex-1'>
                   <Show when={!metadataQuery.isLoading}>
-                    <div class='font-medium truncate text-sm'>
+                    <div class='truncate text-xs font-medium min-[650px]:text-sm'>
                       {audioMetadata()?.title || fileName()}
                     </div>
-                    <div class='text-xs text-muted-foreground truncate'>
+                    <div class='truncate text-[11px] text-muted-foreground min-[650px]:text-xs'>
                       {audioMetadata()?.artist || 'Unknown Artist'}
                     </div>
                   </Show>
