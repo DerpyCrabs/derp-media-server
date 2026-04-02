@@ -1058,6 +1058,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           layoutPicker={layoutPicker}
           closeLayoutPicker={() => setLayoutPicker(null)}
           onTilingPick={handleWorkspaceTilingPick}
+          setTilingPickerHoverPreview={snap.setTilingPickerHoverPreview}
           openLayoutPicker={(windowId, anchor) => setLayoutPicker({ windowId, anchor })}
           pageProps={props}
           sharePanel={server.sharePanel}

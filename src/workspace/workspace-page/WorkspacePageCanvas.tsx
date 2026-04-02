@@ -45,6 +45,7 @@ export type WorkspacePageCanvasProps = {
   layoutPicker: () => { windowId: string; anchor: DOMRect } | null
   closeLayoutPicker: () => void
   onTilingPick: (windowId: string, span: AssistGridSpan) => void
+  setTilingPickerHoverPreview: (span: AssistGridSpan | null) => void
   openLayoutPicker: (windowId: string, anchor: DOMRect) => void
   pageProps: WorkspacePageProps
   sharePanel: () => WorkspaceShareConfig | null
@@ -435,6 +436,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
               container={c}
               onSelectSpan={(span) => props.onTilingPick(p.windowId, span)}
               onClose={props.closeLayoutPicker}
+              onHoverSpanChange={props.setTilingPickerHoverPreview}
             />
           )
         }}
