@@ -14,6 +14,8 @@ interface WorkspaceAudioState extends WorkspaceAudioSessionSlice {
   volume: number
   isMuted: boolean
   isRepeat: boolean
+  /** Bumps when starting playback from a stopped taskbar (playing was null); forces `<audio>` reload in WorkspaceTaskbarAudio. */
+  playNonce: number
 }
 
 const listeners = createStoreListeners()
@@ -32,6 +34,7 @@ const [store, setStore] = createStore<WorkspaceAudioState>({
   volume: 1,
   isMuted: false,
   isRepeat: false,
+  playNonce: 0,
 })
 
 function sessionSlice(): WorkspaceAudioSessionSlice {
@@ -52,6 +55,9 @@ function playAudio(path: string, dir?: string) {
   const prev = store.playing
   setStore('playing', path)
   if (prev !== path) {
+    if (prev == null) {
+      setStore('playNonce', store.playNonce + 1)
+    }
     setStore('audioOnly', false)
     setStore('duration', 0)
     setCurrentTime(0)
@@ -200,6 +206,9 @@ const api = {
   },
   get isRepeat() {
     return store.isRepeat
+  },
+  get playNonce() {
+    return store.playNonce
   },
   get byKey() {
     return byKeyProxy()
