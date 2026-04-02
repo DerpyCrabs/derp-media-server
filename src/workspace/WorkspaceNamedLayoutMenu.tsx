@@ -1,4 +1,5 @@
 import { post } from '@/lib/api'
+import { computeLayoutPreviewDetail } from '@/lib/workspace-layout-preview'
 import { queryKeys } from '@/lib/query-keys'
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import {
@@ -11,8 +12,9 @@ import LayoutGrid from 'lucide-solid/icons/layout-grid'
 import RotateCcw from 'lucide-solid/icons/rotate-ccw'
 import Save from 'lucide-solid/icons/save'
 import Trash2 from 'lucide-solid/icons/trash-2'
-import { For, Show, createSignal } from 'solid-js'
+import { For, Show, createEffect, createSignal } from 'solid-js'
 import { navigateSearchParams } from '../browser-history'
+import { WorkspaceLayoutHoverPreview } from '@/src/workspace/WorkspaceLayoutHoverPreview'
 
 function snapshotForLayoutPreset(s: PersistedWorkspaceState): PersistedWorkspaceState {
   const plain = JSON.parse(JSON.stringify(s)) as PersistedWorkspaceState
@@ -47,6 +49,14 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
   const [saveOpen, setSaveOpen] = createSignal(false)
   const [saveName, setSaveName] = createSignal('')
   const [menuPos, setMenuPos] = createSignal<{ left: number; top: number }>({ left: 0, top: 0 })
+  const [layoutHoverPreview, setLayoutHoverPreview] = createSignal<{
+    presetId: string
+    anchor: { left: number; top: number; right: number; bottom: number }
+  } | null>(null)
+
+  createEffect(() => {
+    if (!menuOpen()) setLayoutHoverPreview(null)
+  })
 
   const persistPresetsMutation = useMutation(() => ({
     mutationFn: async (next: WorkspaceLayoutPreset[]) => {
@@ -83,6 +93,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     if (!found) return
     props.applyLayoutSnapshot(found.snapshot, { baselinePresetId: found.id })
     clearPresetQueryParam()
+    setLayoutHoverPreview(null)
     setMenuOpen(false)
   }
 
@@ -127,6 +138,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     if (props.layoutBaselinePresetId === id) {
       props.syncLayoutBaselineToCurrent()
     }
+    setLayoutHoverPreview(null)
     setMenuOpen(false)
   }
 
@@ -141,12 +153,14 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
       props.presets.map((p) => (p.id === baselineId ? { ...p, snapshot, updatedAt: now } : p)),
     )
     props.syncLayoutBaselineToCurrent()
+    setLayoutHoverPreview(null)
     setMenuOpen(false)
   }
 
   function handleDelete(id: string) {
     if (!props.presetsReady) return
     persistPresets(props.presets.filter((p) => p.id !== id))
+    setLayoutHoverPreview((cur) => (cur?.presetId === id ? null : cur))
     if (props.layoutBaselinePresetId === id) {
       props.declareBaselinePresetId(null)
       clearPresetQueryParam()
@@ -181,7 +195,10 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
         <div
           class='fixed inset-0 z-[999998]'
           role='presentation'
-          onClick={() => setMenuOpen(false)}
+          onClick={() => {
+            setLayoutHoverPreview(null)
+            setMenuOpen(false)
+          }}
         />
         <div
           data-workspace-layout-menu
@@ -219,6 +236,18 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
               <div
                 class='flex min-h-8 items-center gap-0.5 rounded-sm pr-1 hover:bg-accent/50'
                 role='presentation'
+                onPointerEnter={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect()
+                  setLayoutHoverPreview({
+                    presetId: p.id,
+                    anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+                  })
+                }}
+                onPointerLeave={(e) => {
+                  const next = e.relatedTarget as Node | null
+                  if (next && e.currentTarget.contains(next)) return
+                  setLayoutHoverPreview((cur) => (cur?.presetId === p.id ? null : cur))
+                }}
               >
                 <button
                   type='button'
@@ -290,6 +319,36 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
             </Show>
           </Show>
         </div>
+      </Show>
+
+      <Show when={layoutHoverPreview()}>
+        {(getHp) => {
+          const hp = getHp()
+          const preset = props.presets.find((x) => x.id === hp.presetId)
+          if (!preset) return null
+          const norm = computeLayoutPreviewDetail(preset.snapshot)
+          const previewW = 240
+          const previewH = norm ? previewW / norm.aspectRatio : 112
+          const pad = 10
+          let left = hp.anchor.right + pad
+          if (left + previewW > window.innerWidth - 8) {
+            left = hp.anchor.left - previewW - pad
+          }
+          left = Math.max(8, Math.min(left, window.innerWidth - previewW - 8))
+          let top = hp.anchor.top
+          top = Math.max(8, Math.min(top, window.innerHeight - previewH - 8))
+          return (
+            <div
+              class='pointer-events-none fixed z-[1000001]'
+              style={{ left: `${left}px`, top: `${top}px` }}
+            >
+              <WorkspaceLayoutHoverPreview
+                snapshot={preset.snapshot}
+                aria-label={`Preview of saved layout “${preset.name}”`}
+              />
+            </div>
+          )
+        }}
       </Show>
 
       <Show when={saveOpen()}>
