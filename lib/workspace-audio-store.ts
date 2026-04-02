@@ -125,7 +125,7 @@ function setIsPlaying(playing: boolean) {
 
 function setDuration(duration: number) {
   setStore('duration', duration)
-  listeners.notify()
+  progressListeners.notify()
 }
 
 function setVolume(volume: number) {

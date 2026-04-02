@@ -208,6 +208,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
   const displayDuration = createMemo(() => {
     void transportTick()
+    void progressTick()
     const meta = audioMetadata()
     const d = useWorkspaceAudio.getState().duration
     if (isVideoFile() && audioOnlyWs() && meta?.duration != null && meta.duration > 0 && d <= 0) {
@@ -403,11 +404,9 @@ export function WorkspaceTaskbarAudio(props: Props) {
     const wantPlaying = useWorkspaceAudio.getState().isPlaying
 
     if (!handle || !path) {
-      if (audio.src) {
-        audio.pause()
-        audio.removeAttribute('src')
-        audio.load()
-      }
+      audio.pause()
+      audio.removeAttribute('src')
+      audio.load()
       return
     }
 
