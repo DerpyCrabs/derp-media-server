@@ -525,9 +525,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
                 else setBreadcrumbCompactPathOpen(true)
               }}
             >
-              <span class='min-w-0 whitespace-normal text-left break-words'>
-                {currentCrumb().name}
-              </span>
+              <span class='min-w-0 flex-1 truncate text-left'>{currentCrumb().name}</span>
               <ChevronDown class='h-4 w-4 shrink-0 opacity-70' stroke-width={2} />
             </button>
             <FloatingContextMenu

@@ -99,12 +99,16 @@ export function FileBrowser() {
 
   const playingPath = createMemo(() => playingParam() ?? '')
 
+  const audioOnlyParam = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
+
   const isAudioPlayingBar = createMemo(() => {
     const p = playingPath()
     if (!p) return false
-    const ext = p.split('.').pop()?.toLowerCase()
+    const ext = p.split('.').pop()?.toLowerCase() || ''
     const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
-    return audioExtensions.includes(ext || '')
+    const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
+    if (audioExtensions.includes(ext)) return true
+    return videoExtensions.includes(ext) && audioOnlyParam()
   })
 
   const isVirtualFolder = createMemo(() =>
@@ -1098,10 +1102,14 @@ export function FileBrowser() {
   )
 
   return (
-    <>
+    <div class='fixed inset-0 z-0 flex min-h-0 flex-col overflow-hidden bg-background'>
       <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />
       <div
-        class={cn('flex min-h-screen flex-col', isAudioPlayingBar() && 'pb-12')}
+        class={cn(
+          'flex min-h-0 flex-1 flex-col overflow-hidden',
+          isAudioPlayingBar() &&
+            'max-[649px]:pb-[calc(2.875rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-12',
+        )}
         data-testid='media-chrome-pad-root'
       >
         <div
@@ -1115,8 +1123,8 @@ export function FileBrowser() {
           }
           onPaste={(e) => void handlePasteEvent(e)}
         >
-          <div class='container mx-auto lg:p-4'>
-            <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none lg:rounded-xl py-0 text-sm shadow-xs ring-1'>
+          <div class='container mx-auto flex min-h-0 flex-1 flex-col lg:p-4'>
+            <div class='ring-foreground/10 bg-card text-card-foreground flex min-h-0 flex-1 flex-col gap-0 overflow-hidden rounded-none lg:rounded-xl py-0 text-sm shadow-xs ring-1'>
               <div class='shrink-0 border-b border-border bg-muted/30 p-1.5 lg:p-2'>
                 <div class='flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'>
                   <div
@@ -1210,7 +1218,7 @@ export function FileBrowser() {
                 onDragOver={onExternalUploadDragOver}
                 onDrop={(e) => void onExternalUploadDrop(e)}
               >
-                <div class='min-h-0 flex-1 overflow-auto'>
+                <div class='min-h-0 flex-1 overflow-auto overscroll-y-contain'>
                   <Show when={filesQuery.isError}>
                     <DirectoryListingErrorPanel
                       onRetry={() => void filesQuery.refetch()}
@@ -1827,6 +1835,6 @@ export function FileBrowser() {
           />
         </div>
       </div>
-    </>
+    </div>
   )
 }
