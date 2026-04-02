@@ -961,6 +961,22 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     return useWorkspaceAudio.getState().playing ?? null
   })
 
+  const suppressWorkspaceTaskbarAudioForVideoViewer = createMemo(() => {
+    void wxAudioTick()
+    const w = workspace()
+    const st = useWorkspaceAudio.getState()
+    const path = st.playing
+    if (!path || !isVideoPath(path) || st.audioOnly || !w) return false
+    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
+    const n = norm(path)
+    return w.windows.some((win) => {
+      if (win.type !== 'viewer') return false
+      const v = win.initialState?.viewing
+      if (!v || norm(v) !== n) return false
+      return isVideoPath(v)
+    })
+  })
+
   const workspaceFileIconContext = (): FileIconContext => {
     void wxAudioTick()
     const key = storageSessionKeyFull().key
@@ -1105,6 +1121,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         focusWindow={focusWindow}
         stopWorkspacePlaybackFromTaskbar={stopWorkspacePlaybackFromTaskbar}
         requestPlay={requestPlay}
+        suppressTaskbarAudioChrome={suppressWorkspaceTaskbarAudioForVideoViewer}
       />
     </div>
   )

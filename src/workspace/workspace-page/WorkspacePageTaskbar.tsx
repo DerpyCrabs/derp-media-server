@@ -56,6 +56,7 @@ export type WorkspacePageTaskbarProps = {
   focusWindow: (id: string) => void
   stopWorkspacePlaybackFromTaskbar: () => void
   requestPlay: (source: WorkspaceSource, path: string, dir?: string) => void
+  suppressTaskbarAudioChrome?: () => boolean
 }
 
 export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
@@ -159,6 +160,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
               </button>
             </Show>
             <WorkspaceTaskbarAudio
+              suppressTaskbarAudioChrome={props.suppressTaskbarAudioChrome}
               storageKey={() => props.storageSessionKey()}
               shareCtx={() => {
                 const c = workspaceSourceToMediaContext(props.browserSource())

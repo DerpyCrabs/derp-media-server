@@ -79,6 +79,8 @@ type Props = {
   shareCtx: Accessor<MediaShareContext>
   onShowVideo: () => void
   onStopPlayback: () => void
+  /** Hide taskbar transport while the same video is open in a workspace viewer (not listen-only). */
+  suppressTaskbarAudioChrome?: () => boolean
 }
 
 export function WorkspaceTaskbarAudio(props: Props) {
@@ -107,7 +109,10 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const extension = createMemo(() => (playingPath() || '').split('.').pop()?.toLowerCase() || '')
   const isAudioFile = createMemo(() => !!(playingPath() && AUDIO_EXT.includes(extension())))
   const isVideoFile = createMemo(() => !!(playingPath() && VIDEO_EXT.includes(extension())))
-  const shouldHandleAudio = createMemo(() => !!(isAudioFile() || (isVideoFile() && audioOnlyWs())))
+  const shouldHandleAudio = createMemo(() => {
+    if (props.suppressTaskbarAudioChrome?.() ?? false) return false
+    return !!((isAudioFile() && !isVideoFile()) || (isVideoFile() && audioOnlyWs()))
+  })
   const audioTransportPath = createMemo(() => (shouldHandleAudio() ? playingPath() : null))
 
   const fileName = createMemo(() => (playingPath() || '').split('/').pop() || '')
@@ -571,6 +576,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
     const path = playingPath()
     if (audio && path) {
       audio.pause()
+      const st = useWorkspaceAudio.getState()
+      const dur = st.duration
+      const ext = path.split('.').pop()?.toLowerCase() || ''
+      if (VIDEO_EXT.includes(ext) && dur > 0) {
+        useVideoPlaybackTime.getState().saveTime(path, audio.currentTime, dur)
+      }
       useWorkspaceAudio.getState().reset()
       useWorkspaceAudio.getState().setAudioOnly(undefined, false)
       props.onShowVideo()

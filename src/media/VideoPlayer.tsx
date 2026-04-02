@@ -1,4 +1,5 @@
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import {
   getDefaultPosition,
   useVideoPlayerPosition,
@@ -51,31 +52,61 @@ export function VideoPlayer(props: Props) {
     onCleanup(unsub)
   })
 
-  let videoRef: HTMLVideoElement | undefined
+  const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
 
   createEffect(() => {
     const path = playingPath()
     const url = mediaUrl()
-    const vid = videoRef
+    const vid = videoEl()
     if (!path || !isVideoFile() || !vid || !url) return
 
     useMediaPlayer.getState().setCurrentFile(path, 'video')
 
-    if (vid.src !== new URL(url, window.location.origin).href) {
-      vid.src = url
-      vid.load()
-    }
+    const targetHref = new URL(url, window.location.origin).href
+    const srcMismatch = vid.src !== targetHref
 
-    const play = () => {
+    const finish = () => {
+      const st = useMediaPlayer.getState()
+      const storeT = st.currentFile === path && st.mediaType === 'video' ? st.currentTime : 0
+      const savedT = useVideoPlaybackTime.getState().getSavedTime(path) ?? 0
+      const t = storeT > 0 ? storeT : savedT
+      if (t > 0) {
+        try {
+          vid.currentTime = t
+        } catch {
+          /* ignore */
+        }
+      }
       void vid.play().catch(() => {})
     }
-    play()
+
+    let onCanPlay: () => void = () => {}
+
+    if (srcMismatch) {
+      onCanPlay = () => {
+        vid.removeEventListener('canplay', onCanPlay)
+        vid.removeEventListener('error', onCanPlay)
+        finish()
+      }
+      vid.addEventListener('canplay', onCanPlay)
+      vid.addEventListener('error', onCanPlay)
+      vid.pause()
+      vid.src = targetHref
+      vid.load()
+    } else {
+      finish()
+    }
+
+    onCleanup(() => {
+      vid.removeEventListener('canplay', onCanPlay)
+      vid.removeEventListener('error', onCanPlay)
+    })
   })
 
   createEffect(() => {
     const path = playingPath()
+    const vid = videoEl()
     if (!path || !isVideoFile()) {
-      const vid = videoRef
       if (vid) {
         vid.pause()
         vid.removeAttribute('src')
@@ -101,16 +132,20 @@ export function VideoPlayer(props: Props) {
   }
 
   function handleAudioOnly() {
-    const vid = videoRef
+    const vid = videoEl()
     const path = playingPath()
-    if (vid && path) {
+    if (!path) return
+    if (vid) {
+      vid.pause()
       useMediaPlayer.getState().setCurrentTime(vid.currentTime)
-      setAudioOnly(true)
     }
+    setAudioOnly(true)
+    useMediaPlayer.getState().setCurrentFile(path, 'audio')
+    useMediaPlayer.getState().setIsPlaying(true)
   }
 
   function handleClose() {
-    const vid = videoRef
+    const vid = videoEl()
     if (vid) {
       vid.pause()
       vid.removeAttribute('src')
@@ -121,7 +156,7 @@ export function VideoPlayer(props: Props) {
   }
 
   onCleanup(() => {
-    const vid = videoRef
+    const vid = videoEl()
     if (vid) {
       vid.pause()
       vid.removeAttribute('src')
@@ -191,7 +226,7 @@ export function VideoPlayer(props: Props) {
             </div>
             <video
               ref={(el) => {
-                videoRef = el
+                setVideoEl(el ?? undefined)
               }}
               controls
               class='w-full bg-black'

@@ -13,7 +13,7 @@ import StepBack from 'lucide-solid/icons/step-back'
 import StepForward from 'lucide-solid/icons/step-forward'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
-import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import {
@@ -64,7 +64,6 @@ export function AudioPlayer(props: Props) {
   const extension = createMemo(() => (playingPath() || '').split('.').pop()?.toLowerCase() || '')
   const isAudioFile = createMemo(() => !!(playingPath() && AUDIO_EXTENSIONS.includes(extension())))
   const isVideoFile = createMemo(() => !!(playingPath() && VIDEO_EXTENSIONS.includes(extension())))
-  const shouldHandleAudio = createMemo(() => !!(isAudioFile() || (isVideoFile() && audioOnly())))
 
   const fileName = createMemo(() => (playingPath() || '').split('/').pop() || '')
 
@@ -142,6 +141,26 @@ export function AudioPlayer(props: Props) {
 
   const storeTick = useStoreSync(useMediaPlayer)
 
+  const shouldHandleAudio = createMemo(() => {
+    void storeTick()
+    const path = playingPath()
+    if (!path) return false
+    const ext = extension()
+    const inAud = AUDIO_EXTENSIONS.includes(ext)
+    const inVid = VIDEO_EXTENSIONS.includes(ext)
+    const mt = useMediaPlayer.getState().mediaType
+    if (inAud && !inVid) return true
+    if (inVid && !inAud) {
+      if (mt === 'video' && !audioOnly()) return false
+      return audioOnly() || mt === 'audio'
+    }
+    if (inAud && inVid) {
+      if (mt === 'video' && !audioOnly()) return false
+      return audioOnly() || mt === 'audio'
+    }
+    return false
+  })
+
   const [volume, setVolume] = createSignal(1)
   const [isMuted, setIsMuted] = createSignal(false)
 
@@ -200,6 +219,7 @@ export function AudioPlayer(props: Props) {
 
   const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
   let pendingSeek = false
+  const srcLoadGenRef = { current: 0 }
 
   const playNextRef: { current: () => void } = { current: () => undefined }
   const playPrevRef: { current: () => void } = { current: () => undefined }
@@ -383,9 +403,14 @@ export function AudioPlayer(props: Props) {
   })
 
   createEffect(() => {
-    if (shouldHandleAudio()) return
     const audio = audioEl()
-    if (!audio || !audio.src) return
+    if (!audio) return
+    void storeSlice()
+    const mt = useMediaPlayer.getState().mediaType
+    const videoVisual = mt === 'video' && isVideoFile() && !!playingPath() && !audioOnly()
+
+    if (shouldHandleAudio() && !videoVisual) return
+    if (!audio.src) return
     audio.pause()
     audio.removeAttribute('src')
     audio.load()
@@ -399,62 +424,131 @@ export function AudioPlayer(props: Props) {
   })
 
   createEffect(() => {
-    const audio = audioEl()
+    const el = audioEl()
     const path = playingPath()
-    if (!audio || !path || !shouldHandleAudio()) return
+    void storeSlice()
+    if (!el || !path || !shouldHandleAudio()) return
+    if (useMediaPlayer.getState().mediaType === 'video') return
 
     const mediaUrl = isVideoFile()
       ? buildAudioExtractUrl(path, shareCtx())
       : buildMediaUrl(path, shareCtx())
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
-    if (audio.src === fullUrl) return
-
-    const state = useMediaPlayer.getState()
-    const isSameFile = state.currentFile === path
-    const storedTime = state.currentTime
-    const savedTime = isVideoFile() ? useVideoPlaybackTime.getState().getSavedTime(path) : null
+    const mp = useMediaPlayer.getState()
+    const isSameFile = mp.currentFile === path
+    const storedTime = untrack(() => mp.currentTime)
+    const vidFile = isVideoFile()
+    const savedTime = untrack(() =>
+      vidFile ? useVideoPlaybackTime.getState().getSavedTime(path) : null,
+    )
     const timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
 
-    if (state.currentFile !== path || state.mediaType !== 'audio') {
+    if (mp.currentFile !== path || mp.mediaType !== 'audio') {
       useMediaPlayer.getState().setCurrentFile(path, 'audio')
     }
 
-    audio.src = mediaUrl
-    audio.load()
+    const restoreSeek = (isSameFile || vidFile) && timeToRestore > 0
 
-    if ((isSameFile || isVideoFile()) && timeToRestore > 0) {
-      pendingSeek = true
-      const seekAndMaybePlay = () => {
-        pendingSeek = false
-        audio.currentTime = timeToRestore
-        audio.removeEventListener('loadedmetadata', seekAndMaybePlay)
-        audio.removeEventListener('canplay', seekAndMaybePlay)
-        if (useMediaPlayer.getState().isPlaying) {
-          void audio.play().catch(() => {})
-        }
-      }
-      audio.addEventListener('loadedmetadata', seekAndMaybePlay)
-      audio.addEventListener('canplay', seekAndMaybePlay)
+    const syncPlayPauseToStore = () => {
+      const playing = useMediaPlayer.getState().isPlaying
+      if (playing && el.paused) void el.play().catch(() => {})
+      else if (!playing && !el.paused) el.pause()
     }
 
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('play', () => void audio.play().catch(() => {}))
-      navigator.mediaSession.setActionHandler('pause', () => audio.pause())
+    const applyInitialSeekAndPlayState = () => {
+      if (restoreSeek) {
+        try {
+          el.currentTime = timeToRestore
+        } catch {
+          /* ignore */
+        }
+      }
+      syncPlayPauseToStore()
+    }
+
+    const bindMediaSession = (media: HTMLAudioElement) => {
+      if (!('mediaSession' in navigator)) return
+      navigator.mediaSession.setActionHandler('play', () => void media.play().catch(() => {}))
+      navigator.mediaSession.setActionHandler('pause', () => media.pause())
       navigator.mediaSession.setActionHandler('seekbackward', (details) => {
         const skipTime = details.seekOffset || 10
-        audio.currentTime = Math.max(0, audio.currentTime - skipTime)
+        media.currentTime = Math.max(0, media.currentTime - skipTime)
       })
       navigator.mediaSession.setActionHandler('seekforward', (details) => {
         const skipTime = details.seekOffset || 10
-        audio.currentTime = Math.min(audio.duration, audio.currentTime + skipTime)
+        media.currentTime = Math.min(media.duration, media.currentTime + skipTime)
       })
       navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if (details.seekTime != null) audio.currentTime = details.seekTime
+        if (details.seekTime != null) media.currentTime = details.seekTime
       })
       navigator.mediaSession.setActionHandler('previoustrack', () => playPrevRef.current())
       navigator.mediaSession.setActionHandler('nexttrack', () => playNextRef.current())
     }
+
+    let srcMatches = false
+    try {
+      const candidates: string[] = []
+      if (el.currentSrc) candidates.push(el.currentSrc)
+      if (el.src) candidates.push(el.src)
+      for (const raw of candidates) {
+        const u = new URL(raw, window.location.origin)
+        if (u.href === fullUrl) {
+          srcMatches = true
+          break
+        }
+      }
+    } catch {
+      srcMatches = false
+    }
+
+    const srcAlreadyUsable =
+      srcMatches && el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !el.error
+
+    if (srcAlreadyUsable) {
+      pendingSeek = false
+      if (restoreSeek) {
+        const drift = Math.abs(el.currentTime - timeToRestore)
+        if (drift > 0.45) {
+          try {
+            el.currentTime = timeToRestore
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      syncPlayPauseToStore()
+      bindMediaSession(el)
+      return
+    }
+
+    pendingSeek = restoreSeek
+    srcLoadGenRef.current += 1
+    const token = srcLoadGenRef.current
+
+    const onCanPlay = () => {
+      el.removeEventListener('canplay', onCanPlay)
+      el.removeEventListener('error', onCanPlay)
+      if (token !== srcLoadGenRef.current) return
+      pendingSeek = false
+      applyInitialSeekAndPlayState()
+    }
+
+    el.addEventListener('canplay', onCanPlay)
+    el.addEventListener('error', onCanPlay)
+    el.pause()
+    el.src = mediaUrl
+    el.load()
+
+    if (useMediaPlayer.getState().isPlaying) void el.play().catch(() => {})
+
+    bindMediaSession(el)
+
+    onCleanup(() => {
+      el.removeEventListener('canplay', onCanPlay)
+      el.removeEventListener('error', onCanPlay)
+      pendingSeek = false
+    })
   })
 
   createEffect(() => {
@@ -511,12 +605,20 @@ export function AudioPlayer(props: Props) {
   function handleShowVideo() {
     const audio = audioEl()
     const path = playingPath()
-    if (audio && path) {
+    if (!path) return
+    const t = audio ? audio.currentTime : useMediaPlayer.getState().currentTime
+    if (audio) {
       audio.pause()
-      useMediaPlayer.getState().setCurrentTime(audio.currentTime)
-      useMediaPlayer.getState().setCurrentFile(path, 'video')
-      setAudioOnly(false)
+      audio.removeAttribute('src')
+      audio.load()
     }
+    const d = useMediaPlayer.getState().duration
+    if (isVideoFile() && d > 0) {
+      useVideoPlaybackTime.getState().saveTime(path, t, d)
+    }
+    useMediaPlayer.getState().setCurrentTime(t)
+    setAudioOnly(false)
+    useMediaPlayer.getState().setCurrentFile(path, 'video')
   }
 
   function handleSeek(value: number) {
@@ -561,7 +663,10 @@ export function AudioPlayer(props: Props) {
       <audio ref={setAudioEl} preload='auto' class='hidden' />
 
       <Show when={shouldHandleAudio()}>
-        <div class='fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background pb-[env(safe-area-inset-bottom,0px)]'>
+        <div
+          data-testid='audio-player-chrome'
+          class='fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background pb-[env(safe-area-inset-bottom,0px)]'
+        >
           <div class='min-[650px]:hidden relative h-px w-full bg-secondary'>
             <div
               class='absolute top-0 left-0 h-full bg-white transition-all duration-100'

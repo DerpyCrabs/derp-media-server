@@ -101,16 +101,6 @@ export function FileBrowser() {
 
   const audioOnlyParam = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
 
-  const isAudioPlayingBar = createMemo(() => {
-    const p = playingPath()
-    if (!p) return false
-    const ext = p.split('.').pop()?.toLowerCase() || ''
-    const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
-    const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
-    if (audioExtensions.includes(ext)) return true
-    return videoExtensions.includes(ext) && audioOnlyParam()
-  })
-
   const isVirtualFolder = createMemo(() =>
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
   )
@@ -177,6 +167,28 @@ export function FileBrowser() {
   useDynamicFavicon(() => customIcons(), { getSearch: () => history().search })
 
   const mediaPlayerTick = useStoreSync(useMediaPlayer)
+
+  const isAudioPlayingBar = createMemo(() => {
+    void mediaPlayerTick()
+    const p = playingPath()
+    if (!p) return false
+    const ext = p.split('.').pop()?.toLowerCase() || ''
+    const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
+    const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
+    const inAud = audioExtensions.includes(ext)
+    const inVid = videoExtensions.includes(ext)
+    const mt = useMediaPlayer.getState().mediaType
+    if (inAud && !inVid) return true
+    if (inVid && !inAud) {
+      if (mt === 'video' && !audioOnlyParam()) return false
+      return audioOnlyParam() || mt === 'audio'
+    }
+    if (inAud && inVid) {
+      if (mt === 'video' && !audioOnlyParam()) return false
+      return audioOnlyParam() || mt === 'audio'
+    }
+    return false
+  })
 
   const fileIconCtx = createMemo((): FileIconContext => {
     void mediaPlayerTick()
@@ -1445,7 +1457,12 @@ export function FileBrowser() {
                               <Match when={viewMode() === 'list'}>
                                 <div class='sm:px-4 py-2'>
                                   <div class='relative w-full overflow-x-auto'>
-                                    <table class='w-full caption-bottom text-sm'>
+                                    <table class='w-full table-fixed caption-bottom text-sm'>
+                                      <colgroup>
+                                        <col class='w-[40px]' />
+                                        <col />
+                                        <col class='w-28' />
+                                      </colgroup>
                                       <tbody class='[&_tr:last-child]:border-0'>
                                         <Show when={currentPath()}>
                                           <tr
@@ -1481,7 +1498,7 @@ export function FileBrowser() {
                                                 : undefined
                                             }
                                           >
-                                            <td class='w-12 p-2 align-middle'>
+                                            <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
                                               <div class='flex items-center justify-center'>
                                                 <ArrowUp
                                                   class='h-5 w-5 text-muted-foreground'
@@ -1490,8 +1507,8 @@ export function FileBrowser() {
                                                 />
                                               </div>
                                             </td>
-                                            <td class='p-2 align-middle font-medium'>..</td>
-                                            <td class='p-2 align-middle text-right text-muted-foreground' />
+                                            <td class='min-w-0 p-2 align-middle font-medium'>..</td>
+                                            <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
                                           </tr>
                                         </Show>
                                         <For each={files()}>
@@ -1538,7 +1555,7 @@ export function FileBrowser() {
                                                 }}
                                               >
                                                 <td
-                                                  class='w-12 p-2 align-middle'
+                                                  class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'
                                                   {...(isRowKnowledgeBase(file)
                                                     ? { 'data-kb-root-icon': '' }
                                                     : {})}
@@ -1547,7 +1564,7 @@ export function FileBrowser() {
                                                     {fileItemIcon(file, fileIconCtx())}
                                                   </div>
                                                 </td>
-                                                <td class='p-2 align-middle font-medium'>
+                                                <td class='min-w-0 p-2 align-middle font-medium'>
                                                   <div class='flex items-center gap-2 min-w-0'>
                                                     <Show when={!file.isDirectory}>
                                                       <button
@@ -1604,7 +1621,7 @@ export function FileBrowser() {
                                                     </div>
                                                   </div>
                                                 </td>
-                                                <td class='p-2 align-middle text-right text-muted-foreground'>
+                                                <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
                                                   <div class='flex items-center justify-end gap-2'>
                                                     <Show when={!file.isDirectory}>
                                                       <Show

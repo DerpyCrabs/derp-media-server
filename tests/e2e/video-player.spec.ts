@@ -30,6 +30,15 @@ test.describe('Video Player', () => {
     await expect(page.locator('video')).not.toBeVisible()
   })
 
+  test('plays audio when switching to audio-only mode', async ({ page }) => {
+    await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
+    await page.locator('button[aria-label="Audio only mode"]').click()
+    await page.waitForURL(/audioOnly=true/)
+    const audio = page.locator('audio').first()
+    await expect(audio).toBeAttached()
+    await expect.poll(async () => audio.evaluate((el: HTMLAudioElement) => !el.paused)).toBe(true)
+  })
+
   test('closes video player', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
     await expect(page.locator('video')).toBeVisible()

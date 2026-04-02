@@ -1,4 +1,5 @@
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
+import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
@@ -112,11 +113,45 @@ export function WorkspaceViewerPane(props: Props) {
     if (!path || !viewerShowVideoSurface() || !vid || !url) return
 
     const abs = new URL(url, window.location.origin).href
-    if (vid.src !== abs) {
+    const srcMismatch = vid.src !== abs
+
+    const ws = useWorkspaceAudio.getState()
+    const storedTime = ws.playing === path ? ws.currentTime : 0
+    const savedTime = useVideoPlaybackTime.getState().getSavedTime(path)
+    const timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
+
+    let onCanPlay: () => void = () => {}
+
+    if (srcMismatch) {
+      onCanPlay = () => {
+        vid.removeEventListener('canplay', onCanPlay)
+        vid.removeEventListener('error', onCanPlay)
+        if (timeToRestore > 0) {
+          try {
+            vid.currentTime = timeToRestore
+          } catch {
+            /* ignore */
+          }
+        }
+        void vid.play().catch(() => {})
+      }
+      vid.addEventListener('canplay', onCanPlay)
+      vid.addEventListener('error', onCanPlay)
       vid.src = url
       vid.load()
+    } else if (timeToRestore > 0) {
+      try {
+        vid.currentTime = timeToRestore
+      } catch {
+        /* ignore */
+      }
       void vid.play().catch(() => {})
     }
+
+    onCleanup(() => {
+      vid.removeEventListener('canplay', onCanPlay)
+      vid.removeEventListener('error', onCanPlay)
+    })
   })
 
   createEffect(() => {
