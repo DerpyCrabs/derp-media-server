@@ -64,6 +64,65 @@ test.describe('Workspace audio and video playback', () => {
     )
   })
 
+  test('taskbar repeat keeps playing after track ends', async () => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const content = getVisibleContent(groups.first())
+    await content.getByText('Music', { exact: true }).click()
+    await expect(content.locator('table').getByText('track.mp3')).toBeVisible()
+    await content.locator('table').getByText('track.mp3').click()
+    await expect(page.getByRole('button', { name: 'Open audio controls' })).toBeVisible({
+      timeout: 10_000,
+    })
+    const audio = page.locator('[data-workspace-taskbar-media-audio]')
+    await expect
+      .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.currentSrc || el.src), {
+        timeout: 15_000,
+      })
+      .toMatch(/\/api\/(media|share)/)
+
+    await page.getByRole('button', { name: 'Open audio controls' }).click()
+    const popover = page.locator('[data-workspace-taskbar-audio-root] .bg-popover')
+    const playToggle = popover
+      .locator('button')
+      .filter({ has: page.locator('.lucide-play') })
+      .first()
+    if (await playToggle.isVisible()) {
+      await playToggle.click()
+    }
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector(
+          '[data-workspace-taskbar-media-audio]',
+        ) as HTMLAudioElement | null
+        return !!el && !el.paused
+      },
+      { timeout: 15_000 },
+    )
+
+    await popover.locator('button:has(.lucide-repeat)').click()
+
+    const duration = await audio.evaluate((el: HTMLAudioElement) => el.duration)
+    if (!Number.isFinite(duration) || duration <= 1) {
+      throw new Error('fixture MP3 should have finite duration (needs ffmpeg-generated test media)')
+    }
+    await audio.evaluate((el: HTMLAudioElement) => {
+      const d = el.duration
+      el.currentTime = Math.max(0, d - 0.4)
+    })
+
+    await expect
+      .poll(
+        async () =>
+          audio.evaluate((el: HTMLAudioElement) => {
+            if (el.paused) return 'paused'
+            return el.currentTime < 1 ? 'looped-playing' : 'waiting'
+          }),
+        { timeout: 12_000 },
+      )
+      .toBe('looped-playing')
+  })
+
   // Regression: transport must reload <audio> after stop; also `!paused` alone is weak (CI Chromium
   // often allows deferred play(); real browsers / stale currentSrc may differ).
   test('after stopping taskbar audio, clicking the same file plays again', async () => {

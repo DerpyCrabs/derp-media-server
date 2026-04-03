@@ -142,6 +142,44 @@ test.describe('Share Viewers & Players', () => {
     await expect(repeatBtn).toBeVisible()
   })
 
+  test('repeat keeps playing after track ends in share', async ({ page }) => {
+    await page.goto(folderShareUrl)
+    await page.locator('table').getByText('track.mp3').click()
+    await page.waitForURL(/playing=/)
+    const audio = page.locator('audio').first()
+    await expect
+      .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.readyState >= 2))
+      .toBe(true)
+    const duration = await audio.evaluate((el: HTMLAudioElement) => el.duration)
+    if (!Number.isFinite(duration) || duration <= 1) {
+      throw new Error('fixture MP3 should have finite duration (needs ffmpeg-generated test media)')
+    }
+
+    const chrome = page.locator('[data-testid=audio-player-chrome]')
+    await chrome.locator('button:has(.lucide-repeat)').click()
+    const playBtn = chrome.locator('button:has(.lucide-play)')
+    if (await playBtn.isVisible()) {
+      await playBtn.click()
+    }
+    await expect.poll(async () => audio.evaluate((el: HTMLAudioElement) => !el.paused)).toBe(true)
+
+    await audio.evaluate((el: HTMLAudioElement) => {
+      const d = el.duration
+      el.currentTime = Math.max(0, d - 0.4)
+    })
+
+    await expect
+      .poll(
+        async () =>
+          audio.evaluate((el: HTMLAudioElement) => {
+            if (el.paused) return 'paused'
+            return el.currentTime < 1 ? 'looped-playing' : 'waiting'
+          }),
+        { timeout: 12_000 },
+      )
+      .toBe('looped-playing')
+  })
+
   test('audio-only from video works in share', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('public-video.mp4').click()

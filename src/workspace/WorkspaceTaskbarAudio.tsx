@@ -339,6 +339,9 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
     const onPause = () => {
       useWorkspaceAudio.getState().setCurrentTime(audio.currentTime)
+      if (audio.ended && useWorkspaceAudio.getState().isRepeat) {
+        return
+      }
       if (!swappingSrcRef.current) useWorkspaceAudio.getState().setIsPlaying(false)
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
     }
@@ -349,6 +352,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
     const onEnded = () => {
       if (useWorkspaceAudio.getState().isRepeat) {
+        useWorkspaceAudio.getState().setIsPlaying(true)
         audio.currentTime = 0
         void audio.play().catch(() => {})
       } else {

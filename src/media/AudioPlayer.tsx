@@ -341,6 +341,9 @@ export function AudioPlayer(props: Props) {
     }
 
     const onPause = () => {
+      if (audio.ended && useMediaPlayer.getState().isRepeat) {
+        return
+      }
       useMediaPlayer.getState().setIsPlaying(false)
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused'
@@ -356,6 +359,7 @@ export function AudioPlayer(props: Props) {
 
     const onEnded = () => {
       if (useMediaPlayer.getState().isRepeat) {
+        useMediaPlayer.getState().setIsPlaying(true)
         audio.currentTime = 0
         void audio.play().catch(() => {})
       } else {
