@@ -56,4 +56,5 @@ yarn-error.log*
 settings.json
 stats.json
 shares.json
+kb-chats.json
 config.json*
