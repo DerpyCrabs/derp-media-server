@@ -12,6 +12,16 @@ export function isMediaPathUnderKb(mediaPath: string, kbRoot: string): boolean {
   return p === kb || p.startsWith(kb + '/')
 }
 
+/** KB chat uses media: paths relative to the KB; resolve to full media-library path for navigation. */
+export function resolveMediaPathForKbChat(pathRaw: string, kbRoot: string | undefined): string {
+  const normalized = pathRaw.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')
+  if (!kbRoot?.trim()) return normalized
+  const kb = kbRoot.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')
+  if (!kb) return normalized
+  if (normalized === kb || normalized.startsWith(kb + '/')) return normalized
+  return normalized ? `${kb}/${normalized}` : kb
+}
+
 function rewriteMediaLinks(html: string): string {
   return html.replace(
     /<a href="media:([^"]+)"([^>]*)>/gi,
@@ -54,8 +64,9 @@ function MarkdownContent(props: {
       }
       const isDir = a.getAttribute('data-kb-dir') === '1'
       const kb = props.kbRoot
-      if (kb && !isMediaPathUnderKb(pathRaw, kb)) return
-      props.onMediaLinkClick?.(pathRaw, isDir)
+      const resolved = resolveMediaPathForKbChat(pathRaw, kb)
+      if (kb && !isMediaPathUnderKb(resolved, kb)) return
+      props.onMediaLinkClick?.(resolved, isDir)
     }
 
     node.addEventListener('click', onClick)

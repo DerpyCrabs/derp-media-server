@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
+import type { ServerResponse } from 'http'
 import { APICallError } from '@ai-sdk/provider'
-import { stepCountIs, streamText } from 'ai'
+import { stepCountIs, streamText, type ModelMessage } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { getAiConfig, getMcpConfig, type AiConfig } from '@/lib/config'
@@ -17,6 +18,11 @@ import {
 import { gatherKbContext } from '@/server/kb-context'
 import { readSettings } from '@/server/routes/api/settings'
 import { buildMcpToolsetForKbChat } from '@/server/mcp-kb-chat-tools'
+import {
+  buildKbFsTools,
+  describeKbApplyOperations,
+  type KbApplyChangesInput,
+} from '@/server/kb-chat-fs-tools'
 
 function providerErrorMessage(err: unknown, provider: AiConfig['provider']): string {
   let message = err instanceof Error ? err.message : 'Stream error'
@@ -109,7 +115,13 @@ function buildModel(ai: AiConfig) {
 
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant for a knowledge base. Answer questions based on the provided knowledge base content. If you don't find relevant information in the context, say so honestly. Use markdown formatting in your responses. You can answer any question and have opinion, try not to tell user that you are just an AI and can't answer something
 
-When citing files or folders under the library, use markdown links with the media scheme so the user can open them: [label](media:path/relative/to/media/root.md) for files, or [label](media:path/to/folder/) for folders (trailing slash for directories). Paths use forward slashes relative to the media library root.`
+This chat is scoped to **one** knowledge base. In references, filesystem tools, and \`media:\` markdown links, every path is **only inside that knowledge base**: use forward slashes from its root (e.g. \`Logs/note.md\`, \`Projects/\` for a folder). Do **not** prefix with the name of the folder that contains this knowledge base on the host disk — you do not know that name and must not guess it.
+
+Use \`media:\` links so the user can open them: [label](media:Logs/note.md) for files or [label](media:Projects/) for folders (trailing slash for directories).
+
+**Filesystem tools** (same path rule: KB root only, no ".."):
+- \`kb_list_folder\`: optional \`relativePath\` (default = KB root). Read-only.
+- \`kb_apply_changes\`: batch create/move/rename; user approves once. Prefer one call with many \`operations\`.`
 
 function serverNowPromptLine(): string {
   const d = new Date()
@@ -119,6 +131,211 @@ function serverNowPromptLine(): string {
   })
   const utc = d.toISOString()
   return `Current date and time on the server: ${local} (${utc}). Use this for "today", relative dates, and time-sensitive answers.`
+}
+
+async function buildSystemPromptForMessages(
+  kbRoot: string,
+  ai: AiConfig,
+  modelMessages: ModelMessage[],
+): Promise<string> {
+  const lastUser = [...modelMessages].reverse().find((m) => m.role === 'user')
+  let userText = ''
+  if (lastUser && typeof lastUser.content === 'string') {
+    userText = lastUser.content
+  } else if (lastUser && Array.isArray(lastUser.content)) {
+    for (const p of lastUser.content) {
+      if (p.type === 'text' && 'text' in p && typeof p.text === 'string') {
+        userText = p.text
+        break
+      }
+    }
+  }
+  const kbContext = await gatherKbContext(kbRoot, userText)
+  const kbKey = kbRoot.replace(/\\/g, '/')
+  const settings = await readSettings()
+  const perKbExtra = settings.kbChatSystemPrompts?.[kbKey]?.trim() ?? ''
+
+  return [
+    serverNowPromptLine(),
+    '\n',
+    ai.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+    ...(perKbExtra ? [`\n\n${perKbExtra}`] : []),
+    kbContext
+      ? `\n\nHere is the knowledge base content for reference:\n\n${kbContext}`
+      : '\n\nThe knowledge base is empty.',
+  ].join('')
+}
+
+async function prepareToolset(kbRoot: string): Promise<{
+  tools: NonNullable<Parameters<typeof streamText>[0]['tools']>
+  cleanup: () => Promise<void>
+}> {
+  const kbTools = buildKbFsTools(kbRoot)
+  const mcpCfg = getMcpConfig()
+  let mcpCleanup: (() => Promise<void>) | undefined
+  let mcpTools: NonNullable<Parameters<typeof streamText>[0]['tools']> | undefined
+  if (mcpCfg?.servers && Object.keys(mcpCfg.servers).length > 0) {
+    const built = await buildMcpToolsetForKbChat(mcpCfg)
+    mcpCleanup = built.cleanup
+    if (Object.keys(built.tools).length > 0) {
+      mcpTools = built.tools
+    }
+  }
+  const tools = { ...(mcpTools ?? {}), ...kbTools } as NonNullable<
+    Parameters<typeof streamText>[0]['tools']
+  >
+  const cleanup = async () => {
+    await mcpCleanup?.()
+  }
+  return { tools, cleanup }
+}
+
+function linesForToolInput(toolName: string, input: unknown, kbRoot: string): string[] | undefined {
+  if (
+    toolName === 'kb_apply_changes' &&
+    input &&
+    typeof input === 'object' &&
+    'operations' in input
+  ) {
+    return describeKbApplyOperations(input as KbApplyChangesInput, kbRoot)
+  }
+  return undefined
+}
+
+function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return typeof err === 'string' ? err : JSON.stringify(err)
+}
+
+type StreamSseParams = {
+  raw: ServerResponse
+  model: ReturnType<typeof buildModel>
+  systemPrompt: string
+  messages: ModelMessage[]
+  tools: NonNullable<Parameters<typeof streamText>[0]['tools']>
+  kbMessagesForSave: KbChatMessage[]
+  kbRoot: string
+  chatId: string | undefined
+  /** Appended before streamed assistant text when persisting (e.g. prior stream before tool approval). */
+  assistantPersistPrefix?: string
+}
+
+async function streamKbChatToSseInner(params: StreamSseParams): Promise<{
+  approvalRequired: boolean
+  threadSnapshot: ModelMessage[]
+  assistantText: string
+  chatId: string | undefined
+}> {
+  const {
+    raw,
+    model,
+    systemPrompt,
+    messages,
+    tools,
+    kbMessagesForSave,
+    kbRoot,
+    chatId: inputChatId,
+    assistantPersistPrefix = '',
+  } = params
+
+  const result = streamText({
+    model,
+    system: systemPrompt,
+    messages,
+    tools,
+    stopWhen: stepCountIs(20),
+  })
+
+  let assistantText = ''
+  const approvalMetas: Array<{
+    approvalId: string
+    toolCallId: string
+    toolName: string
+    input: unknown
+    lines?: string[]
+  }> = []
+
+  for await (const part of result.fullStream) {
+    if (part.type === 'text-delta' && part.text) {
+      assistantText += part.text
+      raw.write(`data: ${JSON.stringify({ type: 'text', text: part.text })}\n\n`)
+    } else if (part.type === 'tool-call') {
+      const lines = linesForToolInput(part.toolName, part.input, kbRoot)
+      raw.write(
+        `data: ${JSON.stringify({
+          type: 'tool-call',
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+          lines,
+        })}\n\n`,
+      )
+    } else if (part.type === 'tool-approval-request') {
+      const tc = part.toolCall
+      const lines = linesForToolInput(tc.toolName, tc.input, kbRoot)
+      const meta = {
+        approvalId: part.approvalId,
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        input: tc.input,
+        lines,
+      }
+      approvalMetas.push(meta)
+      raw.write(`data: ${JSON.stringify({ type: 'tool-approval-request', ...meta })}\n\n`)
+    } else if (part.type === 'tool-result' && part.preliminary !== true) {
+      raw.write(
+        `data: ${JSON.stringify({
+          type: 'tool-result',
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          output: part.output,
+        })}\n\n`,
+      )
+    } else if (part.type === 'tool-error') {
+      raw.write(
+        `data: ${JSON.stringify({
+          type: 'tool-error',
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+          error: errorText(part.error),
+        })}\n\n`,
+      )
+    }
+  }
+
+  const response = await result.response
+  const threadSnapshot = [...messages, ...response.messages] as ModelMessage[]
+
+  if (approvalMetas.length > 0) {
+    raw.write(
+      `data: ${JSON.stringify({
+        type: 'approval-required',
+        approvals: approvalMetas,
+        threadSnapshot,
+      })}\n\n`,
+    )
+    return { approvalRequired: true, threadSnapshot, assistantText, chatId: inputChatId }
+  }
+
+  let chatId = inputChatId
+  const persistedAssistant = `${assistantPersistPrefix}${assistantText}`
+  const allKb: KbChatMessage[] = [
+    ...kbMessagesForSave,
+    { role: 'assistant', content: persistedAssistant },
+  ]
+
+  if (chatId) {
+    await updateChatMessages(chatId, allKb)
+  } else {
+    const chat = await createChat(kbRoot, allKb)
+    chatId = chat.id
+  }
+
+  raw.write(
+    `data: ${JSON.stringify({ type: 'done', chatId, assistantText: persistedAssistant })}\n\n`,
+  )
+  return { approvalRequired: false, threadSnapshot, assistantText, chatId }
 }
 
 export function registerKbChatApiRoutes(app: FastifyInstance) {
@@ -149,22 +366,11 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Not a knowledge base' })
       }
 
-      const lastUserMsg = [...body.messages].reverse().find((m) => m.role === 'user')
-      const kbContext = await gatherKbContext(body.kbRoot, lastUserMsg?.content ?? '')
-
-      const kbKey = body.kbRoot.replace(/\\/g, '/')
-      const settings = await readSettings()
-      const perKbExtra = settings.kbChatSystemPrompts?.[kbKey]?.trim() ?? ''
-
-      const systemPrompt = [
-        serverNowPromptLine(),
-        '\n',
-        ai.systemPrompt || DEFAULT_SYSTEM_PROMPT,
-        ...(perKbExtra ? [`\n\n${perKbExtra}`] : []),
-        kbContext
-          ? `\n\nHere is the knowledge base content for reference:\n\n${kbContext}`
-          : '\n\nThe knowledge base is empty.',
-      ].join('')
+      const systemPrompt = await buildSystemPromptForMessages(
+        body.kbRoot,
+        ai,
+        body.messages.map((m) => ({ role: m.role, content: m.content })),
+      )
 
       if (ai.provider === 'lmstudio') {
         await assertLmStudioModelsAvailable(
@@ -174,21 +380,12 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
       }
 
       const model = buildModel(ai)
-
-      const mcpCfg = getMcpConfig()
-      let mcpCleanup: (() => Promise<void>) | undefined
-      let mcpTools: NonNullable<Parameters<typeof streamText>[0]['tools']> | undefined
-      if (mcpCfg?.servers && Object.keys(mcpCfg.servers).length > 0) {
-        try {
-          const built = await buildMcpToolsetForKbChat(mcpCfg)
-          mcpCleanup = built.cleanup
-          if (Object.keys(built.tools).length > 0) {
-            mcpTools = built.tools
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'MCP connection failed'
-          return reply.code(503).send({ error: `MCP: ${msg}` })
-        }
+      let toolPrep: Awaited<ReturnType<typeof prepareToolset>>
+      try {
+        toolPrep = await prepareToolset(body.kbRoot)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'MCP connection failed'
+        return reply.code(503).send({ error: `MCP: ${msg}` })
       }
 
       reply.raw.writeHead(200, {
@@ -197,40 +394,130 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
         Connection: 'keep-alive',
       })
 
-      let fullResponse = ''
-
       try {
-        const result = streamText({
+        await streamKbChatToSseInner({
+          raw: reply.raw,
           model,
-          system: systemPrompt,
+          systemPrompt,
           messages: body.messages.map((m) => ({ role: m.role, content: m.content })),
-          ...(mcpTools ? { tools: mcpTools, stopWhen: stepCountIs(12) } : {}),
+          tools: toolPrep.tools,
+          kbMessagesForSave: body.messages,
+          kbRoot: body.kbRoot.replace(/\\/g, '/'),
+          chatId: body.chatId,
         })
-
-        for await (const chunk of result.textStream) {
-          fullResponse += chunk
-          reply.raw.write(`data: ${JSON.stringify({ type: 'text', text: chunk })}\n\n`)
-        }
-
-        const allMessages: KbChatMessage[] = [
-          ...body.messages,
-          { role: 'assistant' as const, content: fullResponse },
-        ]
-
-        let chatId = body.chatId
-        if (chatId) {
-          await updateChatMessages(chatId, allMessages)
-        } else {
-          const chat = await createChat(body.kbRoot, allMessages)
-          chatId = chat.id
-        }
-
-        reply.raw.write(`data: ${JSON.stringify({ type: 'done', chatId })}\n\n`)
       } catch (err) {
         const message = providerErrorMessage(err, ai.provider)
         reply.raw.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`)
       } finally {
-        await mcpCleanup?.()
+        await toolPrep.cleanup()
+      }
+
+      reply.raw.end()
+      return reply
+    } catch (err) {
+      const aiCfg = getAiConfig()
+      const message = providerErrorMessage(err, aiCfg?.provider ?? 'openai-compatible')
+      if (!reply.raw.headersSent) {
+        const code = err instanceof ChatProviderNotReadyError ? 503 : 500
+        return reply.code(code).send({ error: message })
+      }
+      try {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`)
+        reply.raw.end()
+      } catch {
+        /* connection already closed */
+      }
+      return reply
+    }
+  })
+
+  app.post('/api/kb/chat/continue', async (request, reply) => {
+    try {
+      const ai = getAiConfig()
+      if (!ai) {
+        return reply.code(503).send({ error: 'AI not configured' })
+      }
+
+      const body = request.body as {
+        chatId?: string
+        kbRoot: string
+        modelMessages: ModelMessage[]
+        approvals: { approvalId: string; approved: boolean; reason?: string }[]
+        kbMessagesForSave: KbChatMessage[]
+        assistantPrefix?: string
+      }
+
+      if (
+        !body.kbRoot ||
+        !Array.isArray(body.modelMessages) ||
+        body.modelMessages.length === 0 ||
+        !Array.isArray(body.approvals) ||
+        body.approvals.length === 0 ||
+        !Array.isArray(body.kbMessagesForSave)
+      ) {
+        return reply
+          .code(400)
+          .send({ error: 'kbRoot, modelMessages, approvals, and kbMessagesForSave are required' })
+      }
+
+      const knowledgeBases = await getKnowledgeBases()
+      if (!knowledgeBases.includes(body.kbRoot.replace(/\\/g, '/'))) {
+        return reply.code(400).send({ error: 'Not a knowledge base' })
+      }
+
+      const toolMessage: ModelMessage = {
+        role: 'tool',
+        content: body.approvals.map((a) => ({
+          type: 'tool-approval-response' as const,
+          approvalId: a.approvalId,
+          approved: a.approved,
+          ...(a.reason !== undefined ? { reason: a.reason } : {}),
+        })),
+      }
+
+      const messages = [...body.modelMessages, toolMessage]
+
+      const systemPrompt = await buildSystemPromptForMessages(body.kbRoot, ai, messages)
+
+      if (ai.provider === 'lmstudio') {
+        await assertLmStudioModelsAvailable(
+          ai.baseUrl || 'http://localhost:1234/v1',
+          ai.model || '',
+        )
+      }
+
+      const model = buildModel(ai)
+      let toolPrep: Awaited<ReturnType<typeof prepareToolset>>
+      try {
+        toolPrep = await prepareToolset(body.kbRoot)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'MCP connection failed'
+        return reply.code(503).send({ error: `MCP: ${msg}` })
+      }
+
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      })
+
+      try {
+        await streamKbChatToSseInner({
+          raw: reply.raw,
+          model,
+          systemPrompt,
+          messages,
+          tools: toolPrep.tools,
+          kbMessagesForSave: body.kbMessagesForSave,
+          kbRoot: body.kbRoot.replace(/\\/g, '/'),
+          chatId: body.chatId,
+          assistantPersistPrefix: body.assistantPrefix,
+        })
+      } catch (err) {
+        const message = providerErrorMessage(err, ai.provider)
+        reply.raw.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`)
+      } finally {
+        await toolPrep.cleanup()
       }
 
       reply.raw.end()

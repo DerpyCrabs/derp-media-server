@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { config } from '@/lib/config'
+import { mediaPathToKbRelative } from '@/lib/kb-chat-fs-paths'
 import { shouldExcludeFolder } from '@/lib/file-system'
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt'])
@@ -77,11 +78,24 @@ export async function gatherKbContext(
   let used = 0
   const parts: string[] = []
   for (const f of scored) {
-    const block = `## ${f.relPath}\n\n${f.content}\n`
+    let heading: string
+    try {
+      heading = mediaPathToKbRelative(kbRoot, f.relPath) || '(root)'
+    } catch {
+      heading = f.relPath
+    }
+    const block = `## ${heading}\n\n${f.content}\n`
     if (used + block.length > charBudget && parts.length > 0) break
     parts.push(block)
     used += block.length
   }
 
-  return parts.join('\n---\n\n')
+  const body = parts.join('\n---\n\n')
+  if (!body) return ''
+
+  return [
+    'Paths in headings are relative to the knowledge base root only (not the parent media-library folder on disk).',
+    '',
+    body,
+  ].join('\n')
 }

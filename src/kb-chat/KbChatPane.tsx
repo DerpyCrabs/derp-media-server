@@ -1,5 +1,6 @@
 import { createSignal, For, Show, onCleanup, createEffect } from 'solid-js'
 import { useQuery, useQueryClient } from '@tanstack/solid-query'
+import type { ModelMessage } from 'ai'
 import { queryKeys } from '@/lib/query-keys'
 import { api } from '@/lib/api'
 import { KbChatMessage } from './KbChatMessage'
@@ -35,6 +36,100 @@ function mergePreservedAnswerTiming(prev: ChatMsg[], server: ChatMsg[]): ChatMsg
   })
 }
 
+type InProgressTool = { toolCallId: string; toolName: string }
+
+type ApprovalMeta = {
+  approvalId: string
+  toolCallId: string
+  toolName: string
+  input: unknown
+  lines?: string[]
+}
+
+type KbSseResult =
+  | { outcome: 'done'; chatId: string; assistantText: string }
+  | {
+      outcome: 'approval'
+      threadSnapshot: ModelMessage[]
+      approvals: ApprovalMeta[]
+      streamedAssistant: string
+    }
+
+type SseEvent =
+  | { type: 'text'; text: string }
+  | { type: 'done'; chatId: string; assistantText?: string }
+  | { type: 'error'; error: string }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown; lines?: string[] }
+  | {
+      type: 'tool-approval-request'
+      approvalId: string
+      toolCallId: string
+      toolName: string
+      lines?: string[]
+    }
+  | { type: 'tool-result'; toolCallId: string; toolName: string; output: unknown }
+  | { type: 'tool-error'; toolCallId: string; toolName: string; error: string }
+  | { type: 'approval-required'; approvals: ApprovalMeta[]; threadSnapshot: ModelMessage[] }
+
+async function consumeKbChatSse(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortSignal: AbortSignal,
+  onEvent: (e: SseEvent) => void,
+): Promise<KbSseResult> {
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let streamedAssistant = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const json = line.slice(6)
+      let event: SseEvent
+      try {
+        event = JSON.parse(json) as SseEvent
+      } catch {
+        continue
+      }
+      onEvent(event)
+
+      if (event.type === 'text') {
+        streamedAssistant += event.text
+      } else if (event.type === 'done') {
+        return {
+          outcome: 'done',
+          chatId: event.chatId,
+          assistantText: event.assistantText ?? streamedAssistant,
+        }
+      } else if (event.type === 'approval-required') {
+        return {
+          outcome: 'approval',
+          threadSnapshot: event.threadSnapshot,
+          approvals: event.approvals,
+          streamedAssistant,
+        }
+      } else if (event.type === 'error') {
+        throw new Error(event.error)
+      }
+    }
+  }
+
+  if (abortSignal.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
+  throw new Error('Connection closed before the reply finished')
+}
+
+type ApprovalDialogState = {
+  approvals: ApprovalMeta[]
+}
+
 export function KbChatPane(props: {
   kbRoot: string
   chatId?: string | null
@@ -46,8 +141,12 @@ export function KbChatPane(props: {
   const [input, setInput] = createSignal('')
   const [streaming, setStreaming] = createSignal(false)
   const [streamingText, setStreamingText] = createSignal('')
+  const [toolsInProgress, setToolsInProgress] = createSignal<InProgressTool[]>([])
   const [activeChatId, setActiveChatId] = createSignal<string | null>(props.chatId ?? null)
   const [error, setError] = createSignal<string | null>(null)
+  const [approvalDialog, setApprovalDialog] = createSignal<ApprovalDialogState | null>(null)
+
+  let dialogDecision: ((approved: boolean) => void) | null = null
   let lastFailedMessages: ChatMsg[] | null = null
   let messagesEndEl: HTMLDivElement | undefined
   let textareaEl: HTMLTextAreaElement | undefined
@@ -85,6 +184,49 @@ export function KbChatPane(props: {
     abortController?.abort()
     abortController = null
     setStreaming(false)
+    dialogDecision = null
+    setApprovalDialog(null)
+  }
+
+  function addToolInProgress(toolCallId: string, toolName: string) {
+    setToolsInProgress((prev) => {
+      if (prev.some((t) => t.toolCallId === toolCallId)) return prev
+      return [...prev, { toolCallId, toolName }]
+    })
+  }
+
+  function removeToolInProgress(toolCallId: string) {
+    setToolsInProgress((prev) => prev.filter((t) => t.toolCallId !== toolCallId))
+  }
+
+  /**
+   * Only non-approval tools stay visible here (spinner). Approval tools move to the inline approval card;
+   * we drop them from this list on `tool-approval-request`. Duplicate stream parts share one `toolCallId`.
+   */
+  function handleSseEvent(e: SseEvent, seenToolInvocationIds: Set<string>) {
+    if (e.type === 'tool-call') {
+      if (seenToolInvocationIds.has(e.toolCallId)) return
+      seenToolInvocationIds.add(e.toolCallId)
+      addToolInProgress(e.toolCallId, e.toolName)
+    } else if (e.type === 'tool-approval-request') {
+      seenToolInvocationIds.add(e.toolCallId)
+      removeToolInProgress(e.toolCallId)
+    } else if (e.type === 'tool-result' || e.type === 'tool-error') {
+      removeToolInProgress(e.toolCallId)
+    }
+  }
+
+  function waitForDialogChoice(): Promise<boolean> {
+    return new Promise((resolve) => {
+      dialogDecision = resolve
+    })
+  }
+
+  function resolveApproval(approved: boolean) {
+    const r = dialogDecision
+    dialogDecision = null
+    setApprovalDialog(null)
+    r?.(approved)
   }
 
   async function sendMessages(allMessages: ChatMsg[]) {
@@ -92,95 +234,113 @@ export function KbChatPane(props: {
     lastFailedMessages = null
     setStreaming(true)
     setStreamingText('')
+    setToolsInProgress([])
     scrollToBottom()
 
     abortController = new AbortController()
-    let answerFirstTokenAt: number | null = null
+    const answerFirstTokenAt = { value: null as number | null }
+    let fullAssistantDraft = ''
+    let persistPrefix = ''
+    let url = '/api/kb/chat'
+    let reqBody: Record<string, unknown> = {
+      chatId: activeChatId(),
+      kbRoot: props.kbRoot,
+      messages: allMessages,
+    }
+
     try {
-      const res = await fetch('/api/kb/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chatId: activeChatId(),
-          kbRoot: props.kbRoot,
-          messages: allMessages,
-        }),
-        signal: abortController.signal,
-      })
-
-      if (!res.ok || !res.body) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error((body as { error?: string }).error || 'Request failed')
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let fullText = ''
-      let chatId = activeChatId()
-      let sawDone = false
-
       while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody),
+          signal: abortController.signal,
+        })
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const json = line.slice(6)
-          try {
-            const event = JSON.parse(json) as
-              | { type: 'text'; text: string }
-              | { type: 'done'; chatId: string }
-              | { type: 'error'; error: string }
-            if (event.type === 'text') {
-              if (answerFirstTokenAt === null) answerFirstTokenAt = performance.now()
-              fullText += event.text
-              setStreamingText(fullText)
-              scrollToBottom()
-            } else if (event.type === 'done') {
-              sawDone = true
-              chatId = event.chatId
-            } else if (event.type === 'error') {
-              throw new Error(event.error)
-            }
-          } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message !== json) throw parseErr
-          }
+        if (!res.ok || !res.body) {
+          const errBody = await res.json().catch(() => ({}))
+          throw new Error((errBody as { error?: string }).error || 'Request failed')
         }
-      }
 
-      if (!sawDone) {
-        throw new Error('Connection closed before the reply finished')
-      }
-      if (!fullText.trim()) {
-        throw new Error('Model returned an empty response')
-      }
+        setToolsInProgress([])
 
-      const answerDurationSec =
-        answerFirstTokenAt != null ? (performance.now() - answerFirstTokenAt) / 1000 : undefined
-      const assistantMsg: ChatMsg = {
-        role: 'assistant',
-        content: fullText,
-        ...(answerDurationSec != null ? { answerDurationSec } : {}),
-      }
-      setMessages([...allMessages, assistantMsg])
-      setStreamingText('')
+        const seenToolInvocationIds = new Set<string>()
+        const result = await consumeKbChatSse(
+          res.body.getReader(),
+          abortController.signal,
+          (ev) => {
+            handleSseEvent(ev, seenToolInvocationIds)
+            if (ev.type === 'text') {
+              if (answerFirstTokenAt.value === null) answerFirstTokenAt.value = performance.now()
+              fullAssistantDraft += ev.text
+              setStreamingText(fullAssistantDraft)
+              scrollToBottom()
+            }
+          },
+        )
 
-      if (chatId && chatId !== activeChatId()) {
-        setActiveChatId(chatId)
-        props.onChatIdChange?.(chatId)
+        if (result.outcome === 'approval') {
+          setStreamingText(result.streamedAssistant)
+          fullAssistantDraft = result.streamedAssistant
+          setApprovalDialog({ approvals: result.approvals })
+          setStreaming(false)
+          scrollToBottom()
+          const approved = await waitForDialogChoice()
+          setStreaming(true)
+          setToolsInProgress([])
+          setStreamingText(fullAssistantDraft)
+
+          url = '/api/kb/chat/continue'
+          reqBody = {
+            kbRoot: props.kbRoot,
+            chatId: activeChatId() ?? undefined,
+            modelMessages: result.threadSnapshot,
+            approvals: result.approvals.map((a) => ({
+              approvalId: a.approvalId,
+              approved,
+              ...(approved ? {} : { reason: 'User denied in knowledge base chat' }),
+            })),
+            kbMessagesForSave: allMessages,
+            assistantPrefix: persistPrefix + result.streamedAssistant,
+          }
+          persistPrefix += result.streamedAssistant
+          continue
+        }
+
+        const content = result.assistantText.trim()
+        if (!content) {
+          throw new Error('Model returned an empty response')
+        }
+
+        const answerDurationSec =
+          answerFirstTokenAt.value != null
+            ? (performance.now() - answerFirstTokenAt.value) / 1000
+            : undefined
+        const assistantMsg: ChatMsg = {
+          role: 'assistant',
+          content: result.assistantText,
+          ...(answerDurationSec != null ? { answerDurationSec } : {}),
+        }
+        setMessages([...allMessages, assistantMsg])
+        setStreamingText('')
+        setToolsInProgress([])
+
+        const cid = result.chatId
+        if (cid && cid !== activeChatId()) {
+          setActiveChatId(cid)
+          props.onChatIdChange?.(cid)
+        }
+        queryClient.invalidateQueries({ queryKey: queryKeys.kbChatHistory(props.kbRoot) })
+        break
       }
-      queryClient.invalidateQueries({ queryKey: queryKeys.kbChatHistory(props.kbRoot) })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         const partialText = streamingText()
         if (partialText) {
           const answerDurationSec =
-            answerFirstTokenAt != null ? (performance.now() - answerFirstTokenAt) / 1000 : undefined
+            answerFirstTokenAt.value != null
+              ? (performance.now() - answerFirstTokenAt.value) / 1000
+              : undefined
           setMessages([
             ...allMessages,
             {
@@ -196,8 +356,11 @@ export function KbChatPane(props: {
         setError(errorMsg)
       }
       setStreamingText('')
+      setToolsInProgress([])
     } finally {
       setStreaming(false)
+      setApprovalDialog(null)
+      dialogDecision = null
       abortController = null
       scrollToBottom()
     }
@@ -236,11 +399,18 @@ export function KbChatPane(props: {
     el.style.height = Math.min(el.scrollHeight, 120) + 'px'
   }
 
+  const showThinking = () =>
+    streaming() && streamingText().length === 0 && toolsInProgress().length === 0
+
+  const showInlineAssistantWork = () =>
+    (streaming() && (streamingText().length > 0 || toolsInProgress().length > 0)) ||
+    (!!approvalDialog() && !streaming())
+
   return (
     <div class='kb-chat-selectable flex h-full flex-col select-text'>
       <div class='min-h-0 flex-1 overflow-y-auto'>
         <Show
-          when={messages().length > 0 || streaming() || error()}
+          when={messages().length > 0 || streaming() || error() || !!approvalDialog()}
           fallback={
             <div class='flex h-full items-center justify-center p-4'>
               <p class='text-muted-foreground text-center text-xs'>
@@ -261,15 +431,80 @@ export function KbChatPane(props: {
                 />
               )}
             </For>
-            <Show when={streaming() && streamingText()}>
-              <KbChatMessage
-                role='assistant'
-                content={streamingText()}
-                kbRoot={props.kbRoot}
-                onMediaLinkClick={props.onOpenMedia}
-              />
+            <Show when={showInlineAssistantWork()}>
+              <div class='flex flex-col gap-1 px-3 py-2'>
+                <Show when={toolsInProgress().length > 0}>
+                  <div class='border-border bg-muted/40 text-muted-foreground rounded-md border px-2 py-1.5 text-xs'>
+                    <For each={toolsInProgress()}>
+                      {(t) => (
+                        <div class='flex items-center gap-2 py-0.5'>
+                          <Loader2
+                            class='h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground'
+                            stroke-width={2}
+                          />
+                          <span class='font-mono text-[11px]'>{t.toolName}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={streamingText().length > 0}>
+                  <KbChatMessage
+                    role='assistant'
+                    content={streamingText()}
+                    kbRoot={props.kbRoot}
+                    onMediaLinkClick={props.onOpenMedia}
+                  />
+                </Show>
+                <Show when={approvalDialog()}>
+                  {(dlg) => (
+                    <div class='border-border bg-card mt-1 rounded-lg border p-3 shadow-sm'>
+                      <p class='text-foreground mb-1 text-xs font-semibold'>
+                        Confirm filesystem changes
+                      </p>
+                      <p class='text-muted-foreground mb-2 text-xs'>
+                        The assistant wants to modify this knowledge base. Review the actions below.
+                      </p>
+                      <ul class='text-foreground mb-3 max-h-40 space-y-2 overflow-y-auto text-xs'>
+                        <For each={dlg().approvals}>
+                          {(a) => (
+                            <li class='border-border rounded-md border bg-muted/20 p-2'>
+                              <div class='font-mono text-[11px] text-muted-foreground'>
+                                {a.toolName}
+                              </div>
+                              <Show when={a.lines && a.lines.length > 0}>
+                                <ul class='mt-1 list-inside list-disc'>
+                                  <For each={a.lines!}>
+                                    {(line) => <li class='break-words'>{line}</li>}
+                                  </For>
+                                </ul>
+                              </Show>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                      <div class='flex flex-wrap justify-end gap-2'>
+                        <button
+                          type='button'
+                          class='border-border text-foreground hover:bg-muted rounded-md border px-3 py-1.5 text-xs font-medium'
+                          onClick={() => resolveApproval(false)}
+                        >
+                          Deny
+                        </button>
+                        <button
+                          type='button'
+                          class='bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-xs font-medium'
+                          onClick={() => resolveApproval(true)}
+                        >
+                          Approve
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Show>
+              </div>
             </Show>
-            <Show when={streaming() && !streamingText()}>
+            <Show when={showThinking()}>
               <div class='flex gap-2.5 px-3 py-2'>
                 <div class='bg-muted flex h-6 w-6 shrink-0 items-center justify-center rounded-full'>
                   <Loader2
@@ -323,21 +558,19 @@ export function KbChatPane(props: {
               autoResize(e.currentTarget)
             }}
             onKeyDown={handleKeyDown}
-            disabled={streaming()}
+            disabled={streaming() || !!approvalDialog()}
           />
-          <Show
-            when={!streaming()}
-            fallback={
-              <button
-                type='button'
-                class='text-muted-foreground hover:text-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors'
-                onClick={stopStreaming}
-                title='Stop generating'
-              >
-                <Square class='h-3.5 w-3.5' stroke-width={2} />
-              </button>
-            }
-          >
+          <Show when={streaming()}>
+            <button
+              type='button'
+              class='text-muted-foreground hover:text-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors'
+              onClick={stopStreaming}
+              title='Stop generating'
+            >
+              <Square class='h-3.5 w-3.5' stroke-width={2} />
+            </button>
+          </Show>
+          <Show when={!streaming() && !approvalDialog()}>
             <button
               type='button'
               class='text-muted-foreground hover:text-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50'
