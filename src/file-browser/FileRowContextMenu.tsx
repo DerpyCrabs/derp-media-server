@@ -8,6 +8,7 @@ import ExternalLink from 'lucide-solid/icons/external-link'
 import Link from 'lucide-solid/icons/link'
 import Pencil from 'lucide-solid/icons/pencil'
 import Pin from 'lucide-solid/icons/pin'
+import Settings from 'lucide-solid/icons/settings'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
@@ -43,6 +44,12 @@ type FileRowContextMenuProps = {
   onSetIcon?: (file: FileItem) => void
   onToggleKnowledgeBase?: (file: FileItem) => void
   isKnowledgeBase?: (file: FileItem) => boolean
+  /** Workspace: pick which tab bar receives items opened in a new tab (New tab mode). */
+  onPickNewTabTarget?: () => void
+  /** Workspace: normal click uses new-tab vs new-window; context menu shows the opposite for files. */
+  workspaceDefaultFileOpen?: Accessor<'new-tab' | 'new-window'>
+  /** Workspace: open a file in a floating window (when default mode is new-tab). */
+  onOpenFileInNewWindow?: (file: FileItem) => void
 }
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
@@ -81,6 +88,32 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
           showRevokeShare() || showDeleteFile() || showMove() || showRename()
         const manageLabel = () => (props.getPathHasShare?.(ctx.file) ? 'Manage Share' : 'Share')
 
+        const fileContextIsNewWindow = () =>
+          !ctx.file.isDirectory &&
+          props.showOpenInNewTabForFiles === true &&
+          props.workspaceDefaultFileOpen?.() === 'new-tab' &&
+          !!props.onOpenFileInNewWindow
+
+        const showWorkspaceOpenRow = () => {
+          if (ctx.file.isVirtual) return false
+          if (ctx.file.isDirectory) return !!props.onOpenInNewTab
+          if (props.showOpenInNewTabForFiles !== true) return false
+          if (fileContextIsNewWindow()) return true
+          return !!props.onOpenInNewTab
+        }
+
+        const openWorkspaceRowPrimary = () => {
+          if (fileContextIsNewWindow()) {
+            props.onOpenFileInNewWindow?.(ctx.file)
+          } else {
+            props.onOpenInNewTab?.(ctx.file)
+          }
+          props.onDismiss()
+        }
+
+        const openRowPrimaryLabel = () =>
+          fileContextIsNewWindow() ? 'Open in new window' : 'Open in new tab'
+
         return (
           <>
             <Show when={props.onSetIcon && !ctx.file.isVirtual}>
@@ -98,25 +131,38 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Set icon
               </button>
             </Show>
-            <Show
-              when={
-                props.onOpenInNewTab &&
-                !ctx.file.isVirtual &&
-                (ctx.file.isDirectory || props.showOpenInNewTabForFiles === true)
-              }
-            >
+            <Show when={props.onPickNewTabTarget}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                data-testid='workspace-pick-new-tab-target'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                title='Choose which workspace window receives files opened in a new tab'
+                onClick={() => {
+                  props.onPickNewTabTarget?.()
+                  props.onDismiss()
+                }}
+              >
+                <Settings class='h-4 w-4 shrink-0' stroke-width={2} />
+                Choose where new tabs open…
+              </button>
+            </Show>
+            <Show when={showWorkspaceOpenRow()}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onOpenInNewTab?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={openWorkspaceRowPrimary}
               >
-                <ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />
-                Open in new tab
+                <Show
+                  when={fileContextIsNewWindow()}
+                  fallback={<ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />}
+                >
+                  <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+                </Show>
+                {openRowPrimaryLabel()}
               </button>
             </Show>
             <Show

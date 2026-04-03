@@ -10,6 +10,7 @@ import {
 } from '@/lib/workspace-geometry'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
+import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 
 export interface WorkspaceSource {
   kind: 'local' | 'share'
@@ -77,6 +78,8 @@ export interface WorkspaceWindowDefinition {
   /** Pinned tabs stay on the left and cannot be closed from the strip. */
   tabPinned?: boolean
   layout?: WorkspaceWindowLayout
+  /** When set on a browser, open-in-new-tab targets this window's tab group (if it still exists). */
+  fileOpenTargetWindowId?: string | null
 }
 
 export type PinnedTaskbarItem = WorkspaceTaskbarPin
@@ -108,6 +111,7 @@ export interface PersistedWorkspaceState {
   browserTabIcon?: string
   browserTabIconColor?: string
   tabGroupSplits?: Record<string, TabGroupSplitState>
+  fileOpenTarget?: WorkspaceFileOpenTarget
 }
 
 export function workspaceStorageBaseKey(shareToken?: string | null): string {
@@ -159,6 +163,7 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
     ...(state.browserTabTitle ? { browserTabTitle: state.browserTabTitle } : {}),
     ...(state.browserTabIcon ? { browserTabIcon: state.browserTabIcon } : {}),
     ...(state.browserTabIconColor ? { browserTabIconColor: state.browserTabIconColor } : {}),
+    ...(state.fileOpenTarget ? { fileOpenTarget: state.fileOpenTarget } : {}),
   })
 }
 
@@ -172,11 +177,47 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
     ...(state.tabGroupSplits && Object.keys(state.tabGroupSplits).length > 0
       ? { tabGroupSplits: state.tabGroupSplits }
       : {}),
+    ...(state.fileOpenTarget ? { fileOpenTarget: state.fileOpenTarget } : {}),
   })
 }
 
 function groupIdForWorkspaceMember(w: WorkspaceWindowDefinition): string {
   return w.tabGroupId ?? w.id
+}
+
+function parseWorkspaceFileOpenTargetField(v: unknown): WorkspaceFileOpenTarget | undefined {
+  if (v === 'new-tab' || v === 'new-window') return v
+  return undefined
+}
+
+function sanitizeBrowserFileOpenTargets(
+  windows: WorkspaceWindowDefinition[],
+): WorkspaceWindowDefinition[] {
+  const ids = new Set(windows.map((w) => w.id))
+  return windows.map((w) => {
+    if (w.type !== 'browser') return w
+    const tid = w.fileOpenTargetWindowId
+    if (typeof tid === 'string' && tid.length > 0 && tid !== w.id && ids.has(tid)) {
+      return w
+    }
+    if ('fileOpenTargetWindowId' in w) {
+      const { fileOpenTargetWindowId: _drop, ...rest } = w
+      return rest as WorkspaceWindowDefinition
+    }
+    return w
+  })
+}
+
+/** Anchor window id for open-in-new-tab from a browser (for tests and WorkspacePage). */
+export function resolveNewTabAnchorWindowId(
+  state: Pick<PersistedWorkspaceState, 'windows'>,
+  browserWindowId: string,
+): string {
+  const winDef = state.windows.find((x) => x.id === browserWindowId)
+  if (!winDef || winDef.type !== 'browser') return browserWindowId
+  const tid = winDef.fileOpenTargetWindowId
+  if (typeof tid !== 'string' || tid.length === 0 || tid === browserWindowId) return browserWindowId
+  return state.windows.some((w) => w.id === tid) ? tid : browserWindowId
 }
 
 function sanitizeTabGroupSplitsField(
@@ -285,22 +326,25 @@ export function normalizePersistedWorkspaceState(
     ? reconcileLayoutBoundsFromSnapZones(validatedWindows)
     : validatedWindows
 
+  const withOpenTargets = sanitizeBrowserFileOpenTargets(reconciledWindows)
+
   const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
   const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
 
   const browserTabTitle = parseBrowserTabTitle(parsed.browserTabTitle)
   const browserTabIcon = parseBrowserTabIcon(parsed.browserTabIcon)
   const browserTabIconColor = parseBrowserTabIconColor(parsed.browserTabIconColor)
-  const tabGroupSplits = sanitizeTabGroupSplitsField(reconciledWindows, parsed.tabGroupSplits)
+  const fileOpenTarget = parseWorkspaceFileOpenTargetField(parsed.fileOpenTarget)
+  const tabGroupSplits = sanitizeTabGroupSplitsField(withOpenTargets, parsed.tabGroupSplits)
   const focus = ensureSplitWorkspaceFocus(
-    reconciledWindows,
+    withOpenTargets,
     parsed.activeTabMap ?? {},
     parsed.activeWindowId ?? null,
     tabGroupSplits,
   )
 
   return {
-    windows: reconciledWindows,
+    windows: withOpenTargets,
     activeWindowId: focus.activeWindowId,
     activeTabMap: focus.activeTabMap,
     nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
@@ -309,6 +353,7 @@ export function normalizePersistedWorkspaceState(
     ...(browserTabTitle ? { browserTabTitle } : {}),
     ...(browserTabIcon ? { browserTabIcon } : {}),
     ...(browserTabIconColor ? { browserTabIconColor } : {}),
+    ...(fileOpenTarget ? { fileOpenTarget } : {}),
   }
 }
 

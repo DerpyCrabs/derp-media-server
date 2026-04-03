@@ -21,6 +21,7 @@ import type {
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import {
+  resolveNewTabAnchorWindowId,
   serializeWorkspaceLayoutState,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
@@ -35,9 +36,16 @@ import {
 } from '@/lib/workspace-bootstrap'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
-import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
+import {
+  getWorkspaceFileOpenTarget,
+  useWorkspaceFileOpenTargetStore,
+} from '@/lib/workspace-file-open-target'
+import {
+  layoutBoundsForWindowHighlight,
+  pickWorkspaceWindowAtClientPoint,
+} from '@/lib/workspace-file-open-target-picker'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
-import { For, createEffect, createMemo, createSignal, untrack } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { useThemeStore } from '@/lib/theme-store'
 import { useStoreSync } from './lib/solid-store-sync'
 import type { FileIconContext } from './lib/use-file-icon'
@@ -114,6 +122,11 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     anchor: DOMRect
   } | null>(null)
 
+  const [fileOpenTargetPick, setFileOpenTargetPick] = createSignal<{
+    sourceBrowserId: string
+  } | null>(null)
+  const [fileOpenPickHoverId, setFileOpenPickHoverId] = createSignal<string | null>(null)
+
   const preferredSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
   const themeTick = useStoreSync(useThemeStore)
   const baseline = useWorkspacePageLayoutBaseline(workspace, setWorkspace)
@@ -125,6 +138,28 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     storageSessionKeyFull,
     workspace,
     isShareSession: () => !!shareConfig(),
+  })
+
+  createEffect(() => {
+    const w = workspace()
+    const t = w?.fileOpenTarget
+    if (t !== 'new-tab' && t !== 'new-window') return
+    const cur = useWorkspaceFileOpenTargetStore.getState().target
+    if (cur !== t) {
+      useWorkspaceFileOpenTargetStore.getState().setTarget(t)
+    }
+  })
+
+  createEffect(() => {
+    if (!fileOpenTargetPick()) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setFileOpenTargetPick(null)
+        setFileOpenPickHoverId(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    onCleanup(() => window.removeEventListener('keydown', onKey))
   })
 
   const [pinsHydratedFor, setPinsHydratedFor] = createSignal('')
@@ -803,7 +838,18 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       !!w?.tabGroupSplits?.[gid]?.leftTabId &&
       w.tabGroupSplits[gid]!.leftTabId === windowId &&
       winDef.type === 'browser'
-    if (splitBrowserLeft || getWorkspaceFileOpenTarget() === 'new-tab') {
+    if (getWorkspaceFileOpenTarget() === 'new-tab') {
+      const anchorId = w ? resolveNewTabAnchorWindowId(w, windowId) : windowId
+      openInNewTabInSameWindow(
+        anchorId,
+        { path: file.path, isDirectory: false },
+        dir,
+        undefined,
+        winDef.source,
+      )
+      return
+    }
+    if (splitBrowserLeft) {
       openInNewTabInSameWindow(
         windowId,
         { path: file.path, isDirectory: false },
@@ -860,6 +906,13 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
     document.addEventListener('pointercancel', onUp)
+  }
+
+  function openFileInNewFloatingWindow(windowId: string, file: FileItem) {
+    const w = workspace()
+    const winDef = w?.windows.find((x) => x.id === windowId)
+    if (!winDef || file.isDirectory) return
+    openViewer(windowId, file, winDef.source)
   }
 
   function openViewer(_fromWindowId: string, file: FileItem, source: WorkspaceSource) {
@@ -1035,6 +1088,92 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     setLayoutPicker(null)
   }
 
+  function beginFileOpenTargetPick(sourceBrowserId: string) {
+    setFileOpenTargetPick({ sourceBrowserId })
+    setFileOpenPickHoverId(null)
+  }
+
+  function cancelFileOpenTargetPick() {
+    setFileOpenTargetPick(null)
+    setFileOpenPickHoverId(null)
+  }
+
+  function updateFileOpenPickHover(clientX: number, clientY: number) {
+    const w = workspace()
+    const area = snap.getWorkspaceAreaElement()
+    if (!w || !area) {
+      setFileOpenPickHoverId(null)
+      return
+    }
+    const rect = area.getBoundingClientRect()
+    setFileOpenPickHoverId(pickWorkspaceWindowAtClientPoint(w.windows, rect, clientX, clientY))
+  }
+
+  function clearBrowserFileOpenTarget(browserId: string) {
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        windows: prev.windows.map((win) => {
+          if (win.id !== browserId || win.type !== 'browser') return win
+          if (win.fileOpenTargetWindowId == null) return win
+          const { fileOpenTargetWindowId: _omit, ...rest } = win
+          return rest as WorkspaceWindowDefinition
+        }),
+      }
+    })
+  }
+
+  function commitFileOpenTargetPick(targetWindowId: string) {
+    const pick = fileOpenTargetPick()
+    if (!pick) return
+    if (targetWindowId === pick.sourceBrowserId) {
+      clearBrowserFileOpenTarget(pick.sourceBrowserId)
+      cancelFileOpenTargetPick()
+      return
+    }
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        windows: prev.windows.map((win) =>
+          win.id === pick.sourceBrowserId && win.type === 'browser'
+            ? { ...win, fileOpenTargetWindowId: targetWindowId }
+            : win,
+        ),
+      }
+    })
+    cancelFileOpenTargetPick()
+  }
+
+  createEffect(() => {
+    if (!fileOpenTargetPick()) return
+    const prevCursor = document.body.style.cursor
+    document.body.style.cursor = 'crosshair'
+    const onMove = (e: PointerEvent) => {
+      updateFileOpenPickHover(e.clientX, e.clientY)
+    }
+    const onUp = (e: PointerEvent) => {
+      const w = workspace()
+      const area = snap.getWorkspaceAreaElement()
+      if (!w || !area) {
+        cancelFileOpenTargetPick()
+        return
+      }
+      const rect = area.getBoundingClientRect()
+      const id = pickWorkspaceWindowAtClientPoint(w.windows, rect, e.clientX, e.clientY)
+      if (id) commitFileOpenTargetPick(id)
+      else cancelFileOpenTargetPick()
+    }
+    document.addEventListener('pointermove', onMove, { capture: true })
+    document.addEventListener('pointerup', onUp, { capture: true })
+    onCleanup(() => {
+      document.body.style.cursor = prevCursor
+      document.removeEventListener('pointermove', onMove, { capture: true })
+      document.removeEventListener('pointerup', onUp, { capture: true })
+    })
+  })
+
   return (
     <div class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'>
       <div
@@ -1090,7 +1229,28 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           updateWindowViewing={updateWindowViewing}
           resizeViewerWindowForVideoMetadata={resizeViewerWindowForVideoMetadata}
           listenOnlyHandoff={listenOnlyHandoffFromWorkspaceViewer}
+          onBeginFileOpenTargetPick={beginFileOpenTargetPick}
+          openFileInNewFloatingWindow={openFileInNewFloatingWindow}
         />
+        <Show when={fileOpenTargetPick()}>
+          <Show when={fileOpenPickHoverId()} keyed fallback={null}>
+            {(hid) => {
+              const b = layoutBoundsForWindowHighlight(workspace()?.windows ?? [], hid)
+              if (!b) return null
+              return (
+                <div
+                  class='pointer-events-none absolute z-[100001] rounded-sm border-2 border-primary bg-primary/15'
+                  style={{
+                    left: `${b.x}px`,
+                    top: `${b.y}px`,
+                    width: `${b.width}px`,
+                    height: `${b.height}px`,
+                  }}
+                />
+              )
+            }}
+          </Show>
+        </Show>
       </div>
       <WorkspacePageTaskbar
         pageProps={props}

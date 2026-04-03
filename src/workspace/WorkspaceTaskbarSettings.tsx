@@ -58,6 +58,7 @@ export type WorkspaceTaskbarSettingsProps = {
   onBrowserTabTitleChange: (value: string) => void
   onBrowserTabIconChange: (value: string) => void
   onBrowserTabIconColorChange: (value: string) => void
+  onWorkspaceFileOpenTargetChange?: (value: WorkspaceFileOpenTarget) => void
 }
 
 export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
@@ -88,6 +89,7 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
 
   function setFileTarget(value: WorkspaceFileOpenTarget) {
     useWorkspaceFileOpenTargetStore.getState().setTarget(value)
+    props.onWorkspaceFileOpenTargetChange?.(value)
   }
 
   function setTheme(p: ThemePalette, m: ThemeMode) {

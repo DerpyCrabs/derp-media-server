@@ -3,6 +3,7 @@ import {
   serializeWorkspaceLayoutState,
   type PersistedWorkspaceState,
 } from '@/lib/use-workspace'
+import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import { createMemo, createSignal, type Accessor, type Setter } from 'solid-js'
 
 /** Deep copy via JSON — safe for layout baselines; `structuredClone` throws on non-cloneable runtime refs. */
@@ -28,6 +29,7 @@ export function useWorkspacePageLayoutBaseline(
         activeTabMap: {},
         nextWindowId: 2,
         pinnedTaskbarItems: [],
+        fileOpenTarget: getWorkspaceFileOpenTarget(),
       }
     }
     return {
@@ -36,6 +38,7 @@ export function useWorkspacePageLayoutBaseline(
       activeTabMap: { ...w.activeTabMap },
       nextWindowId: w.nextWindowId,
       pinnedTaskbarItems: w.pinnedTaskbarItems ?? [],
+      fileOpenTarget: w.fileOpenTarget ?? getWorkspaceFileOpenTarget(),
       ...(w.tabGroupSplits && Object.keys(w.tabGroupSplits).length > 0
         ? { tabGroupSplits: { ...w.tabGroupSplits } }
         : {}),
@@ -57,6 +60,7 @@ export function useWorkspacePageLayoutBaseline(
       browserTabTitle: normalized.browserTabTitle ?? prev?.browserTabTitle,
       browserTabIcon: normalized.browserTabIcon ?? prev?.browserTabIcon,
       browserTabIconColor: normalized.browserTabIconColor ?? prev?.browserTabIconColor,
+      fileOpenTarget: normalized.fileOpenTarget ?? prev?.fileOpenTarget,
     }
     const clone = clonePersistedWorkspaceJson(merged)
     setWorkspace(merged)
