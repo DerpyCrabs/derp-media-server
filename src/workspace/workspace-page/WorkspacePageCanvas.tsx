@@ -17,6 +17,7 @@ import {
   WorkspaceViewerPane,
   type WorkspaceVideoListenOnlyDetail,
 } from '@/src/workspace/WorkspaceViewerPane'
+import { KbChatWindowPane } from '@/src/kb-chat/KbChatWindowPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from '@/src/workspace/WorkspaceWindowChrome'
 import { WorkspaceSnapAssistBar } from '@/src/workspace/WorkspaceSnapAssistBar'
 import { WorkspaceTilingPicker } from '@/src/workspace/WorkspaceTilingPicker'
@@ -269,6 +270,9 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 }
                               />
                             </Show>
+                            <Show when={windowDef()?.type === 'chat'}>
+                              <KbChatWindowPane windowId={tabId} workspace={props.workspace} />
+                            </Show>
                           </div>
                         )
                       }}
@@ -351,6 +355,9 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               }
                             />
                           </Show>
+                          <Show when={leftWindowDef()?.type === 'chat'}>
+                            <KbChatWindowPane windowId={leftTabId()} workspace={props.workspace} />
+                          </Show>
                         </div>
                         <div
                           data-testid='workspace-split-divider'
@@ -426,6 +433,12 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                     ignoreTabPinForListenOnlyDismiss: true,
                                   })
                                 }
+                              />
+                            </Show>
+                            <Show when={rightWindowDef()?.type === 'chat'}>
+                              <KbChatWindowPane
+                                windowId={visibleTabId()}
+                                workspace={props.workspace}
                               />
                             </Show>
                           </div>

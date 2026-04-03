@@ -11,6 +11,7 @@ import {
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
+import { workspaceKbChatWindowTitle } from '@/lib/workspace-kb-chat-title'
 
 export interface WorkspaceSource {
   kind: 'local' | 'share'
@@ -65,7 +66,7 @@ export interface WorkspaceWindowLayout {
 
 export interface WorkspaceWindowDefinition {
   id: string
-  type: 'browser' | 'viewer'
+  type: 'browser' | 'viewer' | 'chat'
   title: string
   iconName?: string | null
   iconPath?: string | null
@@ -304,7 +305,7 @@ export function normalizePersistedWorkspaceState(
       (w): w is WorkspaceWindowDefinition =>
         !!w &&
         typeof w.id === 'string' &&
-        (w.type === 'browser' || w.type === 'viewer') &&
+        (w.type === 'browser' || w.type === 'viewer' || w.type === 'chat') &&
         !!w.source &&
         isValidSource(w.source),
     )
@@ -383,13 +384,19 @@ export function workspaceSourceToMediaContext(
 }
 
 export function getWorkspaceWindowTitle(
-  window: Pick<WorkspaceWindowDefinition, 'title' | 'type' | 'source'>,
+  window: Pick<WorkspaceWindowDefinition, 'title' | 'type' | 'source' | 'initialState'>,
 ): string {
+  if (window.type === 'chat') {
+    const kbRoot = (window.initialState as { kbRoot?: string })?.kbRoot ?? ''
+    const derived = workspaceKbChatWindowTitle(kbRoot)
+    const t = window.title.trim()
+    if (!t || t === 'KB Chat') return derived
+  }
+
   if (window.title.trim()) {
     return window.title
   }
 
-  return window.type === 'viewer'
-    ? `${getSourceLabel(window.source)} Viewer`
-    : getSourceLabel(window.source)
+  if (window.type === 'viewer') return `${getSourceLabel(window.source)} Viewer`
+  return getSourceLabel(window.source)
 }

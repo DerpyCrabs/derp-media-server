@@ -34,7 +34,6 @@ import { useMediaPlayer } from '@/lib/use-media-player'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
-import FileText from 'lucide-solid/icons/file-text'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
 import Star from 'lucide-solid/icons/star'
@@ -63,6 +62,7 @@ import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { FileBrowserModalLayer } from './file-browser/FileBrowserModalLayer'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
+import { KbChatFooter } from './kb-chat/KbChatFooter'
 import { KbSearchResults } from './file-browser/KbSearchResults'
 import { navigateToFolder } from './file-browser/navigate-folder'
 import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
@@ -970,13 +970,6 @@ export function FileBrowser() {
     )
   }
 
-  function submitQuickNote() {
-    if (!isEditable() || !inKb()) return
-    const stem = `note-${Date.now()}.md`
-    const filePath = currentPath() ? `${currentPath()}/${stem}` : stem
-    createFileMutation.mutate({ type: 'file', path: filePath, content: '' })
-  }
-
   function handleContextRename(file: FileItem) {
     setRenameItem(file)
     setNewItemName(file.name)
@@ -1199,18 +1192,6 @@ export function FileBrowser() {
                       >
                         <FilePlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
                       </button>
-                      <Show when={inKb()}>
-                        <button
-                          type='button'
-                          title='Quick note (empty file, opens for editing)'
-                          aria-label='Quick note'
-                          class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
-                          onClick={() => submitQuickNote()}
-                          disabled={createFileMutation.isPending}
-                        >
-                          <FileText class='h-4 w-4' aria-hidden='true' stroke-width={2} />
-                        </button>
-                      </Show>
                       <UploadMenu
                         disabled={isUploading()}
                         onUpload={(files) => void uploadFilesToServer(files, currentPath())}
@@ -1719,6 +1700,9 @@ export function FileBrowser() {
                       inlineFolderInputEl = el
                     }}
                   />
+                </Show>
+                <Show when={inKb()}>
+                  <KbChatFooter kbRoot={kbRootPath()!} />
                 </Show>
                 <Show when={externalUploadDragOver()}>
                   <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>

@@ -13,6 +13,7 @@ import FileText from 'lucide-solid/icons/file-text'
 import Folder from 'lucide-solid/icons/folder'
 import ImageIcon from 'lucide-solid/icons/image'
 import Link from 'lucide-solid/icons/link'
+import MessageSquareText from 'lucide-solid/icons/message-square-text'
 import Music from 'lucide-solid/icons/music'
 import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
@@ -240,6 +241,10 @@ export function workspaceTabIcon(
   ctx: FileIconContext,
   size: IconSize = 'sm',
 ): JSX.Element {
+  if (tab.type === 'chat') {
+    const { cls, sz, sw } = sizeProps(size)
+    return <MessageSquareText class={`${cls} text-sky-400`} size={sz} stroke-width={sw} />
+  }
   const iconType = tab.iconType ?? (tab.type === 'browser' ? MediaType.FOLDER : MediaType.OTHER)
   const iconPath = tab.iconPath ?? (tab.type === 'browser' ? (tab.initialState.dir ?? '') : '')
   return renderFileIcon(
@@ -259,6 +264,10 @@ export function workspaceTaskbarRowIcon(
   playbackPath: string | null,
   size: IconSize = 'sm',
 ): JSX.Element {
+  if (tab.type === 'chat') {
+    const { cls, sz, sw } = sizeProps(size)
+    return <MessageSquareText class={`${cls} text-sky-400`} size={sz} stroke-width={sw} />
+  }
   const path =
     tab.iconPath ??
     (tab.type === 'browser'

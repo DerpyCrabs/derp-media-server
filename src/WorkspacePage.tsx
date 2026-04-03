@@ -45,6 +45,7 @@ import {
   pickWorkspaceWindowAtClientPoint,
 } from '@/lib/workspace-file-open-target-picker'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
+import { workspaceKbChatWindowTitle } from '@/lib/workspace-kb-chat-title'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { useThemeStore } from '@/lib/theme-store'
 import { useStoreSync } from './lib/solid-store-sync'
@@ -747,6 +748,10 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     insertIndex?: number,
     sourceOverride?: WorkspaceSource,
   ) {
+    if (file.path.startsWith('__kb-chat__:')) {
+      openChatInTab(sourceWindowId, file.path)
+      return
+    }
     setWorkspace((prev) =>
       prev
         ? openInNewTabInGroupState(
@@ -759,6 +764,52 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           )
         : prev,
     )
+  }
+
+  function openChatInTab(sourceWindowId: string, encodedPath: string) {
+    const parts = encodedPath.replace('__kb-chat__:', '').split(':')
+    const kbRoot = parts[0] ?? ''
+    const chatId = parts[1] || undefined
+    setWorkspace((prev) => {
+      if (!prev) return prev
+      const sourceWindow = prev.windows.find((w) => w.id === sourceWindowId)
+      if (!sourceWindow) return prev
+      const groupId = sourceWindow.tabGroupId || sourceWindowId
+      const n = prev.nextWindowId
+      const id = `workspace-window-${n}`
+      const zIndex = sourceWindow.layout?.zIndex ?? 1
+      const layoutBase = sourceWindow.layout
+      const sharedLayout = layoutBase
+        ? {
+            bounds: layoutBase.bounds,
+            fullscreen: layoutBase.fullscreen,
+            snapZone: layoutBase.snapZone,
+            minimized: false,
+            zIndex: layoutBase.zIndex ?? zIndex,
+            restoreBounds: layoutBase.restoreBounds,
+          }
+        : undefined
+      const newWindow: WorkspaceWindowDefinition = {
+        id,
+        type: 'chat',
+        title: workspaceKbChatWindowTitle(kbRoot),
+        iconName: null,
+        source: sourceWindow.source,
+        initialState: { kbRoot, chatId } as any,
+        tabGroupId: groupId,
+        layout: sharedLayout ?? { minimized: false, zIndex },
+      }
+      const withTabGroup = prev.windows.map((w) =>
+        w.id === sourceWindowId && !w.tabGroupId ? { ...w, tabGroupId: groupId } : w,
+      )
+      return {
+        ...prev,
+        windows: [...withTabGroup, newWindow],
+        nextWindowId: n + 1,
+        activeWindowId: id,
+        activeTabMap: { ...prev.activeTabMap, [groupId]: id },
+      }
+    })
   }
 
   function dropFileToTabBar(

@@ -26,4 +26,7 @@ export const queryKeys = {
   textContent: (filePath: string) => ['text-content', filePath] as const,
   shareText: (token: string, filePath: string) => ['share-text', token, filePath] as const,
   audioMetadata: (filePath: string) => ['audio-metadata', 'v2', filePath] as const,
+  kbChatStatus: () => ['kb-chat-status'] as const,
+  kbChatHistory: (kbRoot: string) => ['kb-chat-history', kbRoot] as const,
+  kbChatDetail: (chatId: string) => ['kb-chat-detail', chatId] as const,
 } as const

@@ -39,7 +39,6 @@ import { useWorkspaceFileOpenTargetStore } from '@/lib/workspace-file-open-targe
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
-import FileText from 'lucide-solid/icons/file-text'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import Search from 'lucide-solid/icons/search'
 import Upload from 'lucide-solid/icons/upload'
@@ -60,6 +59,7 @@ import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbInlineCreateFooter } from '../file-browser/KbInlineCreateFooter'
+import { KbChatFooter } from '../kb-chat/KbChatFooter'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
 import type { AuthConfig, UploadToastState } from '../file-browser/types'
 import {
@@ -1011,26 +1011,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     setShowPasteDialog(true)
   }
 
-  async function submitQuickNote() {
-    if (!allowWorkspaceUpload() || !inKb()) return
-    const stem = `note-${Date.now()}.md`
-    const sh = share()
-    try {
-      if (sh) {
-        const rel = listDir() ? `${listDir()}/${stem}` : stem
-        const fullOpenPath = mediaPathForShareChild(rel)
-        await createFileMutation.mutateAsync({ path: rel, content: '', shareToken: sh.token })
-        props.onOpenViewer(props.windowId, fileItemFromPath(fullOpenPath))
-        return
-      }
-      const base = currentPath() ? `${currentPath()}/${stem}` : stem
-      await createFileMutation.mutateAsync({ path: base, content: '' })
-      props.onOpenViewer(props.windowId, fileItemFromPath(base))
-    } catch {
-      /* errors surface via createFileMutation.isError */
-    }
-  }
-
   const fileExists = createMemo(() => {
     const stem = newFileName().trim()
     if (!stem) return false
@@ -1483,18 +1463,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               >
                 <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
               </button>
-              <Show when={inKb()}>
-                <button
-                  type='button'
-                  title='Quick note (empty file, opens for editing)'
-                  aria-label='Quick note'
-                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
-                  onClick={() => void submitQuickNote()}
-                  disabled={createFileMutation.isPending}
-                >
-                  <FileText class='h-3.5 w-3.5' stroke-width={2} />
-                </button>
-              </Show>
               <UploadMenu
                 mode='Workspace'
                 disabled={isUploading()}
@@ -1519,18 +1487,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               >
                 <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
               </button>
-              <Show when={inKb()}>
-                <button
-                  type='button'
-                  title='Quick note (empty file, opens for editing)'
-                  aria-label='Quick note'
-                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
-                  onClick={() => void submitQuickNote()}
-                  disabled={createFileMutation.isPending}
-                >
-                  <FileText class='h-3.5 w-3.5' stroke-width={2} />
-                </button>
-              </Show>
               <UploadMenu
                 mode='Workspace'
                 disabled={isUploading()}
@@ -1823,6 +1779,23 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               }}
               onFolderInputRef={(el) => {
                 inlineFolderInputEl = el
+              }}
+            />
+          </Show>
+
+          <Show when={inKb() && !share()}>
+            <KbChatFooter
+              kbRoot={kbRootPath()!}
+              noWindowDrag
+              onOpenInWindow={(chatId) => {
+                props.onOpenInNewTab?.(
+                  props.windowId,
+                  {
+                    path: `__kb-chat__:${kbRootPath()!}${chatId ? `:${chatId}` : ''}`,
+                    isDirectory: false,
+                  },
+                  currentPath(),
+                )
               }}
             />
           </Show>

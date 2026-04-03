@@ -11,11 +11,20 @@ interface AuthConfig {
   sessionMaxAgeSeconds?: number
 }
 
+export interface AiConfig {
+  provider: 'openrouter' | 'lmstudio' | 'openai-compatible'
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+  systemPrompt?: string
+}
+
 interface AppConfig {
   mediaDir: string
   editableFolders: string[]
   shareLinkDomain?: string
   auth?: AuthConfig
+  ai?: AiConfig
   dataPath: string
 }
 
@@ -85,6 +94,30 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
     }
   }
 
+  if (process.env.AI_PROVIDER) {
+    const p = process.env.AI_PROVIDER as AiConfig['provider']
+    if (p === 'openrouter' || p === 'lmstudio' || p === 'openai-compatible') {
+      if (!cfg.ai) cfg.ai = { provider: p }
+      else cfg.ai.provider = p
+    }
+  }
+  if (process.env.AI_API_KEY) {
+    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
+    cfg.ai.apiKey = process.env.AI_API_KEY
+  }
+  if (process.env.AI_BASE_URL) {
+    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
+    cfg.ai.baseUrl = process.env.AI_BASE_URL
+  }
+  if (process.env.AI_MODEL) {
+    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
+    cfg.ai.model = process.env.AI_MODEL
+  }
+  if (process.env.AI_SYSTEM_PROMPT) {
+    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
+    cfg.ai.systemPrompt = process.env.AI_SYSTEM_PROMPT
+  }
+
   return cfg
 }
 
@@ -139,11 +172,37 @@ function loadConfigOnce(): AppConfig {
           }
         : { enabled: false }
 
+    const AI_PROVIDERS = new Set(['openrouter', 'lmstudio', 'openai-compatible'])
+    const ai: AiConfig | undefined =
+      parsed.ai &&
+      typeof parsed.ai === 'object' &&
+      AI_PROVIDERS.has((parsed.ai as AiConfig).provider)
+        ? {
+            provider: (parsed.ai as AiConfig).provider,
+            apiKey:
+              typeof (parsed.ai as AiConfig).apiKey === 'string'
+                ? (parsed.ai as AiConfig).apiKey
+                : undefined,
+            baseUrl:
+              typeof (parsed.ai as AiConfig).baseUrl === 'string'
+                ? (parsed.ai as AiConfig).baseUrl
+                : undefined,
+            model:
+              typeof (parsed.ai as AiConfig).model === 'string'
+                ? (parsed.ai as AiConfig).model
+                : undefined,
+            systemPrompt:
+              typeof (parsed.ai as AiConfig).systemPrompt === 'string'
+                ? (parsed.ai as AiConfig).systemPrompt
+                : undefined,
+          }
+        : undefined
+
     const configDir = path.dirname(configPath)
     const dataPath =
       typeof parsed.dataPath === 'string' ? path.resolve(configDir, parsed.dataPath) : configDir
 
-    return applyEnvOverrides({ mediaDir, editableFolders, shareLinkDomain, auth, dataPath })
+    return applyEnvOverrides({ mediaDir, editableFolders, shareLinkDomain, auth, ai, dataPath })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
@@ -164,4 +223,8 @@ export const config = loadConfigOnce()
 
 export function getDataFilePath(filename: string): string {
   return path.join(config.dataPath, filename)
+}
+
+export function getAiConfig(): AiConfig | null {
+  return config.ai ?? null
 }

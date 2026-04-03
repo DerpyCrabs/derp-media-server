@@ -16,6 +16,7 @@ import { registerAuthApiRoutes } from './routes/api/auth'
 import { registerSharesApiRoutes } from './routes/api/shares'
 import { registerShareAccessApiRoutes } from './routes/api/shareAccess'
 import { registerKbApiRoutes } from './routes/api/kb'
+import { registerKbChatApiRoutes } from './routes/api/kb-chat'
 import path from 'path'
 import fs from 'fs'
 
@@ -46,6 +47,7 @@ async function start() {
   registerSharesApiRoutes(app)
   registerShareAccessApiRoutes(app)
   registerKbApiRoutes(app)
+  registerKbChatApiRoutes(app)
 
   // HTTP routes (streaming, binary, SSE)
   registerMediaRoutes(app)
@@ -73,6 +75,11 @@ async function start() {
             '**/test-results/**',
             '**/playwright-report/**',
             '**/tests/**',
+            // Persisted server data (often next to config.jsonc); writes trigger full-reload HMR otherwise
+            '**/kb-chats.json',
+            '**/shares.json',
+            '**/settings.json',
+            '**/stats.json',
           ],
         },
       },
