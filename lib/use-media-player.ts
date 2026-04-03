@@ -19,6 +19,10 @@ interface MediaPlayerData {
 
 const listeners = createStoreListeners()
 
+function normPath(p: string) {
+  return p.replace(/\\/g, '/')
+}
+
 const [store, setStore] = createStore<MediaPlayerData>({
   currentFile: null,
   mediaType: null,
@@ -33,7 +37,11 @@ const [store, setStore] = createStore<MediaPlayerData>({
 })
 
 function playFile(path: string, type: 'audio' | 'video') {
-  if (store.currentFile === path && store.mediaType === type) {
+  const samePath =
+    store.currentFile != null &&
+    normPath(store.currentFile) === normPath(path) &&
+    store.mediaType === type
+  if (samePath) {
     setStore('isPlaying', !store.isPlaying)
   } else {
     batch(() => {
@@ -48,7 +56,11 @@ function playFile(path: string, type: 'audio' | 'video') {
 }
 
 function startOrResumePlayback(path: string, type: 'audio' | 'video') {
-  if (store.currentFile === path && store.mediaType === type) {
+  const samePath =
+    store.currentFile != null &&
+    normPath(store.currentFile) === normPath(path) &&
+    store.mediaType === type
+  if (samePath) {
     setStore('isPlaying', true)
   } else {
     batch(() => {
@@ -63,8 +75,12 @@ function startOrResumePlayback(path: string, type: 'audio' | 'video') {
 }
 
 function setCurrentFile(path: string, type: 'audio' | 'video') {
-  if (store.currentFile !== path || store.mediaType !== type) {
-    const samePath = store.currentFile === path
+  const pathMatches =
+    store.currentFile != null &&
+    normPath(store.currentFile) === normPath(path) &&
+    store.mediaType === type
+  if (!pathMatches) {
+    const samePath = store.currentFile != null && normPath(store.currentFile) === normPath(path)
     batch(() => {
       setStore('currentFile', path)
       setStore('mediaType', type)

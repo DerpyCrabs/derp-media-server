@@ -21,6 +21,10 @@ interface WorkspaceAudioState extends WorkspaceAudioSessionSlice {
 const listeners = createStoreListeners()
 const progressListeners = createStoreListeners()
 
+function normPath(p: string) {
+  return p.replace(/\\/g, '/')
+}
+
 /** Set from click handlers so `<audio>.play()` runs under user activation (see WorkspaceTaskbarAudio). */
 let userGestureTransportPath: string | null = null
 
@@ -53,15 +57,20 @@ function setCurrentTime(time: number) {
 /** Select audio track and start transport. */
 function playAudio(path: string, dir?: string) {
   const prev = store.playing
-  setStore('playing', path)
-  if (prev !== path) {
-    if (prev == null) {
-      setStore('playNonce', store.playNonce + 1)
-    }
-    setStore('audioOnly', false)
-    setStore('duration', 0)
-    setCurrentTime(0)
+  const sameFile = prev != null && normPath(prev) === normPath(path)
+  if (sameFile) {
+    setStore('isPlaying', !store.isPlaying)
+    if (dir !== undefined) setStore('dir', dir || null)
+    listeners.notify()
+    return
   }
+  setStore('playing', path)
+  if (prev == null) {
+    setStore('playNonce', store.playNonce + 1)
+  }
+  setStore('audioOnly', false)
+  setStore('duration', 0)
+  setCurrentTime(0)
   setStore('isPlaying', true)
   if (dir !== undefined) setStore('dir', dir || null)
   listeners.notify()
@@ -90,7 +99,7 @@ function setAudioOnly(_key: string | undefined, enabled: boolean) {
 }
 
 function startOrResumePlayback(path: string) {
-  if (store.playing === path) {
+  if (store.playing != null && normPath(store.playing) === normPath(path)) {
     setStore('isPlaying', true)
   } else {
     setStore('playing', path)
@@ -103,7 +112,7 @@ function startOrResumePlayback(path: string) {
 
 /** Legacy taskbar `playFile`: toggle pause when same file, else switch. */
 function toggleOrSelectFile(path: string) {
-  if (store.playing === path) {
+  if (store.playing != null && normPath(store.playing) === normPath(path)) {
     setStore('isPlaying', !store.isPlaying)
   } else {
     setStore('playing', path)
@@ -116,7 +125,7 @@ function toggleOrSelectFile(path: string) {
 }
 
 function setCurrentFile(path: string) {
-  if (store.playing !== path) {
+  if (store.playing == null || normPath(store.playing) !== normPath(path)) {
     setStore('playing', path)
     setStore('duration', 0)
     setCurrentTime(0)
