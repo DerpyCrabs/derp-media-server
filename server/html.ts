@@ -39,10 +39,18 @@ async function readSettings() {
         knowledgeBases: [],
         customIcons: {},
         autoSave: {},
+        kbChatSystemPrompts: {},
       }
     )
   } catch {
-    return { viewModes: {}, favorites: [], knowledgeBases: [], customIcons: {}, autoSave: {} }
+    return {
+      viewModes: {},
+      favorites: [],
+      knowledgeBases: [],
+      customIcons: {},
+      autoSave: {},
+      kbChatSystemPrompts: {},
+    }
   }
 }
 

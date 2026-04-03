@@ -13,6 +13,7 @@ import {
   sanitizeAdminWorkspaceLayoutPresets,
 } from '@/lib/workspace-layout-presets-schema'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets-types'
+import { getKnowledgeBases } from '@/lib/knowledge-base'
 
 const SETTINGS_FILE = getDataFilePath('settings.json')
 const settingsMutex = new Mutex()
@@ -23,6 +24,7 @@ interface Settings {
   knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
+  kbChatSystemPrompts?: Record<string, string>
   workspaceTaskbarPins?: WorkspaceTaskbarPin[]
   workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }
@@ -37,6 +39,7 @@ const DEFAULT_SETTINGS: Settings = {
   knowledgeBases: [],
   customIcons: {},
   autoSave: {},
+  kbChatSystemPrompts: {},
   workspaceTaskbarPins: [],
   workspaceLayoutPresets: [],
 }
@@ -50,11 +53,21 @@ async function readAllSettings(): Promise<SettingsFile> {
   }
 }
 
-async function readSettings(): Promise<Settings> {
+function normalizeKbChatSystemPrompts(v: unknown): Record<string, string> | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+  const out: Record<string, string> = {}
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === 'string') out[k.replace(/\\/g, '/')] = val
+  }
+  return Object.keys(out).length ? out : {}
+}
+
+export async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
   const raw = allSettings[config.mediaDir] || { ...DEFAULT_SETTINGS }
   return {
     ...raw,
+    kbChatSystemPrompts: normalizeKbChatSystemPrompts(raw.kbChatSystemPrompts) ?? {},
     workspaceTaskbarPins: filterAdminWorkspaceTaskbarPins(
       parseWorkspaceTaskbarPins(raw.workspaceTaskbarPins),
     ),
@@ -209,5 +222,29 @@ export function registerSettingsApiRoutes(app: FastifyInstance) {
     settings.workspaceLayoutPresets = parsed
     await writeSettings(settings)
     return reply.send({ success: true, workspaceLayoutPresets: parsed })
+  })
+
+  app.post('/api/settings/kbChatSystemPrompt', async (request, reply) => {
+    const body = request.body as { kbRoot: string; prompt: string | null }
+    const kbRoot = typeof body.kbRoot === 'string' ? body.kbRoot.replace(/\\/g, '/').trim() : ''
+    if (!kbRoot) {
+      return reply.code(400).send({ error: 'kbRoot is required' })
+    }
+    const bases = await getKnowledgeBases()
+    if (!bases.includes(kbRoot)) {
+      return reply.code(400).send({ error: 'Not a knowledge base' })
+    }
+    const settings = await readSettings()
+    if (!settings.kbChatSystemPrompts) settings.kbChatSystemPrompts = {}
+    const p = body.prompt
+    if (p == null || (typeof p === 'string' && !p.trim())) {
+      delete settings.kbChatSystemPrompts[kbRoot]
+    } else if (typeof p === 'string') {
+      settings.kbChatSystemPrompts[kbRoot] = p
+    } else {
+      return reply.code(400).send({ error: 'prompt must be string or null' })
+    }
+    await writeSettings(settings)
+    return reply.send({ success: true, kbChatSystemPrompts: settings.kbChatSystemPrompts })
   })
 }

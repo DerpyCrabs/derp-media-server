@@ -10,6 +10,7 @@ export interface GlobalSettings {
   knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
+  kbChatSystemPrompts?: Record<string, string>
   workspaceTaskbarPins?: WorkspaceTaskbarPin[]
   workspaceLayoutPresets?: WorkspaceLayoutPreset[]
 }

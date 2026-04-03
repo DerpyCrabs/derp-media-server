@@ -95,6 +95,7 @@ export type WorkspacePageCanvasProps = {
   listenOnlyHandoff: (tabId: string, detail: WorkspaceVideoListenOnlyDetail) => void
   onBeginFileOpenTargetPick: (browserWindowId: string) => void
   openFileInNewFloatingWindow: (windowId: string, file: FileItem) => void
+  openMediaFromChat: (chatWindowId: string, path: string, isDirectory: boolean) => void
 }
 
 export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
@@ -271,7 +272,11 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               />
                             </Show>
                             <Show when={windowDef()?.type === 'chat'}>
-                              <KbChatWindowPane windowId={tabId} workspace={props.workspace} />
+                              <KbChatWindowPane
+                                windowId={tabId}
+                                workspace={props.workspace}
+                                openMedia={(p, d) => props.openMediaFromChat(tabId, p, d)}
+                              />
                             </Show>
                           </div>
                         )
@@ -356,7 +361,11 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             />
                           </Show>
                           <Show when={leftWindowDef()?.type === 'chat'}>
-                            <KbChatWindowPane windowId={leftTabId()} workspace={props.workspace} />
+                            <KbChatWindowPane
+                              windowId={leftTabId()}
+                              workspace={props.workspace}
+                              openMedia={(p, d) => props.openMediaFromChat(leftTabId(), p, d)}
+                            />
                           </Show>
                         </div>
                         <div
@@ -439,6 +448,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               <KbChatWindowPane
                                 windowId={visibleTabId()}
                                 workspace={props.workspace}
+                                openMedia={(p, d) => props.openMediaFromChat(visibleTabId(), p, d)}
                               />
                             </Show>
                           </div>

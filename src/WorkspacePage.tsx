@@ -966,6 +966,65 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     openViewer(windowId, file, winDef.source)
   }
 
+  function openMediaFromChat(chatWindowId: string, mediaPath: string, isDirectory: boolean) {
+    const w = workspace()
+    const chatWin = w?.windows.find((x) => x.id === chatWindowId)
+    if (!w || !chatWin) return
+    const norm = mediaPath.replace(/\\/g, '/')
+    const pathNoTrail = norm.replace(/\/+$/, '')
+    const isDir = isDirectory || norm.endsWith('/')
+    const path = isDir ? pathNoTrail : norm
+    const name = path.split(/[/\\]/).filter(Boolean).pop() ?? path
+    const ext = path.split('.').pop()?.toLowerCase() ?? ''
+    const file: FileItem = {
+      path,
+      name,
+      isDirectory: isDir,
+      type: isDir ? MediaType.FOLDER : getMediaType(ext),
+      size: 0,
+      extension: isDir ? '' : ext,
+      isVirtual: false,
+    }
+    const parentDir = path.split(/[/\\]/).slice(0, -1).join('/') || ''
+    const source = chatWin.source
+    if (!isDir && (file.type === MediaType.AUDIO || file.type === MediaType.VIDEO)) {
+      requestPlay(source, file.path, parentDir || undefined)
+      return
+    }
+    if (getWorkspaceFileOpenTarget() === 'new-tab') {
+      const anchorId = resolveNewTabAnchorWindowId(w, chatWindowId)
+      openInNewTabInSameWindow(anchorId, file, parentDir, undefined, source)
+      return
+    }
+    if (isDir) {
+      const n = w.nextWindowId
+      const id = `workspace-window-${n}`
+      const newWin: WorkspaceWindowDefinition = {
+        id,
+        type: 'browser',
+        title: workspaceBrowserDirTitle(path),
+        iconName: null,
+        iconPath: path,
+        iconType: MediaType.FOLDER,
+        iconIsVirtual: isVirtualFolderPath(path),
+        source,
+        initialState: { dir: path },
+        tabGroupId: null,
+        layout: createWindowLayout(undefined, createDefaultBounds(w.windows.length, 'browser'), n),
+      }
+      const maxZ = maxWorkspaceWindowZ(w.windows)
+      newWin.layout = { ...newWin.layout, zIndex: maxZ + 1 }
+      setWorkspace({
+        ...w,
+        windows: [...w.windows, newWin],
+        nextWindowId: n + 1,
+        activeWindowId: id,
+      })
+      return
+    }
+    openViewer(chatWindowId, file, source)
+  }
+
   function openViewer(_fromWindowId: string, file: FileItem, source: WorkspaceSource) {
     const w = workspace()
     if (!w) return
@@ -1282,6 +1341,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           listenOnlyHandoff={listenOnlyHandoffFromWorkspaceViewer}
           onBeginFileOpenTargetPick={beginFileOpenTargetPick}
           openFileInNewFloatingWindow={openFileInNewFloatingWindow}
+          openMediaFromChat={openMediaFromChat}
         />
         <Show when={fileOpenTargetPick()}>
           <Show when={fileOpenPickHoverId()} keyed fallback={null}>

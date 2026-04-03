@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { APICallError } from '@ai-sdk/provider'
-import { streamText } from 'ai'
+import { stepCountIs, streamText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { getAiConfig, type AiConfig } from '@/lib/config'
+import { getAiConfig, getMcpConfig, type AiConfig } from '@/lib/config'
 import { getKnowledgeBases } from '@/lib/knowledge-base'
 import {
   createChat,
@@ -11,9 +11,12 @@ import {
   getChat,
   getChatHistory,
   deleteChat,
+  setChatPinned,
   type KbChatMessage,
 } from '@/lib/kb-chats'
 import { gatherKbContext } from '@/server/kb-context'
+import { readSettings } from '@/server/routes/api/settings'
+import { buildMcpToolsetForKbChat } from '@/server/mcp-kb-chat-tools'
 
 function providerErrorMessage(err: unknown, provider: AiConfig['provider']): string {
   let message = err instanceof Error ? err.message : 'Stream error'
@@ -104,7 +107,19 @@ function buildModel(ai: AiConfig) {
   }
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant for a knowledge base. Answer questions based on the provided knowledge base content. If you don't find relevant information in the context, say so honestly. Use markdown formatting in your responses. You can answer any question and have opinion, try not to tell user that you are just an AI and can't answer something`
+const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant for a knowledge base. Answer questions based on the provided knowledge base content. If you don't find relevant information in the context, say so honestly. Use markdown formatting in your responses. You can answer any question and have opinion, try not to tell user that you are just an AI and can't answer something
+
+When citing files or folders under the library, use markdown links with the media scheme so the user can open them: [label](media:path/relative/to/media/root.md) for files, or [label](media:path/to/folder/) for folders (trailing slash for directories). Paths use forward slashes relative to the media library root.`
+
+function serverNowPromptLine(): string {
+  const d = new Date()
+  const local = d.toLocaleString(undefined, {
+    dateStyle: 'full',
+    timeStyle: 'long',
+  })
+  const utc = d.toISOString()
+  return `Current date and time on the server: ${local} (${utc}). Use this for "today", relative dates, and time-sensitive answers.`
+}
 
 export function registerKbChatApiRoutes(app: FastifyInstance) {
   app.get('/api/kb/chat/status', async (_request, reply) => {
@@ -137,8 +152,15 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
       const lastUserMsg = [...body.messages].reverse().find((m) => m.role === 'user')
       const kbContext = await gatherKbContext(body.kbRoot, lastUserMsg?.content ?? '')
 
+      const kbKey = body.kbRoot.replace(/\\/g, '/')
+      const settings = await readSettings()
+      const perKbExtra = settings.kbChatSystemPrompts?.[kbKey]?.trim() ?? ''
+
       const systemPrompt = [
+        serverNowPromptLine(),
+        '\n',
         ai.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+        ...(perKbExtra ? [`\n\n${perKbExtra}`] : []),
         kbContext
           ? `\n\nHere is the knowledge base content for reference:\n\n${kbContext}`
           : '\n\nThe knowledge base is empty.',
@@ -153,11 +175,21 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
 
       const model = buildModel(ai)
 
-      const result = streamText({
-        model,
-        system: systemPrompt,
-        messages: body.messages.map((m) => ({ role: m.role, content: m.content })),
-      })
+      const mcpCfg = getMcpConfig()
+      let mcpCleanup: (() => Promise<void>) | undefined
+      let mcpTools: NonNullable<Parameters<typeof streamText>[0]['tools']> | undefined
+      if (mcpCfg?.servers && Object.keys(mcpCfg.servers).length > 0) {
+        try {
+          const built = await buildMcpToolsetForKbChat(mcpCfg)
+          mcpCleanup = built.cleanup
+          if (Object.keys(built.tools).length > 0) {
+            mcpTools = built.tools
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'MCP connection failed'
+          return reply.code(503).send({ error: `MCP: ${msg}` })
+        }
+      }
 
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -168,6 +200,13 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
       let fullResponse = ''
 
       try {
+        const result = streamText({
+          model,
+          system: systemPrompt,
+          messages: body.messages.map((m) => ({ role: m.role, content: m.content })),
+          ...(mcpTools ? { tools: mcpTools, stopWhen: stepCountIs(12) } : {}),
+        })
+
         for await (const chunk of result.textStream) {
           fullResponse += chunk
           reply.raw.write(`data: ${JSON.stringify({ type: 'text', text: chunk })}\n\n`)
@@ -190,6 +229,8 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
       } catch (err) {
         const message = providerErrorMessage(err, ai.provider)
         reply.raw.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`)
+      } finally {
+        await mcpCleanup?.()
       }
 
       reply.raw.end()
@@ -230,5 +271,17 @@ export function registerKbChatApiRoutes(app: FastifyInstance) {
     const deleted = await deleteChat(chatId)
     if (!deleted) return reply.code(404).send({ error: 'Chat not found' })
     return reply.send({ success: true })
+  })
+
+  app.patch('/api/kb/chat/:chatId', async (request, reply) => {
+    const { chatId } = request.params as { chatId: string }
+    const body = request.body as { pinned?: boolean }
+    if (typeof body.pinned !== 'boolean') {
+      return reply.code(400).send({ error: 'pinned boolean required' })
+    }
+    const chat = await setChatPinned(chatId, body.pinned)
+    if (!chat) return reply.code(404).send({ error: 'Chat not found' })
+    const { messages: _m, ...summary } = chat
+    return reply.send(summary)
   })
 }

@@ -17,6 +17,7 @@ export interface KbChat {
   messages: KbChatMessage[]
   createdAt: number
   updatedAt: number
+  pinned?: boolean
 }
 
 interface ChatsData {
@@ -109,8 +110,27 @@ export async function getChatHistory(kbRoot: string): Promise<Omit<KbChat, 'mess
   const data = await readChatsData()
   return data.chats
     .filter((c) => c.kbRoot === kbRoot)
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .sort((a, b) => {
+      const pa = a.pinned ? 1 : 0
+      const pb = b.pinned ? 1 : 0
+      if (pa !== pb) return pb - pa
+      return b.updatedAt - a.updatedAt
+    })
     .map(({ messages: _m, ...rest }) => rest)
+}
+
+export async function setChatPinned(chatId: string, pinned: boolean): Promise<KbChat | null> {
+  const release = await chatsMutex.acquire()
+  try {
+    const data = await readChatsData()
+    const index = data.chats.findIndex((c) => c.id === chatId)
+    if (index === -1) return null
+    data.chats[index] = { ...data.chats[index], pinned, updatedAt: Date.now() }
+    await writeChatsData(data)
+    return data.chats[index]
+  } finally {
+    release()
+  }
 }
 
 export async function deleteChat(chatId: string): Promise<boolean> {

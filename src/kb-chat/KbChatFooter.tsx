@@ -114,6 +114,15 @@ export function KbChatFooter(props: {
                 kbRoot={props.kbRoot}
                 chatId={chatId()}
                 onChatIdChange={(id) => setChatId(id)}
+                onOpenMedia={(path, isDir) => {
+                  const u = new URL('/workspace', window.location.origin)
+                  if (isDir) u.searchParams.set('dir', path)
+                  else {
+                    const parent = path.split(/[/\\]/).slice(0, -1).join('/')
+                    u.searchParams.set('dir', parent || '')
+                  }
+                  window.open(u.toString(), '_blank')
+                }}
               />
             </div>
           </div>

@@ -39,6 +39,7 @@ export function KbChatPane(props: {
   kbRoot: string
   chatId?: string | null
   onChatIdChange?: (id: string | null) => void
+  onOpenMedia?: (path: string, isDirectory: boolean) => void
 }) {
   const queryClient = useQueryClient()
   const [messages, setMessages] = createSignal<ChatMsg[]>([])
@@ -255,11 +256,18 @@ export function KbChatPane(props: {
                   role={msg.role}
                   content={msg.content}
                   answerDurationSec={msg.answerDurationSec}
+                  kbRoot={props.kbRoot}
+                  onMediaLinkClick={props.onOpenMedia}
                 />
               )}
             </For>
             <Show when={streaming() && streamingText()}>
-              <KbChatMessage role='assistant' content={streamingText()} />
+              <KbChatMessage
+                role='assistant'
+                content={streamingText()}
+                kbRoot={props.kbRoot}
+                onMediaLinkClick={props.onOpenMedia}
+              />
             </Show>
             <Show when={streaming() && !streamingText()}>
               <div class='flex gap-2.5 px-3 py-2'>

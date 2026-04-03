@@ -27,6 +27,7 @@
     "@fastify/static": "^9.0.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/solid-query": "^5.95.2",

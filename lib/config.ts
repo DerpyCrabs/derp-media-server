@@ -19,12 +19,21 @@ export interface AiConfig {
   systemPrompt?: string
 }
 
+export interface McpServerConfig {
+  url: string
+}
+
+export interface McpConfig {
+  servers: Record<string, McpServerConfig>
+}
+
 interface AppConfig {
   mediaDir: string
   editableFolders: string[]
   shareLinkDomain?: string
   auth?: AuthConfig
   ai?: AiConfig
+  mcp?: McpConfig
   dataPath: string
 }
 
@@ -121,6 +130,29 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
   return cfg
 }
 
+export function parseMcpConfig(parsed: { mcp?: unknown }): McpConfig | undefined {
+  const m = parsed.mcp
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return undefined
+  const srv = (m as { servers?: unknown }).servers
+  if (!srv || typeof srv !== 'object' || Array.isArray(srv)) return undefined
+  const servers: Record<string, McpServerConfig> = {}
+  for (const [k, v] of Object.entries(srv)) {
+    const key = k.trim()
+    if (!key) continue
+    if (!v || typeof v !== 'object' || Array.isArray(v)) continue
+    const urlRaw = (v as { url?: unknown }).url
+    if (typeof urlRaw !== 'string' || !urlRaw.trim()) continue
+    const url = urlRaw.trim()
+    try {
+      new URL(url)
+    } catch {
+      continue
+    }
+    servers[key] = { url }
+  }
+  return Object.keys(servers).length > 0 ? { servers } : undefined
+}
+
 function loadConfigOnce(): AppConfig {
   let configPath = getConfigPath()
   const isDefaultPath = configPath === DEFAULT_CONFIG_PATH
@@ -202,7 +234,17 @@ function loadConfigOnce(): AppConfig {
     const dataPath =
       typeof parsed.dataPath === 'string' ? path.resolve(configDir, parsed.dataPath) : configDir
 
-    return applyEnvOverrides({ mediaDir, editableFolders, shareLinkDomain, auth, ai, dataPath })
+    const mcp = parseMcpConfig(parsed)
+
+    return applyEnvOverrides({
+      mediaDir,
+      editableFolders,
+      shareLinkDomain,
+      auth,
+      ai,
+      mcp,
+      dataPath,
+    })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
@@ -211,6 +253,7 @@ function loadConfigOnce(): AppConfig {
         editableFolders: [],
         shareLinkDomain: undefined,
         auth: { enabled: false, password: undefined },
+        mcp: undefined,
         dataPath: path.dirname(configPath),
       })
     }
@@ -220,6 +263,10 @@ function loadConfigOnce(): AppConfig {
 
 /** Config loaded once when this module is first imported. */
 export const config = loadConfigOnce()
+
+export function getMcpConfig(): McpConfig | undefined {
+  return config.mcp
+}
 
 export function getDataFilePath(filename: string): string {
   return path.join(config.dataPath, filename)

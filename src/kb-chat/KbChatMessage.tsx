@@ -1,17 +1,67 @@
 import MarkdownIt from 'markdown-it'
-import { Show, createEffect, createMemo } from 'solid-js'
+import { Show, createEffect, createMemo, onCleanup } from 'solid-js'
 import Bot from 'lucide-solid/icons/bot'
 import User from 'lucide-solid/icons/user'
 
 const md = new MarkdownIt({ html: false, linkify: true })
 
-function MarkdownContent(props: { content: string }) {
+export function isMediaPathUnderKb(mediaPath: string, kbRoot: string): boolean {
+  const p = mediaPath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')
+  const kb = kbRoot.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')
+  if (!kb) return false
+  return p === kb || p.startsWith(kb + '/')
+}
+
+function rewriteMediaLinks(html: string): string {
+  return html.replace(
+    /<a href="media:([^"]+)"([^>]*)>/gi,
+    (_full, hrefBody: string, rest: string) => {
+      const decoded = decodeURIComponent(String(hrefBody).replace(/&amp;/g, '&'))
+      const isDir = decoded.endsWith('/') ? '1' : '0'
+      const pathRaw = isDir === '1' ? decoded.replace(/\/+$/, '') : decoded
+      const enc = encodeURIComponent(pathRaw)
+      return `<a href="#" data-kb-media="${enc}" data-kb-dir="${isDir}" class="kb-chat-media-link text-primary underline decoration-primary/50 hover:decoration-primary"${rest}>`
+    },
+  )
+}
+
+function MarkdownContent(props: {
+  content: string
+  kbRoot?: string
+  onMediaLinkClick?: (path: string, isDirectory: boolean) => void
+}) {
   let el: HTMLDivElement | undefined
-  const html = createMemo(() => md.render(props.content))
+  const html = createMemo(() => rewriteMediaLinks(md.render(props.content)))
+
   createEffect(() => {
     const h = html()
-    if (el) el.innerHTML = h
+    const node = el
+    if (!node) return
+
+    node.innerHTML = h
+
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement).closest('a[data-kb-media]') as HTMLAnchorElement | null
+      if (!a || !node.contains(a)) return
+      e.preventDefault()
+      const enc = a.getAttribute('data-kb-media')
+      if (enc == null) return
+      let pathRaw: string
+      try {
+        pathRaw = decodeURIComponent(enc)
+      } catch {
+        return
+      }
+      const isDir = a.getAttribute('data-kb-dir') === '1'
+      const kb = props.kbRoot
+      if (kb && !isMediaPathUnderKb(pathRaw, kb)) return
+      props.onMediaLinkClick?.(pathRaw, isDir)
+    }
+
+    node.addEventListener('click', onClick)
+    onCleanup(() => node.removeEventListener('click', onClick))
   })
+
   return (
     <div
       ref={(r) => {
@@ -31,6 +81,8 @@ export function KbChatMessage(props: {
   role: 'user' | 'assistant'
   content: string
   answerDurationSec?: number
+  kbRoot?: string
+  onMediaLinkClick?: (path: string, isDirectory: boolean) => void
 }) {
   return (
     <div class={`flex gap-2.5 px-3 py-2 ${props.role === 'user' ? 'justify-end' : ''}`}>
@@ -45,7 +97,11 @@ export function KbChatMessage(props: {
         }`}
       >
         {props.role === 'assistant' ? (
-          <MarkdownContent content={props.content} />
+          <MarkdownContent
+            content={props.content}
+            kbRoot={props.kbRoot}
+            onMediaLinkClick={props.onMediaLinkClick}
+          />
         ) : (
           <p class='m-0 whitespace-pre-wrap'>{props.content}</p>
         )}
