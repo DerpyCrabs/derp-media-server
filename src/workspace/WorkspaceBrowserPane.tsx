@@ -35,6 +35,7 @@ import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
+import { useWorkspaceFileOpenTargetStore } from '@/lib/workspace-file-open-target'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
@@ -133,6 +134,11 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   })
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
+  const fileOpenTargetTick = useStoreSync(useWorkspaceFileOpenTargetStore)
+  const workspaceFileOpenMode = () => {
+    void fileOpenTargetTick()
+    return useWorkspaceFileOpenTargetStore.getState().target
+  }
   const currentPath = createMemo(() => win()?.initialState?.dir ?? '')
 
   const share = createMemo((): WorkspaceShareConfig | null => {
@@ -888,6 +894,11 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       { path: file.path, isDirectory: file.isDirectory, isVirtual: file.isVirtual },
       currentPath(),
     )
+  }
+
+  function openFileInNewWindowFromRow(file: FileItem) {
+    if (file.isDirectory || !props.onOpenFileInNewFloatingWindow) return
+    props.onOpenFileInNewFloatingWindow(props.windowId, file)
   }
 
   function openInSplitViewFromRow(file: FileItem) {
@@ -1907,6 +1918,15 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             moveError={moveItemMutation.error as Error | undefined}
             shareToken={() => share()?.token}
             shareRootPath={() => share()?.sharePath}
+            onPickNewTabTarget={
+              workspaceFileOpenMode() === 'new-tab' && props.onBeginFileOpenTargetPick
+                ? () => props.onBeginFileOpenTargetPick?.()
+                : undefined
+            }
+            workspaceDefaultFileOpen={workspaceFileOpenMode}
+            onOpenFileInNewWindow={
+              props.onOpenFileInNewFloatingWindow ? openFileInNewWindowFromRow : undefined
+            }
             deleteTarget={deleteTarget}
             setDeleteTarget={setDeleteTarget}
             deletePending={deleteMutation.isPending}

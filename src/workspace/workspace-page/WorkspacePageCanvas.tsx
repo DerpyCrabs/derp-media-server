@@ -92,6 +92,8 @@ export type WorkspacePageCanvasProps = {
     videoHeight: number,
   ) => void
   listenOnlyHandoff: (tabId: string, detail: WorkspaceVideoListenOnlyDetail) => void
+  onBeginFileOpenTargetPick: (browserWindowId: string) => void
+  openFileInNewFloatingWindow: (windowId: string, file: FileItem) => void
 }
 
 export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
@@ -237,6 +239,10 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 }
                                 onOpenInSplitView={props.openInSplitViewFromBrowserPane}
                                 onRequestPlay={props.requestPlay}
+                                onBeginFileOpenTargetPick={() =>
+                                  props.onBeginFileOpenTargetPick(tabId)
+                                }
+                                onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
                               />
                             </Show>
                             <Show when={windowDef()?.type === 'viewer'}>
@@ -313,6 +319,10 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               }
                               onOpenInSplitView={props.openInSplitViewFromBrowserPane}
                               onRequestPlay={props.requestPlay}
+                              onBeginFileOpenTargetPick={() =>
+                                props.onBeginFileOpenTargetPick(leftTabId())
+                              }
+                              onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
                             />
                           </Show>
                           <Show when={leftWindowDef()?.type === 'viewer'}>
@@ -384,6 +394,10 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 }
                                 onOpenInSplitView={props.openInSplitViewFromBrowserPane}
                                 onRequestPlay={props.requestPlay}
+                                onBeginFileOpenTargetPick={() =>
+                                  props.onBeginFileOpenTargetPick(visibleTabId())
+                                }
+                                onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
                               />
                             </Show>
                             <Show when={rightWindowDef()?.type === 'viewer'}>
