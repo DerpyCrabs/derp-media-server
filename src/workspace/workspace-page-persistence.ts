@@ -6,6 +6,7 @@ import {
   type PersistedWorkspaceState,
   type WorkspaceSource,
 } from '@/lib/use-workspace'
+import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import { createDefaultBounds, createWindowLayout } from '@/lib/workspace-geometry'
 
 export const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
@@ -49,6 +50,7 @@ export function persistWorkspaceState(storageKey: string, state: PersistedWorksp
     const toStore: PersistedWorkspaceState = {
       ...state,
       pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
+      fileOpenTarget: state.fileOpenTarget ?? getWorkspaceFileOpenTarget(),
     }
     localStorage.setItem(storageKey, serializeWorkspacePersistedState(toStore))
   } catch {}

@@ -226,6 +226,9 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                   prev ? { ...prev, browserTabIconColor: raw || undefined } : prev,
                 )
               }}
+              onWorkspaceFileOpenTargetChange={(value) => {
+                props.setWorkspace((prev) => (prev ? { ...prev, fileOpenTarget: value } : prev))
+              }}
             />
           </div>
         </div>

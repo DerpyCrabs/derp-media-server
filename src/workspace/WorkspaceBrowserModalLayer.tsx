@@ -2,6 +2,7 @@ import type { PasteData } from '@/lib/paste-data'
 import type { ShareLink } from '@/lib/shares'
 import type { FileItem } from '@/lib/types'
 import type { Accessor } from 'solid-js'
+import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import { Show } from 'solid-js'
 import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu'
 import { BreadcrumbContextMenu } from '../file-browser/BreadcrumbContextMenu'
@@ -116,6 +117,9 @@ export type WorkspaceBrowserModalLayerProps = {
   uploadToast: Accessor<UploadToastState>
   setUploadToastHidden: () => void
   onCopyShareLink?: (file: FileItem) => void
+  onPickNewTabTarget?: () => void
+  workspaceDefaultFileOpen?: Accessor<WorkspaceFileOpenTarget>
+  onOpenFileInNewWindow?: (file: FileItem) => void
 }
 
 export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProps) {
@@ -168,6 +172,9 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onShare={props.onContextShare}
         onCopyShareLink={props.onCopyShareLink}
         getPathHasShare={props.getPathHasShare}
+        onPickNewTabTarget={props.onPickNewTabTarget}
+        workspaceDefaultFileOpen={props.workspaceDefaultFileOpen}
+        onOpenFileInNewWindow={props.onOpenFileInNewWindow}
       />
       <Show when={props.onContextShare}>
         <ShareDialog

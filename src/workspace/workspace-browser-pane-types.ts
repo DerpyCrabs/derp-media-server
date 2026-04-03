@@ -25,4 +25,6 @@ export type WorkspaceBrowserPaneProps = {
   ) => void
   onOpenInSplitView?: (windowId: string, file: FileItem) => void
   onRequestPlay?: (source: WorkspaceSource, path: string, dir?: string) => void
+  onBeginFileOpenTargetPick?: () => void
+  onOpenFileInNewFloatingWindow?: (windowId: string, file: FileItem) => void
 }
