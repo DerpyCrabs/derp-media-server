@@ -128,6 +128,8 @@ export function VideoPlayer(props: Props) {
       } else if (validatedPos.x !== pos.x || validatedPos.y !== pos.y) {
         store.setPosition(validatedPos)
       }
+    } else if (!next && typeof window !== 'undefined') {
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
     }
   }
 
@@ -183,9 +185,23 @@ export function VideoPlayer(props: Props) {
     return { 'max-height': '70vh', 'aspect-ratio': '16 / 9' }
   }
 
+  let lastScrolledPlayingPath: string | null = null
+
+  createEffect(() => {
+    const path = playingPath()
+    if (!path || !isVideoFile() || isMinimized()) return
+    if (lastScrolledPlayingPath === path) return
+    lastScrolledPlayingPath = path
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+  })
+
   return (
     <Show when={isVideoFile() && playingPath()}>
-      <div class={containerClass()} style={containerStyle()}>
+      <div
+        class={containerClass()}
+        style={containerStyle()}
+        data-video-player-inline={isMinimized() ? undefined : 'true'}
+      >
         <div
           class={isMinimized() ? 'overflow-hidden rounded-lg border border-border shadow-lg' : ''}
         >

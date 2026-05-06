@@ -74,6 +74,7 @@ import {
   DirectoryListingErrorPanel,
   DirectoryListingLoading,
 } from './file-browser/DirectoryListingFeedback'
+import { FloatingScrollActions } from './file-browser/FloatingScrollActions'
 import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
 import { registerKbSearchHotkeys } from './file-browser/use-kb-search-hotkey'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
@@ -1107,11 +1108,10 @@ export function FileBrowser() {
   )
 
   return (
-    <div class='fixed inset-0 z-0 flex min-h-0 flex-col overflow-hidden bg-background'>
+    <div class='min-h-screen bg-background'>
       <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />
       <div
         class={cn(
-          'flex min-h-0 flex-1 flex-col overflow-hidden',
           isAudioPlayingBar() &&
             'max-[649px]:pb-[calc(2.875rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-12',
         )}
@@ -1128,8 +1128,8 @@ export function FileBrowser() {
           }
           onPaste={(e) => void handlePasteEvent(e)}
         >
-          <div class='container mx-auto flex min-h-0 flex-1 flex-col lg:p-4'>
-            <div class='ring-foreground/10 bg-card text-card-foreground flex min-h-0 flex-1 flex-col gap-0 overflow-hidden rounded-none lg:rounded-xl py-0 text-sm shadow-xs ring-1'>
+          <div class='container mx-auto lg:p-4'>
+            <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none py-0 text-sm shadow-xs ring-1 lg:rounded-xl'>
               <div class='shrink-0 border-b border-border bg-muted/30 p-1.5 lg:p-2'>
                 <div class='flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'>
                   <div
@@ -1204,14 +1204,14 @@ export function FileBrowser() {
               </div>
 
               <div
-                class='relative flex min-h-0 flex-1 flex-col overflow-hidden'
+                class='relative flex flex-col'
                 data-testid='upload-drop-zone'
                 onDragEnter={onExternalUploadDragEnter}
                 onDragLeave={onExternalUploadDragLeave}
                 onDragOver={onExternalUploadDragOver}
                 onDrop={(e) => void onExternalUploadDrop(e)}
               >
-                <div class='min-h-0 flex-1 overflow-auto overscroll-y-contain'>
+                <div>
                   <Show when={filesQuery.isError}>
                     <DirectoryListingErrorPanel
                       onRetry={() => void filesQuery.refetch()}
@@ -1275,8 +1275,10 @@ export function FileBrowser() {
                                         const isFav = () => favoriteSet().has(file.path)
                                         return (
                                           <div
+                                            data-file-path={file.path}
                                             class={cn(
                                               'ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col',
+                                              playingParam() === file.path ? 'bg-primary/10' : '',
                                             )}
                                             onClick={() => handleFileClick(file)}
                                             onPointerEnter={() =>
@@ -1498,6 +1500,7 @@ export function FileBrowser() {
                                             const canDragRow = enableDrag()
                                             return (
                                               <tr
+                                                data-file-path={file.path}
                                                 class={cn(
                                                   'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group',
                                                   playingParam() === file.path
@@ -1834,6 +1837,7 @@ export function FileBrowser() {
             onPasteFileSubmit={handlePasteFileSubmit}
             closePasteDialog={closePasteDialog}
           />
+          <FloatingScrollActions playingPath={playingPath} />
         </div>
       </div>
     </div>

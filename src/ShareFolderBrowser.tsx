@@ -52,6 +52,7 @@ import {
   DirectoryListingErrorPanel,
   DirectoryListingLoading,
 } from './file-browser/DirectoryListingFeedback'
+import { FloatingScrollActions } from './file-browser/FloatingScrollActions'
 import { UploadToastStack } from './file-browser/UploadToastStack'
 import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
@@ -136,6 +137,7 @@ export function ShareFolderBrowser(props: Props) {
   )
 
   const currentSubDir = createMemo(() => urlSearchParams().get('dir') ?? '')
+  const playingPath = createMemo(() => urlSearchParams().get('playing') ?? '')
 
   const shareContext = createMemo(
     (): TextViewerShareContext => ({
@@ -1036,7 +1038,7 @@ export function ShareFolderBrowser(props: Props) {
               </div>
             </div>
             <div
-              class='relative flex min-h-0 flex-1 flex-col overflow-hidden'
+              class='relative flex flex-col'
               onDragEnter={onExternalUploadDragEnter}
               onDragLeave={onExternalUploadDragLeave}
               onDragOver={onExternalUploadDragOver}
@@ -1054,7 +1056,7 @@ export function ShareFolderBrowser(props: Props) {
                 />
               </Show>
               <Show when={!filesQuery.isError}>
-                <div class='min-h-0 flex-1 overflow-auto'>
+                <div>
                   <DirectoryListingLoading
                     show={isFilesLoadingInitial() && showFilesDeferredLoading()}
                   />
@@ -1084,7 +1086,11 @@ export function ShareFolderBrowser(props: Props) {
                             <For each={files()}>
                               {(file) => (
                                 <div
-                                  class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
+                                  data-file-path={file.path}
+                                  class={cn(
+                                    'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
+                                    playingPath() === file.path ? 'bg-primary/10' : '',
+                                  )}
                                   onClick={() => handleFileClick(file)}
                                   onPointerEnter={() =>
                                     prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
@@ -1151,7 +1157,11 @@ export function ShareFolderBrowser(props: Props) {
                                 <For each={files()}>
                                   {(file) => (
                                     <tr
-                                      class='hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors'
+                                      data-file-path={file.path}
+                                      class={cn(
+                                        'hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors',
+                                        playingPath() === file.path ? 'bg-primary/10' : '',
+                                      )}
                                       onClick={() => handleFileClick(file)}
                                       onPointerEnter={() =>
                                         prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
@@ -1221,6 +1231,7 @@ export function ShareFolderBrowser(props: Props) {
         state={uploadToast}
         onDismissError={() => setUploadToast({ kind: 'hidden' })}
       />
+      <FloatingScrollActions playingPath={playingPath} />
     </>
   )
 }
