@@ -14,6 +14,10 @@ export function getAuthSessionMaxAgeSeconds(): number {
   return DEFAULT_SESSION_MAX_AGE_SECONDS
 }
 
+function shouldUseSecureAuthCookie(): boolean {
+  return config.auth?.secureCookies ?? process.env.NODE_ENV === 'production'
+}
+
 function signSession(secret: string, payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url')
 }
@@ -84,7 +88,7 @@ export function createAuthSessionValue(): {
     value,
     options: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: shouldUseSecureAuthCookie(),
       sameSite: 'lax',
       maxAge,
       path: '/',

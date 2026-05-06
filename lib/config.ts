@@ -9,6 +9,8 @@ interface AuthConfig {
   adminAccessDomains?: string[]
   /** Session cookie max age in seconds (optional; default 7 days). */
   sessionMaxAgeSeconds?: number
+  /** Whether auth cookies require HTTPS. Defaults to true in production. */
+  secureCookies?: boolean
 }
 
 export interface AiConfig {
@@ -103,6 +105,12 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
     }
   }
 
+  if (process.env.AUTH_SECURE_COOKIES !== undefined) {
+    if (!cfg.auth) cfg.auth = { enabled: false }
+    cfg.auth.secureCookies =
+      process.env.AUTH_SECURE_COOKIES === 'true' || process.env.AUTH_SECURE_COOKIES === '1'
+  }
+
   if (process.env.AI_PROVIDER) {
     const p = process.env.AI_PROVIDER as AiConfig['provider']
     if (p === 'openrouter' || p === 'lmstudio' || p === 'openai-compatible') {
@@ -194,6 +202,8 @@ function loadConfigOnce(): AppConfig {
       typeof sessionRaw === 'number' && Number.isFinite(sessionRaw) && sessionRaw > 0
         ? Math.floor(sessionRaw)
         : undefined
+    const secureCookies =
+      typeof parsed.auth?.secureCookies === 'boolean' ? parsed.auth.secureCookies : undefined
     const auth =
       parsed.auth && typeof parsed.auth === 'object'
         ? {
@@ -201,6 +211,7 @@ function loadConfigOnce(): AppConfig {
             password: typeof parsed.auth.password === 'string' ? parsed.auth.password : undefined,
             adminAccessDomains,
             sessionMaxAgeSeconds,
+            secureCookies,
           }
         : { enabled: false }
 

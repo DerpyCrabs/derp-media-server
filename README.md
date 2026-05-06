@@ -52,6 +52,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                    |
 | `auth.password`           | `AUTH_PASSWORD`             | Login password                                                  |
 | `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                      |
+| `auth.secureCookies`      | `AUTH_SECURE_COOKIES`       | Require HTTPS for login cookies; defaults to production only    |
 
 `dataPath` (shares DB, etc.) is config-file only; defaults next to the config file.
 
