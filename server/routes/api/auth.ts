@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { config } from '@/lib/config'
+import { config, getMediaRoots } from '@/lib/config'
 import { getEditableFolders } from '@/lib/file-system'
 import {
   createAuthSessionValue,
@@ -55,7 +55,11 @@ export function registerAuthApiRoutes(app: FastifyInstance) {
     }
     const shareLinkDomain = config.shareLinkDomain ?? undefined
     const editableFolders = getEditableFolders()
-    return reply.send({ enabled, shareLinkDomain, editableFolders })
+    const mediaRoots = getMediaRoots().map((root) => ({
+      name: root.name,
+      editableFolders: root.editableFolders,
+    }))
+    return reply.send({ enabled, shareLinkDomain, editableFolders, mediaRoots })
   })
 
   app.post('/api/auth/login', async (request, reply) => {

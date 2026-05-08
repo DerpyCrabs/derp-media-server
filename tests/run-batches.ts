@@ -43,6 +43,7 @@ const BATCHES = [
       'login',
       'share-workspace',
       'share-browser-parity',
+      'multiple-media-dirs',
     ],
   },
   {

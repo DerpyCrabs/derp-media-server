@@ -191,9 +191,13 @@ function gridHeroIconScaleWrap(inner: JSX.Element): JSX.Element {
   return <div class='scale-[2.5] [&_svg]:h-6 [&_svg]:w-6'>{inner}</div>
 }
 
-function GridVideoThumbnail(props: { file: FileItem; ctx: FileIconContext }): JSX.Element {
+function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JSX.Element {
   const [imgFailed, setImgFailed] = createSignal(false)
   const src = () => buildThumbnailUrl(props.file.path, props.ctx.mediaShare ?? null)
+  const testId = () =>
+    props.file.type === MediaType.IMAGE
+      ? 'file-browser-image-thumbnail'
+      : 'file-browser-video-thumbnail'
 
   return (
     <Show
@@ -211,7 +215,7 @@ function GridVideoThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
           loading='lazy'
           decoding='async'
           class='h-full w-full object-cover'
-          data-testid='file-browser-video-thumbnail'
+          data-testid={testId()}
           onError={() => setImgFailed(true)}
         />
       </div>
@@ -229,8 +233,12 @@ export function gridHeroIcon(
     return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
   }
 
-  if (file.type === MediaType.VIDEO && !file.isDirectory && !file.isVirtual) {
-    return <GridVideoThumbnail file={file} ctx={ctx} />
+  if (
+    (file.type === MediaType.VIDEO || file.type === MediaType.IMAGE) &&
+    !file.isDirectory &&
+    !file.isVirtual
+  ) {
+    return <GridMediaThumbnail file={file} ctx={ctx} />
   }
 
   return gridHeroIconScaleWrap(fileItemIcon(file, ctx))

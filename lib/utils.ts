@@ -5,16 +5,38 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export interface ClientMediaRoot {
+  name: string
+  editableFolders: string[]
+}
+
 /**
  * Checks if a path is within an editable folder (client-side version)
  * @param relativePath Path to check
  * @param editableFolders Array of editable folder paths
  * @returns true if the path is within an editable folder
  */
-export function isPathEditable(relativePath: string, editableFolders: string[]): boolean {
+export function isPathEditable(
+  relativePath: string,
+  editableFolders: string[],
+  mediaRoots?: ClientMediaRoot[],
+): boolean {
   if (editableFolders.length === 0) return false
 
   const normalizedPath = relativePath.replace(/\\/g, '/')
+  if (mediaRoots && mediaRoots.length > 1) {
+    const [rootName = '', ...rest] = normalizedPath.split('/').filter(Boolean)
+    const root = mediaRoots.find((entry) => entry.name.toLowerCase() === rootName.toLowerCase())
+    if (!root) return false
+    const rootRelativePath = rest.join('/')
+    return root.editableFolders.some((folder) => {
+      const normalizedFolder = folder.replace(/\\/g, '/')
+      return (
+        rootRelativePath === normalizedFolder || rootRelativePath.startsWith(normalizedFolder + '/')
+      )
+    })
+  }
+
   return editableFolders.some((folder) => {
     const normalizedFolder = folder.replace(/\\/g, '/')
     return normalizedPath === normalizedFolder || normalizedPath.startsWith(normalizedFolder + '/')

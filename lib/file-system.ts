@@ -3,7 +3,13 @@ import path from 'path'
 import { FileItem, MediaType } from './types'
 import { getMediaType } from './media-utils'
 import { VIRTUAL_FOLDERS } from './constants'
-import { config } from './config'
+import {
+  config,
+  getMediaRootByName,
+  getMediaRoots,
+  hasMultipleMediaRoots,
+  type MediaRoot,
+} from './config'
 
 // Folders to exclude from listing
 const EXCLUDED_FOLDERS = [
@@ -41,27 +47,118 @@ export function shouldExcludeFolder(folderName: string): boolean {
 }
 
 /**
- * Validates and resolves a path to ensure it's within MEDIA_DIR
+ * Validates and resolves a path to ensure it's within a configured media root
  * Prevents path traversal attacks
  */
-export function validatePath(relativePath: string): string {
-  const mediaDir = config.mediaDir
-  // Convert URL-style forward slashes to platform-specific separators
-  const platformPath = relativePath.replace(/\//g, path.sep)
+export interface ResolvedMediaPath {
+  root: MediaRoot
+  relativePath: string
+  logicalPath: string
+  fullPath: string
+}
 
-  // Normalize and resolve the path
+function normalizeLogicalPath(relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, '/')
+  const clean = path.posix.normalize(normalized)
+  return clean === '.' ? '' : clean.replace(/^\/+/, '')
+}
+
+function isInsideRoot(resolvedPath: string, resolvedRoot: string): boolean {
+  const rel = path.relative(resolvedRoot, resolvedPath)
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+export function toLogicalMediaPath(root: MediaRoot, rootRelativePath: string): string {
+  const normalized = rootRelativePath.replace(/\\/g, '/')
+  if (!hasMultipleMediaRoots()) return normalized
+  return normalized ? `${root.name}/${normalized}` : root.name
+}
+
+export function resolveMediaPath(relativePath: string): ResolvedMediaPath {
+  const logicalPath = normalizeLogicalPath(relativePath)
+  let root: MediaRoot
+  let rootRelativePath: string
+
+  if (hasMultipleMediaRoots()) {
+    const [rootName = '', ...rest] = logicalPath.split('/').filter(Boolean)
+    if (!rootName) throw new Error('Invalid path: Media root is required')
+    const found = getMediaRootByName(rootName)
+    if (!found) throw new Error('Invalid path: Unknown media root')
+    root = found
+    rootRelativePath = rest.join('/')
+  } else {
+    root = getMediaRoots()[0]
+    rootRelativePath = logicalPath
+  }
+
+  const platformPath = rootRelativePath.replace(/\//g, path.sep)
   const normalizedPath = path.normalize(platformPath).replace(/^(\.\.(\/|\\|$))+/, '')
-  const fullPath = path.join(mediaDir, normalizedPath)
-
-  // Ensure the resolved path is within mediaDir
+  const fullPath = path.join(root.path, normalizedPath)
   const resolvedPath = path.resolve(fullPath)
-  const resolvedMediaDir = path.resolve(mediaDir)
+  const resolvedRoot = path.resolve(root.path)
 
-  if (!resolvedPath.startsWith(resolvedMediaDir)) {
+  if (!isInsideRoot(resolvedPath, resolvedRoot)) {
     throw new Error('Invalid path: Path traversal detected')
   }
 
-  return resolvedPath
+  return {
+    root,
+    relativePath: rootRelativePath,
+    logicalPath: toLogicalMediaPath(root, rootRelativePath),
+    fullPath: resolvedPath,
+  }
+}
+
+export function validatePath(relativePath: string): string {
+  return resolveMediaPath(relativePath).fullPath
+}
+
+export function getLibraryKey(): string {
+  return config.libraryKey
+}
+
+function createVirtualFolderItems(): FileItem[] {
+  return [
+    {
+      name: 'Favorites',
+      path: VIRTUAL_FOLDERS.FAVORITES,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: true,
+    },
+    {
+      name: 'Most Played',
+      path: VIRTUAL_FOLDERS.MOST_PLAYED,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: true,
+    },
+    {
+      name: 'Shares',
+      path: VIRTUAL_FOLDERS.SHARES,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: true,
+    },
+  ]
+}
+
+function createRootFolderItems(): FileItem[] {
+  if (!hasMultipleMediaRoots()) return []
+  return getMediaRoots().map((root) => ({
+    name: root.name,
+    path: root.name,
+    type: MediaType.FOLDER,
+    size: 0,
+    extension: '',
+    isDirectory: true,
+  }))
 }
 
 /**
@@ -71,8 +168,24 @@ export function validatePath(relativePath: string): string {
  */
 export async function listDirectory(relativePath: string = ''): Promise<FileItem[]> {
   try {
-    const mediaDir = config.mediaDir
-    const fullPath = validatePath(relativePath)
+    const normalizedRelativePath = normalizeLogicalPath(relativePath)
+    const fileItems: FileItem[] =
+      normalizedRelativePath === ''
+        ? [...createVirtualFolderItems(), ...createRootFolderItems()]
+        : []
+
+    if (hasMultipleMediaRoots() && normalizedRelativePath === '') {
+      fileItems.sort((a, b) => {
+        if (a.isVirtual && !b.isVirtual) return -1
+        if (!a.isVirtual && b.isVirtual) return 1
+        return a.name.localeCompare(b.name, undefined, { numeric: true })
+      })
+      return fileItems
+    }
+
+    const resolved = resolveMediaPath(relativePath)
+    const mediaDir = resolved.root.path
+    const fullPath = resolved.fullPath
 
     // Check if path exists and is a directory
     const stats = await fs.stat(fullPath)
@@ -81,38 +194,6 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
     }
 
     const entries = await fs.readdir(fullPath, { withFileTypes: true })
-    const fileItems: FileItem[] = []
-
-    // Add virtual folders at root level
-    if (relativePath === '' || relativePath === '.') {
-      fileItems.push({
-        name: 'Favorites',
-        path: VIRTUAL_FOLDERS.FAVORITES,
-        type: MediaType.FOLDER,
-        size: 0,
-        extension: '',
-        isDirectory: true,
-        isVirtual: true,
-      })
-      fileItems.push({
-        name: 'Most Played',
-        path: VIRTUAL_FOLDERS.MOST_PLAYED,
-        type: MediaType.FOLDER,
-        size: 0,
-        extension: '',
-        isDirectory: true,
-        isVirtual: true,
-      })
-      fileItems.push({
-        name: 'Shares',
-        path: VIRTUAL_FOLDERS.SHARES,
-        type: MediaType.FOLDER,
-        size: 0,
-        extension: '',
-        isDirectory: true,
-        isVirtual: true,
-      })
-    }
 
     const filteredEntries = entries.filter((entry) => {
       if (entry.isDirectory() && shouldExcludeFolder(entry.name)) return false
@@ -125,11 +206,12 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
         try {
           const entryPath = path.join(fullPath, entry.name)
           const relPath = path.relative(mediaDir, entryPath).replace(/\\/g, '/')
+          const logicalPath = toLogicalMediaPath(resolved.root, relPath)
 
           if (entry.isDirectory()) {
             return {
               name: entry.name,
-              path: relPath,
+              path: logicalPath,
               type: MediaType.FOLDER,
               size: 0,
               extension: '',
@@ -141,7 +223,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
           const extension = path.extname(entry.name).slice(1).toLowerCase()
           return {
             name: entry.name,
-            path: relPath,
+            path: logicalPath,
             type: getMediaType(extension),
             size: stats.size,
             extension,
@@ -200,10 +282,17 @@ export function getFilePath(relativePath: string): string {
  * Checks if a path is within an editable folder
  */
 export function isPathEditable(relativePath: string): boolean {
-  const editableFolders = config.editableFolders
+  let resolved: ResolvedMediaPath
+  try {
+    resolved = resolveMediaPath(relativePath)
+  } catch {
+    return false
+  }
+
+  const editableFolders = resolved.root.editableFolders
   if (editableFolders.length === 0) return false
 
-  const normalizedPath = relativePath.replace(/\\/g, '/')
+  const normalizedPath = resolved.relativePath.replace(/\\/g, '/')
   return editableFolders.some((folder) => {
     const normalizedFolder = folder.replace(/\\/g, '/')
     return normalizedPath === normalizedFolder || normalizedPath.startsWith(normalizedFolder + '/')
@@ -214,7 +303,10 @@ export function isPathEditable(relativePath: string): boolean {
  * Gets the list of editable folders
  */
 export function getEditableFolders(): string[] {
-  return config.editableFolders
+  if (!hasMultipleMediaRoots()) return config.mediaRoots[0]?.editableFolders ?? []
+  return config.mediaRoots.flatMap((root) =>
+    root.editableFolders.map((folder) => `${root.name}/${folder.replace(/\\/g, '/')}`),
+  )
 }
 
 /**

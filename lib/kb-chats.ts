@@ -46,12 +46,12 @@ async function writeChatsFile(all: ChatsFile): Promise<void> {
 
 async function readChatsData(): Promise<ChatsData> {
   const all = await readChatsFile()
-  return all[config.mediaDir] || { chats: [] }
+  return all[config.libraryKey] || { chats: [] }
 }
 
 async function writeChatsData(data: ChatsData): Promise<void> {
   const all = await readChatsFile()
-  all[config.mediaDir] = data
+  all[config.libraryKey] = data
   await writeChatsFile(all)
 }
 

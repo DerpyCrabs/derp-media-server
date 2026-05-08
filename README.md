@@ -44,17 +44,35 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environment variables (and `.env`).
 
-| Config                    | Env                         | Purpose                                                         |
-| ------------------------- | --------------------------- | --------------------------------------------------------------- |
-| `mediaDir`                | `MEDIA_DIR`                 | Media root                                                      |
-| `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under `mediaDir` where writes are allowed |
-| `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                     |
-| `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                    |
-| `auth.password`           | `AUTH_PASSWORD`             | Login password                                                  |
-| `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                      |
-| `auth.secureCookies`      | `AUTH_SECURE_COOKIES`       | Require HTTPS for login cookies; defaults to production only    |
+| Config                    | Env                         | Purpose                                                                     |
+| ------------------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `mediaDir`                | `MEDIA_DIR`                 | Media root for legacy/single-root configs                                   |
+| `mediaDirs`               |                             | Multiple named media roots, each with optional editable folders             |
+| `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under single-root `mediaDir` where writes are allowed |
+| `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                                 |
+| `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                                |
+| `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
+| `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                                  |
+| `auth.secureCookies`      | `AUTH_SECURE_COOKIES`       | Require HTTPS for login cookies; defaults to production only                |
 
 `dataPath` (shares DB, etc.) is config-file only; defaults next to the config file.
+
+Use `mediaDirs` when serving multiple media roots:
+
+```jsonc
+{
+  "mediaDirs": [
+    { "path": "D:/Media/Movies", "name": "Movies", "editableFolders": ["Incoming"] },
+    { "path": "E:/Shows", "editableFolders": ["Downloads", "Notes"] },
+  ],
+}
+```
+
+When more than one media root is configured, the browser root shows each media directory
+as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
+`name` is derived from the directory basename when possible, but must be set explicitly
+if the basename is empty, duplicates another media root, or conflicts with a virtual
+folder such as `Favorites`, `Most Played`, or `Shares`.
 
 ## Production
 

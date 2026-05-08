@@ -29,11 +29,14 @@ import {
   validatePath,
   renameFileOrDirectory,
   shouldExcludeFolder,
+  resolveMediaPath,
+  toLogicalMediaPath,
 } from '@/lib/file-system'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
 import { getKnowledgeBases, getKnowledgeBaseRootForPath } from '@/lib/knowledge-base'
 import { getMediaType } from '@/lib/media-utils'
 import { config, getDataFilePath } from '@/lib/config'
+import type { MediaRoot } from '@/lib/config'
 import { Mutex } from '@/lib/mutex'
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -73,18 +76,24 @@ const SNIPPET_MAX = 220
 const KB_RECENT_LIMIT = 10
 const SEARCH_RESULT_LIMIT = 50
 
-async function walkTextFiles(dirPath: string, mediaDir: string, results: string[]): Promise<void> {
+async function walkTextFiles(
+  dirPath: string,
+  root: MediaRoot,
+  results: { path: string; fullPath: string }[],
+): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
   await Promise.all(
     entries.map(async (entry) => {
       const fullPath = path.join(dirPath, entry.name)
-      const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
+      const relPath = path.relative(root.path, fullPath).replace(/\\/g, '/')
       if (entry.isDirectory()) {
         if (shouldExcludeFolder(entry.name)) return
-        await walkTextFiles(fullPath, mediaDir, results)
+        await walkTextFiles(fullPath, root, results)
       } else {
         const ext = path.extname(entry.name).toLowerCase()
-        if (TEXT_EXTENSIONS.includes(ext)) results.push(relPath)
+        if (TEXT_EXTENSIONS.includes(ext)) {
+          results.push({ path: toLogicalMediaPath(root, relPath), fullPath })
+        }
       }
     }),
   )
@@ -92,22 +101,22 @@ async function walkTextFiles(dirPath: string, mediaDir: string, results: string[
 
 async function walkMarkdownFiles(
   dirPath: string,
-  mediaDir: string,
+  root: MediaRoot,
   results: { path: string; mtime: number }[],
 ): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
   await Promise.all(
     entries.map(async (entry) => {
       const fullPath = path.join(dirPath, entry.name)
-      const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
+      const relPath = path.relative(root.path, fullPath).replace(/\\/g, '/')
       if (entry.isDirectory()) {
         if (shouldExcludeFolder(entry.name)) return
-        await walkMarkdownFiles(fullPath, mediaDir, results)
+        await walkMarkdownFiles(fullPath, root, results)
       } else {
         const ext = path.extname(entry.name).toLowerCase()
         if (ext === '.md') {
           const stat = await fs.stat(fullPath)
-          results.push({ path: relPath, mtime: stat.mtimeMs })
+          results.push({ path: toLogicalMediaPath(root, relPath), mtime: stat.mtimeMs })
         }
       }
     }),
@@ -170,7 +179,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       try {
         const settingsData = await fs.readFile(getDataFilePath('settings.json'), 'utf-8')
         const allSettings = JSON.parse(settingsData)
-        const settings = allSettings[config.mediaDir]
+        const settings = allSettings[config.libraryKey]
         adminViewMode = settings?.viewModes?.[share.path] || 'list'
       } catch {}
     }
@@ -325,16 +334,16 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
         allStats = JSON.parse(data)
       } catch {}
 
-      const mediaDir = config.mediaDir
-      if (!allStats[mediaDir]) {
-        allStats[mediaDir] = { views: {}, shareViews: {} }
+      const libraryKey = config.libraryKey
+      if (!allStats[libraryKey]) {
+        allStats[libraryKey] = { views: {}, shareViews: {} }
       }
-      if (!allStats[mediaDir].shareViews) {
-        allStats[mediaDir].shareViews = {}
+      if (!allStats[libraryKey].shareViews) {
+        allStats[libraryKey].shareViews = {}
       }
 
-      allStats[mediaDir].shareViews[resolvedPath] =
-        (allStats[mediaDir].shareViews[resolvedPath] || 0) + 1
+      allStats[libraryKey].shareViews[resolvedPath] =
+        (allStats[libraryKey].shareViews[resolvedPath] || 0) + 1
       await fs.writeFile(STATS_FILE, JSON.stringify(allStats, null, 2), 'utf-8')
     } finally {
       release()
@@ -532,25 +541,23 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     if (!trimmedQ) return reply.send({ results: [] })
 
     const searchRoot = resolveSharePath(share, dir)
-    const fullRoot = validatePath(searchRoot)
-    const mediaDir = config.mediaDir
+    const resolvedRoot = resolveMediaPath(searchRoot)
 
-    const textFiles: string[] = []
-    await walkTextFiles(fullRoot, mediaDir, textFiles)
+    const textFiles: { path: string; fullPath: string }[] = []
+    await walkTextFiles(resolvedRoot.fullPath, resolvedRoot.root, textFiles)
 
     const results: { path: string; name: string; snippet: string }[] = []
     const lowerQuery = trimmedQ.toLowerCase()
 
     /* eslint-disable no-await-in-loop -- stop after SEARCH_RESULT_LIMIT; sequential reads */
-    for (const relPath of textFiles) {
+    for (const file of textFiles) {
       if (results.length >= SEARCH_RESULT_LIMIT) break
-      const fullPath = path.join(mediaDir, relPath)
-      const content = await fs.readFile(fullPath, 'utf-8')
+      const content = await fs.readFile(file.fullPath, 'utf-8')
       if (!content.toLowerCase().includes(lowerQuery)) continue
       const snippet = extractSnippet(content, trimmedQ)
       results.push({
-        path: relPath.replace(/\\/g, '/'),
-        name: path.basename(relPath),
+        path: file.path.replace(/\\/g, '/'),
+        name: path.basename(file.path),
         snippet,
       })
     }
@@ -576,11 +583,10 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     }
 
     const scopePath = resolveSharePath(share, dir)
-    const fullRoot = validatePath(scopePath)
-    const mediaDir = config.mediaDir
+    const resolvedRoot = resolveMediaPath(scopePath)
 
     const files: { path: string; mtime: number }[] = []
-    await walkMarkdownFiles(fullRoot, mediaDir, files)
+    await walkMarkdownFiles(resolvedRoot.fullPath, resolvedRoot.root, files)
 
     const sorted = files
       .sort((a, b) => b.mtime - a.mtime)

@@ -189,7 +189,7 @@ test.describe('Breadcrumbs', () => {
       .click()
     await expect(page.getByTestId('breadcrumb-path-menu')).toBeVisible()
 
-    await page.getByTestId('file-browser').click({ position: { x: 80, y: 420 } })
+    await page.mouse.click(80, 420)
     await expect(page.getByTestId('breadcrumb-path-menu')).toHaveCount(0)
   })
 

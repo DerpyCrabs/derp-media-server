@@ -7,7 +7,7 @@ export async function getKnowledgeBases(): Promise<string[]> {
   try {
     const raw = await fs.readFile(SETTINGS_FILE, 'utf-8')
     const parsed: Record<string, { knowledgeBases?: string[] }> = JSON.parse(raw)
-    const settings = parsed[config.mediaDir] || {}
+    const settings = parsed[config.libraryKey] || {}
     return settings.knowledgeBases || []
   } catch {
     return []

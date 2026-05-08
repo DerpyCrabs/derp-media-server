@@ -64,7 +64,7 @@ function normalizeKbChatSystemPrompts(v: unknown): Record<string, string> | unde
 
 export async function readSettings(): Promise<Settings> {
   const allSettings = await readAllSettings()
-  const raw = allSettings[config.mediaDir] || { ...DEFAULT_SETTINGS }
+  const raw = allSettings[config.libraryKey] || { ...DEFAULT_SETTINGS }
   return {
     ...raw,
     kbChatSystemPrompts: normalizeKbChatSystemPrompts(raw.kbChatSystemPrompts) ?? {},
@@ -81,7 +81,7 @@ async function writeSettings(settings: Settings): Promise<void> {
   const release = await settingsMutex.acquire()
   try {
     const allSettings = await readAllSettings()
-    allSettings[config.mediaDir] = settings
+    allSettings[config.libraryKey] = settings
     await fs.writeFile(SETTINGS_FILE, JSON.stringify(allSettings, null, 2), 'utf-8')
   } finally {
     release()

@@ -113,8 +113,9 @@ export function FileBrowser() {
   }))
 
   const editableFolders = createMemo(() => authQuery.data?.editableFolders ?? [])
+  const mediaRoots = createMemo(() => authQuery.data?.mediaRoots ?? [])
   const isEditable = createMemo(
-    () => !isVirtualFolder() && isPathEditable(currentPath(), editableFolders()),
+    () => !isVirtualFolder() && isPathEditable(currentPath(), editableFolders(), mediaRoots()),
   )
 
   const sharesQuery = useQuery(() => ({

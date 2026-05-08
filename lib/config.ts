@@ -29,9 +29,24 @@ export interface McpConfig {
   servers: Record<string, McpServerConfig>
 }
 
+export interface MediaRoot {
+  name: string
+  path: string
+  editableFolders: string[]
+}
+
+interface MediaDirConfig {
+  path: string
+  name?: string
+  editableFolders?: string[]
+}
+
 interface AppConfig {
   mediaDir: string
   editableFolders: string[]
+  mediaDirs?: MediaDirConfig[]
+  mediaRoots: MediaRoot[]
+  libraryKey: string
   shareLinkDomain?: string
   auth?: AuthConfig
   ai?: AiConfig
@@ -40,6 +55,7 @@ interface AppConfig {
 }
 
 const DEFAULT_CONFIG_PATH = path.join(process.cwd(), 'config.jsonc')
+const RESERVED_MEDIA_ROOT_NAMES = new Set(['favorites', 'most played', 'shares'])
 
 function getConfigPath(): string {
   const envPath = process.env.CONFIG_PATH
@@ -67,6 +83,7 @@ function getConfigPath(): string {
 function applyEnvOverrides(cfg: AppConfig): AppConfig {
   if (process.env.MEDIA_DIR) {
     cfg.mediaDir = process.env.MEDIA_DIR
+    cfg.mediaDirs = undefined
   }
 
   if (process.env.EDITABLE_FOLDERS) {
@@ -135,7 +152,83 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
     cfg.ai.systemPrompt = process.env.AI_SYSTEM_PROMPT
   }
 
-  return cfg
+  return finalizeMediaConfig(cfg)
+}
+
+function normalizeEditableFolders(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.map((f) => String(f).trim()).filter(Boolean) : []
+}
+
+function deriveMediaRootName(mediaPath: string): string {
+  return path.basename(path.resolve(mediaPath)).trim()
+}
+
+function normalizeMediaRootName(mediaPath: string, explicitName: unknown): string {
+  const name =
+    typeof explicitName === 'string' && explicitName.trim()
+      ? explicitName.trim()
+      : deriveMediaRootName(mediaPath)
+
+  if (!name) {
+    throw new Error(`mediaDirs entry for "${mediaPath}" requires a name`)
+  }
+  if (name.includes('/') || name.includes('\\')) {
+    throw new Error(`mediaDirs name "${name}" must not contain path separators`)
+  }
+  if (RESERVED_MEDIA_ROOT_NAMES.has(name.toLowerCase())) {
+    throw new Error(`mediaDirs name "${name}" conflicts with a virtual folder`)
+  }
+
+  return name
+}
+
+export function normalizeMediaRoots(
+  mediaDir: string,
+  editableFolders: string[],
+  mediaDirs?: MediaDirConfig[],
+): MediaRoot[] {
+  const roots =
+    mediaDirs && mediaDirs.length > 0
+      ? mediaDirs.map((entry) => ({
+          name: normalizeMediaRootName(entry.path, entry.name),
+          path: entry.path,
+          editableFolders: normalizeEditableFolders(entry.editableFolders),
+        }))
+      : [
+          {
+            name: deriveMediaRootName(mediaDir) || 'Media',
+            path: mediaDir,
+            editableFolders,
+          },
+        ]
+
+  const seenNames = new Set<string>()
+  for (const root of roots) {
+    const key = root.name.toLowerCase()
+    if (seenNames.has(key)) {
+      throw new Error(`Duplicate mediaDirs name "${root.name}". Add explicit unique names.`)
+    }
+    seenNames.add(key)
+  }
+
+  return roots
+}
+
+function getLibraryKey(mediaDir: string, roots: MediaRoot[]): string {
+  if (roots.length <= 1) return mediaDir
+  return roots.map((root) => `${root.name}:${path.resolve(root.path)}`).join('|')
+}
+
+function finalizeMediaConfig(cfg: AppConfig): AppConfig {
+  const mediaRoots = normalizeMediaRoots(cfg.mediaDir, cfg.editableFolders, cfg.mediaDirs)
+  const primaryRoot = mediaRoots[0]
+  return {
+    ...cfg,
+    mediaDir: primaryRoot.path,
+    editableFolders: mediaRoots.length === 1 ? primaryRoot.editableFolders : cfg.editableFolders,
+    mediaRoots,
+    libraryKey: getLibraryKey(primaryRoot.path, mediaRoots),
+  }
 }
 
 export function parseMcpConfig(parsed: { mcp?: unknown }): McpConfig | undefined {
@@ -184,9 +277,25 @@ function loadConfigOnce(): AppConfig {
     ) as Partial<AppConfig>
 
     const mediaDir = parsed.mediaDir ?? process.cwd()
-    const editableFolders = Array.isArray(parsed.editableFolders)
-      ? parsed.editableFolders.map((f) => String(f).trim()).filter(Boolean)
-      : []
+    const editableFolders = normalizeEditableFolders(parsed.editableFolders)
+    const mediaDirs = Array.isArray(parsed.mediaDirs)
+      ? parsed.mediaDirs.map((entry) => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            throw new Error('Each mediaDirs entry must be an object with a path')
+          }
+          const rawPath = (entry as { path?: unknown }).path
+          if (typeof rawPath !== 'string' || !rawPath.trim()) {
+            throw new Error('Each mediaDirs entry requires a path')
+          }
+          const rawName = (entry as { name?: unknown }).name
+          const rawEditableFolders = (entry as { editableFolders?: unknown }).editableFolders
+          return {
+            path: rawPath.trim(),
+            ...(typeof rawName === 'string' && rawName.trim() ? { name: rawName.trim() } : {}),
+            editableFolders: normalizeEditableFolders(rawEditableFolders),
+          }
+        })
+      : undefined
     const rawShare = typeof parsed.shareLinkDomain === 'string' && parsed.shareLinkDomain.trim()
     const shareLinkDomain = rawShare
       ? (() => {
@@ -250,6 +359,9 @@ function loadConfigOnce(): AppConfig {
     return applyEnvOverrides({
       mediaDir,
       editableFolders,
+      mediaDirs,
+      mediaRoots: [],
+      libraryKey: mediaDir,
       shareLinkDomain,
       auth,
       ai,
@@ -262,6 +374,9 @@ function loadConfigOnce(): AppConfig {
       return applyEnvOverrides({
         mediaDir: process.cwd(),
         editableFolders: [],
+        mediaDirs: undefined,
+        mediaRoots: [],
+        libraryKey: process.cwd(),
         shareLinkDomain: undefined,
         auth: { enabled: false, password: undefined },
         mcp: undefined,
@@ -274,6 +389,18 @@ function loadConfigOnce(): AppConfig {
 
 /** Config loaded once when this module is first imported. */
 export const config = loadConfigOnce()
+
+export function getMediaRoots(): MediaRoot[] {
+  return config.mediaRoots
+}
+
+export function hasMultipleMediaRoots(): boolean {
+  return config.mediaRoots.length > 1
+}
+
+export function getMediaRootByName(name: string): MediaRoot | undefined {
+  return config.mediaRoots.find((root) => root.name.toLowerCase() === name.toLowerCase())
+}
 
 export function getMcpConfig(): McpConfig | undefined {
   return config.mcp

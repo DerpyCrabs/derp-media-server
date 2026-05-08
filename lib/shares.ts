@@ -9,6 +9,7 @@ import {
   scryptSync,
 } from 'crypto'
 import { config, getDataFilePath } from '@/lib/config'
+import { resolveMediaPath } from '@/lib/file-system'
 import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
@@ -147,12 +148,12 @@ async function writeSharesFile(allShares: SharesFile): Promise<void> {
 
 async function readSharesRaw(): Promise<SharesData> {
   const all = await readSharesFile()
-  return all[config.mediaDir] || { shares: [] }
+  return all[config.libraryKey] || { shares: [] }
 }
 
 async function writeSharesData(data: SharesData): Promise<void> {
   const all = await readSharesFile()
-  all[config.mediaDir] = data
+  all[config.libraryKey] = data
   await writeSharesFile(all)
 }
 
@@ -301,7 +302,7 @@ export async function getSharesAsFileItems(): Promise<FileItem[]> {
     shares.map(async (share, index) => {
       const normalized = share.path.replace(/\\/g, '/')
       try {
-        const fullPath = path.join(config.mediaDir, share.path)
+        const fullPath = resolveMediaPath(share.path).fullPath
         const stat = await fs.stat(fullPath)
         const fileName = path.basename(share.path)
         const extension = path.extname(fileName).slice(1).toLowerCase()

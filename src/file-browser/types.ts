@@ -2,6 +2,7 @@ export type AuthConfig = {
   enabled: boolean
   shareLinkDomain?: string
   editableFolders: string[]
+  mediaRoots?: { name: string; editableFolders: string[] }[]
 }
 
 export type UploadToastState =

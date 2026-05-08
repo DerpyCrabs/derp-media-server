@@ -10,7 +10,7 @@ export enum MediaType {
 
 export interface FileItem {
   name: string
-  path: string // Relative to MEDIA_DIR
+  path: string // Logical media path; root-prefixed when multiple media roots are configured
   type: MediaType
   size: number
   extension: string

@@ -2,10 +2,12 @@ import { QueryClient, dehydrate } from '@tanstack/solid-query'
 import {
   listDirectory,
   getEditableFolders,
-  validatePath,
+  resolveMediaPath,
   shouldExcludeFolder,
+  toLogicalMediaPath,
 } from '@/lib/file-system'
-import { config, getDataFilePath } from '@/lib/config'
+import { config, getDataFilePath, getMediaRoots } from '@/lib/config'
+import type { MediaRoot } from '@/lib/config'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
@@ -33,7 +35,7 @@ async function readSettings() {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
     const allSettings = JSON.parse(data)
     return (
-      allSettings[config.mediaDir] || {
+      allSettings[config.libraryKey] || {
         viewModes: {},
         favorites: [],
         knowledgeBases: [],
@@ -58,7 +60,7 @@ async function readStats() {
   try {
     const data = await fs.readFile(STATS_FILE, 'utf-8')
     const allStats = JSON.parse(data)
-    const stats = allStats[config.mediaDir] || { views: {}, shareViews: {} }
+    const stats = allStats[config.libraryKey] || { views: {}, shareViews: {} }
     return {
       views: stats.views || {},
       shareViews: stats.shareViews || {},
@@ -72,7 +74,7 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
   try {
     const data = await fs.readFile(STATS_FILE, 'utf-8')
     const allStats = JSON.parse(data)
-    const stats = allStats[config.mediaDir] || { views: {} }
+    const stats = allStats[config.libraryKey] || { views: {} }
     const views = stats.views || {}
     const sortedFiles = Object.entries(views)
       .sort(([, a], [, b]) => (b as number) - (a as number))
@@ -80,7 +82,7 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
     const results = await Promise.all(
       sortedFiles.map(async ([filePath, viewCount]): Promise<FileItem | null> => {
         try {
-          const fullPath = path.join(config.mediaDir, filePath)
+          const fullPath = resolveMediaPath(filePath).fullPath
           const stat = await fs.stat(fullPath)
           if (stat.isDirectory()) return null
           const fileName = path.basename(filePath)
@@ -109,12 +111,12 @@ async function getFavoriteFiles(): Promise<FileItem[]> {
   try {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
     const allSettings = JSON.parse(data)
-    const settings = allSettings[config.mediaDir] || { favorites: [] }
+    const settings = allSettings[config.libraryKey] || { favorites: [] }
     const favorites = settings.favorites || []
     const results = await Promise.all(
       favorites.map(async (filePath: string): Promise<FileItem | null> => {
         try {
-          const fullPath = path.join(config.mediaDir, filePath)
+          const fullPath = resolveMediaPath(filePath).fullPath
           const stat = await fs.stat(fullPath)
           const fileName = path.basename(filePath)
           const extension = path.extname(fileName).slice(1).toLowerCase()
@@ -146,29 +148,29 @@ async function fetchFiles(dir: string): Promise<FileItem[]> {
 
 async function walkMarkdownFiles(
   dirPath: string,
-  mediaDir: string,
+  root: MediaRoot,
   results: { path: string; mtime: number }[],
 ): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true })
   await Promise.all(
     entries.map(async (entry) => {
       const fullPath = path.join(dirPath, entry.name)
-      const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
+      const relPath = path.relative(root.path, fullPath).replace(/\\/g, '/')
       if (entry.isDirectory()) {
         if (shouldExcludeFolder(entry.name)) return
-        await walkMarkdownFiles(fullPath, mediaDir, results)
+        await walkMarkdownFiles(fullPath, root, results)
       } else if (path.extname(entry.name).toLowerCase() === '.md') {
         const stat = await fs.stat(fullPath)
-        results.push({ path: relPath, mtime: stat.mtimeMs })
+        results.push({ path: toLogicalMediaPath(root, relPath), mtime: stat.mtimeMs })
       }
     }),
   )
 }
 
 async function getKnowledgeBaseRecentFiles(root: string) {
-  const fullRoot = validatePath(root)
+  const resolvedRoot = resolveMediaPath(root)
   const files: { path: string; mtime: number }[] = []
-  await walkMarkdownFiles(fullRoot, config.mediaDir, files)
+  await walkMarkdownFiles(resolvedRoot.fullPath, resolvedRoot.root, files)
 
   return {
     results: files
@@ -194,11 +196,11 @@ function getParentDirectory(filePath: string): string {
 }
 
 async function getTextFileContent(filePath: string): Promise<string> {
-  return fs.readFile(validatePath(filePath), 'utf-8')
+  return fs.readFile(resolveMediaPath(filePath).fullPath, 'utf-8')
 }
 
 async function getAudioFileMetadata(filePath: string) {
-  return extractAudioMetadata(validatePath(filePath))
+  return extractAudioMetadata(resolveMediaPath(filePath).fullPath)
 }
 
 async function getSharedFiles(dir: string) {
@@ -427,6 +429,10 @@ export async function dehydrateForRoute(
             enabled: config.auth?.enabled ?? false,
             shareLinkDomain: config.shareLinkDomain ?? undefined,
             editableFolders: getEditableFolders(),
+            mediaRoots: getMediaRoots().map((root) => ({
+              name: root.name,
+              editableFolders: root.editableFolders,
+            })),
           }),
         }),
       )
@@ -476,7 +482,7 @@ export async function dehydrateForRoute(
             try {
               const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
               const allSettings = JSON.parse(data)
-              const settings = allSettings[config.mediaDir]
+              const settings = allSettings[config.libraryKey]
               adminViewMode = settings?.viewModes?.[share.path] || 'list'
             } catch {}
           }

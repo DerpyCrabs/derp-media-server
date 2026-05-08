@@ -11,6 +11,7 @@ import {
   validatePath,
   renameFileOrDirectory,
   copyFileOrDirectory,
+  resolveMediaPath,
 } from '@/lib/file-system'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
 import { getSharesAsFileItems } from '@/lib/shares'
@@ -29,7 +30,7 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
   try {
     const data = await fs.readFile(STATS_FILE, 'utf-8')
     const allStats = JSON.parse(data)
-    const stats = allStats[config.mediaDir] || { views: {} }
+    const stats = allStats[config.libraryKey] || { views: {} }
     const views = stats.views || {}
     const sortedFiles = Object.entries(views)
       .sort(([, a], [, b]) => (b as number) - (a as number))
@@ -37,7 +38,7 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
     const results = await Promise.all(
       sortedFiles.map(async ([filePath, viewCount]): Promise<FileItem | null> => {
         try {
-          const fullPath = path.join(config.mediaDir, filePath)
+          const fullPath = resolveMediaPath(filePath).fullPath
           const stat = await fs.stat(fullPath)
           if (stat.isDirectory()) return null
           const fileName = path.basename(filePath)
@@ -66,12 +67,12 @@ async function getFavoriteFiles(): Promise<FileItem[]> {
   try {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
     const allSettings = JSON.parse(data)
-    const settings = allSettings[config.mediaDir] || { favorites: [] }
+    const settings = allSettings[config.libraryKey] || { favorites: [] }
     const favorites = settings.favorites || []
     const results = await Promise.all(
       favorites.map(async (filePath: string): Promise<FileItem | null> => {
         try {
-          const fullPath = path.join(config.mediaDir, filePath)
+          const fullPath = resolveMediaPath(filePath).fullPath
           const stat = await fs.stat(fullPath)
           const fileName = path.basename(filePath)
           const extension = path.extname(fileName).slice(1).toLowerCase()

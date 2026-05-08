@@ -1,8 +1,8 @@
 import { promises as fs } from 'fs'
 import path from 'path'
-import { config } from '@/lib/config'
+import type { MediaRoot } from '@/lib/config'
 import { mediaPathToKbRelative } from '@/lib/kb-chat-fs-paths'
-import { shouldExcludeFolder } from '@/lib/file-system'
+import { resolveMediaPath, shouldExcludeFolder, toLogicalMediaPath } from '@/lib/file-system'
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt'])
 const DEFAULT_CHAR_BUDGET = 32_000
@@ -13,7 +13,7 @@ interface KbFile {
   mtime: number
 }
 
-async function walkKbFiles(dirPath: string, mediaDir: string, results: KbFile[]): Promise<void> {
+async function walkKbFiles(dirPath: string, root: MediaRoot, results: KbFile[]): Promise<void> {
   let entries
   try {
     entries = await fs.readdir(dirPath, { withFileTypes: true })
@@ -25,7 +25,7 @@ async function walkKbFiles(dirPath: string, mediaDir: string, results: KbFile[])
       const fullPath = path.join(dirPath, entry.name)
       if (entry.isDirectory()) {
         if (shouldExcludeFolder(entry.name)) return
-        await walkKbFiles(fullPath, mediaDir, results)
+        await walkKbFiles(fullPath, root, results)
       } else {
         const ext = path.extname(entry.name).toLowerCase()
         if (!TEXT_EXTENSIONS.has(ext)) return
@@ -34,8 +34,8 @@ async function walkKbFiles(dirPath: string, mediaDir: string, results: KbFile[])
             fs.readFile(fullPath, 'utf-8'),
             fs.stat(fullPath),
           ])
-          const relPath = path.relative(mediaDir, fullPath).replace(/\\/g, '/')
-          results.push({ relPath, content, mtime: stat.mtimeMs })
+          const relPath = path.relative(root.path, fullPath).replace(/\\/g, '/')
+          results.push({ relPath: toLogicalMediaPath(root, relPath), content, mtime: stat.mtimeMs })
         } catch {
           // skip unreadable files
         }
@@ -49,9 +49,9 @@ export async function gatherKbContext(
   userQuery: string,
   charBudget: number = DEFAULT_CHAR_BUDGET,
 ): Promise<string> {
-  const fullRoot = path.join(config.mediaDir, kbRoot)
+  const resolvedRoot = resolveMediaPath(kbRoot)
   const files: KbFile[] = []
-  await walkKbFiles(fullRoot, config.mediaDir, files)
+  await walkKbFiles(resolvedRoot.fullPath, resolvedRoot.root, files)
 
   if (files.length === 0) return ''
 

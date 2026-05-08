@@ -53,6 +53,26 @@ test.describe('Share Viewers & Players', () => {
       .toBeGreaterThan(0)
   })
 
+  test('image thumbnails appear in grid view in shared folder', async ({ page }) => {
+    await page.goto(folderShareUrl)
+    await page.locator('button:has(.lucide-layout-grid)').click()
+    const card = page
+      .locator('[data-testid=share-file-browser] .file-browser-grid [role=button]')
+      .filter({
+        hasText: 'photo.jpg',
+      })
+    const thumb = card.locator('[data-testid=file-browser-image-thumbnail]')
+    await expect(thumb).toBeVisible()
+    await expect(thumb).toHaveAttribute('src', /\/api\/share\/.*\/thumbnail\//)
+
+    const thumbSrc = await thumb.getAttribute('src')
+    expect(thumbSrc).toBeTruthy()
+    const response = await page.request.get(thumbSrc!)
+    expect(response.headers()['content-type']).toContain('image/jpeg')
+
+    await page.getByRole('button', { name: 'List view' }).click()
+  })
+
   test('video player has controls and valid share source URL', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('public-video.mp4').click()

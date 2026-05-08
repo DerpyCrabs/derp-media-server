@@ -5,6 +5,8 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import fs from 'fs/promises'
+import { getMediaType } from '@/lib/media-utils'
+import { MediaType } from '@/lib/types'
 
 const execAsync = promisify(exec)
 
@@ -48,7 +50,7 @@ async function getVideoDuration(videoPath: string): Promise<number> {
   }
 }
 
-async function generateThumbnail(videoPath: string, outputPath: string): Promise<void> {
+async function generateVideoThumbnail(videoPath: string, outputPath: string): Promise<void> {
   const hasFfmpeg = await checkFFmpeg()
   if (!hasFfmpeg) throw new Error('ffmpeg not available')
 
@@ -58,6 +60,28 @@ async function generateThumbnail(videoPath: string, outputPath: string): Promise
 
   const command = `ffmpeg -ss ${startTime} -i "${videoPath}" -vf "thumbnail=n=100,scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`
   await execAsync(command, { timeout: 15000 })
+}
+
+async function generateImageThumbnail(imagePath: string, outputPath: string): Promise<void> {
+  const hasFfmpeg = await checkFFmpeg()
+  if (!hasFfmpeg) throw new Error('ffmpeg not available')
+
+  const command = `ffmpeg -i "${imagePath}" -vf "scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`
+  await execAsync(command, { timeout: 15000 })
+}
+
+async function generateThumbnail(filePath: string, outputPath: string): Promise<void> {
+  const extension = path.extname(filePath).slice(1).toLowerCase()
+  const mediaType = getMediaType(extension)
+  if (mediaType === MediaType.IMAGE) {
+    await generateImageThumbnail(filePath, outputPath)
+    return
+  }
+  if (mediaType === MediaType.VIDEO) {
+    await generateVideoThumbnail(filePath, outputPath)
+    return
+  }
+  throw new Error('Unsupported thumbnail media type')
 }
 
 const PLACEHOLDER_PNG = Buffer.from(

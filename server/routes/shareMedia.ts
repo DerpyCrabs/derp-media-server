@@ -12,7 +12,7 @@ import {
   writeBinaryFile,
   fileExists,
 } from '@/lib/file-system'
-import { getMimeType, formatFileSize } from '@/lib/media-utils'
+import { getMimeType, formatFileSize, getMediaType } from '@/lib/media-utils'
 import { extractAudioMetadata, extractAudioTrack } from '@/server/lib/audio-helpers'
 import {
   getShare,
@@ -29,6 +29,7 @@ import {
   getKnowledgeBaseRootForPath,
 } from '@/lib/knowledge-base'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
+import { MediaType } from '@/lib/types'
 
 const execAsync = promisify(exec)
 
@@ -89,7 +90,7 @@ async function getVideoDuration(videoPath: string): Promise<number> {
   }
 }
 
-async function generateThumbnail(videoPath: string, outputPath: string): Promise<void> {
+async function generateVideoThumbnail(videoPath: string, outputPath: string): Promise<void> {
   if (!(await checkFFmpeg())) throw new Error('ffmpeg not available')
   const duration = await getVideoDuration(videoPath)
   const startTime = duration > 0 ? Math.min(duration * 0.05, 3.0) : 3.0
@@ -97,6 +98,28 @@ async function generateThumbnail(videoPath: string, outputPath: string): Promise
     `ffmpeg -ss ${startTime} -i "${videoPath}" -vf "thumbnail=n=100,scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`,
     { timeout: 15000 },
   )
+}
+
+async function generateImageThumbnail(imagePath: string, outputPath: string): Promise<void> {
+  if (!(await checkFFmpeg())) throw new Error('ffmpeg not available')
+  await execAsync(
+    `ffmpeg -i "${imagePath}" -vf "scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`,
+    { timeout: 15000 },
+  )
+}
+
+async function generateThumbnail(filePath: string, outputPath: string): Promise<void> {
+  const extension = path.extname(filePath).slice(1).toLowerCase()
+  const mediaType = getMediaType(extension)
+  if (mediaType === MediaType.IMAGE) {
+    await generateImageThumbnail(filePath, outputPath)
+    return
+  }
+  if (mediaType === MediaType.VIDEO) {
+    await generateVideoThumbnail(filePath, outputPath)
+    return
+  }
+  throw new Error('Unsupported thumbnail media type')
 }
 
 const PLACEHOLDER_PNG = Buffer.from(

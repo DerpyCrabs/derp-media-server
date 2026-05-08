@@ -24,12 +24,12 @@ async function readAllStats(): Promise<StatsFile> {
 
 async function readStats(): Promise<ViewStats> {
   const allStats = await readAllStats()
-  return allStats[config.mediaDir] || { views: {}, shareViews: {} }
+  return allStats[config.libraryKey] || { views: {}, shareViews: {} }
 }
 
 async function writeStats(stats: ViewStats): Promise<void> {
   const allStats = await readAllStats()
-  allStats[config.mediaDir] = stats
+  allStats[config.libraryKey] = stats
   await fs.writeFile(STATS_FILE, JSON.stringify(allStats, null, 2), 'utf-8')
 }
 
