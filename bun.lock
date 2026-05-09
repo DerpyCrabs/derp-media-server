@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "derp-media-server",
@@ -15,6 +16,7 @@
         "@openrouter/ai-sdk-provider": "^2.3.3",
         "@tailwindcss/typography": "^0.5.19",
         "@tanstack/solid-query": "^5.95.2",
+        "@tanstack/solid-virtual": "^3.13.24",
         "ai": "^6.0.145",
         "archiver": "^7.0.1",
         "clsx": "^2.1.1",
@@ -354,6 +356,10 @@
     "@tanstack/query-core": ["@tanstack/query-core@5.95.2", "", {}, "sha512-o4T8vZHZET4Bib3jZ/tCW9/7080urD4c+0/AUaYVpIqOsr7y0reBc1oX3ttNaSW5mYyvZHctiQ/UOP2PfdmFEQ=="],
 
     "@tanstack/solid-query": ["@tanstack/solid-query@5.95.2", "", { "dependencies": { "@tanstack/query-core": "5.95.2" }, "peerDependencies": { "solid-js": "^1.6.0" } }, "sha512-1xsEybSKZhgaSMUmU71f4Ows5cLWtA6YyLMDUxhSwe8J9nD1b8J2VQF7KxiSESxDOznX7WabYCSv6CtcR4XVbg=="],
+
+    "@tanstack/solid-virtual": ["@tanstack/solid-virtual@3.13.24", "", { "dependencies": { "@tanstack/virtual-core": "3.14.0" }, "peerDependencies": { "solid-js": "^1.3.0" } }, "sha512-sLGjpsAWLK8oxciqN+FNjs5JLs9N27DKwwoOPN8FMrmFMeXdiPQvRg3CqUAv8pYfXKD9KmcbhBxNwlmcP22a8Q=="],
+
+    "@tanstack/virtual-core": ["@tanstack/virtual-core@3.14.0", "", {}, "sha512-JLANqGy/D6k4Ujmh8Tr25lGimuOXNiaVyXaCAZS0W+1390sADdGnyUdSWNIfd49gebtIxGMij4IktRVzrdr12Q=="],
 
     "@tokenizer/inflate": ["@tokenizer/inflate@0.4.1", "", { "dependencies": { "debug": "^4.4.3", "token-types": "^6.1.1" } }, "sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA=="],
 

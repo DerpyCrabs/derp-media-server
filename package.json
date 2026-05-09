@@ -31,6 +31,7 @@
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/solid-query": "^5.95.2",
+    "@tanstack/solid-virtual": "^3.13.24",
     "ai": "^6.0.145",
     "archiver": "^7.0.1",
     "clsx": "^2.1.1",

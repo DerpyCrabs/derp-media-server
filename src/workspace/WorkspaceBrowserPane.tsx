@@ -72,6 +72,8 @@ import { UploadMenu } from '../file-browser/UploadMenu'
 import { DEFAULT_WORKSPACE_SOURCE } from './workspace-page-persistence'
 import { WorkspaceBrowserModalLayer } from './WorkspaceBrowserModalLayer'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
+import { VirtualDirectoryGrid } from '../file-browser/VirtualDirectoryGrid'
+import { VirtualDirectoryList } from '../file-browser/VirtualDirectoryList'
 import { registerKbSearchHotkeys } from '../file-browser/use-kb-search-hotkey'
 import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-focus'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
@@ -105,6 +107,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
   let externalUploadDragDepth = 0
+  const [directoryScrollEl, setDirectoryScrollEl] = createSignal<HTMLDivElement | undefined>()
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
   const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
   const [inlineName, setInlineName] = createSignal('')
@@ -1522,7 +1525,12 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           onDrop={(e) => void onExternalUploadDrop(e)}
           onPaste={(e) => void handlePasteEvent(e)}
         >
-          <div class='min-h-0 flex-1 overflow-auto'>
+          <div
+            ref={(el) => {
+              setDirectoryScrollEl(el)
+            }}
+            class='min-h-0 flex-1 overflow-auto'
+          >
             <Show
               when={showKbSearchResults()}
               fallback={
@@ -1545,42 +1553,50 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                   <Show when={!isFilesLoadingInitial()}>
                     <Switch>
                       <Match when={viewMode() === 'grid'}>
-                        <div class='file-browser-grid gap-4 px-2 py-2'>
-                          <Show when={currentPath()}>
-                            <div
-                              data-no-window-drag
-                              class={cn(
-                                'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
-                                dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
-                              )}
-                              onClick={handleParentDirectory}
-                              onPointerEnter={() =>
-                                prefetchParentDirectoryHover(workspacePrefetchCtx(), {
-                                  currentPath: currentPath(),
-                                  isVirtualFolder: isVirtualFolder(),
-                                })
-                              }
-                              onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
-                              onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
-                              onDrop={allowMoveFile() ? parentRowDrop : undefined}
-                              onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
-                              role='button'
-                              tabindex={0}
-                            >
-                              <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
-                                <ArrowUp
-                                  class='mb-2 h-12 w-12 text-muted-foreground'
-                                  size={48}
-                                  stroke-width={2}
-                                />
-                                <p class='text-center text-sm font-medium'>..</p>
-                              </div>
-                            </div>
-                          </Show>
-                          <For each={files()}>
-                            {(file) => (
+                        <div class='px-2 py-2'>
+                          <VirtualDirectoryGrid
+                            files={files}
+                            includeParent={() => !!currentPath()}
+                            scrollTarget={{
+                              kind: 'element',
+                              getScrollElement: directoryScrollEl,
+                            }}
+                            class='gap-4'
+                            renderParentCard={() => (
                               <div
                                 data-no-window-drag
+                                class={cn(
+                                  'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
+                                  dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                                )}
+                                onClick={handleParentDirectory}
+                                onPointerEnter={() =>
+                                  prefetchParentDirectoryHover(workspacePrefetchCtx(), {
+                                    currentPath: currentPath(),
+                                    isVirtualFolder: isVirtualFolder(),
+                                  })
+                                }
+                                onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
+                                onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
+                                onDrop={allowMoveFile() ? parentRowDrop : undefined}
+                                onKeyDown={(e) => e.key === 'Enter' && handleParentDirectory()}
+                                role='button'
+                                tabindex={0}
+                              >
+                                <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
+                                  <ArrowUp
+                                    class='mb-2 h-12 w-12 text-muted-foreground'
+                                    size={48}
+                                    stroke-width={2}
+                                  />
+                                  <p class='text-center text-sm font-medium'>..</p>
+                                </div>
+                              </div>
+                            )}
+                            renderFileCard={(file) => (
+                              <div
+                                data-no-window-drag
+                                data-file-path={file.path}
                                 class={cn(
                                   'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
                                   file.isDirectory && dragOverPath() === file.path
@@ -1631,7 +1647,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                                 </div>
                               </div>
                             )}
-                          </For>
+                          />
                           <DirectoryListingEmpty
                             show={showEmptyFolder()}
                             canUpload={allowWorkspaceUpload()}
@@ -1639,107 +1655,105 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                         </div>
                       </Match>
                       <Match when={viewMode() === 'list'}>
-                        <div class='relative w-full overflow-x-auto'>
-                          <table class='w-full table-fixed caption-bottom text-sm'>
-                            <colgroup>
-                              <col class='w-[40px]' />
-                              <col />
-                              <col class='w-24' />
-                            </colgroup>
-                            <tbody class='[&_tr:last-child]:border-0'>
-                              <Show when={currentPath()}>
-                                <tr
-                                  data-no-window-drag
-                                  class={cn(
-                                    'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
-                                    dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
-                                  )}
-                                  onClick={handleParentDirectory}
-                                  onPointerEnter={() =>
-                                    prefetchParentDirectoryHover(workspacePrefetchCtx(), {
-                                      currentPath: currentPath(),
-                                      isVirtualFolder: isVirtualFolder(),
-                                    })
-                                  }
-                                  onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
-                                  onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
-                                  onDrop={allowMoveFile() ? parentRowDrop : undefined}
-                                >
-                                  <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
-                                    <div class='flex items-center justify-center'>
-                                      <ArrowUp
-                                        class='h-5 w-5 text-muted-foreground'
-                                        size={20}
-                                        stroke-width={2}
-                                      />
-                                    </div>
-                                  </td>
-                                  <td class='min-w-0 p-2 align-middle font-medium'>..</td>
-                                  <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
-                                </tr>
-                              </Show>
-                              <For each={files()}>
-                                {(file) => {
-                                  const canDragRow = enableDrag()
-                                  return (
-                                    <tr
-                                      data-no-window-drag
-                                      class={cn(
-                                        'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
-                                        file.isDirectory && dragOverPath() === file.path
-                                          ? 'bg-primary/20'
-                                          : '',
-                                        draggedPath() === file.path ? 'opacity-50' : '',
-                                      )}
-                                      draggable={canDragRow}
-                                      onClick={() => handleFileClick(file)}
-                                      onPointerEnter={() => prefetchFileRowHover(file)}
-                                      onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
-                                      {...createLongPressContextMenuHandlers()}
-                                      onDragStart={(e) => onFileDragStart(file, e)}
-                                      onDragEnd={onFileDragEnd}
-                                      onDragOver={(e) => {
-                                        if (!file.isDirectory || !allowMoveFile()) return
-                                        handleFolderRowDragOver(file.path, e)
-                                      }}
-                                      onDragLeave={(e) => {
-                                        if (!file.isDirectory || !allowMoveFile()) return
-                                        handleFolderRowDragLeave(file.path, e)
-                                      }}
-                                      onDrop={(e) => {
-                                        if (!file.isDirectory || !allowMoveFile()) return
-                                        handleFolderRowDrop(file.path, e)
-                                      }}
-                                    >
-                                      <td
-                                        class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'
-                                        {...(isRowKnowledgeBase(file)
-                                          ? { 'data-kb-root-icon': '' }
-                                          : {})}
-                                      >
-                                        <div class='flex items-center justify-center'>
-                                          {fileItemIcon(file, props.fileIconContext())}
-                                        </div>
-                                      </td>
-                                      <td class='min-w-0 p-2 align-middle font-medium'>
-                                        <span class='truncate'>{file.name}</span>
-                                      </td>
-                                      <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
-                                        <span class='inline-block w-20 tabular-nums'>
-                                          {file.isDirectory ? '' : formatFileSize(file.size)}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  )
+                        <VirtualDirectoryList
+                          files={files}
+                          includeParent={() => !!currentPath()}
+                          scrollTarget={{
+                            kind: 'element',
+                            getScrollElement: directoryScrollEl,
+                          }}
+                          class='relative w-full overflow-x-auto'
+                          colSpan={3}
+                          renderParentRow={() => (
+                            <tr
+                              data-no-window-drag
+                              class={cn(
+                                'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                                dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                              )}
+                              onClick={handleParentDirectory}
+                              onPointerEnter={() =>
+                                prefetchParentDirectoryHover(workspacePrefetchCtx(), {
+                                  currentPath: currentPath(),
+                                  isVirtualFolder: isVirtualFolder(),
+                                })
+                              }
+                              onDragOver={allowMoveFile() ? parentRowDragOver : undefined}
+                              onDragLeave={allowMoveFile() ? parentRowDragLeave : undefined}
+                              onDrop={allowMoveFile() ? parentRowDrop : undefined}
+                            >
+                              <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
+                                <div class='flex items-center justify-center'>
+                                  <ArrowUp
+                                    class='h-5 w-5 text-muted-foreground'
+                                    size={20}
+                                    stroke-width={2}
+                                  />
+                                </div>
+                              </td>
+                              <td class='min-w-0 p-2 align-middle font-medium'>..</td>
+                              <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
+                            </tr>
+                          )}
+                          renderFileRow={(file) => {
+                            const canDragRow = enableDrag()
+                            return (
+                              <tr
+                                data-no-window-drag
+                                data-file-path={file.path}
+                                class={cn(
+                                  'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
+                                  file.isDirectory && dragOverPath() === file.path
+                                    ? 'bg-primary/20'
+                                    : '',
+                                  draggedPath() === file.path ? 'opacity-50' : '',
+                                )}
+                                draggable={canDragRow}
+                                onClick={() => handleFileClick(file)}
+                                onPointerEnter={() => prefetchFileRowHover(file)}
+                                onContextMenu={(e) => fileRowMenu.openRowContextMenu(e, file)}
+                                {...createLongPressContextMenuHandlers()}
+                                onDragStart={(e) => onFileDragStart(file, e)}
+                                onDragEnd={onFileDragEnd}
+                                onDragOver={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  handleFolderRowDragOver(file.path, e)
                                 }}
-                              </For>
-                              <DirectoryListingEmptyTableRow
-                                show={showEmptyFolder()}
-                                canUpload={allowWorkspaceUpload()}
-                              />
-                            </tbody>
-                          </table>
-                        </div>
+                                onDragLeave={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  handleFolderRowDragLeave(file.path, e)
+                                }}
+                                onDrop={(e) => {
+                                  if (!file.isDirectory || !allowMoveFile()) return
+                                  handleFolderRowDrop(file.path, e)
+                                }}
+                              >
+                                <td
+                                  class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'
+                                  {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
+                                >
+                                  <div class='flex items-center justify-center'>
+                                    {fileItemIcon(file, props.fileIconContext())}
+                                  </div>
+                                </td>
+                                <td class='min-w-0 p-2 align-middle font-medium'>
+                                  <span class='truncate'>{file.name}</span>
+                                </td>
+                                <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
+                                  <span class='inline-block w-20 tabular-nums'>
+                                    {file.isDirectory ? '' : formatFileSize(file.size)}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          }}
+                          renderEmptyRow={() => (
+                            <DirectoryListingEmptyTableRow
+                              show={showEmptyFolder()}
+                              canUpload={allowWorkspaceUpload()}
+                            />
+                          )}
+                        />
                       </Match>
                     </Switch>
                   </Show>

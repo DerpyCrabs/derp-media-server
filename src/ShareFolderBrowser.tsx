@@ -55,6 +55,8 @@ import {
 import { FloatingScrollActions } from './file-browser/FloatingScrollActions'
 import { UploadToastStack } from './file-browser/UploadToastStack'
 import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
+import { VirtualDirectoryGrid } from './file-browser/VirtualDirectoryGrid'
+import { VirtualDirectoryList } from './file-browser/VirtualDirectoryList'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { useStoreSync } from './lib/solid-store-sync'
@@ -138,6 +140,7 @@ export function ShareFolderBrowser(props: Props) {
 
   const currentSubDir = createMemo(() => urlSearchParams().get('dir') ?? '')
   const playingPath = createMemo(() => urlSearchParams().get('playing') ?? '')
+  const shareBrowserScrollScope = () => `share-file-browser:${props.token}`
 
   const shareContext = createMemo(
     (): TextViewerShareContext => ({
@@ -1064,8 +1067,13 @@ export function ShareFolderBrowser(props: Props) {
                     <Switch>
                       <Match when={viewMode() === 'grid'}>
                         <div class='px-4 py-4'>
-                          <div class='file-browser-grid gap-4'>
-                            <Show when={currentSubDir()}>
+                          <VirtualDirectoryGrid
+                            files={files}
+                            includeParent={() => !!currentSubDir()}
+                            scrollTarget={{ kind: 'window' }}
+                            scrollScope={shareBrowserScrollScope}
+                            class='gap-4'
+                            renderParentCard={() => (
                               <div
                                 class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                                 onClick={handleParentDirectory}
@@ -1082,116 +1090,106 @@ export function ShareFolderBrowser(props: Props) {
                                   <p class='text-center text-sm font-medium'>..</p>
                                 </div>
                               </div>
-                            </Show>
-                            <For each={files()}>
-                              {(file) => (
-                                <div
-                                  data-file-path={file.path}
-                                  class={cn(
-                                    'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
-                                    playingPath() === file.path ? 'bg-primary/10' : '',
-                                  )}
-                                  onClick={() => handleFileClick(file)}
-                                  onPointerEnter={() =>
-                                    prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
-                                  }
-                                  onContextMenu={(e) => openRowMenu(e, file)}
-                                  {...createLongPressContextMenuHandlers()}
-                                  role='button'
-                                  tabindex={0}
-                                >
-                                  <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-                                    <div class='text-muted-foreground'>
-                                      {gridHeroIcon(file, shareFileIconContext())}
-                                    </div>
-                                  </div>
-                                  <div class='flex flex-col gap-1 p-3'>
-                                    <p class='truncate text-sm font-medium' title={file.name}>
-                                      {file.name}
-                                    </p>
-                                    <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                      <span>
-                                        {file.isDirectory ? '' : formatFileSize(file.size)}
-                                      </span>
-                                    </div>
+                            )}
+                            renderFileCard={(file) => (
+                              <div
+                                data-file-path={file.path}
+                                class={cn(
+                                  'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
+                                  playingPath() === file.path ? 'bg-primary/10' : '',
+                                )}
+                                onClick={() => handleFileClick(file)}
+                                onPointerEnter={() =>
+                                  prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
+                                }
+                                onContextMenu={(e) => openRowMenu(e, file)}
+                                {...createLongPressContextMenuHandlers()}
+                                role='button'
+                                tabindex={0}
+                              >
+                                <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                                  <div class='text-muted-foreground'>
+                                    {gridHeroIcon(file, shareFileIconContext())}
                                   </div>
                                 </div>
-                              )}
-                            </For>
-                            <DirectoryListingEmpty
-                              show={showEmptyFolder()}
-                              canUpload={canUpload()}
-                            />
-                          </div>
+                                <div class='flex flex-col gap-1 p-3'>
+                                  <p class='truncate text-sm font-medium' title={file.name}>
+                                    {file.name}
+                                  </p>
+                                  <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                                    <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          />
+                          <DirectoryListingEmpty show={showEmptyFolder()} canUpload={canUpload()} />
                         </div>
                       </Match>
                       <Match when={viewMode() === 'list'}>
                         <div class='py-2 sm:px-4'>
-                          <div class='relative w-full overflow-x-auto'>
-                            <table class='w-full table-fixed caption-bottom text-sm'>
-                              <colgroup>
-                                <col class='w-[40px]' />
-                                <col />
-                                <col class='w-24' />
-                              </colgroup>
-                              <tbody class='[&_tr:last-child]:border-0'>
-                                <Show when={currentSubDir()}>
-                                  <tr
-                                    class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
-                                    onClick={handleParentDirectory}
-                                    onPointerEnter={prefetchShareParentDirectory}
-                                  >
-                                    <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
-                                      <div class='flex items-center justify-center'>
-                                        <ArrowUp
-                                          class='h-5 w-5 text-muted-foreground'
-                                          size={20}
-                                          stroke-width={2}
-                                        />
-                                      </div>
-                                    </td>
-                                    <td class='min-w-0 p-2 align-middle font-medium'>..</td>
-                                    <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
-                                  </tr>
-                                </Show>
-                                <For each={files()}>
-                                  {(file) => (
-                                    <tr
-                                      data-file-path={file.path}
-                                      class={cn(
-                                        'hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors',
-                                        playingPath() === file.path ? 'bg-primary/10' : '',
-                                      )}
-                                      onClick={() => handleFileClick(file)}
-                                      onPointerEnter={() =>
-                                        prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
-                                      }
-                                      onContextMenu={(e) => openRowMenu(e, file)}
-                                      {...createLongPressContextMenuHandlers()}
-                                    >
-                                      <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
-                                        <div class='flex items-center justify-center'>
-                                          {fileIcon(file)}
-                                        </div>
-                                      </td>
-                                      <td class='min-w-0 p-2 align-middle font-medium'>
-                                        <span class='truncate'>{file.name}</span>
-                                      </td>
-                                      <td class='min-w-0 p-2 align-middle text-right text-muted-foreground tabular-nums'>
-                                        <span class='inline-block w-20'>
-                                          {file.isDirectory ? '' : formatFileSize(file.size)}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  )}
-                                </For>
-                                <DirectoryListingEmptyTableRow
-                                  show={showEmptyFolder()}
-                                  canUpload={canUpload()}
-                                />
-                              </tbody>
-                            </table>
-                          </div>
+                          <VirtualDirectoryList
+                            files={files}
+                            includeParent={() => !!currentSubDir()}
+                            scrollTarget={{ kind: 'window' }}
+                            scrollScope={shareBrowserScrollScope}
+                            class='relative w-full overflow-x-auto'
+                            colSpan={3}
+                            renderParentRow={() => (
+                              <tr
+                                class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
+                                onClick={handleParentDirectory}
+                                onPointerEnter={prefetchShareParentDirectory}
+                              >
+                                <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
+                                  <div class='flex items-center justify-center'>
+                                    <ArrowUp
+                                      class='h-5 w-5 text-muted-foreground'
+                                      size={20}
+                                      stroke-width={2}
+                                    />
+                                  </div>
+                                </td>
+                                <td class='min-w-0 p-2 align-middle font-medium'>..</td>
+                                <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
+                              </tr>
+                            )}
+                            renderFileRow={(file) => (
+                              <tr
+                                data-file-path={file.path}
+                                class={cn(
+                                  'hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors',
+                                  playingPath() === file.path ? 'bg-primary/10' : '',
+                                )}
+                                onClick={() => handleFileClick(file)}
+                                onPointerEnter={() =>
+                                  prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
+                                }
+                                onContextMenu={(e) => openRowMenu(e, file)}
+                                {...createLongPressContextMenuHandlers()}
+                              >
+                                <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
+                                  <div class='flex items-center justify-center'>
+                                    {fileIcon(file)}
+                                  </div>
+                                </td>
+                                <td class='min-w-0 p-2 align-middle font-medium'>
+                                  <span class='truncate'>{file.name}</span>
+                                </td>
+                                <td class='min-w-0 p-2 align-middle text-right text-muted-foreground tabular-nums'>
+                                  <span class='inline-block w-20'>
+                                    {file.isDirectory ? '' : formatFileSize(file.size)}
+                                  </span>
+                                </td>
+                              </tr>
+                            )}
+                            renderEmptyRow={() => (
+                              <DirectoryListingEmptyTableRow
+                                show={showEmptyFolder()}
+                                canUpload={canUpload()}
+                              />
+                            )}
+                          />
                         </div>
                       </Match>
                     </Switch>
@@ -1231,7 +1229,7 @@ export function ShareFolderBrowser(props: Props) {
         state={uploadToast}
         onDismissError={() => setUploadToast({ kind: 'hidden' })}
       />
-      <FloatingScrollActions playingPath={playingPath} />
+      <FloatingScrollActions playingPath={playingPath} scrollScope={shareBrowserScrollScope} />
     </>
   )
 }

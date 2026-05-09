@@ -77,6 +77,8 @@ import {
 import { FloatingScrollActions } from './file-browser/FloatingScrollActions'
 import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
 import { registerKbSearchHotkeys } from './file-browser/use-kb-search-hotkey'
+import { VirtualDirectoryGrid } from './file-browser/VirtualDirectoryGrid'
+import { VirtualDirectoryList } from './file-browser/VirtualDirectoryList'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
@@ -153,6 +155,7 @@ export function FileBrowser() {
   }))
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
+  const fileBrowserScrollScope = () => 'main-file-browser'
   const isFilesLoadingInitial = createMemo(
     () => filesQuery.isPending && filesQuery.data === undefined,
   )
@@ -1241,8 +1244,13 @@ export function FileBrowser() {
                             <Switch>
                               <Match when={viewMode() === 'grid'}>
                                 <div class='py-4 px-4'>
-                                  <div class='file-browser-grid gap-4'>
-                                    <Show when={currentPath()}>
+                                  <VirtualDirectoryGrid
+                                    files={files}
+                                    includeParent={() => !!currentPath()}
+                                    scrollTarget={{ kind: 'window' }}
+                                    scrollScope={fileBrowserScrollScope}
+                                    class='gap-4'
+                                    renderParentCard={() => (
                                       <div
                                         class='ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col'
                                         onClick={handleParentDirectory}
@@ -1270,44 +1278,273 @@ export function FileBrowser() {
                                           </p>
                                         </div>
                                       </div>
-                                    </Show>
-                                    <For each={files()}>
-                                      {(file) => {
-                                        const isFav = () => favoriteSet().has(file.path)
-                                        return (
-                                          <div
-                                            data-file-path={file.path}
-                                            class={cn(
-                                              'ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col',
-                                              playingParam() === file.path ? 'bg-primary/10' : '',
-                                            )}
-                                            onClick={() => handleFileClick(file)}
-                                            onPointerEnter={() =>
-                                              prefetchFolderContentsOnHover(
-                                                fileBrowserPrefetchCtx(),
-                                                file,
-                                              )
-                                            }
-                                            onContextMenu={(e) =>
-                                              fileRowMenu.openRowContextMenu(e, file)
-                                            }
-                                            {...createLongPressContextMenuHandlers()}
-                                            onKeyDown={(e) =>
-                                              e.key === 'Enter' && handleFileClick(file)
-                                            }
-                                            role='button'
-                                            tabindex={0}
+                                    )}
+                                    renderFileCard={(file) => {
+                                      const isFav = () => favoriteSet().has(file.path)
+                                      return (
+                                        <div
+                                          data-file-path={file.path}
+                                          class={cn(
+                                            'ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col',
+                                            playingParam() === file.path ? 'bg-primary/10' : '',
+                                          )}
+                                          onClick={() => handleFileClick(file)}
+                                          onPointerEnter={() =>
+                                            prefetchFolderContentsOnHover(
+                                              fileBrowserPrefetchCtx(),
+                                              file,
+                                            )
+                                          }
+                                          onContextMenu={(e) =>
+                                            fileRowMenu.openRowContextMenu(e, file)
+                                          }
+                                          {...createLongPressContextMenuHandlers()}
+                                          onKeyDown={(e) =>
+                                            e.key === 'Enter' && handleFileClick(file)
+                                          }
+                                          role='button'
+                                          tabindex={0}
+                                        >
+                                          <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                                            <Show when={!file.isDirectory}>
+                                              <button
+                                                type='button'
+                                                class={cn(
+                                                  'absolute top-1.5 left-1.5 z-10 rounded-full p-1 transition-all',
+                                                  isFav()
+                                                    ? 'bg-background/90 shadow-sm hover:bg-background'
+                                                    : 'bg-background/70 opacity-60 hover:bg-background/90 group-hover:opacity-100',
+                                                )}
+                                                title={
+                                                  isFav()
+                                                    ? 'Remove from favorites'
+                                                    : 'Add to favorites'
+                                                }
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  favoriteMutation.mutate({ filePath: file.path })
+                                                }}
+                                              >
+                                                <Star
+                                                  class={cn(
+                                                    'h-3.5 w-3.5',
+                                                    isFav()
+                                                      ? 'fill-yellow-400 text-yellow-400'
+                                                      : 'text-muted-foreground',
+                                                  )}
+                                                  fill={isFav() ? 'currentColor' : 'none'}
+                                                  stroke-width={2}
+                                                />
+                                              </button>
+                                            </Show>
+                                            <Show when={!file.isDirectory}>
+                                              <div
+                                                class={cn(
+                                                  'absolute top-1.5 right-1.5 z-10 flex items-center gap-1',
+                                                  viewStats.getViewCount(file.path) > 0 ||
+                                                    viewStats.getShareViewCount(file.path) > 0
+                                                    ? ''
+                                                    : 'hidden',
+                                                )}
+                                              >
+                                                <Show when={viewStats.getViewCount(file.path) > 0}>
+                                                  <div
+                                                    class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
+                                                    title={`${viewStats.getViewCount(file.path)} views`}
+                                                  >
+                                                    <Eye
+                                                      class='h-3 w-3 text-muted-foreground'
+                                                      stroke-width={2}
+                                                    />
+                                                    <span class='text-xs font-medium text-muted-foreground'>
+                                                      {viewStats.getViewCount(file.path)}
+                                                    </span>
+                                                  </div>
+                                                </Show>
+                                                <Show
+                                                  when={viewStats.getShareViewCount(file.path) > 0}
+                                                >
+                                                  <div
+                                                    class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
+                                                    title={`${viewStats.getShareViewCount(file.path)} shared views`}
+                                                  >
+                                                    <Share2
+                                                      class='h-3 w-3 text-primary/70'
+                                                      stroke-width={2}
+                                                    />
+                                                    <span class='text-xs font-medium text-primary/70'>
+                                                      {viewStats.getShareViewCount(file.path)}
+                                                    </span>
+                                                  </div>
+                                                </Show>
+                                              </div>
+                                            </Show>
+                                            <div
+                                              class='text-muted-foreground'
+                                              {...(isRowKnowledgeBase(file)
+                                                ? { 'data-kb-root-icon': '' }
+                                                : {})}
+                                            >
+                                              {gridHeroIcon(file, fileIconCtx())}
+                                            </div>
+                                          </div>
+                                          <div class='flex flex-col gap-1 p-3'>
+                                            <p
+                                              class='truncate text-sm font-medium'
+                                              title={file.name}
+                                            >
+                                              {file.name}
+                                              <Show when={sharedPathSet().has(file.path)}>
+                                                <LinkIcon
+                                                  class='ml-1 inline h-3 w-3 text-primary opacity-70'
+                                                  aria-hidden='true'
+                                                  stroke-width={2}
+                                                />
+                                              </Show>
+                                            </p>
+                                            <Show
+                                              when={isVirtualFolder() && !file.isDirectory}
+                                              fallback={
+                                                <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                                                  <span>
+                                                    {file.isDirectory
+                                                      ? ''
+                                                      : formatFileSize(file.size)}
+                                                  </span>
+                                                </div>
+                                              }
+                                            >
+                                              <p
+                                                class='truncate text-xs text-muted-foreground'
+                                                title={
+                                                  file.path.split(/[/\\]/).slice(0, -1).join('/') ||
+                                                  '/'
+                                                }
+                                              >
+                                                {file.path.split(/[/\\]/).slice(0, -1).join('/') ||
+                                                  '/'}
+                                              </p>
+                                            </Show>
+                                          </div>
+                                        </div>
+                                      )
+                                    }}
+                                  />
+                                  <DirectoryListingEmpty
+                                    show={showEmptyFolder()}
+                                    canUpload={isEditable()}
+                                  />
+                                </div>
+                              </Match>
+                              <Match when={viewMode() === 'list'}>
+                                <div class='sm:px-4 py-2'>
+                                  <VirtualDirectoryList
+                                    files={files}
+                                    includeParent={() => !!currentPath()}
+                                    scrollTarget={{ kind: 'window' }}
+                                    scrollScope={fileBrowserScrollScope}
+                                    class='relative w-full overflow-x-auto'
+                                    colSpan={3}
+                                    sizeColumnClass='w-28'
+                                    renderParentRow={() => (
+                                      <tr
+                                        class={cn(
+                                          'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none',
+                                          dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
+                                        )}
+                                        onClick={handleParentDirectory}
+                                        onPointerEnter={() =>
+                                          prefetchParentDirectoryHover(fileBrowserPrefetchCtx(), {
+                                            currentPath: currentPath(),
+                                            isVirtualFolder: isVirtualFolder(),
+                                          })
+                                        }
+                                        onDragOver={
+                                          allowMoveFile() && canDropOnParent()
+                                            ? parentRowDragOver
+                                            : undefined
+                                        }
+                                        onDragLeave={
+                                          allowMoveFile() && canDropOnParent()
+                                            ? parentRowDragLeave
+                                            : undefined
+                                        }
+                                        onDrop={
+                                          allowMoveFile() && canDropOnParent()
+                                            ? parentRowDrop
+                                            : undefined
+                                        }
+                                      >
+                                        <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
+                                          <div class='flex items-center justify-center'>
+                                            <ArrowUp
+                                              class='h-5 w-5 text-muted-foreground'
+                                              size={20}
+                                              stroke-width={2}
+                                            />
+                                          </div>
+                                        </td>
+                                        <td class='min-w-0 p-2 align-middle font-medium'>..</td>
+                                        <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
+                                      </tr>
+                                    )}
+                                    renderFileRow={(file) => {
+                                      const isFav = () => favoriteSet().has(file.path)
+                                      const canDragRow = enableDrag()
+                                      return (
+                                        <tr
+                                          data-file-path={file.path}
+                                          class={cn(
+                                            'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group',
+                                            playingParam() === file.path ? 'bg-primary/10' : '',
+                                            file.isDirectory && dragOverPath() === file.path
+                                              ? 'bg-primary/20'
+                                              : '',
+                                            draggedPath() === file.path ? 'opacity-50' : '',
+                                          )}
+                                          draggable={canDragRow}
+                                          onClick={() => handleFileClick(file)}
+                                          onPointerEnter={() =>
+                                            prefetchFolderContentsOnHover(
+                                              fileBrowserPrefetchCtx(),
+                                              file,
+                                            )
+                                          }
+                                          onContextMenu={(e) =>
+                                            fileRowMenu.openRowContextMenu(e, file)
+                                          }
+                                          {...createLongPressContextMenuHandlers()}
+                                          onDragStart={(e) => onFileDragStart(file, e)}
+                                          onDragEnd={onFileDragEnd}
+                                          onDragOver={(e) => {
+                                            if (!file.isDirectory || !allowMoveFile()) return
+                                            handleFolderRowDragOver(file.path, e)
+                                          }}
+                                          onDragLeave={(e) => {
+                                            if (!file.isDirectory || !allowMoveFile()) return
+                                            handleFolderRowDragLeave(file.path, e)
+                                          }}
+                                          onDrop={(e) => {
+                                            if (!file.isDirectory || !allowMoveFile()) return
+                                            handleFolderRowDrop(file.path, e)
+                                          }}
+                                        >
+                                          <td
+                                            class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'
+                                            {...(isRowKnowledgeBase(file)
+                                              ? { 'data-kb-root-icon': '' }
+                                              : {})}
                                           >
-                                            <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                                            <div class='flex items-center justify-center'>
+                                              {fileItemIcon(file, fileIconCtx())}
+                                            </div>
+                                          </td>
+                                          <td class='min-w-0 p-2 align-middle font-medium'>
+                                            <div class='flex items-center gap-2 min-w-0'>
                                               <Show when={!file.isDirectory}>
                                                 <button
                                                   type='button'
-                                                  class={cn(
-                                                    'absolute top-1.5 left-1.5 z-10 rounded-full p-1 transition-all',
-                                                    isFav()
-                                                      ? 'bg-background/90 shadow-sm hover:bg-background'
-                                                      : 'bg-background/70 opacity-60 hover:bg-background/90 group-hover:opacity-100',
-                                                  )}
+                                                  class='shrink-0 opacity-50 hover:opacity-100 group-hover:opacity-100 transition-opacity inline-flex'
                                                   title={
                                                     isFav()
                                                       ? 'Remove from favorites'
@@ -1315,354 +1552,94 @@ export function FileBrowser() {
                                                   }
                                                   onClick={(e) => {
                                                     e.stopPropagation()
-                                                    favoriteMutation.mutate({ filePath: file.path })
+                                                    favoriteMutation.mutate({
+                                                      filePath: file.path,
+                                                    })
                                                   }}
                                                 >
                                                   <Star
                                                     class={cn(
-                                                      'h-3.5 w-3.5',
+                                                      'h-4 w-4',
                                                       isFav()
-                                                        ? 'fill-yellow-400 text-yellow-400'
+                                                        ? 'fill-yellow-400 text-yellow-400 opacity-100'
                                                         : 'text-muted-foreground',
                                                     )}
                                                     fill={isFav() ? 'currentColor' : 'none'}
+                                                    size={16}
                                                     stroke-width={2}
                                                   />
                                                 </button>
                                               </Show>
-                                              <Show when={!file.isDirectory}>
-                                                <div
-                                                  class={cn(
-                                                    'absolute top-1.5 right-1.5 z-10 flex items-center gap-1',
-                                                    viewStats.getViewCount(file.path) > 0 ||
-                                                      viewStats.getShareViewCount(file.path) > 0
-                                                      ? ''
-                                                      : 'hidden',
-                                                  )}
-                                                >
-                                                  <Show
-                                                    when={viewStats.getViewCount(file.path) > 0}
-                                                  >
-                                                    <div
-                                                      class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
-                                                      title={`${viewStats.getViewCount(file.path)} views`}
-                                                    >
-                                                      <Eye
-                                                        class='h-3 w-3 text-muted-foreground'
-                                                        stroke-width={2}
-                                                      />
-                                                      <span class='text-xs font-medium text-muted-foreground'>
-                                                        {viewStats.getViewCount(file.path)}
-                                                      </span>
-                                                    </div>
+                                              <div class='min-w-0 flex-1'>
+                                                <span class='block truncate'>
+                                                  {file.name}
+                                                  <Show when={sharedPathSet().has(file.path)}>
+                                                    <LinkIcon
+                                                      class='ml-1.5 inline h-3 w-3 text-primary opacity-70'
+                                                      aria-hidden='true'
+                                                      stroke-width={2}
+                                                    />
                                                   </Show>
-                                                  <Show
-                                                    when={
-                                                      viewStats.getShareViewCount(file.path) > 0
-                                                    }
-                                                  >
-                                                    <div
-                                                      class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
-                                                      title={`${viewStats.getShareViewCount(file.path)} shared views`}
-                                                    >
-                                                      <Share2
-                                                        class='h-3 w-3 text-primary/70'
-                                                        stroke-width={2}
-                                                      />
-                                                      <span class='text-xs font-medium text-primary/70'>
-                                                        {viewStats.getShareViewCount(file.path)}
-                                                      </span>
-                                                    </div>
-                                                  </Show>
-                                                </div>
-                                              </Show>
-                                              <div
-                                                class='text-muted-foreground'
-                                                {...(isRowKnowledgeBase(file)
-                                                  ? { 'data-kb-root-icon': '' }
-                                                  : {})}
-                                              >
-                                                {gridHeroIcon(file, fileIconCtx())}
-                                              </div>
-                                            </div>
-                                            <div class='flex flex-col gap-1 p-3'>
-                                              <p
-                                                class='truncate text-sm font-medium'
-                                                title={file.name}
-                                              >
-                                                {file.name}
-                                                <Show when={sharedPathSet().has(file.path)}>
-                                                  <LinkIcon
-                                                    class='ml-1 inline h-3 w-3 text-primary opacity-70'
-                                                    aria-hidden='true'
-                                                    stroke-width={2}
-                                                  />
-                                                </Show>
-                                              </p>
-                                              <Show
-                                                when={isVirtualFolder() && !file.isDirectory}
-                                                fallback={
-                                                  <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                                    <span>
-                                                      {file.isDirectory
-                                                        ? ''
-                                                        : formatFileSize(file.size)}
-                                                    </span>
-                                                  </div>
-                                                }
-                                              >
-                                                <p
-                                                  class='truncate text-xs text-muted-foreground'
-                                                  title={
-                                                    file.path
+                                                </span>
+                                                <Show when={isVirtualFolder() && !file.isDirectory}>
+                                                  <span class='block truncate text-xs text-muted-foreground'>
+                                                    {file.path
                                                       .split(/[/\\]/)
                                                       .slice(0, -1)
-                                                      .join('/') || '/'
-                                                  }
-                                                >
-                                                  {file.path
-                                                    .split(/[/\\]/)
-                                                    .slice(0, -1)
-                                                    .join('/') || '/'}
-                                                </p>
-                                              </Show>
-                                            </div>
-                                          </div>
-                                        )
-                                      }}
-                                    </For>
-                                    <DirectoryListingEmpty
-                                      show={showEmptyFolder()}
-                                      canUpload={isEditable()}
-                                    />
-                                  </div>
-                                </div>
-                              </Match>
-                              <Match when={viewMode() === 'list'}>
-                                <div class='sm:px-4 py-2'>
-                                  <div class='relative w-full overflow-x-auto'>
-                                    <table class='w-full table-fixed caption-bottom text-sm'>
-                                      <colgroup>
-                                        <col class='w-[40px]' />
-                                        <col />
-                                        <col class='w-28' />
-                                      </colgroup>
-                                      <tbody class='[&_tr:last-child]:border-0'>
-                                        <Show when={currentPath()}>
-                                          <tr
-                                            class={cn(
-                                              'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none',
-                                              dragOverPath() === '__parent__'
-                                                ? 'bg-primary/20'
-                                                : '',
-                                            )}
-                                            onClick={handleParentDirectory}
-                                            onPointerEnter={() =>
-                                              prefetchParentDirectoryHover(
-                                                fileBrowserPrefetchCtx(),
-                                                {
-                                                  currentPath: currentPath(),
-                                                  isVirtualFolder: isVirtualFolder(),
-                                                },
-                                              )
-                                            }
-                                            onDragOver={
-                                              allowMoveFile() && canDropOnParent()
-                                                ? parentRowDragOver
-                                                : undefined
-                                            }
-                                            onDragLeave={
-                                              allowMoveFile() && canDropOnParent()
-                                                ? parentRowDragLeave
-                                                : undefined
-                                            }
-                                            onDrop={
-                                              allowMoveFile() && canDropOnParent()
-                                                ? parentRowDrop
-                                                : undefined
-                                            }
-                                          >
-                                            <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
-                                              <div class='flex items-center justify-center'>
-                                                <ArrowUp
-                                                  class='h-5 w-5 text-muted-foreground'
-                                                  size={20}
-                                                  stroke-width={2}
-                                                />
+                                                      .join('/') || '/'}
+                                                  </span>
+                                                </Show>
                                               </div>
-                                            </td>
-                                            <td class='min-w-0 p-2 align-middle font-medium'>..</td>
-                                            <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
-                                          </tr>
-                                        </Show>
-                                        <For each={files()}>
-                                          {(file) => {
-                                            const isFav = () => favoriteSet().has(file.path)
-                                            const canDragRow = enableDrag()
-                                            return (
-                                              <tr
-                                                data-file-path={file.path}
-                                                class={cn(
-                                                  'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group',
-                                                  playingParam() === file.path
-                                                    ? 'bg-primary/10'
-                                                    : '',
-                                                  file.isDirectory && dragOverPath() === file.path
-                                                    ? 'bg-primary/20'
-                                                    : '',
-                                                  draggedPath() === file.path ? 'opacity-50' : '',
-                                                )}
-                                                draggable={canDragRow}
-                                                onClick={() => handleFileClick(file)}
-                                                onPointerEnter={() =>
-                                                  prefetchFolderContentsOnHover(
-                                                    fileBrowserPrefetchCtx(),
-                                                    file,
-                                                  )
-                                                }
-                                                onContextMenu={(e) =>
-                                                  fileRowMenu.openRowContextMenu(e, file)
-                                                }
-                                                {...createLongPressContextMenuHandlers()}
-                                                onDragStart={(e) => onFileDragStart(file, e)}
-                                                onDragEnd={onFileDragEnd}
-                                                onDragOver={(e) => {
-                                                  if (!file.isDirectory || !allowMoveFile()) return
-                                                  handleFolderRowDragOver(file.path, e)
-                                                }}
-                                                onDragLeave={(e) => {
-                                                  if (!file.isDirectory || !allowMoveFile()) return
-                                                  handleFolderRowDragLeave(file.path, e)
-                                                }}
-                                                onDrop={(e) => {
-                                                  if (!file.isDirectory || !allowMoveFile()) return
-                                                  handleFolderRowDrop(file.path, e)
-                                                }}
-                                              >
-                                                <td
-                                                  class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'
-                                                  {...(isRowKnowledgeBase(file)
-                                                    ? { 'data-kb-root-icon': '' }
-                                                    : {})}
+                                            </div>
+                                          </td>
+                                          <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
+                                            <div class='flex items-center justify-end gap-2'>
+                                              <Show when={!file.isDirectory}>
+                                                <Show when={viewStats.getViewCount(file.path) > 0}>
+                                                  <div
+                                                    class='flex items-center gap-1 text-xs'
+                                                    title={`${viewStats.getViewCount(file.path)} views`}
+                                                    data-testid='file-view-count'
+                                                  >
+                                                    <Eye
+                                                      class='h-3.5 w-3.5 shrink-0'
+                                                      stroke-width={2}
+                                                    />
+                                                    <span>{viewStats.getViewCount(file.path)}</span>
+                                                  </div>
+                                                </Show>
+                                                <Show
+                                                  when={viewStats.getShareViewCount(file.path) > 0}
                                                 >
-                                                  <div class='flex items-center justify-center'>
-                                                    {fileItemIcon(file, fileIconCtx())}
-                                                  </div>
-                                                </td>
-                                                <td class='min-w-0 p-2 align-middle font-medium'>
-                                                  <div class='flex items-center gap-2 min-w-0'>
-                                                    <Show when={!file.isDirectory}>
-                                                      <button
-                                                        type='button'
-                                                        class='shrink-0 opacity-50 hover:opacity-100 group-hover:opacity-100 transition-opacity inline-flex'
-                                                        title={
-                                                          isFav()
-                                                            ? 'Remove from favorites'
-                                                            : 'Add to favorites'
-                                                        }
-                                                        onClick={(e) => {
-                                                          e.stopPropagation()
-                                                          favoriteMutation.mutate({
-                                                            filePath: file.path,
-                                                          })
-                                                        }}
-                                                      >
-                                                        <Star
-                                                          class={cn(
-                                                            'h-4 w-4',
-                                                            isFav()
-                                                              ? 'fill-yellow-400 text-yellow-400 opacity-100'
-                                                              : 'text-muted-foreground',
-                                                          )}
-                                                          fill={isFav() ? 'currentColor' : 'none'}
-                                                          size={16}
-                                                          stroke-width={2}
-                                                        />
-                                                      </button>
-                                                    </Show>
-                                                    <div class='min-w-0 flex-1'>
-                                                      <span class='block truncate'>
-                                                        {file.name}
-                                                        <Show when={sharedPathSet().has(file.path)}>
-                                                          <LinkIcon
-                                                            class='ml-1.5 inline h-3 w-3 text-primary opacity-70'
-                                                            aria-hidden='true'
-                                                            stroke-width={2}
-                                                          />
-                                                        </Show>
-                                                      </span>
-                                                      <Show
-                                                        when={
-                                                          isVirtualFolder() && !file.isDirectory
-                                                        }
-                                                      >
-                                                        <span class='block truncate text-xs text-muted-foreground'>
-                                                          {file.path
-                                                            .split(/[/\\]/)
-                                                            .slice(0, -1)
-                                                            .join('/') || '/'}
-                                                        </span>
-                                                      </Show>
-                                                    </div>
-                                                  </div>
-                                                </td>
-                                                <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
-                                                  <div class='flex items-center justify-end gap-2'>
-                                                    <Show when={!file.isDirectory}>
-                                                      <Show
-                                                        when={viewStats.getViewCount(file.path) > 0}
-                                                      >
-                                                        <div
-                                                          class='flex items-center gap-1 text-xs'
-                                                          title={`${viewStats.getViewCount(file.path)} views`}
-                                                          data-testid='file-view-count'
-                                                        >
-                                                          <Eye
-                                                            class='h-3.5 w-3.5 shrink-0'
-                                                            stroke-width={2}
-                                                          />
-                                                          <span>
-                                                            {viewStats.getViewCount(file.path)}
-                                                          </span>
-                                                        </div>
-                                                      </Show>
-                                                      <Show
-                                                        when={
-                                                          viewStats.getShareViewCount(file.path) > 0
-                                                        }
-                                                      >
-                                                        <div
-                                                          class='flex items-center gap-1 text-xs text-primary/70'
-                                                          title={`${viewStats.getShareViewCount(file.path)} shared views`}
-                                                        >
-                                                          <Share2
-                                                            class='h-3 w-3 shrink-0'
-                                                            stroke-width={2}
-                                                          />
-                                                          <span>
-                                                            {viewStats.getShareViewCount(file.path)}
-                                                          </span>
-                                                        </div>
-                                                      </Show>
-                                                    </Show>
-                                                    <span class='inline-block w-20 tabular-nums shrink-0'>
-                                                      {file.isDirectory
-                                                        ? ''
-                                                        : formatFileSize(file.size)}
+                                                  <div
+                                                    class='flex items-center gap-1 text-xs text-primary/70'
+                                                    title={`${viewStats.getShareViewCount(file.path)} shared views`}
+                                                  >
+                                                    <Share2
+                                                      class='h-3 w-3 shrink-0'
+                                                      stroke-width={2}
+                                                    />
+                                                    <span>
+                                                      {viewStats.getShareViewCount(file.path)}
                                                     </span>
                                                   </div>
-                                                </td>
-                                              </tr>
-                                            )
-                                          }}
-                                        </For>
-                                        <DirectoryListingEmptyTableRow
-                                          show={showEmptyFolder()}
-                                          canUpload={isEditable()}
-                                        />
-                                      </tbody>
-                                    </table>
-                                  </div>
+                                                </Show>
+                                              </Show>
+                                              <span class='inline-block w-20 tabular-nums shrink-0'>
+                                                {file.isDirectory ? '' : formatFileSize(file.size)}
+                                              </span>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      )
+                                    }}
+                                    renderEmptyRow={() => (
+                                      <DirectoryListingEmptyTableRow
+                                        show={showEmptyFolder()}
+                                        canUpload={isEditable()}
+                                      />
+                                    )}
+                                  />
                                 </div>
                               </Match>
                             </Switch>
@@ -1838,7 +1815,7 @@ export function FileBrowser() {
             onPasteFileSubmit={handlePasteFileSubmit}
             closePasteDialog={closePasteDialog}
           />
-          <FloatingScrollActions playingPath={playingPath} />
+          <FloatingScrollActions playingPath={playingPath} scrollScope={fileBrowserScrollScope} />
         </div>
       </div>
     </div>

@@ -2,9 +2,11 @@ import type { Accessor } from 'solid-js'
 import { createEffect, createSignal, onCleanup, onMount, Show } from 'solid-js'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import LocateFixed from 'lucide-solid/icons/locate-fixed'
+import { getVirtualFileScroller } from './virtual-directory-scroll'
 
 type Props = {
   playingPath: Accessor<string>
+  scrollScope?: Accessor<string | undefined>
 }
 
 function isOutsideViewport(el: HTMLElement) {
@@ -33,7 +35,10 @@ export function FloatingScrollActions(props: Props) {
     raf = requestAnimationFrame(() => {
       const path = props.playingPath()
       const fileEl = playingFileElement(path)
-      setShowPlayingFile(!!path && !!fileEl && isOutsideViewport(fileEl))
+      const virtualScroller = getVirtualFileScroller(props.scrollScope?.())
+      setShowPlayingFile(
+        !!path && (fileEl ? isOutsideViewport(fileEl) : !!virtualScroller?.hasPath(path)),
+      )
 
       const videoEl = document.querySelector<HTMLElement>('[data-video-player-inline="true"]')
       setShowVideoTop(!!videoEl && isOutsideViewport(videoEl))
@@ -41,7 +46,14 @@ export function FloatingScrollActions(props: Props) {
   }
 
   function scrollPlayingFileIntoView() {
-    playingFileElement(props.playingPath())?.scrollIntoView({
+    const path = props.playingPath()
+    const fileEl = playingFileElement(path)
+    if (!fileEl) {
+      getVirtualFileScroller(props.scrollScope?.())?.scrollToPath(path)
+      return
+    }
+
+    fileEl.scrollIntoView({
       behavior: 'smooth',
       block: 'center',
       inline: 'nearest',
@@ -54,6 +66,7 @@ export function FloatingScrollActions(props: Props) {
 
   createEffect(() => {
     props.playingPath()
+    props.scrollScope?.()
     updateVisibility()
   })
 
