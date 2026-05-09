@@ -346,8 +346,8 @@ export function snapZoneToBoundsWithOccupied(
 const EDGE_FLUSH_TOL = 4
 
 /**
- * When the workspace canvas is resized, scale snapped window bounds proportionally
- * so custom split ratios are preserved, then nudge tiles flush to the new right/bottom.
+ * When the workspace canvas is resized, keep maximized windows flush with the canvas
+ * and scale snapped window bounds proportionally so custom split ratios are preserved.
  */
 export function scaleSnappedWindowsBoundsForCanvasResize(
   windows: WorkspaceWindowDefinition[],
@@ -359,7 +359,16 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
   const sy = next.height / prev.height
   const scaled = windows.map((w) => {
     const lz = w.layout
-    if (!lz?.snapZone || lz.fullscreen || lz.minimized || !lz.bounds) return w
+    if (lz?.fullscreen) {
+      return {
+        ...w,
+        layout: {
+          ...lz,
+          bounds: createFullscreenBounds(next),
+        },
+      }
+    }
+    if (!lz?.snapZone || lz.minimized || !lz.bounds) return w
     const b = lz.bounds
     return {
       ...w,
