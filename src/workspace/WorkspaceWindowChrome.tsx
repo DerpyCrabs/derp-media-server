@@ -355,7 +355,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
           >
             <button
               type='button'
-              class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
+              class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-8 items-center justify-center transition-colors'
               onClick={(e) => {
                 e.stopPropagation()
                 props.onMinimize(liveLeaderId())
@@ -366,7 +366,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             </button>
             <button
               type='button'
-              class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
+              class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-8 items-center justify-center transition-colors'
               onClick={(e) => {
                 e.stopPropagation()
                 props.onToggleFullscreen(liveLeaderId())
@@ -388,7 +388,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             </button>
             <button
               type='button'
-              class='text-muted-foreground hover:bg-muted inline-flex h-full w-8 items-center justify-center'
+              class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-8 items-center justify-center transition-colors'
               onClick={(e) => {
                 e.stopPropagation()
                 props.onClose(liveLeaderId())
