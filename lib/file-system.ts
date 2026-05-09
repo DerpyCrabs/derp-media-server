@@ -3,6 +3,7 @@ import path from 'path'
 import { FileItem, MediaType } from './types'
 import { getMediaType } from './media-utils'
 import { VIRTUAL_FOLDERS } from './constants'
+import { hasCachedThumbnail } from '@/server/lib/thumbnails'
 import {
   config,
   getMediaRootByName,
@@ -221,13 +222,18 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
 
           const stats = await fs.stat(entryPath)
           const extension = path.extname(entry.name).slice(1).toLowerCase()
+          const type = getMediaType(extension)
           return {
             name: entry.name,
             path: logicalPath,
-            type: getMediaType(extension),
+            type,
             size: stats.size,
             extension,
             isDirectory: false,
+            thumbnailGenerated:
+              type === MediaType.IMAGE || type === MediaType.VIDEO
+                ? hasCachedThumbnail(entryPath, stats.mtime)
+                : undefined,
           }
         } catch {
           return null

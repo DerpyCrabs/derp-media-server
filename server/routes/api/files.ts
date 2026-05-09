@@ -20,6 +20,7 @@ import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { config, getDataFilePath } from '@/lib/config'
+import { hasCachedThumbnail } from '@/server/lib/thumbnails'
 import { promises as fs } from 'fs'
 import path from 'path'
 
@@ -43,14 +44,19 @@ async function getMostPlayedFiles(): Promise<FileItem[]> {
           if (stat.isDirectory()) return null
           const fileName = path.basename(filePath)
           const extension = path.extname(fileName).slice(1).toLowerCase()
+          const type = getMediaType(extension)
           return {
             name: fileName,
             path: filePath,
-            type: getMediaType(extension),
+            type,
             size: stat.size,
             extension,
             isDirectory: false,
             viewCount: viewCount as number,
+            thumbnailGenerated:
+              type === MediaType.IMAGE || type === MediaType.VIDEO
+                ? hasCachedThumbnail(fullPath, stat.mtime)
+                : undefined,
           }
         } catch {
           return null
@@ -76,13 +82,18 @@ async function getFavoriteFiles(): Promise<FileItem[]> {
           const stat = await fs.stat(fullPath)
           const fileName = path.basename(filePath)
           const extension = path.extname(fileName).slice(1).toLowerCase()
+          const type = stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension)
           return {
             name: fileName,
             path: filePath,
-            type: stat.isDirectory() ? MediaType.FOLDER : getMediaType(extension),
+            type,
             size: stat.isDirectory() ? 0 : stat.size,
             extension,
             isDirectory: stat.isDirectory(),
+            thumbnailGenerated:
+              type === MediaType.IMAGE || type === MediaType.VIDEO
+                ? hasCachedThumbnail(fullPath, stat.mtime)
+                : undefined,
           }
         } catch {
           return null

@@ -18,6 +18,7 @@ export interface FileItem {
   isVirtual?: boolean
   viewCount?: number
   shareToken?: string
+  thumbnailGenerated?: boolean
 }
 
 export interface AutoSaveSettings {

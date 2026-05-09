@@ -1,101 +1,25 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { getFilePath } from '@/lib/file-system'
 import { existsSync, statSync } from 'fs'
-import { exec } from 'child_process'
-import { promisify } from 'util'
-import path from 'path'
-import fs from 'fs/promises'
-import { getMediaType } from '@/lib/media-utils'
-import { MediaType } from '@/lib/types'
+import {
+  isThumbnailAbortError,
+  readThumbnail,
+  sendPlaceholder,
+  sendThumbnailData,
+} from '@/server/lib/thumbnails'
 
-const execAsync = promisify(exec)
-
-const CACHE_DIR = path.join(process.cwd(), '.thumbnails')
-
-async function ensureCacheDir() {
-  try {
-    await fs.mkdir(CACHE_DIR, { recursive: true })
-  } catch (err) {
-    console.error('Failed to create cache directory:', err)
+function createReplyAbortSignal(request: FastifyRequest, reply: FastifyReply): AbortSignal {
+  const controller = new AbortController()
+  const abort = () => {
+    if (!reply.raw.writableEnded) controller.abort()
   }
-}
-
-function getCacheKey(filePath: string, mtime: Date): string {
-  const hash = Buffer.from(`${filePath}-${mtime.getTime()}`)
-    .toString('base64')
-    .replace(/[^a-zA-Z0-9]/g, '')
-  return `${hash}.jpg`
-}
-
-let ffmpegAvailable: boolean | null = null
-async function checkFFmpeg(): Promise<boolean> {
-  if (ffmpegAvailable !== null) return ffmpegAvailable
-  try {
-    await execAsync('ffmpeg -version')
-    ffmpegAvailable = true
-  } catch {
-    ffmpegAvailable = false
-  }
-  return ffmpegAvailable
-}
-
-async function getVideoDuration(videoPath: string): Promise<number> {
-  try {
-    const command = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`
-    const { stdout } = await execAsync(command, { timeout: 5000 })
-    const duration = parseFloat(stdout.trim())
-    return isNaN(duration) ? 0 : duration
-  } catch {
-    return 0
-  }
-}
-
-async function generateVideoThumbnail(videoPath: string, outputPath: string): Promise<void> {
-  const hasFfmpeg = await checkFFmpeg()
-  if (!hasFfmpeg) throw new Error('ffmpeg not available')
-
-  const duration = await getVideoDuration(videoPath)
-  let startTime = 3.0
-  if (duration > 0) startTime = Math.min(duration * 0.05, 3.0)
-
-  const command = `ffmpeg -ss ${startTime} -i "${videoPath}" -vf "thumbnail=n=100,scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`
-  await execAsync(command, { timeout: 15000 })
-}
-
-async function generateImageThumbnail(imagePath: string, outputPath: string): Promise<void> {
-  const hasFfmpeg = await checkFFmpeg()
-  if (!hasFfmpeg) throw new Error('ffmpeg not available')
-
-  const command = `ffmpeg -i "${imagePath}" -vf "scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`
-  await execAsync(command, { timeout: 15000 })
-}
-
-async function generateThumbnail(filePath: string, outputPath: string): Promise<void> {
-  const extension = path.extname(filePath).slice(1).toLowerCase()
-  const mediaType = getMediaType(extension)
-  if (mediaType === MediaType.IMAGE) {
-    await generateImageThumbnail(filePath, outputPath)
-    return
-  }
-  if (mediaType === MediaType.VIDEO) {
-    await generateVideoThumbnail(filePath, outputPath)
-    return
-  }
-  throw new Error('Unsupported thumbnail media type')
-}
-
-const PLACEHOLDER_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-  'base64',
-)
-
-function sendPlaceholder(reply: import('fastify').FastifyReply, maxAge: string) {
-  reply.raw.writeHead(200, {
-    'Content-Type': 'image/png',
-    'Content-Length': PLACEHOLDER_PNG.length,
-    'Cache-Control': maxAge,
+  request.raw.once('aborted', abort)
+  reply.raw.once('close', abort)
+  reply.raw.once('finish', () => {
+    request.raw.off('aborted', abort)
+    reply.raw.off('close', abort)
   })
-  reply.raw.end(PLACEHOLDER_PNG)
+  return controller.signal
 }
 
 export function registerThumbnailRoutes(app: FastifyInstance) {
@@ -115,33 +39,16 @@ export function registerThumbnailRoutes(app: FastifyInstance) {
         return reply
       }
 
-      await ensureCacheDir()
-
-      const cacheKey = getCacheKey(fullPath, stats.mtime)
-      const cachedPath = path.join(CACHE_DIR, cacheKey)
-
-      if (existsSync(cachedPath)) {
-        const thumbnailData = await fs.readFile(cachedPath)
-        reply.raw.writeHead(200, {
-          'Content-Type': 'image/jpeg',
-          'Content-Length': thumbnailData.length,
-          'Cache-Control': 'public, max-age=31536000',
-        })
-        reply.raw.end(thumbnailData)
-        return reply
-      }
-
       try {
-        await generateThumbnail(fullPath, cachedPath)
-        const thumbnailData = await fs.readFile(cachedPath)
-        reply.raw.writeHead(200, {
-          'Content-Type': 'image/jpeg',
-          'Content-Length': thumbnailData.length,
-          'Cache-Control': 'public, max-age=31536000',
-        })
-        reply.raw.end(thumbnailData)
+        const thumbnailData = await readThumbnail(
+          fullPath,
+          stats.mtime,
+          createReplyAbortSignal(request, reply),
+        )
+        sendThumbnailData(reply, thumbnailData)
         return reply
       } catch (error) {
+        if (isThumbnailAbortError(error)) return reply
         console.error('Error generating thumbnail:', error)
         sendPlaceholder(reply, 'public, max-age=3600')
         return reply

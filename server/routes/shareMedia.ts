@@ -1,8 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { createReadStream, statSync, existsSync } from 'fs'
 import { promises as fs } from 'fs'
-import { exec } from 'child_process'
-import { promisify } from 'util'
 import archiver from 'archiver'
 import path from 'path'
 import {
@@ -12,8 +10,14 @@ import {
   writeBinaryFile,
   fileExists,
 } from '@/lib/file-system'
-import { getMimeType, formatFileSize, getMediaType } from '@/lib/media-utils'
+import { getMimeType, formatFileSize } from '@/lib/media-utils'
 import { extractAudioMetadata, extractAudioTrack } from '@/server/lib/audio-helpers'
+import {
+  isThumbnailAbortError,
+  readThumbnail,
+  sendPlaceholder,
+  sendThumbnailData,
+} from '@/server/lib/thumbnails'
 import {
   getShare,
   isShareAccessAuthorized,
@@ -29,9 +33,6 @@ import {
   getKnowledgeBaseRootForPath,
 } from '@/lib/knowledge-base'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
-import { MediaType } from '@/lib/types'
-
-const execAsync = promisify(exec)
 
 /** Safe basename for KB pasted images (Obsidian-style names include spaces). */
 function sanitizeKbPastedImageFileName(name: unknown): string | null {
@@ -45,98 +46,21 @@ function sanitizeKbPastedImageFileName(name: unknown): string | null {
   return base
 }
 
-// ── Thumbnail helpers (mirrored from thumbnail.ts for share scope) ───
-
-const CACHE_DIR = path.join(process.cwd(), '.thumbnails')
-
-async function ensureCacheDir() {
-  try {
-    await fs.mkdir(CACHE_DIR, { recursive: true })
-  } catch {
-    /* ignore */
-  }
-}
-
-function getCacheKey(filePath: string, mtime: Date): string {
-  return (
-    Buffer.from(`${filePath}-${mtime.getTime()}`)
-      .toString('base64')
-      .replace(/[^a-zA-Z0-9]/g, '') + '.jpg'
-  )
-}
-
-let ffmpegAvailable: boolean | null = null
-async function checkFFmpeg(): Promise<boolean> {
-  if (ffmpegAvailable !== null) return ffmpegAvailable
-  try {
-    await execAsync('ffmpeg -version')
-    ffmpegAvailable = true
-  } catch {
-    ffmpegAvailable = false
-  }
-  return ffmpegAvailable
-}
-
-async function getVideoDuration(videoPath: string): Promise<number> {
-  try {
-    const { stdout } = await execAsync(
-      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
-      { timeout: 5000 },
-    )
-    const d = parseFloat(stdout.trim())
-    return isNaN(d) ? 0 : d
-  } catch {
-    return 0
-  }
-}
-
-async function generateVideoThumbnail(videoPath: string, outputPath: string): Promise<void> {
-  if (!(await checkFFmpeg())) throw new Error('ffmpeg not available')
-  const duration = await getVideoDuration(videoPath)
-  const startTime = duration > 0 ? Math.min(duration * 0.05, 3.0) : 3.0
-  await execAsync(
-    `ffmpeg -ss ${startTime} -i "${videoPath}" -vf "thumbnail=n=100,scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`,
-    { timeout: 15000 },
-  )
-}
-
-async function generateImageThumbnail(imagePath: string, outputPath: string): Promise<void> {
-  if (!(await checkFFmpeg())) throw new Error('ffmpeg not available')
-  await execAsync(
-    `ffmpeg -i "${imagePath}" -vf "scale='min(300,iw)':-1" -frames:v 1 "${outputPath}" -y`,
-    { timeout: 15000 },
-  )
-}
-
-async function generateThumbnail(filePath: string, outputPath: string): Promise<void> {
-  const extension = path.extname(filePath).slice(1).toLowerCase()
-  const mediaType = getMediaType(extension)
-  if (mediaType === MediaType.IMAGE) {
-    await generateImageThumbnail(filePath, outputPath)
-    return
-  }
-  if (mediaType === MediaType.VIDEO) {
-    await generateVideoThumbnail(filePath, outputPath)
-    return
-  }
-  throw new Error('Unsupported thumbnail media type')
-}
-
-const PLACEHOLDER_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-  'base64',
-)
-
-function sendPlaceholder(reply: FastifyReply, maxAge: string) {
-  reply.raw.writeHead(200, {
-    'Content-Type': 'image/png',
-    'Content-Length': PLACEHOLDER_PNG.length,
-    'Cache-Control': maxAge,
-  })
-  reply.raw.end(PLACEHOLDER_PNG)
-}
-
 // ── Share access validation for HTTP routes ──────────────────────────
+
+function createReplyAbortSignal(request: FastifyRequest, reply: FastifyReply): AbortSignal {
+  const controller = new AbortController()
+  const abort = () => {
+    if (!reply.raw.writableEnded) controller.abort()
+  }
+  request.raw.once('aborted', abort)
+  reply.raw.once('close', abort)
+  reply.raw.once('finish', () => {
+    request.raw.off('aborted', abort)
+    reply.raw.off('close', abort)
+  })
+  return controller.signal
+}
 
 function validateShareAccessHTTP(
   request: FastifyRequest,
@@ -259,32 +183,16 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
         return reply
       }
 
-      await ensureCacheDir()
-      const cacheKey = getCacheKey(fullPath, stats.mtime)
-      const cachedPath = path.join(CACHE_DIR, cacheKey)
-
-      if (existsSync(cachedPath)) {
-        const data = await fs.readFile(cachedPath)
-        reply.raw.writeHead(200, {
-          'Content-Type': 'image/jpeg',
-          'Content-Length': data.length,
-          'Cache-Control': 'public, max-age=31536000',
-        })
-        reply.raw.end(data)
-        return reply
-      }
-
       try {
-        await generateThumbnail(fullPath, cachedPath)
-        const data = await fs.readFile(cachedPath)
-        reply.raw.writeHead(200, {
-          'Content-Type': 'image/jpeg',
-          'Content-Length': data.length,
-          'Cache-Control': 'public, max-age=31536000',
-        })
-        reply.raw.end(data)
+        const data = await readThumbnail(
+          fullPath,
+          stats.mtime,
+          createReplyAbortSignal(request, reply),
+        )
+        sendThumbnailData(reply, data)
         return reply
-      } catch {
+      } catch (error) {
+        if (isThumbnailAbortError(error)) return reply
         sendPlaceholder(reply, 'public, max-age=3600')
         return reply
       }

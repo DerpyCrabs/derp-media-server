@@ -1,4 +1,5 @@
 import { buildThumbnailUrl, type MediaShareContext } from './build-media-url'
+import { thumbnailLoadQueue, type ThumbnailLoadTicket } from './thumbnail-load-queue'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { getMediaType } from '@/lib/media-utils'
 import { getSolidIconComponent } from './solid-available-icons'
@@ -19,7 +20,7 @@ import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
 import Star from 'lucide-solid/icons/star'
 import Video from 'lucide-solid/icons/video'
-import { Show, createSignal, type JSX } from 'solid-js'
+import { Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import type { WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 
 export type FileIconContext = {
@@ -192,32 +193,115 @@ function gridHeroIconScaleWrap(inner: JSX.Element): JSX.Element {
 }
 
 function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JSX.Element {
+  let containerEl: HTMLDivElement | undefined
+  let loadTicket: ThumbnailLoadTicket | undefined
   const [imgFailed, setImgFailed] = createSignal(false)
+  const [queuedSrc, setQueuedSrc] = createSignal<string | undefined>()
   const src = () => buildThumbnailUrl(props.file.path, props.ctx.mediaShare ?? null)
   const testId = () =>
     props.file.type === MediaType.IMAGE
       ? 'file-browser-image-thumbnail'
       : 'file-browser-video-thumbnail'
 
+  function releaseLoadSlot() {
+    loadTicket?.release()
+    loadTicket = undefined
+  }
+
+  function cancelLoad() {
+    loadTicket?.cancel()
+    loadTicket = undefined
+    setQueuedSrc(undefined)
+  }
+
+  createEffect(() => {
+    const url = src()
+    const isGenerated = props.file.thumbnailGenerated === true
+    const target = containerEl
+    let visible = false
+    let settleTimer: number | undefined
+    let observer: IntersectionObserver | undefined
+
+    cancelLoad()
+    setImgFailed(false)
+
+    if (isGenerated) {
+      setQueuedSrc(url)
+      onCleanup(cancelLoad)
+      return
+    }
+
+    function clearSettleTimer() {
+      if (settleTimer === undefined) return
+      window.clearTimeout(settleTimer)
+      settleTimer = undefined
+    }
+
+    function enqueueLoad() {
+      if (!visible || loadTicket) return
+      loadTicket = thumbnailLoadQueue.enqueue(() => {
+        if (!visible) {
+          releaseLoadSlot()
+          return
+        }
+        setQueuedSrc(url)
+      })
+    }
+
+    function scheduleLoad() {
+      clearSettleTimer()
+      settleTimer = window.setTimeout(() => {
+        settleTimer = undefined
+        enqueueLoad()
+      }, 125)
+    }
+
+    if (target && typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver(
+        (entries) => {
+          visible = entries.some((entry) => entry.isIntersecting)
+          if (visible) {
+            scheduleLoad()
+          } else {
+            clearSettleTimer()
+            cancelLoad()
+          }
+        },
+        { threshold: 0.01 },
+      )
+      observer.observe(target)
+    } else {
+      visible = true
+      scheduleLoad()
+    }
+
+    onCleanup(() => {
+      observer?.disconnect()
+      clearSettleTimer()
+      cancelLoad()
+    })
+  })
+
   return (
-    <Show
-      when={!imgFailed()}
-      fallback={
-        <div class='flex h-full min-h-full w-full items-center justify-center text-muted-foreground'>
-          {gridHeroIconScaleWrap(fileItemIcon(props.file, props.ctx))}
-        </div>
-      }
-    >
-      <div class='absolute inset-0'>
-        <img
-          src={src()}
-          alt=''
-          loading='lazy'
-          decoding='async'
-          class='h-full w-full object-cover'
-          data-testid={testId()}
-          onError={() => setImgFailed(true)}
-        />
+    <Show when={!imgFailed()} fallback={<div class='h-full min-h-full w-full' />}>
+      <div ref={containerEl} class='absolute inset-0'>
+        <Show when={queuedSrc()} fallback={<div class='h-full min-h-full w-full' />}>
+          {(thumbnailSrc) => (
+            <img
+              src={thumbnailSrc()}
+              alt=''
+              loading='eager'
+              decoding='async'
+              class='h-full w-full object-cover'
+              data-testid={testId()}
+              onLoad={releaseLoadSlot}
+              onError={() => {
+                releaseLoadSlot()
+                setImgFailed(true)
+              }}
+            />
+          )}
+        </Show>
       </div>
     </Show>
   )
