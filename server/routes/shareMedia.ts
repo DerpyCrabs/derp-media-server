@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { createReadStream, statSync, existsSync } from 'fs'
 import { promises as fs } from 'fs'
-import archiver from 'archiver'
+import { ZipArchive } from 'archiver'
 import path from 'path'
 import {
   getFilePath,
@@ -229,7 +229,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(folderName + '.zip')}`,
         })
 
-        const archive = archiver('zip', { zlib: { level: 1 } })
+        const archive = new ZipArchive({ zlib: { level: 1 } })
         archive.on('error', (err) => reply.raw.destroy(err))
         archive.pipe(reply.raw)
         archive.directory(fullPath, false)

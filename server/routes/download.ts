@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { getFilePath } from '@/lib/file-system'
-import archiver from 'archiver'
+import { ZipArchive } from 'archiver'
 import { statSync, createReadStream } from 'fs'
 import path from 'path'
 
@@ -24,7 +24,7 @@ export function registerDownloadRoutes(app: FastifyInstance) {
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(folderName + '.zip')}`,
         })
 
-        const archive = archiver('zip', { zlib: { level: 1 } })
+        const archive = new ZipArchive({ zlib: { level: 1 } })
         archive.on('error', (err) => reply.raw.destroy(err))
         archive.pipe(reply.raw)
         archive.directory(fullPath, false)
