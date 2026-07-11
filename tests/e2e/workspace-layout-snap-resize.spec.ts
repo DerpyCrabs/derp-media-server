@@ -154,7 +154,6 @@ test.describe('Edge Snapping', () => {
     const containerH = viewport.height - TASKBAR_HEIGHT
     const thirdW = Math.round(viewport.width / 3)
     const halfH = Math.round(containerH / 2)
-
     expect(bounds.y).toBeLessThanOrEqual(2)
     expect(bounds.height).toBeGreaterThan(halfH - 30)
     expect(bounds.height).toBeLessThan(halfH + 30)
@@ -275,6 +274,8 @@ test.describe('Snap assist bar', () => {
 
     const viewport = page.viewportSize()!
     const containerH = viewport.height - TASKBAR_HEIGHT
+    const thirdW = Math.round(viewport.width / 3)
+    const halfH = Math.round(containerH / 2)
 
     await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
     await page.mouse.down()
@@ -291,12 +292,22 @@ test.describe('Snap assist bar', () => {
     await page.mouse.move(cbox.x + cbox.width / 2, cbox.y + cbox.height / 2, { steps: 10 })
     await expect(cell).toHaveAttribute('data-snap-assist-hover-active', '')
 
+    const preview = page.locator('[data-snap-preview]')
+    await expect(preview).toHaveCSS('display', 'block')
+    const previewBox = await preview.boundingBox()
+    if (!previewBox) throw new Error('Workspace snap preview is not visible')
+    const previewZ = Number(await preview.evaluate((el) => getComputedStyle(el).zIndex))
+    const assistZ = Number(await assist.evaluate((el) => getComputedStyle(el).zIndex))
+    expect(previewZ).toBeLessThan(assistZ)
+    expect(previewBox.x).toBeLessThanOrEqual(4)
+    expect(previewBox.y).toBeLessThanOrEqual(4)
+    expect(previewBox.width).toBeGreaterThan(thirdW - 4)
+    expect(previewBox.height).toBeGreaterThan(halfH - 4)
+
     await page.mouse.up()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
-    const thirdW = Math.round(viewport.width / 3)
-    const halfH = Math.round(containerH / 2)
 
     expect(bounds.x).toBeLessThanOrEqual(4)
     expect(bounds.y).toBeLessThanOrEqual(4)

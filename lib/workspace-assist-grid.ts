@@ -8,7 +8,10 @@ export function isAssistGridShape(s: string): s is AssistGridShape {
   return (ASSIST_GRID_SHAPES as readonly string[]).includes(s)
 }
 
-export function assistShapeToDims(shape: AssistGridShape): { cols: number; rows: number } {
+export function assistShapeToDims(shape: AssistGridShape): {
+  cols: number
+  rows: number
+} {
   switch (shape) {
     case '3x2':
       return { cols: 3, rows: 2 }
@@ -44,11 +47,7 @@ export type EdgeAssistDetectOptions = {
   suppressTopEdgeSpans: boolean
 }
 
-function topBottomEdgeSlot(
-  cursorX: number,
-  cw: number,
-  cols: number,
-): { gc0: number; gc1: number } {
+function topBottomEdgeSlot(cursorX: number, cw: number, cols: number): { gc0: number; gc1: number } {
   const slots = cols * 2 - 1
   const t = Math.min(Math.max((cursorX / cw) * slots, 0), slots - Number.EPSILON)
   const slot = Math.min(slots - 1, Math.floor(t))
@@ -60,11 +59,7 @@ function topBottomEdgeSlot(
   return { gc0: i, gc1: i + 1 }
 }
 
-function leftRightEdgeSlot(
-  cursorY: number,
-  ch: number,
-  rows: number,
-): { gr0: number; gr1: number } {
+function leftRightEdgeSlot(cursorY: number, ch: number, rows: number): { gr0: number; gr1: number } {
   const slots = rows * 2 - 1
   const t = Math.min(Math.max((cursorY / ch) * slots, 0), slots - Number.EPSILON)
   const slot = Math.min(slots - 1, Math.floor(t))
@@ -135,7 +130,14 @@ export function detectEdgeAssistGridSpan(
 
   if (nearB) {
     const { gc0, gc1 } = topBottomEdgeSlot(lx, cw, cols)
-    return { gridCols: cols, gridRows: rows, gc0, gc1, gr0: rows - 1, gr1: rows - 1 }
+    return {
+      gridCols: cols,
+      gridRows: rows,
+      gc0,
+      gc1,
+      gr0: rows - 1,
+      gr1: rows - 1,
+    }
   }
 
   if (nearL) {
@@ -158,17 +160,14 @@ export function detectEdgeAssistGridSpan(
   return null
 }
 
-export function assistGridSpanToBounds(
-  canvas: WorkspaceCanvasSize,
-  span: AssistGridSpan,
-): WorkspaceBounds {
+export function assistGridSpanToBounds(canvas: WorkspaceCanvasSize, span: AssistGridSpan): WorkspaceBounds {
   const { gridCols, gridRows, gc0, gc1, gr0, gr1 } = span
-  const xu = canvas.width / gridCols
-  const yu = canvas.height / gridRows
-  const x = Math.round(gc0 * xu)
-  const y = Math.round(gr0 * yu)
-  const width = Math.round((gc1 - gc0 + 1) * xu)
-  const height = Math.round((gr1 - gr0 + 1) * yu)
+  const xs = Array.from({ length: gridCols + 1 }, (_, i) => Math.round((canvas.width * i) / gridCols))
+  const ys = Array.from({ length: gridRows + 1 }, (_, i) => Math.round((canvas.height * i) / gridRows))
+  const x = xs[gc0]!
+  const y = ys[gr0]!
+  const width = xs[gc1 + 1]! - x
+  const height = ys[gr1 + 1]! - y
   return {
     x: Math.max(0, Math.min(x, canvas.width - 100)),
     y: Math.max(0, Math.min(y, canvas.height - 100)),

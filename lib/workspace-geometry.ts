@@ -5,6 +5,7 @@ import type {
   WorkspaceSource,
   WorkspaceWindowDefinition,
   WorkspaceWindowLayout,
+  WorkspaceTilingPlacement,
 } from '@/lib/use-workspace'
 
 export function getSourceLabel(source: WorkspaceSource): string {
@@ -24,20 +25,32 @@ export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
   'right-third': { left: ['center-third', 'left-two-thirds'] },
   'left-two-thirds': { right: ['right-third'] },
   'right-two-thirds': { left: ['left-third'] },
-  'top-left-third': { right: ['top-center-third'], bottom: ['bottom-left-third'] },
+  'top-left-third': {
+    right: ['top-center-third'],
+    bottom: ['bottom-left-third'],
+  },
   'top-center-third': {
     left: ['top-left-third'],
     right: ['top-right-third'],
     bottom: ['bottom-center-third'],
   },
-  'top-right-third': { left: ['top-center-third'], bottom: ['bottom-right-third'] },
-  'bottom-left-third': { right: ['bottom-center-third'], top: ['top-left-third'] },
+  'top-right-third': {
+    left: ['top-center-third'],
+    bottom: ['bottom-right-third'],
+  },
+  'bottom-left-third': {
+    right: ['bottom-center-third'],
+    top: ['top-left-third'],
+  },
   'bottom-center-third': {
     left: ['bottom-left-third'],
     right: ['bottom-right-third'],
     top: ['top-center-third'],
   },
-  'bottom-right-third': { left: ['bottom-center-third'], top: ['top-right-third'] },
+  'bottom-right-third': {
+    left: ['bottom-center-third'],
+    top: ['top-right-third'],
+  },
   'top-half': { bottom: ['bottom-half', 'bottom-left', 'bottom-right'] },
   'bottom-half': { top: ['top-half'] },
   'top-third': { bottom: ['middle-third'] },
@@ -67,6 +80,23 @@ export type WorkspaceBounds = NonNullable<WorkspaceWindowLayout['bounds']>
 
 /** Pixel size of the workspace tiling area (browser pane above the taskbar). */
 export type WorkspaceCanvasSize = { width: number; height: number }
+
+export function defaultWorkspaceGridLines(count: number): number[] {
+  return Array.from({ length: count + 1 }, (_, i) => i / count)
+}
+
+export function tilingPlacementToBounds(
+  tiling: WorkspaceTilingPlacement,
+  canvas: WorkspaceCanvasSize,
+): WorkspaceBounds {
+  const xs = tiling.colLines.map((line) => Math.round(line * canvas.width))
+  const ys = tiling.rowLines.map((line) => Math.round(line * canvas.height))
+  const x = xs[tiling.colStart] ?? 0
+  const y = ys[tiling.rowStart] ?? 0
+  const right = xs[tiling.colEnd] ?? canvas.width
+  const bottom = ys[tiling.rowEnd] ?? canvas.height
+  return { x, y, width: right - x, height: bottom - y }
+}
 
 /** Highest z-index among workspace windows (minimum 1). */
 export function maxWorkspaceWindowZ(windows: WorkspaceWindowDefinition[]): number {
@@ -254,13 +284,23 @@ export function snapZoneToBoundsWithOccupied(
       case 'left':
         return { x: 0, y: 0, width: halfW, height: viewport.height }
       case 'right':
-        return { x: halfW, y: 0, width: viewport.width - halfW, height: viewport.height }
+        return {
+          x: halfW,
+          y: 0,
+          width: viewport.width - halfW,
+          height: viewport.height,
+        }
       case 'top-left':
         return { x: 0, y: 0, width: halfW, height: halfH }
       case 'top-right':
         return { x: halfW, y: 0, width: viewport.width - halfW, height: halfH }
       case 'bottom-left':
-        return { x: 0, y: halfH, width: halfW, height: viewport.height - halfH }
+        return {
+          x: 0,
+          y: halfH,
+          width: halfW,
+          height: viewport.height - halfH,
+        }
       case 'bottom-right':
         return {
           x: halfW,
@@ -271,33 +311,78 @@ export function snapZoneToBoundsWithOccupied(
       case 'top-half':
         return { x: 0, y: 0, width: viewport.width, height: halfH }
       case 'bottom-half':
-        return { x: 0, y: halfH, width: viewport.width, height: viewport.height - halfH }
+        return {
+          x: 0,
+          y: halfH,
+          width: viewport.width,
+          height: viewport.height - halfH,
+        }
       case 'top-third':
         return { x: 0, y: 0, width: viewport.width, height: thirdH }
       case 'middle-third':
-        return { x: 0, y: thirdH, width: viewport.width, height: twoThirdH - thirdH }
+        return {
+          x: 0,
+          y: thirdH,
+          width: viewport.width,
+          height: twoThirdH - thirdH,
+        }
       case 'bottom-third':
-        return { x: 0, y: twoThirdH, width: viewport.width, height: viewport.height - twoThirdH }
+        return {
+          x: 0,
+          y: twoThirdH,
+          width: viewport.width,
+          height: viewport.height - twoThirdH,
+        }
       case 'left-third':
         return { x: 0, y: 0, width: thirdW, height: viewport.height }
       case 'center-third':
-        return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: viewport.height }
+        return {
+          x: thirdW,
+          y: 0,
+          width: twoThirdW - thirdW,
+          height: viewport.height,
+        }
       case 'right-third':
-        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: viewport.height }
+        return {
+          x: twoThirdW,
+          y: 0,
+          width: viewport.width - twoThirdW,
+          height: viewport.height,
+        }
       case 'left-two-thirds':
         return { x: 0, y: 0, width: twoThirdW, height: viewport.height }
       case 'right-two-thirds':
-        return { x: thirdW, y: 0, width: viewport.width - thirdW, height: viewport.height }
+        return {
+          x: thirdW,
+          y: 0,
+          width: viewport.width - thirdW,
+          height: viewport.height,
+        }
       case 'top-left-third':
         return { x: 0, y: 0, width: thirdW, height: halfH }
       case 'top-center-third':
         return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: halfH }
       case 'top-right-third':
-        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: halfH }
+        return {
+          x: twoThirdW,
+          y: 0,
+          width: viewport.width - twoThirdW,
+          height: halfH,
+        }
       case 'bottom-left-third':
-        return { x: 0, y: halfH, width: thirdW, height: viewport.height - halfH }
+        return {
+          x: 0,
+          y: halfH,
+          width: thirdW,
+          height: viewport.height - halfH,
+        }
       case 'bottom-center-third':
-        return { x: thirdW, y: halfH, width: twoThirdW - thirdW, height: viewport.height - halfH }
+        return {
+          x: thirdW,
+          y: halfH,
+          width: twoThirdW - thirdW,
+          height: viewport.height - halfH,
+        }
       case 'bottom-right-third':
         return {
           x: twoThirdW,
@@ -369,6 +454,12 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
       }
     }
     if (!lz?.snapZone || lz.minimized || !lz.bounds) return w
+    if (lz.tiling) {
+      return {
+        ...w,
+        layout: { ...lz, bounds: tilingPlacementToBounds(lz.tiling, next) },
+      }
+    }
     const b = lz.bounds
     return {
       ...w,
@@ -421,20 +512,29 @@ export function reconcileLayoutBoundsFromSnapZones(
 ): WorkspaceWindowDefinition[] {
   if (windows.length === 0) return windows
 
+  const resolvedCanvas = resolveCanvas(canvas)
+  const semanticWindows = windows.map((w) =>
+    w.layout?.tiling
+      ? {
+          ...w,
+          layout: {
+            ...w.layout,
+            bounds: tilingPlacementToBounds(w.layout.tiling, resolvedCanvas),
+          },
+        }
+      : w,
+  )
+
   const repByGroup = new Map<string, WorkspaceWindowDefinition>()
-  for (const w of windows) {
+  for (const w of semanticWindows) {
     const g = layoutGroupKey(w)
     if (!repByGroup.has(g)) repByGroup.set(g, w)
   }
 
   const snappedReps = [...repByGroup.values()].filter(
-    (w) =>
-      w.layout?.snapZone &&
-      w.layout.snapZone !== 'assist-custom' &&
-      !w.layout.fullscreen &&
-      !w.layout.minimized,
+    (w) => w.layout?.snapZone && w.layout.snapZone !== 'assist-custom' && !w.layout.fullscreen && !w.layout.minimized,
   )
-  if (snappedReps.length === 0) return windows
+  if (snappedReps.length === 0) return semanticWindows
 
   const sorted = [...snappedReps].sort((a, b) => {
     const za = a.layout!.snapZone!
@@ -462,7 +562,7 @@ export function reconcileLayoutBoundsFromSnapZones(
     occupied.push({ bounds: b, snapZone: zone })
   }
 
-  return windows.map((w) => {
+  return semanticWindows.map((w) => {
     const lz = w.layout
     if (!lz?.snapZone || lz.fullscreen || lz.minimized) return w
     const b = boundsByGroup.get(layoutGroupKey(w))
@@ -502,12 +602,6 @@ export function insertWindowAtGroupIndex(
     if (gid === groupId) groupIndices.push(i)
   })
   const targetGlobalIndex =
-    insertIndex >= groupIndices.length
-      ? (groupIndices[groupIndices.length - 1] ?? -1) + 1
-      : groupIndices[insertIndex]
-  return [
-    ...current.slice(0, targetGlobalIndex),
-    windowToInsert,
-    ...current.slice(targetGlobalIndex),
-  ]
+    insertIndex >= groupIndices.length ? (groupIndices[groupIndices.length - 1] ?? -1) + 1 : groupIndices[insertIndex]
+  return [...current.slice(0, targetGlobalIndex), windowToInsert, ...current.slice(targetGlobalIndex)]
 }

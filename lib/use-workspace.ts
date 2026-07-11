@@ -62,6 +62,19 @@ export interface WorkspaceWindowLayout {
     width: number
     height: number
   } | null
+  /** Semantic tiling placement; pixel bounds are derived from its shared grid lines. */
+  tiling?: WorkspaceTilingPlacement | null
+}
+
+export interface WorkspaceTilingPlacement {
+  cols: number
+  rows: number
+  colStart: number
+  colEnd: number
+  rowStart: number
+  rowEnd: number
+  colLines: number[]
+  rowLines: number[]
 }
 
 export interface WorkspaceWindowDefinition {
@@ -191,9 +204,7 @@ function parseWorkspaceFileOpenTargetField(v: unknown): WorkspaceFileOpenTarget 
   return undefined
 }
 
-function sanitizeBrowserFileOpenTargets(
-  windows: WorkspaceWindowDefinition[],
-): WorkspaceWindowDefinition[] {
+function sanitizeBrowserFileOpenTargets(windows: WorkspaceWindowDefinition[]): WorkspaceWindowDefinition[] {
   const ids = new Set(windows.map((w) => w.id))
   return windows.map((w) => {
     if (w.type !== 'browser') return w
@@ -281,6 +292,41 @@ function clampBoundsToViewport(
   return { x, y, width, height }
 }
 
+function sanitizeTilingPlacement(value: unknown): WorkspaceTilingPlacement | null {
+  if (!value || typeof value !== 'object') return null
+  const t = value as WorkspaceTilingPlacement
+  if (!Number.isInteger(t.cols) || !Number.isInteger(t.rows) || t.cols < 1 || t.rows < 1) return null
+  if (
+    !Number.isInteger(t.colStart) ||
+    !Number.isInteger(t.colEnd) ||
+    !Number.isInteger(t.rowStart) ||
+    !Number.isInteger(t.rowEnd) ||
+    t.colStart < 0 ||
+    t.colEnd > t.cols ||
+    t.colStart >= t.colEnd ||
+    t.rowStart < 0 ||
+    t.rowEnd > t.rows ||
+    t.rowStart >= t.rowEnd
+  ) {
+    return null
+  }
+  const validLines = (lines: unknown, count: number): lines is number[] =>
+    Array.isArray(lines) &&
+    lines.length === count + 1 &&
+    lines.every((line, index) =>
+      typeof line === 'number' &&
+      Number.isFinite(line) &&
+      line >= 0 &&
+      line <= 1 &&
+      (index === 0 || line >= lines[index - 1]!),
+    )
+  if (!validLines(t.colLines, t.cols) || !validLines(t.rowLines, t.rows)) return null
+  if (t.colLines[0] !== 0 || t.colLines[t.cols] !== 1 || t.rowLines[0] !== 0 || t.rowLines[t.rows] !== 1) {
+    return null
+  }
+  return t
+}
+
 export type NormalizePersistedWorkspaceOptions = {
   /**
    * When true (default), recompute pixel bounds from `snapZone` for snapped groups.
@@ -317,15 +363,16 @@ export function normalizePersistedWorkspaceState(
         layout: {
           ...w.layout,
           bounds,
+          tiling: sanitizeTilingPlacement(w.layout?.tiling),
         },
       }
     })
 
   if (validatedWindows.length === 0) return null
 
-  const reconciledWindows = reconcileSnapZones
-    ? reconcileLayoutBoundsFromSnapZones(validatedWindows)
-    : validatedWindows
+  const hasSemanticTiling = validatedWindows.some((w) => w.layout?.tiling)
+  const reconciledWindows =
+    reconcileSnapZones || hasSemanticTiling ? reconcileLayoutBoundsFromSnapZones(validatedWindows) : validatedWindows
 
   const withOpenTargets = sanitizeBrowserFileOpenTargets(reconciledWindows)
 
@@ -370,9 +417,7 @@ function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
   return parseWorkspaceTaskbarPins([p]).length === 1
 }
 
-export function workspaceSourceToMediaContext(
-  source: WorkspaceSource | null | undefined,
-): SourceContext | undefined {
+export function workspaceSourceToMediaContext(source: WorkspaceSource | null | undefined): SourceContext | undefined {
   if (!source || source.kind !== 'share') {
     return undefined
   }

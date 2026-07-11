@@ -11,6 +11,7 @@ import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-s
 import {
   createDefaultBounds,
   createFullscreenBounds,
+  defaultWorkspaceGridLines,
   getViewportSize,
   maxWorkspaceWindowZ,
   scaleSnappedWindowsBoundsForCanvasResize,
@@ -47,9 +48,7 @@ export function createWorkspaceSnapDragModel(options: {
   let snapPreviewEl: HTMLDivElement | undefined
   let snapAssistRootEl: HTMLDivElement | undefined
   const [workspaceAreaNode, setWorkspaceAreaNode] = createSignal<HTMLDivElement | null>(null)
-  const [workspaceCanvasSize, setWorkspaceCanvasSize] = createSignal<WorkspaceCanvasSize | null>(
-    null,
-  )
+  const [workspaceCanvasSize, setWorkspaceCanvasSize] = createSignal<WorkspaceCanvasSize | null>(null)
   const [_dragSnapZone, setDragSnapZone] = createSignal<SnapDetectResult | null>(null)
   const [dragSnapWindowId, setDragSnapWindowId] = createSignal<string | null>(null)
   const [snapAssistShown, setSnapAssistShown] = createSignal(false)
@@ -57,10 +56,33 @@ export function createWorkspaceSnapDragModel(options: {
   const [assistHoverPick, setAssistHoverPick] = createSignal<AssistSlotPick | null>(null)
   const [dragEdgeGridSpan, setDragEdgeGridSpan] = createSignal<AssistGridSpan | null>(null)
   const [mergeTargetPreview, setMergeTargetPreview] = createSignal<MergeTarget | null>(null)
-  const [tilingPickerHoverSpan, setTilingPickerHoverSpan] = createSignal<AssistGridSpan | null>(
-    null,
-  )
+  const [tilingPickerHoverSpan, setTilingPickerHoverSpan] = createSignal<AssistGridSpan | null>(null)
   let draggedWindowIdForSnap: string | null = null
+  const layoutUndoStack: PersistedWorkspaceState[] = []
+  let lastHistoryKind = ''
+  let lastHistoryAt = 0
+
+  function rememberLayout(state: PersistedWorkspaceState, kind: string) {
+    const now = Date.now()
+    if (kind === lastHistoryKind && now - lastHistoryAt < 500) return
+    layoutUndoStack.push(structuredClone(state))
+    if (layoutUndoStack.length > 20) layoutUndoStack.shift()
+    lastHistoryKind = kind
+    lastHistoryAt = now
+  }
+
+  const onLayoutUndoKey = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z' || target?.closest('input, textarea, [contenteditable]')) {
+      return
+    }
+    const previous = layoutUndoStack.pop()
+    if (!previous) return
+    event.preventDefault()
+    setWorkspace(previous)
+  }
+  document.addEventListener('keydown', onLayoutUndoKey)
+  onCleanup(() => document.removeEventListener('keydown', onLayoutUndoKey))
 
   let mergeByGroupCache: {
     sig: string
@@ -148,19 +170,20 @@ export function createWorkspaceSnapDragModel(options: {
   })
 
   createEffect(() => {
-    const span = tilingPickerHoverSpan()
+    const span = tilingPickerHoverSpan() ?? (snapAssistShown() ? assistHoverPick()?.span : null)
     void workspaceCanvasSize()
     const c = workspaceAreaEl
     const p = snapPreviewEl
     if (!c || !p) return
     if (!span) {
-      if (!dragSnapWindowId()) {
-        applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag)
-      }
+      applySnapPreviewLayout(p, dragSnapWindowId() ? _dragSnapZone() : null, c, getZoneBoundsForDrag)
       return
     }
     const r = c.getBoundingClientRect()
-    const canvas = { width: Math.max(1, r.width), height: Math.max(1, r.height) }
+    const canvas = {
+      width: Math.max(1, r.width),
+      height: Math.max(1, r.height),
+    }
     const b = assistGridSpanToBounds(canvas, span)
     p.style.display = 'block'
     p.style.left = `${b.x}px`
@@ -182,12 +205,12 @@ export function createWorkspaceSnapDragModel(options: {
     const excludeGid = excludeW ? groupIdForWindow(excludeW) : null
     const occupied = w.windows
       .filter(
-        (x) =>
-          x.layout?.snapZone &&
-          x.layout.bounds &&
-          (excludeGid == null || groupIdForWindow(x) !== excludeGid),
+        (x) => x.layout?.snapZone && x.layout.bounds && (excludeGid == null || groupIdForWindow(x) !== excludeGid),
       )
-      .map((x) => ({ bounds: x.layout!.bounds!, snapZone: x.layout!.snapZone! }))
+      .map((x) => ({
+        bounds: x.layout!.bounds!,
+        snapZone: x.layout!.snapZone!,
+      }))
     preferredSnapTick()
     const shape = useWorkspacePreferredSnapStore.getState().assistGridShape
     return snapZonePreviewBoundsForDrag(zone, canvas, w.windows, occupied, shape)
@@ -223,18 +246,15 @@ export function createWorkspaceSnapDragModel(options: {
     const shape = st.assistGridShape
     const assistOn = st.snapAssistOnTopDrag
     const nearTop = ly <= SNAP_EDGE_THRESHOLD_PX
-    const topInnerBand =
-      assistOn && nearTop && Math.abs(lx - rect.width / 2) <= TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX
+    const topInnerBand = assistOn && nearTop && Math.abs(lx - rect.width / 2) <= TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX
     const assistRect = snapAssistRootEl?.getBoundingClientRect()
-    const overAssistPanel =
-      assistOn && assistRect ? clientInDomRect(clientX, clientY, assistRect) : false
+    const overAssistPanel = assistOn && assistRect ? clientInDomRect(clientX, clientY, assistRect) : false
 
     if (topInnerBand || overAssistPanel) {
       setSnapAssistEngaged(true)
     }
 
-    const inAssistKeepaliveCorridor =
-      assistOn && snapAssistEngaged() && ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX
+    const inAssistKeepaliveCorridor = assistOn && snapAssistEngaged() && ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX
 
     const edgeSpan = detectEdgeAssistGridSpan(lx, ly, rect.width, rect.height, shape, {
       suppressTopEdgeSpans: false,
@@ -247,13 +267,7 @@ export function createWorkspaceSnapDragModel(options: {
       setSnapAssistShown(true)
     } else {
       setSnapAssistShown(false)
-      if (
-        assistOn &&
-        snapAssistEngaged() &&
-        !topInnerBand &&
-        !overAssistPanel &&
-        !inAssistKeepaliveCorridor
-      ) {
+      if (assistOn && snapAssistEngaged() && !topInnerBand && !overAssistPanel && !inAssistKeepaliveCorridor) {
         setSnapAssistEngaged(false)
       }
     }
@@ -261,8 +275,7 @@ export function createWorkspaceSnapDragModel(options: {
     setDragSnapZone(z)
     if (p) applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag)
 
-    const assistBarVisible =
-      assistOn && snapAssistEngaged() && (overAssistPanel || ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX)
+    const assistBarVisible = assistOn && snapAssistEngaged() && (overAssistPanel || ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX)
     if (assistBarVisible && snapAssistRootEl) {
       setAssistHoverPick(pickAssistSlotFromPoint(clientX, clientY, snapAssistRootEl))
     } else {
@@ -270,11 +283,7 @@ export function createWorkspaceSnapDragModel(options: {
     }
   }
 
-  function restoreDrag(
-    windowId: string,
-    clientX: number,
-    _clientY: number,
-  ): WorkspaceBounds | undefined {
+  function restoreDrag(windowId: string, clientX: number, _clientY: number): WorkspaceBounds | undefined {
     const w = workspace()
     const container = workspaceAreaEl?.getBoundingClientRect()
     if (!w || !container) return
@@ -286,9 +295,7 @@ export function createWorkspaceSnapDragModel(options: {
     const restoredH = restoreBounds?.height ?? currentBounds?.height ?? 260
     const currentWidth = currentBounds?.width ?? restoredW
     const oX = container.left
-    const grabRatio = currentBounds
-      ? Math.min(Math.max((clientX - oX - currentBounds.x) / currentWidth, 0), 1)
-      : 0.5
+    const grabRatio = currentBounds ? Math.min(Math.max((clientX - oX - currentBounds.x) / currentWidth, 0), 1) : 0.5
     const newX = clientX - oX - restoredW * grabRatio
     const newY = currentBounds?.y ?? 0
     unsnapWindow(windowId, { x: newX, y: newY })
@@ -298,6 +305,7 @@ export function createWorkspaceSnapDragModel(options: {
   function unsnapWindow(windowId: string, drop: { x: number; y: number } | null) {
     setWorkspace((prev) => {
       if (!prev) return prev
+      rememberLayout(prev, 'unsnap')
       const win = prev.windows.find((x) => x.id === windowId)
       const gid = win ? groupIdForWindow(win) : null
       return {
@@ -311,10 +319,16 @@ export function createWorkspaceSnapDragModel(options: {
             layout: {
               ...w.layout,
               snapZone: null,
+              tiling: null,
               fullscreen: false,
               bounds:
                 drop && restored
-                  ? { x: drop.x, y: drop.y, width: restored.width, height: restored.height }
+                  ? {
+                      x: drop.x,
+                      y: drop.y,
+                      width: restored.width,
+                      height: restored.height,
+                    }
                   : (restored ?? w.layout?.bounds ?? null),
               restoreBounds: null,
             },
@@ -324,14 +338,21 @@ export function createWorkspaceSnapDragModel(options: {
     })
   }
 
-  function snapWindowToAssistCustom(windowId: string, bounds: WorkspaceBounds) {
+  function snapWindowToAssistCustom(windowId: string, bounds: WorkspaceBounds, span?: AssistGridSpan) {
     // oxlint-disable-next-line solid/reactivity -- setState functional update from snap/drag, not a tracked derivation
     setWorkspace((prev) => {
       if (!prev) return prev
+      rememberLayout(prev, 'snap')
       const maxZ = maxWorkspaceWindowZ(prev.windows)
       const win = prev.windows.find((x) => x.id === windowId)
       const gid = win ? groupIdForWindow(win) : null
       const canvas = getWorkspaceCanvas()
+      const existingGrid = span
+        ? prev.windows.find(
+            (candidate) =>
+              candidate.layout?.tiling?.cols === span.gridCols && candidate.layout.tiling.rows === span.gridRows,
+          )?.layout?.tiling
+        : null
       const b: WorkspaceBounds = {
         x: Math.max(0, Math.min(bounds.x, canvas.width - 100)),
         y: Math.max(0, Math.min(bounds.y, canvas.height - 100)),
@@ -350,6 +371,18 @@ export function createWorkspaceSnapDragModel(options: {
               ...w.layout,
               fullscreen: false,
               snapZone: 'assist-custom',
+              tiling: span
+                ? {
+                    cols: span.gridCols,
+                    rows: span.gridRows,
+                    colStart: span.gc0,
+                    colEnd: span.gc1 + 1,
+                    rowStart: span.gr0,
+                    rowEnd: span.gr1 + 1,
+                    colLines: existingGrid?.colLines ?? defaultWorkspaceGridLines(span.gridCols),
+                    rowLines: existingGrid?.rowLines ?? defaultWorkspaceGridLines(span.gridRows),
+                  }
+                : null,
               minimized: false,
               zIndex: maxZ + 1,
               bounds: b,
@@ -364,6 +397,7 @@ export function createWorkspaceSnapDragModel(options: {
   function toggleFullscreenWindow(windowId: string) {
     setWorkspace((prev) => {
       if (!prev) return prev
+      rememberLayout(prev, 'fullscreen')
       const win = prev.windows.find((x) => x.id === windowId)
       const gid = win ? groupIdForWindow(win) : null
       const maxZ = maxWorkspaceWindowZ(prev.windows)
@@ -382,11 +416,10 @@ export function createWorkspaceSnapDragModel(options: {
               ...w.layout,
               fullscreen: !isFs,
               snapZone: null,
+              tiling: null,
               minimized: false,
               zIndex: maxZ + 1,
-              bounds: isFs
-                ? (w.layout?.restoreBounds ?? currentBounds)
-                : createFullscreenBounds(getWorkspaceCanvas()),
+              bounds: isFs ? (w.layout?.restoreBounds ?? currentBounds) : createFullscreenBounds(getWorkspaceCanvas()),
               restoreBounds: isFs ? null : currentBounds,
             },
           }
@@ -434,10 +467,10 @@ export function createWorkspaceSnapDragModel(options: {
   function resizeSnappedWindowBounds(windowId: string, bounds: WorkspaceBounds, direction: string) {
     setWorkspace((prev) =>
       prev
-        ? {
+        ? (rememberLayout(prev, `resize:${windowId}:${direction}`), {
             ...prev,
             windows: computeSnappedResizeWindows(prev.windows, windowId, bounds, direction),
-          }
+          })
         : prev,
     )
   }
@@ -453,12 +486,7 @@ export function createWorkspaceSnapDragModel(options: {
     draggedWindowIdForSnap = null
   }
 
-  function onDragPointerEnd(
-    windowId: string,
-    bounds: WorkspaceBounds,
-    clientX: number,
-    clientY: number,
-  ) {
+  function onDragPointerEnd(windowId: string, bounds: WorkspaceBounds, clientX: number, clientY: number) {
     const edgeSpanEnd = dragEdgeGridSpan()
     const hadAssistUi = snapAssistShown()
     const assistRootAtEnd = snapAssistRootEl
@@ -471,21 +499,13 @@ export function createWorkspaceSnapDragModel(options: {
     const wsMerge = workspace()
     if (wsMerge) {
       const rect = workspaceAreaEl?.getBoundingClientRect()
-      const hit = findMergeTarget(
-        wsMerge.windows,
-        windowId,
-        clientX,
-        clientY,
-        rect ? { canvasRect: rect } : undefined,
-      )
+      const hit = findMergeTarget(wsMerge.windows, windowId, clientX, clientY, rect ? { canvasRect: rect } : undefined)
       if (hit) {
         const targetWindow = wsMerge.windows.find((w) => groupIdForWindow(w) === hit.groupId)
         if (targetWindow) {
           clearSnapAssistDragUi()
           setWorkspace((prev) =>
-            prev
-              ? mergeWindowIntoGroupState(prev, windowId, targetWindow.id, hit.insertIndex)
-              : prev,
+            prev ? mergeWindowIntoGroupState(prev, windowId, targetWindow.id, hit.insertIndex) : prev,
           )
           return
         }
@@ -510,7 +530,7 @@ export function createWorkspaceSnapDragModel(options: {
           useWorkspacePreferredSnapStore.getState().setAssistGridShape(matched)
         }
         const snapB = assistGridSpanToBounds(getWorkspaceCanvas(), picked.span)
-        snapWindowToAssistCustom(windowId, snapB)
+        snapWindowToAssistCustom(windowId, snapB, picked.span)
         return
       }
     }
@@ -518,7 +538,7 @@ export function createWorkspaceSnapDragModel(options: {
     clearSnapAssistDragUi()
 
     if (edgeSpanEnd) {
-      snapWindowToAssistCustom(windowId, assistGridSpanToBounds(getWorkspaceCanvas(), edgeSpanEnd))
+      snapWindowToAssistCustom(windowId, assistGridSpanToBounds(getWorkspaceCanvas(), edgeSpanEnd), edgeSpanEnd)
       return
     }
 
@@ -540,12 +560,15 @@ export function createWorkspaceSnapDragModel(options: {
     const c = workspaceAreaEl
     if (!c) return
     const r = c.getBoundingClientRect()
-    const canvas = { width: Math.max(1, r.width), height: Math.max(1, r.height) }
+    const canvas = {
+      width: Math.max(1, r.width),
+      height: Math.max(1, r.height),
+    }
     const matched = assistShapeMatchingSpan(span)
     if (matched) {
       useWorkspacePreferredSnapStore.getState().setAssistGridShape(matched)
     }
-    snapWindowToAssistCustom(windowId, assistGridSpanToBounds(canvas, span))
+    snapWindowToAssistCustom(windowId, assistGridSpanToBounds(canvas, span), span)
   }
 
   return {

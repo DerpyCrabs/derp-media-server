@@ -3,10 +3,13 @@ import type { AssistGridShape, AssistGridSpan } from '@/lib/workspace-assist-gri
 import type { AssistSlotPick } from '@/lib/workspace-snap-pick'
 import { narrowPickToAssistShape, pickAssistSlotFromPoint } from '@/lib/workspace-snap-pick'
 import { createEffect, onCleanup, onMount, createMemo, createSignal } from 'solid-js'
+import X from 'lucide-solid/icons/x'
 import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
 
-const PICKER_APPROX_WIDTH = 360
-const PICKER_APPROX_HEIGHT = 520
+const PICKER_APPROX_WIDTH = 420
+const PICKER_APPROX_HEIGHT = 360
+const MIN_TILE_WIDTH = 360
+const MIN_TILE_HEIGHT = 260
 
 function shapeLabel(id: AssistGridShape): string {
   switch (id) {
@@ -35,7 +38,10 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
   const [pickerRoot, setPickerRoot] = createSignal<HTMLDivElement | null>(null)
   const [pointerPick, setPointerPick] = createSignal<AssistSlotPick | null>(null)
   const [layoutVersion, setLayoutVersion] = createSignal(0)
-  const [measuredBox, setMeasuredBox] = createSignal<{ w: number; h: number } | null>(null)
+  const [measuredBox, setMeasuredBox] = createSignal<{
+    w: number
+    h: number
+  } | null>(null)
 
   createEffect(() => {
     const cont = props.container
@@ -104,6 +110,13 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     return rect.height > 0 ? rect.width / rect.height : 16 / 12
   })
 
+  const spanUnavailable = (span: AssistGridSpan) => {
+    const rect = props.container.getBoundingClientRect()
+    const width = (rect.width * (span.gc1 - span.gc0 + 1)) / span.gridCols
+    const height = (rect.height * (span.gr1 - span.gr0 + 1)) / span.gridRows
+    return width < MIN_TILE_WIDTH || height < MIN_TILE_HEIGHT
+  }
+
   function updateHoverFromEvent(e: { clientX: number; clientY: number }) {
     const el = pickerRoot()
     if (!el) return
@@ -118,7 +131,10 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
   createEffect(() => {
     if (!pickerRoot()) return
     const onWindow = (e: PointerEvent) => updateHoverFromEvent(e)
-    window.addEventListener('pointermove', onWindow, { capture: true, passive: true })
+    window.addEventListener('pointermove', onWindow, {
+      capture: true,
+      passive: true,
+    })
     onCleanup(() => window.removeEventListener('pointermove', onWindow, { capture: true }))
   })
 
@@ -155,45 +171,64 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     <div
       ref={(el) => setPickerRoot(el ?? null)}
       data-tiling-picker
-      class='fixed z-[9999] max-h-[min(85vh,520px)] overflow-y-auto rounded-lg border border-border bg-popover/95 p-3 shadow-2xl backdrop-blur'
+      class="fixed z-[9999] w-[420px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl"
       style={{
         left: `${layout().left}px`,
         top: `${layout().top}px`,
       }}
       on:pointerleave={() => setPointerPick(null)}
+      role="dialog"
+      aria-label="Choose window layout"
     >
-      <div class='flex flex-col gap-3'>
+      <div class="flex items-start justify-between border-b border-border/70 px-4 py-3">
+        <div>
+          <div class="text-sm font-semibold text-foreground">Choose window layout</div>
+        </div>
+        <button
+          type="button"
+          class="-mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label="Close layout picker"
+          onClick={() => props.onClose()}
+        >
+          <X class="h-3.5 w-3.5" stroke-width={2} />
+        </button>
+      </div>
+      <div class="grid max-h-[min(72vh,430px)] grid-cols-2 gap-2 overflow-y-auto p-3">
         <WorkspaceSnapAssistMasterGrid
-          shape='3x2'
-          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
-          aspectRatio={aspect()}
-          layoutLabel={shapeLabel('3x2')}
-          pickMode
-          onPickSpan={(span) => props.onSelectSpan(span)}
-        />
-        <WorkspaceSnapAssistMasterGrid
-          shape='3x3'
-          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
-          aspectRatio={aspect()}
-          layoutLabel={shapeLabel('3x3')}
-          pickMode
-          onPickSpan={(span) => props.onSelectSpan(span)}
-        />
-        <WorkspaceSnapAssistMasterGrid
-          shape='2x2'
+          shape="2x2"
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x2')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('2x2')}
           pickMode
           onPickSpan={(span) => props.onSelectSpan(span)}
+          isSpanDisabled={spanUnavailable}
         />
         <WorkspaceSnapAssistMasterGrid
-          shape='2x3'
+          shape="3x2"
+          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
+          aspectRatio={aspect()}
+          layoutLabel={shapeLabel('3x2')}
+          pickMode
+          onPickSpan={(span) => props.onSelectSpan(span)}
+          isSpanDisabled={spanUnavailable}
+        />
+        <WorkspaceSnapAssistMasterGrid
+          shape="2x3"
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x3')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('2x3')}
           pickMode
           onPickSpan={(span) => props.onSelectSpan(span)}
+          isSpanDisabled={spanUnavailable}
+        />
+        <WorkspaceSnapAssistMasterGrid
+          shape="3x3"
+          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
+          aspectRatio={aspect()}
+          layoutLabel={shapeLabel('3x3')}
+          pickMode
+          onPickSpan={(span) => props.onSelectSpan(span)}
+          isSpanDisabled={spanUnavailable}
         />
       </div>
     </div>

@@ -1,4 +1,5 @@
 import type { WorkspaceWindowDefinition, WorkspaceWindowLayout } from '@/lib/use-workspace'
+import { tilingPlacementToBounds } from '@/lib/workspace-geometry'
 
 function overlap1d(a0: number, a1: number, b0: number, b1: number): number {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0))
@@ -34,12 +35,71 @@ export function computeSnappedResizeWindows(
 ): WorkspaceWindowDefinition[] {
   const target = current.find((w) => w.id === windowId)
   if (!target?.layout?.bounds) {
-    return current.map((w) =>
-      w.id === windowId ? { ...w, layout: { ...w.layout, bounds: newBounds } } : w,
-    )
+    return current.map((w) => (w.id === windowId ? { ...w, layout: { ...w.layout, bounds: newBounds } } : w))
   }
 
   const oldBounds = target.layout.bounds
+  const tiling = target.layout.tiling
+  if (tiling) {
+    const canvasWidth = Math.max(
+      1,
+      ...current.flatMap((w) => {
+        const t = w.layout?.tiling
+        const b = w.layout?.bounds
+        if (!t || !b || t.cols !== tiling.cols || t.rows !== tiling.rows) return []
+        const rightLine = t.colLines[t.colEnd]
+        return rightLine && rightLine > 0 ? [(b.x + b.width) / rightLine] : []
+      }),
+    )
+    const canvasHeight = Math.max(
+      1,
+      ...current.flatMap((w) => {
+        const t = w.layout?.tiling
+        const b = w.layout?.bounds
+        if (!t || !b || t.cols !== tiling.cols || t.rows !== tiling.rows) return []
+        const bottomLine = t.rowLines[t.rowEnd]
+        return bottomLine && bottomLine > 0 ? [(b.y + b.height) / bottomLine] : []
+      }),
+    )
+    const colLines = [...tiling.colLines]
+    const rowLines = [...tiling.rowLines]
+    if (direction.includes('right') && tiling.colEnd < tiling.cols) {
+      colLines[tiling.colEnd] = (newBounds.x + newBounds.width) / canvasWidth
+    }
+    if (direction.includes('left') && tiling.colStart > 0) {
+      colLines[tiling.colStart] = newBounds.x / canvasWidth
+    }
+    if (direction.includes('bottom') && tiling.rowEnd < tiling.rows) {
+      rowLines[tiling.rowEnd] = (newBounds.y + newBounds.height) / canvasHeight
+    }
+    if (direction.includes('top') && tiling.rowStart > 0) {
+      rowLines[tiling.rowStart] = newBounds.y / canvasHeight
+    }
+    const clampLine = (lines: number[], index: number, minFraction: number) => {
+      if (index <= 0 || index >= lines.length - 1) return
+      lines[index] = Math.max(lines[index - 1]! + minFraction, Math.min(lines[index]!, lines[index + 1]! - minFraction))
+    }
+    if (direction.includes('right')) clampLine(colLines, tiling.colEnd, 360 / canvasWidth)
+    if (direction.includes('left')) clampLine(colLines, tiling.colStart, 360 / canvasWidth)
+    if (direction.includes('bottom')) clampLine(rowLines, tiling.rowEnd, 260 / canvasHeight)
+    if (direction.includes('top')) clampLine(rowLines, tiling.rowStart, 260 / canvasHeight)
+    return current.map((w) => {
+      const t = w.layout?.tiling
+      if (!t || t.cols !== tiling.cols || t.rows !== tiling.rows) return w
+      const nextTiling = { ...t, colLines, rowLines }
+      return {
+        ...w,
+        layout: {
+          ...w.layout,
+          tiling: nextTiling,
+          bounds: tilingPlacementToBounds(nextTiling, {
+            width: Math.round(canvasWidth),
+            height: Math.round(canvasHeight),
+          }),
+        },
+      }
+    })
+  }
   const ox0 = oldBounds.x
   const oy0 = oldBounds.y
   const ox1 = oldBounds.x + oldBounds.width
@@ -73,10 +133,7 @@ export function computeSnappedResizeWindows(
           wb.x += deltaRight
           wb.width -= deltaRight
           updated = true
-        } else if (
-          Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL &&
-          wb.x < gutter - EDGE_ALIGN_TOL
-        ) {
+        } else if (Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL && wb.x < gutter - EDGE_ALIGN_TOL) {
           wb.width += deltaRight
           updated = true
         }
@@ -86,16 +143,10 @@ export function computeSnappedResizeWindows(
     if (direction.includes('left') && deltaLeft !== 0) {
       const gutter = ox0
       if (verticalSpanOverlap(oy0, oy1, wb.y, wb.y + wb.height)) {
-        if (
-          Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL &&
-          wb.x < gutter - EDGE_ALIGN_TOL
-        ) {
+        if (Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL && wb.x < gutter - EDGE_ALIGN_TOL) {
           wb.width += deltaLeft
           updated = true
-        } else if (
-          Math.abs(wb.x - gutter) <= EDGE_ALIGN_TOL &&
-          wb.x + wb.width > gutter + EDGE_ALIGN_TOL
-        ) {
+        } else if (Math.abs(wb.x - gutter) <= EDGE_ALIGN_TOL && wb.x + wb.width > gutter + EDGE_ALIGN_TOL) {
           wb.x += deltaLeft
           wb.width -= deltaLeft
           updated = true
@@ -110,10 +161,7 @@ export function computeSnappedResizeWindows(
           wb.y += deltaBottom
           wb.height -= deltaBottom
           updated = true
-        } else if (
-          Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL &&
-          wb.y < gutter - EDGE_ALIGN_TOL
-        ) {
+        } else if (Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL && wb.y < gutter - EDGE_ALIGN_TOL) {
           wb.height += deltaBottom
           updated = true
         }
@@ -123,16 +171,10 @@ export function computeSnappedResizeWindows(
     if (direction.includes('top') && deltaTop !== 0) {
       const gutter = oy0
       if (horizontalSpanOverlap(ox0, ox1, wb.x, wb.x + wb.width)) {
-        if (
-          Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL &&
-          wb.y < gutter - EDGE_ALIGN_TOL
-        ) {
+        if (Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL && wb.y < gutter - EDGE_ALIGN_TOL) {
           wb.height += deltaTop
           updated = true
-        } else if (
-          Math.abs(wb.y - gutter) <= EDGE_ALIGN_TOL &&
-          wb.y + wb.height > gutter + EDGE_ALIGN_TOL
-        ) {
+        } else if (Math.abs(wb.y - gutter) <= EDGE_ALIGN_TOL && wb.y + wb.height > gutter + EDGE_ALIGN_TOL) {
           wb.y += deltaTop
           wb.height -= deltaTop
           updated = true
