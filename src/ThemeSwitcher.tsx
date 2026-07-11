@@ -2,12 +2,15 @@ import { cn } from '@/lib/utils'
 import Settings from 'lucide-solid/icons/settings'
 import { Show, createSignal } from 'solid-js'
 import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
+import { MountsDialog } from './MountsDialog'
+import FolderCog from 'lucide-solid/icons/folder-cog'
 
 type Props = { variant?: 'header' | 'floating' }
 
 export function ThemeSwitcher(props: Props) {
   const variant = () => props.variant ?? 'header'
   const [menuOpen, setMenuOpen] = createSignal(false)
+  const [mountsOpen, setMountsOpen] = createSignal(false)
 
   return (
     <div class={cn('relative', variant() === 'floating' && 'fixed bottom-4 right-4 z-10002')}>
@@ -33,8 +36,21 @@ export function ThemeSwitcher(props: Props) {
           onClick={(e) => e.stopPropagation()}
         >
           <ThemeSwitcherMenuContent onAfterPick={() => setMenuOpen(false)} />
+          <div class='bg-border my-1 h-px' />
+          <button
+            type='button'
+            class='hover:bg-accent hover:text-accent-foreground flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm'
+            onClick={() => {
+              setMenuOpen(false)
+              setMountsOpen(true)
+            }}
+          >
+            <FolderCog class='size-4' />
+            Media directories
+          </button>
         </div>
       </Show>
+      <MountsDialog open={mountsOpen()} onClose={() => setMountsOpen(false)} />
     </div>
   )
 }

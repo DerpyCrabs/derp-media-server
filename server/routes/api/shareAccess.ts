@@ -150,6 +150,9 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     if (!share) {
       return reply.code(404).send({ error: 'Share not found' })
     }
+    if (share.unavailable) {
+      return reply.code(410).send({ error: 'Share mount is unavailable' })
+    }
 
     const cookies = request.cookies as Record<string, string | undefined>
     const needsPasscode = Boolean(share.passcode)
@@ -228,6 +231,9 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     const share = await getShare(token)
     if (!share) {
       return reply.code(404).send({ error: 'Share not found' })
+    }
+    if (share.unavailable) {
+      return reply.code(410).send({ error: 'Share mount is unavailable' })
     }
 
     if (!share.passcode) {

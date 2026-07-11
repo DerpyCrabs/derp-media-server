@@ -76,6 +76,12 @@ as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 if the basename is empty, duplicates another media root, or conflicts with a virtual
 folder such as `Favorites`, `Most Played`, or `Shares`.
 
+Additional media roots can be added without restarting from **Settings → Media directories**.
+They are persisted in `mounts.json` under `dataPath` and are always read only. Runtime roots
+appear alongside configured `mediaDirs`; their names can be changed and their server paths can
+be reconnected without invalidating shares. Removing a runtime root leaves its shares recorded
+but unavailable; reconnect an offline root by editing its path instead of removing it.
+
 ## Production
 
 ```bash

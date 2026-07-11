@@ -56,8 +56,11 @@ export function registerAuthApiRoutes(app: FastifyInstance) {
     const shareLinkDomain = config.shareLinkDomain ?? undefined
     const editableFolders = getEditableFolders()
     const mediaRoots = getMediaRoots().map((root) => ({
+      id: root.id,
       name: root.name,
       editableFolders: root.editableFolders,
+      readOnly: root.readOnly,
+      source: root.source,
     }))
     return reply.send({ enabled, shareLinkDomain, editableFolders, mediaRoots })
   })

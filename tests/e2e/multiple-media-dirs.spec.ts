@@ -12,6 +12,8 @@ let baseUrl: string
 let tempDir: string
 let moviesDir: string
 let showsDir: string
+let archiveDir: string
+let reconnectedArchiveDir: string
 let serverOutput = ''
 
 async function getFreePort(): Promise<number> {
@@ -97,6 +99,8 @@ test.describe.serial('Multiple media directories', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'derp-multi-media-'))
     moviesDir = path.join(tempDir, 'movies-root')
     showsDir = path.join(tempDir, 'shows-root')
+    archiveDir = path.join(tempDir, 'archive-root')
+    reconnectedArchiveDir = path.join(tempDir, 'reconnected-archive-root')
     const dataDir = path.join(tempDir, 'data')
     const configPath = path.join(tempDir, 'config.jsonc')
 
@@ -104,6 +108,8 @@ test.describe.serial('Multiple media directories', () => {
     writeFile(path.join(moviesDir, 'ReadOnly', 'movie-readonly.txt'), 'readonly movie')
     writeFile(path.join(showsDir, 'Downloads', 'episode-note.md'), '# Episode note')
     writeFile(path.join(showsDir, 'ReadOnly', 'show-info.txt'), 'show info')
+    writeFile(path.join(archiveDir, 'history.txt'), 'archived history')
+    writeFile(path.join(reconnectedArchiveDir, 'reconnected.txt'), 'reconnected archive')
     fs.mkdirSync(dataDir, { recursive: true })
 
     const port = await getFreePort()
@@ -207,5 +213,70 @@ test.describe.serial('Multiple media directories', () => {
     await page.goto(`${editableShareUrl}/workspace`)
     await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
     await expect(workspaceContent(page).getByText('movie-note.md')).toBeVisible()
+  })
+
+  test('adds, renames and removes a read-only runtime root without restart', async ({ page }) => {
+    await page.goto(baseUrl)
+    await page.getByRole('button', { name: 'Open theme settings' }).click()
+    await page.getByRole('button', { name: 'Media directories' }).click()
+    await page.getByLabel('Media directory name').fill('Archive')
+    await page.getByLabel('Media directory path').fill(archiveDir)
+    await page.getByRole('button', { name: 'Add directory' }).click()
+    await expect(page.getByText(archiveDir)).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+
+    const mountsResponse = await page.request.get(`${baseUrl}/api/admin/mounts`)
+    const mount = (await mountsResponse.json()).mounts[0] as { id: string }
+    await expect(page.getByText('Archive', { exact: true })).toBeVisible()
+    await page.getByText('Archive', { exact: true }).click()
+    await expect(page.getByText('history.txt')).toBeVisible()
+    await expect(page.locator('button[title="Create new file"]')).toHaveCount(0)
+
+    await page.goto(`${baseUrl}/workspace`)
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    await page.getByRole('button', { name: 'Media directories' }).click()
+    await expect(page.getByText(archiveDir)).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+
+    const writeResponse = await page.request.post(`${baseUrl}/api/files/create`, {
+      data: { type: 'file', path: 'Archive/blocked.txt', content: 'blocked' },
+    })
+    expect(writeResponse.status()).toBe(403)
+    expect(fs.existsSync(path.join(archiveDir, 'blocked.txt'))).toBe(false)
+
+    const shareResponse = await page.request.post(`${baseUrl}/api/shares`, {
+      data: { path: 'Archive', isDirectory: true, editable: true },
+    })
+    expect(shareResponse.ok()).toBe(true)
+    const share = (await shareResponse.json()).share as { token: string; editable: boolean }
+    expect(share.editable).toBe(false)
+
+    const renameResponse = await page.request.patch(`${baseUrl}/api/admin/mounts/${mount.id}`, {
+      data: { name: 'Cold Storage', path: archiveDir },
+    })
+    expect(renameResponse.ok()).toBe(true)
+    await page.goto(`${baseUrl}/share/${share.token}`)
+    await expect(page.getByText('history.txt')).toBeVisible()
+
+    fs.renameSync(archiveDir, `${archiveDir}-offline`)
+    const offlineMounts = await page.request.get(`${baseUrl}/api/admin/mounts`)
+    expect((await offlineMounts.json()).mounts[0].status).toBe('offline')
+    const reconnectResponse = await page.request.patch(`${baseUrl}/api/admin/mounts/${mount.id}`, {
+      data: { name: 'Cold Storage', path: reconnectedArchiveDir },
+    })
+    expect(reconnectResponse.ok()).toBe(true)
+    await page.goto(`${baseUrl}/share/${share.token}`)
+    await expect(page.getByText('reconnected.txt')).toBeVisible()
+
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(tempDir, 'data', 'mounts.json'), 'utf-8'),
+    )
+    expect(persisted.mounts[0].id).toBe(mount.id)
+    expect(persisted.mounts[0].name).toBe('Cold Storage')
+
+    const deleteResponse = await page.request.delete(`${baseUrl}/api/admin/mounts/${mount.id}`)
+    expect(deleteResponse.ok()).toBe(true)
+    const unavailableResponse = await page.request.get(`${baseUrl}/api/share/${share.token}/info`)
+    expect(unavailableResponse.status()).toBe(410)
   })
 })

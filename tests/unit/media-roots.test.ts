@@ -5,7 +5,14 @@ import { isPathEditable } from '@/lib/utils'
 describe('normalizeMediaRoots', () => {
   test('keeps legacy mediaDir as a single root', () => {
     expect(normalizeMediaRoots('test-media', ['Notes'])).toEqual([
-      { name: 'test-media', path: 'test-media', editableFolders: ['Notes'] },
+      {
+        id: 'config:primary',
+        name: 'test-media',
+        path: 'test-media',
+        editableFolders: ['Notes'],
+        readOnly: false,
+        source: 'config',
+      },
     ])
   })
 

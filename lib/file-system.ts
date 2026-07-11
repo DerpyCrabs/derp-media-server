@@ -1,4 +1,4 @@
-import { promises as fs } from 'fs'
+import { existsSync, promises as fs, realpathSync } from 'fs'
 import path from 'path'
 import { FileItem, MediaType } from './types'
 import { getMediaType } from './media-utils'
@@ -69,6 +69,22 @@ function isInsideRoot(resolvedPath: string, resolvedRoot: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }
 
+export function assertCanonicalContainment(resolvedPath: string, rootPath: string): void {
+  if (!existsSync(rootPath)) return
+  const canonicalRoot = realpathSync(rootPath)
+  let existing = resolvedPath
+  while (!existsSync(existing)) {
+    const parent = path.dirname(existing)
+    if (parent === existing) break
+    existing = parent
+  }
+  if (!existsSync(existing)) return
+  const canonicalExisting = realpathSync(existing)
+  if (!isInsideRoot(canonicalExisting, canonicalRoot)) {
+    throw new Error('Invalid path: Symbolic link escapes media root')
+  }
+}
+
 export function toLogicalMediaPath(root: MediaRoot, rootRelativePath: string): string {
   const normalized = rootRelativePath.replace(/\\/g, '/')
   if (!hasMultipleMediaRoots()) return normalized
@@ -84,9 +100,15 @@ export function resolveMediaPath(relativePath: string): ResolvedMediaPath {
     const [rootName = '', ...rest] = logicalPath.split('/').filter(Boolean)
     if (!rootName) throw new Error('Invalid path: Media root is required')
     const found = getMediaRootByName(rootName)
-    if (!found) throw new Error('Invalid path: Unknown media root')
-    root = found
-    rootRelativePath = rest.join('/')
+    if (found) {
+      root = found
+      rootRelativePath = rest.join('/')
+    } else {
+      // Compatibility for libraries that started as a single root. Persisted paths from
+      // shares/settings remain relative to the primary configured root after mounts appear.
+      root = config.mediaRoots[0]
+      rootRelativePath = logicalPath
+    }
   } else {
     root = getMediaRoots()[0]
     rootRelativePath = logicalPath
@@ -101,6 +123,7 @@ export function resolveMediaPath(relativePath: string): ResolvedMediaPath {
   if (!isInsideRoot(resolvedPath, resolvedRoot)) {
     throw new Error('Invalid path: Path traversal detected')
   }
+  assertCanonicalContainment(resolvedPath, resolvedRoot)
 
   return {
     root,
@@ -295,6 +318,7 @@ export function isPathEditable(relativePath: string): boolean {
     return false
   }
 
+  if (resolved.root.readOnly) return false
   const editableFolders = resolved.root.editableFolders
   if (editableFolders.length === 0) return false
 
@@ -309,8 +333,8 @@ export function isPathEditable(relativePath: string): boolean {
  * Gets the list of editable folders
  */
 export function getEditableFolders(): string[] {
-  if (!hasMultipleMediaRoots()) return config.mediaRoots[0]?.editableFolders ?? []
-  return config.mediaRoots.flatMap((root) =>
+  if (!hasMultipleMediaRoots()) return getMediaRoots()[0]?.editableFolders ?? []
+  return getMediaRoots().flatMap((root) =>
     root.editableFolders.map((folder) => `${root.name}/${folder.replace(/\\/g, '/')}`),
   )
 }

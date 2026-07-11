@@ -2,7 +2,13 @@ export type AuthConfig = {
   enabled: boolean
   shareLinkDomain?: string
   editableFolders: string[]
-  mediaRoots?: { name: string; editableFolders: string[] }[]
+  mediaRoots?: {
+    id: string
+    name: string
+    editableFolders: string[]
+    readOnly: boolean
+    source: 'config' | 'mount'
+  }[]
 }
 
 export type UploadToastState =

@@ -466,7 +466,7 @@ export async function dehydrateForRoute(
       if (shareMatch) {
         const token = shareMatch[1]
         const share = await getShare(token)
-        if (share) {
+        if (share && !share.unavailable) {
           const name = path.basename(share.path) || share.path
           const extension = share.isDirectory ? '' : path.extname(share.path).slice(1).toLowerCase()
           const mediaType = share.isDirectory ? 'folder' : getMediaType(extension)

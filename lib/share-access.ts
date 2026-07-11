@@ -19,6 +19,7 @@ export async function validateShareAccess(
 ): Promise<ShareAccess> {
   const share = await getShare(token)
   if (!share) throw new HttpError(404, 'Share not found')
+  if (share.unavailable) throw new HttpError(410, 'Share mount is unavailable')
   const authorized = isShareAccessAuthorized(share, {
     get: (name: string) => (cookies[name] ? { value: cookies[name]! } : undefined),
   })

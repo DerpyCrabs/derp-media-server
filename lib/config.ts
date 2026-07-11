@@ -1,6 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 import stripJsonComments from 'strip-json-comments'
+import { randomUUID } from 'crypto'
+import { Mutex } from './mutex'
 
 interface AuthConfig {
   enabled: boolean
@@ -30,9 +32,19 @@ export interface McpConfig {
 }
 
 export interface MediaRoot {
+  id: string
   name: string
   path: string
   editableFolders: string[]
+  readOnly: boolean
+  source: 'config' | 'mount'
+}
+
+export interface RuntimeMount {
+  id: string
+  name: string
+  path: string
+  createdAt: number
 }
 
 interface MediaDirConfig {
@@ -200,15 +212,21 @@ export function normalizeMediaRoots(
   const roots =
     mediaDirs && mediaDirs.length > 0
       ? mediaDirs.map((entry) => ({
+          id: `config:${normalizeMediaRootName(entry.path, entry.name).toLowerCase()}`,
           name: normalizeMediaRootName(entry.path, entry.name),
           path: entry.path,
           editableFolders: normalizeEditableFolders(entry.editableFolders),
+          readOnly: false,
+          source: 'config' as const,
         }))
       : [
           {
+            id: 'config:primary',
             name: deriveMediaRootName(mediaDir) || 'Media',
             path: mediaDir,
             editableFolders,
+            readOnly: false,
+            source: 'config' as const,
           },
         ]
 
@@ -411,16 +429,158 @@ function loadConfigOnce(): AppConfig {
 /** Config loaded once when this module is first imported. */
 export const config = loadConfigOnce()
 
+const MOUNTS_FILE = path.join(config.dataPath, 'mounts.json')
+const mountsMutex = new Mutex()
+let runtimeMounts = loadRuntimeMounts()
+const mountListeners = new Set<() => void>()
+
+function loadRuntimeMounts(): RuntimeMount[] {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(MOUNTS_FILE, 'utf-8')) as {
+      version?: number
+      mounts?: unknown
+    }
+    if (!Array.isArray(parsed.mounts)) return []
+    return parsed.mounts.filter((entry): entry is RuntimeMount => {
+      if (!entry || typeof entry !== 'object') return false
+      const value = entry as Partial<RuntimeMount>
+      return (
+        typeof value.id === 'string' &&
+        typeof value.name === 'string' &&
+        typeof value.path === 'string' &&
+        typeof value.createdAt === 'number'
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+function runtimeRoot(mount: RuntimeMount): MediaRoot {
+  return {
+    ...mount,
+    editableFolders: [],
+    readOnly: true,
+    source: 'mount',
+  }
+}
+
+async function persistRuntimeMounts(next: RuntimeMount[]): Promise<void> {
+  await fs.promises.mkdir(config.dataPath, { recursive: true })
+  const tempFile = `${MOUNTS_FILE}.${process.pid}.${Date.now()}.tmp`
+  await fs.promises.writeFile(
+    tempFile,
+    JSON.stringify({ version: 1, mounts: next }, null, 2),
+    'utf-8',
+  )
+  await fs.promises.rename(tempFile, MOUNTS_FILE)
+  runtimeMounts = next
+  mountListeners.forEach((listener) => listener())
+}
+
+async function validateMountInput(
+  input: { name: string; path: string },
+  exceptId?: string,
+): Promise<{ name: string; path: string }> {
+  const mountPath = input.path.trim()
+  const name = normalizeMediaRootName(mountPath, input.name)
+  if (!path.isAbsolute(mountPath)) throw new Error('Mount path must be absolute')
+  const canonicalPath = await fs.promises.realpath(mountPath)
+  const stat = await fs.promises.stat(canonicalPath)
+  if (!stat.isDirectory()) throw new Error('Mount path must be a directory')
+
+  const allRoots = getMediaRoots().filter((root) => root.id !== exceptId)
+  if (allRoots.some((root) => root.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error(`Media root name "${name}" already exists`)
+  }
+  const pathKey = process.platform === 'win32' ? canonicalPath.toLowerCase() : canonicalPath
+  for (const root of allRoots) {
+    let rootCanonical: string
+    try {
+      rootCanonical = await fs.promises.realpath(root.path)
+    } catch {
+      rootCanonical = path.resolve(root.path)
+    }
+    const rootKey = process.platform === 'win32' ? rootCanonical.toLowerCase() : rootCanonical
+    if (rootKey === pathKey) throw new Error('This directory is already configured as a media root')
+    const relative = path.relative(rootCanonical, canonicalPath)
+    const reverse = path.relative(canonicalPath, rootCanonical)
+    const nested = relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+    const contains = reverse && !reverse.startsWith('..') && !path.isAbsolute(reverse)
+    if (nested || contains) throw new Error('Media roots must not overlap')
+  }
+  return { name, path: canonicalPath }
+}
+
+export function getRuntimeMounts(): RuntimeMount[] {
+  return runtimeMounts.map((mount) => ({ ...mount }))
+}
+
+export async function addRuntimeMount(input: {
+  name: string
+  path: string
+}): Promise<RuntimeMount> {
+  const release = await mountsMutex.acquire()
+  try {
+    const validated = await validateMountInput(input)
+    const mount = { id: randomUUID(), ...validated, createdAt: Date.now() }
+    await persistRuntimeMounts([...runtimeMounts, mount])
+    return mount
+  } finally {
+    release()
+  }
+}
+
+export async function updateRuntimeMount(
+  id: string,
+  input: { name: string; path: string },
+): Promise<RuntimeMount | null> {
+  const release = await mountsMutex.acquire()
+  try {
+    const index = runtimeMounts.findIndex((mount) => mount.id === id)
+    if (index === -1) return null
+    const validated = await validateMountInput(input, id)
+    const updated = { ...runtimeMounts[index], ...validated }
+    const next = runtimeMounts.slice()
+    next[index] = updated
+    await persistRuntimeMounts(next)
+    return updated
+  } finally {
+    release()
+  }
+}
+
+export async function removeRuntimeMount(id: string): Promise<boolean> {
+  const release = await mountsMutex.acquire()
+  try {
+    const next = runtimeMounts.filter((mount) => mount.id !== id)
+    if (next.length === runtimeMounts.length) return false
+    await persistRuntimeMounts(next)
+    return true
+  } finally {
+    release()
+  }
+}
+
+export function subscribeMountChanges(listener: () => void): () => void {
+  mountListeners.add(listener)
+  return () => mountListeners.delete(listener)
+}
+
 export function getMediaRoots(): MediaRoot[] {
-  return config.mediaRoots
+  return [...config.mediaRoots, ...runtimeMounts.map(runtimeRoot)]
 }
 
 export function hasMultipleMediaRoots(): boolean {
-  return config.mediaRoots.length > 1
+  return getMediaRoots().length > 1
 }
 
 export function getMediaRootByName(name: string): MediaRoot | undefined {
-  return config.mediaRoots.find((root) => root.name.toLowerCase() === name.toLowerCase())
+  return getMediaRoots().find((root) => root.name.toLowerCase() === name.toLowerCase())
+}
+
+export function getMediaRootById(id: string): MediaRoot | undefined {
+  return getMediaRoots().find((root) => root.id === id)
 }
 
 export function getMcpConfig(): McpConfig | undefined {

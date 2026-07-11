@@ -8,7 +8,7 @@ import {
   createDecipheriv,
   scryptSync,
 } from 'crypto'
-import { config, getDataFilePath } from '@/lib/config'
+import { config, getDataFilePath, getMediaRootById, getMediaRoots } from '@/lib/config'
 import { resolveMediaPath } from '@/lib/file-system'
 import { getMediaType } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
@@ -31,6 +31,11 @@ export interface ShareLink {
   editable: boolean
   passcode?: string
   createdAt: number
+  /** Stable root identity. Absent only on legacy shares created before root-aware storage. */
+  rootId?: string
+  /** Path relative to rootId, allowing root names and filesystem paths to change safely. */
+  rootRelativePath?: string
+  unavailable?: boolean
   restrictions?: ShareRestrictions
   usedBytes?: number
   /** Pinned taskbar items for /share/:token/workspace (paths relative to media root). */
@@ -161,12 +166,31 @@ async function writeSharesData(data: SharesData): Promise<void> {
 // Decrypt passcode fields when returning share objects to callers
 // ---------------------------------------------------------------------------
 
-function decryptSharePasscode(share: ShareLink): ShareLink {
-  if (share.passcode) {
-    const plain = decryptPasscode(share.passcode)
-    if (plain) return { ...share, passcode: plain }
+function materializeShare(share: ShareLink): ShareLink {
+  let result = share
+  if (share.rootId && share.rootRelativePath !== undefined) {
+    const root = getMediaRootById(share.rootId)
+    result = root
+      ? {
+          ...share,
+          path:
+            getMediaRoots().length > 1
+              ? `${root.name}${share.rootRelativePath ? `/${share.rootRelativePath}` : ''}`
+              : share.rootRelativePath,
+          unavailable: false,
+        }
+      : { ...share, unavailable: true }
   }
-  return share
+  return result
+}
+
+function decryptSharePasscode(share: ShareLink): ShareLink {
+  const materialized = materializeShare(share)
+  if (materialized.passcode) {
+    const plain = decryptPasscode(materialized.passcode)
+    if (plain) return { ...materialized, passcode: plain }
+  }
+  return materialized
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +208,7 @@ export async function createShare(
     const data = await readSharesRaw()
 
     const plainPasscode = config.auth?.enabled ? generatePasscode() : undefined
+    const resolved = resolveMediaPath(sharePath)
     const share: ShareLink = {
       token: generateToken(),
       path: sharePath,
@@ -191,13 +216,15 @@ export async function createShare(
       editable,
       passcode: plainPasscode ? encryptPasscode(plainPasscode) : undefined,
       createdAt: Date.now(),
+      rootId: resolved.root.id,
+      rootRelativePath: resolved.relativePath,
       ...(editable && restrictions ? { restrictions } : {}),
     }
 
     data.shares.push(share)
     await writeSharesData(data)
 
-    return { ...share, passcode: plainPasscode }
+    return decryptSharePasscode({ ...share, passcode: plainPasscode })
   } finally {
     release()
   }

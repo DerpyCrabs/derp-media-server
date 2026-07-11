@@ -4,6 +4,7 @@ import { HttpError, validateShareAccess } from '@/lib/share-access'
 import path from 'path'
 import { getDataFilePath } from '@/lib/config'
 import { promises as fs } from 'fs'
+import { subscribeMountChanges } from '@/lib/config'
 
 const SETTINGS_FILE = getDataFilePath('settings.json')
 
@@ -122,6 +123,9 @@ export function registerSSERoutes(app: FastifyInstance) {
     const settingsCb: SettingsCallback = (message) => writeSSE(reply, message)
     settingsClients.add(settingsCb)
     startSettingsWatch()
+    const unsubscribeMounts = subscribeMountChanges(() =>
+      writeSSE(reply, encodeSSE({ type: 'mounts-changed', timestamp: Date.now() })),
+    )
 
     writeSSE(reply, encodeSSE({ type: 'connected', timestamp: Date.now() }))
 
@@ -137,6 +141,7 @@ export function registerSSERoutes(app: FastifyInstance) {
       removeFileClient(fileCb)
       settingsClients.delete(settingsCb)
       stopSettingsWatch()
+      unsubscribeMounts()
       clearInterval(keepAlive)
     })
 

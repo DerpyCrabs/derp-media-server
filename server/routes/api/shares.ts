@@ -86,7 +86,9 @@ export function registerSharesApiRoutes(app: FastifyInstance) {
     }
 
     const restrictions = parseRestrictions(body.restrictions)
-    const editableVal = body.editable
+    const existing = (await getAllShares()).find((share) => share.token === body.token)
+    const editableVal =
+      body.editable === true && existing ? isPathEditable(existing.path) : body.editable
 
     if (!restrictions && editableVal === undefined) {
       return reply.code(400).send({ error: 'No valid updates provided' })

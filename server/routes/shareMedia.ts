@@ -67,6 +67,10 @@ function validateShareAccessHTTP(
   share: ShareLink,
   reply: FastifyReply,
 ): boolean {
+  if (share.unavailable) {
+    reply.status(410).send({ error: 'Share mount is unavailable' })
+    return false
+  }
   const cookies = request.cookies || {}
   const cookieObj = {
     get: (name: string) => (cookies[name] ? { value: cookies[name]! } : undefined),

@@ -6,8 +6,10 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export interface ClientMediaRoot {
+  id?: string
   name: string
   editableFolders: string[]
+  readOnly?: boolean
 }
 
 /**
@@ -28,6 +30,7 @@ export function isPathEditable(
     const [rootName = '', ...rest] = normalizedPath.split('/').filter(Boolean)
     const root = mediaRoots.find((entry) => entry.name.toLowerCase() === rootName.toLowerCase())
     if (!root) return false
+    if (root.readOnly) return false
     const rootRelativePath = rest.join('/')
     return root.editableFolders.some((folder) => {
       const normalizedFolder = folder.replace(/\\/g, '/')

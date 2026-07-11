@@ -10,6 +10,7 @@ export const queryKeys = {
   },
   settings: () => ['settings'] as const,
   authConfig: () => ['auth-config'] as const,
+  mounts: () => ['mounts'] as const,
   shares: () => ['shares'] as const,
   stats: () => ['stats'] as const,
   kb: () => ['kb'] as const,

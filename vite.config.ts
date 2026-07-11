@@ -7,7 +7,13 @@ export default defineConfig({
   plugins: [solid(), tailwindcss()],
   server: {
     watch: {
-      ignored: ['**/kb-chats.json', '**/shares.json', '**/settings.json', '**/stats.json'],
+      ignored: [
+        '**/kb-chats.json',
+        '**/mounts.json',
+        '**/shares.json',
+        '**/settings.json',
+        '**/stats.json',
+      ],
     },
   },
   resolve: {
