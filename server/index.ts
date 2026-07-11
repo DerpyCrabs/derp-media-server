@@ -29,8 +29,11 @@ const isTest = process.env.NODE_ENV === 'test'
 const PORT = config.port
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH
+const TLS_PFX_PATH = process.env.TLS_PFX_PATH
 const tls =
-  TLS_CERT_PATH && TLS_KEY_PATH
+  TLS_PFX_PATH
+    ? { pfx: fs.readFileSync(TLS_PFX_PATH), passphrase: process.env.TLS_PFX_PASSPHRASE }
+    : TLS_CERT_PATH && TLS_KEY_PATH
     ? { cert: fs.readFileSync(TLS_CERT_PATH), key: fs.readFileSync(TLS_KEY_PATH) }
     : undefined
 async function createApp() {
