@@ -54,6 +54,7 @@ export type WorkspaceBrowserModalLayerProps = {
   onOpenInNewTabFromRow?: (file: FileItem) => void
   showOpenInNewTabForFiles: boolean
   onOpenInSplitViewFromRow?: (file: FileItem) => void
+  onOpenInMediaServer?: (file: FileItem) => void
   onContextDownload: (file: FileItem) => void
   /** Admin workspace: create / manage share links (same as main file browser). */
   shareDialogTarget?: Accessor<FileItem | null>
@@ -147,6 +148,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onOpenInNewTab={props.onWorkspaceBreadcrumbOpenInNewTab}
         showOpenInWorkspace={props.workspaceBreadcrumbMenuActions().showOpenInWorkspace}
         onOpenInWorkspace={props.onWorkspaceBreadcrumbOpenInWorkspace}
+        openInWorkspaceLabel='Open in Media Server'
         showSetIcon={props.workspaceBreadcrumbMenuActions().showSetIcon}
         onSetIcon={props.onWorkspaceBreadcrumbSetIcon}
       />
@@ -167,6 +169,8 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onOpenInNewTab={props.onOpenInNewTabFromRow}
         showOpenInNewTabForFiles={props.showOpenInNewTabForFiles}
         onOpenInSplitView={props.onOpenInSplitViewFromRow}
+        onOpenInWorkspace={props.onOpenInMediaServer}
+        openInWorkspaceLabel='Open in Media Server'
         onToggleKnowledgeBase={props.onContextToggleKnowledgeBase}
         isKnowledgeBase={props.isRowKnowledgeBase}
         onShare={props.onContextShare}

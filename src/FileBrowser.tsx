@@ -25,6 +25,7 @@ import {
   type PrefetchFolderHoverContext,
 } from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
+import { hostingUrl } from '@/lib/hosting-urls'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
 import type { PasteData } from '@/lib/paste-data'
@@ -885,7 +886,7 @@ export function FileBrowser() {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
-      window.open('/workspace', '_blank')
+      window.open(hostingUrl('workspace', '/workspace'), '_blank')
       return
     }
     handleContextOpenInWorkspace(breadcrumbAsFolderItem(m))
@@ -919,7 +920,7 @@ export function FileBrowser() {
     const params = new URLSearchParams()
     if (file.path) params.set('dir', file.path)
     const query = params.toString()
-    window.open(query ? `/workspace?${query}` : '/workspace', '_blank')
+    window.open(hostingUrl('workspace', query ? `/workspace?${query}` : '/workspace'), '_blank')
   }
 
   function handleContextToggleFavorite(file: FileItem) {

@@ -42,6 +42,8 @@ interface MediaDirConfig {
 }
 
 interface AppConfig {
+  port: number
+  workspacePort: number
   mediaDir: string
   editableFolders: string[]
   mediaDirs?: MediaDirConfig[]
@@ -81,6 +83,14 @@ function getConfigPath(): string {
 }
 
 function applyEnvOverrides(cfg: AppConfig): AppConfig {
+  const port = Number(process.env.PORT)
+  if (Number.isInteger(port) && port > 0 && port <= 65535) {
+    cfg.port = port
+  }
+  const workspacePort = Number(process.env.WORKSPACE_PORT)
+  if (Number.isInteger(workspacePort) && workspacePort > 0 && workspacePort <= 65535) {
+    cfg.workspacePort = workspacePort
+  }
   if (process.env.MEDIA_DIR) {
     cfg.mediaDir = process.env.MEDIA_DIR
     cfg.mediaDirs = undefined
@@ -276,6 +286,13 @@ function loadConfigOnce(): AppConfig {
       stripJsonComments(content, { trailingCommas: true }),
     ) as Partial<AppConfig>
 
+    const normalizePort = (value: unknown, fallback: number) =>
+      typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= 65535
+        ? value
+        : fallback
+    const port = normalizePort(parsed.port, 3000)
+    const workspacePort = normalizePort(parsed.workspacePort, port + 1)
+
     const mediaDir = parsed.mediaDir ?? process.cwd()
     const editableFolders = normalizeEditableFolders(parsed.editableFolders)
     const mediaDirs = Array.isArray(parsed.mediaDirs)
@@ -357,6 +374,8 @@ function loadConfigOnce(): AppConfig {
     const mcp = parseMcpConfig(parsed)
 
     return applyEnvOverrides({
+      port,
+      workspacePort,
       mediaDir,
       editableFolders,
       mediaDirs,
@@ -372,6 +391,8 @@ function loadConfigOnce(): AppConfig {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
       return applyEnvOverrides({
+        port: 3000,
+        workspacePort: 3001,
         mediaDir: process.cwd(),
         editableFolders: [],
         mediaDirs: undefined,

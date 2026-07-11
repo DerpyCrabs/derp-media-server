@@ -47,6 +47,8 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | Config                    | Env                         | Purpose                                                                     |
 | ------------------------- | --------------------------- | --------------------------------------------------------------------------- |
 | `mediaDir`                | `MEDIA_DIR`                 | Media root for legacy/single-root configs                                   |
+| `port`                    | `PORT`                      | Media server port (default `3000`)                                          |
+| `workspacePort`           | `WORKSPACE_PORT`            | Separate Workspace port (default: media port + 1)                           |
 | `mediaDirs`               |                             | Multiple named media roots, each with optional editable folders             |
 | `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under single-root `mediaDir` where writes are allowed |
 | `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                                 |

@@ -15,6 +15,7 @@ type Props = {
   onOpenInNewTab?: () => void
   showOpenInWorkspace?: boolean
   onOpenInWorkspace?: () => void
+  openInWorkspaceLabel?: string
   showSetIcon?: boolean
   onSetIcon?: () => void
   showDownloadAsZip?: boolean
@@ -77,7 +78,7 @@ export function BreadcrumbContextMenu(props: Props) {
               }}
             >
               <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
-              Open in Workspace
+              {props.openInWorkspaceLabel ?? 'Open in Workspace'}
             </button>
           </Show>
           <Show when={props.showDownloadAsZip}>

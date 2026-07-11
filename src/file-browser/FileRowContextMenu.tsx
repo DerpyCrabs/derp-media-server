@@ -36,6 +36,7 @@ type FileRowContextMenuProps = {
   /** Workspace: open beside file browser in split view. */
   onOpenInSplitView?: (file: FileItem) => void
   onOpenInWorkspace?: (file: FileItem) => void
+  openInWorkspaceLabel?: string
   onToggleFavorite?: (file: FileItem) => void
   isFavorite?: (file: FileItem) => boolean
   onRename?: (file: FileItem) => void
@@ -197,7 +198,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 }}
               >
                 <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
-                Open in Workspace
+                {props.openInWorkspaceLabel ?? 'Open in Workspace'}
               </button>
             </Show>
             <Show when={props.onAddToTaskbar && !ctx.file.isVirtual}>

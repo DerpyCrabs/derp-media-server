@@ -10,6 +10,7 @@ import {
   type PrefetchFolderHoverContext,
 } from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
+import { hostingUrl } from '@/lib/hosting-urls'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
@@ -413,14 +414,20 @@ export function ShareFolderBrowser(props: Props) {
     if (subPath) params.set('dir', subPath)
     const query = params.toString()
     window.open(
-      query ? `/share/${props.token}/workspace?${query}` : `/share/${props.token}/workspace`,
+      hostingUrl(
+        'workspace',
+        query ? `/share/${props.token}/workspace?${query}` : `/share/${props.token}/workspace`,
+      ),
       '_blank',
     )
   }
 
   function openShareWorkspaceSameTab() {
     const qs = urlSearchParams().toString()
-    window.history.pushState(null, '', `/share/${props.token}/workspace${qs ? `?${qs}` : ''}`)
+    window.location.href = hostingUrl(
+      'workspace',
+      `/share/${props.token}/workspace${qs ? `?${qs}` : ''}`,
+    )
   }
 
   function handleShareBreadcrumbDownloadZip() {
@@ -731,9 +738,12 @@ export function ShareFolderBrowser(props: Props) {
                         if (subPath) params.set('dir', subPath)
                         const query = params.toString()
                         window.open(
-                          query
-                            ? `/share/${props.token}/workspace?${query}`
-                            : `/share/${props.token}/workspace`,
+                          hostingUrl(
+                            'workspace',
+                            query
+                              ? `/share/${props.token}/workspace?${query}`
+                              : `/share/${props.token}/workspace`,
+                          ),
                           '_blank',
                         )
                         dismissMenu()

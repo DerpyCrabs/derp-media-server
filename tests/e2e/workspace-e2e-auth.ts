@@ -8,10 +8,11 @@ export function workspaceAuthStoragePath(): string {
   return path.resolve(__dirname, '../fixtures/.auth', authSessionFile)
 }
 
-/** Same origin as `use.baseURL` in playwright.config.ts (batch-aware). */
+/** Workspace origin from the separate test listener (batch-aware). */
 export function workspaceE2EOrigin(): string {
   const batchId = process.env.BATCH_ID
-  const port = batchId ? 9200 + parseInt(batchId, 10) : 5973
+  const mediaPort = batchId ? 9200 + parseInt(batchId, 10) : 5973
+  const port = mediaPort + 100
   return `http://localhost:${port}`
 }
 

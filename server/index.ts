@@ -19,11 +19,26 @@ import { registerKbApiRoutes } from './routes/api/kb'
 import { registerKbChatApiRoutes } from './routes/api/kb-chat'
 import path from 'path'
 import fs from 'fs'
+import { config } from '@/lib/config'
 
 const isDev = process.env.NODE_ENV !== 'production'
 const isTest = process.env.NODE_ENV === 'test'
-const PORT = Number(process.env.PORT) || 3000
-async function start() {
+const PORT = config.port
+const WORKSPACE_PORT = config.workspacePort
+type Surface = 'media' | 'workspace'
+
+function isWorkspacePath(pathname: string) {
+  return pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(pathname)
+}
+
+function otherSurfaceUrl(request: { headers: { host?: string }; url: string }, port: number) {
+  const host = request.headers.host?.replace(/:\d+$/, '') || 'localhost'
+  const url = new URL(request.url, `http://${host}`)
+  url.host = `${host}:${port}`
+  return url.href
+}
+
+async function createApp(surface: Surface) {
   const app = Fastify({ logger: false })
 
   await app.register(fastifyCookie)
@@ -63,7 +78,7 @@ async function start() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: isTest ? { port: PORT + 1000 } : undefined,
+        hmr: { port: (surface === 'workspace' ? WORKSPACE_PORT : PORT) + 1000 },
         forwardConsole: false,
         watch: {
           ignored: [
@@ -95,6 +110,11 @@ async function start() {
     app.get('*', async (request, reply) => {
       try {
         const url = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`)
+        if (isWorkspacePath(url.pathname) !== (surface === 'workspace')) {
+          return reply.redirect(
+            otherSurfaceUrl(request, surface === 'workspace' ? PORT : WORKSPACE_PORT),
+          )
+        }
         let template = fs.readFileSync(devIndexHtml, 'utf-8')
         template = await vite.transformIndexHtml(url.pathname, template)
         const dehydrated = await dehydrateForRoute(
@@ -104,7 +124,7 @@ async function start() {
         )
         const html = template.replace(
           '<!--DEHYDRATED-->',
-          `<script>window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
+          `<script>window.__HOSTING_PORTS__=${JSON.stringify({ media: PORT, workspace: WORKSPACE_PORT })};window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
         )
         reply.type('text/html').send(html)
       } catch (err) {
@@ -125,6 +145,11 @@ async function start() {
     app.get('*', async (request, reply) => {
       try {
         const url = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`)
+        if (isWorkspacePath(url.pathname) !== (surface === 'workspace')) {
+          return reply.redirect(
+            otherSurfaceUrl(request, surface === 'workspace' ? PORT : WORKSPACE_PORT),
+          )
+        }
         const dehydrated = await dehydrateForRoute(
           url.pathname,
           url.searchParams,
@@ -132,7 +157,7 @@ async function start() {
         )
         const html = templateHtml.replace(
           '<!--DEHYDRATED-->',
-          `<script>window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
+          `<script>window.__HOSTING_PORTS__=${JSON.stringify({ media: PORT, workspace: WORKSPACE_PORT })};window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
         )
         reply.type('text/html').send(html)
       } catch (err) {
@@ -142,8 +167,21 @@ async function start() {
     })
   }
 
-  await app.listen({ port: PORT, host: '0.0.0.0' })
-  console.log(`Server listening on http://localhost:${PORT}`)
+  return app
+}
+
+async function start() {
+  if (WORKSPACE_PORT === PORT) {
+    throw new Error('port and workspacePort must be different')
+  }
+  const mediaApp = await createApp('media')
+  const workspaceApp = await createApp('workspace')
+  await Promise.all([
+    mediaApp.listen({ port: PORT, host: '0.0.0.0' }),
+    workspaceApp.listen({ port: WORKSPACE_PORT, host: '0.0.0.0' }),
+  ])
+  console.log(`Media server listening on http://localhost:${PORT}`)
+  console.log(`Workspace listening on http://localhost:${WORKSPACE_PORT}/workspace`)
 }
 
 start().catch((err) => {

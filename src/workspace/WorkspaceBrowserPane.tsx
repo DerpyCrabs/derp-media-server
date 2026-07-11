@@ -27,6 +27,7 @@ import {
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
+import { hostingUrl } from '@/lib/hosting-urls'
 import type { ShareLink } from '@/lib/shares'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
@@ -751,6 +752,25 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     document.body.removeChild(link)
   }
 
+  function openDirectoryInMediaServer(file: FileItem) {
+    if (!file.isDirectory || file.isVirtual) return
+    const sh = share()
+    const params = new URLSearchParams()
+    if (sh) {
+      const rel = stripSharePrefix(file.path, sh.sharePath.replace(/\\/g, '/'))
+      if (rel) params.set('dir', rel)
+      const query = params.toString()
+      window.open(
+        hostingUrl('media', query ? `/share/${sh.token}?${query}` : `/share/${sh.token}`),
+        '_blank',
+      )
+      return
+    }
+    if (file.path) params.set('dir', file.path)
+    const query = params.toString()
+    window.open(hostingUrl('media', query ? `/?${query}` : '/'), '_blank')
+  }
+
   function handleContextShare(file: FileItem) {
     setShareDialogTarget(file)
   }
@@ -828,7 +848,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const sh = share()
     if (m.isHome) {
       if (sh) window.open(`/share/${sh.token}/workspace`, '_blank')
-      else window.open(`${window.location.origin}/`, '_blank')
+      else window.open(hostingUrl('media', '/'), '_blank')
       return
     }
     const item = workspaceBreadcrumbAsFolderItem(m)
@@ -843,7 +863,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     }
     const params = new URLSearchParams()
     if (item.path) params.set('dir', item.path)
-    window.open(`${window.location.origin}/?${params.toString()}`, '_blank')
+    window.open(hostingUrl('media', `/?${params.toString()}`), '_blank')
   }
 
   function handleWorkspaceBreadcrumbOpenInWorkspace() {
@@ -851,7 +871,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (!m) return
     const sh = share()
     if (m.isHome) {
-      window.open(sh ? `/share/${sh.token}/workspace` : '/workspace', '_blank')
+      window.open(hostingUrl('media', sh ? `/share/${sh.token}` : '/'), '_blank')
       return
     }
     const item = workspaceBreadcrumbAsFolderItem(m)
@@ -862,7 +882,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       if (rel) params.set('dir', rel)
       const q = params.toString()
       window.open(
-        q ? `/share/${sh.token}/workspace?${q}` : `/share/${sh.token}/workspace`,
+        hostingUrl('media', q ? `/share/${sh.token}?${q}` : `/share/${sh.token}`),
         '_blank',
       )
       return
@@ -870,7 +890,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const params = new URLSearchParams()
     if (item.path) params.set('dir', item.path)
     const q = params.toString()
-    window.open(q ? `/workspace?${q}` : '/workspace', '_blank')
+    window.open(hostingUrl('media', q ? `/?${q}` : '/'), '_blank')
   }
 
   function handleWorkspaceBreadcrumbSetIcon() {
@@ -1877,6 +1897,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
             showOpenInNewTabForFiles={!!props.onOpenInNewTab}
             onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
+            onOpenInMediaServer={openDirectoryInMediaServer}
             onContextDownload={handleContextDownload}
             onContextShare={share() ? undefined : handleContextShare}
             shareDialogTarget={shareDialogTarget}
