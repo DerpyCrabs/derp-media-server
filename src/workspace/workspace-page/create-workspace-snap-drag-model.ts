@@ -48,7 +48,9 @@ export function createWorkspaceSnapDragModel(options: {
   let snapPreviewEl: HTMLDivElement | undefined
   let snapAssistRootEl: HTMLDivElement | undefined
   const [workspaceAreaNode, setWorkspaceAreaNode] = createSignal<HTMLDivElement | null>(null)
-  const [workspaceCanvasSize, setWorkspaceCanvasSize] = createSignal<WorkspaceCanvasSize | null>(null)
+  const [workspaceCanvasSize, setWorkspaceCanvasSize] = createSignal<WorkspaceCanvasSize | null>(
+    null,
+  )
   const [_dragSnapZone, setDragSnapZone] = createSignal<SnapDetectResult | null>(null)
   const [dragSnapWindowId, setDragSnapWindowId] = createSignal<string | null>(null)
   const [snapAssistShown, setSnapAssistShown] = createSignal(false)
@@ -56,7 +58,9 @@ export function createWorkspaceSnapDragModel(options: {
   const [assistHoverPick, setAssistHoverPick] = createSignal<AssistSlotPick | null>(null)
   const [dragEdgeGridSpan, setDragEdgeGridSpan] = createSignal<AssistGridSpan | null>(null)
   const [mergeTargetPreview, setMergeTargetPreview] = createSignal<MergeTarget | null>(null)
-  const [tilingPickerHoverSpan, setTilingPickerHoverSpan] = createSignal<AssistGridSpan | null>(null)
+  const [tilingPickerHoverSpan, setTilingPickerHoverSpan] = createSignal<AssistGridSpan | null>(
+    null,
+  )
   let draggedWindowIdForSnap: string | null = null
   const layoutUndoStack: PersistedWorkspaceState[] = []
   let lastHistoryKind = ''
@@ -73,7 +77,11 @@ export function createWorkspaceSnapDragModel(options: {
 
   const onLayoutUndoKey = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z' || target?.closest('input, textarea, [contenteditable]')) {
+    if (
+      !(event.ctrlKey || event.metaKey) ||
+      event.key.toLowerCase() !== 'z' ||
+      target?.closest('input, textarea, [contenteditable]')
+    ) {
       return
     }
     const previous = layoutUndoStack.pop()
@@ -176,7 +184,12 @@ export function createWorkspaceSnapDragModel(options: {
     const p = snapPreviewEl
     if (!c || !p) return
     if (!span) {
-      applySnapPreviewLayout(p, dragSnapWindowId() ? _dragSnapZone() : null, c, getZoneBoundsForDrag)
+      applySnapPreviewLayout(
+        p,
+        dragSnapWindowId() ? _dragSnapZone() : null,
+        c,
+        getZoneBoundsForDrag,
+      )
       return
     }
     const r = c.getBoundingClientRect()
@@ -205,7 +218,10 @@ export function createWorkspaceSnapDragModel(options: {
     const excludeGid = excludeW ? groupIdForWindow(excludeW) : null
     const occupied = w.windows
       .filter(
-        (x) => x.layout?.snapZone && x.layout.bounds && (excludeGid == null || groupIdForWindow(x) !== excludeGid),
+        (x) =>
+          x.layout?.snapZone &&
+          x.layout.bounds &&
+          (excludeGid == null || groupIdForWindow(x) !== excludeGid),
       )
       .map((x) => ({
         bounds: x.layout!.bounds!,
@@ -246,15 +262,18 @@ export function createWorkspaceSnapDragModel(options: {
     const shape = st.assistGridShape
     const assistOn = st.snapAssistOnTopDrag
     const nearTop = ly <= SNAP_EDGE_THRESHOLD_PX
-    const topInnerBand = assistOn && nearTop && Math.abs(lx - rect.width / 2) <= TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX
+    const topInnerBand =
+      assistOn && nearTop && Math.abs(lx - rect.width / 2) <= TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX
     const assistRect = snapAssistRootEl?.getBoundingClientRect()
-    const overAssistPanel = assistOn && assistRect ? clientInDomRect(clientX, clientY, assistRect) : false
+    const overAssistPanel =
+      assistOn && assistRect ? clientInDomRect(clientX, clientY, assistRect) : false
 
     if (topInnerBand || overAssistPanel) {
       setSnapAssistEngaged(true)
     }
 
-    const inAssistKeepaliveCorridor = assistOn && snapAssistEngaged() && ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX
+    const inAssistKeepaliveCorridor =
+      assistOn && snapAssistEngaged() && ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX
 
     const edgeSpan = detectEdgeAssistGridSpan(lx, ly, rect.width, rect.height, shape, {
       suppressTopEdgeSpans: false,
@@ -267,7 +286,13 @@ export function createWorkspaceSnapDragModel(options: {
       setSnapAssistShown(true)
     } else {
       setSnapAssistShown(false)
-      if (assistOn && snapAssistEngaged() && !topInnerBand && !overAssistPanel && !inAssistKeepaliveCorridor) {
+      if (
+        assistOn &&
+        snapAssistEngaged() &&
+        !topInnerBand &&
+        !overAssistPanel &&
+        !inAssistKeepaliveCorridor
+      ) {
         setSnapAssistEngaged(false)
       }
     }
@@ -275,7 +300,8 @@ export function createWorkspaceSnapDragModel(options: {
     setDragSnapZone(z)
     if (p) applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag)
 
-    const assistBarVisible = assistOn && snapAssistEngaged() && (overAssistPanel || ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX)
+    const assistBarVisible =
+      assistOn && snapAssistEngaged() && (overAssistPanel || ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX)
     if (assistBarVisible && snapAssistRootEl) {
       setAssistHoverPick(pickAssistSlotFromPoint(clientX, clientY, snapAssistRootEl))
     } else {
@@ -283,7 +309,11 @@ export function createWorkspaceSnapDragModel(options: {
     }
   }
 
-  function restoreDrag(windowId: string, clientX: number, _clientY: number): WorkspaceBounds | undefined {
+  function restoreDrag(
+    windowId: string,
+    clientX: number,
+    _clientY: number,
+  ): WorkspaceBounds | undefined {
     const w = workspace()
     const container = workspaceAreaEl?.getBoundingClientRect()
     if (!w || !container) return
@@ -295,7 +325,9 @@ export function createWorkspaceSnapDragModel(options: {
     const restoredH = restoreBounds?.height ?? currentBounds?.height ?? 260
     const currentWidth = currentBounds?.width ?? restoredW
     const oX = container.left
-    const grabRatio = currentBounds ? Math.min(Math.max((clientX - oX - currentBounds.x) / currentWidth, 0), 1) : 0.5
+    const grabRatio = currentBounds
+      ? Math.min(Math.max((clientX - oX - currentBounds.x) / currentWidth, 0), 1)
+      : 0.5
     const newX = clientX - oX - restoredW * grabRatio
     const newY = currentBounds?.y ?? 0
     unsnapWindow(windowId, { x: newX, y: newY })
@@ -338,7 +370,11 @@ export function createWorkspaceSnapDragModel(options: {
     })
   }
 
-  function snapWindowToAssistCustom(windowId: string, bounds: WorkspaceBounds, span?: AssistGridSpan) {
+  function snapWindowToAssistCustom(
+    windowId: string,
+    bounds: WorkspaceBounds,
+    span?: AssistGridSpan,
+  ) {
     // oxlint-disable-next-line solid/reactivity -- setState functional update from snap/drag, not a tracked derivation
     setWorkspace((prev) => {
       if (!prev) return prev
@@ -350,7 +386,8 @@ export function createWorkspaceSnapDragModel(options: {
       const existingGrid = span
         ? prev.windows.find(
             (candidate) =>
-              candidate.layout?.tiling?.cols === span.gridCols && candidate.layout.tiling.rows === span.gridRows,
+              candidate.layout?.tiling?.cols === span.gridCols &&
+              candidate.layout.tiling.rows === span.gridRows,
           )?.layout?.tiling
         : null
       const b: WorkspaceBounds = {
@@ -419,7 +456,9 @@ export function createWorkspaceSnapDragModel(options: {
               tiling: null,
               minimized: false,
               zIndex: maxZ + 1,
-              bounds: isFs ? (w.layout?.restoreBounds ?? currentBounds) : createFullscreenBounds(getWorkspaceCanvas()),
+              bounds: isFs
+                ? (w.layout?.restoreBounds ?? currentBounds)
+                : createFullscreenBounds(getWorkspaceCanvas()),
               restoreBounds: isFs ? null : currentBounds,
             },
           }
@@ -467,7 +506,8 @@ export function createWorkspaceSnapDragModel(options: {
   function resizeSnappedWindowBounds(windowId: string, bounds: WorkspaceBounds, direction: string) {
     setWorkspace((prev) =>
       prev
-        ? (rememberLayout(prev, `resize:${windowId}:${direction}`), {
+        ? (rememberLayout(prev, `resize:${windowId}:${direction}`),
+          {
             ...prev,
             windows: computeSnappedResizeWindows(prev.windows, windowId, bounds, direction),
           })
@@ -486,7 +526,12 @@ export function createWorkspaceSnapDragModel(options: {
     draggedWindowIdForSnap = null
   }
 
-  function onDragPointerEnd(windowId: string, bounds: WorkspaceBounds, clientX: number, clientY: number) {
+  function onDragPointerEnd(
+    windowId: string,
+    bounds: WorkspaceBounds,
+    clientX: number,
+    clientY: number,
+  ) {
     const edgeSpanEnd = dragEdgeGridSpan()
     const hadAssistUi = snapAssistShown()
     const assistRootAtEnd = snapAssistRootEl
@@ -499,13 +544,21 @@ export function createWorkspaceSnapDragModel(options: {
     const wsMerge = workspace()
     if (wsMerge) {
       const rect = workspaceAreaEl?.getBoundingClientRect()
-      const hit = findMergeTarget(wsMerge.windows, windowId, clientX, clientY, rect ? { canvasRect: rect } : undefined)
+      const hit = findMergeTarget(
+        wsMerge.windows,
+        windowId,
+        clientX,
+        clientY,
+        rect ? { canvasRect: rect } : undefined,
+      )
       if (hit) {
         const targetWindow = wsMerge.windows.find((w) => groupIdForWindow(w) === hit.groupId)
         if (targetWindow) {
           clearSnapAssistDragUi()
           setWorkspace((prev) =>
-            prev ? mergeWindowIntoGroupState(prev, windowId, targetWindow.id, hit.insertIndex) : prev,
+            prev
+              ? mergeWindowIntoGroupState(prev, windowId, targetWindow.id, hit.insertIndex)
+              : prev,
           )
           return
         }
@@ -538,7 +591,11 @@ export function createWorkspaceSnapDragModel(options: {
     clearSnapAssistDragUi()
 
     if (edgeSpanEnd) {
-      snapWindowToAssistCustom(windowId, assistGridSpanToBounds(getWorkspaceCanvas(), edgeSpanEnd), edgeSpanEnd)
+      snapWindowToAssistCustom(
+        windowId,
+        assistGridSpanToBounds(getWorkspaceCanvas(), edgeSpanEnd),
+        edgeSpanEnd,
+      )
       return
     }
 

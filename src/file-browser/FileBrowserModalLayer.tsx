@@ -49,6 +49,7 @@ export type FileBrowserModalLayerProps = {
   isEditable: Accessor<boolean>
   hasEditableFolders: Accessor<boolean>
   onContextDownload: (file: FileItem) => void
+  onContextMakeAvailableOffline: (file: FileItem) => void
   onContextShare: (file: FileItem) => void
   onCopyShareLink: (file: FileItem) => void
   getPathHasShare: (file: FileItem) => boolean
@@ -152,6 +153,7 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
         hasEditableFolders={props.hasEditableFolders}
         onDismiss={props.fileRowMenu.dismiss}
         onDownload={props.onContextDownload}
+        onMakeAvailableOffline={props.onContextMakeAvailableOffline}
         onDelete={props.fileRowMenu.confirmDelete}
         onShare={props.onContextShare}
         onCopyShareLink={props.onCopyShareLink}

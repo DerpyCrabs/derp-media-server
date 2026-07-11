@@ -5,6 +5,11 @@ import ExternalLink from 'lucide-solid/icons/external-link'
 import Pencil from 'lucide-solid/icons/pencil'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
+import {
+  isAndroidApp,
+  isAndroidPathAvailableOffline,
+  isOfflineFeatureAvailable,
+} from '../lib/android-bridge'
 
 export type BreadcrumbMenuTarget = BreadcrumbFolderMenuTarget
 
@@ -20,6 +25,7 @@ type Props = {
   onSetIcon?: () => void
   showDownloadAsZip?: boolean
   onDownloadAsZip?: () => void
+  onMakeAvailableOffline?: () => void
 }
 
 export function BreadcrumbContextMenu(props: Props) {
@@ -49,7 +55,7 @@ export function BreadcrumbContextMenu(props: Props) {
               Set icon
             </button>
           </Show>
-          <Show when={props.showOpenInNewTab && !ctx.isHome}>
+          <Show when={!isAndroidApp() && props.showOpenInNewTab && !ctx.isHome}>
             <button
               type='button'
               data-slot='context-menu-item'
@@ -65,7 +71,7 @@ export function BreadcrumbContextMenu(props: Props) {
               Open in new tab
             </button>
           </Show>
-          <Show when={props.showOpenInWorkspace}>
+          <Show when={!isAndroidApp() && props.showOpenInWorkspace}>
             <button
               type='button'
               data-slot='context-menu-item'
@@ -93,8 +99,30 @@ export function BreadcrumbContextMenu(props: Props) {
                 props.onDismiss()
               }}
             >
-              Download as ZIP
+              {isAndroidApp()
+                ? isAndroidPathAvailableOffline(ctx.serverPath)
+                  ? 'Remove from offline'
+                  : 'Make available offline'
+                : 'Download as ZIP'}
             </button>
+            <Show
+              when={!isAndroidApp() && isOfflineFeatureAvailable() && props.onMakeAvailableOffline}
+            >
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onMakeAvailableOffline?.()
+                  props.onDismiss()
+                }}
+              >
+                {isAndroidPathAvailableOffline(ctx.serverPath)
+                  ? 'Remove from offline'
+                  : 'Make available offline'}
+              </button>
+            </Show>
           </Show>
         </>
       )}

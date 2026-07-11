@@ -204,7 +204,9 @@ function parseWorkspaceFileOpenTargetField(v: unknown): WorkspaceFileOpenTarget 
   return undefined
 }
 
-function sanitizeBrowserFileOpenTargets(windows: WorkspaceWindowDefinition[]): WorkspaceWindowDefinition[] {
+function sanitizeBrowserFileOpenTargets(
+  windows: WorkspaceWindowDefinition[],
+): WorkspaceWindowDefinition[] {
   const ids = new Set(windows.map((w) => w.id))
   return windows.map((w) => {
     if (w.type !== 'browser') return w
@@ -295,7 +297,8 @@ function clampBoundsToViewport(
 function sanitizeTilingPlacement(value: unknown): WorkspaceTilingPlacement | null {
   if (!value || typeof value !== 'object') return null
   const t = value as WorkspaceTilingPlacement
-  if (!Number.isInteger(t.cols) || !Number.isInteger(t.rows) || t.cols < 1 || t.rows < 1) return null
+  if (!Number.isInteger(t.cols) || !Number.isInteger(t.rows) || t.cols < 1 || t.rows < 1)
+    return null
   if (
     !Number.isInteger(t.colStart) ||
     !Number.isInteger(t.colEnd) ||
@@ -313,15 +316,21 @@ function sanitizeTilingPlacement(value: unknown): WorkspaceTilingPlacement | nul
   const validLines = (lines: unknown, count: number): lines is number[] =>
     Array.isArray(lines) &&
     lines.length === count + 1 &&
-    lines.every((line, index) =>
-      typeof line === 'number' &&
-      Number.isFinite(line) &&
-      line >= 0 &&
-      line <= 1 &&
-      (index === 0 || line >= lines[index - 1]!),
+    lines.every(
+      (line, index) =>
+        typeof line === 'number' &&
+        Number.isFinite(line) &&
+        line >= 0 &&
+        line <= 1 &&
+        (index === 0 || line >= lines[index - 1]!),
     )
   if (!validLines(t.colLines, t.cols) || !validLines(t.rowLines, t.rows)) return null
-  if (t.colLines[0] !== 0 || t.colLines[t.cols] !== 1 || t.rowLines[0] !== 0 || t.rowLines[t.rows] !== 1) {
+  if (
+    t.colLines[0] !== 0 ||
+    t.colLines[t.cols] !== 1 ||
+    t.rowLines[0] !== 0 ||
+    t.rowLines[t.rows] !== 1
+  ) {
     return null
   }
   return t
@@ -372,7 +381,9 @@ export function normalizePersistedWorkspaceState(
 
   const hasSemanticTiling = validatedWindows.some((w) => w.layout?.tiling)
   const reconciledWindows =
-    reconcileSnapZones || hasSemanticTiling ? reconcileLayoutBoundsFromSnapZones(validatedWindows) : validatedWindows
+    reconcileSnapZones || hasSemanticTiling
+      ? reconcileLayoutBoundsFromSnapZones(validatedWindows)
+      : validatedWindows
 
   const withOpenTargets = sanitizeBrowserFileOpenTargets(reconciledWindows)
 
@@ -417,7 +428,9 @@ function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
   return parseWorkspaceTaskbarPins([p]).length === 1
 }
 
-export function workspaceSourceToMediaContext(source: WorkspaceSource | null | undefined): SourceContext | undefined {
+export function workspaceSourceToMediaContext(
+  source: WorkspaceSource | null | undefined,
+): SourceContext | undefined {
   if (!source || source.kind !== 'share') {
     return undefined
   }

@@ -532,7 +532,11 @@ export function reconcileLayoutBoundsFromSnapZones(
   }
 
   const snappedReps = [...repByGroup.values()].filter(
-    (w) => w.layout?.snapZone && w.layout.snapZone !== 'assist-custom' && !w.layout.fullscreen && !w.layout.minimized,
+    (w) =>
+      w.layout?.snapZone &&
+      w.layout.snapZone !== 'assist-custom' &&
+      !w.layout.fullscreen &&
+      !w.layout.minimized,
   )
   if (snappedReps.length === 0) return semanticWindows
 
@@ -602,6 +606,12 @@ export function insertWindowAtGroupIndex(
     if (gid === groupId) groupIndices.push(i)
   })
   const targetGlobalIndex =
-    insertIndex >= groupIndices.length ? (groupIndices[groupIndices.length - 1] ?? -1) + 1 : groupIndices[insertIndex]
-  return [...current.slice(0, targetGlobalIndex), windowToInsert, ...current.slice(targetGlobalIndex)]
+    insertIndex >= groupIndices.length
+      ? (groupIndices[groupIndices.length - 1] ?? -1) + 1
+      : groupIndices[insertIndex]
+  return [
+    ...current.slice(0, targetGlobalIndex),
+    windowToInsert,
+    ...current.slice(targetGlobalIndex),
+  ]
 }

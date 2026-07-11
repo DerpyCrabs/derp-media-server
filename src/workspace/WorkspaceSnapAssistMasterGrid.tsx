@@ -109,8 +109,10 @@ function defaultShapeLabel(shape: AssistGridShape): string {
 }
 
 function placementLabel(span: AssistGridSpan): string {
-  const columns = span.gc0 === span.gc1 ? `column ${span.gc0 + 1}` : `columns ${span.gc0 + 1} to ${span.gc1 + 1}`
-  const rows = span.gr0 === span.gr1 ? `row ${span.gr0 + 1}` : `rows ${span.gr0 + 1} to ${span.gr1 + 1}`
+  const columns =
+    span.gc0 === span.gc1 ? `column ${span.gc0 + 1}` : `columns ${span.gc0 + 1} to ${span.gc1 + 1}`
+  const rows =
+    span.gr0 === span.gr1 ? `row ${span.gr0 + 1}` : `rows ${span.gr0 + 1} to ${span.gr1 + 1}`
   return `${columns}, ${rows}`
 }
 
@@ -136,8 +138,12 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
 
   const gridTemplate = createMemo(() => {
     const { cols, rows } = assistShapeToDims(props.shape)
-    const colT = Array.from({ length: cols * 2 - 1 }, (_, i) => (i % 2 === 0 ? 'minmax(0,1fr)' : '6px')).join(' ')
-    const rowT = Array.from({ length: rows * 2 - 1 }, (_, i) => (i % 2 === 0 ? 'minmax(0,1fr)' : '6px')).join(' ')
+    const colT = Array.from({ length: cols * 2 - 1 }, (_, i) =>
+      i % 2 === 0 ? 'minmax(0,1fr)' : '6px',
+    ).join(' ')
+    const rowT = Array.from({ length: rows * 2 - 1 }, (_, i) =>
+      i % 2 === 0 ? 'minmax(0,1fr)' : '6px',
+    ).join(' ')
     return { colT, rowT }
   })
 
@@ -161,7 +167,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
           'rounded-lg border border-transparent bg-muted/20 p-2 transition-colors hover:border-border hover:bg-muted/35 focus-within:border-primary/50',
       )}
       data-assist-mini-grid={props.shape}
-      role="group"
+      role='group'
       aria-label={`Layout ${title()}`}
     >
       <div
@@ -181,7 +187,11 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
             const active = createMemo(() => assistPickMatchesGridSpan(pick(), p().span))
             const disabled = createMemo(() => props.isSpanDisabled?.(p().span) ?? false)
             const isFirstCell = createMemo(
-              () => p().kind === 'cell' && p().span.gc0 === 0 && p().span.gr0 === 0 && p().span.gc1 === 0,
+              () =>
+                p().kind === 'cell' &&
+                p().span.gc0 === 0 &&
+                p().span.gr0 === 0 &&
+                p().span.gc1 === 0,
             )
             const isFirstColumnHgutter = createMemo(
               () =>
@@ -208,7 +218,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
             )
             return (
               <button
-                type="button"
+                type='button'
                 tabIndex={props.pickMode && !disabled() ? 0 : -1}
                 disabled={disabled()}
                 aria-label={`${title()}: ${placementLabel(p().span)}`}
@@ -236,7 +246,8 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
                     ? 'hover:border-primary/70 hover:bg-primary/15'
                     : '',
                   disabled() ? 'cursor-not-allowed opacity-25' : '',
-                  !props.pickMode && (p().kind === 'vgutter' || p().kind === 'hgutter' || p().kind === 'junction')
+                  !props.pickMode &&
+                    (p().kind === 'vgutter' || p().kind === 'hgutter' || p().kind === 'junction')
                     ? 'cursor-default'
                     : '',
                 )}
@@ -255,7 +266,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
         <Show when={hoverLines()}>
           {(lines) => (
             <div
-              class="pointer-events-none z-20 rounded-md border-2 border-primary bg-primary/20 shadow-md ring-2 ring-primary/25"
+              class='pointer-events-none z-20 rounded-md border-2 border-primary bg-primary/20 shadow-md ring-2 ring-primary/25'
               style={{
                 'grid-column': `${lines().colStart} / ${lines().colEnd}`,
                 'grid-row': `${lines().rowStart} / ${lines().rowEnd}`,

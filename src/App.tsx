@@ -9,6 +9,7 @@ import { ShareWorkspacePage } from './ShareWorkspacePage'
 import { WorkspacePage } from './WorkspacePage'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { post } from '@/lib/api'
+import { OfflineStatus } from './OfflineStatus'
 
 function LoginPage() {
   const [password, setPassword] = createSignal('')
@@ -88,6 +89,7 @@ export function App() {
   return (
     <>
       <GlobalForbiddenToast />
+      <OfflineStatus />
       <Switch
         fallback={
           <>

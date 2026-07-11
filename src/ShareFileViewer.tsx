@@ -11,6 +11,7 @@ import { playFile, viewFile } from './lib/url-state-actions'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { TextViewerBody, type TextViewerShareContext } from './media/TextViewerDialog'
 import { ThemeSwitcher } from './ThemeSwitcher'
+import { downloadInAndroid, playInAndroid } from './lib/android-bridge'
 
 type Props = {
   token: string
@@ -40,6 +41,20 @@ export function ShareFileViewer(props: Props) {
 
     const mt = props.shareInfo.mediaType
     if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
+      if (
+        playInAndroid(
+          {
+            name: props.shareInfo.name,
+            path: props.shareInfo.path,
+            type: mt,
+            size: 0,
+            extension: props.shareInfo.extension,
+            isDirectory: false,
+          },
+          { token: props.token, sharePath: props.shareInfo.path },
+        )
+      )
+        return
       playFile(props.shareInfo.path)
     } else if (mt === MediaType.IMAGE || mt === MediaType.PDF) {
       viewFile(props.shareInfo.path)
@@ -106,6 +121,20 @@ export function ShareFileViewer(props: Props) {
                   type='button'
                   class='bg-primary text-primary-foreground hover:bg-primary/90 mx-auto inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium'
                   onClick={() => {
+                    if (
+                      downloadInAndroid(
+                        {
+                          name: props.shareInfo.name,
+                          path: props.shareInfo.path,
+                          type: props.shareInfo.mediaType as MediaType,
+                          size: 0,
+                          extension: props.shareInfo.extension,
+                          isDirectory: false,
+                        },
+                        { token: props.token, sharePath: props.shareInfo.path },
+                      )
+                    )
+                      return
                     const a = document.createElement('a')
                     a.href = `/api/share/${props.token}/download`
                     a.download = props.shareInfo.name

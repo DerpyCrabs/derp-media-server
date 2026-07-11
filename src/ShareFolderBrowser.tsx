@@ -69,6 +69,16 @@ import { EMPTY_FILE_ICON_CONTEXT, fileIcon, gridHeroIcon } from './lib/use-file-
 import { useDeferredLoading } from './lib/use-deferred-loading'
 import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
+import { OfflineBadge } from './OfflineBadge'
+import {
+  downloadInAndroid,
+  isAndroidApp,
+  isAndroidPathAvailableOffline,
+  isOfflineFeatureAvailable,
+  makeAvailableOffline,
+  playInAndroid,
+  removeOfflineInAndroid,
+} from './lib/android-bridge'
 import type { TextViewerShareContext } from './media/TextViewerDialog'
 
 type ShareRestrictions = {
@@ -436,6 +446,12 @@ export function ShareFolderBrowser(props: Props) {
     handleDownload(shareBreadcrumbAsFolder(m))
   }
 
+  function handleShareBreadcrumbMakeAvailableOffline() {
+    const m = breadcrumbMenu()
+    if (!m) return
+    handleMakeAvailableOffline(shareBreadcrumbAsFolder(m))
+  }
+
   function openRowMenu(e: MouseEvent, file: FileItem) {
     e.preventDefault()
     e.stopPropagation()
@@ -470,11 +486,21 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function handleDownload(file: FileItem) {
+    if (isAndroidApp() && isAndroidPathAvailableOffline(file.path)) {
+      removeOfflineInAndroid(file)
+      return
+    }
+    if (downloadInAndroid(file, { token: props.token, sharePath: props.shareInfo.path })) return
     const rel = stripSharePrefix(file.path, props.shareInfo.path)
     const a = document.createElement('a')
     a.href = `/api/share/${props.token}/download?path=${encodeURIComponent(rel)}`
     a.download = file.name
     a.click()
+  }
+
+  function handleMakeAvailableOffline(file: FileItem) {
+    if (isAndroidPathAvailableOffline(file.path)) removeOfflineInAndroid(file)
+    else makeAvailableOffline(file, { token: props.token, sharePath: props.shareInfo.path })
   }
 
   function handleFileClick(file: FileItem) {
@@ -487,6 +513,7 @@ export function ShareFolderBrowser(props: Props) {
     viewMutation.mutate(strip(file.path))
     const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
     if (isMediaFile) {
+      if (playInAndroid(file, { token: props.token, sharePath: props.shareInfo.path })) return
       useMediaPlayer
         .getState()
         .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')
@@ -663,6 +690,7 @@ export function ShareFolderBrowser(props: Props) {
           onOpenInWorkspace={handleShareBreadcrumbOpenInWorkspace}
           showDownloadAsZip={shareBreadcrumbMenuActions().showDownloadAsZip}
           onDownloadAsZip={handleShareBreadcrumbDownloadZip}
+          onMakeAvailableOffline={handleShareBreadcrumbMakeAvailableOffline}
         />
         <Show when={rowMenu()}>
           {(getCtx) => {
@@ -697,8 +725,30 @@ export function ShareFolderBrowser(props: Props) {
                       dismissMenu()
                     }}
                   >
-                    {ctx.file.isDirectory ? 'Download as ZIP' : 'Download'}
+                    {isAndroidApp()
+                      ? isAndroidPathAvailableOffline(ctx.file.path)
+                        ? 'Remove from offline'
+                        : 'Make available offline'
+                      : ctx.file.isDirectory
+                        ? 'Download as ZIP'
+                        : 'Download'}
                   </button>
+                  <Show when={!isAndroidApp() && isOfflineFeatureAvailable()}>
+                    <button
+                      type='button'
+                      data-slot='context-menu-item'
+                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                      role='menuitem'
+                      onClick={() => {
+                        handleMakeAvailableOffline(ctx.file)
+                        dismissMenu()
+                      }}
+                    >
+                      {isAndroidPathAvailableOffline(ctx.file.path)
+                        ? 'Remove from offline'
+                        : 'Make available offline'}
+                    </button>
+                  </Show>
                   <Show when={shareCanEdit() && !ctx.file.isVirtual}>
                     <button
                       type='button'
@@ -721,7 +771,7 @@ export function ShareFolderBrowser(props: Props) {
                       Move to…
                     </button>
                   </Show>
-                  <Show when={ctx.file.isDirectory && !ctx.file.isVirtual}>
+                  <Show when={!isAndroidApp() && ctx.file.isDirectory && !ctx.file.isVirtual}>
                     <button
                       type='button'
                       data-slot='context-menu-item'
@@ -1125,6 +1175,7 @@ export function ShareFolderBrowser(props: Props) {
                                 <div class='flex flex-col gap-1 p-3'>
                                   <p class='truncate text-sm font-medium' title={file.name}>
                                     {file.name}
+                                    <OfflineBadge path={file.path} />
                                   </p>
                                   <div class='flex items-center justify-end text-xs text-muted-foreground'>
                                     <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
@@ -1184,7 +1235,10 @@ export function ShareFolderBrowser(props: Props) {
                                   </div>
                                 </td>
                                 <td class='min-w-0 p-2 align-middle font-medium'>
-                                  <span class='truncate'>{file.name}</span>
+                                  <span class='truncate'>
+                                    {file.name}
+                                    <OfflineBadge path={file.path} />
+                                  </span>
                                 </td>
                                 <td class='min-w-0 p-2 align-middle text-right text-muted-foreground tabular-nums'>
                                   <span class='inline-block w-20'>

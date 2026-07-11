@@ -62,6 +62,7 @@ const BATCHES = [
       'drag-drop',
       'passcode-shares',
       'share-viewers',
+      'offline-mode',
     ],
   },
 ]

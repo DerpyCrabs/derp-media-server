@@ -12,6 +12,11 @@ import Settings from 'lucide-solid/icons/settings'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
+import {
+  isAndroidApp,
+  isAndroidPathAvailableOffline,
+  isOfflineFeatureAvailable,
+} from '../lib/android-bridge'
 
 type MenuState = { x: number; y: number; file: FileItem }
 
@@ -25,6 +30,7 @@ type FileRowContextMenuProps = {
   shareCanDelete?: Accessor<boolean>
   onDismiss: () => void
   onDownload: (file: FileItem) => void
+  onMakeAvailableOffline?: (file: FileItem) => void
   onDelete: (file: FileItem) => void
   onShare?: (file: FileItem) => void
   onCopyShareLink?: (file: FileItem) => void
@@ -62,7 +68,14 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
       data-slot='file-row-context-menu'
     >
       {(ctx) => {
-        const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
+        const downloadLabel = () =>
+          isAndroidApp()
+            ? isAndroidPathAvailableOffline(ctx.file.path)
+              ? 'Remove from offline'
+              : 'Make available offline'
+            : ctx.file.isDirectory
+              ? 'Download as ZIP'
+              : 'Download'
         const showRevokeShare = () => !!ctx.file.shareToken
         const showDeleteFile = () => {
           if (ctx.file.isVirtual || ctx.file.shareToken) return false
@@ -96,6 +109,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
           !!props.onOpenFileInNewWindow
 
         const showWorkspaceOpenRow = () => {
+          if (isAndroidApp()) return false
           if (ctx.file.isVirtual) return false
           if (ctx.file.isDirectory) return !!props.onOpenInNewTab
           if (props.showOpenInNewTabForFiles !== true) return false
@@ -132,7 +146,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Set icon
               </button>
             </Show>
-            <Show when={props.onPickNewTabTarget}>
+            <Show when={props.onPickNewTabTarget && !isAndroidApp()}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -168,7 +182,10 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             </Show>
             <Show
               when={
-                props.onOpenInSplitView && !ctx.file.isVirtual && ctx.file.type !== MediaType.AUDIO
+                !isAndroidApp() &&
+                props.onOpenInSplitView &&
+                !ctx.file.isVirtual &&
+                ctx.file.type !== MediaType.AUDIO
               }
             >
               <button
@@ -186,7 +203,14 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Open in split view
               </button>
             </Show>
-            <Show when={props.onOpenInWorkspace && ctx.file.isDirectory && !ctx.file.isVirtual}>
+            <Show
+              when={
+                !isAndroidApp() &&
+                props.onOpenInWorkspace &&
+                ctx.file.isDirectory &&
+                !ctx.file.isVirtual
+              }
+            >
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -284,6 +308,24 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             >
               {downloadLabel()}
             </button>
+            <Show
+              when={!isAndroidApp() && isOfflineFeatureAvailable() && props.onMakeAvailableOffline}
+            >
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onMakeAvailableOffline?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                {isAndroidPathAvailableOffline(ctx.file.path)
+                  ? 'Remove from offline'
+                  : 'Make available offline'}
+              </button>
+            </Show>
             <Show when={showCopyTo()}>
               <button
                 type='button'

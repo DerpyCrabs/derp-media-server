@@ -47,7 +47,11 @@ export type EdgeAssistDetectOptions = {
   suppressTopEdgeSpans: boolean
 }
 
-function topBottomEdgeSlot(cursorX: number, cw: number, cols: number): { gc0: number; gc1: number } {
+function topBottomEdgeSlot(
+  cursorX: number,
+  cw: number,
+  cols: number,
+): { gc0: number; gc1: number } {
   const slots = cols * 2 - 1
   const t = Math.min(Math.max((cursorX / cw) * slots, 0), slots - Number.EPSILON)
   const slot = Math.min(slots - 1, Math.floor(t))
@@ -59,7 +63,11 @@ function topBottomEdgeSlot(cursorX: number, cw: number, cols: number): { gc0: nu
   return { gc0: i, gc1: i + 1 }
 }
 
-function leftRightEdgeSlot(cursorY: number, ch: number, rows: number): { gr0: number; gr1: number } {
+function leftRightEdgeSlot(
+  cursorY: number,
+  ch: number,
+  rows: number,
+): { gr0: number; gr1: number } {
   const slots = rows * 2 - 1
   const t = Math.min(Math.max((cursorY / ch) * slots, 0), slots - Number.EPSILON)
   const slot = Math.min(slots - 1, Math.floor(t))
@@ -160,10 +168,17 @@ export function detectEdgeAssistGridSpan(
   return null
 }
 
-export function assistGridSpanToBounds(canvas: WorkspaceCanvasSize, span: AssistGridSpan): WorkspaceBounds {
+export function assistGridSpanToBounds(
+  canvas: WorkspaceCanvasSize,
+  span: AssistGridSpan,
+): WorkspaceBounds {
   const { gridCols, gridRows, gc0, gc1, gr0, gr1 } = span
-  const xs = Array.from({ length: gridCols + 1 }, (_, i) => Math.round((canvas.width * i) / gridCols))
-  const ys = Array.from({ length: gridRows + 1 }, (_, i) => Math.round((canvas.height * i) / gridRows))
+  const xs = Array.from({ length: gridCols + 1 }, (_, i) =>
+    Math.round((canvas.width * i) / gridCols),
+  )
+  const ys = Array.from({ length: gridRows + 1 }, (_, i) =>
+    Math.round((canvas.height * i) / gridRows),
+  )
   const x = xs[gc0]!
   const y = ys[gr0]!
   const width = xs[gc1 + 1]! - x

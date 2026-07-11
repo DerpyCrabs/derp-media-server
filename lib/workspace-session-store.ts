@@ -35,7 +35,9 @@ export function computeSnappedResizeWindows(
 ): WorkspaceWindowDefinition[] {
   const target = current.find((w) => w.id === windowId)
   if (!target?.layout?.bounds) {
-    return current.map((w) => (w.id === windowId ? { ...w, layout: { ...w.layout, bounds: newBounds } } : w))
+    return current.map((w) =>
+      w.id === windowId ? { ...w, layout: { ...w.layout, bounds: newBounds } } : w,
+    )
   }
 
   const oldBounds = target.layout.bounds
@@ -77,7 +79,10 @@ export function computeSnappedResizeWindows(
     }
     const clampLine = (lines: number[], index: number, minFraction: number) => {
       if (index <= 0 || index >= lines.length - 1) return
-      lines[index] = Math.max(lines[index - 1]! + minFraction, Math.min(lines[index]!, lines[index + 1]! - minFraction))
+      lines[index] = Math.max(
+        lines[index - 1]! + minFraction,
+        Math.min(lines[index]!, lines[index + 1]! - minFraction),
+      )
     }
     if (direction.includes('right')) clampLine(colLines, tiling.colEnd, 360 / canvasWidth)
     if (direction.includes('left')) clampLine(colLines, tiling.colStart, 360 / canvasWidth)
@@ -133,7 +138,10 @@ export function computeSnappedResizeWindows(
           wb.x += deltaRight
           wb.width -= deltaRight
           updated = true
-        } else if (Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL && wb.x < gutter - EDGE_ALIGN_TOL) {
+        } else if (
+          Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL &&
+          wb.x < gutter - EDGE_ALIGN_TOL
+        ) {
           wb.width += deltaRight
           updated = true
         }
@@ -143,10 +151,16 @@ export function computeSnappedResizeWindows(
     if (direction.includes('left') && deltaLeft !== 0) {
       const gutter = ox0
       if (verticalSpanOverlap(oy0, oy1, wb.y, wb.y + wb.height)) {
-        if (Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL && wb.x < gutter - EDGE_ALIGN_TOL) {
+        if (
+          Math.abs(wb.x + wb.width - gutter) <= EDGE_ALIGN_TOL &&
+          wb.x < gutter - EDGE_ALIGN_TOL
+        ) {
           wb.width += deltaLeft
           updated = true
-        } else if (Math.abs(wb.x - gutter) <= EDGE_ALIGN_TOL && wb.x + wb.width > gutter + EDGE_ALIGN_TOL) {
+        } else if (
+          Math.abs(wb.x - gutter) <= EDGE_ALIGN_TOL &&
+          wb.x + wb.width > gutter + EDGE_ALIGN_TOL
+        ) {
           wb.x += deltaLeft
           wb.width -= deltaLeft
           updated = true
@@ -161,7 +175,10 @@ export function computeSnappedResizeWindows(
           wb.y += deltaBottom
           wb.height -= deltaBottom
           updated = true
-        } else if (Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL && wb.y < gutter - EDGE_ALIGN_TOL) {
+        } else if (
+          Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL &&
+          wb.y < gutter - EDGE_ALIGN_TOL
+        ) {
           wb.height += deltaBottom
           updated = true
         }
@@ -171,10 +188,16 @@ export function computeSnappedResizeWindows(
     if (direction.includes('top') && deltaTop !== 0) {
       const gutter = oy0
       if (horizontalSpanOverlap(ox0, ox1, wb.x, wb.x + wb.width)) {
-        if (Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL && wb.y < gutter - EDGE_ALIGN_TOL) {
+        if (
+          Math.abs(wb.y + wb.height - gutter) <= EDGE_ALIGN_TOL &&
+          wb.y < gutter - EDGE_ALIGN_TOL
+        ) {
           wb.height += deltaTop
           updated = true
-        } else if (Math.abs(wb.y - gutter) <= EDGE_ALIGN_TOL && wb.y + wb.height > gutter + EDGE_ALIGN_TOL) {
+        } else if (
+          Math.abs(wb.y - gutter) <= EDGE_ALIGN_TOL &&
+          wb.y + wb.height > gutter + EDGE_ALIGN_TOL
+        ) {
           wb.y += deltaTop
           wb.height -= deltaTop
           updated = true

@@ -35,6 +35,7 @@ tests/fixtures/test-config-*.jsonc
 # misc
 .DS_Store
 *.pem
+.certs/
 
 # debug
 npm-debug.log*

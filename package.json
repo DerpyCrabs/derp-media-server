@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "bun --watch server/index.ts",
-    "build": "vite build",
+    "build": "vite build && bun scripts/generate-service-worker.ts",
     "start": "bun run build && NODE_ENV=production bun server/index.ts",
     "tsgo": "tsgo -p tsconfig.json",
     "lint": "oxlint",

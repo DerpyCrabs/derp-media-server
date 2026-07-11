@@ -120,6 +120,7 @@ export function generateTestMedia(baseDir: string) {
     path.join(docsDir, 'readme.txt'),
     'This is a test readme file.\nIt has multiple lines.\nLine three.\n',
   )
+  fs.writeFileSync(path.join(docsDir, 'résumé 日本.txt'), 'Unicode offline content.\n')
   fs.writeFileSync(
     path.join(docsDir, 'notes.md'),
     '# Test Notes\n\nThis is a **markdown** file with [a link](https://example.com).\n\n## Section Two\n\nMore content here.\n',

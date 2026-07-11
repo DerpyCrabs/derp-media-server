@@ -56,6 +56,8 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
 | `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                                  |
 | `auth.secureCookies`      | `AUTH_SECURE_COOKIES`       | Require HTTPS for login cookies; defaults to production only                |
+|                           | `TLS_CERT_PATH`             | PEM certificate used to serve HTTPS                                         |
+|                           | `TLS_KEY_PATH`              | PEM private key used to serve HTTPS                                         |
 
 `dataPath` (shares DB, etc.) is config-file only; defaults next to the config file.
 
@@ -90,6 +92,16 @@ bun run start
 ```
 
 Listens on `0.0.0.0` by default.
+
+### HTTPS and offline mode
+
+The web app registers a service worker that precaches the application shell and serves files
+saved with **Make available offline** from IndexedDB. Service workers require HTTPS except on
+`localhost`, so remote web access and the Android app must use an HTTPS server URL.
+
+Use `TLS_CERT_PATH` plus `TLS_KEY_PATH`. The certificate must be trusted by the browser/device. Plain HTTP remains
+available for local browser development at `http://localhost` but cannot provide Android cold-start
+offline support through an emulator address such as `10.0.2.2`.
 
 ## Development
 

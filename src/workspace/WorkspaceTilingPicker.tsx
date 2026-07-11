@@ -171,31 +171,31 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     <div
       ref={(el) => setPickerRoot(el ?? null)}
       data-tiling-picker
-      class="fixed z-[9999] w-[420px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl"
+      class='fixed z-[9999] w-[420px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
       style={{
         left: `${layout().left}px`,
         top: `${layout().top}px`,
       }}
       on:pointerleave={() => setPointerPick(null)}
-      role="dialog"
-      aria-label="Choose window layout"
+      role='dialog'
+      aria-label='Choose window layout'
     >
-      <div class="flex items-start justify-between border-b border-border/70 px-4 py-3">
+      <div class='flex items-start justify-between border-b border-border/70 px-4 py-3'>
         <div>
-          <div class="text-sm font-semibold text-foreground">Choose window layout</div>
+          <div class='text-sm font-semibold text-foreground'>Choose window layout</div>
         </div>
         <button
-          type="button"
-          class="-mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label="Close layout picker"
+          type='button'
+          class='-mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+          aria-label='Close layout picker'
           onClick={() => props.onClose()}
         >
-          <X class="h-3.5 w-3.5" stroke-width={2} />
+          <X class='h-3.5 w-3.5' stroke-width={2} />
         </button>
       </div>
-      <div class="grid max-h-[min(72vh,430px)] grid-cols-2 gap-2 overflow-y-auto p-3">
+      <div class='grid max-h-[min(72vh,430px)] grid-cols-2 gap-2 overflow-y-auto p-3'>
         <WorkspaceSnapAssistMasterGrid
-          shape="2x2"
+          shape='2x2'
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x2')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('2x2')}
@@ -204,7 +204,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
           isSpanDisabled={spanUnavailable}
         />
         <WorkspaceSnapAssistMasterGrid
-          shape="3x2"
+          shape='3x2'
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('3x2')}
@@ -213,7 +213,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
           isSpanDisabled={spanUnavailable}
         />
         <WorkspaceSnapAssistMasterGrid
-          shape="2x3"
+          shape='2x3'
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x3')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('2x3')}
@@ -222,7 +222,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
           isSpanDisabled={spanUnavailable}
         />
         <WorkspaceSnapAssistMasterGrid
-          shape="3x3"
+          shape='3x3'
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('3x3')}

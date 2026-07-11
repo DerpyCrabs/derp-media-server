@@ -10,7 +10,10 @@ import X from 'lucide-solid/icons/x'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import { type Accessor, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import type { JSX } from 'solid-js'
-import { type ResizeHandleKey, getWorkspaceSnapResizeHandleMap } from './workspace-snap-resize-handles'
+import {
+  type ResizeHandleKey,
+  getWorkspaceSnapResizeHandleMap,
+} from './workspace-snap-resize-handles'
 import type { MergeTarget } from './merge-target'
 import { groupIdForWindow } from './tab-group-ops'
 import { WorkspaceTabStrip } from './WorkspaceTabStrip'
@@ -41,7 +44,12 @@ export type WorkspaceWindowChromeProps = {
   onOpenLayoutPicker: (windowId: string, rect: DOMRect) => void
   onRestoreDrag: (windowId: string, clientX: number, clientY: number) => WorkspaceBounds | undefined
   onDragPointerMove: (windowId: string, clientX: number, clientY: number) => void
-  onDragPointerEnd: (windowId: string, bounds: WorkspaceBounds, clientX: number, clientY: number) => void
+  onDragPointerEnd: (
+    windowId: string,
+    bounds: WorkspaceBounds,
+    clientX: number,
+    clientY: number,
+  ) => void
   onDragDuringMove: (windowId: string, bounds: WorkspaceBounds) => void
   onResizeSnapped: (windowId: string, bounds: WorkspaceBounds, direction: string) => void
   onUpdateBounds: (windowId: string, bounds: WorkspaceBounds) => void
@@ -58,7 +66,10 @@ export type WorkspaceWindowChromeProps = {
   children: JSX.Element
 }
 
-function handleEnabled(map: Record<ResizeHandleKey, boolean> | 'all', key: ResizeHandleKey): boolean {
+function handleEnabled(
+  map: Record<ResizeHandleKey, boolean> | 'all',
+  key: ResizeHandleKey,
+): boolean {
   if (map === 'all') return true
   return map[key] === true
 }
@@ -71,13 +82,20 @@ function handleEnabled(map: Record<ResizeHandleKey, boolean> | 'all', key: Resiz
  * When `allowWindowDragFromLoneTabRow` is true and the group has only one tab, the tab row (not
  * its buttons) is treated like the drag handle so the window can still be moved.
  */
-function shouldBlockWindowDragStart(target: EventTarget | null, allowWindowDragFromLoneTabRow: boolean): boolean {
+function shouldBlockWindowDragStart(
+  target: EventTarget | null,
+  allowWindowDragFromLoneTabRow: boolean,
+): boolean {
   const el = target as HTMLElement | null
   if (!el?.closest) return true
   if (!el.closest('.workspace-window-drag-handle')) return true
   if (el.closest('.workspace-window-content')) return true
   if (el.closest('input, textarea, select, a, audio, video, img')) return true
-  if (allowWindowDragFromLoneTabRow && el.closest('[data-workspace-tab-id]') && !el.closest('button')) {
+  if (
+    allowWindowDragFromLoneTabRow &&
+    el.closest('[data-workspace-tab-id]') &&
+    !el.closest('button')
+  ) {
     return false
   }
   if (el.closest('[data-no-window-drag]')) return true
@@ -109,7 +127,9 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   })
 
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === liveLeaderId()))
-  const b = createMemo(() => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'))
+  const b = createMemo(
+    () => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'),
+  )
   const isFullscreen = createMemo(() => win()?.layout?.fullscreen ?? false)
   const isMinimized = createMemo(() => win()?.layout?.minimized ?? false)
   const snapZone = createMemo(() => win()?.layout?.snapZone ?? null)
@@ -312,7 +332,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
 
   return (
     <div
-      class="absolute flex flex-col"
+      class='absolute flex flex-col'
       style={{
         left: `${b().x}px`,
         top: `${b().y}px`,
@@ -346,8 +366,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
           }`}
         >
           <div
-            data-testid="window-drag-handle"
-            class="workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center text-xs font-medium select-none active:cursor-grabbing"
+            data-testid='window-drag-handle'
+            class='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center text-xs font-medium select-none active:cursor-grabbing'
           >
             <WorkspaceTabStrip
               groupId={props.groupId}
@@ -368,29 +388,29 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             />
           </div>
           <div
-            class="workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing"
+            class='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
             aria-hidden
           />
           <div
             data-no-window-drag
-            class="workspace-window-buttons flex shrink-0 items-stretch"
+            class='workspace-window-buttons flex shrink-0 items-stretch'
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button
-              type="button"
-              class="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-8 items-center justify-center transition-colors"
+              type='button'
+              class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-8 items-center justify-center transition-colors'
               onClick={(e) => {
                 e.stopPropagation()
                 props.onMinimize(liveLeaderId())
               }}
-              aria-label="Minimize"
+              aria-label='Minimize'
             >
-              <Minus class="lucide-minus h-3.5 w-3.5" stroke-width={2} />
+              <Minus class='lucide-minus h-3.5 w-3.5' stroke-width={2} />
             </button>
-            <div class="flex h-full w-8">
+            <div class='flex h-full w-8'>
               <button
-                type="button"
-                class="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-5 items-center justify-center transition-colors"
+                type='button'
+                class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-5 items-center justify-center transition-colors'
                 onClick={(e) => {
                   e.stopPropagation()
                   props.onToggleFullscreen(liveLeaderId())
@@ -401,60 +421,62 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                   props.onOpenLayoutPicker(liveLeaderId(), r)
                 }}
-                aria-label="Maximize"
+                aria-label='Maximize'
                 title={isFullscreen() ? 'Restore window' : 'Maximize window'}
               >
                 <Show
                   when={isFullscreen()}
-                  fallback={<Maximize2 class="lucide-maximize-2 h-3.5 w-3.5" stroke-width={2} />}
+                  fallback={<Maximize2 class='lucide-maximize-2 h-3.5 w-3.5' stroke-width={2} />}
                 >
-                  <Minimize2 class="lucide-minimize-2 h-3.5 w-3.5" stroke-width={2} />
+                  <Minimize2 class='lucide-minimize-2 h-3.5 w-3.5' stroke-width={2} />
                 </Show>
               </button>
               <button
-                type="button"
-                class="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-3 items-center justify-center transition-colors"
+                type='button'
+                class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-3 items-center justify-center transition-colors'
                 onClick={(e) => {
                   e.stopPropagation()
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                   props.onOpenLayoutPicker(liveLeaderId(), r)
                 }}
-                aria-label="Choose window layout"
-                title="Choose window layout"
+                aria-label='Choose window layout'
+                title='Choose window layout'
               >
-                <ChevronDown class="h-2.5 w-2.5" stroke-width={2} />
+                <ChevronDown class='h-2.5 w-2.5' stroke-width={2} />
               </button>
             </div>
             <button
-              type="button"
-              class="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-8 items-center justify-center transition-colors"
+              type='button'
+              class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-full w-8 items-center justify-center transition-colors'
               onClick={(e) => {
                 e.stopPropagation()
                 props.onClose(liveLeaderId())
               }}
               aria-label={`Close ${win()?.title ?? ''}`}
             >
-              <X class="lucide-x h-3.5 w-3.5" stroke-width={2} />
+              <X class='lucide-x h-3.5 w-3.5' stroke-width={2} />
             </button>
           </div>
         </div>
         <div
-          data-testid="workspace-chrome-content"
+          data-testid='workspace-chrome-content'
           data-no-window-drag
-          class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-sm text-muted-foreground"
+          class='relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-sm text-muted-foreground'
         >
           {props.children}
         </div>
       </div>
 
       <Show when={showResize()}>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'top')}>
+        <Show
+          when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'top')}
+        >
           <div
             data-workspace-resize-handle
-            role="separator"
-            aria-label="Resize top edge"
+            role='separator'
+            aria-label='Resize top edge'
             tabIndex={0}
-            class="pointer-events-auto absolute top-0 right-2 left-2 z-[100] h-2"
+            class='pointer-events-auto absolute top-0 right-2 left-2 z-[100] h-2'
             style={{ cursor: 'row-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()
@@ -463,13 +485,15 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             onKeyDown={(e) => keyboardResize('top', e)}
           />
         </Show>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'bottom')}>
+        <Show
+          when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'bottom')}
+        >
           <div
             data-workspace-resize-handle
-            role="separator"
-            aria-label="Resize bottom edge"
+            role='separator'
+            aria-label='Resize bottom edge'
             tabIndex={0}
-            class="pointer-events-auto absolute right-2 bottom-0 left-2 z-[100] h-2"
+            class='pointer-events-auto absolute right-2 bottom-0 left-2 z-[100] h-2'
             style={{ cursor: 'row-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()
@@ -478,13 +502,15 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             onKeyDown={(e) => keyboardResize('bottom', e)}
           />
         </Show>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'left')}>
+        <Show
+          when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'left')}
+        >
           <div
             data-workspace-resize-handle
-            role="separator"
-            aria-label="Resize left edge"
+            role='separator'
+            aria-label='Resize left edge'
             tabIndex={0}
-            class="pointer-events-auto absolute top-2 bottom-2 left-0 z-[100] w-2"
+            class='pointer-events-auto absolute top-2 bottom-2 left-0 z-[100] w-2'
             style={{ cursor: 'col-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()
@@ -493,13 +519,15 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             onKeyDown={(e) => keyboardResize('left', e)}
           />
         </Show>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'right')}>
+        <Show
+          when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'right')}
+        >
           <div
             data-workspace-resize-handle
-            role="separator"
-            aria-label="Resize right edge"
+            role='separator'
+            aria-label='Resize right edge'
             tabIndex={0}
-            class="pointer-events-auto absolute top-2 right-0 bottom-2 z-[100] w-2"
+            class='pointer-events-auto absolute top-2 right-0 bottom-2 z-[100] w-2'
             style={{ cursor: 'col-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()
@@ -508,10 +536,14 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             onKeyDown={(e) => keyboardResize('right', e)}
           />
         </Show>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'topLeft')}>
+        <Show
+          when={
+            rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'topLeft')
+          }
+        >
           <div
             data-workspace-resize-handle
-            class="pointer-events-auto absolute top-0 left-0 z-[110] h-4 w-4"
+            class='pointer-events-auto absolute top-0 left-0 z-[110] h-4 w-4'
             style={{ cursor: 'nwse-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()
@@ -519,10 +551,14 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             }}
           />
         </Show>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'topRight')}>
+        <Show
+          when={
+            rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'topRight')
+          }
+        >
           <div
             data-workspace-resize-handle
-            class="pointer-events-auto absolute top-0 right-0 z-[110] h-4 w-4"
+            class='pointer-events-auto absolute top-0 right-0 z-[110] h-4 w-4'
             style={{ cursor: 'nesw-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()
@@ -530,10 +566,14 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             }}
           />
         </Show>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'bottomLeft')}>
+        <Show
+          when={
+            rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'bottomLeft')
+          }
+        >
           <div
             data-workspace-resize-handle
-            class="pointer-events-auto absolute bottom-0 left-0 z-[110] h-4 w-4"
+            class='pointer-events-auto absolute bottom-0 left-0 z-[110] h-4 w-4'
             style={{ cursor: 'nesw-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()
@@ -541,10 +581,14 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             }}
           />
         </Show>
-        <Show when={rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'bottomRight')}>
+        <Show
+          when={
+            rm() === 'all' || handleEnabled(rm() as Record<ResizeHandleKey, boolean>, 'bottomRight')
+          }
+        >
           <div
             data-workspace-resize-handle
-            class="pointer-events-auto absolute right-0 bottom-0 z-[110] h-4 w-4"
+            class='pointer-events-auto absolute right-0 bottom-0 z-[110] h-4 w-4'
             style={{ cursor: 'nwse-resize' }}
             onPointerDown={(e) => {
               e.stopPropagation()

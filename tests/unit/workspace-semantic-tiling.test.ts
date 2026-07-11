@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { assistGridSpanToBounds } from '@/lib/workspace-assist-grid'
-import { defaultWorkspaceGridLines, scaleSnappedWindowsBoundsForCanvasResize } from '@/lib/workspace-geometry'
+import {
+  defaultWorkspaceGridLines,
+  scaleSnappedWindowsBoundsForCanvasResize,
+} from '@/lib/workspace-geometry'
 import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
 import { MediaType } from '@/lib/types'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
@@ -55,13 +58,22 @@ describe('semantic workspace tiling', () => {
       { width: 1280, height: 688 },
       { width: 1001, height: 701 },
     )
-    expect(next[0]!.layout!.bounds!.x + next[0]!.layout!.bounds!.width).toBe(next[1]!.layout!.bounds!.x)
+    expect(next[0]!.layout!.bounds!.x + next[0]!.layout!.bounds!.width).toBe(
+      next[1]!.layout!.bounds!.x,
+    )
   })
 
   test('resizing a semantic grid line updates every window sharing it', () => {
     const windows = [tiledWindow('left', 0, 1), tiledWindow('middle', 1, 2)]
-    const resized = computeSnappedResizeWindows(windows, 'left', { x: 0, y: 0, width: 500, height: 688 }, 'right')
-    expect(resized[0]!.layout!.bounds!.x + resized[0]!.layout!.bounds!.width).toBe(resized[1]!.layout!.bounds!.x)
+    const resized = computeSnappedResizeWindows(
+      windows,
+      'left',
+      { x: 0, y: 0, width: 500, height: 688 },
+      'right',
+    )
+    expect(resized[0]!.layout!.bounds!.x + resized[0]!.layout!.bounds!.width).toBe(
+      resized[1]!.layout!.bounds!.x,
+    )
     expect(resized[0]!.layout!.tiling!.colLines).toEqual(resized[1]!.layout!.tiling!.colLines)
   })
 })

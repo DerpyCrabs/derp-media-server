@@ -26,21 +26,30 @@ const isDev = process.env.NODE_ENV !== 'production'
 const isTest = process.env.NODE_ENV === 'test'
 const PORT = config.port
 const WORKSPACE_PORT = config.workspacePort
+const TLS_CERT_PATH = process.env.TLS_CERT_PATH
+const TLS_KEY_PATH = process.env.TLS_KEY_PATH
+const tls =
+  TLS_CERT_PATH && TLS_KEY_PATH
+    ? { cert: fs.readFileSync(TLS_CERT_PATH), key: fs.readFileSync(TLS_KEY_PATH) }
+    : undefined
 type Surface = 'media' | 'workspace'
 
 function isWorkspacePath(pathname: string) {
   return pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(pathname)
 }
 
-function otherSurfaceUrl(request: { headers: { host?: string }; url: string }, port: number) {
+function otherSurfaceUrl(
+  request: { headers: { host?: string }; url: string; protocol?: string },
+  port: number,
+) {
   const host = request.headers.host?.replace(/:\d+$/, '') || 'localhost'
-  const url = new URL(request.url, `http://${host}`)
+  const url = new URL(request.url, `${request.protocol ?? (tls ? 'https' : 'http')}://${host}`)
   url.host = `${host}:${port}`
   return url.href
 }
 
 async function createApp(surface: Surface) {
-  const app = Fastify({ logger: false })
+  const app = Fastify({ logger: false, ...(tls ? { https: tls } : {}) })
 
   await app.register(fastifyCookie)
   await app.register(import('@fastify/multipart'), { limits: { fileSize: 10_000_000_000 } })
@@ -92,6 +101,10 @@ async function createApp(surface: Surface) {
             '**/test-results/**',
             '**/playwright-report/**',
             '**/tests/**',
+            '**/android/.gradle/**',
+            '**/android/build/**',
+            '**/android/app/build/**',
+            '**/dist/**',
             // Persisted server data (often next to config.jsonc); writes trigger full-reload HMR otherwise
             '**/kb-chats.json',
             '**/shares.json',
@@ -183,8 +196,9 @@ async function start() {
     mediaApp.listen({ port: PORT, host: '0.0.0.0' }),
     workspaceApp.listen({ port: WORKSPACE_PORT, host: '0.0.0.0' }),
   ])
-  console.log(`Media server listening on http://localhost:${PORT}`)
-  console.log(`Workspace listening on http://localhost:${WORKSPACE_PORT}/workspace`)
+  const protocol = tls ? 'https' : 'http'
+  console.log(`Media server listening on ${protocol}://localhost:${PORT}`)
+  console.log(`Workspace listening on ${protocol}://localhost:${WORKSPACE_PORT}/workspace`)
 }
 
 start().catch((err) => {

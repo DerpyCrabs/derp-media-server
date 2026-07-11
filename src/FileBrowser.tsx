@@ -61,6 +61,17 @@ import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
 import type { BreadcrumbMenuTarget } from './file-browser/BreadcrumbContextMenu'
 import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { FileBrowserModalLayer } from './file-browser/FileBrowserModalLayer'
+import { OfflineBadge } from './OfflineBadge'
+import {
+  downloadInAndroid,
+  fetchOfflineFiles,
+  isAndroidApp,
+  isAndroidPathAvailableOffline,
+  isOfflineFeatureAvailable,
+  makeAvailableOffline,
+  playInAndroid,
+  removeOfflineInAndroid,
+} from './lib/android-bridge'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
 import { KbChatFooter } from './kb-chat/KbChatFooter'
@@ -98,6 +109,12 @@ export function FileBrowser() {
   useAdminEventsStream()
 
   const currentPath = createMemo(() => urlSearchParams().get('dir') ?? '')
+  const [offlineFallback, setOfflineFallback] = createSignal(
+    !navigator.onLine && isOfflineFeatureAvailable(),
+  )
+  const isOfflineBrowser = createMemo(
+    () => urlSearchParams().get('offline') === '1' || offlineFallback(),
+  )
 
   const playingParam = createMemo(() => urlSearchParams().get('playing'))
 
@@ -144,10 +161,69 @@ export function FileBrowser() {
   })
 
   const filesQuery = useQuery(() => ({
-    queryKey: queryKeys.files(currentPath()),
-    queryFn: () =>
-      api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentPath())}`),
+    queryKey: isOfflineBrowser()
+      ? ['android-offline-files', currentPath()]
+      : queryKeys.files(currentPath()),
+    queryFn: async () => {
+      if (isOfflineBrowser()) return fetchOfflineFiles(currentPath())
+      try {
+        return await api<{ files: FileItem[] }>(
+          `/api/files?dir=${encodeURIComponent(currentPath())}`,
+        )
+      } catch (onlineError) {
+        if (!isOfflineFeatureAvailable()) throw onlineError
+        try {
+          const offline = await fetchOfflineFiles(currentPath())
+          if (offline.files.length === 0 && !isAndroidPathAvailableOffline(currentPath())) {
+            throw onlineError
+          }
+          setOfflineFallback(true)
+          return offline
+        } catch {
+          throw onlineError
+        }
+      }
+    },
   }))
+
+  async function tryReturnOnline() {
+    if (!offlineFallback() || urlSearchParams().get('offline') === '1') return
+    try {
+      const online = await api<{ files: FileItem[] }>(
+        `/api/files?dir=${encodeURIComponent(currentPath())}`,
+      )
+      queryClient.setQueryData(queryKeys.files(currentPath()), online)
+      setOfflineFallback(false)
+    } catch {
+      // Connectivity can return before the configured media server does.
+    }
+  }
+
+  createEffect(() => {
+    if (!offlineFallback() || urlSearchParams().get('offline') === '1') return
+    const interval = window.setInterval(() => void tryReturnOnline(), 5_000)
+    onCleanup(() => window.clearInterval(interval))
+  })
+
+  onMount(() => {
+    const handleOnline = () => void tryReturnOnline()
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('focus', handleOnline)
+    onCleanup(() => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('focus', handleOnline)
+    })
+  })
+
+  onMount(() => {
+    const refreshOffline = () => {
+      if (isOfflineBrowser()) {
+        void queryClient.invalidateQueries({ queryKey: ['android-offline-files'] })
+      }
+    }
+    window.addEventListener('derp-offline-catalog', refreshOffline)
+    onCleanup(() => window.removeEventListener('derp-offline-catalog', refreshOffline))
+  })
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
@@ -899,12 +975,22 @@ export function FileBrowser() {
   }
 
   function handleContextDownload(file: FileItem) {
+    if (isAndroidApp() && isAndroidPathAvailableOffline(file.path)) {
+      removeOfflineInAndroid(file)
+      return
+    }
+    if (downloadInAndroid(file)) return
     const link = document.createElement('a')
     link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`
     link.download = file.isDirectory ? `${file.name}.zip` : file.name
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  function handleContextMakeAvailableOffline(file: FileItem) {
+    if (isAndroidPathAvailableOffline(file.path)) removeOfflineInAndroid(file)
+    else makeAvailableOffline(file)
   }
 
   function handleContextOpenInNewTab(file: FileItem) {
@@ -1061,6 +1147,7 @@ export function FileBrowser() {
     viewStats.incrementView(file.path)
     const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
     if (isMediaFile) {
+      if (playInAndroid(file)) return
       useMediaPlayer
         .getState()
         .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')
@@ -1144,6 +1231,7 @@ export function FileBrowser() {
                   >
                     <Breadcrumbs
                       currentPath={currentPath()}
+                      homeLabel={isOfflineBrowser() ? 'Offline' : undefined}
                       onNavigate={handleBreadcrumbNavigate}
                       onCrumbContextMenu={handleBreadcrumbCrumbContextMenu}
                     />
@@ -1395,6 +1483,7 @@ export function FileBrowser() {
                                               title={file.name}
                                             >
                                               {file.name}
+                                              <OfflineBadge path={file.path} />
                                               <Show when={sharedPathSet().has(file.path)}>
                                                 <LinkIcon
                                                   class='ml-1 inline h-3 w-3 text-primary opacity-70'
@@ -1574,6 +1663,7 @@ export function FileBrowser() {
                                               <div class='min-w-0 flex-1'>
                                                 <span class='block truncate'>
                                                   {file.name}
+                                                  <OfflineBadge path={file.path} />
                                                   <Show when={sharedPathSet().has(file.path)}>
                                                     <LinkIcon
                                                       class='ml-1.5 inline h-3 w-3 text-primary opacity-70'
@@ -1718,6 +1808,7 @@ export function FileBrowser() {
             isEditable={isEditable}
             hasEditableFolders={hasEditableFolders}
             onContextDownload={handleContextDownload}
+            onContextMakeAvailableOffline={handleContextMakeAvailableOffline}
             onContextShare={handleContextShare}
             onCopyShareLink={handleCopyShareLink}
             getPathHasShare={getPathHasShare}
