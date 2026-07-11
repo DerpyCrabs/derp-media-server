@@ -25,7 +25,6 @@ import {
   type PrefetchFolderHoverContext,
 } from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
-import { hostingUrl } from '@/lib/hosting-urls'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
 import type { PasteData } from '@/lib/paste-data'
@@ -36,7 +35,7 @@ import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
-import Search from 'lucide-solid/icons/search'
+import BookOpenText from 'lucide-solid/icons/book-open-text'
 import Star from 'lucide-solid/icons/star'
 import Upload from 'lucide-solid/icons/upload'
 import Eye from 'lucide-solid/icons/eye'
@@ -101,6 +100,8 @@ import { useViewStats } from './lib/use-view-stats'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { useDeferredLoading } from './lib/use-deferred-loading'
 import { playFile, viewFile } from './lib/url-state-actions'
+import { FileSearchButton } from './FileSearchPalette'
+import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 
 export function FileBrowser() {
   const history = useBrowserHistory()
@@ -962,7 +963,7 @@ export function FileBrowser() {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
-      window.open(hostingUrl('workspace', '/workspace'), '_blank')
+      window.open('/workspace', '_blank')
       return
     }
     handleContextOpenInWorkspace(breadcrumbAsFolderItem(m))
@@ -1006,7 +1007,7 @@ export function FileBrowser() {
     const params = new URLSearchParams()
     if (file.path) params.set('dir', file.path)
     const query = params.toString()
-    window.open(hostingUrl('workspace', query ? `/workspace?${query}` : '/workspace'), '_blank')
+    window.open(query ? `/workspace?${query}` : '/workspace', '_blank')
   }
 
   function handleContextToggleFavorite(file: FileItem) {
@@ -1138,7 +1139,7 @@ export function FileBrowser() {
     return { queryClient, knowledgeBases: knowledgeBases() }
   }
 
-  function handleFileClick(file: FileItem) {
+  function handleFileClick(file: FileItem, sourceDir = currentPath()) {
     if (file.isDirectory) {
       navigateToFolder(file.path)
       return
@@ -1151,10 +1152,14 @@ export function FileBrowser() {
       useMediaPlayer
         .getState()
         .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')
-      playFile(file.path, currentPath())
+      playFile(file.path, sourceDir)
     } else {
-      viewFile(file.path, currentPath())
+      viewFile(file.path, sourceDir)
     }
+  }
+
+  function handleLibrarySearchResult(result: FileSearchResult) {
+    handleFileClick(fileSearchResultToFileItem(result), result.parentPath)
   }
 
   function setViewMode(mode: 'list' | 'grid') {
@@ -1241,12 +1246,12 @@ export function FileBrowser() {
                       <div class='relative' data-kb-search-root>
                         <button
                           type='button'
-                          aria-label='Open search'
-                          title='Search notes (Ctrl+K)'
+                          aria-label='Search note contents'
+                          title='Search note contents (Ctrl+K)'
                           class='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
                           onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
                         >
-                          <Search class='h-4 w-4' aria-hidden='true' stroke-width={2} />
+                          <BookOpenText class='h-4 w-4' aria-hidden='true' stroke-width={2} />
                         </button>
                         <Show when={searchPopoverOpen()}>
                           <div class='absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border border-border bg-popover p-2 shadow-lg outline-none'>
@@ -1271,7 +1276,7 @@ export function FileBrowser() {
                         type='button'
                         title='Create new folder'
                         aria-label='New folder'
-                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                         onClick={() => openCreateFolder()}
                       >
                         <FolderPlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
@@ -1280,7 +1285,7 @@ export function FileBrowser() {
                         type='button'
                         title='Create new file'
                         aria-label='New file'
-                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                         onClick={() => openCreateFile()}
                       >
                         <FilePlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
@@ -1288,6 +1293,13 @@ export function FileBrowser() {
                       <UploadMenu
                         disabled={isUploading()}
                         onUpload={(files) => void uploadFilesToServer(files, currentPath())}
+                      />
+                    </Show>
+                    <Show when={!isOfflineBrowser()}>
+                      <FileSearchButton
+                        title='Search library'
+                        testId='classic-file-search-trigger'
+                        onSelect={handleLibrarySearchResult}
                       />
                     </Show>
                     <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />

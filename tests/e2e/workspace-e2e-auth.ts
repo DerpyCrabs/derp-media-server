@@ -8,11 +8,10 @@ export function workspaceAuthStoragePath(): string {
   return path.resolve(__dirname, '../fixtures/.auth', authSessionFile)
 }
 
-/** Workspace origin from the separate test listener (batch-aware). */
+/** Workspace origin on the shared app listener (batch-aware). */
 export function workspaceE2EOrigin(): string {
   const batchId = process.env.BATCH_ID
-  const mediaPort = batchId ? 9200 + parseInt(batchId, 10) : 5973
-  const port = mediaPort + 100
+  const port = batchId ? 9200 + parseInt(batchId, 10) : 5973
   return `http://localhost:${port}`
 }
 

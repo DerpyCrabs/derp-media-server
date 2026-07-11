@@ -3,6 +3,10 @@ const PRECACHE = /* __PRECACHE__ */ []
 const DB_NAME = 'derp-offline-v1'
 const STORE = 'entries'
 
+async function shellMatch(request) {
+  return (await caches.open(SHELL_CACHE)).match(request)
+}
+
 function openDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1)
@@ -202,13 +206,13 @@ self.addEventListener('fetch', (event) => {
           caches.open(SHELL_CACHE).then((cache) => cache.put('/index.html', copy))
           return response
         })
-        .catch(async () => (await caches.match('/index.html')) || Response.error()),
+        .catch(async () => (await shellMatch('/index.html')) || Response.error()),
     )
     return
   }
 
   if (PRECACHE.includes(url.pathname)) {
-    event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)))
+    event.respondWith(shellMatch(event.request).then((cached) => cached || fetch(event.request)))
     return
   }
 
@@ -223,7 +227,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response
         })
-        .catch(() => caches.match(event.request).then((cached) => cached || Response.error())),
+        .catch(() => shellMatch(event.request).then((cached) => cached || Response.error())),
     )
   }
 })

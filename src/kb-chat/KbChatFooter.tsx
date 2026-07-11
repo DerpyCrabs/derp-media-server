@@ -9,7 +9,6 @@ import ChevronDown from 'lucide-solid/icons/chevron-down'
 import ChevronUp from 'lucide-solid/icons/chevron-up'
 import History from 'lucide-solid/icons/history'
 import ExternalLink from 'lucide-solid/icons/external-link'
-import { hostingUrl } from '@/lib/hosting-urls'
 
 export function KbChatFooter(props: {
   kbRoot: string
@@ -116,7 +115,7 @@ export function KbChatFooter(props: {
                 chatId={chatId()}
                 onChatIdChange={(id) => setChatId(id)}
                 onOpenMedia={(path, isDir) => {
-                  const u = new URL(hostingUrl('workspace', '/workspace'))
+                  const u = new URL('/workspace', window.location.origin)
                   if (isDir) u.searchParams.set('dir', path)
                   else {
                     const parent = path.split(/[/\\]/).slice(0, -1).join('/')

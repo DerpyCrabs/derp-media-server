@@ -125,7 +125,6 @@ test.describe.serial('Multiple media directories', () => {
           dataPath: dataDir,
           shareLinkDomain: baseUrl,
           port,
-          workspacePort: port + 100,
           auth: { enabled: false },
         },
         null,
@@ -139,7 +138,6 @@ test.describe.serial('Multiple media directories', () => {
         ...process.env,
         NODE_ENV: 'test',
         PORT: String(port),
-        WORKSPACE_PORT: String(port + 100),
         CONFIG_PATH: configPath,
         BATCH_ID: `multi-${port}`,
         NO_PROXY: 'localhost,127.0.0.1',
@@ -156,7 +154,16 @@ test.describe.serial('Multiple media directories', () => {
   })
 
   test.afterAll(async () => {
-    server?.kill()
+    if (server && server.exitCode === null) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 2_000)
+        server!.once('exit', () => {
+          clearTimeout(timer)
+          resolve()
+        })
+        server!.kill()
+      })
+    }
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true })
   })
 

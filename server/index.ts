@@ -18,6 +18,8 @@ import { registerShareAccessApiRoutes } from './routes/api/shareAccess'
 import { registerMountsApiRoutes } from './routes/api/mounts'
 import { registerKbApiRoutes } from './routes/api/kb'
 import { registerKbChatApiRoutes } from './routes/api/kb-chat'
+import { registerFileSearchApiRoutes } from './routes/api/file-search'
+import { fileSearchService } from './file-search-service'
 import path from 'path'
 import fs from 'fs'
 import { config } from '@/lib/config'
@@ -25,30 +27,13 @@ import { config } from '@/lib/config'
 const isDev = process.env.NODE_ENV !== 'production'
 const isTest = process.env.NODE_ENV === 'test'
 const PORT = config.port
-const WORKSPACE_PORT = config.workspacePort
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH
 const tls =
   TLS_CERT_PATH && TLS_KEY_PATH
     ? { cert: fs.readFileSync(TLS_CERT_PATH), key: fs.readFileSync(TLS_KEY_PATH) }
     : undefined
-type Surface = 'media' | 'workspace'
-
-function isWorkspacePath(pathname: string) {
-  return pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(pathname)
-}
-
-function otherSurfaceUrl(
-  request: { headers: { host?: string }; url: string; protocol?: string },
-  port: number,
-) {
-  const host = request.headers.host?.replace(/:\d+$/, '') || 'localhost'
-  const url = new URL(request.url, `${request.protocol ?? (tls ? 'https' : 'http')}://${host}`)
-  url.host = `${host}:${port}`
-  return url.href
-}
-
-async function createApp(surface: Surface) {
+async function createApp() {
   const app = Fastify({ logger: false, ...(tls ? { https: tls } : {}) })
 
   await app.register(fastifyCookie)
@@ -74,6 +59,7 @@ async function createApp(surface: Surface) {
   registerMountsApiRoutes(app)
   registerKbApiRoutes(app)
   registerKbChatApiRoutes(app)
+  registerFileSearchApiRoutes(app)
 
   // HTTP routes (streaming, binary, SSE)
   registerMediaRoutes(app)
@@ -89,7 +75,7 @@ async function createApp(surface: Surface) {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: { port: (surface === 'workspace' ? WORKSPACE_PORT : PORT) + 1000 },
+        hmr: { port: PORT + 1000 },
         forwardConsole: false,
         watch: {
           ignored: [
@@ -126,11 +112,6 @@ async function createApp(surface: Surface) {
     app.get('*', async (request, reply) => {
       try {
         const url = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`)
-        if (isWorkspacePath(url.pathname) !== (surface === 'workspace')) {
-          return reply.redirect(
-            otherSurfaceUrl(request, surface === 'workspace' ? PORT : WORKSPACE_PORT),
-          )
-        }
         let template = fs.readFileSync(devIndexHtml, 'utf-8')
         template = await vite.transformIndexHtml(url.pathname, template)
         const dehydrated = await dehydrateForRoute(
@@ -140,7 +121,7 @@ async function createApp(surface: Surface) {
         )
         const html = template.replace(
           '<!--DEHYDRATED-->',
-          `<script>window.__HOSTING_PORTS__=${JSON.stringify({ media: PORT, workspace: WORKSPACE_PORT })};window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
+          `<script>window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
         )
         reply.type('text/html').send(html)
       } catch (err) {
@@ -161,11 +142,6 @@ async function createApp(surface: Surface) {
     app.get('*', async (request, reply) => {
       try {
         const url = new URL(request.url, `http://${request.headers.host ?? 'localhost'}`)
-        if (isWorkspacePath(url.pathname) !== (surface === 'workspace')) {
-          return reply.redirect(
-            otherSurfaceUrl(request, surface === 'workspace' ? PORT : WORKSPACE_PORT),
-          )
-        }
         const dehydrated = await dehydrateForRoute(
           url.pathname,
           url.searchParams,
@@ -173,7 +149,7 @@ async function createApp(surface: Surface) {
         )
         const html = templateHtml.replace(
           '<!--DEHYDRATED-->',
-          `<script>window.__HOSTING_PORTS__=${JSON.stringify({ media: PORT, workspace: WORKSPACE_PORT })};window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
+          `<script>window.__DEHYDRATED_STATE__=${dehydrated}</script>`,
         )
         reply.type('text/html').send(html)
       } catch (err) {
@@ -187,18 +163,14 @@ async function createApp(surface: Surface) {
 }
 
 async function start() {
-  if (WORKSPACE_PORT === PORT) {
-    throw new Error('port and workspacePort must be different')
-  }
-  const mediaApp = await createApp('media')
-  const workspaceApp = await createApp('workspace')
-  await Promise.all([
-    mediaApp.listen({ port: PORT, host: '0.0.0.0' }),
-    workspaceApp.listen({ port: WORKSPACE_PORT, host: '0.0.0.0' }),
-  ])
+  void fileSearchService.start().catch((error) => {
+    console.error('File search failed to start:', error)
+  })
+  const app = await createApp()
+  await app.listen({ port: PORT, host: '0.0.0.0' })
   const protocol = tls ? 'https' : 'http'
   console.log(`Media server listening on ${protocol}://localhost:${PORT}`)
-  console.log(`Workspace listening on ${protocol}://localhost:${WORKSPACE_PORT}/workspace`)
+  console.log(`Workspace available at ${protocol}://localhost:${PORT}/workspace`)
 }
 
 start().catch((err) => {

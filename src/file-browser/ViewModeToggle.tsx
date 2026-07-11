@@ -10,24 +10,30 @@ type ViewModeToggleProps = {
 
 export function ViewModeToggle(props: ViewModeToggleProps) {
   const isWorkspace = () => (props.mode ?? 'MediaServer') === 'Workspace'
-  const sizeClass = () => (isWorkspace() ? 'h-7 w-7' : 'h-8 w-8')
+  const sizeClass = () => (isWorkspace() ? 'size-6.5' : 'size-7')
   const iconClass = () => (isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4')
 
   return (
-    <div class='flex items-center gap-1'>
+    <div
+      class='flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 dark:bg-input/30'
+      role='group'
+      aria-label='View mode'
+    >
       <button
         type='button'
         class={cn(
           sizeClass(),
           'inline-flex items-center justify-center rounded-md border border-transparent p-0 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           props.viewMode === 'list'
-            ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
-            : 'text-foreground hover:bg-muted hover:text-foreground dark:hover:bg-muted/50',
+            ? 'bg-background text-foreground shadow-sm dark:bg-background/80'
+            : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
         )}
         onClick={() => props.onChange('list')}
         aria-label='List view'
+        aria-pressed={props.viewMode === 'list'}
+        title='List view'
       >
-        <List class={iconClass()} stroke-width={2} />
+        <List class={iconClass()} stroke-width={2} aria-hidden='true' />
       </button>
       <button
         type='button'
@@ -35,13 +41,15 @@ export function ViewModeToggle(props: ViewModeToggleProps) {
           sizeClass(),
           'inline-flex items-center justify-center rounded-md border border-transparent p-0 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           props.viewMode === 'grid'
-            ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
-            : 'text-foreground hover:bg-muted hover:text-foreground dark:hover:bg-muted/50',
+            ? 'bg-background text-foreground shadow-sm dark:bg-background/80'
+            : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
         )}
         onClick={() => props.onChange('grid')}
         aria-label='Grid view'
+        aria-pressed={props.viewMode === 'grid'}
+        title='Grid view'
       >
-        <LayoutGrid class={iconClass()} stroke-width={2} />
+        <LayoutGrid class={iconClass()} stroke-width={2} aria-hidden='true' />
       </button>
     </div>
   )

@@ -47,10 +47,10 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | Config                    | Env                         | Purpose                                                                     |
 | ------------------------- | --------------------------- | --------------------------------------------------------------------------- |
 | `mediaDir`                | `MEDIA_DIR`                 | Media root for legacy/single-root configs                                   |
-| `port`                    | `PORT`                      | Media server port (default `3000`)                                          |
-| `workspacePort`           | `WORKSPACE_PORT`            | Separate Workspace port (default: media port + 1)                           |
+| `port`                    | `PORT`                      | App port; Workspace is served at `/workspace` (default `3000`)              |
 | `mediaDirs`               |                             | Multiple named media roots, each with optional editable folders             |
 | `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under single-root `mediaDir` where writes are allowed |
+| `fileSearch`              |                             | Persistent filename/path search index settings                              |
 | `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                                 |
 | `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                                |
 | `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
@@ -60,6 +60,25 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 |                           | `TLS_KEY_PATH`              | PEM private key used to serve HTTPS                                         |
 
 `dataPath` (shares DB, etc.) is config-file only; defaults next to the config file.
+
+File search is enabled by default and stores its rebuildable SQLite index under
+`<dataPath>/.search-index`. The index uses bounded background reconciliation on every platform and
+best-effort recursive watchers on local Windows/macOS roots. Linux and network roots use polling so
+large libraries do not consume per-directory watcher limits.
+
+```jsonc
+{
+  "fileSearch": {
+    "enabled": true,
+    "watchMode": "auto", // "auto" or "off"
+    "maxRecursiveWatchers": 32,
+    "maxFsConcurrency": 4,
+    "reconcileDirectoriesPerSecond": 128,
+    // Set this to a local disk when dataPath is on a network filesystem.
+    "indexPath": ".data/.search-index/files-v1.sqlite",
+  },
+}
+```
 
 Use `mediaDirs` when serving multiple media roots:
 

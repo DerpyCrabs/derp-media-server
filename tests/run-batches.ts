@@ -19,6 +19,7 @@ const BATCHES = [
       'breadcrumbs-adaptive',
       'upload',
       'file-browser-misc',
+      'file-search-palette',
     ],
   },
   {
@@ -74,7 +75,6 @@ function generateBatchConfig(batchId: string, port: number): string {
   const configPath = path.join(FIXTURES_DIR, `test-config-${batchId}.jsonc`)
   const config = {
     port,
-    workspacePort: port + 100,
     mediaDir: `test-media-${batchId}`,
     dataPath: `../../test-data-${batchId}`,
     editableFolders: ['Notes', 'SharedContent'],

@@ -56,9 +56,9 @@ export function UploadMenu(props: UploadMenuProps) {
         aria-expanded={open()}
         class={cn(
           isWorkspace() ? 'h-7 w-7' : 'size-8',
-          'inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors',
+          'inline-flex shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors',
           'hover:bg-muted hover:text-foreground',
-          'dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+          'dark:hover:bg-input/50',
           'aria-expanded:bg-muted aria-expanded:text-foreground',
           'disabled:pointer-events-none disabled:opacity-50',
         )}

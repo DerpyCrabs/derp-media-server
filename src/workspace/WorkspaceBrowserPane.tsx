@@ -27,7 +27,6 @@ import {
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
-import { hostingUrl } from '@/lib/hosting-urls'
 import type { ShareLink } from '@/lib/shares'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
@@ -41,7 +40,7 @@ import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
-import Search from 'lucide-solid/icons/search'
+import BookOpenText from 'lucide-solid/icons/book-open-text'
 import Upload from 'lucide-solid/icons/upload'
 import {
   For,
@@ -88,6 +87,8 @@ import type {
   WorkspaceBrowserPaneProps,
   WorkspaceShareConfig,
 } from './workspace-browser-pane-types'
+import { FileSearchButton } from '../FileSearchPalette'
+import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 
 export type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 
@@ -760,15 +761,12 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       const rel = stripSharePrefix(file.path, sh.sharePath.replace(/\\/g, '/'))
       if (rel) params.set('dir', rel)
       const query = params.toString()
-      window.open(
-        hostingUrl('media', query ? `/share/${sh.token}?${query}` : `/share/${sh.token}`),
-        '_blank',
-      )
+      window.open(query ? `/share/${sh.token}?${query}` : `/share/${sh.token}`, '_blank')
       return
     }
     if (file.path) params.set('dir', file.path)
     const query = params.toString()
-    window.open(hostingUrl('media', query ? `/?${query}` : '/'), '_blank')
+    window.open(query ? `/?${query}` : '/', '_blank')
   }
 
   function handleContextShare(file: FileItem) {
@@ -848,7 +846,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const sh = share()
     if (m.isHome) {
       if (sh) window.open(`/share/${sh.token}/workspace`, '_blank')
-      else window.open(hostingUrl('media', '/'), '_blank')
+      else window.open('/', '_blank')
       return
     }
     const item = workspaceBreadcrumbAsFolderItem(m)
@@ -863,7 +861,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     }
     const params = new URLSearchParams()
     if (item.path) params.set('dir', item.path)
-    window.open(hostingUrl('media', `/?${params.toString()}`), '_blank')
+    window.open(`/?${params.toString()}`, '_blank')
   }
 
   function handleWorkspaceBreadcrumbOpenInWorkspace() {
@@ -871,7 +869,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (!m) return
     const sh = share()
     if (m.isHome) {
-      window.open(hostingUrl('media', sh ? `/share/${sh.token}` : '/'), '_blank')
+      window.open(sh ? `/share/${sh.token}` : '/', '_blank')
       return
     }
     const item = workspaceBreadcrumbAsFolderItem(m)
@@ -881,16 +879,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       const params = new URLSearchParams()
       if (rel) params.set('dir', rel)
       const q = params.toString()
-      window.open(
-        hostingUrl('media', q ? `/share/${sh.token}?${q}` : `/share/${sh.token}`),
-        '_blank',
-      )
+      window.open(q ? `/share/${sh.token}?${q}` : `/share/${sh.token}`, '_blank')
       return
     }
     const params = new URLSearchParams()
     if (item.path) params.set('dir', item.path)
     const q = params.toString()
-    window.open(hostingUrl('media', q ? `/?${q}` : '/'), '_blank')
+    window.open(q ? `/?${q}` : '/', '_blank')
   }
 
   function handleWorkspaceBreadcrumbSetIcon() {
@@ -1184,7 +1179,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     props.onNavigateDir(props.windowId, workspaceBrowserPaneParentDir(currentPath()))
   }
 
-  function handleFileClick(file: FileItem) {
+  function handleFileClick(file: FileItem, sourceDir = currentPath()) {
     if (file.isDirectory) {
       setUnsupportedFile(null)
       props.onNavigateDir(props.windowId, file.path)
@@ -1200,7 +1195,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         (sh
           ? { kind: 'share', token: sh.token, sharePath: sh.sharePath }
           : DEFAULT_WORKSPACE_SOURCE)
-      props.onRequestPlay?.(src, file.path, currentPath() || undefined)
+      props.onRequestPlay?.(src, file.path, sourceDir || undefined)
       return
     }
     if (mt === MediaType.OTHER) {
@@ -1209,6 +1204,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     }
     setUnsupportedFile(null)
     props.onOpenViewer(props.windowId, file)
+  }
+
+  function handleLibrarySearchResult(result: FileSearchResult) {
+    handleFileClick(fileSearchResultToFileItem(result), result.parentPath)
   }
 
   createEffect(() => {
@@ -1437,6 +1436,15 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             />
           </div>
           <div class='flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'>
+            <Show when={!share()}>
+              <FileSearchButton
+                title='Search library in this browser'
+                testId='workspace-pane-file-search-trigger'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                iconClass='size-3.5'
+                onSelect={handleLibrarySearchResult}
+              />
+            </Show>
             <Show when={inKb()}>
               <div
                 class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
@@ -1445,12 +1453,12 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                 <div class='relative'>
                   <button
                     type='button'
-                    aria-label='Open search'
-                    title='Search notes (Ctrl+K)'
-                    class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent outline-none'
+                    aria-label='Search note contents'
+                    title='Search note contents (Ctrl+K)'
+                    class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none'
                     onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
                   >
-                    <Search class='h-3.5 w-3.5' stroke-width={2} />
+                    <BookOpenText class='h-3.5 w-3.5' stroke-width={2} aria-hidden='true' />
                   </button>
                   <Show when={searchPopoverOpen()}>
                     <div class='border-border bg-popover ring-offset-background absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border p-2 shadow-lg outline-none'>
@@ -1473,7 +1481,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               <button
                 type='button'
                 title='Create new folder'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                 onClick={openCreateFolderDialog}
               >
                 <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
@@ -1481,7 +1489,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               <button
                 type='button'
                 title='Create new file'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                 onClick={openCreateFileDialog}
               >
                 <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
@@ -1497,7 +1505,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               <button
                 type='button'
                 title='Create new folder'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                 onClick={openCreateFolderDialog}
               >
                 <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
@@ -1505,7 +1513,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               <button
                 type='button'
                 title='Create new file'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-medium shadow-xs transition-colors hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                 onClick={openCreateFileDialog}
               >
                 <FilePlus class='h-3.5 w-3.5' stroke-width={2} />

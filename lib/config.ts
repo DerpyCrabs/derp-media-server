@@ -31,6 +31,15 @@ export interface McpConfig {
   servers: Record<string, McpServerConfig>
 }
 
+export interface FileSearchConfig {
+  enabled: boolean
+  indexPath: string
+  watchMode: 'auto' | 'off'
+  maxRecursiveWatchers: number
+  maxFsConcurrency: number
+  reconcileDirectoriesPerSecond: number
+}
+
 export interface MediaRoot {
   id: string
   name: string
@@ -55,7 +64,6 @@ interface MediaDirConfig {
 
 interface AppConfig {
   port: number
-  workspacePort: number
   mediaDir: string
   editableFolders: string[]
   mediaDirs?: MediaDirConfig[]
@@ -66,6 +74,7 @@ interface AppConfig {
   ai?: AiConfig
   mcp?: McpConfig
   dataPath: string
+  fileSearch: FileSearchConfig
 }
 
 const DEFAULT_CONFIG_PATH = path.join(process.cwd(), 'config.jsonc')
@@ -98,10 +107,6 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
   const port = Number(process.env.PORT)
   if (Number.isInteger(port) && port > 0 && port <= 65535) {
     cfg.port = port
-  }
-  const workspacePort = Number(process.env.WORKSPACE_PORT)
-  if (Number.isInteger(workspacePort) && workspacePort > 0 && workspacePort <= 65535) {
-    cfg.workspacePort = workspacePort
   }
   if (process.env.MEDIA_DIR) {
     cfg.mediaDir = process.env.MEDIA_DIR
@@ -309,7 +314,6 @@ function loadConfigOnce(): AppConfig {
         ? value
         : fallback
     const port = normalizePort(parsed.port, 3000)
-    const workspacePort = normalizePort(parsed.workspacePort, port + 1)
 
     const mediaDir = parsed.mediaDir ?? process.cwd()
     const editableFolders = normalizeEditableFolders(parsed.editableFolders)
@@ -389,11 +393,35 @@ function loadConfigOnce(): AppConfig {
     const dataPath =
       typeof parsed.dataPath === 'string' ? path.resolve(configDir, parsed.dataPath) : configDir
 
+    const rawFileSearch =
+      parsed.fileSearch && typeof parsed.fileSearch === 'object'
+        ? (parsed.fileSearch as Partial<FileSearchConfig>)
+        : {}
+    const clampInteger = (value: unknown, fallback: number, min: number, max: number) =>
+      typeof value === 'number' && Number.isInteger(value)
+        ? Math.max(min, Math.min(max, value))
+        : fallback
+    const fileSearch: FileSearchConfig = {
+      enabled: rawFileSearch.enabled !== false,
+      indexPath:
+        typeof rawFileSearch.indexPath === 'string' && rawFileSearch.indexPath.trim()
+          ? path.resolve(configDir, rawFileSearch.indexPath.trim())
+          : path.join(dataPath, '.search-index', 'files-v1.sqlite'),
+      watchMode: rawFileSearch.watchMode === 'off' ? 'off' : 'auto',
+      maxRecursiveWatchers: clampInteger(rawFileSearch.maxRecursiveWatchers, 32, 0, 32),
+      maxFsConcurrency: clampInteger(rawFileSearch.maxFsConcurrency, 4, 1, 16),
+      reconcileDirectoriesPerSecond: clampInteger(
+        rawFileSearch.reconcileDirectoriesPerSecond,
+        128,
+        1,
+        4096,
+      ),
+    }
+
     const mcp = parseMcpConfig(parsed)
 
     return applyEnvOverrides({
       port,
-      workspacePort,
       mediaDir,
       editableFolders,
       mediaDirs,
@@ -404,13 +432,13 @@ function loadConfigOnce(): AppConfig {
       ai,
       mcp,
       dataPath,
+      fileSearch,
     })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`Config file not found at ${configPath}, using defaults`)
       return applyEnvOverrides({
         port: 3000,
-        workspacePort: 3001,
         mediaDir: process.cwd(),
         editableFolders: [],
         mediaDirs: undefined,
@@ -420,6 +448,14 @@ function loadConfigOnce(): AppConfig {
         auth: { enabled: false, password: undefined },
         mcp: undefined,
         dataPath: path.dirname(configPath),
+        fileSearch: {
+          enabled: true,
+          indexPath: path.join(path.dirname(configPath), '.search-index', 'files-v1.sqlite'),
+          watchMode: 'auto',
+          maxRecursiveWatchers: 32,
+          maxFsConcurrency: 4,
+          reconcileDirectoriesPerSecond: 128,
+        },
       })
     }
     throw error

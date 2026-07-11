@@ -5,26 +5,11 @@ import { execSync } from 'child_process'
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
-const dataDirName = batchId ? `test-data-${batchId}` : null
+const dataDirName = batchId ? `test-data-${batchId}` : 'test-data-local'
 const port = batchId ? 9200 + parseInt(batchId) : 5973
 
 const TEST_MEDIA_DIR = path.resolve(mediaDirName)
-const MEDIA_DIR_KEY = mediaDirName
-const DATA_DIR = dataDirName ? path.resolve(dataDirName) : null
-
-function cleanJsonFile(filePath: string) {
-  try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-    delete data[MEDIA_DIR_KEY]
-    if (Object.keys(data).length === 0) {
-      fs.unlinkSync(filePath)
-    } else {
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
-    }
-  } catch {
-    // file doesn't exist, nothing to clean
-  }
-}
+const DATA_DIR = path.resolve(dataDirName)
 
 function killPort(p: number) {
   try {
@@ -63,17 +48,11 @@ export default async function teardown(_config: FullConfig) {
     }
   }
 
-  if (DATA_DIR) {
-    try {
-      if (fs.existsSync(DATA_DIR)) {
-        fs.rmSync(DATA_DIR, { recursive: true, force: true })
-      }
-    } catch {}
-  } else {
-    cleanJsonFile(path.resolve('settings.json'))
-    cleanJsonFile(path.resolve('shares.json'))
-    cleanJsonFile(path.resolve('stats.json'))
-  }
+  try {
+    if (fs.existsSync(DATA_DIR)) {
+      fs.rmSync(DATA_DIR, { recursive: true, force: true })
+    }
+  } catch {}
 
   console.log(`[e2e${batchId ? `:${batchId}` : ''}] Test fixtures cleaned up.`)
 }

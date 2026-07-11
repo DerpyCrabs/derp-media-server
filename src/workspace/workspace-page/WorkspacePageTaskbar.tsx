@@ -20,6 +20,8 @@ import { WorkspaceTaskbarAudio } from '@/src/workspace/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from '@/src/workspace/WorkspaceTaskbarSettings'
 import type { WorkspacePageProps } from './workspace-page-types'
 import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
+import { FileSearchButton } from '@/src/FileSearchPalette'
+import type { FileSearchResult } from '@/lib/file-search'
 
 export type WorkspacePageTaskbarProps = {
   pageProps: WorkspacePageProps
@@ -57,6 +59,7 @@ export type WorkspacePageTaskbarProps = {
   stopWorkspacePlaybackFromTaskbar: () => void
   requestPlay: (source: WorkspaceSource, path: string, dir?: string) => void
   suppressTaskbarAudioChrome?: () => boolean
+  onOpenSearchResult: (result: FileSearchResult) => void
 }
 
 export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
@@ -143,6 +146,14 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
           </div>
 
           <div class='flex shrink-0 items-center gap-1 border-l border-border pl-2'>
+            <Show when={!props.pageProps.shareConfig}>
+              <FileSearchButton
+                title='Search library and open a new window'
+                testId='workspace-global-file-search-trigger'
+                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+                onSelect={props.onOpenSearchResult}
+              />
+            </Show>
             <Show when={props.pageProps.shareConfig}>
               <button
                 type='button'

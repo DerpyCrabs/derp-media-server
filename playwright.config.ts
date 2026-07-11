@@ -59,7 +59,6 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       PORT: String(port),
-      WORKSPACE_PORT: String(port + 100),
       CONFIG_PATH: configFile,
       NO_PROXY: 'localhost,127.0.0.1',
     },

@@ -1,6 +1,6 @@
 {
   "mediaDir": "test-media",
-  "dataPath": "../..",
+  "dataPath": "../../test-data-local",
   "editableFolders": ["Notes", "SharedContent"],
   "shareLinkDomain": "http://localhost:5973",
   "auth": {

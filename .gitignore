@@ -59,4 +59,5 @@ stats.json
 shares.json
 kb-chats.json
 mounts.json
+.search-index/
 config.json*

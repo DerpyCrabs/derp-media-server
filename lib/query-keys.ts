@@ -30,4 +30,7 @@ export const queryKeys = {
   kbChatStatus: () => ['kb-chat-status'] as const,
   kbChatHistory: (kbRoot: string) => ['kb-chat-history', kbRoot] as const,
   kbChatDetail: (chatId: string) => ['kb-chat-detail', chatId] as const,
+  fileSearch: (query?: string) =>
+    query === undefined ? (['file-search'] as const) : (['file-search', query] as const),
+  fileSearchStatus: () => ['file-search-status'] as const,
 } as const

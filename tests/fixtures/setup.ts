@@ -6,12 +6,12 @@ import { generateTestMedia, patchTestMediaAfterCacheCopy } from './generate-medi
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
-const dataDirName = batchId ? `test-data-${batchId}` : null
+const dataDirName = batchId ? `test-data-${batchId}` : 'test-data-local'
 
 const TEST_MEDIA_DIR = path.resolve(mediaDirName)
 const MEDIA_CACHE_DIR = path.resolve(__dirname, '..', '..', '.test-media-cache')
 const MEDIA_DIR_KEY = mediaDirName
-const DATA_DIR = dataDirName ? path.resolve(dataDirName) : null
+const DATA_DIR = path.resolve(dataDirName)
 
 function encryptPasscode(passcode: string): string {
   const key = scryptSync('test-password', 'derp-media-server-passcode-v1', 32)
@@ -34,7 +34,7 @@ function mergeJsonFile(filePath: string, data: Record<string, unknown>) {
 }
 
 function dataFilePath(filename: string): string {
-  return DATA_DIR ? path.join(DATA_DIR, filename) : path.resolve(filename)
+  return path.join(DATA_DIR, filename)
 }
 
 export default async function setup(_config: FullConfig) {
@@ -60,9 +60,7 @@ export default async function setup(_config: FullConfig) {
   }
   patchTestMediaAfterCacheCopy(TEST_MEDIA_DIR)
 
-  if (DATA_DIR) {
-    fs.mkdirSync(DATA_DIR, { recursive: true })
-  }
+  fs.mkdirSync(DATA_DIR, { recursive: true })
 
   mergeJsonFile(dataFilePath('settings.json'), {
     [MEDIA_DIR_KEY]: {

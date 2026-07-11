@@ -90,6 +90,7 @@ import {
   isWorkspaceRoute,
   loadPersisted,
 } from './workspace/workspace-page-persistence'
+import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
   const history = useBrowserHistory()
@@ -1060,6 +1061,20 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
+  function openGlobalSearchResult(result: FileSearchResult) {
+    const file = fileSearchResultToFileItem(result)
+    const source = browserSource()
+    if (file.isDirectory) {
+      openBrowser({ source, initialState: { dir: file.path } })
+      return
+    }
+    if (file.type === MediaType.AUDIO || file.type === MediaType.VIDEO) {
+      requestPlay(source, file.path, result.parentPath || undefined)
+      return
+    }
+    openViewer(workspace()?.activeWindowId ?? '', file, source)
+  }
+
   function addPinnedItem(file: FileItem) {
     const w = workspace()
     if (!w) return
@@ -1366,6 +1381,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       <WorkspacePageTaskbar
         pageProps={props}
         onOpenBrowser={() => openBrowser()}
+        onOpenSearchResult={openGlobalSearchResult}
         hasAnyTaskbarItems={hasAnyTaskbarItems}
         pinnedItems={pinnedItems}
         taskbarGroupIds={orderedWindowGroupIds}

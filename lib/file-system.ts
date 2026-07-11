@@ -11,42 +11,13 @@ import {
   hasMultipleMediaRoots,
   type MediaRoot,
 } from './config'
+import { shouldExcludeFile, shouldExcludeFolder } from './file-exclusions'
 
-// Folders to exclude from listing
-const EXCLUDED_FOLDERS = [
-  'node_modules',
-  '$RECYCLE.BIN',
-  'System Volume Information',
-  '.git',
-  '.svn',
-  '.hg',
-  '__pycache__',
-  '.DS_Store',
-]
-
-const EXCLUDED_FILES = [
-  'pagefile.sys',
-  'swapfile.sys',
-  'hiberfil.sys',
-  'DumpStack.log',
-  'DumpStack.log.tmp',
-  'desktop.ini',
-  'Thumbs.db',
-  '.DS_Store',
-]
+export { shouldExcludeFile, shouldExcludeFolder } from './file-exclusions'
 
 /**
  * Checks if a folder should be excluded from listing
  */
-export function shouldExcludeFolder(folderName: string): boolean {
-  // Exclude hidden folders (starting with .)
-  if (folderName.startsWith('.')) {
-    return true
-  }
-  // Exclude common system and build folders
-  return EXCLUDED_FOLDERS.includes(folderName)
-}
-
 /**
  * Validates and resolves a path to ensure it's within a configured media root
  * Prevents path traversal attacks
@@ -221,7 +192,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
 
     const filteredEntries = entries.filter((entry) => {
       if (entry.isDirectory() && shouldExcludeFolder(entry.name)) return false
-      if (!entry.isDirectory() && EXCLUDED_FILES.includes(entry.name)) return false
+      if (!entry.isDirectory() && shouldExcludeFile(entry.name)) return false
       return true
     })
 
