@@ -282,23 +282,23 @@ test.describe('Share Viewers & Players', () => {
   test('opens PDF viewer when clicking a PDF file in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('sample.pdf').click()
-    await expect(page.locator('embed[type="application/pdf"]')).toBeVisible()
+    await expect(page.getByTestId('pdf-canvas')).toBeVisible()
   })
 
   test('PDF viewer shows filename in share', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('sample.pdf').click()
-    await expect(page.locator('embed[type="application/pdf"]')).toBeVisible()
+    await expect(page.getByTestId('pdf-canvas')).toBeVisible()
     await expect(page.getByText('sample.pdf').first()).toBeVisible()
   })
 
   test('closing PDF viewer returns to file list in share', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('sample.pdf').click()
-    await expect(page.locator('embed[type="application/pdf"]')).toBeVisible()
+    await expect(page.getByTestId('pdf-canvas')).toBeVisible()
 
     await page.locator('button[title="Close"]').click()
-    await expect(page.locator('embed[type="application/pdf"]')).not.toBeVisible()
+    await expect(page.getByTestId('pdf-canvas')).not.toBeVisible()
     await expect(page.locator('table').getByText('sample.pdf')).toBeVisible()
     await expect(page).not.toHaveURL(/viewing=/)
   })

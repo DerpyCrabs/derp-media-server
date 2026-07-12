@@ -18,6 +18,13 @@ export function useFileRowContextMenu(options: UseFileRowContextMenuOptions) {
     setMenu({ x: e.clientX, y: e.clientY, file })
   }
 
+  function openRowMenuFromButton(e: MouseEvent, file: FileItem) {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setMenu({ x: rect.right, y: rect.bottom, file })
+  }
+
   function confirmDelete(file: FileItem) {
     options.onDeleteRequest(file)
     dismiss()
@@ -26,6 +33,7 @@ export function useFileRowContextMenu(options: UseFileRowContextMenuOptions) {
   return {
     menu,
     openRowContextMenu,
+    openRowMenuFromButton,
     dismiss,
     confirmDelete,
   }

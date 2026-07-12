@@ -67,11 +67,14 @@ async function renameFile(page: Page, oldPath: string, newPath: string) {
 }
 
 async function fillCreateFileDialog(page: Page, baseName: string) {
-  await page.locator('button[title="Create new file"]').click()
+  const createButton = page.locator('button[title="Create new file"]')
   const nameInput = page.locator(
     'input[placeholder="notes.txt"], input[placeholder="notes.md"], input[placeholder*="File name"]',
   )
-  await expect(nameInput).toBeVisible()
+  await expect(async () => {
+    await createButton.click()
+    await expect(nameInput).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 10_000 })
   await nameInput.fill(baseName)
   await page
     .getByRole('dialog', { name: /create.*file/i })

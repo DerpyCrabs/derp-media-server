@@ -64,6 +64,7 @@ const BATCHES = [
       'passcode-shares',
       'share-viewers',
       'offline-mode',
+      'mobile-media-management',
     ],
   },
 ]

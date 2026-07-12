@@ -89,7 +89,7 @@ test.describe('Editable Folders', () => {
     await page.locator('[data-slot="context-menu-item"]').getByText('Move to...').click()
 
     await page.locator('[role="dialog"]').getByText('subfolder').click()
-    await page.getByRole('button', { name: /Move/i }).click()
+    await page.getByRole('button', { name: 'Move here', exact: true }).click()
 
     await expect(page.locator('table').getByText('move-me.txt')).not.toBeVisible()
 

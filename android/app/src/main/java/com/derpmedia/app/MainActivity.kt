@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private var connectionAttempt = 0
     private var resolveAttempt = 0
     private var httpWarningDialog: AlertDialog? = null
+    private var hasEnteredForeground = false
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
@@ -86,6 +87,12 @@ class MainActivity : AppCompatActivity() {
         if (simulateOfflineForTest) openOfflineOnLoad = true
         val saved = prefs.getString("url", null)
         if (saved == null) showConnectionScreen() else connectToServer(saved, true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (hasEnteredForeground && ::webView.isInitialized) requestFrontendUpdate()
+        hasEnteredForeground = true
     }
 
     private fun showConnectionScreen() {
@@ -228,6 +235,27 @@ class MainActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String) {
                     super.onPageFinished(view, url)
+                    view.evaluateJavascript(
+                        """
+                        (() => {
+                          const raw = sessionStorage.getItem('derp-android-update-position');
+                          if (!raw) return;
+                          sessionStorage.removeItem('derp-android-update-position');
+                          try {
+                            const saved = JSON.parse(raw);
+                            if (saved.href !== location.href) return;
+                            let attempts = 0;
+                            const restore = () => {
+                              scrollTo(saved.x || 0, saved.y || 0);
+                              attempts += 1;
+                              if (attempts < 30 && Math.abs(scrollY - (saved.y || 0)) > 1) setTimeout(restore, 100);
+                            };
+                            requestAnimationFrame(restore);
+                          } catch {}
+                        })()
+                        """.trimIndent(),
+                        null,
+                    )
                     emitOfflineCatalog()
                     if (openOfflineOnLoad) {
                         openOfflineOnLoad = false
@@ -291,6 +319,43 @@ class MainActivity : AppCompatActivity() {
         setContentView(shell)
         ViewCompat.requestApplyInsets(shell)
         if (!preferOffline || !openCachedOfflineShell(origin)) webView.loadUrl(startUrl)
+    }
+
+    private fun requestFrontendUpdate() {
+        webView.evaluateJavascript(
+            """
+            (() => {
+              if (!('serviceWorker' in navigator)) return;
+              const savePosition = () => sessionStorage.setItem(
+                'derp-android-update-position',
+                JSON.stringify({ href: location.href, x: scrollX, y: scrollY }),
+              );
+              const watch = (registration) => {
+                if (!registration || window.__DERP_ANDROID_UPDATE_WATCH__) return;
+                window.__DERP_ANDROID_UPDATE_WATCH__ = true;
+                registration.addEventListener('updatefound', () => {
+                  const worker = registration.installing;
+                  if (!worker) return;
+                  worker.addEventListener('statechange', () => {
+                    if (worker.state !== 'installed' || !navigator.serviceWorker.controller) return;
+                    savePosition();
+                    window.__DERP_ANDROID_UPDATE_PENDING__ = true;
+                  });
+                });
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                  if (!window.__DERP_ANDROID_UPDATE_PENDING__) return;
+                  window.__DERP_ANDROID_UPDATE_PENDING__ = false;
+                  location.reload();
+                });
+              };
+              navigator.serviceWorker.getRegistration().then((registration) => {
+                watch(registration);
+                return registration?.update();
+              }).catch(() => {});
+            })()
+            """.trimIndent(),
+            null,
+        )
     }
 
     private fun openCachedOfflineShell(origin: String): Boolean {

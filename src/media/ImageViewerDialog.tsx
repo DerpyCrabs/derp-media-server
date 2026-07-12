@@ -66,6 +66,8 @@ function ImageViewerInner(props: {
 
   const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
   const [rotation, setRotation] = createSignal(0)
+  let activePointer: number | null = null
+  let gestureStartX = 0
 
   createEffect(() => {
     void props.viewingPath
@@ -170,6 +172,31 @@ function ImageViewerInner(props: {
     setRotation(0)
   }
 
+  function handlePointerDown(e: PointerEvent) {
+    if (activePointer !== null) return
+    try {
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    } catch {
+      // Synthetic pointer events used by WebView and browser tests may not be capturable.
+    }
+    activePointer = e.pointerId
+    gestureStartX = e.clientX
+  }
+
+  function handlePointerUp(e: PointerEvent) {
+    if (activePointer !== e.pointerId) return
+    const deltaX = e.clientX - gestureStartX
+    activePointer = null
+    if ((zoom() === 'fit' || zoom() === 100) && Math.abs(deltaX) >= 50) {
+      if (deltaX < 0) goNext()
+      else goPrevious()
+    }
+  }
+
+  function handlePointerCancel(e: PointerEvent) {
+    if (activePointer === e.pointerId) activePointer = null
+  }
+
   const imgStyle = createMemo((): JSX.CSSProperties => {
     const z = zoom()
     const base: JSX.CSSProperties =
@@ -217,7 +244,7 @@ function ImageViewerInner(props: {
         <div class='flex shrink-0 items-center justify-end gap-1 sm:gap-2'>
           <button
             type='button'
-            class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
+            class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleZoomOut}
           >
             <ZoomOut class='h-5 w-5' size={20} stroke-width={2} />
@@ -227,7 +254,7 @@ function ImageViewerInner(props: {
           </span>
           <button
             type='button'
-            class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
+            class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleZoomIn}
           >
             <ZoomIn class='h-5 w-5' size={20} stroke-width={2} />
@@ -235,14 +262,14 @@ function ImageViewerInner(props: {
           <button
             type='button'
             title='Fit to screen'
-            class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
+            class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleFitToScreen}
           >
             <Maximize2 class='h-5 w-5' size={20} stroke-width={2} />
           </button>
           <button
             type='button'
-            class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
+            class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleRotate}
           >
             <RotateCw class='h-5 w-5' size={20} stroke-width={2} />
@@ -250,14 +277,14 @@ function ImageViewerInner(props: {
           <div class='mx-1 h-6 w-px bg-white/20 sm:mx-2' />
           <button
             type='button'
-            class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
+            class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleDownload}
           >
             <Download class='h-5 w-5' size={20} stroke-width={2} />
           </button>
           <button
             type='button'
-            class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
+            class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleClose}
           >
             <X class='h-5 w-5' size={20} stroke-width={2} />
@@ -265,21 +292,17 @@ function ImageViewerInner(props: {
         </div>
       </div>
 
-      <div class='relative flex flex-1 items-center justify-center overflow-auto p-4'>
-        <div
-          class='absolute top-0 bottom-0 left-0 z-10 w-[30%] cursor-pointer'
-          onClick={goPrevious}
-          role='presentation'
-        />
-        <div
-          class='absolute top-0 right-0 bottom-0 z-10 w-[30%] cursor-pointer'
-          onClick={goNext}
-          role='presentation'
-        />
+      <div
+        data-testid='image-gesture-surface'
+        class='relative flex flex-1 touch-pan-y items-center justify-center overflow-auto p-4'
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+      >
         <img
           src={mediaUrl()}
           alt={fileName()}
-          class='pointer-events-none transition-transform duration-200'
+          class='pointer-events-none select-none transition-transform duration-200'
           style={imgStyle()}
         />
       </div>

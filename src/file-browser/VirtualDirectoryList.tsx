@@ -165,6 +165,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
           <col class='w-[40px]' />
           <col />
           <col class={props.sizeColumnClass ?? 'w-24'} />
+          <col class='w-[52px]' />
         </colgroup>
         <tbody class='[&_tr:last-child]:border-0'>{children}</tbody>
       </table>

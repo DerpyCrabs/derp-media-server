@@ -112,9 +112,27 @@ type DownloadSource = {
   mediaBaseUrl: string
 }
 
+const activeDownloads = new Map<string, AbortController>()
+const retrySources = new Map<string, DownloadSource>()
+
+export function cancelWebOffline(path: string) {
+  activeDownloads.get(path)?.abort()
+}
+
+export function retryWebOffline(path: string) {
+  const source = retrySources.get(path)
+  return source ? saveForWebOffline(source) : false
+}
+
+export async function webOfflineUsage() {
+  const entries = await allEntries()
+  return { used: entries.reduce((sum, entry) => sum + entry.size + (entry.thumbnailBlob?.size ?? 0), 0), entries: entries.length }
+}
+
 async function saveSource(
   source: DownloadSource,
   progress: { completed: number; written: string[]; physicalFiles: string[] },
+  signal: AbortSignal,
 ) {
   const { item, apiPath, displayPath } = source
   if (item.isDirectory) {
@@ -130,8 +148,8 @@ async function saveSource(
     if (!source.listBaseUrl) return
     const listUrl = new URL(source.listBaseUrl)
     listUrl.searchParams.set('dir', apiPath)
-    const response = await fetch(listUrl, { credentials: 'include' })
-    if (!response.ok) throw new Error(`Could not list ${displayPath}`)
+    const response = await fetch(listUrl, { credentials: 'include', signal })
+    if (!response.ok) throw Object.assign(new Error(`Could not list ${displayPath}`), { status: response.status })
     const body = (await response.json()) as { files: FileItem[] }
     for (const child of body.files) {
       const childApiPath = apiPath ? `${apiPath}/${child.name}` : child.name
@@ -144,6 +162,7 @@ async function saveSource(
           displayPath: childDisplayPath,
         },
         progress,
+        signal,
       )
     }
     return
@@ -153,8 +172,10 @@ async function saveSource(
     apiPath.split('/').map(encodeURIComponent).join('/'),
     source.mediaBaseUrl,
   )
-  const response = await fetch(mediaUrl, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Could not download ${displayPath}`)
+  const response = await fetch(mediaUrl, { credentials: 'include', signal })
+  if (!response.ok) throw Object.assign(new Error(`Could not download ${displayPath}`), { status: response.status })
+  const totalBytes = Number(response.headers.get('content-length')) || item.size || 0
+  announce({ state: 'running', name: item.name, path: displayPath, completed: progress.completed, totalBytes, downloadedBytes: 0 })
   let blob: Blob | undefined
   let localFile: Blob | undefined
   let fileName: string | undefined
@@ -165,7 +186,21 @@ async function saveSource(
     const root = await navigator.storage.getDirectory()
     const handle = await root.getFileHandle(fileName, { create: true })
     const writable = await handle.createWritable()
-    await response.body.pipeTo(writable)
+    const reader = response.body.getReader()
+    let downloadedBytes = 0
+    try {
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        await writable.write(chunk.value)
+        downloadedBytes += chunk.value.byteLength
+        announce({ state: 'running', name: item.name, path: displayPath, completed: progress.completed, totalBytes, downloadedBytes })
+      }
+      await writable.close()
+    } catch (error) {
+      await writable.abort().catch(() => undefined)
+      throw error
+    }
     size = (await handle.getFile()).size
     localFile = await handle.getFile()
   } else {
@@ -207,10 +242,14 @@ async function saveSource(
 
 export function saveForWebOffline(source: DownloadSource): boolean {
   if (!webOfflineSupported()) return false
-  announce({ state: 'queued', name: source.item.name, path: source.displayPath })
+  announce({ state: 'queued', name: source.item.name, path: source.displayPath, totalBytes: source.item.size || 0 })
+  retrySources.set(source.displayPath, source)
+  const controller = new AbortController()
+  activeDownloads.get(source.displayPath)?.abort()
+  activeDownloads.set(source.displayPath, controller)
   const progress = { completed: 0, written: [] as string[], physicalFiles: [] as string[] }
   void requireActiveServiceWorker()
-    .then(() => saveSource(source, progress))
+    .then(() => saveSource(source, progress, controller.signal))
     .then(async () => {
       const saved = await allEntries()
       if (!saved.some((entry) => entry.path === source.displayPath)) {
@@ -218,6 +257,7 @@ export function saveForWebOffline(source: DownloadSource): boolean {
       }
       await refreshCatalog()
       announce({ state: 'succeeded', name: source.item.name, path: source.displayPath })
+      activeDownloads.delete(source.displayPath)
     })
     .catch(async (error: unknown) => {
       const writtenEntries = (await allEntries()).filter((entry) =>
@@ -237,10 +277,22 @@ export function saveForWebOffline(source: DownloadSource): boolean {
         await Promise.all(progress.physicalFiles.map((name) => root?.removeEntry(name).catch(() => undefined)))
       }
       await refreshCatalog()
+      const status = (error as { status?: number }).status
+      const errorKind = error instanceof DOMException && error.name === 'QuotaExceededError'
+        ? 'quota'
+        : status === 401 || status === 403
+          ? 'auth'
+          : error instanceof DOMException && error.name === 'AbortError'
+            ? 'cancelled'
+            : error instanceof TypeError
+              ? 'network'
+              : 'unsupported-format'
+      activeDownloads.delete(source.displayPath)
       announce({
-        state: 'failed',
+        state: errorKind === 'cancelled' ? 'cancelled' : 'failed',
         name: source.item.name,
         path: source.displayPath,
+        errorKind,
         message: error instanceof Error ? error.message : 'Offline download failed',
       })
     })

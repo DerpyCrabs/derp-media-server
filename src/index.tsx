@@ -36,7 +36,7 @@ void initializeWebOfflineCatalog()
 
 if ('serviceWorker' in navigator && (window.isSecureContext || location.hostname === 'localhost')) {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('/service-worker.js').then(async () => {
+    void navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).then(async () => {
       await navigator.serviceWorker.ready
       const reportReady = () =>
         window.DerpAndroid?.postMessage(JSON.stringify({ type: 'serviceWorkerReady', origin: location.origin }))

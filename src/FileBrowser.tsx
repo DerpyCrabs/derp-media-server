@@ -41,6 +41,7 @@ import Upload from 'lucide-solid/icons/upload'
 import Eye from 'lucide-solid/icons/eye'
 import Share2 from 'lucide-solid/icons/share-2'
 import LinkIcon from 'lucide-solid/icons/link'
+import Ellipsis from 'lucide-solid/icons/ellipsis'
 import {
   batch,
   createEffect,
@@ -1414,6 +1415,14 @@ export function FileBrowser() {
                                           tabindex={0}
                                         >
                                           <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                                            <button
+                                              type='button'
+                                              aria-label={`More actions for ${file.name}`}
+                                              class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm'
+                                              onClick={(e) => fileRowMenu.openRowMenuFromButton(e, file)}
+                                            >
+                                              <Ellipsis class='h-5 w-5' aria-hidden='true' />
+                                            </button>
                                             <Show when={!file.isDirectory}>
                                               <button
                                                 type='button'
@@ -1553,7 +1562,7 @@ export function FileBrowser() {
                                     scrollTarget={{ kind: 'window' }}
                                     scrollScope={fileBrowserScrollScope}
                                     class='relative w-full overflow-x-auto'
-                                    colSpan={3}
+                                    colSpan={4}
                                     sizeColumnClass='w-28'
                                     renderParentRow={() => (
                                       <tr
@@ -1595,6 +1604,7 @@ export function FileBrowser() {
                                         </td>
                                         <td class='min-w-0 p-2 align-middle font-medium'>..</td>
                                         <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
+                                        <td />
                                       </tr>
                                     )}
                                     renderFileRow={(file) => {
@@ -1739,6 +1749,16 @@ export function FileBrowser() {
                                                 {file.isDirectory ? '' : formatFileSize(file.size)}
                                               </span>
                                             </div>
+                                          </td>
+                                          <td class='p-1 align-middle'>
+                                            <button
+                                              type='button'
+                                              aria-label={`More actions for ${file.name}`}
+                                              class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted'
+                                              onClick={(e) => fileRowMenu.openRowMenuFromButton(e, file)}
+                                            >
+                                              <Ellipsis class='h-5 w-5' aria-hidden='true' />
+                                            </button>
                                           </td>
                                         </tr>
                                       )

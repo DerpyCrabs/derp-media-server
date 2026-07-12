@@ -145,7 +145,7 @@ test.describe('Offline mode', () => {
 
     await page.goto(`/?offline=1&dir=${encodeURIComponent(`${logicalPrefix}Documents`)}`)
     await page.locator('table tr').filter({ hasText: 'sample.pdf' }).click()
-    await expect(page.locator('embed[type="application/pdf"]')).toBeVisible()
+    await expect(page.getByTestId('pdf-canvas')).toBeVisible()
 
     await page.goto('/?offline=1')
     if (mediaRoot) await page.locator('table tr').filter({ hasText: mediaRoot }).click()
@@ -219,7 +219,7 @@ test.describe('Offline mode', () => {
           : onlineFetch(input, init)) as typeof window.fetch
     })
     await page.getByText('Make available offline', { exact: true }).click()
-    await expect(page.getByText("Couldn't save readme.txt", { exact: true })).toBeVisible()
+    await expect(page.getByText('Network connection failed: readme.txt', { exact: true })).toBeVisible()
 
     await page.goto('/?offline=1')
     await expect(page.getByText('readme.txt', { exact: true })).not.toBeVisible()
@@ -249,7 +249,7 @@ test.describe('Offline mode', () => {
     })
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
     await page.getByText('Make available offline', { exact: true }).click()
-    await expect(page.getByText("Couldn't save readme.txt", { exact: true })).toBeVisible()
+    await expect(page.getByText('Storage quota exceeded: readme.txt', { exact: true })).toBeVisible()
     const savedPaths = await page.evaluate(async () => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open('derp-offline-v1', 1)
@@ -308,7 +308,11 @@ test.describe('Offline mode', () => {
       .toBeGreaterThan(0)
     await page.reload()
     await expect(page.locator('.file-browser-grid')).toBeVisible()
-    await page.locator('button:has(.lucide-list)').click()
+    const listView = page.getByRole('button', { name: 'List view' })
+    await expect(async () => {
+      await listView.click()
+      await expect(page.locator('table')).toBeVisible({ timeout: 1_000 })
+    }).toPass({ timeout: 10_000 })
     await page.locator('table tr').filter({ hasText: 'sample.mp4' }).click()
     await expect(page.locator('video')).toBeVisible()
 
