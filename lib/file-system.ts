@@ -211,6 +211,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
               size: 0,
               extension: '',
               isDirectory: true,
+              version: (await fs.stat(entryPath)).mtimeMs,
             }
           }
 
@@ -224,6 +225,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileItem
             size: stats.size,
             extension,
             isDirectory: false,
+            version: stats.mtimeMs,
             thumbnailGenerated:
               type === MediaType.IMAGE || type === MediaType.VIDEO
                 ? hasCachedThumbnail(entryPath, stats.mtime)

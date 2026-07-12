@@ -19,6 +19,7 @@ export interface FileItem {
   viewCount?: number
   shareToken?: string
   thumbnailGenerated?: boolean
+  version?: number
 }
 
 export interface AutoSaveSettings {

@@ -1,4 +1,6 @@
 import type { PasteData } from '@/lib/paste-data'
+import type { FileItem } from '@/lib/types'
+import { buildAdminMediaUrl } from '@/src/lib/build-media-url'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
 import { formatFileSize } from '@/lib/media-utils'
@@ -66,28 +68,41 @@ type Props = {
   pasteData: PasteData | null
   isPending: boolean
   error: Error | null | undefined
-  existingFiles: string[]
-  onPaste: (fileName: string) => void
+  existingFiles: FileItem[]
+  onPaste: (fileName: string, mode: 'create' | 'replace', expectedVersion?: number) => void
   onClose: () => void
 }
 
 export function PasteDialog(props: Props) {
   const [fileName, setFileName] = createSignal('')
+  const [existingText, setExistingText] = createSignal<string | null>(null)
 
   const displayName = createMemo(() => fileName() || props.pasteData?.suggestedName || '')
 
-  const fileExists = createMemo(() => {
+  const existingItem = createMemo(() => {
     const n = displayName().trim().toLowerCase()
-    if (!n) return false
-    return props.existingFiles.includes(n)
+    if (!n) return undefined
+    return props.existingFiles.find((file) => file.name.toLowerCase() === n)
   })
+  const fileExists = createMemo(() => !!existingItem())
+  const canReplace = createMemo(() => !!existingItem() && !existingItem()!.isDirectory)
 
   const previewAsMarkdown = createMemo(() => displayName().trim().toLowerCase().endsWith('.md'))
 
-  function handlePaste() {
+  function handlePaste(mode: 'create' | 'replace' = 'create') {
     const n = displayName().trim()
-    if (n) props.onPaste(n)
+    if (n) props.onPaste(n, mode, mode === 'replace' ? existingItem()?.version : undefined)
   }
+
+  createEffect(() => {
+    const item = existingItem()
+    setExistingText(null)
+    if (!item || item.isDirectory || !props.pasteData?.isTextContent) return
+    void fetch(buildAdminMediaUrl(item.path))
+      .then((response) => (response.ok ? response.text() : Promise.reject()))
+      .then(setExistingText)
+      .catch(() => setExistingText('Unable to load existing text preview'))
+  })
 
   function handleClose() {
     if (!props.isPending) {
@@ -154,10 +169,12 @@ export function PasteDialog(props: Props) {
                     }
                   >
                     <div class='space-y-2'>
-                      <PasteTextPreview
-                        content={pd().content}
-                        renderAsMarkdown={previewAsMarkdown}
-                      />
+                      <Show when={fileExists() && existingText() !== null} fallback={<PasteTextPreview content={pd().content} renderAsMarkdown={previewAsMarkdown} />}>
+                        <div class='grid gap-3 sm:grid-cols-2' data-testid='paste-diff'>
+                          <div><p class='mb-1 text-xs font-medium'>Existing</p><PasteTextPreview content={existingText()!} renderAsMarkdown={() => false} /></div>
+                          <div><p class='mb-1 text-xs font-medium'>Clipboard</p><PasteTextPreview content={pd().content} renderAsMarkdown={() => false} /></div>
+                        </div>
+                      </Show>
                       <Show when={pd().fileSize}>
                         <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
                           <HardDrive class='h-3 w-3' stroke-width={2} />
@@ -190,6 +207,19 @@ export function PasteDialog(props: Props) {
                       </div>
                     </div>
                   </Show>
+
+                  <Show when={fileExists() && canReplace() && !pd().isTextContent}>
+                    <div class='grid grid-cols-2 gap-3 text-sm' data-testid='binary-replacement-info'>
+                      <div class='bg-muted/30 rounded-lg border p-3'>
+                        <p class='font-medium'>Existing</p>
+                        <p class='text-muted-foreground mt-1 text-xs'>{existingItem()!.extension || existingItem()!.type} · {formatFileSize(existingItem()!.size)}</p>
+                      </div>
+                      <div class='bg-muted/30 rounded-lg border p-3'>
+                        <p class='font-medium'>Clipboard</p>
+                        <p class='text-muted-foreground mt-1 text-xs'>{pd().fileType || 'binary file'} · {formatFileSize(pd().fileSize ?? 0)}</p>
+                      </div>
+                    </div>
+                  </Show>
                 </>
               )}
             </Show>
@@ -198,6 +228,7 @@ export function PasteDialog(props: Props) {
               <label class='text-sm font-medium'>Filename</label>
               <input
                 type='text'
+                aria-label='Filename'
                 class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
                 classList={{ 'border-yellow-500': fileExists() }}
                 value={displayName()}
@@ -217,7 +248,9 @@ export function PasteDialog(props: Props) {
                 <div class='text-sm text-yellow-800 dark:text-yellow-200'>
                   <p class='font-medium'>File already exists</p>
                   <p class='mt-1 text-xs opacity-90'>
-                    A file with this name already exists. Pasting will overwrite the existing file.
+                    {existingItem()?.isDirectory
+                      ? 'A folder has this name and cannot be replaced with a file.'
+                      : 'Choose Replace, save with another name, or cancel.'}
                   </p>
                 </div>
               </div>
@@ -231,6 +264,11 @@ export function PasteDialog(props: Props) {
           </div>
 
           <div class='mt-6 flex justify-end gap-2'>
+            <Show when={fileExists()}>
+              <button type='button' class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium' disabled={props.isPending} onClick={() => document.querySelector<HTMLInputElement>('input[autofocus]')?.focus()}>
+                Save with another name
+              </button>
+            </Show>
             <button
               type='button'
               class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium'
@@ -242,10 +280,10 @@ export function PasteDialog(props: Props) {
             <button
               type='button'
               class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
-              disabled={props.isPending || !displayName().trim()}
-              onClick={() => handlePaste()}
+              disabled={props.isPending || !displayName().trim() || (fileExists() && !canReplace())}
+              onClick={() => handlePaste(fileExists() ? 'replace' : 'create')}
             >
-              {props.isPending ? 'Pasting...' : fileExists() ? 'Overwrite' : 'Paste'}
+              {props.isPending ? 'Pasting...' : fileExists() ? 'Replace' : 'Paste'}
             </button>
           </div>
         </div>

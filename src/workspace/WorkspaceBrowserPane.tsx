@@ -201,7 +201,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   )
   const showFilesDeferredLoading = useDeferredLoading(() => isFilesLoadingInitial())
 
-  const pasteExistingLowerNames = createMemo(() => files().map((f) => f.name.toLowerCase()))
+  const pasteExistingFiles = createMemo(() => files())
 
   const isVirtualFolder = createMemo(() =>
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
@@ -412,19 +412,23 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       content?: string
       base64Content?: string
       shareToken?: string
+      mode: 'create' | 'replace'
+      expectedVersion?: number
     }) =>
       vars.shareToken
-        ? post(`/api/share/${vars.shareToken}/create`, {
-            type: 'file',
+        ? post(`/api/share/${vars.shareToken}/${vars.mode === 'replace' ? 'edit' : 'create'}`, {
+            ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
             path: vars.path,
             content: vars.content,
             base64Content: vars.base64Content,
+            expectedVersion: vars.expectedVersion,
           })
-        : post('/api/files/create', {
-            type: 'file',
+        : post(vars.mode === 'replace' ? '/api/files/edit' : '/api/files/create', {
+            ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
             path: vars.path,
             content: vars.content,
             base64Content: vars.base64Content,
+            expectedVersion: vars.expectedVersion,
           }),
     onSuccess: (_d, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
@@ -996,36 +1000,36 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     pasteMutation.reset()
   }
 
-  function handlePasteFileSubmit(fileName: string) {
+  function handlePasteFileSubmit(fileName: string, mode: 'create' | 'replace', expectedVersion?: number) {
     const pd = pasteData()
     if (!pd) return
     const sh = share()
     if (sh) {
       const rel = listDir() ? `${listDir()}/${fileName}` : fileName
       if (pd.type === 'image') {
-        pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token })
+        pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token, mode, expectedVersion })
       } else if (pd.type === 'file') {
         if (pd.isTextContent) {
-          pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token })
+          pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token, mode, expectedVersion })
         } else {
-          pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token })
+          pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token, mode, expectedVersion })
         }
       } else {
-        pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token })
+        pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token, mode, expectedVersion })
       }
       return
     }
     const rel = currentPath() ? `${currentPath()}/${fileName}` : fileName
     if (pd.type === 'image') {
-      pasteMutation.mutate({ path: rel, base64Content: pd.content })
+      pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
     } else if (pd.type === 'file') {
       if (pd.isTextContent) {
-        pasteMutation.mutate({ path: rel, content: pd.content })
+        pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
       } else {
-        pasteMutation.mutate({ path: rel, base64Content: pd.content })
+        pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
       }
     } else {
-      pasteMutation.mutate({ path: rel, content: pd.content })
+      pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
     }
   }
 
@@ -2008,7 +2012,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             pasteData={pasteData}
             pastePending={pasteMutation.isPending}
             pasteError={(pasteMutation.error as Error) ?? null}
-            pasteExistingLowerNames={pasteExistingLowerNames}
+            pasteExistingFiles={pasteExistingFiles}
             onPasteFileSubmit={handlePasteFileSubmit}
             closePasteDialog={closePasteDialog}
             uploadToast={uploadToast}

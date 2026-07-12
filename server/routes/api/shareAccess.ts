@@ -422,6 +422,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       path: string
       content?: string
       base64Content?: string
+      expectedVersion?: number
     }
 
     const cookies = request.cookies as Record<string, string | undefined>
@@ -437,6 +438,15 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     }
 
     const resolved = resolveSharePath(share, body.path)
+
+    const current = await fs.stat(validatePath(resolved)).catch(() => null)
+    if (!current) return reply.code(404).send({ error: 'File not found' })
+    if (current.isDirectory()) {
+      return reply.code(409).send({ error: 'A folder cannot be replaced with a file' })
+    }
+    if (body.expectedVersion !== undefined && current.mtimeMs !== body.expectedVersion) {
+      return reply.code(409).send({ error: 'File changed since the replacement was prepared' })
+    }
 
     if (body.content === undefined && body.base64Content === undefined) {
       return reply.code(400).send({ error: 'Content is required' })

@@ -182,8 +182,17 @@ export function clipboardHtmlToPlainText(html: string): string {
     .trim()
 }
 
-function textPasteSuggestedName(ext: 'md' | 'txt'): string {
-  return `pasted-${Date.now()}.${ext}`
+export function textPasteSuggestedName(content: string, ext: 'md' | 'txt'): string {
+  const lines = content.split(/\r?\n/).map((line) => line.trim())
+  const heading = lines.find((line) => /^#{1,6}\s+\S/.test(line))?.replace(/^#{1,6}\s+/, '')
+  const meaningful = heading ?? lines.find((line) => line && !/^[-*_`>#]+$/.test(line))
+  const stem = meaningful
+    ?.replace(/<[^>]*>/g, '')
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
+  return `${stem || `pasted-${Date.now()}`}.${ext}`
 }
 
 /** Mirrors `usePaste` clipboard handling (first matching payload wins). */
@@ -237,7 +246,7 @@ export async function extractPasteDataFromClipboardData(
         return {
           type: 'text',
           content: md,
-          suggestedName: textPasteSuggestedName(textExt),
+          suggestedName: textPasteSuggestedName(md, textExt),
           fileSize: textSize,
           showPreview: true,
           isTextContent: true,
@@ -251,7 +260,7 @@ export async function extractPasteDataFromClipboardData(
     return {
       type: 'text',
       content: rawPlain,
-      suggestedName: textPasteSuggestedName(textExt),
+      suggestedName: textPasteSuggestedName(rawPlain, textExt),
       fileSize: textSize,
       showPreview: true,
       isTextContent: true,
@@ -266,7 +275,7 @@ export async function extractPasteDataFromClipboardData(
       return {
         type: 'text',
         content: fromHtml,
-        suggestedName: textPasteSuggestedName(textExt),
+        suggestedName: textPasteSuggestedName(fromHtml, textExt),
         fileSize: textSize,
         showPreview: true,
         isTextContent: true,

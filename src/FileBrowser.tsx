@@ -241,7 +241,7 @@ export function FileBrowser() {
     () => filesQuery.isPending && filesQuery.data === undefined,
   )
   const showFilesDeferredLoading = useDeferredLoading(() => isFilesLoadingInitial())
-  const pasteExistingLowerNames = createMemo(() => files().map((f) => f.name.toLowerCase()))
+  const pasteExistingFiles = createMemo(() => files())
 
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const kbRootPath = createMemo(() => getKnowledgeBaseRoot(currentPath(), knowledgeBases()))
@@ -479,12 +479,13 @@ export function FileBrowser() {
   }))
 
   const pasteMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; content?: string; base64Content?: string }) =>
-      post('/api/files/create', {
-        type: 'file',
+    mutationFn: (vars: { path: string; content?: string; base64Content?: string; mode: 'create' | 'replace'; expectedVersion?: number }) =>
+      post(vars.mode === 'replace' ? '/api/files/edit' : '/api/files/create', {
+        ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
         path: vars.path,
         content: vars.content,
         base64Content: vars.base64Content,
+        expectedVersion: vars.expectedVersion,
       }),
     onSuccess: (_d, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
@@ -513,20 +514,20 @@ export function FileBrowser() {
     setShowPasteDialog(true)
   }
 
-  function handlePasteFileSubmit(fileName: string) {
+  function handlePasteFileSubmit(fileName: string, mode: 'create' | 'replace', expectedVersion?: number) {
     const pd = pasteData()
     if (!pd) return
     const rel = currentPath() ? `${currentPath()}/${fileName}` : fileName
     if (pd.type === 'image') {
-      pasteMutation.mutate({ path: rel, base64Content: pd.content })
+      pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
     } else if (pd.type === 'file') {
       if (pd.isTextContent) {
-        pasteMutation.mutate({ path: rel, content: pd.content })
+        pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
       } else {
-        pasteMutation.mutate({ path: rel, base64Content: pd.content })
+        pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
       }
     } else {
-      pasteMutation.mutate({ path: rel, content: pd.content })
+      pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
     }
   }
 
@@ -1976,7 +1977,7 @@ export function FileBrowser() {
             pasteData={pasteData}
             pastePending={pasteMutation.isPending}
             pasteError={(pasteMutation.error as Error) ?? null}
-            pasteExistingLowerNames={pasteExistingLowerNames}
+            pasteExistingFiles={pasteExistingFiles}
             onPasteFileSubmit={handlePasteFileSubmit}
             closePasteDialog={closePasteDialog}
           />

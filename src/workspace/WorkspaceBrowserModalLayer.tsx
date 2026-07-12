@@ -112,8 +112,8 @@ export type WorkspaceBrowserModalLayerProps = {
   pasteData: Accessor<PasteData | null>
   pastePending: boolean
   pasteError: Error | null
-  pasteExistingLowerNames: Accessor<string[]>
-  onPasteFileSubmit: (fileName: string) => void
+  pasteExistingFiles: Accessor<FileItem[]>
+  onPasteFileSubmit: (fileName: string, mode: 'create' | 'replace', expectedVersion?: number) => void
   closePasteDialog: () => void
   uploadToast: Accessor<UploadToastState>
   setUploadToastHidden: () => void
@@ -364,7 +364,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         pasteData={props.pasteData()}
         isPending={props.pastePending}
         error={props.pasteError}
-        existingFiles={props.pasteExistingLowerNames()}
+        existingFiles={props.pasteExistingFiles()}
         onPaste={props.onPasteFileSubmit}
         onClose={props.closePasteDialog}
       />

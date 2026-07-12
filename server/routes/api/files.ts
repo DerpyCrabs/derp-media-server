@@ -180,6 +180,7 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
       path: string
       content?: string
       base64Content?: string
+      expectedVersion?: number
     }
 
     if (!body.path) {
@@ -192,6 +193,16 @@ export function registerFilesApiRoutes(app: FastifyInstance) {
 
     if (body.content === undefined && body.base64Content === undefined) {
       return reply.code(400).send({ error: 'Content is required' })
+    }
+
+    const fullPath = validatePath(body.path)
+    const current = await fs.stat(fullPath).catch(() => null)
+    if (!current) return reply.code(404).send({ error: 'File not found' })
+    if (current.isDirectory()) {
+      return reply.code(409).send({ error: 'A folder cannot be replaced with a file' })
+    }
+    if (body.expectedVersion !== undefined && current.mtimeMs !== body.expectedVersion) {
+      return reply.code(409).send({ error: 'File changed since the replacement was prepared' })
     }
 
     if (body.base64Content) {
