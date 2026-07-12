@@ -12,6 +12,13 @@ import { MediaType } from '@/lib/types'
 import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from '@/lib/handle-kb-image-paste'
 import { isPathEditable } from '@/lib/utils'
+import {
+  readTextEditorDraft,
+  removeTextEditorDraft,
+  textEditorDraftKey,
+  writeTextEditorDraft,
+} from '@/lib/text-editor-draft'
+import AlertCircle from 'lucide-solid/icons/alert-circle'
 import Download from 'lucide-solid/icons/download'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import Headphones from 'lucide-solid/icons/headphones'
@@ -301,6 +308,7 @@ export function WorkspaceViewerPane(props: Props) {
   const [readOnlyView, setReadOnlyView] = createSignal(false)
   const [editContent, setEditContent] = createSignal('')
   const [copied, setCopied] = createSignal(false)
+  const [saveError, setSaveError] = createSignal<string | null>(null)
 
   let lastTextPath = ''
   createEffect(() => {
@@ -310,7 +318,10 @@ export function WorkspaceViewerPane(props: Props) {
     if (path !== lastTextPath) {
       lastTextPath = path
       setReadOnlyView(false)
-      setEditContent(data)
+      const ctx = textViewerShareCtx()
+      const key = textEditorDraftKey(ctx ? `share:${ctx.token}` : 'admin', path)
+      const draft = readTextEditorDraft(key)
+      setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
     }
   })
 
@@ -338,12 +349,35 @@ export function WorkspaceViewerPane(props: Props) {
     if (editContent() === (textQuery.data ?? '')) return
     try {
       await saveMutation.mutateAsync(editContent())
+      setSaveError(null)
     } catch (e) {
-      if (!quiet) {
-        window.alert(e instanceof Error ? e.message : 'Failed to save file')
-      }
+      const message = e instanceof Error ? e.message : 'Failed to save file'
+      setSaveError(message)
+      if (!quiet) window.alert(message)
     }
   }
+
+  const draftKey = createMemo(() => {
+    const ctx = textViewerShareCtx()
+    return textEditorDraftKey(ctx ? `share:${ctx.token}` : 'admin', viewingPath())
+  })
+  const textDirty = createMemo(() => editContent() !== (textQuery.data ?? ''))
+
+  createEffect(() => {
+    if (!lastTextPath) return
+    if (textDirty()) writeTextEditorDraft(draftKey(), editContent())
+    else removeTextEditorDraft(draftKey())
+  })
+
+  createEffect(() => {
+    const warnIfDirty = (event: BeforeUnloadEvent) => {
+      if (!textDirty()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnIfDirty)
+    onCleanup(() => window.removeEventListener('beforeunload', warnIfDirty))
+  })
 
   let autosaveTimer: ReturnType<typeof setTimeout> | null = null
   createEffect(() => {
@@ -595,6 +629,17 @@ export function WorkspaceViewerPane(props: Props) {
             </span>
             <div class='ml-auto flex items-center gap-0.5'>
               <Show when={showEditor()}>
+                <Show when={saveError()}>
+                  <button
+                    type='button'
+                    class='text-destructive inline-flex items-center gap-1 px-1 text-xs hover:underline'
+                    title={saveError() ?? ''}
+                    onClick={() => void saveText(true)}
+                  >
+                    <AlertCircle class='h-3.5 w-3.5' stroke-width={2} />
+                    Save failed — retry
+                  </button>
+                </Show>
                 <button
                   type='button'
                   class='hover:bg-muted rounded-md px-2 py-1 text-xs'
@@ -610,7 +655,6 @@ export function WorkspaceViewerPane(props: Props) {
                     class='bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-2 py-1 text-xs'
                     onClick={() => {
                       setReadOnlyView(false)
-                      setEditContent(textQuery.data ?? '')
                     }}
                   >
                     Edit

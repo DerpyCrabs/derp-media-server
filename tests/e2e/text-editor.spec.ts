@@ -145,4 +145,38 @@ test.describe('Text Editor', () => {
       page.getByRole('button', { name: 'Save', exact: true }).click(),
     ])
   })
+
+  test('shows autosave errors and restores a local draft after reload', async ({ page }) => {
+    const original = 'Autosave parity initial content for e2e only.\n'
+    const draft = 'recovered local draft after failed autosave\n'
+    const pathEnc = encodeURIComponent('Notes/autosave-parity.txt')
+    await page.route('**/api/files/edit', (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Unavailable"}' }),
+    )
+    await page.goto(`/?dir=Notes&viewing=${pathEnc}`)
+
+    const textarea = page.locator('textarea')
+    await expect(textarea).toBeVisible()
+    const autoSave = page.getByRole('button', { name: 'Auto-save' })
+    if ((await autoSave.getAttribute('title')) === 'Auto-save disabled') {
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes('/api/settings/autoSave') && r.ok()),
+        autoSave.click(),
+      ])
+    }
+    await textarea.fill(draft)
+    await page.locator('button[title="Close"]').focus()
+    const retry = page.getByRole('button', { name: 'Save failed — retry' })
+    await expect(retry).toBeVisible()
+    await expect(retry).toHaveAttribute('title', /503|Unavailable/)
+
+    page.once('dialog', (dialog) => dialog.accept())
+    await page.reload()
+    await expect(textarea).toHaveValue(draft)
+
+    await page.unroute('**/api/files/edit')
+    await textarea.fill(original)
+    await page.locator('button[title="Close"]').click()
+    await expect(page).not.toHaveURL(/viewing=/)
+  })
 })

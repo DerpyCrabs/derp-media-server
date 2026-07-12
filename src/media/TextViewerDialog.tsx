@@ -10,6 +10,12 @@ import {
 } from '@/lib/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from '@/lib/handle-kb-image-paste'
 import { isPathEditable } from '@/lib/utils'
+import {
+  readTextEditorDraft,
+  removeTextEditorDraft,
+  textEditorDraftKey,
+  writeTextEditorDraft,
+} from '@/lib/text-editor-draft'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
 import Download from 'lucide-solid/icons/download'
 import Save from 'lucide-solid/icons/save'
@@ -217,12 +223,9 @@ export function TextViewerBody(props: {
       await saveMutation.mutateAsync(editContent())
       if (quiet) setAutoSaveError(null)
     } catch (e) {
-      if (quiet) {
-        setAutoSaveError(e instanceof Error ? e.message : 'Failed to save file')
-        window.setTimeout(() => setAutoSaveError(null), 5000)
-      } else {
-        window.alert(e instanceof Error ? e.message : 'Failed to save file')
-      }
+      const message = e instanceof Error ? e.message : 'Failed to save file'
+      setAutoSaveError(message)
+      if (!quiet) window.alert(message)
     }
   }
 
@@ -234,8 +237,34 @@ export function TextViewerBody(props: {
     if (path !== lastPath) {
       lastPath = path
       setReadOnlyView(pr)
-      setEditContent(data)
+      const scope = props.shareContext ? `share:${props.shareContext.token}` : 'admin'
+      const draft = readTextEditorDraft(textEditorDraftKey(scope, path))
+      setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
     }
+  })
+
+  const draftKey = createMemo(() =>
+    textEditorDraftKey(
+      props.shareContext ? `share:${props.shareContext.token}` : 'admin',
+      props.viewingPath,
+    ),
+  )
+  const dirty = createMemo(() => editContent() !== (textQuery.data ?? ''))
+
+  createEffect(() => {
+    if (!lastPath) return
+    if (dirty() && autoSaveEnabled()) writeTextEditorDraft(draftKey(), editContent())
+    else removeTextEditorDraft(draftKey())
+  })
+
+  createEffect(() => {
+    const warnIfDirty = (event: BeforeUnloadEvent) => {
+      if (!dirty()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnIfDirty)
+    onCleanup(() => window.removeEventListener('beforeunload', warnIfDirty))
   })
 
   createEffect(() => {
@@ -265,6 +294,7 @@ export function TextViewerBody(props: {
     ) {
       await saveInternal(true)
     }
+    if (autoSaveEnabled() && dirty()) return
     closeViewer()
   }
 
@@ -297,7 +327,6 @@ export function TextViewerBody(props: {
 
   function enterEditMode() {
     setReadOnlyView(false)
-    setEditContent(textQuery.data ?? '')
     if (props.shareContext) {
       const key = sharePrefsKey()
       const p = sharePrefs()
@@ -382,13 +411,15 @@ export function TextViewerBody(props: {
                   </span>
                 </button>
                 <Show when={autoSaveError()}>
-                  <span
-                    class='text-destructive inline-flex items-center gap-1 text-xs'
+                  <button
+                    type='button'
+                    class='text-destructive inline-flex items-center gap-1 text-xs hover:underline'
                     title={autoSaveError() ?? ''}
+                    onClick={() => void saveInternal(true)}
                   >
                     <AlertCircle class='h-4 w-4 shrink-0' stroke-width={2} />
-                    Save failed
-                  </span>
+                    Save failed — retry
+                  </button>
                 </Show>
               </div>
             </Show>
