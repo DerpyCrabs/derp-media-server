@@ -3,6 +3,7 @@
 - Use `bun run tsgo` for TypeScript checks. Do not use `tsc`.
 - Check `bun run lint-errors` after changes.
 - After larger changes, run `bun run test:batch`.
+- After Android changes, run the full instrumentation suite with `bun run test:android`. Do not use `gradlew connectedDebugAndroidTest` directly: the project runner starts the required HTTPS server on port 3102, configures `adb reverse`, selects the Android Studio JBR, and cleans everything up afterward. Direct Gradle commands are only suitable for compile/package checks such as `gradlew assembleDebugAndroidTest`.
 - The UI is **Solid.js** under [`src/`](src/) with Vite ([`vite.config.ts`](vite.config.ts)), Tailwind ([`src/globals.css`](src/globals.css)), and [`@tanstack/solid-query`](https://tanstack.com/query/latest/docs/framework/solid/overview) for server-prefetched data (`window.__DEHYDRATED_STATE__` from [`server/html.ts`](server/html.ts)).
 - Prefer explicit reactivity: signals, memos, `<Show>` / `<For>`; use `class` for CSS. Avoid breaking prop reactivity when spreading props.
 - Shared view must not use admin-only routes; share flows stay scoped by `shareToken`.
@@ -14,6 +15,8 @@
 - **Dev:** `bun run dev` — Fastify + Vite middleware ([`server/index.ts`](server/index.ts)).
 - **Production:** `bun run build` then `bun run start` (static `dist/client`).
 - **E2E:** `bun run test` or `bun run test:batch` — specs in [`tests/e2e/`](tests/e2e/), config [`playwright.config.ts`](playwright.config.ts), batches in [`tests/run-batches.ts`](tests/run-batches.ts).
+
+- **Android instrumentation:** `bun run test:android` — starts the HTTPS test server, configures `adb reverse`, selects the Android Studio JBR, runs the complete connected test suite, and cleans up afterward. A running emulator or connected device is required.
 
 ## Solid patterns
 

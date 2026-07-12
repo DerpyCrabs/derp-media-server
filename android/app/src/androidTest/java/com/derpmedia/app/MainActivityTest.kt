@@ -1,5 +1,6 @@
 package com.derpmedia.app
 
+import android.content.Intent
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -42,6 +43,22 @@ class MainActivityTest {
                 val title = activity.findViewById<android.view.View>(R.id.connection_title)
                 val location = IntArray(2).also(title::getLocationOnScreen)
                 assertTrue("Title must be below the display cutout", location[1] >= root.paddingTop)
+            }
+        }
+    }
+
+    @Test fun nativePlayerTitleStaysBelowTheStatusBar() {
+        val intent = Intent(context, PlayerActivity::class.java).apply {
+            putExtra("url", "file:///android_asset/nonexistent.mp4")
+            putExtra("title", "Video title")
+        }
+        ActivityScenario.launch<PlayerActivity>(intent).use { scenario ->
+            scenario.onActivity { activity ->
+                val root = activity.findViewById<android.view.View>(R.id.player_root)
+                val title = activity.findViewById<android.view.View>(R.id.player_title)
+                val location = IntArray(2).also(title::getLocationOnScreen)
+                assertTrue("Expected player top safe-area padding", root.paddingTop > 0)
+                assertTrue("Player title must be below the status bar", location[1] >= root.paddingTop)
             }
         }
     }

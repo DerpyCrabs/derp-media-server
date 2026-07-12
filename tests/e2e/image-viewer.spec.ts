@@ -38,6 +38,21 @@ test.describe('Image Viewer', () => {
     await expect(page.getByText('Fit')).toBeVisible()
   })
 
+  test('keeps every header action inside a narrow mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 })
+    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+
+    const dialog = page.getByRole('dialog')
+    const buttons = dialog.locator('button')
+    await expect(buttons).toHaveCount(6)
+    for (let index = 0; index < 6; index += 1) {
+      const box = await buttons.nth(index).boundingBox()
+      expect(box).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(320)
+    }
+  })
+
   test('zooms in and out on button click', async ({ page }) => {
     await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
     await expect(page.getByText('Fit')).toBeVisible()

@@ -304,10 +304,14 @@ export function isPathEditable(relativePath: string): boolean {
  * Gets the list of editable folders
  */
 export function getEditableFolders(): string[] {
-  if (!hasMultipleMediaRoots()) return getMediaRoots()[0]?.editableFolders ?? []
-  return getMediaRoots().flatMap((root) =>
+  const roots = getMediaRoots()
+  if (!hasMultipleMediaRoots()) return roots[0]?.editableFolders ?? []
+  const prefixed = roots.flatMap((root) =>
     root.editableFolders.map((folder) => `${root.name}/${folder.replace(/\\/g, '/')}`),
   )
+  // Persisted workspace tabs, shares, and settings from a single-root library remain
+  // relative to the primary configured root after a runtime mount is added.
+  return [...(config.mediaRoots[0]?.editableFolders ?? []), ...prefixed]
 }
 
 /**

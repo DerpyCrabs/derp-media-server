@@ -28,10 +28,13 @@ export function isPathEditable(
   const normalizedPath = relativePath.replace(/\\/g, '/')
   if (mediaRoots && mediaRoots.length > 1) {
     const [rootName = '', ...rest] = normalizedPath.split('/').filter(Boolean)
-    const root = mediaRoots.find((entry) => entry.name.toLowerCase() === rootName.toLowerCase())
+    const matchedRoot = mediaRoots.find(
+      (entry) => entry.name.toLowerCase() === rootName.toLowerCase(),
+    )
+    const root = matchedRoot ?? mediaRoots[0]
     if (!root) return false
     if (root.readOnly) return false
-    const rootRelativePath = rest.join('/')
+    const rootRelativePath = matchedRoot ? rest.join('/') : normalizedPath
     return root.editableFolders.some((folder) => {
       const normalizedFolder = folder.replace(/\\/g, '/')
       return (

@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
             view.setPadding(48, 48 + max(bars.top, cutout.top), 48, 48 + max(bars.bottom, cutout.bottom))
             insets
         }
+        ViewCompat.requestApplyInsets(root)
         root.addView(TextView(this).apply {
             id = R.id.connection_title
             text = "Derp Media"
@@ -288,6 +289,7 @@ class MainActivity : AppCompatActivity() {
         }
         shell.addView(webView, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(shell)
+        ViewCompat.requestApplyInsets(shell)
         if (!preferOffline || !openCachedOfflineShell(origin)) webView.loadUrl(startUrl)
     }
 

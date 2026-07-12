@@ -19,7 +19,7 @@ function stripAngleSrc(src: string): string {
 export function createMarkdownRenderer(
   resolveImageUrl: (src: string) => string | null,
 ): MarkdownIt {
-  const md = new MarkdownIt({ html: false, linkify: true })
+  const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
   const defaultImageRender =
     md.renderer.rules.image ??
     ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))

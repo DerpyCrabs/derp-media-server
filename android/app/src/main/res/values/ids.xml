@@ -6,4 +6,6 @@
     <item name="connection_button" type="id" />
     <item name="browser_shell" type="id" />
     <item name="browser_toolbar" type="id" />
+    <item name="player_root" type="id" />
+    <item name="player_title" type="id" />
 </resources>

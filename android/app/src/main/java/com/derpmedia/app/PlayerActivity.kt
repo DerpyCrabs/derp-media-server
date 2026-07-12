@@ -6,6 +6,8 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -23,10 +25,23 @@ class PlayerActivity : AppCompatActivity() {
         supportActionBar?.hide()
 
         val root = LinearLayout(this).apply {
+            id = R.id.player_root
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(android.graphics.Color.BLACK)
         }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(
+                maxOf(bars.left, cutout.left),
+                maxOf(bars.top, cutout.top),
+                maxOf(bars.right, cutout.right),
+                maxOf(bars.bottom, cutout.bottom),
+            )
+            insets
+        }
         val title = TextView(this).apply {
+            id = R.id.player_title
             text = intent.getStringExtra("title").orEmpty()
             setTextColor(android.graphics.Color.WHITE)
             textSize = 16f
@@ -39,6 +54,7 @@ class PlayerActivity : AppCompatActivity() {
         }
         root.addView(playerView, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
 
         val url = intent.getStringExtra("url") ?: return finish()
         val cookie = intent.getStringExtra("cookie").orEmpty()

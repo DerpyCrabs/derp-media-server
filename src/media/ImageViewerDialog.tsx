@@ -203,18 +203,18 @@ function ImageViewerInner(props: {
       <span class='sr-only'>
         <h2 id='image-viewer-title'>{fileName()}</h2>
       </span>
-      <div class='flex items-center justify-between bg-black/50 p-4 backdrop-blur-sm'>
-        <div class='flex-1'>
-          <h2 class='max-w-md truncate text-lg font-medium text-white'>{fileName()}</h2>
+      <div class='flex items-center bg-black/50 p-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] backdrop-blur-sm sm:p-4 sm:pt-[calc(1rem+env(safe-area-inset-top,0px))]'>
+        <div class='min-w-0 flex-1'>
+          <h2 class='truncate text-sm font-medium text-white sm:text-lg'>{fileName()}</h2>
         </div>
         <Show when={totalImages() > 0}>
-          <div class='shrink-0 px-4'>
+          <div class='hidden shrink-0 px-3 sm:block'>
             <span class='text-sm font-medium text-white'>
               {currentImageNumber()} of {totalImages()}
             </span>
           </div>
         </Show>
-        <div class='flex flex-1 items-center justify-end gap-2'>
+        <div class='flex shrink-0 items-center justify-end gap-1 sm:gap-2'>
           <button
             type='button'
             class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
@@ -222,7 +222,7 @@ function ImageViewerInner(props: {
           >
             <ZoomOut class='h-5 w-5' size={20} stroke-width={2} />
           </button>
-          <span class='min-w-16 text-center text-sm text-white'>
+          <span class='hidden min-w-16 text-center text-sm text-white min-[480px]:inline'>
             {zoom() === 'fit' ? 'Fit' : `${zoom()}%`}
           </span>
           <button
@@ -247,7 +247,7 @@ function ImageViewerInner(props: {
           >
             <RotateCw class='h-5 w-5' size={20} stroke-width={2} />
           </button>
-          <div class='mx-2 h-6 w-px bg-white/20' />
+          <div class='mx-1 h-6 w-px bg-white/20 sm:mx-2' />
           <button
             type='button'
             class='inline-flex h-9 w-9 items-center justify-center rounded-md text-white hover:bg-white/10'
