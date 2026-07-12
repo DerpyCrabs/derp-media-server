@@ -20,9 +20,7 @@ export function useShareFileWatcher(getToken: () => string | null | undefined, e
 
         void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(token) })
         void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(token) })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent(token) })
-        void queryClient.invalidateQueries({ queryKey: ['share-kb-search', token] })
-        void queryClient.invalidateQueries({ queryKey: ['share-text', token] })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareContent(token) })
       } catch (error) {
         console.error('[Share SSE] Error handling message:', error)
       }

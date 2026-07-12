@@ -127,6 +127,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
   let kbSearchInputEl: HTMLInputElement | undefined
+  let kbSearchRootEl: HTMLDivElement | undefined
 
   useInlineModeInputFocus(
     inlineMode,
@@ -239,6 +240,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const dragSourceKind = createMemo((): 'local' | 'share' => (share() ? 'share' : 'local'))
   const dragSourceToken = createMemo(() => share()?.token)
 
+  function invalidateKbQueries() {
+    const sh = share()
+    void queryClient.invalidateQueries({
+      queryKey: sh ? queryKeys.shareContent(sh.token) : queryKeys.adminContent(),
+    })
+  }
+
   const moveItemMutation = useMutation(() => ({
     mutationFn: (
       vars:
@@ -252,6 +260,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       const sh = share()
       if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+      invalidateKbQueries()
     },
   }))
 
@@ -289,6 +298,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       const sh = share()
       if (sh) void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(sh.token) })
+      invalidateKbQueries()
     },
   }))
 
@@ -350,22 +360,19 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   })
 
   const inKb = createMemo(() => (share() ? !!props.shareIsKnowledgeBase : kbRootPath() !== null))
+  const isActivePane = createMemo(() => props.workspace()?.activeWindowId === props.windowId)
+
+  function setKbSearchOpen(open: boolean) {
+    setSearchPopoverOpen(open)
+    if (!open) {
+      setSearchQuery('')
+      setDebouncedSearch('')
+    }
+  }
 
   const showInlineCreate = createMemo(
     () => inKb() && ((!!share() && !!props.shareAllowUpload) || isAdminPaneEditable()),
   )
-
-  function invalidateKbQueries() {
-    const sh = share()
-    const dir = listDir()
-    if (sh) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent(sh.token, dir) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent() })
-    } else {
-      const p = currentPath()
-      if (p) void queryClient.invalidateQueries({ queryKey: queryKeys.kbRecent(p) })
-    }
-  }
 
   const createFileMutation = useMutation(() => ({
     mutationFn: (vars: { path: string; content: string; shareToken?: string }) =>
@@ -509,18 +516,17 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   createEffect(() => {
     if (!searchPopoverOpen()) return
     const onDoc = (e: MouseEvent) => {
-      const root = document.querySelector('[data-kb-search-root]')
-      if (root?.contains(e.target as Node)) return
-      setSearchPopoverOpen(false)
+      if (kbSearchRootEl?.contains(e.target as Node)) return
+      setKbSearchOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     onCleanup(() => document.removeEventListener('mousedown', onDoc))
   })
 
   registerKbSearchHotkeys({
-    active: inKb,
+    active: () => inKb() && isActivePane(),
     isOpen: searchPopoverOpen,
-    setOpen: setSearchPopoverOpen,
+    setOpen: setKbSearchOpen,
     focusInput: () => kbSearchInputEl?.focus(),
   })
 
@@ -1453,6 +1459,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             </Show>
             <Show when={inKb()}>
               <div
+                ref={(el) => (kbSearchRootEl = el)}
                 class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
                 data-kb-search-root
               >
@@ -1462,7 +1469,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                     aria-label='Search note contents'
                     title='Search note contents (Ctrl+K)'
                     class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none'
-                    onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
+                    onClick={() => setKbSearchOpen(!searchPopoverOpen())}
                   >
                     <BookOpenText class='h-3.5 w-3.5' stroke-width={2} aria-hidden='true' />
                   </button>
@@ -1477,6 +1484,20 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                         class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
                         value={searchQuery()}
                         onInput={(e) => setSearchQuery((e.currentTarget as HTMLInputElement).value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                            e.preventDefault()
+                            const buttons = kbSearchRootEl?.parentElement?.parentElement?.querySelectorAll<HTMLButtonElement>('[data-kb-search-result]')
+                            const target = e.key === 'ArrowDown' ? buttons?.[0] : buttons?.[buttons.length - 1]
+                            target?.focus()
+                          } else if (e.key === 'Enter') {
+                            const first = kbSearchRootEl?.parentElement?.parentElement?.querySelector<HTMLButtonElement>('[data-kb-search-result]')
+                            if (first) {
+                              e.preventDefault()
+                              first.click()
+                            }
+                          }
+                        }}
                       />
                     </div>
                   </Show>

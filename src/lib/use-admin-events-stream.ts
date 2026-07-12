@@ -17,7 +17,7 @@ export function useAdminEventsStream(enabled = true) {
         } else if (data.type === 'files-changed') {
           void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
           void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.kb() })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
           void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent() })
         } else if (data.type === 'settings-changed') {
           void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })

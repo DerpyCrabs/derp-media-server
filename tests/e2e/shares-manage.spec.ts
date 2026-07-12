@@ -83,20 +83,21 @@ test.describe('Managing Shares', () => {
 
   test('quick copy includes the complete protected and unprotected share URLs', async ({ page }) => {
     await page.goto('/?dir=Shares')
+    const origin = new URL(page.url()).origin
 
     const protectedRow = page.locator('table tr').filter({ hasText: 'sample.pdf' })
     await protectedRow.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Copy share link' }).click()
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toBe('http://localhost:5973/share/test-protected-file-share-token1?p=filepass')
+      .toBe(`${origin}/share/test-protected-file-share-token1?p=filepass`)
 
     const unprotectedRow = page.locator('table tr').filter({ hasText: 'notes.md' })
     await unprotectedRow.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Copy share link' }).click()
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toBe('http://localhost:5973/share/test-unprotected-share-token1')
+      .toBe(`${origin}/share/test-unprotected-share-token1`)
   })
 
   test('revokes a share', async ({ page }) => {

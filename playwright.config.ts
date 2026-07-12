@@ -61,6 +61,8 @@ export default defineConfig({
       PORT: String(port),
       CONFIG_PATH: configFile,
       NO_PROXY: 'localhost,127.0.0.1',
+      // Bun's global transpiler cache can crash when all six batch servers compile concurrently.
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
     },
   },
 })

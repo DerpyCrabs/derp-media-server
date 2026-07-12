@@ -294,6 +294,7 @@ export function FileBrowser() {
   const [searchQuery, setSearchQuery] = createSignal('')
   const [debouncedSearch, setDebouncedSearch] = createSignal('')
   const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
+  let kbSearchRootEl: HTMLDivElement | undefined
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
   const breadcrumbMenu = () => breadcrumbFloating.folderMenu
 
@@ -323,9 +324,10 @@ export function FileBrowser() {
   createEffect(() => {
     if (!searchPopoverOpen()) return
     const onDoc = (e: MouseEvent) => {
-      const root = document.querySelector('[data-kb-search-root]')
-      if (root?.contains(e.target as Node)) return
+      if (kbSearchRootEl?.contains(e.target as Node)) return
       setSearchPopoverOpen(false)
+      setSearchQuery('')
+      setDebouncedSearch('')
     }
     document.addEventListener('mousedown', onDoc)
     onCleanup(() => document.removeEventListener('mousedown', onDoc))
@@ -334,7 +336,13 @@ export function FileBrowser() {
   registerKbSearchHotkeys({
     active: inKb,
     isOpen: searchPopoverOpen,
-    setOpen: setSearchPopoverOpen,
+    setOpen: (open) => {
+      setSearchPopoverOpen(open)
+      if (!open) {
+        setSearchQuery('')
+        setDebouncedSearch('')
+      }
+    },
     focusInput: () => kbSearchInputEl?.focus(),
   })
 
@@ -344,7 +352,7 @@ export function FileBrowser() {
       api<{ results: { path: string; name: string; snippet: string }[] }>(
         `/api/kb/search?root=${encodeURIComponent(kbRootPath()!)}&q=${encodeURIComponent(debouncedSearch())}`,
       ),
-    enabled: !!kbRootPath() && debouncedSearch().trim().length > 0,
+    enabled: !!kbRootPath() && searchPopoverOpen() && debouncedSearch().trim().length > 0,
   }))
 
   const viewMode = createMemo(() => {
@@ -416,11 +424,14 @@ export function FileBrowser() {
   })
 
   const isUploading = createMemo(() => uploadToast().kind === 'uploading')
+  const invalidateContent = () =>
+    void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
 
   const deleteMutation = useMutation(() => ({
     mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      invalidateContent()
     },
   }))
 
@@ -429,6 +440,7 @@ export function FileBrowser() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      invalidateContent()
     },
   }))
 
@@ -436,6 +448,7 @@ export function FileBrowser() {
     mutationFn: (vars: { type: 'folder'; path: string }) => post('/api/files/create', vars),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      invalidateContent()
     },
   }))
 
@@ -444,6 +457,7 @@ export function FileBrowser() {
       post('/api/files/create', vars),
     onSuccess: (_d, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      invalidateContent()
       viewFile(variables.path, currentPath())
     },
   }))
@@ -452,6 +466,7 @@ export function FileBrowser() {
     mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      invalidateContent()
     },
   }))
 
@@ -459,6 +474,7 @@ export function FileBrowser() {
     mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      invalidateContent()
     },
   }))
 
@@ -472,6 +488,7 @@ export function FileBrowser() {
       }),
     onSuccess: (_d, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      invalidateContent()
       setShowPasteDialog(false)
       setPasteData(null)
       viewFile(variables.path, currentPath())
@@ -1257,13 +1274,24 @@ export function FileBrowser() {
                   </div>
                   <Show when={inKb()}>
                     <div class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'>
-                      <div class='relative' data-kb-search-root>
+                      <div
+                        class='relative'
+                        data-kb-search-root
+                        ref={(el) => (kbSearchRootEl = el)}
+                      >
                         <button
                           type='button'
                           aria-label='Search note contents'
                           title='Search note contents (Ctrl+K)'
                           class='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
-                          onClick={() => setSearchPopoverOpen(!searchPopoverOpen())}
+                          onClick={() => {
+                            const open = !searchPopoverOpen()
+                            setSearchPopoverOpen(open)
+                            if (!open) {
+                              setSearchQuery('')
+                              setDebouncedSearch('')
+                            }
+                          }}
                         >
                           <BookOpenText class='h-4 w-4' aria-hidden='true' stroke-width={2} />
                         </button>

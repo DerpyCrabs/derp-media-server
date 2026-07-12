@@ -1,5 +1,5 @@
 import Search from 'lucide-solid/icons/search'
-import { For, Index, Show } from 'solid-js'
+import { For, Index, Show, createEffect, createSignal } from 'solid-js'
 
 type SearchResult = { path: string; name: string; snippet: string }
 
@@ -34,6 +34,25 @@ function pathRelativeTo(from: string, to: string): string {
 }
 
 export function KbSearchResults(props: Props) {
+  const [selectedIndex, setSelectedIndex] = createSignal(0)
+  createEffect(() => {
+    props.query
+    props.results
+    setSelectedIndex(0)
+  })
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (!props.results.length) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const delta = event.key === 'ArrowDown' ? 1 : -1
+      setSelectedIndex((index) => (index + delta + props.results.length) % props.results.length)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      props.onResultClick(props.results[selectedIndex()]!.path)
+    }
+  }
+
   return (
     <Show
       when={!props.isLoading}
@@ -53,9 +72,9 @@ export function KbSearchResults(props: Props) {
           </div>
         }
       >
-        <div class='divide-y divide-border overflow-auto'>
+        <div class='divide-y divide-border overflow-auto' onKeyDown={onKeyDown}>
           <For each={props.results}>
-            {(result) => {
+            {(result, index) => {
               const dirPath = () =>
                 result.path.includes('/') ? result.path.split('/').slice(0, -1).join('/') : ''
               const displayPath = () => pathRelativeTo(props.currentPath, dirPath())
@@ -65,8 +84,11 @@ export function KbSearchResults(props: Props) {
               }
               return (
                 <button
+                  data-kb-search-result
                   type='button'
                   class='w-full px-3 py-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset'
+                  classList={{ 'bg-muted/50': index() === selectedIndex() }}
+                  tabIndex={index() === selectedIndex() ? 0 : -1}
                   onClick={() => props.onResultClick(result.path)}
                 >
                   <div class='truncate font-medium'>{result.name}</div>

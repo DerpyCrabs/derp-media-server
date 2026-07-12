@@ -307,6 +307,7 @@ export function WorkspaceViewerPane(props: Props) {
 
   const [readOnlyView, setReadOnlyView] = createSignal(false)
   const [editContent, setEditContent] = createSignal('')
+  const [editorBaseContent, setEditorBaseContent] = createSignal('')
   const [copied, setCopied] = createSignal(false)
   const [saveError, setSaveError] = createSignal<string | null>(null)
 
@@ -322,6 +323,10 @@ export function WorkspaceViewerPane(props: Props) {
       const key = textEditorDraftKey(ctx ? `share:${ctx.token}` : 'admin', path)
       const draft = readTextEditorDraft(key)
       setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
+      setEditorBaseContent(data)
+    } else if (data !== editorBaseContent() && editContent() === editorBaseContent()) {
+      setEditContent(data)
+      setEditorBaseContent(data)
     }
   })
 
@@ -340,13 +345,14 @@ export function WorkspaceViewerPane(props: Props) {
     },
     onSuccess: (content: string) => {
       const key = textQueryKey()
+      setEditorBaseContent(content)
       queryClient.setQueryData(key, content)
       void queryClient.invalidateQueries({ queryKey: key })
     },
   }))
 
   async function saveText(quiet: boolean) {
-    if (editContent() === (textQuery.data ?? '')) return
+    if (editContent() === editorBaseContent()) return
     try {
       await saveMutation.mutateAsync(editContent())
       setSaveError(null)
@@ -361,7 +367,16 @@ export function WorkspaceViewerPane(props: Props) {
     const ctx = textViewerShareCtx()
     return textEditorDraftKey(ctx ? `share:${ctx.token}` : 'admin', viewingPath())
   })
-  const textDirty = createMemo(() => editContent() !== (textQuery.data ?? ''))
+  const textDirty = createMemo(() => editContent() !== editorBaseContent())
+  const textConflict = createMemo(
+    () => textDirty() && textQuery.data !== undefined && textQuery.data !== editorBaseContent(),
+  )
+
+  function reloadRemoteText() {
+    const remote = textQuery.data ?? ''
+    setEditContent(remote)
+    setEditorBaseContent(remote)
+  }
 
   createEffect(() => {
     if (!lastTextPath) return
@@ -387,7 +402,7 @@ export function WorkspaceViewerPane(props: Props) {
         autosaveTimer = null
       }
     })
-    if (!fileEditable() || readOnlyView()) return
+    if (!fileEditable() || readOnlyView() || textConflict()) return
     if (editContent() === (textQuery.data ?? '')) return
     autosaveTimer = setTimeout(() => {
       void saveText(true)
@@ -687,6 +702,14 @@ export function WorkspaceViewerPane(props: Props) {
             </div>
           </div>
           <div class='min-h-0 flex-1 overflow-hidden'>
+            <Show when={textConflict()}>
+              <div class='flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200'>
+                <span>This file changed elsewhere. Your unsaved edits were kept.</span>
+                <button type='button' class='shrink-0 underline' onClick={reloadRemoteText}>
+                  Reload remote version
+                </button>
+              </div>
+            </Show>
             <Show when={textQuery.isPending}>
               <p class='text-muted-foreground p-3 text-sm'>Loading…</p>
             </Show>
@@ -731,7 +754,9 @@ export function WorkspaceViewerPane(props: Props) {
                         setEditContent,
                       })
                     }}
-                    onBlur={() => void saveText(true)}
+                    onBlur={() => {
+                      if (!textConflict()) void saveText(true)
+                    }}
                     onKeyDown={(e) => {
                       if (
                         e.key === 'ArrowLeft' ||

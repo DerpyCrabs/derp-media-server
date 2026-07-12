@@ -4,7 +4,7 @@ import {
   gotoWorkspace,
   WORKSPACE_VISIBLE_WINDOW_GROUP,
 } from './workspace-layout-helpers'
-import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext, workspaceE2EOrigin } from './workspace-e2e-auth'
 
 let sharedContext: BrowserContext
 let page: Page
@@ -295,6 +295,41 @@ test.describe('Workspace PDF Viewer', () => {
 })
 
 test.describe('Workspace Text Viewer', () => {
+  test('keeps a dirty KB editor when the file changes from a second context', async ({
+    browser,
+  }) => {
+    const fileName = `conflict-${Date.now()}.md`
+    const filePath = `Notes/${fileName}`
+    const secondContext = await createWorkspaceE2EContext(browser)
+    const origin = workspaceE2EOrigin()
+    try {
+      await secondContext.request.post(`${origin}/api/files/create`, {
+        data: { type: 'file', path: filePath, content: '# Original\n' },
+      })
+      await gotoWorkspace(page)
+      const browserPane = getBrowserContent(page)
+      await browserPane.getByText('Notes', { exact: true }).click()
+      await browserPane.locator('table').getByText(fileName, { exact: true }).click()
+
+      const viewer = getWindowGroups(page).nth(1).locator('.workspace-window-content')
+      const textarea = viewer.locator('textarea')
+      await expect(textarea).toHaveValue('# Original\n')
+      await textarea.fill('# Local dirty edit\n')
+
+      await secondContext.request.post(`${origin}/api/files/edit`, {
+        data: { path: filePath, content: '# Remote edit\n' },
+      })
+
+      await expect(viewer.getByText('This file changed elsewhere.')).toBeVisible()
+      await expect(textarea).toHaveValue('# Local dirty edit\n')
+      await viewer.getByRole('button', { name: 'Reload remote version' }).click()
+      await expect(textarea).toHaveValue('# Remote edit\n')
+    } finally {
+      await secondContext.request.post(`${origin}/api/files/delete`, { data: { path: filePath } })
+      await secondContext.close()
+    }
+  })
+
   test('readme.txt: content, metadata, and read-only toolbar', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Documents', 'readme.txt')

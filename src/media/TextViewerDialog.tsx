@@ -192,6 +192,7 @@ export function TextViewerBody(props: {
 
   const [readOnlyView, setReadOnlyView] = createSignal(false)
   const [editContent, setEditContent] = createSignal('')
+  const [editorBaseContent, setEditorBaseContent] = createSignal('')
   const [copied, setCopied] = createSignal(false)
   const [autoSaveError, setAutoSaveError] = createSignal<string | null>(null)
 
@@ -211,13 +212,14 @@ export function TextViewerBody(props: {
     },
     onSuccess: (content: string) => {
       const key = queryKey()
+      setEditorBaseContent(content)
       queryClient.setQueryData(key, content)
       void queryClient.invalidateQueries({ queryKey: key })
     },
   }))
 
   async function saveInternal(quiet: boolean) {
-    if (quiet && editContent() === (textQuery.data ?? '')) return
+    if (quiet && editContent() === editorBaseContent()) return
     if (!quiet) setAutoSaveError(null)
     try {
       await saveMutation.mutateAsync(editContent())
@@ -240,6 +242,10 @@ export function TextViewerBody(props: {
       const scope = props.shareContext ? `share:${props.shareContext.token}` : 'admin'
       const draft = readTextEditorDraft(textEditorDraftKey(scope, path))
       setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
+      setEditorBaseContent(data)
+    } else if (data !== editorBaseContent() && editContent() === editorBaseContent()) {
+      setEditContent(data)
+      setEditorBaseContent(data)
     }
   })
 
@@ -249,7 +255,10 @@ export function TextViewerBody(props: {
       props.viewingPath,
     ),
   )
-  const dirty = createMemo(() => editContent() !== (textQuery.data ?? ''))
+  const dirty = createMemo(() => editContent() !== editorBaseContent())
+  const conflict = createMemo(
+    () => dirty() && textQuery.data !== undefined && textQuery.data !== editorBaseContent(),
+  )
 
   createEffect(() => {
     if (!lastPath) return
@@ -274,8 +283,8 @@ export function TextViewerBody(props: {
         autosaveTimer = null
       }
     })
-    if (!fileEditable() || readOnlyView() || !autoSaveEnabled()) return
-    if (editContent() === (textQuery.data ?? '')) return
+    if (!fileEditable() || readOnlyView() || !autoSaveEnabled() || conflict()) return
+    if (editContent() === editorBaseContent()) return
     autosaveTimer = setTimeout(() => {
       void saveInternal(true)
     }, 2000)
@@ -290,7 +299,8 @@ export function TextViewerBody(props: {
       fileEditable() &&
       !readOnlyView() &&
       autoSaveEnabled() &&
-      editContent() !== (textQuery.data ?? '')
+      !conflict() &&
+      editContent() !== editorBaseContent()
     ) {
       await saveInternal(true)
     }
@@ -498,6 +508,22 @@ export function TextViewerBody(props: {
         </div>
       </header>
       <div class='min-h-0 flex-1 overflow-hidden'>
+        <Show when={conflict()}>
+          <div class='flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-900 dark:text-amber-200'>
+            <span>This file changed elsewhere. Your unsaved edits were kept.</span>
+            <button
+              type='button'
+              class='shrink-0 underline'
+              onClick={() => {
+                const remote = textQuery.data ?? ''
+                setEditContent(remote)
+                setEditorBaseContent(remote)
+              }}
+            >
+              Reload remote version
+            </button>
+          </div>
+        </Show>
         <Show when={textQuery.isPending}>
           <p class='text-muted-foreground p-4 text-sm'>Loading…</p>
         </Show>
@@ -541,7 +567,7 @@ export function TextViewerBody(props: {
                   })
                 }}
                 onBlur={() => {
-                  if (autoSaveEnabled()) void saveInternal(true)
+                  if (autoSaveEnabled() && !conflict()) void saveInternal(true)
                 }}
                 onKeyDown={(e) => {
                   if (
