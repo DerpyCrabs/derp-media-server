@@ -16,8 +16,8 @@ export type UploadToastState =
   | { kind: 'uploading'; fileCount: number }
   | { kind: 'success' }
   | { kind: 'error'; message: string }
-  | { kind: 'copied'; label?: string }
-  | { kind: 'clipboardError'; message: string }
+  | { kind: 'copied'; label?: string; warning?: string | null }
+  | { kind: 'clipboardError'; message: string; url?: string; warning?: string | null }
 
 export type UploadToastAnchor = 'viewport' | 'window'
 

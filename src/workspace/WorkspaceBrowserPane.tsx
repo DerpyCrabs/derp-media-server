@@ -28,6 +28,7 @@ import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
 import type { ShareLink } from '@/lib/shares'
+import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
@@ -779,10 +780,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   async function handleCopyShareLink(file: FileItem) {
     if (!file.shareToken) return
-    const url = `${shareLinkBase()}/share/${file.shareToken}`
+    const fullShare = shares().find((candidate) => candidate.token === file.shareToken)
+    if (!fullShare) return
+    const url = buildShareUrl(fullShare, shareLinkBase())
+    const warning = getShareUrlWarning(url)
     try {
-      await navigator.clipboard.writeText(url)
-      setUploadToast({ kind: 'copied', label: 'Share link copied' })
+      await copyShareUrl(url)
+      setUploadToast({ kind: 'copied', label: 'Share link copied', warning })
       window.setTimeout(() => {
         setUploadToast((prev) => (prev.kind === 'copied' ? { kind: 'hidden' } : prev))
       }, 2000)
@@ -790,6 +794,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setUploadToast({
         kind: 'clipboardError',
         message: err instanceof Error ? err.message : 'Clipboard denied or unavailable',
+        url,
+        warning,
       })
     }
   }

@@ -47,12 +47,15 @@ export function UploadToastStack(props: UploadToastStackProps) {
       </Match>
       <Match when={props.state().kind === 'copied' ? props.state() : false}>
         {(get) => {
-          const { label } = get() as Extract<UploadToastState, { kind: 'copied' }>
+          const { label, warning } = get() as Extract<UploadToastState, { kind: 'copied' }>
           return (
             <div class={panelClass()}>
               <div class='flex items-center gap-3'>
                 <CircleCheck class='h-5 w-5 text-green-500 shrink-0' size={20} stroke-width={2} />
-                <span class='text-sm font-medium'>{label ?? 'Copied to clipboard'}</span>
+                <div>
+                  <p class='text-sm font-medium'>{label ?? 'Copied to clipboard'}</p>
+                  {warning && <p class='text-muted-foreground mt-0.5 text-xs'>{warning}</p>}
+                </div>
               </div>
             </div>
           )
@@ -68,6 +71,29 @@ export function UploadToastStack(props: UploadToastStackProps) {
                 <div class='min-w-0 flex-1'>
                   <p class='text-destructive text-sm font-medium'>Could not copy</p>
                   <p class='text-muted-foreground mt-0.5 text-xs wrap-break-word'>{s.message}</p>
+                  {s.warning && <p class='text-muted-foreground mt-1 text-xs'>{s.warning}</p>}
+                  {s.url && (
+                    <div class='mt-2 flex items-center gap-2'>
+                      <input
+                        type='text'
+                        readOnly
+                        aria-label='Share link'
+                        class='border-input bg-background min-w-0 flex-1 rounded border px-2 py-1 font-mono text-xs'
+                        value={s.url}
+                      />
+                      <button
+                        type='button'
+                        class='border-input bg-background hover:bg-accent shrink-0 rounded border px-2 py-1 text-xs'
+                        onClick={(e) => {
+                          const input = e.currentTarget.previousElementSibling as HTMLInputElement
+                          input.focus()
+                          input.select()
+                        }}
+                      >
+                        Select link
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <button
                   type='button'

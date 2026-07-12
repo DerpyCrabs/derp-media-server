@@ -83,6 +83,21 @@ export default async function setup(_config: FullConfig) {
           passcode: encryptPasscode('secret123'),
           createdAt: Date.now(),
         },
+        {
+          token: 'test-unprotected-share-token1',
+          path: 'Documents/notes.md',
+          isDirectory: false,
+          editable: false,
+          createdAt: Date.now() - 1,
+        },
+        {
+          token: 'test-protected-file-share-token1',
+          path: 'Documents/sample.pdf',
+          isDirectory: false,
+          editable: false,
+          passcode: encryptPasscode('filepass'),
+          createdAt: Date.now() - 2,
+        },
       ],
     },
   })

@@ -3,6 +3,7 @@ import { post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import type { ShareLink, ShareRestrictions } from '@/lib/shares'
 import { formatFileSize } from '@/lib/media-utils'
+import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import Check from 'lucide-solid/icons/check'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
@@ -42,11 +43,6 @@ function extractRestrictions(share: ShareLink): RequiredRestrictions {
     allowEdit: r.allowEdit !== false,
     maxUploadBytes: r.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
   }
-}
-
-function buildShareUrl(share: ShareLink, baseOrigin: string) {
-  const url = `${baseOrigin}/share/${share.token}`
-  return share.passcode ? `${url}?p=${encodeURIComponent(share.passcode)}` : url
 }
 
 function RestrictionsEditor(props: {
@@ -184,11 +180,13 @@ function ShareLinkCard(props: {
 }) {
   const queryClient = useQueryClient()
   const [copiedLink, setCopiedLink] = createSignal(false)
+  const [copyError, setCopyError] = createSignal<string | null>(null)
   const [showSettings, setShowSettings] = createSignal(false)
   const [editable, setEditable] = createSignal(untrack(() => props.share.editable))
   const [restrictions, setRestrictions] = createSignal<RequiredRestrictions>(
     untrack(() => extractRestrictions(props.share)),
   )
+  let urlInput: HTMLInputElement | undefined
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   onCleanup(() => {
@@ -234,15 +232,17 @@ function ShareLinkCard(props: {
 
   async function handleCopyLink() {
     try {
-      await navigator.clipboard.writeText(buildShareUrl(props.share, props.shareLinkBase))
+      await copyShareUrl(url())
+      setCopyError(null)
       setCopiedLink(true)
       window.setTimeout(() => setCopiedLink(false), 2000)
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setCopyError(err instanceof Error ? err.message : 'Clipboard denied or unavailable')
     }
   }
 
   const url = () => buildShareUrl(props.share, props.shareLinkBase)
+  const urlWarning = () => getShareUrlWarning(url())
   const used = () => props.share.usedBytes || 0
   const limit = () => restrictions().maxUploadBytes
 
@@ -281,8 +281,27 @@ function ShareLinkCard(props: {
         </span>
       </div>
 
+      <Show when={urlWarning()}>{(warning) => <p class='text-amber-600 text-xs'>{warning()}</p>}</Show>
+
+      <Show when={copyError()}>
+        <div class='space-y-2 rounded-md border border-destructive/40 p-2'>
+          <p class='text-destructive text-xs'>Could not copy: {copyError()}</p>
+          <button
+            type='button'
+            class='border-input bg-background hover:bg-accent rounded border px-2 py-1 text-xs'
+            onClick={() => {
+              urlInput?.focus()
+              urlInput?.select()
+            }}
+          >
+            Select link
+          </button>
+        </div>
+      </Show>
+
       <div class='flex gap-2'>
         <input
+          ref={urlInput}
           type='text'
           readOnly
           class='border-input bg-background flex-1 rounded-md border px-3 py-2 font-mono text-xs'

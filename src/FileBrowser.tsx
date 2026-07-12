@@ -27,6 +27,7 @@ import {
 import { queryKeys } from '@/lib/query-keys'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { ShareLink } from '@/lib/shares'
+import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
@@ -809,10 +810,13 @@ export function FileBrowser() {
 
   async function handleCopyShareLink(file: FileItem) {
     if (!file.shareToken) return
-    const url = `${shareLinkBase()}/share/${file.shareToken}`
+    const share = shares().find((candidate) => candidate.token === file.shareToken)
+    if (!share) return
+    const url = buildShareUrl(share, shareLinkBase())
+    const warning = getShareUrlWarning(url)
     try {
-      await navigator.clipboard.writeText(url)
-      setUploadToast({ kind: 'copied', label: 'Share link copied' })
+      await copyShareUrl(url)
+      setUploadToast({ kind: 'copied', label: 'Share link copied', warning })
       window.setTimeout(() => {
         setUploadToast((prev) => (prev.kind === 'copied' ? { kind: 'hidden' } : prev))
       }, 2000)
@@ -820,6 +824,8 @@ export function FileBrowser() {
       setUploadToast({
         kind: 'clipboardError',
         message: err instanceof Error ? err.message : 'Clipboard denied or unavailable',
+        url,
+        warning,
       })
     }
   }

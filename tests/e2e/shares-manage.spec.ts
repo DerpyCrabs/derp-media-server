@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('Managing Shares', () => {
+  test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+
   test('creates a share for a file', async ({ page }) => {
     await page.goto('/?dir=Documents')
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
@@ -77,6 +79,24 @@ test.describe('Managing Shares', () => {
     await page.goto('/?dir=Shares')
     const table = page.locator('table')
     await expect(table).toBeVisible()
+  })
+
+  test('quick copy includes the complete protected and unprotected share URLs', async ({ page }) => {
+    await page.goto('/?dir=Shares')
+
+    const protectedRow = page.locator('table tr').filter({ hasText: 'sample.pdf' })
+    await protectedRow.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Copy share link' }).click()
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe('http://localhost:5973/share/test-protected-file-share-token1?p=filepass')
+
+    const unprotectedRow = page.locator('table tr').filter({ hasText: 'notes.md' })
+    await unprotectedRow.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Copy share link' }).click()
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe('http://localhost:5973/share/test-unprotected-share-token1')
   })
 
   test('revokes a share', async ({ page }) => {
