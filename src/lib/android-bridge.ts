@@ -44,7 +44,7 @@ export function isAndroidApp(): boolean {
 }
 
 export function isOfflineFeatureAvailable(): boolean {
-  return isAndroidApp() || webOfflineSupported()
+  return webOfflineSupported()
 }
 
 export async function fetchOfflineFiles(path: string): Promise<{ files: FileItem[] }> {
@@ -91,10 +91,22 @@ export function playInAndroid(file: FileItem, share: ShareContext = null): boole
 
 export function downloadInAndroid(file: FileItem, share: ShareContext = null): boolean {
   if (!isAndroidApp()) return false
-  return makeAvailableOffline(file, share)
+  if (!isOfflineFeatureAvailable()) {
+    const relativePath = share ? relativeSharePath(file.path, share.sharePath) : file.path
+    const downloadUrl = share
+      ? `/api/share/${encodeURIComponent(share.token)}/download?path=${encodeURIComponent(relativePath)}`
+      : `/api/files/download?path=${encodeURIComponent(file.path)}`
+    return send({
+      type: 'deviceDownload',
+      url: absoluteUrl(downloadUrl),
+      name: file.isDirectory ? `${file.name}.zip` : file.name,
+    })
+  }
+  void makeAvailableOffline(file, share)
+  return true
 }
 
-export function makeAvailableOffline(file: FileItem, share: ShareContext = null): boolean {
+export async function makeAvailableOffline(file: FileItem, share: ShareContext = null): Promise<boolean> {
   const relativePath = share ? relativeSharePath(file.path, share.sharePath) : file.path
   const downloadUrl = share
     ? `/api/share/${encodeURIComponent(share.token)}/download?path=${encodeURIComponent(relativePath)}`
@@ -130,10 +142,21 @@ export function makeAvailableOffline(file: FileItem, share: ShareContext = null)
             ? `/api/share/${encodeURIComponent(share.token)}/media/${encodeSegments(relativePath || '.')}`
             : `/api/media/${encodeSegments(file.path)}`,
         ),
+    thumbnailUrl:
+      !file.isDirectory && (file.type === 'image' || file.type === 'video')
+        ? absoluteUrl(
+            share
+              ? `/api/share/${encodeURIComponent(share.token)}/thumbnail/${encodeSegments(relativePath || '.')}`
+              : `/api/thumbnail/${encodeSegments(file.path)}`,
+          )
+        : null,
     listUrl: listUrl ? absoluteUrl(listUrl) : null,
     mediaBaseUrl: share
       ? absoluteUrl(`/api/share/${encodeURIComponent(share.token)}/media/`)
       : absoluteUrl('/api/media/'),
+    thumbnailBaseUrl: share
+      ? absoluteUrl(`/api/share/${encodeURIComponent(share.token)}/thumbnail/`)
+      : absoluteUrl('/api/thumbnail/'),
   })
   if (sent) announce({ state: 'queued', name: file.name, path: file.path })
   return sent

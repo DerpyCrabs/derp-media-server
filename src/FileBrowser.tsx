@@ -96,6 +96,7 @@ import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { useStoreSync } from './lib/solid-store-sync'
+import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { useViewStats } from './lib/use-view-stats'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { useDeferredLoading } from './lib/use-deferred-loading'
@@ -250,6 +251,7 @@ export function FileBrowser() {
   useDynamicFavicon(() => customIcons(), { getSearch: () => history().search })
 
   const mediaPlayerTick = useStoreSync(useMediaPlayer)
+  const viewModeTick = useStoreSync(useBrowserViewModeStore)
 
   const isAudioPlayingBar = createMemo(() => {
     void mediaPlayerTick()
@@ -344,8 +346,11 @@ export function FileBrowser() {
   }))
 
   const viewMode = createMemo(() => {
+    void viewModeTick()
     const s = settingsQuery.data
-    return s?.viewModes?.[currentPath()] ?? 'list'
+    return useBrowserViewModeStore
+      .getState()
+      .getViewMode(`admin-viewmode-${currentPath()}`, s?.viewModes?.[currentPath()] ?? 'list')
   })
 
   const favorites = createMemo(() => settingsQuery.data?.favorites ?? [])
@@ -1163,6 +1168,8 @@ export function FileBrowser() {
   }
 
   function setViewMode(mode: 'list' | 'grid') {
+    useBrowserViewModeStore.getState().setViewMode(`admin-viewmode-${currentPath()}`, mode)
+    if (isOfflineBrowser()) return
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
   }
 

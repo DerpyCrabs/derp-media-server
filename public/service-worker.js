@@ -73,6 +73,7 @@ function offlineListing(all, dir) {
       extension: isDirectory ? '' : name.includes('.') ? name.split('.').pop() : '',
       isDirectory,
       thumbnailGenerated: type === 'image',
+      ...(exact?.thumbnailBlob ? { thumbnailGenerated: true } : {}),
     })
   }
   return [...children.values()]
@@ -177,8 +178,8 @@ self.addEventListener('fetch', (event) => {
     )
     event.respondWith(
       entry(path).then(async (saved) => {
-        const bodyFile = await storedBody(saved)
-        if (!bodyFile || saved.type !== 'image') return fetch(event.request)
+        const bodyFile = saved?.thumbnailBlob || (saved?.type === 'image' ? await storedBody(saved) : null)
+        if (!bodyFile) return fetch(event.request)
         return new Response(bodyFile, { headers: { 'Content-Type': bodyFile.type || 'image/*' } })
       }),
     )
@@ -189,8 +190,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       entries().then(async (all) => {
         const saved = all.find((item) => item.thumbnailUrl === url.pathname)
-        const bodyFile = await storedBody(saved)
-        if (!bodyFile || saved.type !== 'image') return fetch(event.request)
+        const bodyFile = saved?.thumbnailBlob || (saved?.type === 'image' ? await storedBody(saved) : null)
+        if (!bodyFile) return fetch(event.request)
         return new Response(bodyFile, { headers: { 'Content-Type': bodyFile.type || 'image/*' } })
       }),
     )

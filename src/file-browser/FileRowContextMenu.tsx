@@ -69,7 +69,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
     >
       {(ctx) => {
         const downloadLabel = () =>
-          isAndroidApp()
+          isAndroidApp() && isOfflineFeatureAvailable()
             ? isAndroidPathAvailableOffline(ctx.file.path)
               ? 'Remove from offline'
               : 'Make available offline'

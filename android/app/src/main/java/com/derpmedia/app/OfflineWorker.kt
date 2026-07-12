@@ -39,6 +39,7 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     inputData.getString("name").orEmpty(),
                     inputData.getString("mediaType").orEmpty().ifBlank { "other" },
                     inputData.getString("displayPath").orEmpty(),
+                    inputData.getString("thumbnailUrl").orEmpty(),
                 )
             }
         }.fold({ Result.success() }, {
@@ -89,7 +90,10 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     } else {
                         val base = inputData.getString("mediaBaseUrl").orEmpty()
                         val encoded = child.split('/').joinToString("/") { URLEncoder.encode(it, Charsets.UTF_8.name()).replace("+", "%20") }
-                        download(base + encoded, item.getString("name"), item.optString("type", "other"), displayChild)
+                        val type = item.optString("type", "other")
+                        val thumbnailBase = inputData.getString("thumbnailBaseUrl").orEmpty()
+                        val thumbnailUrl = if (type == "image" || type == "video") thumbnailBase + encoded else ""
+                        download(base + encoded, item.getString("name"), type, displayChild, thumbnailUrl)
                         completed++
                         setProgressAsync(workDataOf("completed" to completed))
                     }
@@ -98,24 +102,31 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         }
     }
 
-    private fun download(url: String, title: String, mediaType: String, logicalPath: String) {
+    private fun download(url: String, title: String, mediaType: String, logicalPath: String, thumbnailUrl: String) {
         require(url.isNotBlank())
         touchedUrls.add(url)
         val target = OfflineStore.file(applicationContext, url)
         target.parentFile?.mkdirs()
-        val partial = File(target.path + ".part")
-        val start = if (partial.isFile) partial.length() else 0L
-        val call = request(url).apply { if (start > 0) header("Range", "bytes=$start-") }.build()
-        client.newCall(call).execute().use { response ->
-            check(response.isSuccessful) { "Download failed: ${response.code}" }
-            val append = start > 0 && response.code == 206
-            response.body.byteStream().use { input ->
-                FileOutputStream(partial, append).buffered().use { output -> input.copyTo(output) }
+        OfflineDownloadTransfer.download(client, url, cookie, target)
+        var savedThumbnailUrl = if (mediaType == "image" || mediaType == "video") {
+            "offline-thumbnail:$url"
+        } else ""
+        if (savedThumbnailUrl.isNotBlank()) {
+            val localThumbnail = OfflineStore.thumbnailFile(applicationContext, savedThumbnailUrl)
+            if (!OfflineThumbnailGenerator.generate(target, mediaType, localThumbnail)) savedThumbnailUrl = ""
+        }
+        if (savedThumbnailUrl.isBlank() && thumbnailUrl.isNotBlank()) {
+            client.newCall(request(thumbnailUrl).build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val thumbnail = OfflineStore.thumbnailFile(applicationContext, thumbnailUrl)
+                    response.body.byteStream().use { input ->
+                        FileOutputStream(thumbnail).buffered().use { output -> input.copyTo(output) }
+                    }
+                    savedThumbnailUrl = thumbnailUrl
+                }
             }
         }
-        if (target.exists()) target.delete()
-        check(partial.renameTo(target))
-        OfflineStore.markComplete(target, url, title, mediaType, logicalPath.ifBlank { title })
+        OfflineStore.markComplete(target, url, title, mediaType, logicalPath.ifBlank { title }, savedThumbnailUrl)
     }
 
     private fun createForegroundInfo(): ForegroundInfo {

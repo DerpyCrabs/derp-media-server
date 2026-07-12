@@ -12,6 +12,8 @@ data class OfflineEntry(
     val url: String,
     val isDirectory: Boolean,
     val file: File?,
+    val thumbnailUrl: String,
+    val thumbnailFile: File?,
 )
 
 object OfflineStore {
@@ -21,6 +23,7 @@ object OfflineStore {
     private fun directory(context: Context) = File(context.filesDir, "offline").apply { mkdirs() }
 
     fun file(context: Context, url: String): File = File(directory(context), "${key(url)}.media")
+    fun thumbnailFile(context: Context, url: String): File = File(directory(context), "${key(url)}.thumbnail")
 
     fun completed(context: Context, url: String): File? =
         file(context, url).takeIf { it.isFile && File(it.path + ".complete").isFile }
@@ -31,6 +34,7 @@ object OfflineStore {
         title: String,
         mediaType: String,
         logicalPath: String,
+        thumbnailUrl: String = "",
     ) {
         File(file.path + ".complete").writeText("ok")
         File(file.path + ".json").writeText(JSONObject().apply {
@@ -39,6 +43,7 @@ object OfflineStore {
             put("path", logicalPath.replace('\\', '/'))
             put("mediaType", mediaType)
             put("isDirectory", false)
+            put("thumbnailUrl", thumbnailUrl)
         }.toString())
     }
 
@@ -67,6 +72,7 @@ object OfflineStore {
                     return@runCatching null
                 }
                 val title = json.optString("title", "File")
+                val thumbnailUrl = json.optString("thumbnailUrl", "")
                 OfflineEntry(
                     path = json.getString("path").replace('\\', '/'),
                     title = title,
@@ -74,6 +80,9 @@ object OfflineStore {
                     url = json.optString("url", ""),
                     isDirectory = isDirectory,
                     file = mediaFile,
+                    thumbnailUrl = thumbnailUrl,
+                    thumbnailFile = thumbnailUrl.takeIf { it.isNotBlank() }
+                        ?.let { thumbnailFile(context, it).takeIf(File::isFile) },
                 )
             }.getOrNull()
         } ?: emptyList()
@@ -91,6 +100,8 @@ object OfflineStore {
                 File(media.path + ".complete").delete()
                 File(media.path + ".part").delete()
                 media.delete()
+                json.optString("thumbnailUrl").takeIf { it.isNotBlank() }
+                    ?.let { thumbnailFile(context, it).delete() }
             }
             metadata.delete()
         }

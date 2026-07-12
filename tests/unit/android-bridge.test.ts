@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { Window as HappyWindow } from 'happy-dom'
 import {
   downloadInAndroid,
+  makeAvailableOffline,
   isAndroidApp,
   openAndroidOffline,
   playInAndroid,
@@ -53,15 +54,26 @@ describe('Android bridge', () => {
     })
   })
 
-  test('keeps share downloads scoped to the token', () => {
+  test('keeps offline share downloads scoped to the token', async () => {
     const messages: string[] = []
     installWindow(messages)
-    downloadInAndroid(file, { token: 'share-token', sharePath: 'Movies' })
+    await makeAvailableOffline(file, { token: 'share-token', sharePath: 'Movies' })
     const payload = JSON.parse(messages[0])
     expect(payload.mediaUrl).toBe(
       'https://media.example/api/share/share-token/media/movie%20name.mkv',
     )
     expect(payload.downloadUrl).toContain('/api/share/share-token/download?path=movie%20name.mkv')
+  })
+
+  test('uses a regular device download when offline support is unavailable', () => {
+    const messages: string[] = []
+    installWindow(messages)
+    expect(downloadInAndroid(file)).toBe(true)
+    expect(JSON.parse(messages[0])).toEqual({
+      type: 'deviceDownload',
+      url: 'https://media.example/api/files/download?path=Movies%2Fmovie%20name.mkv',
+      name: 'movie name.mkv',
+    })
   })
 
   test('removes offline content without issuing another download', () => {

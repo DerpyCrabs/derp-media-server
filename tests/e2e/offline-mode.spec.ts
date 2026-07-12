@@ -1,6 +1,78 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('Offline mode', () => {
+  test('generates image and video thumbnails locally without thumbnail APIs', async ({ page, context }) => {
+    test.setTimeout(60_000)
+    await page.goto('/')
+    const root = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready
+      const config = (await fetch('/api/auth/config').then((response) => response.json())) as {
+        mediaRoots?: Array<{ name: string }>
+      }
+      return (config.mediaRoots?.length ?? 0) > 1 ? config.mediaRoots![0].name : ''
+    })
+    await page.reload()
+    await page.route(/\/api\/(?:share\/[^/]+\/)?thumbnail\//, (route) => route.abort())
+    const prefix = root ? `${root}/` : ''
+
+    for (const [directory, name] of [['Images', 'photo.jpg'], ['Videos', 'sample.mp4']] as const) {
+      await page.goto(`/?dir=${encodeURIComponent(`${prefix}${directory}`)}`)
+      await page.locator('table tr').filter({ hasText: name }).click({ button: 'right' })
+      await page.getByText('Make available offline', { exact: true }).click()
+      await expect(page.getByText(`${name} is available offline`, { exact: true })).toBeVisible()
+    }
+
+    const stored = await page.evaluate(async (paths) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('derp-offline-v1', 1)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      return Promise.all(paths.map((path) => new Promise<{ thumbnailSize: number; mediaSize: number }>((resolve, reject) => {
+        const request = db.transaction('entries').objectStore('entries').get(path)
+        request.onsuccess = async () => {
+          const entry = request.result as { thumbnailBlob?: Blob; blob?: Blob; fileName?: string }
+          let mediaSize = entry.blob?.size ?? 0
+          if (!mediaSize && entry.fileName) {
+            const root = await navigator.storage.getDirectory()
+            mediaSize = (await (await root.getFileHandle(entry.fileName)).getFile()).size
+          }
+          resolve({ thumbnailSize: entry.thumbnailBlob?.size ?? 0, mediaSize })
+        }
+        request.onerror = () => reject(request.error)
+      })))
+    }, [`${prefix}Images/photo.jpg`, `${prefix}Videos/sample.mp4`])
+    expect(stored.every((entry) => entry.thumbnailSize > 0)).toBe(true)
+    expect(stored.every((entry) => entry.mediaSize > 0)).toBe(true)
+
+    await context.setOffline(true)
+    for (const directory of ['Images', 'Videos']) {
+      await page.goto(`/?offline=1&dir=${encodeURIComponent(`${prefix}${directory}`)}`)
+      await page.locator('button:has(.lucide-layout-grid)').click()
+      const thumbnail = page.locator('[data-testid$="-thumbnail"]')
+      await expect(thumbnail).toBeVisible()
+      await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+      if (directory === 'Images') {
+        await thumbnail.locator('xpath=ancestor::*[@role="button"][1]').click({ button: 'right' })
+        await page.getByText('Remove from offline', { exact: true }).click()
+        await expect(thumbnail).not.toBeVisible()
+      }
+    }
+    const removed = await page.evaluate(async (path) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('derp-offline-v1', 1)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      return new Promise<boolean>((resolve, reject) => {
+        const request = db.transaction('entries').objectStore('entries').get(path)
+        request.onsuccess = () => resolve(request.result === undefined)
+        request.onerror = () => reject(request.error)
+      })
+    }, `${prefix}Images/photo.jpg`)
+    expect(removed).toBe(true)
+  })
+
   test('directory remains browsable and files open after network loss and reload', async ({
     page,
     context,
@@ -153,6 +225,53 @@ test.describe('Offline mode', () => {
     await expect(page.getByText('readme.txt', { exact: true })).not.toBeVisible()
   })
 
+  test('storage quota failure is reported and leaves no catalog or OPFS residue', async ({ page }) => {
+    await page.goto('/')
+    const root = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready
+      const config = (await fetch('/api/auth/config').then((response) => response.json())) as {
+        mediaRoots?: Array<{ name: string }>
+      }
+      return (config.mediaRoots?.length ?? 0) > 1 ? config.mediaRoots![0].name : ''
+    })
+    await page.reload()
+    await page.goto(`/?dir=${encodeURIComponent(root ? `${root}/Documents` : 'Documents')}`)
+    const opfsBefore = await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory()
+      const names: string[] = []
+      for await (const name of root.keys()) names.push(name)
+      return names.sort()
+    })
+    await page.evaluate(() => {
+      IDBObjectStore.prototype.put = (() => {
+        throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+      }) as typeof IDBObjectStore.prototype.put
+    })
+    await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
+    await page.getByText('Make available offline', { exact: true }).click()
+    await expect(page.getByText("Couldn't save readme.txt", { exact: true })).toBeVisible()
+    const savedPaths = await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('derp-offline-v1', 1)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      return new Promise<string[]>((resolve, reject) => {
+        const request = db.transaction('entries').objectStore('entries').getAllKeys()
+        request.onsuccess = () => resolve(request.result.map(String))
+        request.onerror = () => reject(request.error)
+      })
+    })
+    expect(savedPaths).not.toContain(`${root ? `${root}/` : ''}Documents/readme.txt`)
+    const opfsAfter = await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory()
+      const names: string[] = []
+      for await (const name of root.keys()) names.push(name)
+      return names.sort()
+    })
+    expect(opfsAfter).toEqual(opfsBefore)
+  })
+
   test('saved audio and video players open after an offline reload', async ({ page, context }) => {
     test.setTimeout(60_000)
     await page.goto('/')
@@ -178,6 +297,18 @@ test.describe('Offline mode', () => {
 
     await context.setOffline(true)
     await page.goto(`/?offline=1&dir=${encodeURIComponent(`${prefix}Videos`)}`)
+    await page.locator('button:has(.lucide-layout-grid)').click()
+    await expect(page.locator('[data-testid=file-browser-video-thumbnail]')).toBeVisible()
+    await expect
+      .poll(() =>
+        page
+          .locator('[data-testid=file-browser-video-thumbnail]')
+          .evaluate((image: HTMLImageElement) => image.naturalWidth),
+      )
+      .toBeGreaterThan(0)
+    await page.reload()
+    await expect(page.locator('.file-browser-grid')).toBeVisible()
+    await page.locator('button:has(.lucide-list)').click()
     await page.locator('table tr').filter({ hasText: 'sample.mp4' }).click()
     await expect(page.locator('video')).toBeVisible()
 

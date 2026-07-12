@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val releaseKeystorePath = System.getenv("DERP_RELEASE_KEYSTORE")
+
 android {
     namespace = "com.derpmedia.app"
     compileSdk = 36
@@ -14,6 +16,29 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (!releaseKeystorePath.isNullOrBlank()) create("release") {
+            storeFile = file(releaseKeystorePath)
+            storePassword = System.getenv("DERP_RELEASE_STORE_PASSWORD")
+            keyAlias = System.getenv("DERP_RELEASE_KEY_ALIAS")
+            keyPassword = System.getenv("DERP_RELEASE_KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (!releaseKeystorePath.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
     }
 
     compileOptions {
@@ -36,5 +61,6 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.1.0")
     androidTestUtil("androidx.test:orchestrator:1.5.1")
 }

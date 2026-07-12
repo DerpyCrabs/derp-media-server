@@ -40,6 +40,13 @@ export interface FileSearchConfig {
   reconcileDirectoriesPerSecond: number
 }
 
+export interface TlsConfig {
+  certPath?: string
+  keyPath?: string
+  pfxPath?: string
+  passphrase?: string
+}
+
 export interface MediaRoot {
   id: string
   name: string
@@ -75,6 +82,7 @@ interface AppConfig {
   mcp?: McpConfig
   dataPath: string
   fileSearch: FileSearchConfig
+  tls?: TlsConfig
 }
 
 const DEFAULT_CONFIG_PATH = path.join(process.cwd(), 'config.jsonc')
@@ -122,6 +130,21 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
   if (process.env.SHARE_LINK_DOMAIN) {
     const s = process.env.SHARE_LINK_DOMAIN.trim().replace(/\/$/, '')
     cfg.shareLinkDomain = s.startsWith('http://') || s.startsWith('https://') ? s : `https://${s}`
+  }
+
+  if (process.env.TLS_PFX_PATH) {
+    cfg.tls = {
+      pfxPath: path.resolve(process.env.TLS_PFX_PATH),
+      passphrase: process.env.TLS_PFX_PASSPHRASE,
+    }
+  } else if (process.env.TLS_CERT_PATH || process.env.TLS_KEY_PATH) {
+    if (!process.env.TLS_CERT_PATH || !process.env.TLS_KEY_PATH) {
+      throw new Error('TLS_CERT_PATH and TLS_KEY_PATH must be set together')
+    }
+    cfg.tls = {
+      certPath: path.resolve(process.env.TLS_CERT_PATH),
+      keyPath: path.resolve(process.env.TLS_KEY_PATH),
+    }
   }
 
   if (process.env.AUTH_ENABLED !== undefined) {
@@ -392,6 +415,26 @@ function loadConfigOnce(): AppConfig {
     const configDir = path.dirname(configPath)
     const dataPath =
       typeof parsed.dataPath === 'string' ? path.resolve(configDir, parsed.dataPath) : configDir
+    const rawTls = parsed.tls && typeof parsed.tls === 'object' ? parsed.tls : undefined
+    const resolveConfigPath = (value: unknown) =>
+      typeof value === 'string' && value.trim()
+        ? path.resolve(configDir, value.trim())
+        : undefined
+    const tls: TlsConfig | undefined = rawTls
+      ? {
+          certPath: resolveConfigPath(rawTls.certPath),
+          keyPath: resolveConfigPath(rawTls.keyPath),
+          pfxPath: resolveConfigPath(rawTls.pfxPath),
+          passphrase:
+            typeof rawTls.passphrase === 'string' ? rawTls.passphrase : undefined,
+        }
+      : undefined
+    if (tls?.pfxPath && (tls.certPath || tls.keyPath)) {
+      throw new Error('TLS config must use either pfxPath or certPath/keyPath')
+    }
+    if ((tls?.certPath && !tls.keyPath) || (!tls?.certPath && tls?.keyPath)) {
+      throw new Error('TLS certPath and keyPath must be configured together')
+    }
 
     const rawFileSearch =
       parsed.fileSearch && typeof parsed.fileSearch === 'object'
@@ -433,6 +476,7 @@ function loadConfigOnce(): AppConfig {
       mcp,
       dataPath,
       fileSearch,
+      tls,
     })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -456,6 +500,7 @@ function loadConfigOnce(): AppConfig {
           maxFsConcurrency: 4,
           reconcileDirectoriesPerSecond: 128,
         },
+        tls: undefined,
       })
     }
     throw error

@@ -2,6 +2,8 @@ package com.derpmedia.app
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.app.DownloadManager
+import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -25,6 +27,7 @@ import android.util.Log
 import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import androidx.webkit.ServiceWorkerClientCompat
@@ -44,6 +47,7 @@ import java.io.ByteArrayInputStream
 import java.io.FileInputStream
 import java.io.FilterInputStream
 import java.net.URLConnection
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -52,6 +56,10 @@ class MainActivity : AppCompatActivity() {
     private var offlineFallbackOpened = false
     private var openOfflineOnLoad = false
     private var simulateOfflineForTest = false
+    private val connectionExecutor = Executors.newSingleThreadExecutor()
+    private var connectionAttempt = 0
+    private var resolveAttempt = 0
+    private var httpWarningDialog: AlertDialog? = null
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
@@ -77,12 +85,7 @@ class MainActivity : AppCompatActivity() {
         simulateOfflineForTest = debuggable && intent.getBooleanExtra("simulateOfflineForTest", false)
         if (simulateOfflineForTest) openOfflineOnLoad = true
         val saved = prefs.getString("url", null)
-        if (saved == null) showConnectionScreen() else showBrowser(saved)
-    }
-
-    private fun normalizeUrl(value: String): String {
-        val trimmed = value.trim().trimEnd('/')
-        return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "https://$trimmed"
+        if (saved == null) showConnectionScreen() else connectToServer(saved, true)
     }
 
     private fun showConnectionScreen() {
@@ -111,29 +114,99 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(input, LinearLayout.LayoutParams(-1, -2))
         root.addView(TextView(this).apply {
-            text = "Connect to your media server."
+            text = "HTTPS and HTTP are detected automatically. Offline access requires HTTPS."
             setPadding(0, 16, 0, 24)
         })
-        root.addView(Button(this).apply {
+        val connect = Button(this).apply {
             id = R.id.connection_button
             text = "Connect"
             setOnClickListener {
-                val url = normalizeUrl(input.text.toString())
-                if (Uri.parse(url).host.isNullOrBlank()) {
-                    input.error = "Invalid server address"
-                } else if (Uri.parse(url).scheme != "https" && Uri.parse(url).host !in setOf("localhost", "127.0.0.1")) {
-                    input.error = "HTTPS is required for offline access"
-                } else {
-                    prefs.edit().putString("url", url).apply()
-                    showBrowser(url)
+                text = "Checking…"
+                isEnabled = false
+                connectToServer(input.text.toString(), false) { message ->
+                    input.error = message
+                    text = "Connect"
+                    isEnabled = true
                 }
             }
-        })
+        }
+        root.addView(connect)
+        val remembered = rememberedServers()
+        if (remembered.isNotEmpty()) {
+            val recentServers = LinearLayout(this).apply {
+                id = R.id.recent_servers
+                orientation = LinearLayout.VERTICAL
+            }
+            recentServers.addView(TextView(this).apply {
+                text = "Recent servers"
+                textSize = 16f
+                setPadding(0, 28, 0, 8)
+            })
+            for (server in remembered) {
+                recentServers.addView(Button(this).apply {
+                    text = server
+                    isAllCaps = false
+                    setOnClickListener { connectToServer(server, false) }
+                })
+            }
+            root.addView(recentServers)
+        }
         setContentView(root)
     }
 
+    private fun connectToServer(value: String, fallbackToOffline: Boolean, onFailure: ((String) -> Unit)? = null) {
+        val candidates = ServerConnectionResolver.candidates(value)
+        if (candidates.isEmpty() || Uri.parse(candidates.first()).host.isNullOrBlank()) {
+            onFailure?.invoke("Invalid server address")
+            return
+        }
+        val attempt = ++resolveAttempt
+        connectionExecutor.execute {
+            val resolved = if (simulateOfflineForTest) null else ServerConnectionResolver.resolve(value)
+            runOnUiThread {
+                if (attempt != resolveAttempt || isFinishing || isDestroyed) return@runOnUiThread
+                if (resolved == null) {
+                    if (fallbackToOffline) showBrowser(candidates.first(), true)
+                    else onFailure?.invoke("Can't reach this server over HTTPS or HTTP")
+                    return@runOnUiThread
+                }
+                if (Uri.parse(resolved).scheme == "http" && Uri.parse(resolved).host !in setOf("localhost", "127.0.0.1")) {
+                    showHttpWarning(resolved)
+                } else {
+                    rememberServer(resolved)
+                    prefs.edit().putString("url", resolved).apply()
+                    showBrowser(resolved)
+                }
+            }
+        }
+    }
+
+    private fun showHttpWarning(url: String) {
+        httpWarningDialog = AlertDialog.Builder(this)
+            .setTitle("Offline mode unavailable")
+            .setMessage("This server only supports HTTP. You can connect, but Android cannot install the Service Worker, so offline files will not be available.")
+            .setNegativeButton("Cancel") { _, _ -> showConnectionScreen() }
+            .setPositiveButton("Connect anyway") { _, _ ->
+                rememberServer(url)
+                prefs.edit().putString("url", url).apply()
+                showBrowser(url)
+            }
+            .create().also(AlertDialog::show)
+    }
+
+    private fun rememberedServers(): List<String> = prefs.getStringSet("servers", emptySet())
+        .orEmpty().sorted()
+
+    private fun rememberServer(url: String) {
+        val servers = rememberedServers().toMutableSet()
+        servers.add(url.trimEnd('/'))
+        prefs.edit().putStringSet("servers", servers).apply()
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
-    private fun showBrowser(startUrl: String) {
+    private fun showBrowser(startUrl: String, preferOffline: Boolean = false) {
+        connectionAttempt += 1
+        offlineFallbackOpened = false
         val origin = Uri.parse(startUrl).let { "${it.scheme}://${it.authority}" }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) {
             ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(
@@ -157,7 +230,7 @@ class MainActivity : AppCompatActivity() {
                     emitOfflineCatalog()
                     if (openOfflineOnLoad) {
                         openOfflineOnLoad = false
-                        openOfflineBrowser()
+                        view.loadUrl("$origin/?offline=1")
                     }
                 }
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
@@ -169,6 +242,7 @@ class MainActivity : AppCompatActivity() {
                         when (target.host) {
                             "offline" -> openOfflineBrowser()
                             "server" -> { prefs.edit().remove("url").apply(); showConnectionScreen() }
+                            "retry" -> prefs.getString("url", null)?.let { connectToServer(it, true) }
                         }
                         return true
                     }
@@ -187,16 +261,10 @@ class MainActivity : AppCompatActivity() {
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     Log.e("DerpMedia", "WebView error ${error.errorCode}: ${error.description} for ${request.url}")
                     if (!request.isForMainFrame) return
-                    if (!offlineFallbackOpened && OfflineStore.hasContent(this@MainActivity)) {
-                        offlineFallbackOpened = true
-                        view.loadUrl("$origin/?offline=1")
+                    if (openCachedOfflineShell(origin)) {
                         return
                     }
-                    view.loadDataWithBaseURL(
-                        null,
-                        """<html><body style="margin:0;background:#09090b;color:#fafafa;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center"><div style="padding:32px;text-align:center;max-width:360px"><h2 style="font-size:22px">Can't reach the server</h2><p style="color:#a1a1aa;line-height:1.5">Check the address and network connection.</p><a href="derp://server" style="display:block;background:#fafafa;color:#18181b;text-decoration:none;padding:12px 16px;border-radius:10px;margin-top:24px;font-weight:600">Change server</a><a href="derp://offline" style="display:block;color:#d4d4d8;text-decoration:none;padding:12px 16px;margin-top:8px">Open offline files</a></div></body></html>""",
-                        "text/html", "UTF-8", null,
-                    )
+                    showConnectionError()
                 }
 
                 override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
@@ -220,7 +288,23 @@ class MainActivity : AppCompatActivity() {
         }
         shell.addView(webView, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(shell)
-        webView.loadUrl(startUrl)
+        if (!preferOffline || !openCachedOfflineShell(origin)) webView.loadUrl(startUrl)
+    }
+
+    private fun openCachedOfflineShell(origin: String): Boolean {
+        if (offlineFallbackOpened || !OfflineStore.hasContent(this)) return false
+        if (!prefs.getBoolean("offlineShell:$origin", false)) return false
+        offlineFallbackOpened = true
+        webView.loadUrl("$origin/?offline=1")
+        return true
+    }
+
+    private fun showConnectionError() {
+        webView.loadDataWithBaseURL(
+            null,
+            """<html><body style="margin:0;background:#09090b;color:#fafafa;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center"><div style="padding:32px;text-align:center;max-width:360px"><h2 style="font-size:22px">Can't reach the server</h2><p style="color:#a1a1aa;line-height:1.5">Check the address and network connection.</p><a href="derp://retry" style="display:block;background:#fafafa;color:#18181b;text-decoration:none;padding:12px 16px;border-radius:10px;margin-top:24px;font-weight:600">Retry</a><a href="derp://server" style="display:block;color:#d4d4d8;text-decoration:none;padding:12px 16px;margin-top:8px">Change server</a></div></body></html>""",
+            "text/html", "UTF-8", null,
+        )
     }
 
     private fun handleBridge(raw: String) {
@@ -236,6 +320,18 @@ class MainActivity : AppCompatActivity() {
                 })
             }
             "download" -> queueDownload(json)
+            "deviceDownload" -> {
+                val url = json.optString("url")
+                if (url.isBlank()) return
+                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                    setTitle(json.optString("name", "Download"))
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    CookieManager.getInstance().getCookie(url)?.takeIf { it.isNotBlank() }
+                        ?.let { addRequestHeader("Cookie", it) }
+                }
+                (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+                Toast.makeText(this, "Download started", Toast.LENGTH_SHORT).show()
+            }
             "removeOffline" -> {
                 OfflineStore.deletePath(this, json.optString("displayPath"))
                 emitOfflineCatalog()
@@ -244,6 +340,10 @@ class MainActivity : AppCompatActivity() {
             }
             "openOffline" -> openOfflineBrowser()
             "changeServer" -> { prefs.edit().remove("url").apply(); showConnectionScreen() }
+            "serviceWorkerReady" -> {
+                val origin = json.optString("origin")
+                if (origin.isNotBlank()) prefs.edit().putBoolean("offlineShell:$origin", true).apply()
+            }
         }
     }
 
@@ -270,6 +370,8 @@ class MainActivity : AppCompatActivity() {
             .putString("sourceUrl", sourceUrl)
             .putString("listUrl", json.optString("listUrl"))
             .putString("mediaBaseUrl", json.optString("mediaBaseUrl"))
+            .putString("thumbnailUrl", json.optString("thumbnailUrl"))
+            .putString("thumbnailBaseUrl", json.optString("thumbnailBaseUrl"))
             .putString("cookie", CookieManager.getInstance().getCookie(cookieUrl).orEmpty())
             .build()
         val request = OneTimeWorkRequestBuilder<OfflineWorker>().setInputData(input).build()
@@ -357,7 +459,7 @@ class MainActivity : AppCompatActivity() {
                     put("size", if (isDirectory) 0 else exact?.file?.length() ?: entry.file?.length() ?: 0)
                     put("extension", if (isDirectory) "" else name.substringAfterLast('.', ""))
                     put("isDirectory", isDirectory)
-                    put("thumbnailGenerated", !isDirectory && (exact?.mediaType ?: entry.mediaType) == "image")
+                    put("thumbnailGenerated", !isDirectory && exact?.thumbnailFile?.isFile == true)
                 }
             }
             val body = JSONObject().put("files", JSONArray(children.values)).toString()
@@ -388,8 +490,8 @@ class MainActivity : AppCompatActivity() {
                         ))
                 )
         } ?: return null
-        if (isThumbnail && entry.mediaType != "image") return null
-        val file = entry.file ?: return null
+        val file = if (isThumbnail) entry.thumbnailFile else entry.file ?: return null
+        if (file?.isFile != true) return null
         val mime = URLConnection.guessContentTypeFromName(entry.title) ?: when (entry.mediaType) {
             "audio" -> "audio/*"
             "video" -> "video/*"
@@ -444,8 +546,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     internal fun webViewForTest(): WebView = webView
+    internal fun showHttpWarningForTest(url: String) = showHttpWarning(url)
+    internal fun httpWarningDialogForTest(): AlertDialog? = httpWarningDialog
     internal fun offlineResponseForTest(request: WebResourceRequest): WebResourceResponse? =
         offlineResponse(request)
+
+    override fun onDestroy() {
+        resolveAttempt += 1
+        connectionAttempt += 1
+        connectionExecutor.shutdownNow()
+        super.onDestroy()
+    }
 }
 
 private class LimitedInputStream(input: FileInputStream, private var remaining: Long) :

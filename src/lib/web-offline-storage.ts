@@ -1,4 +1,5 @@
 import type { FileItem } from '@/lib/types'
+import { generateOfflineThumbnail } from './offline-thumbnail'
 
 const DATABASE = 'derp-offline-v1'
 const STORE = 'entries'
@@ -14,6 +15,7 @@ type StoredOfflineEntry = {
   mediaUrl?: string
   fileName?: string
   thumbnailUrl?: string
+  thumbnailBlob?: Blob
 }
 
 declare global {
@@ -77,13 +79,13 @@ export async function initializeWebOfflineCatalog(): Promise<void> {
 export function webOfflineSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
-    (window.isSecureContext || location.hostname === 'localhost') &&
+    (window.isSecureContext || window.location.hostname === 'localhost') &&
     'indexedDB' in window &&
-    'serviceWorker' in navigator
+    'serviceWorker' in window.navigator
   )
 }
 
-async function requireActiveServiceWorker() {
+export async function requireActiveServiceWorker() {
   if (!webOfflineSupported()) throw new Error('Offline mode requires HTTPS or localhost')
   await navigator.serviceWorker.ready
   if (navigator.serviceWorker.controller) return
@@ -112,7 +114,7 @@ type DownloadSource = {
 
 async function saveSource(
   source: DownloadSource,
-  progress: { completed: number; written: string[] },
+  progress: { completed: number; written: string[]; physicalFiles: string[] },
 ) {
   const { item, apiPath, displayPath } = source
   if (item.isDirectory) {
@@ -154,18 +156,31 @@ async function saveSource(
   const response = await fetch(mediaUrl, { credentials: 'include' })
   if (!response.ok) throw new Error(`Could not download ${displayPath}`)
   let blob: Blob | undefined
+  let localFile: Blob | undefined
   let fileName: string | undefined
   let size = 0
   if (response.body && navigator.storage?.getDirectory) {
     fileName = `offline-${crypto.randomUUID()}`
+    progress.physicalFiles.push(fileName)
     const root = await navigator.storage.getDirectory()
     const handle = await root.getFileHandle(fileName, { create: true })
     const writable = await handle.createWritable()
     await response.body.pipeTo(writable)
     size = (await handle.getFile()).size
+    localFile = await handle.getFile()
   } else {
     blob = await response.blob()
+    localFile = blob
     size = blob.size
+  }
+  const thumbnailUrl = mediaUrl.pathname.replace('/media/', '/thumbnail/')
+  let thumbnailBlob: Blob | undefined
+  if (localFile && (item.type === 'image' || item.type === 'video')) {
+    thumbnailBlob = await generateOfflineThumbnail(localFile, item.type)
+  }
+  if (!thumbnailBlob && item.type === 'video') {
+    const thumbnailResponse = await fetch(thumbnailUrl, { credentials: 'include' }).catch(() => null)
+    if (thumbnailResponse?.ok) thumbnailBlob = await thumbnailResponse.blob()
   }
   await put({
     path: displayPath,
@@ -177,7 +192,8 @@ async function saveSource(
     blob,
     fileName,
     mediaUrl: mediaUrl.pathname,
-    thumbnailUrl: mediaUrl.pathname.replace('/media/', '/thumbnail/'),
+    thumbnailUrl,
+    thumbnailBlob,
   })
   progress.written.push(displayPath)
   progress.completed += 1
@@ -192,7 +208,7 @@ async function saveSource(
 export function saveForWebOffline(source: DownloadSource): boolean {
   if (!webOfflineSupported()) return false
   announce({ state: 'queued', name: source.item.name, path: source.displayPath })
-  const progress = { completed: 0, written: [] as string[] }
+  const progress = { completed: 0, written: [] as string[], physicalFiles: [] as string[] }
   void requireActiveServiceWorker()
     .then(() => saveSource(source, progress))
     .then(async () => {
@@ -216,6 +232,10 @@ export function saveForWebOffline(source: DownloadSource): boolean {
         transaction.oncomplete = () => resolve()
       })
       await Promise.all(writtenEntries.map(removePhysicalFile))
+      if (navigator.storage?.getDirectory) {
+        const root = await navigator.storage.getDirectory().catch(() => null)
+        await Promise.all(progress.physicalFiles.map((name) => root?.removeEntry(name).catch(() => undefined)))
+      }
       await refreshCatalog()
       announce({
         state: 'failed',

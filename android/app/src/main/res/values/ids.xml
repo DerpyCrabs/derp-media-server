@@ -2,6 +2,7 @@
     <item name="connection_root" type="id" />
     <item name="connection_title" type="id" />
     <item name="connection_input" type="id" />
+    <item name="recent_servers" type="id" />
     <item name="connection_button" type="id" />
     <item name="browser_shell" type="id" />
     <item name="browser_toolbar" type="id" />

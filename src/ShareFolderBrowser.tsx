@@ -718,7 +718,7 @@ export function ShareFolderBrowser(props: Props) {
                       dismissMenu()
                     }}
                   >
-                    {isAndroidApp()
+                    {isAndroidApp() && isOfflineFeatureAvailable()
                       ? isAndroidPathAvailableOffline(ctx.file.path)
                         ? 'Remove from offline'
                         : 'Make available offline'

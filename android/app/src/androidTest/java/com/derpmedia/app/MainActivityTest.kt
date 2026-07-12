@@ -57,13 +57,32 @@ class MainActivityTest {
         }
     }
 
-    @Test fun remoteHttpAddressIsRejectedBecauseOfflineModeRequiresHttps() {
+    @Test fun rememberedServersAreShownAsQuickActions() {
+        context.getSharedPreferences("connection", 0).edit()
+            .putStringSet("servers", setOf("https://media.example:3000"))
+            .commit()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                val input = activity.findViewById<android.widget.EditText>(R.id.connection_input)
-                input.setText("http://192.168.1.20:3100")
-                activity.findViewById<android.widget.Button>(R.id.connection_button).performClick()
-                assertEquals("HTTPS is required for offline access", input.error.toString())
+                val recent = activity.findViewById<android.widget.LinearLayout>(R.id.recent_servers)
+                assertTrue(recent.isShown)
+                assertTrue((0 until recent.childCount).any { index ->
+                    (recent.getChildAt(index) as? android.widget.Button)?.text == "https://media.example:3000"
+                })
+            }
+        }
+    }
+
+    @Test fun httpConnectionShowsOfflineModeWarning() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.showHttpWarningForTest("http://192.168.1.20:3000")
+                val dialog = activity.httpWarningDialogForTest()!!
+                val message = dialog.findViewById<android.widget.TextView>(android.R.id.message)
+                assertTrue(message!!.text.contains("Service Worker"))
+                assertEquals(
+                    "Connect anyway",
+                    dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).text.toString(),
+                )
             }
         }
     }

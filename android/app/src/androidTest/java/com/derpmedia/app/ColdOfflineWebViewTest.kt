@@ -114,7 +114,7 @@ class ColdOfflineWebViewTest {
         scenario.onActivity { activity ->
             val encoded = org.json.JSONObject.quote(path)
             activity.webViewForTest().evaluateJavascript(
-                "document.querySelector('[data-file-path='+CSS.escape($encoded)+']')?.click()",
+                "Array.from(document.querySelectorAll('[data-file-path]')).find(el=>el.getAttribute('data-file-path')===$encoded)?.click()",
             ) { latch.countDown() }
         }
         latch.await(2, TimeUnit.SECONDS)

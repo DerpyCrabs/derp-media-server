@@ -3,6 +3,8 @@
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" />
+            <certificates src="@raw/derp_lan_ca" />
             <certificates src="@raw/derp_dev_ca" />
         </trust-anchors>
     </base-config>

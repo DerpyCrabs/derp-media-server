@@ -49,6 +49,26 @@ test.describe('File browser misc', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
   })
 
+  test('keeps the complete theme menu accessible inside a short mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 320 })
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Open theme settings' }).click()
+    const menu = page.getByTestId('theme-settings-menu')
+    await expect(menu).toBeVisible()
+    const box = await menu.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.y).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(360)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(320)
+
+    await page.getByRole('menuitem', { name: 'Cosmic Night' }).click()
+    await expect(menu).not.toBeVisible()
+    await page.getByRole('button', { name: 'Open theme settings' }).click()
+    await page.getByRole('button', { name: 'Media directories' }).click()
+    await expect(page.getByRole('dialog', { name: 'Media directories' })).toBeVisible()
+  })
+
   test('dismisses share dialog with Escape', async ({ page }) => {
     await page.goto('/?dir=Documents')
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
