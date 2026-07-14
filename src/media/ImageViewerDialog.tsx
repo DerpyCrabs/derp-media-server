@@ -68,6 +68,7 @@ function ImageViewerInner(props: {
   const [rotation, setRotation] = createSignal(0)
   let activePointer: number | null = null
   let gestureStartX = 0
+  let lastTouchAt = 0
 
   createEffect(() => {
     void props.viewingPath
@@ -173,6 +174,7 @@ function ImageViewerInner(props: {
   }
 
   function handlePointerDown(e: PointerEvent) {
+    if (e.pointerType !== 'touch') return
     if (activePointer !== null) return
     try {
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -184,6 +186,8 @@ function ImageViewerInner(props: {
   }
 
   function handlePointerUp(e: PointerEvent) {
+    if (e.pointerType !== 'touch') return
+    lastTouchAt = Date.now()
     if (activePointer !== e.pointerId) return
     const deltaX = e.clientX - gestureStartX
     activePointer = null
@@ -194,7 +198,15 @@ function ImageViewerInner(props: {
   }
 
   function handlePointerCancel(e: PointerEvent) {
+    if (e.pointerType !== 'touch') return
     if (activePointer === e.pointerId) activePointer = null
+  }
+
+  function handleDesktopZoneClick(direction: 'previous' | 'next') {
+    if (Date.now() - lastTouchAt < 700) return
+    if (!window.matchMedia('(pointer: fine)').matches) return
+    if (direction === 'previous') goPrevious()
+    else goNext()
   }
 
   const imgStyle = createMemo((): JSX.CSSProperties => {
@@ -299,6 +311,18 @@ function ImageViewerInner(props: {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
+        <div
+          data-testid='image-previous-zone'
+          class='absolute top-0 bottom-0 left-0 z-10 hidden w-[30%] cursor-pointer [@media(pointer:fine)]:block'
+          onClick={() => handleDesktopZoneClick('previous')}
+          role='presentation'
+        />
+        <div
+          data-testid='image-next-zone'
+          class='absolute top-0 right-0 bottom-0 z-10 hidden w-[30%] cursor-pointer [@media(pointer:fine)]:block'
+          onClick={() => handleDesktopZoneClick('next')}
+          role='presentation'
+        />
         <img
           src={mediaUrl()}
           alt={fileName()}

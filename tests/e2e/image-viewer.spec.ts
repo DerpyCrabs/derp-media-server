@@ -111,6 +111,26 @@ test.describe('Image Viewer', () => {
     await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
   })
 
+  test('does not swipe images when dragging with a mouse', async ({ page }) => {
+    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    const surface = page.getByTestId('image-gesture-surface')
+    const box = (await surface.boundingBox())!
+    await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 20, box.y + box.height / 2)
+    await page.mouse.up()
+    await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
+    await expect(page).toHaveURL(/viewing=Images%2Fphoto\.jpg/)
+  })
+
+  test('navigates images by clicking desktop edge zones', async ({ page }) => {
+    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.getByTestId('image-next-zone').click()
+    await expect(page.locator('img[alt="photo.png"]')).toBeVisible()
+    await page.getByTestId('image-previous-zone').click()
+    await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
+  })
+
   test('shows image counter', async ({ page }) => {
     await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
     await expect(page.getByText('1 of 2')).toBeVisible()
