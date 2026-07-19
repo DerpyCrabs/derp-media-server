@@ -17,7 +17,7 @@ import { navigateSearchParams } from '../browser-history'
 import { WorkspaceLayoutHoverPreview } from '@/src/workspace/WorkspaceLayoutHoverPreview'
 
 function snapshotForLayoutPreset(s: PersistedWorkspaceState): PersistedWorkspaceState {
-  const plain = JSON.parse(JSON.stringify(s)) as PersistedWorkspaceState
+  const plain = structuredClone(s)
   return {
     ...plain,
     browserTabTitle: undefined,

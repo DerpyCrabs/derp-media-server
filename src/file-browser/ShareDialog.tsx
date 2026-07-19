@@ -281,7 +281,9 @@ function ShareLinkCard(props: {
         </span>
       </div>
 
-      <Show when={urlWarning()}>{(warning) => <p class='text-amber-600 text-xs'>{warning()}</p>}</Show>
+      <Show when={urlWarning()}>
+        {(warning) => <p class='text-amber-600 text-xs'>{warning()}</p>}
+      </Show>
 
       <Show when={copyError()}>
         <div class='space-y-2 rounded-md border border-destructive/40 p-2'>

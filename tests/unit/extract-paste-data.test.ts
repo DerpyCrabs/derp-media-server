@@ -53,11 +53,16 @@ describe('extractPasteDataFromClipboardData', () => {
   test('uses the first heading, then the first meaningful line, for capture names', async () => {
     const heading = makeTransfer()
     heading.setData('text/plain', 'intro\n# Clipboard title\nbody')
-    expect((await extractPasteDataFromClipboardData(heading, { textSuggestedExtension: 'md' }))?.suggestedName).toBe('Clipboard title.md')
+    expect(
+      (await extractPasteDataFromClipboardData(heading, { textSuggestedExtension: 'md' }))
+        ?.suggestedName,
+    ).toBe('Clipboard title.md')
 
     const line = makeTransfer()
     line.setData('text/plain', '\nUseful first line\nmore')
-    expect((await extractPasteDataFromClipboardData(line))?.suggestedName).toBe('Useful first line.txt')
+    expect((await extractPasteDataFromClipboardData(line))?.suggestedName).toBe(
+      'Useful first line.txt',
+    )
   })
   test('uses md extension when requested', async () => {
     const dt = makeTransfer()

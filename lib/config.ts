@@ -417,16 +417,13 @@ function loadConfigOnce(): AppConfig {
       typeof parsed.dataPath === 'string' ? path.resolve(configDir, parsed.dataPath) : configDir
     const rawTls = parsed.tls && typeof parsed.tls === 'object' ? parsed.tls : undefined
     const resolveConfigPath = (value: unknown) =>
-      typeof value === 'string' && value.trim()
-        ? path.resolve(configDir, value.trim())
-        : undefined
+      typeof value === 'string' && value.trim() ? path.resolve(configDir, value.trim()) : undefined
     const tls: TlsConfig | undefined = rawTls
       ? {
           certPath: resolveConfigPath(rawTls.certPath),
           keyPath: resolveConfigPath(rawTls.keyPath),
           pfxPath: resolveConfigPath(rawTls.pfxPath),
-          passphrase:
-            typeof rawTls.passphrase === 'string' ? rawTls.passphrase : undefined,
+          passphrase: typeof rawTls.passphrase === 'string' ? rawTls.passphrase : undefined,
         }
       : undefined
     if (tls?.pfxPath && (tls.certPath || tls.keyPath)) {

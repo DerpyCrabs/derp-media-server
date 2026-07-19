@@ -1166,7 +1166,14 @@ export function ShareFolderBrowser(props: Props) {
                                 tabindex={0}
                               >
                                 <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-                                  <button type='button' aria-label={`More actions for ${file.name}`} class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow-sm' onClick={(e) => openRowMenuButton(e, file)}><Ellipsis class='h-5 w-5' /></button>
+                                  <button
+                                    type='button'
+                                    aria-label={`More actions for ${file.name}`}
+                                    class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow-sm'
+                                    onClick={(e) => openRowMenuButton(e, file)}
+                                  >
+                                    <Ellipsis class='h-5 w-5' />
+                                  </button>
                                   <div class='text-muted-foreground'>
                                     {gridHeroIcon(file, shareFileIconContext())}
                                   </div>
@@ -1245,7 +1252,16 @@ export function ShareFolderBrowser(props: Props) {
                                     {file.isDirectory ? '' : formatFileSize(file.size)}
                                   </span>
                                 </td>
-                                <td class='p-1 align-middle'><button type='button' aria-label={`More actions for ${file.name}`} class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted' onClick={(e) => openRowMenuButton(e, file)}><Ellipsis class='h-5 w-5' /></button></td>
+                                <td class='p-1 align-middle'>
+                                  <button
+                                    type='button'
+                                    aria-label={`More actions for ${file.name}`}
+                                    class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted'
+                                    onClick={(e) => openRowMenuButton(e, file)}
+                                  >
+                                    <Ellipsis class='h-5 w-5' />
+                                  </button>
+                                </td>
                               </tr>
                             )}
                             renderEmptyRow={() => (

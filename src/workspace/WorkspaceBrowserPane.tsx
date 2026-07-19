@@ -1000,22 +1000,50 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     pasteMutation.reset()
   }
 
-  function handlePasteFileSubmit(fileName: string, mode: 'create' | 'replace', expectedVersion?: number) {
+  function handlePasteFileSubmit(
+    fileName: string,
+    mode: 'create' | 'replace',
+    expectedVersion?: number,
+  ) {
     const pd = pasteData()
     if (!pd) return
     const sh = share()
     if (sh) {
       const rel = listDir() ? `${listDir()}/${fileName}` : fileName
       if (pd.type === 'image') {
-        pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token, mode, expectedVersion })
+        pasteMutation.mutate({
+          path: rel,
+          base64Content: pd.content,
+          shareToken: sh.token,
+          mode,
+          expectedVersion,
+        })
       } else if (pd.type === 'file') {
         if (pd.isTextContent) {
-          pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token, mode, expectedVersion })
+          pasteMutation.mutate({
+            path: rel,
+            content: pd.content,
+            shareToken: sh.token,
+            mode,
+            expectedVersion,
+          })
         } else {
-          pasteMutation.mutate({ path: rel, base64Content: pd.content, shareToken: sh.token, mode, expectedVersion })
+          pasteMutation.mutate({
+            path: rel,
+            base64Content: pd.content,
+            shareToken: sh.token,
+            mode,
+            expectedVersion,
+          })
         }
       } else {
-        pasteMutation.mutate({ path: rel, content: pd.content, shareToken: sh.token, mode, expectedVersion })
+        pasteMutation.mutate({
+          path: rel,
+          content: pd.content,
+          shareToken: sh.token,
+          mode,
+          expectedVersion,
+        })
       }
       return
     }
@@ -1491,11 +1519,18 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                         onKeyDown={(e) => {
                           if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                             e.preventDefault()
-                            const buttons = kbSearchRootEl?.parentElement?.parentElement?.querySelectorAll<HTMLButtonElement>('[data-kb-search-result]')
-                            const target = e.key === 'ArrowDown' ? buttons?.[0] : buttons?.[buttons.length - 1]
+                            const buttons =
+                              kbSearchRootEl?.parentElement?.parentElement?.querySelectorAll<HTMLButtonElement>(
+                                '[data-kb-search-result]',
+                              )
+                            const target =
+                              e.key === 'ArrowDown' ? buttons?.[0] : buttons?.[buttons.length - 1]
                             target?.focus()
                           } else if (e.key === 'Enter') {
-                            const first = kbSearchRootEl?.parentElement?.parentElement?.querySelector<HTMLButtonElement>('[data-kb-search-result]')
+                            const first =
+                              kbSearchRootEl?.parentElement?.parentElement?.querySelector<HTMLButtonElement>(
+                                '[data-kb-search-result]',
+                              )
                             if (first) {
                               e.preventDefault()
                               first.click()

@@ -114,7 +114,11 @@ export type FileBrowserModalLayerProps = {
   pastePending: boolean
   pasteError: Error | null
   pasteExistingFiles: Accessor<FileItem[]>
-  onPasteFileSubmit: (fileName: string, mode: 'create' | 'replace', expectedVersion?: number) => void
+  onPasteFileSubmit: (
+    fileName: string,
+    mode: 'create' | 'replace',
+    expectedVersion?: number,
+  ) => void
   closePasteDialog: () => void
 }
 

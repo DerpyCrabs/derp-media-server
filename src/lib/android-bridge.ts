@@ -106,7 +106,10 @@ export function downloadInAndroid(file: FileItem, share: ShareContext = null): b
   return true
 }
 
-export async function makeAvailableOffline(file: FileItem, share: ShareContext = null): Promise<boolean> {
+export async function makeAvailableOffline(
+  file: FileItem,
+  share: ShareContext = null,
+): Promise<boolean> {
   const relativePath = share ? relativeSharePath(file.path, share.sharePath) : file.path
   const downloadUrl = share
     ? `/api/share/${encodeURIComponent(share.token)}/download?path=${encodeURIComponent(relativePath)}`

@@ -333,7 +333,16 @@ function sanitizeTilingPlacement(value: unknown): WorkspaceTilingPlacement | nul
   ) {
     return null
   }
-  return t
+  return {
+    cols: t.cols,
+    rows: t.rows,
+    colStart: t.colStart,
+    colEnd: t.colEnd,
+    rowStart: t.rowStart,
+    rowEnd: t.rowEnd,
+    colLines: t.colLines.slice(),
+    rowLines: t.rowLines.slice(),
+  }
 }
 
 export type NormalizePersistedWorkspaceOptions = {

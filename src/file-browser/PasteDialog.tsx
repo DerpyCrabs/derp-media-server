@@ -169,10 +169,30 @@ export function PasteDialog(props: Props) {
                     }
                   >
                     <div class='space-y-2'>
-                      <Show when={fileExists() && existingText() !== null} fallback={<PasteTextPreview content={pd().content} renderAsMarkdown={previewAsMarkdown} />}>
+                      <Show
+                        when={fileExists() && existingText() !== null}
+                        fallback={
+                          <PasteTextPreview
+                            content={pd().content}
+                            renderAsMarkdown={previewAsMarkdown}
+                          />
+                        }
+                      >
                         <div class='grid gap-3 sm:grid-cols-2' data-testid='paste-diff'>
-                          <div><p class='mb-1 text-xs font-medium'>Existing</p><PasteTextPreview content={existingText()!} renderAsMarkdown={() => false} /></div>
-                          <div><p class='mb-1 text-xs font-medium'>Clipboard</p><PasteTextPreview content={pd().content} renderAsMarkdown={() => false} /></div>
+                          <div>
+                            <p class='mb-1 text-xs font-medium'>Existing</p>
+                            <PasteTextPreview
+                              content={existingText()!}
+                              renderAsMarkdown={() => false}
+                            />
+                          </div>
+                          <div>
+                            <p class='mb-1 text-xs font-medium'>Clipboard</p>
+                            <PasteTextPreview
+                              content={pd().content}
+                              renderAsMarkdown={() => false}
+                            />
+                          </div>
                         </div>
                       </Show>
                       <Show when={pd().fileSize}>
@@ -209,14 +229,22 @@ export function PasteDialog(props: Props) {
                   </Show>
 
                   <Show when={fileExists() && canReplace() && !pd().isTextContent}>
-                    <div class='grid grid-cols-2 gap-3 text-sm' data-testid='binary-replacement-info'>
+                    <div
+                      class='grid grid-cols-2 gap-3 text-sm'
+                      data-testid='binary-replacement-info'
+                    >
                       <div class='bg-muted/30 rounded-lg border p-3'>
                         <p class='font-medium'>Existing</p>
-                        <p class='text-muted-foreground mt-1 text-xs'>{existingItem()!.extension || existingItem()!.type} · {formatFileSize(existingItem()!.size)}</p>
+                        <p class='text-muted-foreground mt-1 text-xs'>
+                          {existingItem()!.extension || existingItem()!.type} ·{' '}
+                          {formatFileSize(existingItem()!.size)}
+                        </p>
                       </div>
                       <div class='bg-muted/30 rounded-lg border p-3'>
                         <p class='font-medium'>Clipboard</p>
-                        <p class='text-muted-foreground mt-1 text-xs'>{pd().fileType || 'binary file'} · {formatFileSize(pd().fileSize ?? 0)}</p>
+                        <p class='text-muted-foreground mt-1 text-xs'>
+                          {pd().fileType || 'binary file'} · {formatFileSize(pd().fileSize ?? 0)}
+                        </p>
                       </div>
                     </div>
                   </Show>
@@ -265,7 +293,14 @@ export function PasteDialog(props: Props) {
 
           <div class='mt-6 flex justify-end gap-2'>
             <Show when={fileExists()}>
-              <button type='button' class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium' disabled={props.isPending} onClick={() => document.querySelector<HTMLInputElement>('input[autofocus]')?.focus()}>
+              <button
+                type='button'
+                class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium'
+                disabled={props.isPending}
+                onClick={() =>
+                  document.querySelector<HTMLInputElement>('input[autofocus]')?.focus()
+                }
+              >
                 Save with another name
               </button>
             </Show>

@@ -9,9 +9,14 @@ import {
 import type { WorkspaceShareConfig } from '@/src/workspace/WorkspaceBrowserPane'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { createMemo } from 'solid-js'
+import { unwrap } from 'solid-js/store'
 import type { WorkspacePageProps } from './workspace-page-types'
 
 type AuthConfig = { enabled: boolean; editableFolders: string[] }
+
+function fromQueryData<T>(value: T): T {
+  return structuredClone(unwrap(value))
+}
 
 export function useWorkspacePageServerData(
   props: WorkspacePageProps,
@@ -36,7 +41,8 @@ export function useWorkspacePageServerData(
   const editableFolders = createMemo((): string[] => {
     const c = shareConfig()
     if (c?.sharePath) return [c.sharePath]
-    return authQuery.data?.editableFolders ?? []
+    const folders = authQuery.data?.editableFolders
+    return folders ? fromQueryData(folders) : []
   })
 
   const sharePanel = createMemo((): WorkspaceShareConfig | null => {
@@ -49,12 +55,14 @@ export function useWorkspacePageServerData(
 
   const serverPinsList = createMemo((): PinnedTaskbarItem[] => {
     if (shareConfig()) return props.shareWorkspaceTaskbarPins ?? []
-    return settingsQuery.data?.workspaceTaskbarPins ?? []
+    const pins = settingsQuery.data?.workspaceTaskbarPins
+    return pins ? fromQueryData(pins) : []
   })
 
   const serverLayoutPresets = createMemo((): WorkspaceLayoutPreset[] => {
     if (shareConfig()) return props.shareWorkspaceLayoutPresets ?? []
-    return settingsQuery.data?.workspaceLayoutPresets ?? []
+    const presets = settingsQuery.data?.workspaceLayoutPresets
+    return presets ? fromQueryData(presets) : []
   })
 
   const presetsReady = createMemo(() => (shareConfig() ? true : settingsQuery.isSuccess))

@@ -479,7 +479,13 @@ export function FileBrowser() {
   }))
 
   const pasteMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; content?: string; base64Content?: string; mode: 'create' | 'replace'; expectedVersion?: number }) =>
+    mutationFn: (vars: {
+      path: string
+      content?: string
+      base64Content?: string
+      mode: 'create' | 'replace'
+      expectedVersion?: number
+    }) =>
       post(vars.mode === 'replace' ? '/api/files/edit' : '/api/files/create', {
         ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
         path: vars.path,
@@ -514,7 +520,11 @@ export function FileBrowser() {
     setShowPasteDialog(true)
   }
 
-  function handlePasteFileSubmit(fileName: string, mode: 'create' | 'replace', expectedVersion?: number) {
+  function handlePasteFileSubmit(
+    fileName: string,
+    mode: 'create' | 'replace',
+    expectedVersion?: number,
+  ) {
     const pd = pasteData()
     if (!pd) return
     const rel = currentPath() ? `${currentPath()}/${fileName}` : fileName
@@ -1275,11 +1285,7 @@ export function FileBrowser() {
                   </div>
                   <Show when={inKb()}>
                     <div class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'>
-                      <div
-                        class='relative'
-                        data-kb-search-root
-                        ref={(el) => (kbSearchRootEl = el)}
-                      >
+                      <div class='relative' data-kb-search-root ref={(el) => (kbSearchRootEl = el)}>
                         <button
                           type='button'
                           aria-label='Search note contents'
@@ -1454,7 +1460,9 @@ export function FileBrowser() {
                                               type='button'
                                               aria-label={`More actions for ${file.name}`}
                                               class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm'
-                                              onClick={(e) => fileRowMenu.openRowMenuFromButton(e, file)}
+                                              onClick={(e) =>
+                                                fileRowMenu.openRowMenuFromButton(e, file)
+                                              }
                                             >
                                               <Ellipsis class='h-5 w-5' aria-hidden='true' />
                                             </button>
@@ -1790,7 +1798,9 @@ export function FileBrowser() {
                                               type='button'
                                               aria-label={`More actions for ${file.name}`}
                                               class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted'
-                                              onClick={(e) => fileRowMenu.openRowMenuFromButton(e, file)}
+                                              onClick={(e) =>
+                                                fileRowMenu.openRowMenuFromButton(e, file)
+                                              }
                                             >
                                               <Ellipsis class='h-5 w-5' aria-hidden='true' />
                                             </button>

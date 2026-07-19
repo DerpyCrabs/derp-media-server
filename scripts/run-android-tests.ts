@@ -8,9 +8,12 @@ const PORT = 3102
 const certPath = path.join(ROOT, '.certs', 'dev-local.cert.pem')
 const keyPath = path.join(ROOT, '.certs', 'dev-local.key.pem')
 const androidStudioJbr = 'C:\\Program Files\\Android\\Android Studio\\jbr'
-const commandShell = process.env.ComSpec ?? path.join(process.env.WINDIR ?? 'C:\\Windows', 'System32', 'cmd.exe')
+const commandShell =
+  process.env.ComSpec ?? path.join(process.env.WINDIR ?? 'C:\\Windows', 'System32', 'cmd.exe')
 const sdkRoot =
-  process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? path.join(process.env.LOCALAPPDATA ?? '', 'Android', 'Sdk')
+  process.env.ANDROID_HOME ??
+  process.env.ANDROID_SDK_ROOT ??
+  path.join(process.env.LOCALAPPDATA ?? '', 'Android', 'Sdk')
 const adb = path.join(sdkRoot, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb')
 const androidRoot = path.join(ROOT, 'android')
 
@@ -18,7 +21,9 @@ function run(command: string, args: string[], env = process.env, cwd = ROOT): Pr
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env, stdio: 'inherit', shell: false })
     child.once('error', reject)
-    child.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`${command} exited with code ${code}`))))
+    child.once('exit', (code) =>
+      code === 0 ? resolve() : reject(new Error(`${command} exited with code ${code}`)),
+    )
   })
 }
 
@@ -72,14 +77,24 @@ if (fs.existsSync(androidStudioJbr)) {
 const serverAlreadyRunning = await portIsOpen(PORT)
 const server = serverAlreadyRunning
   ? undefined
-  : spawn(process.execPath, ['run', 'dev'], { cwd: ROOT, env: testEnv, stdio: 'inherit', shell: false })
+  : spawn(process.execPath, ['run', 'dev'], {
+      cwd: ROOT,
+      env: testEnv,
+      stdio: 'inherit',
+      shell: false,
+    })
 const reverseAlreadyPresent = await reverseExists()
 
 try {
   if (!serverAlreadyRunning) await waitForPort(PORT, 15_000)
   if (!reverseAlreadyPresent) await run(adb, ['reverse', `tcp:${PORT}`, `tcp:${PORT}`])
   if (process.platform === 'win32') {
-    await run(commandShell, ['/d', '/s', '/c', 'gradlew.bat connectedDebugAndroidTest'], testEnv, androidRoot)
+    await run(
+      commandShell,
+      ['/d', '/s', '/c', 'gradlew.bat connectedDebugAndroidTest'],
+      testEnv,
+      androidRoot,
+    )
   } else {
     await run('./gradlew', ['connectedDebugAndroidTest'], testEnv, androidRoot)
   }

@@ -27,7 +27,10 @@ export function ThemeSwitcher(props: Props) {
     const viewportTop = viewport?.offsetTop ?? 0
     const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight)
     const top = Math.max(viewportTop + 8, rect.bottom + 4)
-    const bottom = Math.max(window.innerHeight - viewportBottom + 8, window.innerHeight - rect.top + 4)
+    const bottom = Math.max(
+      window.innerHeight - viewportBottom + 8,
+      window.innerHeight - rect.top + 4,
+    )
     setMenuPosition({
       top,
       right: Math.max(8, window.innerWidth - rect.right),
@@ -74,7 +77,11 @@ export function ThemeSwitcher(props: Props) {
       </button>
       <Show when={menuOpen()}>
         <Portal>
-          <div class='fixed inset-0 z-10000' role='presentation' onClick={() => setMenuOpen(false)} />
+          <div
+            class='fixed inset-0 z-10000'
+            role='presentation'
+            onClick={() => setMenuOpen(false)}
+          />
           <div
             data-testid='theme-settings-menu'
             role='menu'

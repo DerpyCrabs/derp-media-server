@@ -81,7 +81,9 @@ test.describe('Managing Shares', () => {
     await expect(table).toBeVisible()
   })
 
-  test('quick copy includes the complete protected and unprotected share URLs', async ({ page }) => {
+  test('quick copy includes the complete protected and unprotected share URLs', async ({
+    page,
+  }) => {
     await page.goto('/?dir=Shares')
     const origin = new URL(page.url()).origin
 

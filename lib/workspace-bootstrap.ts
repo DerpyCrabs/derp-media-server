@@ -100,12 +100,12 @@ export function resolveWorkspaceInitialHydration(
   if (presetParam && presetsReadyNow) {
     const normalized = findPresetSnapshot(presetsList, presetParam, layoutScope)
     if (normalized) {
-      const clone = JSON.parse(JSON.stringify(normalized)) as PersistedWorkspaceState
+      const workspace = structuredClone(normalized)
       return {
         kind: 'set-workspace',
-        workspace: normalized,
+        workspace,
         baselinePresetId: presetParam,
-        baselineSnapshot: clone,
+        baselineSnapshot: structuredClone(workspace),
         stripPresetFromUrl: true,
       }
     }
@@ -155,12 +155,12 @@ export function resolveWorkspaceDeferredPresetApply(input: {
   if (!presetParam || !presetsReadyNow || hasPersistedDraft) return null
   const normalized = findPresetSnapshot(presetsList, presetParam, layoutScope)
   if (!normalized) return { kind: 'noop', stripPresetFromUrl: true }
-  const clone = JSON.parse(JSON.stringify(normalized)) as PersistedWorkspaceState
+  const workspace = structuredClone(normalized)
   return {
     kind: 'apply',
-    workspace: normalized,
+    workspace,
     baselinePresetId: presetParam,
-    baselineSnapshot: clone,
+    baselineSnapshot: structuredClone(workspace),
     stripPresetFromUrl: true,
   }
 }

@@ -126,7 +126,10 @@ export function retryWebOffline(path: string) {
 
 export async function webOfflineUsage() {
   const entries = await allEntries()
-  return { used: entries.reduce((sum, entry) => sum + entry.size + (entry.thumbnailBlob?.size ?? 0), 0), entries: entries.length }
+  return {
+    used: entries.reduce((sum, entry) => sum + entry.size + (entry.thumbnailBlob?.size ?? 0), 0),
+    entries: entries.length,
+  }
 }
 
 async function saveSource(
@@ -149,7 +152,8 @@ async function saveSource(
     const listUrl = new URL(source.listBaseUrl)
     listUrl.searchParams.set('dir', apiPath)
     const response = await fetch(listUrl, { credentials: 'include', signal })
-    if (!response.ok) throw Object.assign(new Error(`Could not list ${displayPath}`), { status: response.status })
+    if (!response.ok)
+      throw Object.assign(new Error(`Could not list ${displayPath}`), { status: response.status })
     const body = (await response.json()) as { files: FileItem[] }
     for (const child of body.files) {
       const childApiPath = apiPath ? `${apiPath}/${child.name}` : child.name
@@ -173,9 +177,17 @@ async function saveSource(
     source.mediaBaseUrl,
   )
   const response = await fetch(mediaUrl, { credentials: 'include', signal })
-  if (!response.ok) throw Object.assign(new Error(`Could not download ${displayPath}`), { status: response.status })
+  if (!response.ok)
+    throw Object.assign(new Error(`Could not download ${displayPath}`), { status: response.status })
   const totalBytes = Number(response.headers.get('content-length')) || item.size || 0
-  announce({ state: 'running', name: item.name, path: displayPath, completed: progress.completed, totalBytes, downloadedBytes: 0 })
+  announce({
+    state: 'running',
+    name: item.name,
+    path: displayPath,
+    completed: progress.completed,
+    totalBytes,
+    downloadedBytes: 0,
+  })
   let blob: Blob | undefined
   let localFile: Blob | undefined
   let fileName: string | undefined
@@ -194,7 +206,14 @@ async function saveSource(
         if (chunk.done) break
         await writable.write(chunk.value)
         downloadedBytes += chunk.value.byteLength
-        announce({ state: 'running', name: item.name, path: displayPath, completed: progress.completed, totalBytes, downloadedBytes })
+        announce({
+          state: 'running',
+          name: item.name,
+          path: displayPath,
+          completed: progress.completed,
+          totalBytes,
+          downloadedBytes,
+        })
       }
       await writable.close()
     } catch (error) {
@@ -214,7 +233,9 @@ async function saveSource(
     thumbnailBlob = await generateOfflineThumbnail(localFile, item.type)
   }
   if (!thumbnailBlob && item.type === 'video') {
-    const thumbnailResponse = await fetch(thumbnailUrl, { credentials: 'include' }).catch(() => null)
+    const thumbnailResponse = await fetch(thumbnailUrl, { credentials: 'include' }).catch(
+      () => null,
+    )
     if (thumbnailResponse?.ok) thumbnailBlob = await thumbnailResponse.blob()
   }
   await put({
@@ -242,7 +263,12 @@ async function saveSource(
 
 export function saveForWebOffline(source: DownloadSource): boolean {
   if (!webOfflineSupported()) return false
-  announce({ state: 'queued', name: source.item.name, path: source.displayPath, totalBytes: source.item.size || 0 })
+  announce({
+    state: 'queued',
+    name: source.item.name,
+    path: source.displayPath,
+    totalBytes: source.item.size || 0,
+  })
   retrySources.set(source.displayPath, source)
   const controller = new AbortController()
   activeDownloads.get(source.displayPath)?.abort()
@@ -274,19 +300,22 @@ export function saveForWebOffline(source: DownloadSource): boolean {
       await Promise.all(writtenEntries.map(removePhysicalFile))
       if (navigator.storage?.getDirectory) {
         const root = await navigator.storage.getDirectory().catch(() => null)
-        await Promise.all(progress.physicalFiles.map((name) => root?.removeEntry(name).catch(() => undefined)))
+        await Promise.all(
+          progress.physicalFiles.map((name) => root?.removeEntry(name).catch(() => undefined)),
+        )
       }
       await refreshCatalog()
       const status = (error as { status?: number }).status
-      const errorKind = error instanceof DOMException && error.name === 'QuotaExceededError'
-        ? 'quota'
-        : status === 401 || status === 403
-          ? 'auth'
-          : error instanceof DOMException && error.name === 'AbortError'
-            ? 'cancelled'
-            : error instanceof TypeError
-              ? 'network'
-              : 'unsupported-format'
+      const errorKind =
+        error instanceof DOMException && error.name === 'QuotaExceededError'
+          ? 'quota'
+          : status === 401 || status === 403
+            ? 'auth'
+            : error instanceof DOMException && error.name === 'AbortError'
+              ? 'cancelled'
+              : error instanceof TypeError
+                ? 'network'
+                : 'unsupported-format'
       activeDownloads.delete(source.displayPath)
       announce({
         state: errorKind === 'cancelled' ? 'cancelled' : 'failed',

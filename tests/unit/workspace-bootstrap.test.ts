@@ -92,12 +92,13 @@ describe('workspace-bootstrap', () => {
   })
 
   test('initial: applies preset when no draft and presets ready', () => {
+    const presetsList = [minimalPreset('p1', 'admin', oneBrowserWin('from-preset', localSource))]
     const r = resolveWorkspaceInitialHydration({
       dirParam: null,
       presetParam: 'p1',
       loaded: null,
       presetsReadyNow: true,
-      presetsList: [minimalPreset('p1', 'admin', oneBrowserWin('from-preset', localSource))],
+      presetsList,
       layoutScope: 'admin',
       source: localSource,
     })
@@ -107,6 +108,8 @@ describe('workspace-bootstrap', () => {
     expect(r.baselinePresetId).toBe('p1')
     expect(r.baselineSnapshot?.windows[0]?.id).toBe('from-preset')
     expect(r.stripPresetFromUrl).toBe(true)
+    expect(r.workspace).not.toBe(presetsList[0]!.snapshot)
+    expect(r.workspace.windows).not.toBe(presetsList[0]!.snapshot.windows)
   })
 
   test('initial: invalid preset falls back to default workspace', () => {

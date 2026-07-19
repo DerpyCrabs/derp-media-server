@@ -49,7 +49,9 @@ test.describe('File browser misc', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
   })
 
-  test('keeps the complete theme menu accessible inside a short mobile viewport', async ({ page }) => {
+  test('keeps the complete theme menu accessible inside a short mobile viewport', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 360, height: 320 })
     await page.goto('/')
     await page.getByRole('button', { name: 'Open theme settings' }).click()
@@ -102,15 +104,24 @@ test.describe('File browser clipboard paste', () => {
     await expect(page.locator('textarea').first()).toHaveValue('paste dialog e2e')
   })
 
-  async function openTextPaste(page: import('@playwright/test').Page, name: string, content: string) {
+  async function openTextPaste(
+    page: import('@playwright/test').Page,
+    name: string,
+    content: string,
+  ) {
     await page.getByTestId('file-browser').focus()
-    await page.evaluate(({ content }) => {
-      const dt = new DataTransfer()
-      dt.setData('text/plain', content)
-      document.querySelector('[data-testid="file-browser"]')!.dispatchEvent(
-        new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }),
-      )
-    }, { content })
+    await page.evaluate(
+      ({ content }) => {
+        const dt = new DataTransfer()
+        dt.setData('text/plain', content)
+        document
+          .querySelector('[data-testid="file-browser"]')!
+          .dispatchEvent(
+            new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }),
+          )
+      },
+      { content },
+    )
     await expect(page.getByRole('heading', { name: /Paste Text/i })).toBeVisible()
     await page.getByLabel('Filename').fill(name)
   }
@@ -123,11 +134,15 @@ test.describe('File browser clipboard paste', () => {
       await page.goto(`/?dir=${UPLOAD_DIR}`)
       await openTextPaste(page, name, 'new text')
       await expect(page.getByTestId('paste-diff')).toContainText('old text')
-      const edit = page.waitForResponse((r) => r.url().includes('/api/files/edit') && r.status() === 200)
+      const edit = page.waitForResponse(
+        (r) => r.url().includes('/api/files/edit') && r.status() === 200,
+      )
       await page.getByRole('button', { name: 'Replace', exact: true }).click()
       await edit
       await expect(page.locator('textarea').first()).toHaveValue('new text')
-    } finally { fs.rmSync(target, { force: true }) }
+    } finally {
+      fs.rmSync(target, { force: true })
+    }
   })
 
   test('saves a conflict with another name', async ({ page }) => {
@@ -144,7 +159,10 @@ test.describe('File browser clipboard paste', () => {
       await page.getByRole('button', { name: 'Paste', exact: true }).click()
       await expect(page.locator('textarea').first()).toHaveValue('copy content')
       expect(fs.readFileSync(target, 'utf8')).toBe('original')
-    } finally { fs.rmSync(target, { force: true }); fs.rmSync(copy, { force: true }) }
+    } finally {
+      fs.rmSync(target, { force: true })
+      fs.rmSync(copy, { force: true })
+    }
   })
 
   test('cancels an existing-name paste without writing', async ({ page }) => {
@@ -157,7 +175,9 @@ test.describe('File browser clipboard paste', () => {
       await page.getByRole('button', { name: 'Cancel', exact: true }).click()
       await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
       expect(fs.readFileSync(target, 'utf8')).toBe('keep me')
-    } finally { fs.rmSync(target, { force: true }) }
+    } finally {
+      fs.rmSync(target, { force: true })
+    }
   })
 
   test('reports a version conflict instead of replacing newer content', async ({ page }) => {
@@ -172,7 +192,9 @@ test.describe('File browser clipboard paste', () => {
       await page.getByRole('button', { name: 'Replace', exact: true }).click()
       await expect(page.getByText('File changed since the replacement was prepared')).toBeVisible()
       expect(fs.readFileSync(target, 'utf8')).toBe('newer remote content')
-    } finally { fs.rmSync(target, { force: true }) }
+    } finally {
+      fs.rmSync(target, { force: true })
+    }
   })
 
   test('shows old and new binary metadata and replaces the binary', async ({ page }) => {
@@ -182,14 +204,27 @@ test.describe('File browser clipboard paste', () => {
     try {
       await page.goto(`/?dir=${UPLOAD_DIR}`)
       await page.getByTestId('file-browser').focus()
-      await page.evaluate(({ name }) => {
-        const dt = new DataTransfer()
-        dt.items.add(new File([new Uint8Array([9, 8, 7, 6])], name, { type: 'application/octet-stream' }))
-        document.querySelector('[data-testid="file-browser"]')!.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
-      }, { name })
-      await expect(page.getByTestId('binary-replacement-info')).toContainText('application/octet-stream')
+      await page.evaluate(
+        ({ name }) => {
+          const dt = new DataTransfer()
+          dt.items.add(
+            new File([new Uint8Array([9, 8, 7, 6])], name, { type: 'application/octet-stream' }),
+          )
+          document
+            .querySelector('[data-testid="file-browser"]')!
+            .dispatchEvent(
+              new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }),
+            )
+        },
+        { name },
+      )
+      await expect(page.getByTestId('binary-replacement-info')).toContainText(
+        'application/octet-stream',
+      )
       await page.getByRole('button', { name: 'Replace', exact: true }).click()
       await expect.poll(() => fs.readFileSync(target).toString('hex')).toBe('09080706')
-    } finally { fs.rmSync(target, { force: true }) }
+    } finally {
+      fs.rmSync(target, { force: true })
+    }
   })
 })

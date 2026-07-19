@@ -24,8 +24,18 @@ test.describe('mobile media management', () => {
     const surface = page.getByTestId('image-gesture-surface')
     const box = (await surface.boundingBox())!
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2)
-    await surface.dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'touch', clientX: box.x + 300, clientY: box.y + 200 })
-    await surface.dispatchEvent('pointerup', { pointerId: 1, pointerType: 'touch', clientX: box.x + 180, clientY: box.y + 200 })
+    await surface.dispatchEvent('pointerdown', {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: box.x + 300,
+      clientY: box.y + 200,
+    })
+    await surface.dispatchEvent('pointerup', {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: box.x + 180,
+      clientY: box.y + 200,
+    })
     await expect(page.locator('img[alt="photo.png"]')).toBeVisible()
   })
 
@@ -34,7 +44,7 @@ test.describe('mobile media management', () => {
     await expect(page.getByTestId('pdf-canvas')).toBeVisible()
     await expect(page.locator('embed')).toHaveCount(0)
     const controls = page.getByRole('dialog').locator('button')
-    for (let i = 0; i < await controls.count(); i += 1) {
+    for (let i = 0; i < (await controls.count()); i += 1) {
       const box = await controls.nth(i).boundingBox()
       expect(box?.height).toBeGreaterThanOrEqual(44)
     }

@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('Offline mode', () => {
-  test('generates image and video thumbnails locally without thumbnail APIs', async ({ page, context }) => {
+  test('generates image and video thumbnails locally without thumbnail APIs', async ({
+    page,
+    context,
+  }) => {
     test.setTimeout(60_000)
     await page.goto('/')
     const root = await page.evaluate(async () => {
@@ -15,33 +18,48 @@ test.describe('Offline mode', () => {
     await page.route(/\/api\/(?:share\/[^/]+\/)?thumbnail\//, (route) => route.abort())
     const prefix = root ? `${root}/` : ''
 
-    for (const [directory, name] of [['Images', 'photo.jpg'], ['Videos', 'sample.mp4']] as const) {
+    for (const [directory, name] of [
+      ['Images', 'photo.jpg'],
+      ['Videos', 'sample.mp4'],
+    ] as const) {
       await page.goto(`/?dir=${encodeURIComponent(`${prefix}${directory}`)}`)
       await page.locator('table tr').filter({ hasText: name }).click({ button: 'right' })
       await page.getByText('Make available offline', { exact: true }).click()
       await expect(page.getByText(`${name} is available offline`, { exact: true })).toBeVisible()
     }
 
-    const stored = await page.evaluate(async (paths) => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open('derp-offline-v1', 1)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
-      return Promise.all(paths.map((path) => new Promise<{ thumbnailSize: number; mediaSize: number }>((resolve, reject) => {
-        const request = db.transaction('entries').objectStore('entries').get(path)
-        request.onsuccess = async () => {
-          const entry = request.result as { thumbnailBlob?: Blob; blob?: Blob; fileName?: string }
-          let mediaSize = entry.blob?.size ?? 0
-          if (!mediaSize && entry.fileName) {
-            const root = await navigator.storage.getDirectory()
-            mediaSize = (await (await root.getFileHandle(entry.fileName)).getFile()).size
-          }
-          resolve({ thumbnailSize: entry.thumbnailBlob?.size ?? 0, mediaSize })
-        }
-        request.onerror = () => reject(request.error)
-      })))
-    }, [`${prefix}Images/photo.jpg`, `${prefix}Videos/sample.mp4`])
+    const stored = await page.evaluate(
+      async (paths) => {
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open('derp-offline-v1', 1)
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = () => reject(request.error)
+        })
+        return Promise.all(
+          paths.map(
+            (path) =>
+              new Promise<{ thumbnailSize: number; mediaSize: number }>((resolve, reject) => {
+                const request = db.transaction('entries').objectStore('entries').get(path)
+                request.onsuccess = async () => {
+                  const entry = request.result as {
+                    thumbnailBlob?: Blob
+                    blob?: Blob
+                    fileName?: string
+                  }
+                  let mediaSize = entry.blob?.size ?? 0
+                  if (!mediaSize && entry.fileName) {
+                    const root = await navigator.storage.getDirectory()
+                    mediaSize = (await (await root.getFileHandle(entry.fileName)).getFile()).size
+                  }
+                  resolve({ thumbnailSize: entry.thumbnailBlob?.size ?? 0, mediaSize })
+                }
+                request.onerror = () => reject(request.error)
+              }),
+          ),
+        )
+      },
+      [`${prefix}Images/photo.jpg`, `${prefix}Videos/sample.mp4`],
+    )
     expect(stored.every((entry) => entry.thumbnailSize > 0)).toBe(true)
     expect(stored.every((entry) => entry.mediaSize > 0)).toBe(true)
 
@@ -51,7 +69,9 @@ test.describe('Offline mode', () => {
       await page.locator('button:has(.lucide-layout-grid)').click()
       const thumbnail = page.locator('[data-testid$="-thumbnail"]')
       await expect(thumbnail).toBeVisible()
-      await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+      await expect
+        .poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth))
+        .toBeGreaterThan(0)
       if (directory === 'Images') {
         await thumbnail.locator('xpath=ancestor::*[@role="button"][1]').click({ button: 'right' })
         await page.getByText('Remove from offline', { exact: true }).click()
@@ -219,13 +239,17 @@ test.describe('Offline mode', () => {
           : onlineFetch(input, init)) as typeof window.fetch
     })
     await page.getByText('Make available offline', { exact: true }).click()
-    await expect(page.getByText('Network connection failed: readme.txt', { exact: true })).toBeVisible()
+    await expect(
+      page.getByText('Network connection failed: readme.txt', { exact: true }),
+    ).toBeVisible()
 
     await page.goto('/?offline=1')
     await expect(page.getByText('readme.txt', { exact: true })).not.toBeVisible()
   })
 
-  test('storage quota failure is reported and leaves no catalog or OPFS residue', async ({ page }) => {
+  test('storage quota failure is reported and leaves no catalog or OPFS residue', async ({
+    page,
+  }) => {
     await page.goto('/')
     const root = await page.evaluate(async () => {
       await navigator.serviceWorker.ready
@@ -249,7 +273,9 @@ test.describe('Offline mode', () => {
     })
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
     await page.getByText('Make available offline', { exact: true }).click()
-    await expect(page.getByText('Storage quota exceeded: readme.txt', { exact: true })).toBeVisible()
+    await expect(
+      page.getByText('Storage quota exceeded: readme.txt', { exact: true }),
+    ).toBeVisible()
     const savedPaths = await page.evaluate(async () => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open('derp-offline-v1', 1)

@@ -151,7 +151,11 @@ test.describe('Text Editor', () => {
     const draft = 'recovered local draft after failed autosave\n'
     const pathEnc = encodeURIComponent('Notes/autosave-parity.txt')
     await page.route('**/api/files/edit', (route) =>
-      route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Unavailable"}' }),
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: '{"error":"Unavailable"}',
+      }),
     )
     await page.goto(`/?dir=Notes&viewing=${pathEnc}`)
 

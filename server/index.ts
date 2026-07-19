@@ -27,10 +27,9 @@ import { config } from '@/lib/config'
 const isDev = process.env.NODE_ENV !== 'production'
 const isTest = process.env.NODE_ENV === 'test'
 const PORT = config.port
-const tls =
-  config.tls?.pfxPath
-    ? { pfx: fs.readFileSync(config.tls.pfxPath), passphrase: config.tls.passphrase }
-    : config.tls?.certPath && config.tls.keyPath
+const tls = config.tls?.pfxPath
+  ? { pfx: fs.readFileSync(config.tls.pfxPath), passphrase: config.tls.passphrase }
+  : config.tls?.certPath && config.tls.keyPath
     ? { cert: fs.readFileSync(config.tls.certPath), key: fs.readFileSync(config.tls.keyPath) }
     : undefined
 async function createApp() {

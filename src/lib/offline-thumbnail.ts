@@ -3,21 +3,35 @@ const DECODE_TIMEOUT_MS = 10_000
 
 function withTimeout<T>(operation: Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Offline thumbnail decoding timed out')), DECODE_TIMEOUT_MS)
+    const timeout = window.setTimeout(
+      () => reject(new Error('Offline thumbnail decoding timed out')),
+      DECODE_TIMEOUT_MS,
+    )
     operation.then(
-      (value) => { window.clearTimeout(timeout); resolve(value) },
-      (error: unknown) => { window.clearTimeout(timeout); reject(error) },
+      (value) => {
+        window.clearTimeout(timeout)
+        resolve(value)
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeout)
+        reject(error)
+      },
     )
   })
 }
 
 function canvasSize(width: number, height: number) {
   const scale = Math.min(1, MAX_THUMBNAIL_EDGE / Math.max(width, height))
-  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  }
 }
 
 function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob | undefined> {
-  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob ?? undefined), 'image/jpeg', 0.82))
+  return new Promise((resolve) =>
+    canvas.toBlob((blob) => resolve(blob ?? undefined), 'image/jpeg', 0.82),
+  )
 }
 
 async function imageThumbnail(source: Blob): Promise<Blob | undefined> {
@@ -41,17 +55,21 @@ async function videoThumbnail(source: Blob): Promise<Blob | undefined> {
   video.preload = 'metadata'
   video.src = url
   try {
-    await withTimeout(new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve()
-      video.onerror = () => reject(new Error('Could not decode offline video metadata'))
-    }))
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve()
+        video.onerror = () => reject(new Error('Could not decode offline video metadata'))
+      }),
+    )
     const target = Number.isFinite(video.duration) ? Math.min(1, video.duration / 4) : 0
-    await withTimeout(new Promise<void>((resolve, reject) => {
-      video.onseeked = () => resolve()
-      video.onerror = () => reject(new Error('Could not decode offline video frame'))
-      video.currentTime = target
-      if (target === 0 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) resolve()
-    }))
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        video.onseeked = () => resolve()
+        video.onerror = () => reject(new Error('Could not decode offline video frame'))
+        video.currentTime = target
+        if (target === 0 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) resolve()
+      }),
+    )
     const size = canvasSize(video.videoWidth, video.videoHeight)
     const canvas = document.createElement('canvas')
     canvas.width = size.width
