@@ -43,11 +43,14 @@ export function getWorkspaceSnapResizeHandleMap(
   zone: SnapZone | null | undefined,
   bounds?: WorkspaceBounds | null,
   canvas?: WorkspaceCanvasSize | null,
+  hasTiling = false,
 ): Record<ResizeHandleKey, boolean> | 'all' {
-  if (!isSnapped || !zone) return 'all'
-  if (zone === 'assist-custom' && bounds && canvas) {
+  if (!isSnapped) return 'all'
+  // First-class tiling (and legacy assist-custom) uses shared edges from pixel bounds.
+  if ((hasTiling || zone === 'assist-custom') && bounds && canvas) {
     return snapResizeHandlesFromBounds(bounds, canvas)
   }
+  if (!zone) return 'all'
   const handles: Record<ResizeHandleKey, boolean> = {
     top: false,
     bottom: false,

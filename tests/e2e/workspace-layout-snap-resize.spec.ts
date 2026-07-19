@@ -676,7 +676,7 @@ test.describe('Resizing Snapped Windows', () => {
     expect(newRightBounds.x).toBeGreaterThan(rightBounds.x)
   })
 
-  test('snapping second window to right half fills remaining space after left is resized', async () => {
+  test('resize left tile then snap right: windows abut with no gap (2×2)', async () => {
     await gotoWorkspace(page)
     await setAssistGridShapeForTest(page, '2x2')
     await openBrowserWindow(page)
@@ -684,38 +684,90 @@ test.describe('Resizing Snapped Windows', () => {
     const groups = getWindowGroups(page)
 
     await dragToEdge(page, getDragHandle(groups.first()), 'left')
+    await waitForWindowBoundsStable(page, groups.first())
 
-    const leftRnd = getRndWrapper(groups.first())
-    const resizeHandle = leftRnd.locator('div[style*="col-resize"]').first()
-    await expect(resizeHandle).toBeAttached()
-
+    const leftBefore = await getWindowBounds(groups.first())
+    const resizeHandle = await getSharedColumnResizeHandle(groups.first())
     const handleBox = await resizeHandle.boundingBox()
     if (!handleBox) throw new Error('Resize handle not found')
 
     const startX = handleBox.x + handleBox.width / 2
     const startY = handleBox.y + handleBox.height / 2
     const viewport = page.viewportSize()!
-    const halfW = Math.round(viewport.width / 2)
+    // Shrink left well below half so equal-division snap of the right would leave a visible gap.
+    const targetRightEdge = Math.round(viewport.width * 0.35)
     await page.mouse.move(startX, startY)
     await page.mouse.down()
-    await page.mouse.move(halfW - 150, startY, { steps: 10 })
+    await page.mouse.move(targetRightEdge, startY, { steps: 12 })
     await page.mouse.up()
     await waitForWindowBoundsStable(page, groups.first())
 
-    const resizedLeftBounds = await getWindowBounds(groups.first())
-    const leftRightEdge = resizedLeftBounds.x + resizedLeftBounds.width
+    const resizedLeft = await getWindowBounds(groups.first())
+    expect(resizedLeft.width).toBeLessThan(leftBefore.width - 40)
 
     await groups.nth(1).dispatchEvent('mousedown')
     await page.waitForTimeout(30)
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
+    await waitForWindowBoundsStable(page, groups.first())
+    await waitForWindowBoundsStable(page, groups.nth(1))
 
-    const boundsA = await getWindowBounds(groups.first())
-    const boundsB = await getWindowBounds(groups.nth(1))
-    const rightBounds = boundsA.x < boundsB.x ? boundsB : boundsA
+    const a = await getWindowBounds(groups.first())
+    const b = await getWindowBounds(groups.nth(1))
+    const left = a.x <= b.x ? a : b
+    const right = a.x <= b.x ? b : a
+    const gap = right.x - (left.x + left.width)
 
-    expect(rightBounds.x + rightBounds.width).toBeGreaterThan(viewport.width - 25)
-    expect(rightBounds.x).toBeGreaterThan(leftRightEdge - 200)
-    expect(rightBounds.width).toBeGreaterThan(120)
+    expect(left.width).toBeLessThan(viewport.width * 0.45)
+    expect(right.x + right.width).toBeGreaterThan(viewport.width - 25)
+    expect(gap).toBeGreaterThanOrEqual(-2)
+    expect(gap).toBeLessThanOrEqual(2)
+  })
+
+  test('resize left column then snap right column: windows abut with no gap (default 3×2)', async () => {
+    await gotoWorkspace(page)
+    await setAssistGridShapeForTest(page, '3x2')
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+
+    await dragToEdge(page, getDragHandle(groups.first()), 'left')
+    await waitForWindowBoundsStable(page, groups.first())
+
+    const resizeHandle = await getSharedColumnResizeHandle(groups.first())
+    const handleBox = await resizeHandle.boundingBox()
+    if (!handleBox) throw new Error('Resize handle not found')
+
+    const startX = handleBox.x + handleBox.width / 2
+    const startY = handleBox.y + handleBox.height / 2
+    const viewport = page.viewportSize()!
+    // Grow left past one equal third so a naïve right-third snap leaves a middle gap.
+    const targetRightEdge = Math.round(viewport.width * 0.5)
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(targetRightEdge, startY, { steps: 12 })
+    await page.mouse.up()
+    await waitForWindowBoundsStable(page, groups.first())
+
+    await groups.nth(1).dispatchEvent('mousedown')
+    await page.waitForTimeout(30)
+    await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
+    await waitForWindowBoundsStable(page, groups.first())
+    await waitForWindowBoundsStable(page, groups.nth(1))
+
+    const a = await getWindowBounds(groups.first())
+    const b = await getWindowBounds(groups.nth(1))
+    const left = a.x <= b.x ? a : b
+    const right = a.x <= b.x ? b : a
+    const gap = right.x - (left.x + left.width)
+
+    expect(right.x + right.width).toBeGreaterThan(viewport.width - 25)
+    // Reproduce: after resizing the left column, snapping the right column must not leave
+    // an empty middle strip between the two windows.
+    expect(
+      gap,
+      `gap=${gap} left=${JSON.stringify(left)} right=${JSON.stringify(right)}`,
+    ).toBeGreaterThanOrEqual(-2)
+    expect(gap).toBeLessThanOrEqual(2)
   })
 
   test('snapping second window to bottom quarter fills remaining space after top-left is resized', async () => {
@@ -758,7 +810,8 @@ test.describe('Resizing Snapped Windows', () => {
     const bottomBounds = boundsA.y < boundsB.y ? boundsB : boundsA
 
     expect(bottomBounds.y + bottomBounds.height).toBeGreaterThan(containerH - 35)
-    expect(bottomBounds.y).toBeGreaterThan(topBottomEdge - 200)
+    // Must fill the remaining row after a resized top tile (exact abutment, ±2px rounding).
+    expect(Math.abs(bottomBounds.y - topBottomEdge)).toBeLessThanOrEqual(2)
     expect(bottomBounds.height).toBeGreaterThan(120)
   })
 })

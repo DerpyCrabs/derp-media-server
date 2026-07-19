@@ -453,7 +453,7 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
         },
       }
     }
-    if (!lz?.snapZone || lz.minimized || !lz.bounds) return w
+    if ((!lz?.tiling && !lz?.snapZone) || lz.minimized || !lz.bounds) return w
     if (lz.tiling) {
       return {
         ...w,
@@ -485,7 +485,7 @@ function nudgeSnappedBoundsToCanvasEdges(
   const ch = Math.max(canvas.height, 1)
   return windows.map((w) => {
     const lz = w.layout
-    if (!lz?.snapZone || lz.fullscreen || lz.minimized || !lz.bounds) return w
+    if ((!lz?.tiling && !lz?.snapZone) || lz.fullscreen || lz.minimized || !lz.bounds) return w
     const b = { ...lz.bounds }
     if (Math.abs(b.x + b.width - cw) <= EDGE_FLUSH_TOL || b.x + b.width > cw) {
       b.width = Math.max(100, cw - b.x)

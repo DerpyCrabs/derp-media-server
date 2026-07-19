@@ -8,6 +8,7 @@ import {
   reconcileLayoutBoundsFromSnapZones,
   WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from '@/lib/workspace-geometry'
+import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
@@ -375,7 +376,8 @@ export function normalizePersistedWorkspaceState(
     )
     .map((w, i) => {
       const b = w.layout?.bounds
-      const bounds = b ? clampBoundsToViewport(b, viewport) : createDefaultBounds(i, w.type)
+      // Keep saved pixel bounds for legacy assist-custom → tiling migration before viewport clamp.
+      const bounds = b ?? createDefaultBounds(i, w.type)
       return {
         ...w,
         layout: {
@@ -388,11 +390,23 @@ export function normalizePersistedWorkspaceState(
 
   if (validatedWindows.length === 0) return null
 
-  const hasSemanticTiling = validatedWindows.some((w) => w.layout?.tiling)
+  // Infer grid from saved bounds (own canvas), then reconcile/clamp to the live viewport.
+  const migratedWindows = migrateLegacyAssistCustomToTiling(validatedWindows)
+  const hasSemanticTiling = migratedWindows.some((w) => w.layout?.tiling)
   const reconciledWindows =
     reconcileSnapZones || hasSemanticTiling
-      ? reconcileLayoutBoundsFromSnapZones(validatedWindows)
-      : validatedWindows
+      ? reconcileLayoutBoundsFromSnapZones(migratedWindows, viewport)
+      : migratedWindows.map((w) => {
+          const b = w.layout?.bounds
+          if (!b) return w
+          return {
+            ...w,
+            layout: {
+              ...w.layout,
+              bounds: clampBoundsToViewport(b, viewport),
+            },
+          }
+        })
 
   const withOpenTargets = sanitizeBrowserFileOpenTargets(reconciledWindows)
 

@@ -133,13 +133,20 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const isFullscreen = createMemo(() => win()?.layout?.fullscreen ?? false)
   const isMinimized = createMemo(() => win()?.layout?.minimized ?? false)
   const snapZone = createMemo(() => win()?.layout?.snapZone ?? null)
-  const isSnapped = createMemo(() => !!snapZone() && !isFullscreen())
+  const hasTiling = createMemo(() => !!win()?.layout?.tiling)
+  const isSnapped = createMemo(() => (hasTiling() || !!snapZone()) && !isFullscreen())
 
   const resizeMap = createMemo(() => {
     const container = props.containerEl()
     const rect = container?.getBoundingClientRect()
     const canvas = rect ? { width: rect.width, height: rect.height } : null
-    return getWorkspaceSnapResizeHandleMap(isSnapped(), snapZone() ?? undefined, b(), canvas)
+    return getWorkspaceSnapResizeHandleMap(
+      isSnapped(),
+      snapZone() ?? undefined,
+      b(),
+      canvas,
+      hasTiling(),
+    )
   })
 
   const showResize = createMemo(() => !isFullscreen())

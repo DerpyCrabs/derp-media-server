@@ -1,4 +1,11 @@
-import type { WorkspaceBounds, WorkspaceCanvasSize } from '@/lib/workspace-geometry'
+import {
+  defaultWorkspaceGridLines,
+  tilingPlacementToBounds,
+  type WorkspaceBounds,
+  type WorkspaceCanvasSize,
+} from '@/lib/workspace-geometry'
+import type { WorkspaceTilingPlacement, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
 import { SNAP_EDGE_THRESHOLD_PX } from '@/lib/use-snap-zones'
 
 export const ASSIST_GRID_SHAPES = ['3x2', '3x3', '2x2', '2x3'] as const
@@ -168,27 +175,89 @@ export function detectEdgeAssistGridSpan(
   return null
 }
 
+/** Build a tiling placement for an assist span, reusing an existing resized grid when present. */
+export function assistSpanToTilingPlacement(
+  span: AssistGridSpan,
+  existing?: Pick<WorkspaceTilingPlacement, 'colLines' | 'rowLines'> | null,
+): WorkspaceTilingPlacement {
+  return {
+    cols: span.gridCols,
+    rows: span.gridRows,
+    colStart: span.gc0,
+    colEnd: span.gc1 + 1,
+    rowStart: span.gr0,
+    rowEnd: span.gr1 + 1,
+    colLines:
+      existing?.colLines?.length === span.gridCols + 1
+        ? existing.colLines
+        : defaultWorkspaceGridLines(span.gridCols),
+    rowLines:
+      existing?.rowLines?.length === span.gridRows + 1
+        ? existing.rowLines
+        : defaultWorkspaceGridLines(span.gridRows),
+  }
+}
+
+/** Shared col/row lines from any window already on the same assist grid, if present. */
+export function findSharedAssistGridLines(
+  windows: WorkspaceWindowDefinition[],
+  span: AssistGridSpan,
+): Pick<WorkspaceTilingPlacement, 'colLines' | 'rowLines'> | null {
+  const existing = windows.find(
+    (candidate) =>
+      candidate.layout?.tiling?.cols === span.gridCols &&
+      candidate.layout.tiling.rows === span.gridRows,
+  )?.layout?.tiling
+  if (!existing) return null
+  return { colLines: existing.colLines, rowLines: existing.rowLines }
+}
+
+/**
+ * Pixel bounds for an assist span. When `existing` lines are provided (resized grid),
+ * bounds follow those lines — not equal divisions.
+ */
 export function assistGridSpanToBounds(
   canvas: WorkspaceCanvasSize,
   span: AssistGridSpan,
+  existing?: Pick<WorkspaceTilingPlacement, 'colLines' | 'rowLines'> | null,
 ): WorkspaceBounds {
-  const { gridCols, gridRows, gc0, gc1, gr0, gr1 } = span
-  const xs = Array.from({ length: gridCols + 1 }, (_, i) =>
-    Math.round((canvas.width * i) / gridCols),
-  )
-  const ys = Array.from({ length: gridRows + 1 }, (_, i) =>
-    Math.round((canvas.height * i) / gridRows),
-  )
-  const x = xs[gc0]!
-  const y = ys[gr0]!
-  const width = xs[gc1 + 1]! - x
-  const height = ys[gr1 + 1]! - y
-  return {
-    x: Math.max(0, Math.min(x, canvas.width - 100)),
-    y: Math.max(0, Math.min(y, canvas.height - 100)),
-    width: Math.min(Math.max(width, 100), canvas.width),
-    height: Math.min(Math.max(height, 100), canvas.height),
-  }
+  return tilingPlacementToBounds(assistSpanToTilingPlacement(span, existing), canvas)
+}
+
+/**
+ * Pure layout update: place `windowId` (and its tab group) into an assist span.
+ * Reuses resized grid lines from any peer already on the same cols×rows grid.
+ */
+export function applyAssistCustomSnapToWindows(
+  windows: WorkspaceWindowDefinition[],
+  windowId: string,
+  span: AssistGridSpan,
+  canvas: WorkspaceCanvasSize,
+  options?: { zIndex?: number },
+): WorkspaceWindowDefinition[] {
+  const migrated = migrateLegacyAssistCustomToTiling(windows, canvas)
+  const target = migrated.find((w) => w.id === windowId)
+  if (!target) return windows
+  const groupId = target.tabGroupId ?? target.id
+  const existing = findSharedAssistGridLines(migrated, span)
+  const tiling = assistSpanToTilingPlacement(span, existing)
+  const bounds = tilingPlacementToBounds(tiling, canvas)
+  return migrated.map((w) => {
+    if ((w.tabGroupId ?? w.id) !== groupId) return w
+    return {
+      ...w,
+      layout: {
+        ...w.layout,
+        fullscreen: false,
+        snapZone: null,
+        tiling,
+        minimized: false,
+        zIndex: options?.zIndex ?? w.layout?.zIndex,
+        bounds,
+        restoreBounds: w.layout?.restoreBounds ?? w.layout?.bounds ?? null,
+      },
+    }
+  })
 }
 
 export function assistGridSpansEqual(a: AssistGridSpan, b: AssistGridSpan): boolean {

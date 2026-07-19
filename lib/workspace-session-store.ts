@@ -1,5 +1,6 @@
 import type { WorkspaceWindowDefinition, WorkspaceWindowLayout } from '@/lib/use-workspace'
-import { tilingPlacementToBounds } from '@/lib/workspace-geometry'
+import { tilingPlacementToBounds, type WorkspaceCanvasSize } from '@/lib/workspace-geometry'
+import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
 
 function overlap1d(a0: number, a1: number, b0: number, b1: number): number {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0))
@@ -26,16 +27,46 @@ function horizontalSpanOverlap(ax0: number, ax1: number, bx0: number, bx1: numbe
   return gap1d(ax0, ax1, bx0, bx1) <= EDGE_ALIGN_TOL
 }
 
+function inferTilingCanvasSize(
+  current: WorkspaceWindowDefinition[],
+  tiling: NonNullable<WorkspaceWindowLayout['tiling']>,
+  canvas?: WorkspaceCanvasSize | null,
+): WorkspaceCanvasSize {
+  if (canvas && canvas.width > 0 && canvas.height > 0) {
+    return { width: Math.round(canvas.width), height: Math.round(canvas.height) }
+  }
+  let width = 1
+  let height = 1
+  for (const w of current) {
+    const t = w.layout?.tiling
+    const b = w.layout?.bounds
+    if (!t || !b || t.cols !== tiling.cols || t.rows !== tiling.rows) continue
+    if (t.colEnd === t.cols) width = Math.max(width, b.x + b.width)
+    if (t.rowEnd === t.rows) height = Math.max(height, b.y + b.height)
+    if (t.colStart === 0) {
+      const rightLine = t.colLines[t.colEnd]
+      if (rightLine && rightLine > 0) width = Math.max(width, (b.x + b.width) / rightLine)
+    }
+    if (t.rowStart === 0) {
+      const bottomLine = t.rowLines[t.rowEnd]
+      if (bottomLine && bottomLine > 0) height = Math.max(height, (b.y + b.height) / bottomLine)
+    }
+  }
+  return { width: Math.round(width), height: Math.round(height) }
+}
+
 /** Pure layout update for snapped multi-window resize; `current` is the authoritative session windows. */
 export function computeSnappedResizeWindows(
   current: WorkspaceWindowDefinition[],
   windowId: string,
   newBounds: NonNullable<WorkspaceWindowLayout['bounds']>,
   direction: string,
+  canvas?: WorkspaceCanvasSize | null,
 ): WorkspaceWindowDefinition[] {
-  const target = current.find((w) => w.id === windowId)
+  const windows = migrateLegacyAssistCustomToTiling(current, canvas)
+  const target = windows.find((w) => w.id === windowId)
   if (!target?.layout?.bounds) {
-    return current.map((w) =>
+    return windows.map((w) =>
       w.id === windowId ? { ...w, layout: { ...w.layout, bounds: newBounds } } : w,
     )
   }
@@ -43,25 +74,10 @@ export function computeSnappedResizeWindows(
   const oldBounds = target.layout.bounds
   const tiling = target.layout.tiling
   if (tiling) {
-    const canvasWidth = Math.max(
-      1,
-      ...current.flatMap((w) => {
-        const t = w.layout?.tiling
-        const b = w.layout?.bounds
-        if (!t || !b || t.cols !== tiling.cols || t.rows !== tiling.rows) return []
-        const rightLine = t.colLines[t.colEnd]
-        return rightLine && rightLine > 0 ? [(b.x + b.width) / rightLine] : []
-      }),
-    )
-    const canvasHeight = Math.max(
-      1,
-      ...current.flatMap((w) => {
-        const t = w.layout?.tiling
-        const b = w.layout?.bounds
-        if (!t || !b || t.cols !== tiling.cols || t.rows !== tiling.rows) return []
-        const bottomLine = t.rowLines[t.rowEnd]
-        return bottomLine && bottomLine > 0 ? [(b.y + b.height) / bottomLine] : []
-      }),
+    const { width: canvasWidth, height: canvasHeight } = inferTilingCanvasSize(
+      windows,
+      tiling,
+      canvas,
     )
     const colLines = [...tiling.colLines]
     const rowLines = [...tiling.rowLines]
@@ -88,7 +104,8 @@ export function computeSnappedResizeWindows(
     if (direction.includes('left')) clampLine(colLines, tiling.colStart, 360 / canvasWidth)
     if (direction.includes('bottom')) clampLine(rowLines, tiling.rowEnd, 260 / canvasHeight)
     if (direction.includes('top')) clampLine(rowLines, tiling.rowStart, 260 / canvasHeight)
-    return current.map((w) => {
+    const resolvedCanvas = { width: canvasWidth, height: canvasHeight }
+    return windows.map((w) => {
       const t = w.layout?.tiling
       if (!t || t.cols !== tiling.cols || t.rows !== tiling.rows) return w
       const nextTiling = { ...t, colLines, rowLines }
@@ -97,10 +114,7 @@ export function computeSnappedResizeWindows(
         layout: {
           ...w.layout,
           tiling: nextTiling,
-          bounds: tilingPlacementToBounds(nextTiling, {
-            width: Math.round(canvasWidth),
-            height: Math.round(canvasHeight),
-          }),
+          bounds: tilingPlacementToBounds(nextTiling, resolvedCanvas),
         },
       }
     })
@@ -121,7 +135,7 @@ export function computeSnappedResizeWindows(
 
   const siblingUpdates = new Map<string, NonNullable<WorkspaceWindowLayout['bounds']>>()
 
-  let next = current.map((w) => {
+  let next = windows.map((w) => {
     if (w.id === windowId) {
       return { ...w, layout: { ...w.layout, bounds: newBounds } }
     }
