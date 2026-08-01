@@ -562,6 +562,8 @@ test.describe('Window Buttons', () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
     const preBounds = await getWindowBounds(groups.first())
+    await expect(groups.first()).toHaveCSS('border-radius', '10px')
+    await expect(groups.first()).toHaveCSS('outline-style', 'solid')
 
     await test.step('expands to fullscreen', async () => {
       const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
@@ -572,6 +574,8 @@ test.describe('Window Buttons', () => {
       const containerH = viewport.height - TASKBAR_HEIGHT
       expect(bounds.width).toBeGreaterThan(viewport.width - 10)
       expect(bounds.height).toBeGreaterThan(containerH - 10)
+      await expect(groups.first()).toHaveCSS('border-radius', '0px')
+      await expect(groups.first()).toHaveCSS('outline-style', 'none')
     })
 
     await test.step('restores from fullscreen', async () => {
@@ -584,6 +588,8 @@ test.describe('Window Buttons', () => {
       expect(restoredBounds.height).toBeLessThan(viewport.height - 50)
       expect(restoredBounds.width).toBeGreaterThan(preBounds.width - 20)
       expect(restoredBounds.width).toBeLessThan(preBounds.width + 20)
+      await expect(groups.first()).toHaveCSS('border-radius', '10px')
+      await expect(groups.first()).toHaveCSS('outline-style', 'solid')
     })
   })
 

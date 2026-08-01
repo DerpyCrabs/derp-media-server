@@ -135,6 +135,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const snapZone = createMemo(() => win()?.layout?.snapZone ?? null)
   const hasTiling = createMemo(() => !!win()?.layout?.tiling)
   const isSnapped = createMemo(() => (hasTiling() || !!snapZone()) && !isFullscreen())
+  const isFloating = createMemo(() => !isFullscreen() && !hasTiling() && !snapZone())
 
   const resizeMap = createMemo(() => {
     const container = props.containerEl()
@@ -363,8 +364,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         data-window-group={props.groupId}
         data-workspace-window-minimized={isMinimized() ? '' : undefined}
         class={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl ${
-          props.isActive ? 'border-border shadow-black/20' : ''
-        }`}
+          isFloating()
+            ? 'rounded-lg outline outline-1 -outline-offset-1 outline-border'
+            : 'rounded-none'
+        } ${props.isActive ? 'border-border shadow-black/20' : ''}`}
       >
         <div
           ref={(el) => setTitleBarEl(el ?? null)}

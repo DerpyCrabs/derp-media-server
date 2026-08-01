@@ -76,6 +76,7 @@ test.describe('Tiling Layout Picker', () => {
     expect(bounds.width).toBeLessThan(thirdW + 24)
     expect(bounds.height).toBeGreaterThan(halfH - 24)
     expect(bounds.height).toBeLessThan(halfH + 24)
+    await expect(groups.first()).toHaveCSS('border-radius', '0px')
   })
 
   test('tiling picker hover highlight moves from first quarter cell to second', async () => {
