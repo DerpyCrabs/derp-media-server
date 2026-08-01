@@ -5,11 +5,7 @@ import ExternalLink from 'lucide-solid/icons/external-link'
 import Pencil from 'lucide-solid/icons/pencil'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
-import {
-  isAndroidApp,
-  isAndroidPathAvailableOffline,
-  isOfflineFeatureAvailable,
-} from '../lib/android-bridge'
+import { isOfflineFeatureAvailable, isPathAvailableOffline } from '../lib/offline-files'
 
 export type BreadcrumbMenuTarget = BreadcrumbFolderMenuTarget
 
@@ -55,7 +51,7 @@ export function BreadcrumbContextMenu(props: Props) {
               Set icon
             </button>
           </Show>
-          <Show when={!isAndroidApp() && props.showOpenInNewTab && !ctx.isHome}>
+          <Show when={props.showOpenInNewTab && !ctx.isHome}>
             <button
               type='button'
               data-slot='context-menu-item'
@@ -71,7 +67,7 @@ export function BreadcrumbContextMenu(props: Props) {
               Open in new tab
             </button>
           </Show>
-          <Show when={!isAndroidApp() && props.showOpenInWorkspace}>
+          <Show when={props.showOpenInWorkspace}>
             <button
               type='button'
               data-slot='context-menu-item'
@@ -99,15 +95,9 @@ export function BreadcrumbContextMenu(props: Props) {
                 props.onDismiss()
               }}
             >
-              {isAndroidApp()
-                ? isAndroidPathAvailableOffline(ctx.serverPath)
-                  ? 'Remove from offline'
-                  : 'Make available offline'
-                : 'Download as ZIP'}
+              Download as ZIP
             </button>
-            <Show
-              when={!isAndroidApp() && isOfflineFeatureAvailable() && props.onMakeAvailableOffline}
-            >
+            <Show when={isOfflineFeatureAvailable() && props.onMakeAvailableOffline}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -118,7 +108,7 @@ export function BreadcrumbContextMenu(props: Props) {
                   props.onDismiss()
                 }}
               >
-                {isAndroidPathAvailableOffline(ctx.serverPath)
+                {isPathAvailableOffline(ctx.serverPath)
                   ? 'Remove from offline'
                   : 'Make available offline'}
               </button>

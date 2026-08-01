@@ -33,12 +33,3 @@ test('TLS certificate paths are resolved relative to the selected config', () =>
     fs.rmSync(directory, { recursive: true, force: true })
   }
 })
-
-test('Android connection error page exposes retry and protocol detection', () => {
-  const source = fs.readFileSync(
-    path.resolve('android/app/src/main/java/com/derpmedia/app/MainActivity.kt'),
-    'utf8',
-  )
-  expect(source).toContain('href="derp://retry"')
-  expect(source).toContain('ServerConnectionResolver.resolve(value)')
-})

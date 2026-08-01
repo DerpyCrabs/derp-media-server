@@ -64,15 +64,12 @@ import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { FileBrowserModalLayer } from './file-browser/FileBrowserModalLayer'
 import { OfflineBadge } from './OfflineBadge'
 import {
-  downloadInAndroid,
   fetchOfflineFiles,
-  isAndroidApp,
-  isAndroidPathAvailableOffline,
+  isPathAvailableOffline,
   isOfflineFeatureAvailable,
   makeAvailableOffline,
-  playInAndroid,
-  removeOfflineInAndroid,
-} from './lib/android-bridge'
+  removeOfflineFile,
+} from './lib/offline-files'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
 import { KbChatFooter } from './kb-chat/KbChatFooter'
@@ -166,7 +163,7 @@ export function FileBrowser() {
 
   const filesQuery = useQuery(() => ({
     queryKey: isOfflineBrowser()
-      ? ['android-offline-files', currentPath()]
+      ? ['offline-files', currentPath()]
       : queryKeys.files(currentPath()),
     queryFn: async () => {
       if (isOfflineBrowser()) return fetchOfflineFiles(currentPath())
@@ -178,7 +175,7 @@ export function FileBrowser() {
         if (!isOfflineFeatureAvailable()) throw onlineError
         try {
           const offline = await fetchOfflineFiles(currentPath())
-          if (offline.files.length === 0 && !isAndroidPathAvailableOffline(currentPath())) {
+          if (offline.files.length === 0 && !isPathAvailableOffline(currentPath())) {
             throw onlineError
           }
           setOfflineFallback(true)
@@ -222,7 +219,7 @@ export function FileBrowser() {
   onMount(() => {
     const refreshOffline = () => {
       if (isOfflineBrowser()) {
-        void queryClient.invalidateQueries({ queryKey: ['android-offline-files'] })
+        void queryClient.invalidateQueries({ queryKey: ['offline-files'] })
       }
     }
     window.addEventListener('derp-offline-catalog', refreshOffline)
@@ -1016,11 +1013,6 @@ export function FileBrowser() {
   }
 
   function handleContextDownload(file: FileItem) {
-    if (isAndroidApp() && isAndroidPathAvailableOffline(file.path)) {
-      removeOfflineInAndroid(file)
-      return
-    }
-    if (downloadInAndroid(file)) return
     const link = document.createElement('a')
     link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`
     link.download = file.isDirectory ? `${file.name}.zip` : file.name
@@ -1030,7 +1022,7 @@ export function FileBrowser() {
   }
 
   function handleContextMakeAvailableOffline(file: FileItem) {
-    if (isAndroidPathAvailableOffline(file.path)) removeOfflineInAndroid(file)
+    if (isPathAvailableOffline(file.path)) removeOfflineFile(file)
     else makeAvailableOffline(file)
   }
 
@@ -1188,7 +1180,6 @@ export function FileBrowser() {
     viewStats.incrementView(file.path)
     const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
     if (isMediaFile) {
-      if (playInAndroid(file)) return
       useMediaPlayer
         .getState()
         .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')

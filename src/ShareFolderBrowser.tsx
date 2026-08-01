@@ -71,14 +71,11 @@ import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { OfflineBadge } from './OfflineBadge'
 import {
-  downloadInAndroid,
-  isAndroidApp,
-  isAndroidPathAvailableOffline,
+  isPathAvailableOffline,
   isOfflineFeatureAvailable,
   makeAvailableOffline,
-  playInAndroid,
-  removeOfflineInAndroid,
-} from './lib/android-bridge'
+  removeOfflineFile,
+} from './lib/offline-files'
 import type { TextViewerShareContext } from './media/TextViewerDialog'
 
 type ShareRestrictions = {
@@ -487,11 +484,6 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function handleDownload(file: FileItem) {
-    if (isAndroidApp() && isAndroidPathAvailableOffline(file.path)) {
-      removeOfflineInAndroid(file)
-      return
-    }
-    if (downloadInAndroid(file, { token: props.token, sharePath: props.shareInfo.path })) return
     const rel = stripSharePrefix(file.path, props.shareInfo.path)
     const a = document.createElement('a')
     a.href = `/api/share/${props.token}/download?path=${encodeURIComponent(rel)}`
@@ -500,7 +492,7 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function handleMakeAvailableOffline(file: FileItem) {
-    if (isAndroidPathAvailableOffline(file.path)) removeOfflineInAndroid(file)
+    if (isPathAvailableOffline(file.path)) removeOfflineFile(file)
     else makeAvailableOffline(file, { token: props.token, sharePath: props.shareInfo.path })
   }
 
@@ -514,7 +506,6 @@ export function ShareFolderBrowser(props: Props) {
     viewMutation.mutate(strip(file.path))
     const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
     if (isMediaFile) {
-      if (playInAndroid(file, { token: props.token, sharePath: props.shareInfo.path })) return
       useMediaPlayer
         .getState()
         .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')
@@ -726,15 +717,9 @@ export function ShareFolderBrowser(props: Props) {
                       dismissMenu()
                     }}
                   >
-                    {isAndroidApp() && isOfflineFeatureAvailable()
-                      ? isAndroidPathAvailableOffline(ctx.file.path)
-                        ? 'Remove from offline'
-                        : 'Make available offline'
-                      : ctx.file.isDirectory
-                        ? 'Download as ZIP'
-                        : 'Download'}
+                    {ctx.file.isDirectory ? 'Download as ZIP' : 'Download'}
                   </button>
-                  <Show when={!isAndroidApp() && isOfflineFeatureAvailable()}>
+                  <Show when={isOfflineFeatureAvailable()}>
                     <button
                       type='button'
                       data-slot='context-menu-item'
@@ -745,7 +730,7 @@ export function ShareFolderBrowser(props: Props) {
                         dismissMenu()
                       }}
                     >
-                      {isAndroidPathAvailableOffline(ctx.file.path)
+                      {isPathAvailableOffline(ctx.file.path)
                         ? 'Remove from offline'
                         : 'Make available offline'}
                     </button>
@@ -772,7 +757,7 @@ export function ShareFolderBrowser(props: Props) {
                       Move to…
                     </button>
                   </Show>
-                  <Show when={!isAndroidApp() && ctx.file.isDirectory && !ctx.file.isVirtual}>
+                  <Show when={ctx.file.isDirectory && !ctx.file.isVirtual}>
                     <button
                       type='button'
                       data-slot='context-menu-item'

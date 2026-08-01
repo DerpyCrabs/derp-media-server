@@ -86,9 +86,6 @@ async function createApp() {
             '**/test-results/**',
             '**/playwright-report/**',
             '**/tests/**',
-            '**/android/.gradle/**',
-            '**/android/build/**',
-            '**/android/app/build/**',
             '**/dist/**',
             // Persisted server data (often next to config.jsonc); writes trigger full-reload HMR otherwise
             '**/kb-chats.json',

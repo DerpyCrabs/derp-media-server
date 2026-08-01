@@ -5,13 +5,7 @@ import Monitor from 'lucide-solid/icons/monitor'
 import Moon from 'lucide-solid/icons/moon'
 import Sun from 'lucide-solid/icons/sun'
 import Download from 'lucide-solid/icons/download'
-import Server from 'lucide-solid/icons/server'
-import {
-  changeAndroidServer,
-  isAndroidApp,
-  isOfflineFeatureAvailable,
-  openAndroidOffline,
-} from './lib/android-bridge'
+import { isOfflineFeatureAvailable, openOfflineFiles } from './lib/offline-files'
 import { For, Show } from 'solid-js'
 import { useStoreSync } from './lib/solid-store-sync'
 
@@ -106,32 +100,18 @@ export function ThemeSwitcherMenuContent(props: Props) {
       </For>
       <Show when={isOfflineFeatureAvailable()}>
         <div class='bg-border my-1 h-px' />
-        <div class='text-muted-foreground px-2 py-1.5 text-xs font-medium'>App</div>
-        <Show when={isAndroidApp()}>
-          <button
-            type='button'
-            role='menuitem'
-            class='hover:bg-accent hover:text-accent-foreground flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm'
-            onClick={() => {
-              openAndroidOffline()
-              pick()
-            }}
-          >
-            <Download class='h-4 w-4' stroke-width={2} />
-            Offline files
-          </button>
-        </Show>
+        <div class='text-muted-foreground px-2 py-1.5 text-xs font-medium'>Offline</div>
         <button
           type='button'
           role='menuitem'
           class='hover:bg-accent hover:text-accent-foreground flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm'
           onClick={() => {
-            changeAndroidServer()
+            openOfflineFiles()
             pick()
           }}
         >
-          <Server class='h-4 w-4' stroke-width={2} />
-          Change server
+          <Download class='h-4 w-4' stroke-width={2} />
+          Offline files
         </button>
       </Show>
     </>

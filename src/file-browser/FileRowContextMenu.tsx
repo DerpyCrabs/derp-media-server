@@ -12,11 +12,7 @@ import Settings from 'lucide-solid/icons/settings'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
-import {
-  isAndroidApp,
-  isAndroidPathAvailableOffline,
-  isOfflineFeatureAvailable,
-} from '../lib/android-bridge'
+import { isOfflineFeatureAvailable, isPathAvailableOffline } from '../lib/offline-files'
 
 type MenuState = { x: number; y: number; file: FileItem }
 
@@ -68,14 +64,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
       data-slot='file-row-context-menu'
     >
       {(ctx) => {
-        const downloadLabel = () =>
-          isAndroidApp() && isOfflineFeatureAvailable()
-            ? isAndroidPathAvailableOffline(ctx.file.path)
-              ? 'Remove from offline'
-              : 'Make available offline'
-            : ctx.file.isDirectory
-              ? 'Download as ZIP'
-              : 'Download'
+        const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
         const showRevokeShare = () => !!ctx.file.shareToken
         const showDeleteFile = () => {
           if (ctx.file.isVirtual || ctx.file.shareToken) return false
@@ -109,7 +98,6 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
           !!props.onOpenFileInNewWindow
 
         const showWorkspaceOpenRow = () => {
-          if (isAndroidApp()) return false
           if (ctx.file.isVirtual) return false
           if (ctx.file.isDirectory) return !!props.onOpenInNewTab
           if (props.showOpenInNewTabForFiles !== true) return false
@@ -146,7 +134,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Set icon
               </button>
             </Show>
-            <Show when={props.onPickNewTabTarget && !isAndroidApp()}>
+            <Show when={props.onPickNewTabTarget}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -182,10 +170,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             </Show>
             <Show
               when={
-                !isAndroidApp() &&
-                props.onOpenInSplitView &&
-                !ctx.file.isVirtual &&
-                ctx.file.type !== MediaType.AUDIO
+                props.onOpenInSplitView && !ctx.file.isVirtual && ctx.file.type !== MediaType.AUDIO
               }
             >
               <button
@@ -203,14 +188,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Open in split view
               </button>
             </Show>
-            <Show
-              when={
-                !isAndroidApp() &&
-                props.onOpenInWorkspace &&
-                ctx.file.isDirectory &&
-                !ctx.file.isVirtual
-              }
-            >
+            <Show when={props.onOpenInWorkspace && ctx.file.isDirectory && !ctx.file.isVirtual}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -308,9 +286,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             >
               {downloadLabel()}
             </button>
-            <Show
-              when={!isAndroidApp() && isOfflineFeatureAvailable() && props.onMakeAvailableOffline}
-            >
+            <Show when={isOfflineFeatureAvailable() && props.onMakeAvailableOffline}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -321,7 +297,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                   props.onDismiss()
                 }}
               >
-                {isAndroidPathAvailableOffline(ctx.file.path)
+                {isPathAvailableOffline(ctx.file.path)
                   ? 'Remove from offline'
                   : 'Make available offline'}
               </button>

@@ -1,7 +1,7 @@
 import { formatFileSize } from '@/lib/media-utils'
 import X from 'lucide-solid/icons/x'
 import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
-import { openAndroidOffline, removeOfflineInAndroid } from './lib/android-bridge'
+import { openOfflineFiles, removeOfflineFile } from './lib/offline-files'
 import { cancelWebOffline, retryWebOffline, webOfflineUsage } from './lib/web-offline-storage'
 
 type OfflineEvent = {
@@ -123,7 +123,7 @@ export function OfflineStatus() {
                             class='min-h-11 rounded-md px-3'
                             onClick={() =>
                               job.path &&
-                              removeOfflineInAndroid({
+                              removeOfflineFile({
                                 path: job.path,
                                 name: job.name ?? job.path,
                               } as never)
@@ -147,7 +147,7 @@ export function OfflineStatus() {
             </div>
             <button
               class='mt-4 min-h-11 w-full rounded-md border px-4'
-              onClick={() => openAndroidOffline()}
+              onClick={() => openOfflineFiles()}
             >
               Open offline files
             </button>

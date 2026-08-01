@@ -1,4 +1,4 @@
-import { isAndroidPathAvailableOffline, isOfflineFeatureAvailable } from './lib/android-bridge'
+import { isOfflineFeatureAvailable, isPathAvailableOffline } from './lib/offline-files'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 
 export function OfflineBadge(props: { path: string }) {
@@ -6,7 +6,7 @@ export function OfflineBadge(props: { path: string }) {
 
   onMount(() => {
     if (!isOfflineFeatureAvailable()) return
-    const update = () => setAvailable(isAndroidPathAvailableOffline(props.path))
+    const update = () => setAvailable(isPathAvailableOffline(props.path))
     update()
     window.addEventListener('derp-offline-catalog', update)
     onCleanup(() => window.removeEventListener('derp-offline-catalog', update))

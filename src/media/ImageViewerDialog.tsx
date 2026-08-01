@@ -179,7 +179,7 @@ function ImageViewerInner(props: {
     try {
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     } catch {
-      // Synthetic pointer events used by WebView and browser tests may not be capturable.
+      // Synthetic pointer events used by embedded browsers and tests may not be capturable.
     }
     activePointer = e.pointerId
     gestureStartX = e.clientX
