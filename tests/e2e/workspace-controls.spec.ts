@@ -59,13 +59,21 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(tab).toHaveCount(1)
     const borders = await tab.evaluate((el) => {
       const style = getComputedStyle(el)
+      const titleBar = el.closest('[data-testid="window-drag-handle"]')?.parentElement
+      const bottomGap = titleBar
+        ? titleBar.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom
+        : 0
       return {
         left: style.borderLeftWidth,
         right: style.borderRightWidth,
+        bottomGap,
       }
     })
 
-    expect(borders).toEqual({ left: '1px', right: '1px' })
+    expect(borders.left).toBe('1px')
+    expect(borders.right).toBe('1px')
+    expect(borders.bottomGap).toBeGreaterThan(0)
+    expect(borders.bottomGap).toBeLessThanOrEqual(1)
   })
 
   test('merges window into another as tab', async () => {

@@ -15,7 +15,7 @@ import {
 import Pin from 'lucide-solid/icons/pin'
 import X from 'lucide-solid/icons/x'
 import type { Accessor } from 'solid-js'
-import { For, Show, createEffect, createMemo, createSignal, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 
 function TabStripDropSlot(props: {
   groupId: string
@@ -34,7 +34,7 @@ function TabStripDropSlot(props: {
       data-tab-drop-slot={props.active ? `${props.groupId}:${props.groupSlotIndex}` : undefined}
       data-merge-highlight={props.active && props.mergeHighlight ? '' : undefined}
       data-no-window-drag
-      class={`flex h-8 shrink-0 items-stretch border-0 p-0 ${
+      class={`flex h-full shrink-0 items-stretch border-0 p-0 ${
         props.active
           ? `min-w-[12px] w-[12px] ${props.highlighted ? 'bg-primary/80' : ''}`
           : 'pointer-events-none max-w-0 min-w-0 w-0 overflow-hidden select-none'
@@ -115,16 +115,51 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     })
   }
 
-  onMount(() => requestAnimationFrame(checkOverflow))
-
   const pinnedLead = createMemo(() => leadingPinnedTabCount(tabsList()))
   const pinnedTabs = createMemo(() => tabsList().slice(0, pinnedLead()))
   const scrollableTabs = createMemo(() => tabsList().slice(pinnedLead()))
+  const startDisplaySlotIndex = () => pinnedLead()
+  const startGroupSlotIndex = () => toGroupInsert(startDisplaySlotIndex())
+
+  let focusScrollFrame: number | undefined
+
+  const scrollFocusedTabIntoView = () => {
+    const el = scrollEl
+    if (!el) return
+    const focusedTab = [...el.querySelectorAll<HTMLElement>('[data-workspace-tab-id]')].find(
+      (tab) => tab.dataset.workspaceTabId === props.visibleTabId(),
+    )
+    if (focusedTab) {
+      const viewport = el.getBoundingClientRect()
+      const tab = focusedTab.getBoundingClientRect()
+      el.scrollLeft += tab.left + tab.width / 2 - (viewport.left + viewport.width / 2)
+    }
+    checkOverflow()
+  }
+
+  const scheduleFocusedTabScroll = () => {
+    if (focusScrollFrame !== undefined) cancelAnimationFrame(focusScrollFrame)
+    focusScrollFrame = requestAnimationFrame(() => {
+      focusScrollFrame = undefined
+      scrollFocusedTabIntoView()
+    })
+  }
+
+  onMount(() => {
+    const observer = new ResizeObserver(scheduleFocusedTabScroll)
+    if (scrollEl) observer.observe(scrollEl)
+    scheduleFocusedTabScroll()
+    onCleanup(() => {
+      observer.disconnect()
+      if (focusScrollFrame !== undefined) cancelAnimationFrame(focusScrollFrame)
+    })
+  })
 
   createEffect(() => {
     tabsList()
     pinnedLead()
-    queueMicrotask(() => checkOverflow())
+    props.visibleTabId()
+    scheduleFocusedTabScroll()
   })
   const fileDropSlotActiveByDisplay = (displaySlotIndex: number) =>
     displaySlotIndex === tabsList().length || displaySlotIndex >= pinnedLead()
@@ -269,7 +304,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 
   return (
     <div
-      class={`workspace-tab-strip flex min-w-0 flex-1 items-center ${
+      class={`workspace-tab-strip flex h-full min-w-0 flex-1 items-stretch ${
         fileDragOver() ? 'ring-1 ring-inset ring-primary bg-primary/10' : ''
       }`}
       onDragLeave={handleStripDragLeave}
@@ -355,7 +390,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
               data-workspace-tab-id={tab.id}
               data-workspace-split-left-tab=''
               title='Split left tab (fixed pane)'
-              class='flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border bg-chart-1/22 px-2 shadow-none outline-none hover:bg-chart-1/35'
+              class='flex h-full min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border bg-chart-1/22 px-2 shadow-none outline-none hover:bg-chart-1/35'
               onContextMenu={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -420,7 +455,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                     <div
                       data-no-window-drag
                       data-workspace-tab-id={tab.id}
-                      class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border px-2 ${
+                      class={`flex h-full min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border px-2 ${
                         leftTab() || idx() > 0 ? '-ml-px' : ''
                       } ${
                         tab.id === props.visibleTabId()
@@ -474,23 +509,42 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
             </For>
           </div>
         </Show>
-        <div class='relative flex min-w-0 flex-1 items-center'>
-          <Show when={overflow().left}>
-            <button
-              type='button'
-              data-no-window-drag
-              class='absolute left-0 z-10 flex h-8 w-5 items-center justify-center bg-gradient-to-r from-muted/90 to-transparent text-muted-foreground'
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => scrollBy(-120)}
-            >
-              <span class='text-[10px]'>&#9666;</span>
-            </button>
-          </Show>
+        <div class='flex min-w-0 flex-1 items-stretch'>
+          <div class='relative flex h-full w-3 shrink-0 items-stretch justify-center'>
+            <TabStripDropSlot
+              groupId={props.groupId}
+              groupSlotIndex={startGroupSlotIndex()}
+              active={fileDropSlotActiveByDisplay(startDisplaySlotIndex())}
+              highlighted={dropSlotIndex() === startGroupSlotIndex()}
+              mergeHighlight={mergeHighlightForGroupSlot(startGroupSlotIndex())}
+              onDropFile={props.onDropFile}
+              onSlotDragOver={handleSlotDragOver}
+              onSlotDragLeave={handleSlotDragLeave}
+              onSlotDrop={handleSlotDrop}
+            />
+            <Show when={overflow().left}>
+              <button
+                type='button'
+                data-no-window-drag
+                data-tab-drop-slot={`${props.groupId}:${startGroupSlotIndex()}`}
+                aria-label='Scroll tabs left'
+                class='absolute inset-0 z-10 flex items-center justify-center bg-muted/90 text-muted-foreground'
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => scrollBy(-120)}
+                onDragOver={(e) => handleSlotDragOver(e, startGroupSlotIndex())}
+                onDragLeave={handleSlotDragLeave}
+                onDrop={(e) => handleSlotDrop(e, startGroupSlotIndex())}
+              >
+                <span class='text-[10px]'>&#9666;</span>
+              </button>
+            </Show>
+          </div>
           <div
             ref={(el) => {
               scrollEl = el
             }}
-            class={`scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto ${overflow().left ? 'pl-5' : ''} ${overflow().right ? 'pr-5' : ''}`}
+            data-testid='workspace-tab-scroll-area'
+            class='scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto'
             onScroll={checkOverflow}
             onWheel={(e) => {
               e.stopPropagation()
@@ -505,21 +559,23 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                 const groupBefore = () => toGroupInsert(displayIdx())
                 return (
                   <div class='flex shrink-0 items-stretch'>
-                    <TabStripDropSlot
-                      groupId={props.groupId}
-                      groupSlotIndex={groupBefore()}
-                      active={fileDropSlotActiveByDisplay(displayIdx())}
-                      highlighted={dropSlotIndex() === groupBefore()}
-                      mergeHighlight={mergeHighlightForGroupSlot(groupBefore())}
-                      onDropFile={props.onDropFile}
-                      onSlotDragOver={handleSlotDragOver}
-                      onSlotDragLeave={handleSlotDragLeave}
-                      onSlotDrop={handleSlotDrop}
-                    />
+                    <Show when={idx() > 0}>
+                      <TabStripDropSlot
+                        groupId={props.groupId}
+                        groupSlotIndex={groupBefore()}
+                        active={fileDropSlotActiveByDisplay(displayIdx())}
+                        highlighted={dropSlotIndex() === groupBefore()}
+                        mergeHighlight={mergeHighlightForGroupSlot(groupBefore())}
+                        onDropFile={props.onDropFile}
+                        onSlotDragOver={handleSlotDragOver}
+                        onSlotDragLeave={handleSlotDragLeave}
+                        onSlotDrop={handleSlotDrop}
+                      />
+                    </Show>
                     <div
                       data-no-window-drag
                       data-workspace-tab-id={tab.id}
-                      class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border px-2 ${
+                      class={`flex h-full min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border px-2 ${
                         leftTab() || displayIdx() > 0 ? '-ml-px' : ''
                       } ${
                         tab.id === props.visibleTabId()
@@ -571,6 +627,8 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                 )
               }}
             </For>
+          </div>
+          <div class='relative flex h-full w-3 shrink-0 items-stretch justify-center'>
             <TabStripDropSlot
               groupId={props.groupId}
               groupSlotIndex={endGroupSlotIndex()}
@@ -582,18 +640,23 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
               onSlotDragLeave={handleSlotDragLeave}
               onSlotDrop={handleSlotDrop}
             />
+            <Show when={overflow().right}>
+              <button
+                type='button'
+                data-no-window-drag
+                data-tab-drop-slot={`${props.groupId}:${endGroupSlotIndex()}`}
+                aria-label='Scroll tabs right'
+                class='absolute inset-0 z-10 flex items-center justify-center bg-muted/90 text-muted-foreground'
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => scrollBy(120)}
+                onDragOver={(e) => handleSlotDragOver(e, endGroupSlotIndex())}
+                onDragLeave={handleSlotDragLeave}
+                onDrop={(e) => handleSlotDrop(e, endGroupSlotIndex())}
+              >
+                <span class='text-[10px]'>&#9656;</span>
+              </button>
+            </Show>
           </div>
-          <Show when={overflow().right}>
-            <button
-              type='button'
-              data-no-window-drag
-              class='absolute right-0 z-10 flex h-8 w-5 items-center justify-center bg-gradient-to-l from-muted/90 to-transparent text-muted-foreground'
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => scrollBy(120)}
-            >
-              <span class='text-[10px]'>&#9656;</span>
-            </button>
-          </Show>
         </div>
       </div>
     </div>
