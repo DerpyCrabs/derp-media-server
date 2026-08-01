@@ -355,7 +355,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
               data-workspace-tab-id={tab.id}
               data-workspace-split-left-tab=''
               title='Split left tab (fixed pane)'
-              class='flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border border-l-0 bg-chart-1/22 px-2 shadow-none outline-none hover:bg-chart-1/35'
+              class='flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border bg-chart-1/22 px-2 shadow-none outline-none hover:bg-chart-1/35'
               onContextMenu={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -399,7 +399,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
       </Show>
       <div class='flex min-w-0 flex-1 items-stretch'>
         <Show when={pinnedLead() > 0}>
-          <div class='flex shrink-0 items-stretch border-r border-border'>
+          <div class='flex shrink-0 items-stretch'>
             <For each={pinnedTabs()}>
               {(tab, idx) => {
                 const groupBefore = () => toGroupInsert(idx())
@@ -420,7 +420,9 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                     <div
                       data-no-window-drag
                       data-workspace-tab-id={tab.id}
-                      class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2 ${
+                      class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border px-2 ${
+                        leftTab() || idx() > 0 ? '-ml-px' : ''
+                      } ${
                         tab.id === props.visibleTabId()
                           ? 'bg-background'
                           : 'bg-muted/50 hover:bg-muted'
@@ -517,7 +519,9 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                     <div
                       data-no-window-drag
                       data-workspace-tab-id={tab.id}
-                      class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2 ${
+                      class={`flex h-8 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1 border-x border-border px-2 ${
+                        leftTab() || displayIdx() > 0 ? '-ml-px' : ''
+                      } ${
                         tab.id === props.visibleTabId()
                           ? 'bg-background'
                           : 'bg-muted/50 hover:bg-muted'

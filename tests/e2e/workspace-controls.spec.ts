@@ -52,6 +52,22 @@ async function closeAllWindows(page: Page) {
 }
 
 test.describe('Tab Merging and Splitting', () => {
+  test('workspace tabs have borders on both sides', async () => {
+    await gotoWorkspace(page)
+
+    const tab = page.locator('.workspace-tab-strip [data-workspace-tab-id]')
+    await expect(tab).toHaveCount(1)
+    const borders = await tab.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return {
+        left: style.borderLeftWidth,
+        right: style.borderRightWidth,
+      }
+    })
+
+    expect(borders).toEqual({ left: '1px', right: '1px' })
+  })
+
   test('merges window into another as tab', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
