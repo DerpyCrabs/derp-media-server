@@ -11,15 +11,18 @@ const configFile = batchId
   : 'tests/fixtures/test-config.jsonc'
 const authSessionFile = batchId ? `session-${batchId}.json` : 'session.json'
 const authStoragePath = path.join(__dirname, 'tests/fixtures/.auth', authSessionFile)
+const outputDir = batchId ? `test-results/batch-${batchId}` : 'test-results'
+const htmlReportDir = batchId ? `playwright-report/batch-${batchId}` : 'playwright-report'
 
 export default defineConfig({
   testDir: './tests/e2e',
+  outputDir,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
   // Batches use isolated ports + media dirs; parallelize by file (not within-file).
   workers: batchId ? 4 : 1,
-  reporter: [['line'], ['html', { open: 'never' }]],
+  reporter: [['line'], ['html', { open: 'never', outputFolder: htmlReportDir }]],
   timeout: 15_000,
   expect: { timeout: 10_000 },
   use: {
