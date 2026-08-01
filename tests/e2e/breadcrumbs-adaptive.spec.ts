@@ -52,6 +52,23 @@ test.describe('Breadcrumbs', () => {
     }
   })
 
+  test('deep path does not make a short mobile directory scroll sideways', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
+
+    const pageOverflow = await page.evaluate(() => {
+      const root = document.scrollingElement
+      if (!root) return null
+      return {
+        horizontal: root.scrollWidth - root.clientWidth,
+        vertical: root.scrollHeight - root.clientHeight,
+      }
+    })
+
+    expect(pageOverflow).toEqual({ horizontal: 0, vertical: 0 })
+  })
+
   test('deep path: narrower inline keeps Home + … + parent + current', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()

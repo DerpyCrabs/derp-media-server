@@ -1471,7 +1471,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         class='flex h-9 shrink-0 items-center border-b border-border bg-muted/50 px-2 py-0'
       >
         <div class='flex w-full min-w-0 flex-wrap items-center justify-between gap-1'>
-          <div data-breadcrumb-slot class='flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden'>
+          <div
+            data-breadcrumb-slot
+            class='relative flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden'
+          >
             <Breadcrumbs
               currentPath={currentPath()}
               onNavigate={handleBreadcrumbNavigate}

@@ -1274,7 +1274,7 @@ export function FileBrowser() {
                   <div
                     data-breadcrumb-slot
                     data-testid='breadcrumb-slot'
-                    class='flex min-h-0 min-w-0 flex-1 overflow-hidden'
+                    class='relative flex min-h-0 min-w-0 flex-1 overflow-hidden'
                   >
                     <Breadcrumbs
                       currentPath={currentPath()}
