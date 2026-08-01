@@ -290,7 +290,6 @@ export function FileBrowser() {
   const [searchQuery, setSearchQuery] = createSignal('')
   const [debouncedSearch, setDebouncedSearch] = createSignal('')
   const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
-  let kbSearchRootEl: HTMLDivElement | undefined
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
   const breadcrumbMenu = () => breadcrumbFloating.folderMenu
 
@@ -316,18 +315,6 @@ export function FileBrowser() {
       { defer: true },
     ),
   )
-
-  createEffect(() => {
-    if (!searchPopoverOpen()) return
-    const onDoc = (e: MouseEvent) => {
-      if (kbSearchRootEl?.contains(e.target as Node)) return
-      setSearchPopoverOpen(false)
-      setSearchQuery('')
-      setDebouncedSearch('')
-    }
-    document.addEventListener('mousedown', onDoc)
-    onCleanup(() => document.removeEventListener('mousedown', onDoc))
-  })
 
   registerKbSearchHotkeys({
     active: inKb,
@@ -1275,38 +1262,27 @@ export function FileBrowser() {
                   </div>
                   <Show when={inKb()}>
                     <div class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'>
-                      <div class='relative' data-kb-search-root ref={(el) => (kbSearchRootEl = el)}>
-                        <button
-                          type='button'
-                          aria-label='Search note contents'
-                          title='Search note contents (Ctrl+K)'
-                          class='inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
-                          onClick={() => {
-                            const open = !searchPopoverOpen()
-                            setSearchPopoverOpen(open)
-                            if (!open) {
-                              setSearchQuery('')
-                              setDebouncedSearch('')
-                            }
-                          }}
-                        >
-                          <BookOpenText class='h-4 w-4' aria-hidden='true' stroke-width={2} />
-                        </button>
-                        <Show when={searchPopoverOpen()}>
-                          <div class='absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border border-border bg-popover p-2 shadow-lg outline-none'>
-                            <input
-                              ref={(el) => {
-                                kbSearchInputEl = el ?? undefined
-                              }}
-                              type='search'
-                              placeholder='Search notes...'
-                              class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
-                              value={searchQuery()}
-                              onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                            />
-                          </div>
-                        </Show>
-                      </div>
+                      <button
+                        type='button'
+                        aria-label='Search note contents'
+                        title='Search note contents (Ctrl+K)'
+                        aria-pressed={searchPopoverOpen()}
+                        class={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors ${
+                          searchPopoverOpen()
+                            ? 'bg-accent text-accent-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                        }`}
+                        onClick={() => {
+                          const open = !searchPopoverOpen()
+                          setSearchPopoverOpen(open)
+                          if (!open) {
+                            setSearchQuery('')
+                            setDebouncedSearch('')
+                          }
+                        }}
+                      >
+                        <BookOpenText class='h-4 w-4' aria-hidden='true' stroke-width={2} />
+                      </button>
                     </div>
                   </Show>
                   <div class='flex items-center gap-1'>
@@ -1345,6 +1321,21 @@ export function FileBrowser() {
                     <ThemeSwitcher />
                   </div>
                 </div>
+                <Show when={inKb() && searchPopoverOpen()}>
+                  <div class='pt-1.5' data-testid='kb-search-bar'>
+                    <input
+                      ref={(el) => {
+                        kbSearchInputEl = el ?? undefined
+                      }}
+                      type='text'
+                      placeholder='Search notes...'
+                      autocomplete='off'
+                      class='border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:outline-none'
+                      value={searchQuery()}
+                      onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                    />
+                  </div>
+                </Show>
               </div>
 
               <div

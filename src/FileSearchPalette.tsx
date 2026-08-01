@@ -216,7 +216,7 @@ function FileSearchPalette(props: {
             <Search class='size-5 shrink-0 text-muted-foreground' aria-hidden='true' />
             <input
               ref={(element) => (inputEl = element)}
-              type='search'
+              type='text'
               role='combobox'
               aria-expanded='true'
               aria-controls={listId}

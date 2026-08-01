@@ -13,7 +13,9 @@ test.describe('File search palette', () => {
     await page.getByTestId('classic-file-search-trigger').click()
     const palette = page.getByTestId('file-search-palette')
     await expect(palette).toBeVisible()
-    await palette.getByRole('combobox').fill('Videos')
+    const searchInput = palette.getByRole('combobox')
+    await expect(searchInput).toHaveAttribute('type', 'text')
+    await searchInput.fill('Videos')
     const result = palette.getByRole('option').filter({ hasText: 'Videos' }).first()
     await expect(result).toBeVisible({ timeout: 15_000 })
     await result.click()
@@ -21,23 +23,14 @@ test.describe('File search palette', () => {
     await expect(page.getByText('sample.mp4')).toBeVisible()
   })
 
-  test('uses contextual and global workspace entry points', async ({ page }) => {
+  test('uses only the global workspace entry point', async ({ page }) => {
     await page.goto('/workspace')
     await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
-
-    const firstWindow = page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()
-    await firstWindow.getByTestId('workspace-pane-file-search-trigger').click()
-    let palette = page.getByTestId('file-search-palette')
-    await palette.getByRole('combobox').fill('Images')
-    await expect(palette.getByRole('option').filter({ hasText: 'Images' }).first()).toBeVisible({
-      timeout: 15_000,
-    })
-    await palette.getByRole('option').filter({ hasText: 'Images' }).first().click()
-    await expect(workspaceContent(page).getByText('photo.jpg')).toBeVisible()
+    await expect(page.getByTestId('workspace-pane-file-search-trigger')).toHaveCount(0)
 
     const countBefore = await page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).count()
     await page.getByTestId('workspace-global-file-search-trigger').click()
-    palette = page.getByTestId('file-search-palette')
+    const palette = page.getByTestId('file-search-palette')
     await palette.getByRole('combobox').fill('Notes')
     await expect(palette.getByRole('option').filter({ hasText: 'Notes' }).first()).toBeVisible({
       timeout: 15_000,

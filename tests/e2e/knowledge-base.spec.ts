@@ -3,14 +3,19 @@ import { test, expect } from '@playwright/test'
 test.describe('Knowledge Base', () => {
   test('shows search input in KB folders', async ({ page }) => {
     await page.goto('/?dir=Notes')
-    await page.getByRole('button', { name: 'Search note contents' }).click()
-    await expect(page.locator('input[type="search"][placeholder*="Search"]')).toBeVisible()
+    const searchButton = page.getByRole('button', { name: 'Search note contents' })
+    await expect(searchButton).toHaveAttribute('aria-pressed', 'false')
+    await searchButton.click()
+    await expect(searchButton).toHaveAttribute('aria-pressed', 'true')
+    const searchInput = page.getByPlaceholder('Search notes...')
+    await expect(searchInput).toBeVisible()
+    await expect(searchInput).toHaveAttribute('type', 'text')
   })
 
   test('opens KB search with Ctrl+K and focuses input', async ({ page }) => {
     await page.goto('/?dir=Notes')
     await page.keyboard.press('Control+k')
-    const searchInput = page.locator('input[type="search"][placeholder*="Search"]')
+    const searchInput = page.getByPlaceholder('Search notes...')
     await expect(searchInput).toBeVisible()
     await expect(searchInput).toBeFocused()
   })
@@ -18,7 +23,7 @@ test.describe('Knowledge Base', () => {
   test('opens KB search with slash when not in a text field', async ({ page }) => {
     await page.goto('/?dir=Notes')
     await page.keyboard.press('/')
-    const searchInput = page.locator('input[type="search"][placeholder*="Search"]')
+    const searchInput = page.getByPlaceholder('Search notes...')
     await expect(searchInput).toBeVisible()
     await expect(searchInput).toBeFocused()
   })
@@ -26,7 +31,7 @@ test.describe('Knowledge Base', () => {
   test('searches notes and shows results', async ({ page }) => {
     await page.goto('/?dir=Notes')
     await page.getByRole('button', { name: 'Search note contents' }).click()
-    const searchInput = page.locator('input[type="search"][placeholder*="Search"]')
+    const searchInput = page.getByPlaceholder('Search notes...')
     await searchInput.fill('welcome')
     // Wait for search results to appear
     await expect(page.getByText('welcome.md')).toBeVisible()
@@ -62,7 +67,7 @@ test.describe('Knowledge Base', () => {
     await page.locator('table').getByText('SharedContent', { exact: true }).click()
     await page.waitForURL(/dir=SharedContent/)
     await page.getByRole('button', { name: 'Search note contents' }).click()
-    await expect(page.locator('input[type="search"][placeholder*="Search"]')).toBeVisible()
+    await expect(page.getByPlaceholder('Search notes...')).toBeVisible()
 
     // Toggle off
     await page.goto('/')

@@ -87,8 +87,6 @@ import type {
   WorkspaceBrowserPaneProps,
   WorkspaceShareConfig,
 } from './workspace-browser-pane-types'
-import { FileSearchButton } from '../FileSearchPalette'
-import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 
 export type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 
@@ -126,7 +124,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
   let kbSearchInputEl: HTMLInputElement | undefined
-  let kbSearchRootEl: HTMLDivElement | undefined
+  let browserRootEl: HTMLDivElement | undefined
 
   useInlineModeInputFocus(
     inlineMode,
@@ -515,16 +513,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setExternalUploadDragOver(false)
     }),
   )
-
-  createEffect(() => {
-    if (!searchPopoverOpen()) return
-    const onDoc = (e: MouseEvent) => {
-      if (kbSearchRootEl?.contains(e.target as Node)) return
-      setKbSearchOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    onCleanup(() => document.removeEventListener('mousedown', onDoc))
-  })
 
   registerKbSearchHotkeys({
     active: () => inKb() && isActivePane(),
@@ -1249,10 +1237,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     props.onOpenViewer(props.windowId, file)
   }
 
-  function handleLibrarySearchResult(result: FileSearchResult) {
-    handleFileClick(fileSearchResultToFileItem(result), result.parentPath)
-  }
-
   createEffect(() => {
     const f = unsupportedFile()
     if (!f) return
@@ -1464,7 +1448,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   return (
-    <div class='relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'>
+    <div
+      ref={(el) => (browserRootEl = el)}
+      class='relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'
+    >
       <div
         data-no-window-drag
         class='flex h-9 shrink-0 items-center border-b border-border bg-muted/50 px-2 py-0'
@@ -1482,68 +1469,21 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             />
           </div>
           <div class='flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'>
-            <Show when={!share()}>
-              <FileSearchButton
-                title='Search library in this browser'
-                testId='workspace-pane-file-search-trigger'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
-                iconClass='size-3.5'
-                onSelect={handleLibrarySearchResult}
-              />
-            </Show>
             <Show when={inKb()}>
-              <div
-                ref={(el) => (kbSearchRootEl = el)}
-                class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
-                data-kb-search-root
+              <button
+                type='button'
+                aria-label='Search note contents'
+                title='Search note contents (Ctrl+K)'
+                aria-pressed={searchPopoverOpen()}
+                class={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors ${
+                  searchPopoverOpen()
+                    ? 'bg-accent text-accent-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+                onClick={() => setKbSearchOpen(!searchPopoverOpen())}
               >
-                <div class='relative'>
-                  <button
-                    type='button'
-                    aria-label='Search note contents'
-                    title='Search note contents (Ctrl+K)'
-                    class='text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none'
-                    onClick={() => setKbSearchOpen(!searchPopoverOpen())}
-                  >
-                    <BookOpenText class='h-3.5 w-3.5' stroke-width={2} aria-hidden='true' />
-                  </button>
-                  <Show when={searchPopoverOpen()}>
-                    <div class='border-border bg-popover ring-offset-background absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border p-2 shadow-lg outline-none'>
-                      <input
-                        ref={(el) => {
-                          kbSearchInputEl = el ?? undefined
-                        }}
-                        type='search'
-                        placeholder='Search notes...'
-                        class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
-                        value={searchQuery()}
-                        onInput={(e) => setSearchQuery((e.currentTarget as HTMLInputElement).value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                            e.preventDefault()
-                            const buttons =
-                              kbSearchRootEl?.parentElement?.parentElement?.querySelectorAll<HTMLButtonElement>(
-                                '[data-kb-search-result]',
-                              )
-                            const target =
-                              e.key === 'ArrowDown' ? buttons?.[0] : buttons?.[buttons.length - 1]
-                            target?.focus()
-                          } else if (e.key === 'Enter') {
-                            const first =
-                              kbSearchRootEl?.parentElement?.parentElement?.querySelector<HTMLButtonElement>(
-                                '[data-kb-search-result]',
-                              )
-                            if (first) {
-                              e.preventDefault()
-                              first.click()
-                            }
-                          }
-                        }}
-                      />
-                    </div>
-                  </Show>
-                </div>
-              </div>
+                <BookOpenText class='h-3.5 w-3.5' stroke-width={2} aria-hidden='true' />
+              </button>
             </Show>
             <Show when={showShareCreateToolbar()}>
               <button
@@ -1597,6 +1537,38 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           </div>
         </div>
       </div>
+
+      <Show when={inKb() && searchPopoverOpen()}>
+        <div class='shrink-0 border-b border-border bg-muted/20 p-2' data-testid='kb-search-bar'>
+          <input
+            ref={(el) => {
+              kbSearchInputEl = el ?? undefined
+            }}
+            type='text'
+            placeholder='Search notes...'
+            autocomplete='off'
+            class='border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:outline-none'
+            value={searchQuery()}
+            onInput={(e) => setSearchQuery(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                const buttons =
+                  browserRootEl?.querySelectorAll<HTMLButtonElement>('[data-kb-search-result]')
+                const target = e.key === 'ArrowDown' ? buttons?.[0] : buttons?.[buttons.length - 1]
+                target?.focus()
+              } else if (e.key === 'Enter') {
+                const first =
+                  browserRootEl?.querySelector<HTMLButtonElement>('[data-kb-search-result]')
+                if (first) {
+                  e.preventDefault()
+                  first.click()
+                }
+              }
+            }}
+          />
+        </div>
+      </Show>
 
       <Show when={filesQuery.isError}>
         <DirectoryListingErrorPanel
