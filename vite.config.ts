@@ -8,7 +8,6 @@ export default defineConfig({
   server: {
     watch: {
       ignored: [
-        '**/kb-chats.json',
         '**/mounts.json',
         '**/shares.json',
         '**/settings.json',

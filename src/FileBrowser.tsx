@@ -72,7 +72,6 @@ import {
 } from './lib/offline-files'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
-import { KbChatFooter } from './kb-chat/KbChatFooter'
 import { KbSearchResults } from './file-browser/KbSearchResults'
 import { navigateToFolder } from './file-browser/navigate-folder'
 import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
@@ -1847,9 +1846,6 @@ export function FileBrowser() {
                       inlineFolderInputEl = el
                     }}
                   />
-                </Show>
-                <Show when={inKb()}>
-                  <KbChatFooter kbRoot={kbRootPath()!} />
                 </Show>
                 <Show when={externalUploadDragOver()}>
                   <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>

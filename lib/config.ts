@@ -15,22 +15,6 @@ interface AuthConfig {
   secureCookies?: boolean
 }
 
-export interface AiConfig {
-  provider: 'openrouter' | 'lmstudio' | 'openai-compatible'
-  apiKey?: string
-  baseUrl?: string
-  model?: string
-  systemPrompt?: string
-}
-
-export interface McpServerConfig {
-  url: string
-}
-
-export interface McpConfig {
-  servers: Record<string, McpServerConfig>
-}
-
 export interface FileSearchConfig {
   enabled: boolean
   indexPath: string
@@ -78,8 +62,6 @@ interface AppConfig {
   libraryKey: string
   shareLinkDomain?: string
   auth?: AuthConfig
-  ai?: AiConfig
-  mcp?: McpConfig
   dataPath: string
   fileSearch: FileSearchConfig
   tls?: TlsConfig
@@ -178,30 +160,6 @@ function applyEnvOverrides(cfg: AppConfig): AppConfig {
       process.env.AUTH_SECURE_COOKIES === 'true' || process.env.AUTH_SECURE_COOKIES === '1'
   }
 
-  if (process.env.AI_PROVIDER) {
-    const p = process.env.AI_PROVIDER as AiConfig['provider']
-    if (p === 'openrouter' || p === 'lmstudio' || p === 'openai-compatible') {
-      if (!cfg.ai) cfg.ai = { provider: p }
-      else cfg.ai.provider = p
-    }
-  }
-  if (process.env.AI_API_KEY) {
-    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
-    cfg.ai.apiKey = process.env.AI_API_KEY
-  }
-  if (process.env.AI_BASE_URL) {
-    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
-    cfg.ai.baseUrl = process.env.AI_BASE_URL
-  }
-  if (process.env.AI_MODEL) {
-    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
-    cfg.ai.model = process.env.AI_MODEL
-  }
-  if (process.env.AI_SYSTEM_PROMPT) {
-    if (!cfg.ai) cfg.ai = { provider: 'openai-compatible' }
-    cfg.ai.systemPrompt = process.env.AI_SYSTEM_PROMPT
-  }
-
   return finalizeMediaConfig(cfg)
 }
 
@@ -287,29 +245,6 @@ function finalizeMediaConfig(cfg: AppConfig): AppConfig {
   }
 }
 
-export function parseMcpConfig(parsed: { mcp?: unknown }): McpConfig | undefined {
-  const m = parsed.mcp
-  if (!m || typeof m !== 'object' || Array.isArray(m)) return undefined
-  const srv = (m as { servers?: unknown }).servers
-  if (!srv || typeof srv !== 'object' || Array.isArray(srv)) return undefined
-  const servers: Record<string, McpServerConfig> = {}
-  for (const [k, v] of Object.entries(srv)) {
-    const key = k.trim()
-    if (!key) continue
-    if (!v || typeof v !== 'object' || Array.isArray(v)) continue
-    const urlRaw = (v as { url?: unknown }).url
-    if (typeof urlRaw !== 'string' || !urlRaw.trim()) continue
-    const url = urlRaw.trim()
-    try {
-      new URL(url)
-    } catch {
-      continue
-    }
-    servers[key] = { url }
-  }
-  return Object.keys(servers).length > 0 ? { servers } : undefined
-}
-
 function loadConfigOnce(): AppConfig {
   let configPath = getConfigPath()
   const isDefaultPath = configPath === DEFAULT_CONFIG_PATH
@@ -386,32 +321,6 @@ function loadConfigOnce(): AppConfig {
           }
         : { enabled: false }
 
-    const AI_PROVIDERS = new Set(['openrouter', 'lmstudio', 'openai-compatible'])
-    const ai: AiConfig | undefined =
-      parsed.ai &&
-      typeof parsed.ai === 'object' &&
-      AI_PROVIDERS.has((parsed.ai as AiConfig).provider)
-        ? {
-            provider: (parsed.ai as AiConfig).provider,
-            apiKey:
-              typeof (parsed.ai as AiConfig).apiKey === 'string'
-                ? (parsed.ai as AiConfig).apiKey
-                : undefined,
-            baseUrl:
-              typeof (parsed.ai as AiConfig).baseUrl === 'string'
-                ? (parsed.ai as AiConfig).baseUrl
-                : undefined,
-            model:
-              typeof (parsed.ai as AiConfig).model === 'string'
-                ? (parsed.ai as AiConfig).model
-                : undefined,
-            systemPrompt:
-              typeof (parsed.ai as AiConfig).systemPrompt === 'string'
-                ? (parsed.ai as AiConfig).systemPrompt
-                : undefined,
-          }
-        : undefined
-
     const configDir = path.dirname(configPath)
     const dataPath =
       typeof parsed.dataPath === 'string' ? path.resolve(configDir, parsed.dataPath) : configDir
@@ -458,8 +367,6 @@ function loadConfigOnce(): AppConfig {
       ),
     }
 
-    const mcp = parseMcpConfig(parsed)
-
     return applyEnvOverrides({
       port,
       mediaDir,
@@ -469,8 +376,6 @@ function loadConfigOnce(): AppConfig {
       libraryKey: mediaDir,
       shareLinkDomain,
       auth,
-      ai,
-      mcp,
       dataPath,
       fileSearch,
       tls,
@@ -487,7 +392,6 @@ function loadConfigOnce(): AppConfig {
         libraryKey: process.cwd(),
         shareLinkDomain: undefined,
         auth: { enabled: false, password: undefined },
-        mcp: undefined,
         dataPath: path.dirname(configPath),
         fileSearch: {
           enabled: true,
@@ -661,14 +565,6 @@ export function getMediaRootById(id: string): MediaRoot | undefined {
   return getMediaRoots().find((root) => root.id === id)
 }
 
-export function getMcpConfig(): McpConfig | undefined {
-  return config.mcp
-}
-
 export function getDataFilePath(filename: string): string {
   return path.join(config.dataPath, filename)
-}
-
-export function getAiConfig(): AiConfig | null {
-  return config.ai ?? null
 }

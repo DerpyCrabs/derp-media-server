@@ -472,10 +472,9 @@ body {
   --tw-prose-invert-code: var(--foreground);
 }
 
-/* Inside workspace, allow selection only in inputs, editors, and KB chat transcript */
+/* Inside workspace, allow selection only in inputs and editors */
 .workspace-layout input,
 .workspace-layout textarea,
-.workspace-layout [data-slot='input'],
-.workspace-layout .kb-chat-selectable {
+.workspace-layout [data-slot='input'] {
   user-select: text;
 }

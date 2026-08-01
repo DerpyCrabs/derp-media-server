@@ -17,7 +17,6 @@ import {
   WorkspaceViewerPane,
   type WorkspaceVideoListenOnlyDetail,
 } from '@/src/workspace/WorkspaceViewerPane'
-import { KbChatWindowPane } from '@/src/kb-chat/KbChatWindowPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from '@/src/workspace/WorkspaceWindowChrome'
 import { WorkspaceSnapAssistBar } from '@/src/workspace/WorkspaceSnapAssistBar'
 import { WorkspaceTilingPicker } from '@/src/workspace/WorkspaceTilingPicker'
@@ -95,7 +94,6 @@ export type WorkspacePageCanvasProps = {
   listenOnlyHandoff: (tabId: string, detail: WorkspaceVideoListenOnlyDetail) => void
   onBeginFileOpenTargetPick: (browserWindowId: string) => void
   openFileInNewFloatingWindow: (windowId: string, file: FileItem) => void
-  openMediaFromChat: (chatWindowId: string, path: string, isDirectory: boolean) => void
 }
 
 export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
@@ -271,13 +269,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 }
                               />
                             </Show>
-                            <Show when={windowDef()?.type === 'chat'}>
-                              <KbChatWindowPane
-                                windowId={tabId}
-                                workspace={props.workspace}
-                                openMedia={(p, d) => props.openMediaFromChat(tabId, p, d)}
-                              />
-                            </Show>
                           </div>
                         )
                       }}
@@ -360,13 +351,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               }
                             />
                           </Show>
-                          <Show when={leftWindowDef()?.type === 'chat'}>
-                            <KbChatWindowPane
-                              windowId={leftTabId()}
-                              workspace={props.workspace}
-                              openMedia={(p, d) => props.openMediaFromChat(leftTabId(), p, d)}
-                            />
-                          </Show>
                         </div>
                         <div
                           data-testid='workspace-split-divider'
@@ -442,13 +426,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                     ignoreTabPinForListenOnlyDismiss: true,
                                   })
                                 }
-                              />
-                            </Show>
-                            <Show when={rightWindowDef()?.type === 'chat'}>
-                              <KbChatWindowPane
-                                windowId={visibleTabId()}
-                                workspace={props.workspace}
-                                openMedia={(p, d) => props.openMediaFromChat(visibleTabId(), p, d)}
                               />
                             </Show>
                           </div>

@@ -17,7 +17,6 @@ import { registerSharesApiRoutes } from './routes/api/shares'
 import { registerShareAccessApiRoutes } from './routes/api/shareAccess'
 import { registerMountsApiRoutes } from './routes/api/mounts'
 import { registerKbApiRoutes } from './routes/api/kb'
-import { registerKbChatApiRoutes } from './routes/api/kb-chat'
 import { registerFileSearchApiRoutes } from './routes/api/file-search'
 import { fileSearchService } from './file-search-service'
 import path from 'path'
@@ -57,7 +56,6 @@ async function createApp() {
   registerShareAccessApiRoutes(app)
   registerMountsApiRoutes(app)
   registerKbApiRoutes(app)
-  registerKbChatApiRoutes(app)
   registerFileSearchApiRoutes(app)
 
   // HTTP routes (streaming, binary, SSE)
@@ -88,7 +86,6 @@ async function createApp() {
             '**/tests/**',
             '**/dist/**',
             // Persisted server data (often next to config.jsonc); writes trigger full-reload HMR otherwise
-            '**/kb-chats.json',
             '**/shares.json',
             '**/mounts.json',
             '**/settings.json',

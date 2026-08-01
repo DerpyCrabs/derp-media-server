@@ -42,7 +42,6 @@ async function readSettings() {
         knowledgeBases: [],
         customIcons: {},
         autoSave: {},
-        kbChatSystemPrompts: {},
       }
     )
   } catch {
@@ -52,7 +51,6 @@ async function readSettings() {
       knowledgeBases: [],
       customIcons: {},
       autoSave: {},
-      kbChatSystemPrompts: {},
     }
   }
 }

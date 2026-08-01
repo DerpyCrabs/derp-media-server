@@ -21,19 +21,14 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.72",
-    "@ai-sdk/provider": "^3.0.10",
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^10.0.0",
     "@fastify/static": "^9.1.3",
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/geist-mono": "^5.2.8",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@openrouter/ai-sdk-provider": "^2.9.1",
     "@tailwindcss/typography": "^0.5.20",
     "@tanstack/solid-query": "^5.101.0",
     "@tanstack/solid-virtual": "^3.13.29",
-    "ai": "^6.0.207",
     "archiver": "^8.0.0",
     "clsx": "^2.1.1",
     "fastify": "^5.8.5",
@@ -47,8 +42,7 @@
     "solid-js": "^1.9.13",
     "strip-json-comments": "^5.0.3",
     "tailwind-merge": "^3.6.0",
-    "turndown": "^7.2.4",
-    "zod": "^4.4.3"
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
     "@fastify/middie": "^9.3.2",

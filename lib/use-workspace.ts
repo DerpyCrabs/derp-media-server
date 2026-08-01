@@ -12,7 +12,6 @@ import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrat
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
-import { workspaceKbChatWindowTitle } from '@/lib/workspace-kb-chat-title'
 
 export interface WorkspaceSource {
   kind: 'local' | 'share'
@@ -80,7 +79,7 @@ export interface WorkspaceTilingPlacement {
 
 export interface WorkspaceWindowDefinition {
   id: string
-  type: 'browser' | 'viewer' | 'chat'
+  type: 'browser' | 'viewer'
   title: string
   iconName?: string | null
   iconPath?: string | null
@@ -370,7 +369,7 @@ export function normalizePersistedWorkspaceState(
       (w): w is WorkspaceWindowDefinition =>
         !!w &&
         typeof w.id === 'string' &&
-        (w.type === 'browser' || w.type === 'viewer' || w.type === 'chat') &&
+        (w.type === 'browser' || w.type === 'viewer') &&
         !!w.source &&
         isValidSource(w.source),
     )
@@ -467,13 +466,6 @@ export function workspaceSourceToMediaContext(
 export function getWorkspaceWindowTitle(
   window: Pick<WorkspaceWindowDefinition, 'title' | 'type' | 'source' | 'initialState'>,
 ): string {
-  if (window.type === 'chat') {
-    const kbRoot = (window.initialState as { kbRoot?: string })?.kbRoot ?? ''
-    const derived = workspaceKbChatWindowTitle(kbRoot)
-    const t = window.title.trim()
-    if (!t || t === 'KB Chat') return derived
-  }
-
   if (window.title.trim()) {
     return window.title
   }

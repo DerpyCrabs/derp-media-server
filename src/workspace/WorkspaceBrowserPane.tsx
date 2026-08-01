@@ -60,7 +60,6 @@ import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbInlineCreateFooter } from '../file-browser/KbInlineCreateFooter'
-import { KbChatFooter } from '../kb-chat/KbChatFooter'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
 import type { AuthConfig, UploadToastState } from '../file-browser/types'
 import {
@@ -1890,23 +1889,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               }}
               onFolderInputRef={(el) => {
                 inlineFolderInputEl = el
-              }}
-            />
-          </Show>
-
-          <Show when={inKb() && !share()}>
-            <KbChatFooter
-              kbRoot={kbRootPath()!}
-              noWindowDrag
-              onOpenInWindow={(chatId) => {
-                props.onOpenInNewTab?.(
-                  props.windowId,
-                  {
-                    path: `__kb-chat__:${kbRootPath()!}${chatId ? `:${chatId}` : ''}`,
-                    isDirectory: false,
-                  },
-                  currentPath(),
-                )
               }}
             />
           </Show>

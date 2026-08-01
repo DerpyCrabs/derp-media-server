@@ -31,9 +31,6 @@ export const queryKeys = {
   shareText: (token: string, filePath: string) =>
     ['content', 'share', token, 'text', filePath] as const,
   audioMetadata: (filePath: string) => ['audio-metadata', 'v2', filePath] as const,
-  kbChatStatus: () => ['kb-chat-status'] as const,
-  kbChatHistory: (kbRoot: string) => ['kb-chat-history', kbRoot] as const,
-  kbChatDetail: (chatId: string) => ['kb-chat-detail', chatId] as const,
   fileSearch: (query?: string) =>
     query === undefined ? (['file-search'] as const) : (['file-search', query] as const),
   fileSearchStatus: () => ['file-search-status'] as const,
