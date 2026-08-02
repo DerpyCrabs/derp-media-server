@@ -430,9 +430,37 @@ export function snapZoneToBoundsWithOccupied(
 
 const EDGE_FLUSH_TOL = 4
 
+export function adaptFloatingBoundsForCanvasResize(
+  bounds: WorkspaceBounds,
+  prev: WorkspaceCanvasSize,
+  next: WorkspaceCanvasSize,
+): WorkspaceBounds {
+  if (prev.width <= 0 || prev.height <= 0 || next.width <= 0 || next.height <= 0) {
+    return bounds
+  }
+
+  const widthRatio = next.width / prev.width
+  const heightRatio = next.height / prev.height
+  const fitScale = Math.min(next.width / bounds.width, next.height / bounds.height)
+  const scale = Math.min(widthRatio, fitScale)
+  const width = Math.max(1, Math.round(bounds.width * scale))
+  const height = Math.max(1, Math.round(bounds.height * scale))
+  const x = Math.max(
+    0,
+    Math.min(Math.round(bounds.x * widthRatio), Math.max(0, next.width - width)),
+  )
+  const y = Math.max(
+    0,
+    Math.min(Math.round(bounds.y * heightRatio), Math.max(0, next.height - height)),
+  )
+
+  return { x, y, width, height }
+}
+
 /**
- * When the workspace canvas is resized, keep maximized windows flush with the canvas
- * and scale snapped window bounds proportionally so custom split ratios are preserved.
+ * Adapt every window to a resized workspace canvas. Maximized/tiled windows stay flush,
+ * snapped ratios scale. Floating positions follow each canvas axis while size follows only
+ * canvas width, preserving each floating window's aspect ratio.
  */
 export function scaleSnappedWindowsBoundsForCanvasResize(
   windows: WorkspaceWindowDefinition[],
@@ -444,20 +472,35 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
   const sy = next.height / prev.height
   const scaled = windows.map((w) => {
     const lz = w.layout
+    if (!lz) return w
+    const restoreBounds = lz.restoreBounds
+      ? adaptFloatingBoundsForCanvasResize(lz.restoreBounds, prev, next)
+      : lz.restoreBounds
     if (lz?.fullscreen) {
       return {
         ...w,
         layout: {
           ...lz,
           bounds: createFullscreenBounds(next),
+          restoreBounds,
         },
       }
     }
-    if ((!lz?.tiling && !lz?.snapZone) || lz.minimized || !lz.bounds) return w
+    if (!lz.bounds) return w
+    if (!lz.tiling && !lz.snapZone) {
+      return {
+        ...w,
+        layout: {
+          ...lz,
+          bounds: adaptFloatingBoundsForCanvasResize(lz.bounds, prev, next),
+          restoreBounds,
+        },
+      }
+    }
     if (lz.tiling) {
       return {
         ...w,
-        layout: { ...lz, bounds: tilingPlacementToBounds(lz.tiling, next) },
+        layout: { ...lz, bounds: tilingPlacementToBounds(lz.tiling, next), restoreBounds },
       }
     }
     const b = lz.bounds
@@ -471,6 +514,7 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
           width: Math.round(b.width * sx),
           height: Math.round(b.height * sy),
         },
+        restoreBounds,
       },
     }
   })
