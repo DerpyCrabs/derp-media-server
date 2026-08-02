@@ -23,6 +23,7 @@ import { applyWorkspaceTileGap } from '@/lib/workspace-tile-gaps'
 
 const MIN_W = 360
 const MIN_H = 260
+const WINDOW_DRAG_START_THRESHOLD_PX = 5
 
 export type WorkspaceBounds = {
   x: number
@@ -203,14 +204,19 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     let grabBase = wb
     let grabDx = e.clientX - cRect.left - grabBase.x
     let grabDy = e.clientY - cRect.top - grabBase.y
-    let dragStarted = !(snapZone() || isFullscreen())
+    let dragStarted = isFloating()
     const pointerDownX = e.clientX
     const pointerDownY = e.clientY
     let liveBounds: WorkspaceBounds = { ...grabBase }
 
     const onMove = (ev: PointerEvent) => {
       if (!dragStarted) {
-        if (Math.hypot(ev.clientX - pointerDownX, ev.clientY - pointerDownY) < 6) return
+        if (
+          Math.hypot(ev.clientX - pointerDownX, ev.clientY - pointerDownY) <
+          WINDOW_DRAG_START_THRESHOLD_PX
+        ) {
+          return
+        }
         const after = props.onRestoreDrag(lid, pointerDownX, pointerDownY)
         if (after) {
           grabBase = after

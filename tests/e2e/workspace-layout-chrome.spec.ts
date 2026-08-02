@@ -146,6 +146,30 @@ test.describe('Tiling Layout Picker', () => {
     expect(bounds.height).toBeLessThan(halfH + 20)
   })
 
+  test('does not untile for titlebar movement below drag threshold', async () => {
+    await gotoWorkspace(page)
+    const group = getWindowGroups(page).first()
+    const maximizeBtn = group.locator('button:has(.lucide-maximize-2)')
+    await maximizeBtn.click({ button: 'right' })
+    await assistMiniGrid(page, '2x2').getByTestId('snap-assist-master-cell').click()
+    await waitForWindowBoundsStable(page, group)
+
+    const before = await getWindowBounds(group)
+    const handle = getDragHandle(group)
+    const box = await handle.boundingBox()
+    if (!box) throw new Error('Drag handle not visible')
+    const x = box.x + box.width / 2
+    const y = box.y + box.height / 2
+
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + 3, y, { steps: 3 })
+    await page.mouse.up()
+
+    const after = await getWindowBounds(group)
+    expect(after).toEqual(before)
+  })
+
   test('picker closes on escape', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
