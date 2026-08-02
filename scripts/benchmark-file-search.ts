@@ -1,6 +1,6 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import os from 'node:os'
+import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import type { FileSearchResponse, FileSearchStatus } from '@/lib/file-search'
 
@@ -15,10 +15,10 @@ const benchmarkRoot = providedRoot
   ? path.resolve(providedRoot)
   : fs.mkdtempSync(path.join(os.tmpdir(), 'derp-file-search-benchmark-'))
 const mediaRoot = path.join(benchmarkRoot, 'media')
+const dataPath = path.join(benchmarkRoot, 'data')
 const indexPath = path.join(benchmarkRoot, 'index', 'files.sqlite')
+const configPath = path.join(benchmarkRoot, 'config.json')
 const keepFiles = process.env.FILE_SEARCH_BENCHMARK_KEEP === '1' || !!providedRoot
-
-type RpcResponse = { id: number; ok: boolean; data?: unknown; error?: string }
 
 function percentile(values: number[], fraction: number) {
   if (values.length === 0) return 0
@@ -46,28 +46,6 @@ async function generateFiles() {
   }
 }
 
-function createRpc(worker: Worker) {
-  let nextId = 0
-  const pending = new Map<
-    number,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
-  >()
-  worker.addEventListener('message', (event: MessageEvent<RpcResponse>) => {
-    const response = event.data
-    const request = pending.get(response.id)
-    if (!request) return
-    pending.delete(response.id)
-    if (response.ok) request.resolve(response.data)
-    else request.reject(new Error(response.error ?? 'Worker request failed'))
-  })
-  return <T>(type: string, payload: Record<string, unknown> = {}) =>
-    new Promise<T>((resolve, reject) => {
-      const id = ++nextId
-      pending.set(id, { resolve: (value) => resolve(value as T), reject })
-      worker.postMessage({ id, type, ...payload })
-    })
-}
-
 async function databaseSize() {
   let bytes = 0
   for (const file of [indexPath, `${indexPath}-wal`, `${indexPath}-shm`]) {
@@ -78,65 +56,89 @@ async function databaseSize() {
   return bytes
 }
 
-let worker: Worker | undefined
-let httpServer: ReturnType<typeof Bun.serve> | undefined
+async function reservePort() {
+  const reservation = Bun.serve({ port: 0, fetch: () => new Response() })
+  const port = reservation.port
+  reservation.stop(true)
+  return port
+}
 
+async function waitForServer(baseUrl: string) {
+  const deadline = Date.now() + 120_000
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/api/files/search/status`)
+      if (response.ok) return
+    } catch {}
+    await Bun.sleep(50)
+  }
+  throw new Error('Rust benchmark server did not start')
+}
+
+let server: Bun.Subprocess | undefined
 try {
   const generationStarted = performance.now()
   await generateFiles()
   const generationMs = performance.now() - generationStarted
 
-  worker = new Worker(new URL('../server/file-search-worker.ts', import.meta.url).href)
-  const rpc = createRpc(worker)
-  let peakRss = process.memoryUsage.rss()
-  const rssTimer = setInterval(() => {
-    peakRss = Math.max(peakRss, process.memoryUsage.rss())
-  }, 50)
+  const build = Bun.spawn(['cargo', 'build', '--release'], { stdout: 'inherit', stderr: 'inherit' })
+  if ((await build.exited) !== 0) throw new Error('Rust release build failed')
 
-  httpServer = Bun.serve({ port: 0, fetch: () => new Response('ok') })
-  const httpLatencies: number[] = []
-  let probing = true
-  const probe = (async () => {
-    while (probing) {
-      const started = performance.now()
-      await fetch(`http://127.0.0.1:${httpServer!.port}/`)
-      httpLatencies.push(performance.now() - started)
-      await Bun.sleep(25)
-    }
-  })()
-
-  const buildStarted = performance.now()
-  await rpc('init', {
-    config: {
-      enabled: true,
-      indexPath,
-      watchMode: 'off',
-      maxRecursiveWatchers: 0,
-      maxFsConcurrency: 4,
-      reconcileDirectoriesPerSecond: 128,
-    },
-    roots: [{ id: 'benchmark', name: 'Benchmark', path: mediaRoot, source: 'config' }],
+  const port = await reservePort()
+  fs.mkdirSync(dataPath, { recursive: true })
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      port,
+      mediaDir: mediaRoot,
+      dataPath,
+      fileSearch: {
+        enabled: true,
+        indexPath,
+        watchMode: 'off',
+        maxRecursiveWatchers: 0,
+        maxFsConcurrency: 4,
+        reconcileDirectoriesPerSecond: 128,
+      },
+    }),
+  )
+  const binary = path.resolve(
+    process.platform === 'win32'
+      ? 'target/release/derp-media-server.exe'
+      : 'target/release/derp-media-server',
+  )
+  server = Bun.spawn([binary, '--production', `--config-path=${configPath}`], {
+    stdout: 'inherit',
+    stderr: 'inherit',
+    env: { ...process.env, NODE_ENV: 'production' },
   })
+  const baseUrl = `http://127.0.0.1:${port}`
+  const buildStarted = performance.now()
+  await waitForServer(baseUrl)
 
+  const httpLatencies: number[] = []
   let status: FileSearchStatus
   do {
-    await Bun.sleep(100)
-    status = await rpc<FileSearchStatus>('status')
+    const started = performance.now()
+    const response = await fetch(`${baseUrl}/api/files/search/status`)
+    httpLatencies.push(performance.now() - started)
+    status = (await response.json()) as FileSearchStatus
+    if (status.state === 'building' || status.state === 'starting') await Bun.sleep(25)
   } while (status.state === 'building' || status.state === 'starting')
   const buildMs = performance.now() - buildStarted
-  probing = false
-  await probe
 
   const queryLatencies: number[] = []
   const queries = ['file-000', '000123', 'txt', 'directory-000']
   for (let index = 0; index < 100; index++) {
     const started = performance.now()
-    await rpc<FileSearchResponse>('search', { query: queries[index % queries.length], limit: 50 })
+    const response = await fetch(
+      `${baseUrl}/api/files/search?q=${encodeURIComponent(queries[index % queries.length])}&limit=50`,
+    )
+    if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`)
+    ;(await response.json()) as FileSearchResponse
     queryLatencies.push(performance.now() - started)
   }
 
-  await rpc('shutdown')
-  clearInterval(rssTimer)
   const sizeBytes = await databaseSize()
   console.log(
     JSON.stringify(
@@ -147,7 +149,6 @@ try {
         buildSeconds: round(buildMs / 1_000),
         indexedEntriesPerSecond: round(status.indexedEntries / (buildMs / 1_000)),
         databaseMB: round(sizeBytes / 1024 / 1024),
-        peakRssMB: round(peakRss / 1024 / 1024),
         queryP50Ms: round(percentile(queryLatencies, 0.5)),
         queryP95Ms: round(percentile(queryLatencies, 0.95)),
         httpP50MsDuringBuild: round(percentile(httpLatencies, 0.5)),
@@ -159,8 +160,8 @@ try {
     ),
   )
 } finally {
-  httpServer?.stop(true)
-  worker?.terminate()
+  server?.kill()
+  if (server) await server.exited
   if (!keepFiles) {
     for (let attempt = 0; attempt < 20; attempt++) {
       try {

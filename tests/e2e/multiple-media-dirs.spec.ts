@@ -53,25 +53,15 @@ function workspaceContent(page: Page) {
   return page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first().locator('.workspace-window-content')
 }
 
-function getBunExecutable(): string {
-  const executableName = process.platform === 'win32' ? 'bun.exe' : 'bun'
-  const candidates = (process.env.PATH ?? '')
-    .split(path.delimiter)
-    .filter(Boolean)
-    .map((entry) => path.join(entry, executableName))
-
-  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-    const nvmDir = path.join(process.env.LOCALAPPDATA, 'nvm')
-    try {
-      for (const version of fs.readdirSync(nvmDir)) {
-        candidates.push(path.join(nvmDir, version, 'node_modules', 'bun', 'bin', 'bun.exe'))
-      }
-    } catch {
-      // nvm is not always installed.
-    }
-  }
-
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? executableName
+function serverCommand(): { executable: string; args: string[] } {
+  const executable = path.resolve(
+    __dirname,
+    '../..',
+    process.platform === 'win32'
+      ? 'target/release/derp-media-server.exe'
+      : 'target/release/derp-media-server',
+  )
+  return { executable, args: ['--production'] }
 }
 
 async function createShare(page: Page, sharePath: string, editable = false): Promise<string> {
@@ -132,11 +122,12 @@ test.describe.serial('Multiple media directories', () => {
       ),
     )
 
-    server = spawn(getBunExecutable(), ['server/index.ts'], {
+    const command = serverCommand()
+    server = spawn(command.executable, command.args, {
       cwd: path.resolve(__dirname, '../..'),
       env: {
         ...process.env,
-        NODE_ENV: 'test',
+        NODE_ENV: 'production',
         PORT: String(port),
         CONFIG_PATH: configPath,
         BATCH_ID: `multi-${port}`,

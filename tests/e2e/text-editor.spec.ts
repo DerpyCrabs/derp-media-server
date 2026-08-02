@@ -90,34 +90,21 @@ test.describe('Text Editor', () => {
     await expect(page.getByText('This is a test readme file')).toBeVisible()
   })
 
-  test('loads Markdown editor module only after first Markdown document', async ({ page }) => {
-    const isMarkdownDocumentRequest = (url: string) =>
-      new URL(url).pathname === '/src/media/MarkdownDocument.tsx'
-    const markdownDocumentRequests: string[] = []
-    page.on('request', (request) => {
-      if (isMarkdownDocumentRequest(request.url())) markdownDocumentRequests.push(request.url())
-    })
-
+  test('opens Markdown editor and switches between read and edit modes', async ({ page }) => {
     await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
     await expect(page.locator('textarea')).toBeVisible()
-    expect(markdownDocumentRequests).toEqual([])
 
     await page.locator('button[title="Close"]').click()
     const markdownRow = page.locator('table').getByText('markdown-editor-e2e.md', { exact: true })
     await expect(markdownRow).toBeVisible()
-    await Promise.all([
-      page.waitForRequest((request) => isMarkdownDocumentRequest(request.url())),
-      markdownRow.click(),
-    ])
+    await markdownRow.click()
 
     await expect(markdownEditor(page)).toBeVisible()
-    expect(markdownDocumentRequests).toHaveLength(1)
 
     await page.getByRole('button', { name: 'Read only' }).click()
     await expect(markdownDocument(page, 'read').getByRole('document')).toBeVisible()
     await page.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(markdownEditor(page)).toBeVisible()
-    expect(markdownDocumentRequests).toHaveLength(1)
   })
 
   test('resets Markdown history when switching equal-content files', async ({

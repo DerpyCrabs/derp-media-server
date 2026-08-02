@@ -1,0 +1,12 @@
+pub mod auth;
+pub mod files;
+pub mod media;
+pub mod mounts;
+pub mod search;
+pub mod settings;
+pub mod share_access;
+pub mod share_media;
+pub mod share_search;
+pub mod shares;
+pub mod sse;
+pub mod stats;

@@ -13,6 +13,10 @@ const authSessionFile = batchId ? `session-${batchId}.json` : 'session.json'
 const authStoragePath = path.join(__dirname, 'tests/fixtures/.auth', authSessionFile)
 const outputDir = batchId ? `test-results/batch-${batchId}` : 'test-results'
 const htmlReportDir = batchId ? `playwright-report/batch-${batchId}` : 'playwright-report'
+const releaseServer =
+  process.platform === 'win32'
+    ? 'target\\release\\derp-media-server.exe --production'
+    : 'target/release/derp-media-server --production'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -55,12 +59,12 @@ export default defineConfig({
   globalSetup: './tests/fixtures/setup.ts',
   globalTeardown: './tests/fixtures/teardown.ts',
   webServer: {
-    command: 'bun server/index.ts',
+    command: releaseServer,
     url: `http://localhost:${port}`,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 120_000,
     env: {
-      NODE_ENV: 'test',
+      NODE_ENV: 'production',
       PORT: String(port),
       CONFIG_PATH: configFile,
       NO_PROXY: 'localhost,127.0.0.1',
