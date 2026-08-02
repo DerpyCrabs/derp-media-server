@@ -193,6 +193,9 @@ export function TextViewerBody(props: {
   const [readOnlyView, setReadOnlyView] = createSignal(false)
   const [editContent, setEditContent] = createSignal('')
   const [editorBaseContent, setEditorBaseContent] = createSignal('')
+  const [savedContentAwaitingQuery, setSavedContentAwaitingQuery] = createSignal<string | null>(
+    null,
+  )
   const [copied, setCopied] = createSignal(false)
   const [autoSaveError, setAutoSaveError] = createSignal<string | null>(null)
 
@@ -212,7 +215,7 @@ export function TextViewerBody(props: {
     },
     onSuccess: (content: string) => {
       const key = queryKey()
-      setEditorBaseContent(content)
+      setSavedContentAwaitingQuery(content)
       queryClient.setQueryData(key, content)
       void queryClient.invalidateQueries({ queryKey: key })
     },
@@ -238,14 +241,21 @@ export function TextViewerBody(props: {
     if (!path || data === undefined) return
     if (path !== lastPath) {
       lastPath = path
+      setSavedContentAwaitingQuery(null)
       setReadOnlyView(pr)
       const scope = props.shareContext ? `share:${props.shareContext.token}` : 'admin'
       const draft = readTextEditorDraft(textEditorDraftKey(scope, path))
       setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
       setEditorBaseContent(data)
-    } else if (data !== editorBaseContent() && editContent() === editorBaseContent()) {
-      setEditContent(data)
-      setEditorBaseContent(data)
+    } else {
+      const savedContent = savedContentAwaitingQuery()
+      if (savedContent !== null && data === savedContent) {
+        setEditorBaseContent(savedContent)
+        setSavedContentAwaitingQuery(null)
+      } else if (data !== editorBaseContent() && editContent() === editorBaseContent()) {
+        setEditContent(data)
+        setEditorBaseContent(data)
+      }
     }
   })
 

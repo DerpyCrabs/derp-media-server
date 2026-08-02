@@ -308,6 +308,9 @@ export function WorkspaceViewerPane(props: Props) {
   const [readOnlyView, setReadOnlyView] = createSignal(false)
   const [editContent, setEditContent] = createSignal('')
   const [editorBaseContent, setEditorBaseContent] = createSignal('')
+  const [savedContentAwaitingQuery, setSavedContentAwaitingQuery] = createSignal<string | null>(
+    null,
+  )
   const [copied, setCopied] = createSignal(false)
   const [saveError, setSaveError] = createSignal<string | null>(null)
 
@@ -318,15 +321,22 @@ export function WorkspaceViewerPane(props: Props) {
     if (mediaType() !== MediaType.TEXT || !path || data === undefined) return
     if (path !== lastTextPath) {
       lastTextPath = path
+      setSavedContentAwaitingQuery(null)
       setReadOnlyView(false)
       const ctx = textViewerShareCtx()
       const key = textEditorDraftKey(ctx ? `share:${ctx.token}` : 'admin', path)
       const draft = readTextEditorDraft(key)
       setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
       setEditorBaseContent(data)
-    } else if (data !== editorBaseContent() && editContent() === editorBaseContent()) {
-      setEditContent(data)
-      setEditorBaseContent(data)
+    } else {
+      const savedContent = savedContentAwaitingQuery()
+      if (savedContent !== null && data === savedContent) {
+        setEditorBaseContent(savedContent)
+        setSavedContentAwaitingQuery(null)
+      } else if (data !== editorBaseContent() && editContent() === editorBaseContent()) {
+        setEditContent(data)
+        setEditorBaseContent(data)
+      }
     }
   })
 
@@ -345,7 +355,7 @@ export function WorkspaceViewerPane(props: Props) {
     },
     onSuccess: (content: string) => {
       const key = textQueryKey()
-      setEditorBaseContent(content)
+      setSavedContentAwaitingQuery(content)
       queryClient.setQueryData(key, content)
       void queryClient.invalidateQueries({ queryKey: key })
     },

@@ -417,6 +417,41 @@ test.describe('Workspace Text Viewer', () => {
     })
   })
 
+  test('keeps cursor position while typing within existing text', async () => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')
+    const textarea = viewer.locator('textarea')
+    await expect(textarea).toBeVisible()
+    const original = await textarea.inputValue()
+    const position = original.indexOf('Todo')
+    expect(position).toBeGreaterThanOrEqual(0)
+
+    await textarea.evaluate((element, selectionStart) => {
+      const input = element as HTMLTextAreaElement
+      input.focus()
+      input.setSelectionRange(selectionStart, selectionStart)
+    }, position)
+    for (const character of 'abcde') {
+      await textarea.press(character)
+      await Promise.all([
+        page.waitForResponse(
+          (response) => response.url().includes('/api/files/edit') && response.ok(),
+        ),
+        page.waitForResponse(
+          (response) => response.url().includes('/api/media/Notes/todo.md') && response.ok(),
+        ),
+      ])
+    }
+
+    expect(await textarea.inputValue()).toBe(
+      `${original.slice(0, position)}abcde${original.slice(position)}`,
+    )
+    expect(
+      await textarea.evaluate((element) => (element as HTMLTextAreaElement).selectionStart),
+    ).toBe(position + 5)
+    await textarea.fill(original)
+  })
+
   test('saves edits and persists changes', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')
