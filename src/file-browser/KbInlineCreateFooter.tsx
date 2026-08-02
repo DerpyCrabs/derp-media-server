@@ -49,7 +49,7 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
       ref={(el) => {
         rootEl = el ?? undefined
       }}
-      class='border-border bg-card shrink-0 border-t px-2 py-1.5'
+      class='border-border bg-card shrink-0 rounded-t-lg border-t p-1.5'
       {...dragProps()}
       onClick={(e) => e.stopPropagation()}
     >
@@ -60,7 +60,7 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
             fallback={
               <button
                 type='button'
-                class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-0 text-xs leading-none transition-colors'
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -76,7 +76,7 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
             <input
               type='text'
               ref={(el) => props.onFileInputRef(el ?? undefined)}
-              class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+              class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-md border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                 props.inlineFileExists()
                   ? 'border-yellow-500 ring-2 ring-yellow-500/30'
                   : props.createFileIsError()
@@ -113,7 +113,7 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
             fallback={
               <button
                 type='button'
-                class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-none border border-dashed px-2 py-0 text-xs leading-none transition-colors'
+                class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-0 text-xs leading-none transition-colors'
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -129,7 +129,7 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
             <input
               type='text'
               ref={(el) => props.onFolderInputRef(el ?? undefined)}
-              class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-none border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+              class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-md border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                 props.inlineFolderExists()
                   ? 'border-yellow-500 ring-2 ring-yellow-500/30'
                   : props.createFolderIsError()
