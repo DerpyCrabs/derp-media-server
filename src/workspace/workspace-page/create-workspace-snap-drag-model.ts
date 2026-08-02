@@ -34,7 +34,7 @@ import {
   type MergeTarget,
 } from '@/src/workspace/merge-target'
 import { groupIdForWindow, mergeWindowIntoGroupState } from '@/src/workspace/tab-group-ops'
-import { applySnapPreviewLayout } from '@/src/workspace/snap-preview'
+import { applySnapPreviewBounds, applySnapPreviewLayout } from '@/src/workspace/snap-preview'
 import { createEffect, createSignal, onCleanup, type Accessor, type Setter } from 'solid-js'
 import type { WorkspaceBounds } from '@/src/workspace/WorkspaceWindowChrome'
 
@@ -143,6 +143,11 @@ export function createWorkspaceSnapDragModel(options: {
     return clientX >= r.left && clientY >= r.top && clientX <= r.right && clientY <= r.bottom
   }
 
+  function tiledWindowGap() {
+    preferredSnapTick()
+    return useWorkspacePreferredSnapStore.getState().tiledWindowGap
+  }
+
   createEffect(() => {
     const el = workspaceAreaNode()
     if (!el) return
@@ -191,6 +196,7 @@ export function createWorkspaceSnapDragModel(options: {
         dragSnapWindowId() ? _dragSnapZone() : null,
         c,
         getZoneBoundsForDrag,
+        tiledWindowGap(),
       )
       return
     }
@@ -201,11 +207,7 @@ export function createWorkspaceSnapDragModel(options: {
     }
     const existing = findSharedAssistGridLines(workspace()?.windows ?? [], span)
     const b = assistGridSpanToBounds(canvas, span, existing)
-    p.style.display = 'block'
-    p.style.left = `${b.x}px`
-    p.style.top = `${b.y}px`
-    p.style.width = `${b.width}px`
-    p.style.height = `${b.height}px`
+    applySnapPreviewBounds(p, b, c, tiledWindowGap())
   })
 
   function getZoneBoundsForDrag(zone: SnapZone): WorkspaceBounds {
@@ -257,7 +259,7 @@ export function createWorkspaceSnapDragModel(options: {
       setAssistHoverPick(null)
       setDragEdgeGridSpan(null)
       setDragSnapZone(null)
-      applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag)
+      applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag, tiledWindowGap())
       return
     }
 
@@ -303,7 +305,7 @@ export function createWorkspaceSnapDragModel(options: {
     }
 
     setDragSnapZone(z)
-    if (p) applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag)
+    if (p) applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag, tiledWindowGap())
 
     const assistBarVisible = assistOn && (snapAssistEngaged() || snapAssistSticky)
     if (assistBarVisible && snapAssistRootEl) {
@@ -519,7 +521,7 @@ export function createWorkspaceSnapDragModel(options: {
     const assistRootAtEnd = snapAssistRootEl
     const c = workspaceAreaEl
     const p = snapPreviewEl
-    if (c && p) applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag)
+    if (c && p) applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag, tiledWindowGap())
     setDragSnapZone(null)
     setDragEdgeGridSpan(null)
 

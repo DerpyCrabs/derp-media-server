@@ -275,6 +275,22 @@ test.describe('Snap assist bar', () => {
     const viewport = page.viewportSize()!
     expect(miniBox.width / miniBox.height).toBeCloseTo(viewport.width / viewport.height, 1)
 
+    const firstCell = assistMiniGrid(page, '3x2').getByTestId('snap-assist-master-cell')
+    const firstCellBox = await firstCell.boundingBox()
+    if (!firstCellBox) throw new Error('Snap layout cell not laid out')
+    await page.mouse.move(
+      firstCellBox.x + firstCellBox.width / 2,
+      firstCellBox.y + firstCellBox.height / 2,
+      { steps: 8 },
+    )
+    const preview = page.locator('[data-snap-preview]')
+    await expect(preview).toBeVisible()
+    const previewBox = await preview.boundingBox()
+    if (!previewBox) throw new Error('Snap preview not laid out')
+    expect(previewBox.x).toBeCloseTo(12, 0)
+    expect(previewBox.y).toBeCloseTo(12, 0)
+    await expect(preview).toHaveCSS('border-radius', '8px')
+
     await page.setViewportSize({ width: 700, height: 1100 })
     await expect
       .poll(async () => (await assist.boundingBox())?.width ?? Number.POSITIVE_INFINITY)

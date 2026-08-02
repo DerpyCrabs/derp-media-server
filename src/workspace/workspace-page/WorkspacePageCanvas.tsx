@@ -127,7 +127,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
           props.bindSnapPreview(el ?? null)
         }}
         data-snap-preview
-        class='pointer-events-none absolute rounded-sm border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
+        class='pointer-events-none absolute border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
         style={{ display: 'none', 'z-index': 9000 }}
       />
       <Show when={props.workspaceAreaNode()}>
