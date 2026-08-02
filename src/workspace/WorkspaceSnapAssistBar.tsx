@@ -35,7 +35,7 @@ export function WorkspaceSnapAssistBar(props: WorkspaceSnapAssistBarProps) {
       <div
         ref={(el) => props.rootRef(el ?? undefined)}
         data-workspace-snap-assist
-        class='pointer-events-auto absolute left-1/2 top-2 z-[100000] max-w-[calc(100%-1rem)] -translate-x-1/2 overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
+        class='pointer-events-auto fixed left-1/2 top-0 z-[100000] max-w-[calc(100%-1rem)] -translate-x-1/2 overflow-hidden rounded-b-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
       >
         <div class='border-b border-border/60 px-3 py-1.5 text-center text-[10px] font-semibold tracking-wide text-foreground/80'>
           Snap layouts

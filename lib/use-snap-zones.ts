@@ -2,9 +2,6 @@ import type { SnapZone } from '@/lib/use-workspace'
 
 export const SNAP_EDGE_THRESHOLD_PX = 36
 
-/** After the top snap band engages assist, keep the bar mounted while the pointer stays within this depth (workspace px) so the cursor can reach thumbnails without a dead zone. */
-export const TOP_SNAP_ASSIST_KEEPALIVE_PX = 320
-
 /** Total width of the top-center region that opens snap assist (centered on the workspace). */
 export const TOP_SNAP_ASSIST_CENTER_BAND_PX = 300
 

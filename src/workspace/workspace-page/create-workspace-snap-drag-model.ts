@@ -23,7 +23,6 @@ import type { PersistedWorkspaceState, SnapZone } from '@/lib/use-workspace'
 import {
   SNAP_EDGE_THRESHOLD_PX,
   TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX,
-  TOP_SNAP_ASSIST_KEEPALIVE_PX,
   type SnapDetectResult,
 } from '@/lib/use-snap-zones'
 import {
@@ -242,7 +241,10 @@ export function createWorkspaceSnapDragModel(options: {
     const p = snapPreviewEl
 
     const ws = workspace()
-    const hit = ws && c ? mergePreviewForPointer(ws.windows, windowId, clientX, clientY) : null
+    const hit =
+      !snapAssistEngaged() && ws && c
+        ? mergePreviewForPointer(ws.windows, windowId, clientX, clientY)
+        : null
     setMergeTargetPreview(hit)
 
     if (!c) return
@@ -275,9 +277,6 @@ export function createWorkspaceSnapDragModel(options: {
       setSnapAssistEngaged(true)
     }
 
-    const inAssistKeepaliveCorridor =
-      assistOn && snapAssistEngaged() && ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX
-
     const edgeSpan = detectEdgeAssistGridSpan(lx, ly, rect.width, rect.height, shape, {
       suppressTopEdgeSpans: false,
     })
@@ -285,26 +284,16 @@ export function createWorkspaceSnapDragModel(options: {
 
     let z: SnapDetectResult | null = edgeSpan ? 'edge-grid' : null
 
-    if (assistOn && snapAssistEngaged() && (overAssistPanel || inAssistKeepaliveCorridor)) {
+    if (assistOn && snapAssistEngaged()) {
       setSnapAssistShown(true)
     } else {
       setSnapAssistShown(false)
-      if (
-        assistOn &&
-        snapAssistEngaged() &&
-        !topInnerBand &&
-        !overAssistPanel &&
-        !inAssistKeepaliveCorridor
-      ) {
-        setSnapAssistEngaged(false)
-      }
     }
 
     setDragSnapZone(z)
     if (p) applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag)
 
-    const assistBarVisible =
-      assistOn && snapAssistEngaged() && (overAssistPanel || ly <= TOP_SNAP_ASSIST_KEEPALIVE_PX)
+    const assistBarVisible = assistOn && snapAssistEngaged()
     if (assistBarVisible && snapAssistRootEl) {
       setAssistHoverPick(pickAssistSlotFromPoint(clientX, clientY, snapAssistRootEl))
     } else {

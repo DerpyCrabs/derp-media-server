@@ -227,6 +227,45 @@ test.describe('Edge Snapping', () => {
 })
 
 test.describe('Snap assist bar', () => {
+  test('stays pinned to screen edge after pointer leaves top area', async () => {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'workspace-preferred-snap',
+        JSON.stringify({
+          state: {
+            assistGridShape: '3x2',
+            snapAssistOnTopDrag: true,
+            tiledWindowGap: 12,
+          },
+          version: 0,
+        }),
+      )
+    })
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    const group = getWindowGroups(page).first()
+    const handle = getDragHandle(group)
+    const hbox = await handle.boundingBox()
+    if (!hbox) throw new Error('Handle not visible')
+
+    const viewport = page.viewportSize()!
+    await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(viewport.width / 2, 5, { steps: 12 })
+
+    const assist = page.locator('[data-workspace-snap-assist]')
+    await expect(assist).toBeVisible()
+    await expect(assist).toHaveCSS('position', 'fixed')
+    const edgeBox = await assist.boundingBox()
+    expect(edgeBox?.y).toBe(0)
+
+    await page.mouse.move(viewport.width / 2, Math.min(viewport.height - 80, 420), {
+      steps: 24,
+    })
+    await expect(assist).toBeVisible()
+    await page.mouse.up()
+  })
+
   test('hover highlight moves from left 3×2 cell to center top cell while dragging', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)
