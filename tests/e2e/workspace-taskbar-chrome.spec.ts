@@ -95,10 +95,9 @@ test.describe('Workspace taskbar chrome', () => {
     await page.getByRole('button', { name: 'Open settings' }).click()
     const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
     await expect(settingsDialog).toBeVisible()
-    const assistLabel = settingsDialog.getByText(
-      'Show snap assist when dragging to the top-center strip (~300px wide)',
-    )
-    const assistCheckbox = assistLabel.locator('..').locator('input[type="checkbox"]')
+    const assistCheckbox = settingsDialog.getByRole('checkbox', {
+      name: 'Show snap assist when dragging to the top-center handle',
+    })
     await assistCheckbox.setChecked(false)
     await page.keyboard.press('Escape')
     await expect(settingsDialog).not.toBeVisible()
@@ -110,12 +109,12 @@ test.describe('Workspace taskbar chrome', () => {
     await page.getByRole('button', { name: 'Open settings' }).click()
     const dialogAfter = page.getByRole('dialog', { name: 'Settings' })
     await expect(dialogAfter).toBeVisible()
-    const assistLabelAfter = dialogAfter.getByText(
-      'Show snap assist when dragging to the top-center strip (~300px wide)',
-    )
-    await expect(assistLabelAfter.locator('..').locator('input[type="checkbox"]')).not.toBeChecked()
+    const assistCheckboxAfter = dialogAfter.getByRole('checkbox', {
+      name: 'Show snap assist when dragging to the top-center handle',
+    })
+    await expect(assistCheckboxAfter).not.toBeChecked()
 
-    await assistLabelAfter.locator('..').locator('input[type="checkbox"]').setChecked(true)
+    await assistCheckboxAfter.setChecked(true)
     await page.keyboard.press('Escape')
   })
 })

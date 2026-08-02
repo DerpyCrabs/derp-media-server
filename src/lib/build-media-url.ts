@@ -6,6 +6,11 @@ function encodeSegments(p: string): string {
   return p.split('/').map(encodeURIComponent).join('/')
 }
 
+function shareRequestPath(filePath: string, shareBasePath: string): string {
+  const normalizedBase = shareBasePath.replace(/\\/g, '/')
+  return stripSharePrefix(filePath, normalizedBase) || normalizedBase
+}
+
 export function buildAdminMediaUrl(filePath: string): string {
   return `/api/media/${encodeSegments(filePath)}`
 }
@@ -20,8 +25,7 @@ export function buildShareMediaUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  const relative = stripSharePrefix(filePath, shareBasePath.replace(/\\/g, '/'))
-  return `/api/share/${shareToken}/media/${encodeSegments(relative || '.')}`
+  return `/api/share/${shareToken}/media/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 function buildAdminAudioExtractUrl(filePath: string): string {
@@ -33,8 +37,7 @@ function buildShareAudioExtractUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  const relative = stripSharePrefix(filePath, shareBasePath.replace(/\\/g, '/'))
-  return `/api/share/${shareToken}/audio/extract/${encodeSegments(relative || '.')}`
+  return `/api/share/${shareToken}/audio/extract/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 export function buildAudioExtractUrl(filePath: string, ctx: MediaShareContext): string {
@@ -51,8 +54,7 @@ function buildShareAudioMetadataUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  const relative = stripSharePrefix(filePath, shareBasePath.replace(/\\/g, '/'))
-  return `/api/share/${shareToken}/audio/metadata/${encodeSegments(relative || '.')}`
+  return `/api/share/${shareToken}/audio/metadata/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 export function buildAudioMetadataUrl(filePath: string, ctx: MediaShareContext): string {
@@ -69,8 +71,7 @@ function buildShareThumbnailUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  const relative = stripSharePrefix(filePath, shareBasePath.replace(/\\/g, '/'))
-  return `/api/share/${shareToken}/thumbnail/${encodeSegments(relative || '.')}`
+  return `/api/share/${shareToken}/thumbnail/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 export function buildThumbnailUrl(filePath: string, ctx: MediaShareContext): string {

@@ -28,8 +28,8 @@ export const queryKeys = {
     ['content', 'share', token, 'kb-search', query, dir] as const,
   shareInfo: (token: string) => ['share-info', token] as const,
   textContent: (filePath: string) => ['content', 'admin', 'text', filePath] as const,
-  shareText: (token: string, filePath: string) =>
-    ['content', 'share', token, 'text', filePath] as const,
+  shareText: (token: string, sharePath: string, filePath: string) =>
+    ['content', 'share', token, 'text-target', sharePath, filePath] as const,
   audioMetadata: (filePath: string) => ['audio-metadata', 'v2', filePath] as const,
   fileSearch: (query?: string) =>
     query === undefined ? (['file-search'] as const) : (['file-search', query] as const),

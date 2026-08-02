@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import { config, getDataFilePath } from '@/lib/config'
 
 const SETTINGS_FILE = getDataFilePath('settings.json')
+const markdownImageExtension = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif)$/i
 
 export async function getKnowledgeBases(): Promise<string[]> {
   try {
@@ -44,6 +45,7 @@ export function isKnowledgeBaseImagePath(
   return (
     relativeToImages.length > 0 &&
     !relativeToImages.includes('/') &&
-    !relativeToImages.includes('\\')
+    !relativeToImages.includes('\\') &&
+    markdownImageExtension.test(relativeToImages)
   )
 }

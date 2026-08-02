@@ -10,6 +10,7 @@ type Props = {
   editableFolders?: string[]
   knowledgeBases?: string[]
   shareCanEdit?: boolean
+  shareCanUpload?: boolean
 }
 
 export function MainMediaPlayers(props: Props) {
@@ -20,6 +21,7 @@ export function MainMediaPlayers(props: Props) {
         editableFolders={props.editableFolders}
         knowledgeBases={props.knowledgeBases}
         shareCanEdit={props.shareCanEdit}
+        shareCanUpload={props.shareCanUpload}
       />
       <ImageViewerDialog shareContext={props.shareContext} />
       <PdfViewerDialog shareContext={props.shareContext} />

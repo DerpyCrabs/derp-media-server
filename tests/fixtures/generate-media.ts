@@ -48,11 +48,14 @@ function ensureDir(dir: string) {
 
 /** Text fixtures added after `.test-media-cache` copy so e2e always sees current files. */
 const AUTOSAVE_PARITY_TXT_CONTENT = 'Autosave parity initial content for e2e only.\n'
+const MARKDOWN_EDITOR_MD_CONTENT =
+  '# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n'
 
 export function patchTestMediaAfterCacheCopy(baseDir: string) {
   const notesDir = path.join(baseDir, 'Notes')
   ensureDir(notesDir)
   fs.writeFileSync(path.join(notesDir, 'autosave-parity.txt'), AUTOSAVE_PARITY_TXT_CONTENT)
+  fs.writeFileSync(path.join(notesDir, 'markdown-editor-e2e.md'), MARKDOWN_EDITOR_MD_CONTENT)
 
   const deepDir = path.join(notesDir, 'subfolder', 'breadcrumb-deep')
   ensureDir(deepDir)
@@ -145,10 +148,8 @@ export function generateTestMedia(baseDir: string) {
     path.join(notesDir, 'welcome.md'),
     '# Welcome\n\nThis is the welcome note.\n\n![[diagram.png]]\n',
   )
-  fs.writeFileSync(
-    path.join(notesDir, 'todo.md'),
-    '# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n',
-  )
+  fs.writeFileSync(path.join(notesDir, 'todo.md'), MARKDOWN_EDITOR_MD_CONTENT)
+  fs.writeFileSync(path.join(notesDir, 'markdown-editor-e2e.md'), MARKDOWN_EDITOR_MD_CONTENT)
   fs.writeFileSync(path.join(notesDir, 'autosave-parity.txt'), AUTOSAVE_PARITY_TXT_CONTENT)
   fs.writeFileSync(
     path.join(notesDir, 'subfolder', 'nested-note.md'),

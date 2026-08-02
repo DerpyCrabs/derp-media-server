@@ -212,6 +212,53 @@ export function findSharedAssistGridLines(
   return { colLines: existing.colLines, rowLines: existing.rowLines }
 }
 
+/** Expand a full-height/full-width edge slot across empty grid tracks until an occupied tile. */
+export function expandEdgeAssistSpanToAvailableTracks(
+  windows: WorkspaceWindowDefinition[],
+  span: AssistGridSpan,
+): AssistGridSpan {
+  const placements = windows
+    .map((window) => window.layout?.tiling)
+    .filter(
+      (tiling): tiling is WorkspaceTilingPlacement =>
+        !!tiling && tiling.cols === span.gridCols && tiling.rows === span.gridRows,
+    )
+
+  if (span.gr0 === 0 && span.gr1 === span.gridRows - 1 && span.gc0 === span.gc1) {
+    if (span.gc0 === 0) {
+      const nextStart = Math.min(
+        ...placements
+          .map((placement) => placement.colStart)
+          .filter((colStart) => colStart > span.gc1),
+      )
+      if (Number.isFinite(nextStart)) return { ...span, gc1: nextStart - 1 }
+    } else if (span.gc1 === span.gridCols - 1) {
+      const previousEnd = Math.max(
+        ...placements.map((placement) => placement.colEnd).filter((colEnd) => colEnd <= span.gc0),
+      )
+      if (Number.isFinite(previousEnd)) return { ...span, gc0: previousEnd }
+    }
+  }
+
+  if (span.gc0 === 0 && span.gc1 === span.gridCols - 1 && span.gr0 === span.gr1) {
+    if (span.gr0 === 0) {
+      const nextStart = Math.min(
+        ...placements
+          .map((placement) => placement.rowStart)
+          .filter((rowStart) => rowStart > span.gr1),
+      )
+      if (Number.isFinite(nextStart)) return { ...span, gr1: nextStart - 1 }
+    } else if (span.gr1 === span.gridRows - 1) {
+      const previousEnd = Math.max(
+        ...placements.map((placement) => placement.rowEnd).filter((rowEnd) => rowEnd <= span.gr0),
+      )
+      if (Number.isFinite(previousEnd)) return { ...span, gr0: previousEnd }
+    }
+  }
+
+  return span
+}
+
 /**
  * Pixel bounds for an assist span. When `existing` lines are provided (resized grid),
  * bounds follow those lines — not equal divisions.

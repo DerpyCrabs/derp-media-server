@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
+import {
+  createTextDocumentTarget,
+  enqueueTextDocumentSave,
+  textDocumentDraftScope,
+  textDocumentTargetKey,
+  type TextDocumentTarget,
+} from '@/lib/text-document-target'
 import { MediaType } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
 import { queryKeys } from '@/lib/query-keys'
@@ -31,9 +38,21 @@ import {
 } from '../lib/share-text-viewer-settings'
 import { closeViewer } from '../lib/url-state-actions'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
-import { MarkdownPane } from './MarkdownPane'
+import { LazyMarkdownDocument } from './LazyMarkdownDocument'
+import { completeMarkdownImagePaste } from './markdown/paste-completion'
 
 export type TextViewerShareContext = MarkdownImageShareContext
+
+type TextSaveQueryKey =
+  | ReturnType<typeof queryKeys.textContent>
+  | ReturnType<typeof queryKeys.shareText>
+
+type TextSaveVariables = {
+  content: string
+  target: TextDocumentTarget
+  shareContext: TextViewerShareContext | null
+  queryKey: TextSaveQueryKey
+}
 
 type Props = {
   shareContext?: TextViewerShareContext | null
@@ -43,6 +62,8 @@ type Props = {
   knowledgeBases?: string[]
   /** Share link allows editing (editable + allowEdit). */
   shareCanEdit?: boolean
+  /** Share link allows attachment uploads (editable + allowUpload). */
+  shareCanUpload?: boolean
 }
 
 function shareEditRelativePath(viewingPath: string, ctx: TextViewerShareContext): string {
@@ -74,6 +95,7 @@ export function TextViewerBody(props: {
   shareContext?: TextViewerShareContext | null
   editableFolders: string[]
   shareCanEdit: boolean
+  shareCanUpload: boolean
   knowledgeBases?: string[]
 }): JSX.Element {
   const queryClient = useQueryClient()
@@ -154,11 +176,16 @@ export function TextViewerBody(props: {
     return ctx ? buildShareMediaUrl(ctx.token, ctx.sharePath, path) : buildAdminMediaUrl(path)
   })
 
+  const currentTextTarget = createMemo(() =>
+    createTextDocumentTarget(props.viewingPath, props.shareContext),
+  )
+  const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
+
   const queryKey = createMemo(() => {
-    const ctx = props.shareContext
-    return ctx
-      ? queryKeys.shareText(ctx.token, props.viewingPath)
-      : queryKeys.textContent(props.viewingPath)
+    const target = currentTextTarget()
+    return target.kind === 'share'
+      ? queryKeys.shareText(target.token, target.sharePath, target.viewingPath)
+      : queryKeys.textContent(target.viewingPath)
   })
 
   const textQuery = useQuery(() => ({
@@ -198,53 +225,106 @@ export function TextViewerBody(props: {
   )
   const [copied, setCopied] = createSignal(false)
   const [autoSaveError, setAutoSaveError] = createSignal<string | null>(null)
+  const [pendingSaveTargets, setPendingSaveTargets] = createSignal<ReadonlyMap<string, number>>(
+    new Map(),
+  )
 
-  let lastPath = ''
+  let lastDocumentKey = ''
+  let hydratedDocumentKey = ''
   let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 
+  const isCurrentSaveTarget = (variables: TextSaveVariables) =>
+    textDocumentTargetKey(variables.target) === currentTextTargetKey()
+  const currentSavePending = createMemo(
+    () => (pendingSaveTargets().get(currentTextTargetKey()) ?? 0) > 0,
+  )
+
+  const updatePendingSaveCount = (target: TextDocumentTarget, delta: 1 | -1) => {
+    const targetKey = textDocumentTargetKey(target)
+    setPendingSaveTargets((current) => {
+      const next = new Map(current)
+      const count = (next.get(targetKey) ?? 0) + delta
+      if (count > 0) next.set(targetKey, count)
+      else next.delete(targetKey)
+      return next
+    })
+  }
+
+  const textSaveVariables = (): TextSaveVariables => {
+    const ctx = props.shareContext
+    return {
+      content: editContent(),
+      target: currentTextTarget(),
+      shareContext: ctx
+        ? { token: ctx.token, sharePath: ctx.sharePath, isDirectory: ctx.isDirectory }
+        : null,
+      queryKey: queryKey(),
+    }
+  }
+
   const saveMutation = useMutation(() => ({
-    mutationFn: async (content: string) => {
-      const ctx = props.shareContext
-      if (ctx) {
-        const rel = shareEditRelativePath(props.viewingPath, ctx)
-        await post(`/api/share/${ctx.token}/edit`, { path: rel, content })
-      } else {
-        await post('/api/files/edit', { path: props.viewingPath, content })
+    mutationFn: async (variables: TextSaveVariables) => {
+      updatePendingSaveCount(variables.target, 1)
+      try {
+        return await enqueueTextDocumentSave(variables.target, async () => {
+          const { content, target, shareContext: ctx } = variables
+          if (ctx) {
+            const rel = shareEditRelativePath(target.viewingPath, ctx)
+            await post(`/api/share/${ctx.token}/edit`, { path: rel, content })
+          } else {
+            await post('/api/files/edit', { path: target.viewingPath, content })
+          }
+          return content
+        })
+      } finally {
+        updatePendingSaveCount(variables.target, -1)
       }
-      return content
     },
-    onSuccess: (content: string) => {
-      const key = queryKey()
-      setSavedContentAwaitingQuery(content)
-      queryClient.setQueryData(key, content)
-      void queryClient.invalidateQueries({ queryKey: key })
+    onSuccess: (content: string, variables) => {
+      if (isCurrentSaveTarget(variables)) setSavedContentAwaitingQuery(content)
+      queryClient.setQueryData(variables.queryKey, content)
+      void queryClient.invalidateQueries({ queryKey: variables.queryKey })
     },
   }))
 
   async function saveInternal(quiet: boolean) {
     if (quiet && editContent() === editorBaseContent()) return
     if (!quiet) setAutoSaveError(null)
+    const variables = textSaveVariables()
     try {
-      await saveMutation.mutateAsync(editContent())
-      if (quiet) setAutoSaveError(null)
+      await saveMutation.mutateAsync(variables)
+      if (quiet && isCurrentSaveTarget(variables)) setAutoSaveError(null)
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to save file'
-      setAutoSaveError(message)
-      if (!quiet) window.alert(message)
+      if (isCurrentSaveTarget(variables)) setAutoSaveError(message)
+      if (!quiet && isCurrentSaveTarget(variables)) window.alert(message)
     }
   }
 
   createEffect(() => {
-    const path = props.viewingPath
-    const data = textQuery.data
+    const target = currentTextTarget()
+    const documentKey = textDocumentTargetKey(target)
     const pr = persistedReadOnly()
-    if (!path || data === undefined) return
-    if (path !== lastPath) {
-      lastPath = path
+    if (!target.viewingPath) return
+    if (documentKey !== lastDocumentKey) {
+      lastDocumentKey = documentKey
+      hydratedDocumentKey = ''
       setSavedContentAwaitingQuery(null)
       setReadOnlyView(pr)
-      const scope = props.shareContext ? `share:${props.shareContext.token}` : 'admin'
-      const draft = readTextEditorDraft(textEditorDraftKey(scope, path))
+      setEditContent('')
+      setEditorBaseContent('')
+      setCopied(false)
+      setAutoSaveError(null)
+    }
+
+    void textQuery.data
+    const data = queryClient.getQueryData<string>(queryKey())
+    if (data === undefined) return
+    if (documentKey !== hydratedDocumentKey) {
+      hydratedDocumentKey = documentKey
+      const draft = readTextEditorDraft(
+        textEditorDraftKey(textDocumentDraftScope(target), target.viewingPath),
+      )
       setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
       setEditorBaseContent(data)
     } else {
@@ -260,10 +340,7 @@ export function TextViewerBody(props: {
   })
 
   const draftKey = createMemo(() =>
-    textEditorDraftKey(
-      props.shareContext ? `share:${props.shareContext.token}` : 'admin',
-      props.viewingPath,
-    ),
+    textEditorDraftKey(textDocumentDraftScope(currentTextTarget()), props.viewingPath),
   )
   const dirty = createMemo(() => editContent() !== editorBaseContent())
   const conflict = createMemo(
@@ -271,7 +348,7 @@ export function TextViewerBody(props: {
   )
 
   createEffect(() => {
-    if (!lastPath) return
+    if (hydratedDocumentKey !== currentTextTargetKey()) return
     if (dirty() && autoSaveEnabled()) writeTextEditorDraft(draftKey(), editContent())
     else removeTextEditorDraft(draftKey())
   })
@@ -293,6 +370,7 @@ export function TextViewerBody(props: {
         autosaveTimer = null
       }
     })
+    if (hydratedDocumentKey !== currentTextTargetKey()) return
     if (!fileEditable() || readOnlyView() || !autoSaveEnabled() || conflict()) return
     if (editContent() === editorBaseContent()) return
     autosaveTimer = setTimeout(() => {
@@ -307,7 +385,6 @@ export function TextViewerBody(props: {
     }
     if (
       fileEditable() &&
-      !readOnlyView() &&
       autoSaveEnabled() &&
       !conflict() &&
       editContent() !== editorBaseContent()
@@ -362,7 +439,7 @@ export function TextViewerBody(props: {
   }
 
   async function handleCopy() {
-    const src = textQuery.data ?? ''
+    const src = fileEditable() ? editContent() : (textQuery.data ?? '')
     if (!src) return
     try {
       await navigator.clipboard.writeText(src)
@@ -446,7 +523,7 @@ export function TextViewerBody(props: {
             <button
               type='button'
               class='hover:bg-muted rounded-md px-2 py-1 text-sm disabled:opacity-50'
-              disabled={saveMutation.isPending}
+              disabled={currentSavePending()}
               onClick={() => toggleReadOnlyFromEditor()}
               title='Switch to read-only mode'
             >
@@ -456,16 +533,13 @@ export function TextViewerBody(props: {
               <button
                 type='button'
                 class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm disabled:opacity-50'
-                disabled={saveMutation.isPending}
+                disabled={currentSavePending()}
                 onClick={() => void saveInternal(false)}
                 title='Save changes'
               >
                 <Save class='h-4 w-4' stroke-width={2} />
-                {saveMutation.isPending ? 'Saving…' : 'Save'}
+                {currentSavePending() ? 'Saving…' : 'Save'}
               </button>
-            </Show>
-            <Show when={autoSaveEnabled() && !saveMutation.isPending && saveMutation.isError}>
-              <span class='text-destructive text-xs'>Save failed</span>
             </Show>
           </Show>
           <Show when={!showEditor()}>
@@ -542,10 +616,10 @@ export function TextViewerBody(props: {
         </Show>
         <Show when={!textQuery.isPending && !textQuery.isError}>
           <Show
-            when={showEditor()}
+            when={isMarkdown()}
             fallback={
               <Show
-                when={isMarkdown()}
+                when={showEditor()}
                 fallback={
                   <div class='h-full overflow-auto p-4'>
                     <pre class='wrap-break-word whitespace-pre-wrap font-sans text-base leading-[1.75] text-foreground'>
@@ -554,47 +628,74 @@ export function TextViewerBody(props: {
                   </div>
                 }
               >
-                <MarkdownPane content={textQuery.data ?? ''} resolveImageUrl={resolveImageUrl()} />
+                <div class='h-full p-4'>
+                  <textarea
+                    class='border-input bg-background focus-visible:ring-ring h-full w-full resize-none rounded-lg border p-4 font-sans text-base leading-[1.75] text-foreground wrap-break-word whitespace-pre-wrap focus-visible:ring-2 focus-visible:outline-none'
+                    value={editContent()}
+                    spellcheck={false}
+                    placeholder='Enter text…'
+                    onInput={(e) => setEditContent(e.currentTarget.value)}
+                    onBlur={() => {
+                      if (autoSaveEnabled() && !conflict()) void saveInternal(true)
+                    }}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === 'ArrowLeft' ||
+                        e.key === 'ArrowRight' ||
+                        e.key === 'ArrowUp' ||
+                        e.key === 'ArrowDown' ||
+                        e.key === 'Home' ||
+                        e.key === 'End' ||
+                        e.key === 'PageUp' ||
+                        e.key === 'PageDown'
+                      ) {
+                        e.stopPropagation()
+                      }
+                    }}
+                  />
+                </div>
               </Show>
             }
           >
-            <div class='h-full p-4'>
-              <textarea
-                class='border-input bg-background focus-visible:ring-ring h-full w-full resize-none rounded-lg border p-4 font-sans text-base leading-[1.75] text-foreground wrap-break-word whitespace-pre-wrap focus-visible:ring-2 focus-visible:outline-none'
-                value={editContent()}
-                spellcheck={false}
-                placeholder='Enter text…'
-                onInput={(e) => setEditContent(e.currentTarget.value)}
-                onPaste={(e) => {
-                  void tryPasteKnowledgeBaseImage(e, {
-                    viewingPath: props.viewingPath,
-                    knowledgeBases: kbList(),
-                    editableFolders: props.editableFolders,
-                    shareContext: props.shareContext ?? null,
-                    shareCanEdit: props.shareCanEdit,
-                    editContent: editContent(),
-                    setEditContent,
-                  })
-                }}
-                onBlur={() => {
-                  if (autoSaveEnabled() && !conflict()) void saveInternal(true)
-                }}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === 'ArrowLeft' ||
-                    e.key === 'ArrowRight' ||
-                    e.key === 'ArrowUp' ||
-                    e.key === 'ArrowDown' ||
-                    e.key === 'Home' ||
-                    e.key === 'End' ||
-                    e.key === 'PageUp' ||
-                    e.key === 'PageDown'
-                  ) {
-                    e.stopPropagation()
-                  }
-                }}
-              />
-            </div>
+            <Show keyed when={currentTextTargetKey()}>
+              {(_documentKey) => (
+                <LazyMarkdownDocument
+                  content={fileEditable() ? editContent() : (textQuery.data ?? '')}
+                  mode={showEditor() ? 'edit' : 'read'}
+                  onChange={setEditContent}
+                  onBlur={() => {
+                    if (fileEditable() && autoSaveEnabled() && !conflict()) void saveInternal(true)
+                  }}
+                  onSave={() => saveInternal(false)}
+                  resolveImageUrl={resolveImageUrl()}
+                  onPasteImage={(event, _selection, complete) => {
+                    const pasteTargetKey = currentTextTargetKey()
+                    return tryPasteKnowledgeBaseImage(event, {
+                      viewingPath: props.viewingPath,
+                      knowledgeBases: kbList(),
+                      editableFolders: props.editableFolders,
+                      shareContext: props.shareContext ?? null,
+                      shareCanEdit: props.shareCanEdit,
+                      shareCanUpload: props.shareCanUpload,
+                      completeCodeMirrorPaste: (markdown) =>
+                        completeMarkdownImagePaste(
+                          markdown,
+                          complete,
+                          () =>
+                            pasteTargetKey === currentTextTargetKey() &&
+                            hydratedDocumentKey === pasteTargetKey &&
+                            fileEditable() &&
+                            readOnlyView() &&
+                            autoSaveEnabled() &&
+                            !conflict(),
+                          () => void saveInternal(true),
+                        ),
+                    })
+                  }}
+                  ariaLabel={`${fileName()} Markdown ${showEditor() ? 'editor' : 'document'}`}
+                />
+              )}
+            </Show>
           </Show>
         </Show>
       </div>
@@ -615,6 +716,7 @@ export function TextViewerDialog(props: Props) {
   const folders = () => props.editableFolders ?? []
   const kb = () => props.knowledgeBases ?? []
   const shareEdit = () => props.shareCanEdit ?? false
+  const shareUpload = () => props.shareCanUpload ?? false
 
   return (
     <Show when={viewingPath() && isText()}>
@@ -624,6 +726,7 @@ export function TextViewerDialog(props: Props) {
         editableFolders={folders()}
         knowledgeBases={kb()}
         shareCanEdit={shareEdit()}
+        shareCanUpload={shareUpload()}
       />
     </Show>
   )

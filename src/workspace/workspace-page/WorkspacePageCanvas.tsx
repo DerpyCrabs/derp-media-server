@@ -263,6 +263,11 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                     ? (props.pageProps.shareCanEdit ?? false)
                                     : false
                                 }
+                                shareCanUpload={
+                                  props.pageProps.shareConfig
+                                    ? (props.pageProps.shareAllowUpload ?? false)
+                                    : false
+                                }
                                 onUpdateViewing={props.updateWindowViewing}
                                 onVideoMetadataLoaded={(vw, vh) =>
                                   props.resizeViewerWindowForVideoMetadata(tabId, vw, vh)
@@ -343,6 +348,11 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                   ? (props.pageProps.shareCanEdit ?? false)
                                   : false
                               }
+                              shareCanUpload={
+                                props.pageProps.shareConfig
+                                  ? (props.pageProps.shareAllowUpload ?? false)
+                                  : false
+                              }
                               onUpdateViewing={props.updateWindowViewing}
                               onVideoMetadataLoaded={(vw, vh) =>
                                 props.resizeViewerWindowForVideoMetadata(leftTabId(), vw, vh)
@@ -416,6 +426,11 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 shareCanEdit={
                                   props.pageProps.shareConfig
                                     ? (props.pageProps.shareCanEdit ?? false)
+                                    : false
+                                }
+                                shareCanUpload={
+                                  props.pageProps.shareConfig
+                                    ? (props.pageProps.shareAllowUpload ?? false)
                                     : false
                                 }
                                 onUpdateViewing={props.updateWindowViewing}

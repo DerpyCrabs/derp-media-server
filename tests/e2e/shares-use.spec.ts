@@ -3,6 +3,8 @@ import path from 'path'
 
 const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json` : 'session.json'
 const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
+const minimalPngBase64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='
 
 let fileShareUrl: string
 let folderShareUrl: string
@@ -37,7 +39,7 @@ function getShareToken(shareUrl: string): string {
   return new URL(shareUrl, 'http://localhost').pathname.split('/')[2]
 }
 
-function expectNoAdminShareLeaks(requests: string[]) {
+function expectNoAdminRoutes(requests: string[]) {
   const forbiddenAdminPaths = new Set([
     '/api/auth/config',
     '/api/settings',
@@ -49,9 +51,17 @@ function expectNoAdminShareLeaks(requests: string[]) {
 
   const adminLeaks = requests.filter((url) => {
     const pathname = new URL(url).pathname
-    return forbiddenAdminPaths.has(pathname)
+    return (
+      forbiddenAdminPaths.has(pathname) ||
+      pathname.startsWith('/api/files/') ||
+      pathname.startsWith('/api/media/')
+    )
   })
   expect(adminLeaks).toEqual([])
+}
+
+function expectNoAdminShareLeaks(requests: string[]) {
+  expectNoAdminRoutes(requests)
 
   const unscopedLeaks = requests.filter((url) => {
     if (!url.includes('/api/share/')) return false
@@ -63,6 +73,15 @@ function expectNoAdminShareLeaks(requests: string[]) {
     )
   })
   expect(unscopedLeaks).toEqual([])
+}
+
+async function deleteShareAndFixtures(page: Page, token: string, fixturePaths: string[]) {
+  if (token) {
+    await page.request.post('/api/shares/delete', { data: { token } }).catch(() => {})
+  }
+  for (const fixturePath of fixturePaths) {
+    await page.request.post('/api/files/delete', { data: { path: fixturePath } }).catch(() => {})
+  }
 }
 
 test.describe('Using Shares', () => {
@@ -95,6 +114,261 @@ test.describe('Using Shares', () => {
     await page.goto(fileShareUrl)
     await expect(page.getByText('readme.txt')).toBeVisible()
     await expect(page.getByText('TXT File')).toBeVisible()
+  })
+
+  test('single-file Markdown share pastes and renders an image through token routes', async ({
+    page,
+  }, testInfo) => {
+    const unique = `${testInfo.workerIndex}-${Date.now()}`
+    const markdownPath = `SharedContent/share-markdown-${unique}.md`
+    const unreferencedPath = `SharedContent/images/unreferenced-${unique}.png`
+    const fixturePaths = [markdownPath, unreferencedPath]
+    let token = ''
+
+    try {
+      const createFileResponse = await page.request.post('/api/files/create', {
+        data: {
+          type: 'file',
+          path: markdownPath,
+          content: '# Shared Markdown\n\nPaste image here.\n',
+        },
+      })
+      expect(createFileResponse.ok()).toBe(true)
+      const createUnreferencedResponse = await page.request.post('/api/files/create', {
+        data: {
+          type: 'file',
+          path: unreferencedPath,
+          base64Content: minimalPngBase64,
+        },
+      })
+      expect(createUnreferencedResponse.ok()).toBe(true)
+
+      const shareUrl = await createShare(page, { path: markdownPath, isDirectory: false })
+      token = getShareToken(shareUrl)
+      const editableResponse = await page.request.put('/api/shares', {
+        data: {
+          token,
+          editable: true,
+          restrictions: { allowUpload: true, allowEdit: true, allowDelete: true },
+        },
+      })
+      expect(editableResponse.ok()).toBe(true)
+
+      const requests = watchShareRequests(page)
+      await page.goto(shareUrl)
+
+      const editDocument = page.locator('[data-testid="markdown-document"][data-mode="edit"]')
+      const editor = editDocument.getByRole('textbox')
+      await expect(editor).toBeVisible()
+      await expect(editDocument.locator('.cm-editor')).toBeVisible()
+      await expect(page.locator('textarea')).toHaveCount(0)
+
+      await editor.focus()
+      await page.keyboard.press('Control+a')
+      const uploadResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/share/${token}/upload-image` &&
+          response.request().method() === 'POST',
+      )
+      const saveResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/share/${token}/edit` &&
+          response.request().method() === 'POST' &&
+          response.status() === 200,
+      )
+
+      await editor.evaluate((element, pngBase64) => {
+        const bytes = Uint8Array.from(atob(pngBase64), (character) => character.charCodeAt(0))
+        const transfer = new DataTransfer()
+        transfer.items.add(new File([bytes], 'clipboard.png', { type: 'image/png' }))
+        element.dispatchEvent(
+          new ClipboardEvent('paste', {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        )
+      }, minimalPngBase64)
+
+      const uploadResponse = await uploadResponsePromise
+      expect(uploadResponse.ok()).toBe(true)
+      const uploaded = (await uploadResponse.json()) as { path: string; fileName: string }
+      fixturePaths.push(uploaded.path)
+      const inserted = `![[images/${uploaded.fileName}]]`
+      await expect(editDocument.locator('.cm-md-image-source')).toHaveText(inserted)
+      const uploadedMediaPath = uploaded.path.split('/').map(encodeURIComponent).join('/')
+      const unsavedImagePreview = await page.request.get(
+        `/api/share/${token}/media/${uploadedMediaPath}`,
+      )
+      expect(unsavedImagePreview.ok()).toBe(true)
+
+      const readOnlyButton = page.getByRole('button', { name: 'Read only' })
+      await readOnlyButton.focus()
+      const saveResponse = await saveResponsePromise
+      expect(saveResponse.request().postDataJSON()).toMatchObject({ path: '.', content: inserted })
+
+      const mediaResponsePromise = page.waitForResponse((response) => {
+        const pathname = new URL(response.url()).pathname
+        return (
+          pathname.startsWith(`/api/share/${token}/media/`) &&
+          pathname.endsWith(`/images/${encodeURIComponent(uploaded.fileName)}`)
+        )
+      })
+      await readOnlyButton.click()
+
+      const readDocument = page.locator('[data-testid="markdown-document"][data-mode="read"]')
+      const image = readDocument.locator('img.cm-md-image')
+      await expect(image).toBeVisible()
+      await expect(image).toHaveAttribute('src', new RegExp(`/api/share/${token}/media/`))
+      expect((await mediaResponsePromise).ok()).toBe(true)
+
+      const unreferencedMediaPath = unreferencedPath.split('/').map(encodeURIComponent).join('/')
+      const guessedImage = await page.request.get(
+        `/api/share/${token}/media/${unreferencedMediaPath}`,
+      )
+      expect(guessedImage.status()).toBe(403)
+
+      const removeReference = await page.request.post(`/api/share/${token}/edit`, {
+        data: { path: '.', content: '# Image removed\n' },
+      })
+      expect(removeReference.ok()).toBe(true)
+      const removedImage = await page.request.get(`/api/share/${token}/media/${uploadedMediaPath}`)
+      expect(removedImage.status()).toBe(403)
+
+      const requestPaths = requests.map((url) => new URL(url).pathname)
+      expect(requestPaths).toContain(`/api/share/${token}/upload-image`)
+      expect(requestPaths).toContain(`/api/share/${token}/edit`)
+      expect(
+        requestPaths.some((pathname) => pathname.startsWith(`/api/share/${token}/media/`)),
+      ).toBe(true)
+      expectNoAdminRoutes(requests)
+    } finally {
+      await deleteShareAndFixtures(page, token, fixturePaths)
+    }
+  })
+
+  test('base64 share edit does not settle previews from unused text content', async ({
+    page,
+  }, testInfo) => {
+    const unique = `${testInfo.workerIndex}-${Date.now()}`
+    const markdownPath = `SharedContent/share-binary-edit-${unique}.md`
+    const fixturePaths = [markdownPath]
+    let token = ''
+
+    try {
+      const createFileResponse = await page.request.post('/api/files/create', {
+        data: { type: 'file', path: markdownPath, content: '# Original\n' },
+      })
+      expect(createFileResponse.ok()).toBe(true)
+
+      const shareUrl = await createShare(page, { path: markdownPath, isDirectory: false })
+      token = getShareToken(shareUrl)
+      const editableResponse = await page.request.put('/api/shares', {
+        data: {
+          token,
+          editable: true,
+          restrictions: { allowUpload: true, allowEdit: true, allowDelete: true },
+        },
+      })
+      expect(editableResponse.ok()).toBe(true)
+      await page.goto(shareUrl)
+
+      const uploadResponse = await page.request.post(`/api/share/${token}/upload-image`, {
+        data: {
+          base64Content: minimalPngBase64,
+          mimeType: 'image/png',
+          fileName: `binary-edit-${unique}.png`,
+        },
+      })
+      const uploadBody = await uploadResponse.text()
+      expect(uploadResponse.ok(), uploadBody).toBe(true)
+      const uploaded = JSON.parse(uploadBody) as {
+        path: string
+        rollbackId: string
+      }
+      fixturePaths.push(uploaded.path)
+
+      const finalizeResponse = await page.request.post(
+        `/api/share/${token}/finalize-image-upload`,
+        { data: { rollbackId: uploaded.rollbackId } },
+      )
+      expect(finalizeResponse.ok()).toBe(true)
+
+      const uploadedMediaPath = uploaded.path.split('/').map(encodeURIComponent).join('/')
+      expect((await page.request.get(`/api/share/${token}/media/${uploadedMediaPath}`)).ok()).toBe(
+        true,
+      )
+
+      const editResponse = await page.request.post(`/api/share/${token}/edit`, {
+        data: {
+          path: '.',
+          base64Content: Buffer.from('# Binary replacement\n').toString('base64'),
+          content: '# Unused text without image\n',
+        },
+      })
+      expect(editResponse.ok()).toBe(true)
+      expect((await page.request.get(`/api/share/${token}/media/${uploadedMediaPath}`)).ok()).toBe(
+        true,
+      )
+    } finally {
+      await deleteShareAndFixtures(page, token, fixturePaths)
+    }
+  })
+
+  test('nested knowledge-base directory share resolves root image attachments', async ({
+    page,
+  }, testInfo) => {
+    const unique = `${testInfo.workerIndex}-${Date.now()}`
+    const fileName = `nested-share-${unique}.md`
+    const imageName = `nested-image-${unique}.png`
+    const markdownPath = `Notes/projects/${fileName}`
+    const imagePath = `Notes/images/${imageName}`
+    const collisionPath = `Notes/projects/Notes/images/${imageName}`
+    let token = ''
+
+    try {
+      const createFileResponse = await page.request.post('/api/files/create', {
+        data: {
+          type: 'file',
+          path: markdownPath,
+          content: `# Nested share\n\n![[${imageName}]]\n`,
+        },
+      })
+      expect(createFileResponse.ok()).toBe(true)
+      const imageResponse = await page.request.post('/api/files/create', {
+        data: { type: 'file', path: imagePath, base64Content: minimalPngBase64 },
+      })
+      expect(imageResponse.ok()).toBe(true)
+      const collisionResponse = await page.request.post('/api/files/create', {
+        data: { type: 'file', path: collisionPath, content: 'not the KB image' },
+      })
+      expect(collisionResponse.ok()).toBe(true)
+
+      const shareUrl = await createShare(page, {
+        path: 'Notes/projects',
+        isDirectory: true,
+      })
+      token = getShareToken(shareUrl)
+      await page.goto(shareUrl)
+
+      const relativeCollision = await page.request.get(
+        `/api/share/${token}/media/Notes/images/${imageName}`,
+      )
+      expect(relativeCollision.ok()).toBe(true)
+      expect(await relativeCollision.text()).toBe('not the KB image')
+
+      const imageResponsePromise = page.waitForResponse((response) => {
+        const pathname = new URL(response.url()).pathname
+        return pathname === `/api/share/${token}/knowledge-base-image/Notes/images/${imageName}`
+      })
+      await page.locator('table').getByText(fileName, { exact: true }).click()
+
+      const document = page.locator('[data-testid="markdown-document"][data-mode="read"]')
+      await expect(document.locator(`img.cm-md-image[alt="${imageName}"]`)).toBeVisible()
+      expect((await imageResponsePromise).ok()).toBe(true)
+    } finally {
+      await deleteShareAndFixtures(page, token, [markdownPath, imagePath, collisionPath])
+    }
   })
 
   test('shared file page shows download button', async ({ page }) => {
@@ -150,10 +424,7 @@ test.describe('Using Shares', () => {
 
     await page.goto(editableShareUrl)
     await expect(page.getByText('public-doc.txt')).toBeVisible()
-    await page.waitForEvent('console', {
-      predicate: (msg) => msg.text().includes('[Share SSE] Connected to share stream'),
-      timeout: 10000,
-    })
+    await expect.poll(() => sawShareSseConnect(consoleLines)).toBe(true)
 
     const createResponse = await page.request.post(`/api/share/${token}/create`, {
       data: {
@@ -300,6 +571,6 @@ test.describe('Using Shares', () => {
 
     await page.locator('table').getByText('public-doc.txt').click()
     await expect(page.locator('[role="dialog"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Edit' })).not.toBeVisible()
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).not.toBeVisible()
   })
 })

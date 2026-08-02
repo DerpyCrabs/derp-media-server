@@ -14,6 +14,14 @@ const CLIPBOARD_STRUCTURED_SELECTORS = [
   'blockquote',
   'pre',
   'table',
+  'strong',
+  'b',
+  'em',
+  'i',
+  'a',
+  'code',
+  'del',
+  's',
 ] as const
 
 function isTextFileType(mimeType: string, fileName: string): boolean {
@@ -140,10 +148,19 @@ function clipboardHtmlBodyLooksStructured(body: HTMLElement | null): boolean {
   return false
 }
 
+/** True when clipboard HTML carries formatting worth preserving as Markdown. */
+export function clipboardHtmlLooksStructured(html: string): boolean {
+  if (!html || typeof DOMParser === 'undefined') return false
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return clipboardHtmlBodyLooksStructured(doc.body)
+}
+
 function newClipboardTurndown(doc: Document) {
   return new TurndownService({
     headingStyle: 'atx',
     bulletListMarker: '-',
+    codeBlockStyle: 'fenced',
+    fence: '```',
     document: doc,
   } as ConstructorParameters<typeof TurndownService>[0] & { document: Document })
 }

@@ -3,6 +3,13 @@ import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
+import {
+  createTextDocumentTarget,
+  enqueueTextDocumentSave,
+  textDocumentDraftScope,
+  textDocumentTargetKey,
+  type TextDocumentTarget,
+} from '@/lib/text-document-target'
 import { queryKeys } from '@/lib/query-keys'
 import { fileDownloadHref } from '@/lib/download-urls'
 import { getMediaType } from '@/lib/media-utils'
@@ -29,7 +36,8 @@ import ZoomOut from 'lucide-solid/icons/zoom-out'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
-import { MarkdownPane } from '../media/MarkdownPane'
+import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
+import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
 import type { TextViewerShareContext } from '../media/TextViewerDialog'
 import type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 
@@ -49,12 +57,23 @@ type Props = {
   /** Same as main file browser — required for Obsidian-style images in knowledge bases. */
   knowledgeBases?: string[]
   shareCanEdit: boolean
+  shareCanUpload: boolean
   onUpdateViewing: (windowId: string, path: string) => void
   onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
   /** Hand off video audio to taskbar; parent sets transport + closes tab if needed. */
   onListenOnlyHandoff?: (detail: WorkspaceVideoListenOnlyDetail) => void
   /** Close the viewer tab after switching to taskbar audio (playback keeps running). */
   onListenOnlyDismissViewer?: () => void
+}
+
+type WorkspaceTextSaveQueryKey =
+  | ReturnType<typeof queryKeys.textContent>
+  | ReturnType<typeof queryKeys.shareText>
+
+type WorkspaceTextSaveVariables = {
+  content: string
+  target: TextDocumentTarget
+  queryKey: WorkspaceTextSaveQueryKey
 }
 
 function shareEditRelativePath(viewingPath: string, sharePath: string): string {
@@ -86,6 +105,8 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   const viewingPath = createMemo(() => win()?.initialState?.viewing ?? '')
+  const currentTextTarget = createMemo(() => createTextDocumentTarget(viewingPath(), share()))
+  const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
 
   const mediaType = createMemo(() =>
     getMediaType(viewingPath().split('.').pop()?.toLowerCase() ?? ''),
@@ -280,10 +301,10 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   const textQueryKey = createMemo(() => {
-    const path = viewingPath()
-    if (!path) return queryKeys.textContent('')
-    const sh = share()
-    return sh ? queryKeys.shareText(sh.token, path) : queryKeys.textContent(path)
+    const target = currentTextTarget()
+    return target.kind === 'share'
+      ? queryKeys.shareText(target.token, target.sharePath, target.viewingPath)
+      : queryKeys.textContent(target.viewingPath)
   })
 
   const textQuery = useQuery(() => ({
@@ -314,18 +335,31 @@ export function WorkspaceViewerPane(props: Props) {
   const [copied, setCopied] = createSignal(false)
   const [saveError, setSaveError] = createSignal<string | null>(null)
 
-  let lastTextPath = ''
+  let lastTextDocumentKey = ''
+  let hydratedTextDocumentKey = ''
   createEffect(() => {
-    const path = viewingPath()
-    const data = textQuery.data
-    if (mediaType() !== MediaType.TEXT || !path || data === undefined) return
-    if (path !== lastTextPath) {
-      lastTextPath = path
+    const target = currentTextTarget()
+    const documentKey = textDocumentTargetKey(target)
+    if (mediaType() !== MediaType.TEXT || !target.viewingPath) return
+    if (documentKey !== lastTextDocumentKey) {
+      lastTextDocumentKey = documentKey
+      hydratedTextDocumentKey = ''
       setSavedContentAwaitingQuery(null)
       setReadOnlyView(false)
-      const ctx = textViewerShareCtx()
-      const key = textEditorDraftKey(ctx ? `share:${ctx.token}` : 'admin', path)
-      const draft = readTextEditorDraft(key)
+      setEditContent('')
+      setEditorBaseContent('')
+      setCopied(false)
+      setSaveError(null)
+    }
+
+    void textQuery.data
+    const data = queryClient.getQueryData<string>(textQueryKey())
+    if (data === undefined) return
+    if (documentKey !== hydratedTextDocumentKey) {
+      hydratedTextDocumentKey = documentKey
+      const draft = readTextEditorDraft(
+        textEditorDraftKey(textDocumentDraftScope(target), target.viewingPath),
+      )
       setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
       setEditorBaseContent(data)
     } else {
@@ -342,40 +376,53 @@ export function WorkspaceViewerPane(props: Props) {
 
   const showEditor = createMemo(() => fileEditable() && !readOnlyView())
 
+  const isCurrentSaveTarget = (variables: WorkspaceTextSaveVariables) =>
+    textDocumentTargetKey(variables.target) === currentTextTargetKey()
+
+  const textSaveVariables = (): WorkspaceTextSaveVariables => {
+    return {
+      content: editContent(),
+      target: currentTextTarget(),
+      queryKey: textQueryKey(),
+    }
+  }
+
   const saveMutation = useMutation(() => ({
-    mutationFn: async (content: string) => {
-      const ctx = textViewerShareCtx()
-      if (ctx) {
-        const rel = shareEditRelativePath(viewingPath(), ctx.sharePath)
-        await post(`/api/share/${ctx.token}/edit`, { path: rel, content })
-      } else {
-        await post('/api/files/edit', { path: viewingPath(), content })
-      }
-      return content
+    mutationFn: async (variables: WorkspaceTextSaveVariables) => {
+      return enqueueTextDocumentSave(variables.target, async () => {
+        const { content, target } = variables
+        if (target.kind === 'share') {
+          const rel = shareEditRelativePath(target.viewingPath, target.sharePath)
+          await post(`/api/share/${target.token}/edit`, { path: rel, content })
+        } else {
+          await post('/api/files/edit', { path: target.viewingPath, content })
+        }
+        return content
+      })
     },
-    onSuccess: (content: string) => {
-      const key = textQueryKey()
-      setSavedContentAwaitingQuery(content)
-      queryClient.setQueryData(key, content)
-      void queryClient.invalidateQueries({ queryKey: key })
+    onSuccess: (content: string, variables) => {
+      if (isCurrentSaveTarget(variables)) setSavedContentAwaitingQuery(content)
+      queryClient.setQueryData(variables.queryKey, content)
+      void queryClient.invalidateQueries({ queryKey: variables.queryKey })
     },
   }))
 
   async function saveText(quiet: boolean) {
     if (editContent() === editorBaseContent()) return
+    const variables = textSaveVariables()
     try {
-      await saveMutation.mutateAsync(editContent())
-      setSaveError(null)
+      await saveMutation.mutateAsync(variables)
+      if (isCurrentSaveTarget(variables)) setSaveError(null)
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to save file'
-      setSaveError(message)
-      if (!quiet) window.alert(message)
+      if (isCurrentSaveTarget(variables)) setSaveError(message)
+      if (!quiet && isCurrentSaveTarget(variables)) window.alert(message)
     }
   }
 
   const draftKey = createMemo(() => {
-    const ctx = textViewerShareCtx()
-    return textEditorDraftKey(ctx ? `share:${ctx.token}` : 'admin', viewingPath())
+    const target = currentTextTarget()
+    return textEditorDraftKey(textDocumentDraftScope(target), target.viewingPath)
   })
   const textDirty = createMemo(() => editContent() !== editorBaseContent())
   const textConflict = createMemo(
@@ -389,7 +436,7 @@ export function WorkspaceViewerPane(props: Props) {
   }
 
   createEffect(() => {
-    if (!lastTextPath) return
+    if (hydratedTextDocumentKey !== currentTextTargetKey()) return
     if (textDirty()) writeTextEditorDraft(draftKey(), editContent())
     else removeTextEditorDraft(draftKey())
   })
@@ -412,6 +459,7 @@ export function WorkspaceViewerPane(props: Props) {
         autosaveTimer = null
       }
     })
+    if (hydratedTextDocumentKey !== currentTextTargetKey()) return
     if (!fileEditable() || readOnlyView() || textConflict()) return
     if (editContent() === (textQuery.data ?? '')) return
     autosaveTimer = setTimeout(() => {
@@ -420,7 +468,7 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   async function handleCopy() {
-    const src = textQuery.data ?? ''
+    const src = fileEditable() ? editContent() : (textQuery.data ?? '')
     if (!src) return
     try {
       await navigator.clipboard.writeText(src)
@@ -728,10 +776,10 @@ export function WorkspaceViewerPane(props: Props) {
             </Show>
             <Show when={!textQuery.isPending && !textQuery.isError}>
               <Show
-                when={showEditor()}
+                when={isMarkdown()}
                 fallback={
                   <Show
-                    when={isMarkdown()}
+                    when={showEditor()}
                     fallback={
                       <div class='scrollbar-thin h-full overflow-auto'>
                         <pre class='text-foreground wrap-break-word whitespace-pre-wrap px-3 py-2 font-sans text-base leading-[1.75]'>
@@ -740,49 +788,72 @@ export function WorkspaceViewerPane(props: Props) {
                       </div>
                     }
                   >
-                    <MarkdownPane
-                      content={textQuery.data ?? ''}
-                      resolveImageUrl={resolveImageUrl()}
-                    />
+                    <div class='h-full'>
+                      <textarea
+                        class='scrollbar-thin h-full w-full resize-none bg-transparent px-3 py-2 font-sans text-base leading-[1.75] text-foreground wrap-break-word whitespace-pre-wrap focus:outline-none'
+                        value={editContent()}
+                        spellcheck={false}
+                        onInput={(e) => setEditContent(e.currentTarget.value)}
+                        onBlur={() => {
+                          if (!textConflict()) void saveText(true)
+                        }}
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === 'ArrowLeft' ||
+                            e.key === 'ArrowRight' ||
+                            e.key === 'ArrowUp' ||
+                            e.key === 'ArrowDown' ||
+                            e.key === 'Home' ||
+                            e.key === 'End' ||
+                            e.key === 'PageUp' ||
+                            e.key === 'PageDown'
+                          ) {
+                            e.stopPropagation()
+                          }
+                        }}
+                      />
+                    </div>
                   </Show>
                 }
               >
-                <div class='h-full'>
-                  <textarea
-                    class='scrollbar-thin h-full w-full resize-none bg-transparent px-3 py-2 font-sans text-base leading-[1.75] text-foreground wrap-break-word whitespace-pre-wrap focus:outline-none'
-                    value={editContent()}
-                    spellcheck={false}
-                    onInput={(e) => setEditContent(e.currentTarget.value)}
-                    onPaste={(e) => {
-                      void tryPasteKnowledgeBaseImage(e, {
-                        viewingPath: viewingPath(),
-                        knowledgeBases: kbList(),
-                        editableFolders: props.editableFolders,
-                        shareContext: textViewerShareCtx(),
-                        shareCanEdit: props.shareCanEdit,
-                        editContent: editContent(),
-                        setEditContent,
-                      })
-                    }}
-                    onBlur={() => {
-                      if (!textConflict()) void saveText(true)
-                    }}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === 'ArrowLeft' ||
-                        e.key === 'ArrowRight' ||
-                        e.key === 'ArrowUp' ||
-                        e.key === 'ArrowDown' ||
-                        e.key === 'Home' ||
-                        e.key === 'End' ||
-                        e.key === 'PageUp' ||
-                        e.key === 'PageDown'
-                      ) {
-                        e.stopPropagation()
-                      }
-                    }}
-                  />
-                </div>
+                <Show keyed when={currentTextTargetKey()}>
+                  {(_documentKey) => (
+                    <LazyMarkdownDocument
+                      content={fileEditable() ? editContent() : (textQuery.data ?? '')}
+                      mode={showEditor() ? 'edit' : 'read'}
+                      onChange={setEditContent}
+                      onBlur={() => {
+                        if (fileEditable() && !textConflict()) void saveText(true)
+                      }}
+                      onSave={() => saveText(false)}
+                      resolveImageUrl={resolveImageUrl()}
+                      onPasteImage={(event, _selection, complete) => {
+                        const pasteTargetKey = currentTextTargetKey()
+                        return tryPasteKnowledgeBaseImage(event, {
+                          viewingPath: viewingPath(),
+                          knowledgeBases: kbList(),
+                          editableFolders: props.editableFolders,
+                          shareContext: textViewerShareCtx(),
+                          shareCanEdit: props.shareCanEdit,
+                          shareCanUpload: props.shareCanUpload,
+                          completeCodeMirrorPaste: (markdown) =>
+                            completeMarkdownImagePaste(
+                              markdown,
+                              complete,
+                              () =>
+                                pasteTargetKey === currentTextTargetKey() &&
+                                hydratedTextDocumentKey === pasteTargetKey &&
+                                fileEditable() &&
+                                readOnlyView() &&
+                                !textConflict(),
+                              () => void saveText(true),
+                            ),
+                        })
+                      }}
+                      ariaLabel={`${fileName()} Markdown ${showEditor() ? 'editor' : 'document'}`}
+                    />
+                  )}
+                </Show>
               </Show>
             </Show>
           </div>

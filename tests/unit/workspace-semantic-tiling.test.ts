@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   applyAssistCustomSnapToWindows,
   assistGridSpanToBounds,
+  expandEdgeAssistSpanToAvailableTracks,
   type AssistGridSpan,
 } from '@/lib/workspace-assist-grid'
 import {
@@ -198,6 +199,49 @@ describe('semantic workspace tiling', () => {
     expect(left.width).toBe(400)
     expect(right.x + right.width).toBe(CANVAS.width)
     expect(windows[0]!.layout!.tiling!.colLines).toEqual(windows[1]!.layout!.tiling!.colLines)
+  })
+
+  test('right edge expands across an empty track in a resized three-column grid', () => {
+    const floating = tiledWindow('right', 2, 3)
+    floating.layout = { bounds: { x: 40, y: 40, width: 400, height: 300 }, tiling: null }
+    const leftSpan: AssistGridSpan = {
+      gridCols: 3,
+      gridRows: 2,
+      gc0: 0,
+      gc1: 0,
+      gr0: 0,
+      gr1: 1,
+    }
+    const rightEdgeSpan: AssistGridSpan = {
+      gridCols: 3,
+      gridRows: 2,
+      gc0: 2,
+      gc1: 2,
+      gr0: 0,
+      gr1: 1,
+    }
+
+    let windows = applyAssistCustomSnapToWindows(
+      [tiledWindow('left', 0, 1), floating],
+      'left',
+      leftSpan,
+      CANVAS,
+    )
+    windows = computeSnappedResizeWindows(
+      windows,
+      'left',
+      { x: 0, y: 0, width: 520, height: CANVAS.height },
+      'right',
+      CANVAS,
+    )
+    const expanded = expandEdgeAssistSpanToAvailableTracks(windows, rightEdgeSpan)
+    expect(expanded).toEqual({ ...rightEdgeSpan, gc0: 1 })
+
+    windows = applyAssistCustomSnapToWindows(windows, 'right', expanded, CANVAS)
+    const left = windows.find((window) => window.id === 'left')!.layout!.bounds!
+    const right = windows.find((window) => window.id === 'right')!.layout!.bounds!
+    assertExactAbutment(left, right, 'x')
+    expect(right.x + right.width).toBe(CANVAS.width)
   })
 
   test('three-column resize keeps all shared edges flush', () => {

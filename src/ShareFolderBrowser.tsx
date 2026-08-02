@@ -667,6 +667,7 @@ export function ShareFolderBrowser(props: Props) {
       <MainMediaPlayers
         shareContext={shareContext()}
         shareCanEdit={shareCanEdit()}
+        shareCanUpload={canUpload()}
         editableFolders={[]}
         knowledgeBases={
           props.shareInfo.knowledgeBaseRoot ? [props.shareInfo.knowledgeBaseRoot] : []

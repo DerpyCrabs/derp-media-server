@@ -40,6 +40,10 @@ import type { MediaRoot } from '@/lib/config'
 import { Mutex } from '@/lib/mutex'
 import { promises as fs } from 'fs'
 import path from 'path'
+import {
+  beginSingleFileShareImagePreviewSave,
+  settleSingleFileShareImagePreviewsAfterSave,
+} from '@/server/lib/shared-markdown-images'
 
 const STATS_FILE = getDataFilePath('stats.json')
 const statsMutex = new Mutex()
@@ -171,20 +175,22 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
     let knowledgeBaseRoot: string | null = null
     let adminViewMode: 'list' | 'grid' = 'list'
 
-    if (authorized && share.isDirectory) {
+    if (authorized) {
       const knowledgeBasesList = await getKnowledgeBases()
       knowledgeBaseRoot = getKnowledgeBaseRootForPath(
         share.path.replace(/\\/g, '/'),
         knowledgeBasesList,
       )
-      isKnowledgeBase = knowledgeBaseRoot !== null
+      isKnowledgeBase = share.isDirectory && knowledgeBaseRoot !== null
 
-      try {
-        const settingsData = await fs.readFile(getDataFilePath('settings.json'), 'utf-8')
-        const allSettings = JSON.parse(settingsData)
-        const settings = allSettings[config.libraryKey]
-        adminViewMode = settings?.viewModes?.[share.path] || 'list'
-      } catch {}
+      if (share.isDirectory) {
+        try {
+          const settingsData = await fs.readFile(getDataFilePath('settings.json'), 'utf-8')
+          const allSettings = JSON.parse(settingsData)
+          const settings = allSettings[config.libraryKey]
+          adminViewMode = settings?.viewModes?.[share.path] || 'list'
+        } catch {}
+      }
     }
 
     const workspaceTaskbarPins =
@@ -417,6 +423,7 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
   })
 
   app.post('/api/share/:token/edit', async (request, reply) => {
+    const previewSaveStartedAt = beginSingleFileShareImagePreviewSave()
     const { token } = request.params as { token: string }
     const body = request.body as {
       path: string
@@ -465,6 +472,21 @@ export function registerShareAccessApiRoutes(app: FastifyInstance) {
       await writeBinaryFile(resolved, body.base64Content)
     } else {
       await writeFile(resolved, body.content!)
+    }
+
+    if (
+      !share.isDirectory &&
+      /\.md$/i.test(share.path) &&
+      !body.base64Content &&
+      body.content !== undefined
+    ) {
+      settleSingleFileShareImagePreviewsAfterSave(
+        token,
+        share.path,
+        body.content,
+        await getKnowledgeBases(),
+        previewSaveStartedAt,
+      )
     }
 
     if (contentSize > 0) await addShareUsedBytes(token, contentSize)

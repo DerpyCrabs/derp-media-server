@@ -33,6 +33,8 @@ export function ShareFileViewer(props: Props) {
 
   const shareCanEdit = () =>
     props.shareInfo.editable && props.shareInfo.restrictions?.allowEdit !== false
+  const shareCanUpload = () =>
+    props.shareInfo.editable && props.shareInfo.restrictions?.allowUpload !== false
 
   onMount(() => {
     useMediaPlayer.getState().setShareContext(props.token, props.shareInfo.path)
@@ -59,6 +61,7 @@ export function ShareFileViewer(props: Props) {
             <MainMediaPlayers
               shareContext={shareContext()}
               shareCanEdit={shareCanEdit()}
+              shareCanUpload={shareCanUpload()}
               editableFolders={[]}
               knowledgeBases={
                 props.shareInfo.knowledgeBaseRoot ? [props.shareInfo.knowledgeBaseRoot] : []
@@ -72,6 +75,7 @@ export function ShareFileViewer(props: Props) {
                 props.shareInfo.knowledgeBaseRoot ? [props.shareInfo.knowledgeBaseRoot] : []
               }
               shareCanEdit={shareCanEdit()}
+              shareCanUpload={shareCanUpload()}
             />
           </>
         </Match>
@@ -87,6 +91,7 @@ export function ShareFileViewer(props: Props) {
             <MainMediaPlayers
               shareContext={shareContext()}
               shareCanEdit={shareCanEdit()}
+              shareCanUpload={shareCanUpload()}
               editableFolders={[]}
             />
           </div>
@@ -96,6 +101,7 @@ export function ShareFileViewer(props: Props) {
             <MainMediaPlayers
               shareContext={shareContext()}
               shareCanEdit={shareCanEdit()}
+              shareCanUpload={shareCanUpload()}
               editableFolders={[]}
             />
             <div class='flex min-h-screen flex-col items-center justify-center p-8'>

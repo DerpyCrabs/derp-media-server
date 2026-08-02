@@ -33,6 +33,9 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
+  await page
+    .evaluate(() => localStorage.removeItem('workspace-preferred-snap'))
+    .catch(() => undefined)
   await page.close()
 })
 
@@ -363,7 +366,7 @@ test.describe('Snap assist bar', () => {
 
     await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
     await page.mouse.down()
-    await page.mouse.move(viewport.width / 2, 10, { steps: 12 })
+    await page.mouse.move(viewport.width / 2, 5, { steps: 12 })
 
     const assist = page.locator('[data-workspace-snap-assist]')
     await expect(assist).toBeVisible()
@@ -404,7 +407,7 @@ test.describe('Snap assist bar', () => {
 
     await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
     await page.mouse.down()
-    await page.mouse.move(viewport.width / 2, 10, { steps: 12 })
+    await page.mouse.move(viewport.width / 2, 5, { steps: 12 })
 
     const assist = page.locator('[data-workspace-snap-assist]')
     await expect(assist).toBeVisible()
@@ -454,7 +457,7 @@ test.describe('Snap assist bar', () => {
 
     await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
     await page.mouse.down()
-    await page.mouse.move(viewport.width / 2, 10, { steps: 12 })
+    await page.mouse.move(viewport.width / 2, 5, { steps: 12 })
 
     const gutter = assistMiniGrid(page, '3x2').getByTestId('snap-assist-hgutter-col0')
     await expect(gutter).toBeVisible()
@@ -489,7 +492,7 @@ test.describe('Snap assist bar', () => {
 
     await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
     await page.mouse.down()
-    await page.mouse.move(viewport.width / 2, 10, { steps: 12 })
+    await page.mouse.move(viewport.width / 2, 5, { steps: 12 })
 
     const vg = assistMiniGrid(page, '3x2').getByTestId('snap-assist-vgutter-two-cols-top')
     await expect(vg).toBeVisible()

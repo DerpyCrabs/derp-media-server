@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 
+test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+
 test.describe('Knowledge Base', () => {
   test('shows search input in KB folders', async ({ page }) => {
     await page.goto('/?dir=Notes')
@@ -83,15 +85,15 @@ test.describe('Knowledge Base', () => {
     page,
   }) => {
     await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
-    const textarea = page.locator('textarea')
-    await expect(textarea).toBeVisible()
-    const before = await textarea.inputValue()
+    const editor = page.getByRole('textbox', { name: 'todo.md Markdown editor' })
+    await expect(editor).toBeVisible()
 
-    await textarea.click()
-    await textarea.evaluate((el) => {
-      const ta = el as HTMLTextAreaElement
-      ta.setSelectionRange(0, 0)
-    })
+    await editor.focus()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+c')
+    const before = await page.evaluate(() => navigator.clipboard.readText())
+
+    await page.keyboard.press('Control+Home')
 
     const createPromise = page.waitForResponse(
       (resp) =>
@@ -100,8 +102,7 @@ test.describe('Knowledge Base', () => {
         resp.status() === 200,
     )
 
-    await textarea.evaluate(async (el) => {
-      const ta = el as HTMLTextAreaElement
+    await editor.evaluate(async (el) => {
       const blob = await new Promise<Blob>((resolve, reject) => {
         const c = document.createElement('canvas')
         c.width = 1
@@ -123,7 +124,7 @@ test.describe('Knowledge Base', () => {
         cancelable: true,
         clipboardData: dt,
       } as ClipboardEventInit)
-      ta.dispatchEvent(ev)
+      el.dispatchEvent(ev)
     })
 
     const createResp = await createPromise
@@ -132,8 +133,12 @@ test.describe('Knowledge Base', () => {
     expect(typeof body.base64Content).toBe('string')
     expect(body.base64Content!.length).toBeGreaterThan(10)
 
-    await expect(textarea).toHaveValue(/\[\[Pasted image \d{14}(_\d+)?\.png\]\]/)
-    expect(await textarea.inputValue()).toContain(before)
+    await editor.focus()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+c')
+    const after = await page.evaluate(() => navigator.clipboard.readText())
+    expect(after).toMatch(/\[\[Pasted image \d{14}(_\d+)?\.png\]\]/)
+    expect(after).toContain(before)
   })
 
   test('renders Obsidian-style ![[image]] embeds', async ({ page }) => {
@@ -142,7 +147,9 @@ test.describe('Knowledge Base', () => {
     // Notes is editable, so the file opens in edit mode — switch to read-only
     await page.getByRole('button', { name: 'Read only' }).click()
     // welcome.md contains ![[diagram.png]] which should render as an <img>
-    const img = page.locator('.prose img')
+    const document = page.getByRole('document', { name: 'welcome.md Markdown document' })
+    await expect(document).toBeVisible()
+    const img = document.locator('img.cm-md-image')
     await expect(img).toBeVisible()
     const src = await img.getAttribute('src')
     expect(src).toContain('images')

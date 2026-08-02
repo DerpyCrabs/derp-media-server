@@ -4,7 +4,7 @@ import { buildAdminMediaUrl } from '@/src/lib/build-media-url'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
 import { formatFileSize } from '@/lib/media-utils'
-import { createMarkdownRenderer, preprocessObsidianImages } from '../media/text-viewer-markdown'
+import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
 import FileIcon from 'lucide-solid/icons/file'
 import HardDrive from 'lucide-solid/icons/hard-drive'
@@ -21,20 +21,6 @@ function PasteTextPreview(props: { content: string; renderAsMarkdown: Accessor<b
 
   const truncated = createMemo(() => props.content.length > PASTE_TEXT_PREVIEW_MAX)
 
-  const [mdMount, setMdMount] = createSignal<HTMLDivElement | null>(null)
-  const mdHtml = createMemo(() => {
-    if (!props.renderAsMarkdown()) return ''
-    const md = createMarkdownRenderer(() => null)
-    return md.render(preprocessObsidianImages(previewSlice()))
-  })
-
-  createEffect(() => {
-    if (!props.renderAsMarkdown()) return
-    const el = mdMount()
-    const h = mdHtml()
-    if (el) el.innerHTML = h
-  })
-
   return (
     <div class='bg-muted/30 rounded-lg border'>
       <Show
@@ -45,10 +31,13 @@ function PasteTextPreview(props: { content: string; renderAsMarkdown: Accessor<b
           </pre>
         }
       >
-        <div class='max-h-96 overflow-auto p-4'>
-          <div
-            ref={setMdMount}
-            class='markdown-pane-prose prose prose-sm prose-neutral dark:prose-invert max-w-none [&_img]:max-h-32 [&_img]:max-w-full [&_img]:object-contain'
+        <div class='h-64 max-h-96 overflow-hidden'>
+          <LazyMarkdownDocument
+            content={previewSlice()}
+            mode='read'
+            resolveImageUrl={() => null}
+            ariaLabel='Markdown paste preview'
+            compact
           />
         </div>
       </Show>

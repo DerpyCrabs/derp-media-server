@@ -47,6 +47,12 @@ describe('clipboardHtmlToMarkdown', () => {
     expect(md).toMatch(/[_*]How:[_*]/)
     expect(md).toMatch(/1\.|1\s/)
   })
+
+  test('preserves multiline preformatted code as a fenced block', () => {
+    expect(clipboardHtmlToMarkdown('<pre><code>const answer = 42\nnext()</code></pre>')).toBe(
+      '```\nconst answer = 42\nnext()\n```',
+    )
+  })
 })
 
 describe('extractPasteDataFromClipboardData', () => {

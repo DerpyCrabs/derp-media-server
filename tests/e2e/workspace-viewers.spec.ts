@@ -1,9 +1,12 @@
-import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import {
-  getWindowGroups,
-  gotoWorkspace,
-  WORKSPACE_VISIBLE_WINDOW_GROUP,
-} from './workspace-layout-helpers'
+  test,
+  expect,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  type Response,
+} from '@playwright/test'
+import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
 import { createWorkspaceE2EContext, workspaceE2EOrigin } from './workspace-e2e-auth'
 
 let sharedContext: BrowserContext
@@ -29,6 +32,21 @@ function getBrowserContent(page: Page) {
   return getWindowGroups(page).first().locator('.workspace-window-content')
 }
 
+function getMarkdownEditor(container: Locator) {
+  return container.getByRole('textbox', { name: / Markdown editor$/ })
+}
+
+function getMarkdownDocument(container: Locator) {
+  return container.getByRole('document', { name: / Markdown document$/ })
+}
+
+async function copyMarkdownSource(page: Page, markdown: Locator): Promise<string> {
+  await markdown.focus()
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('Control+c')
+  return page.evaluate(() => navigator.clipboard.readText())
+}
+
 async function openFileFromBrowser(page: Page, folder: string, fileName: string) {
   const content = getBrowserContent(page)
   await content.getByText(folder, { exact: true }).click()
@@ -37,6 +55,33 @@ async function openFileFromBrowser(page: Page, folder: string, fileName: string)
   await fileRow.click()
   await expect(getWindowGroups(page)).toHaveCount(2)
   return getWindowGroups(page).nth(1).locator('.workspace-window-content')
+}
+
+function uniqueWorkspaceMarkdownPath(prefix: string) {
+  const fileName = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}.md`
+  return { fileName, filePath: `SharedContent/${fileName}` }
+}
+
+async function createWorkspaceMarkdown(filePath: string, content: string) {
+  const response = await sharedContext.request.post(`${workspaceE2EOrigin()}/api/files/create`, {
+    data: { type: 'file', path: filePath, content },
+  })
+  expect(response.ok()).toBe(true)
+}
+
+async function readWorkspaceMarkdown(filePath: string) {
+  const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
+  const response = await sharedContext.request.get(
+    `${workspaceE2EOrigin()}/api/media/${encodedPath}`,
+  )
+  expect(response.ok()).toBe(true)
+  return response.text()
+}
+
+async function deleteWorkspaceMarkdown(filePath: string) {
+  await sharedContext.request.post(`${workspaceE2EOrigin()}/api/files/delete`, {
+    data: { path: filePath },
+  })
 }
 
 test.describe('Workspace File Browser', () => {
@@ -117,9 +162,8 @@ test.describe('Workspace File Browser', () => {
     await content.getByRole('button', { name: 'Search note contents' }).click()
     await expect(page.getByPlaceholder('Search notes...')).toBeVisible()
     await expect(content.locator('table')).toBeVisible()
-    const dashedActions = content.locator('button.border-dashed')
-    await expect(dashedActions.filter({ hasText: 'New file' })).toBeVisible()
-    await expect(dashedActions.filter({ hasText: 'New folder' })).toBeVisible()
+    await expect(content.getByRole('button', { name: 'New file', exact: true })).toBeVisible()
+    await expect(content.getByRole('button', { name: 'New folder', exact: true })).toBeVisible()
   })
 
   test('switches to grid view and back', async () => {
@@ -194,8 +238,9 @@ test.describe('Workspace clipboard paste', () => {
     await page.getByRole('button', { name: 'Paste' }).click()
     await expect(getWindowGroups(page)).toHaveCount(2)
     const viewer = getWindowGroups(page).nth(1).locator('.workspace-window-content')
-    await expect(viewer.locator('textarea')).toBeVisible({ timeout: 10_000 })
-    await expect(viewer.locator('textarea')).toHaveValue(marker)
+    const editor = getMarkdownEditor(viewer)
+    await expect(editor).toBeVisible({ timeout: 10_000 })
+    expect(await copyMarkdownSource(page, editor)).toBe(marker)
   })
 })
 
@@ -295,6 +340,230 @@ test.describe('Workspace PDF Viewer', () => {
 })
 
 test.describe('Workspace Text Viewer', () => {
+  test('edits and saves Markdown outside a knowledge base through workspace browser', async () => {
+    const fileName = `workspace-outside-kb-${Date.now()}-${Math.random().toString(36).slice(2)}.md`
+    const filePath = `SharedContent/${fileName}`
+    const initial = '# Workspace Outside KB\n\nEditable Markdown file.\n'
+    const updated = '# Workspace Outside KB Updated\n\nSaved through CodeMirror.\n'
+    const origin = workspaceE2EOrigin()
+    const createResponse = await sharedContext.request.post(`${origin}/api/files/create`, {
+      data: { type: 'file', path: filePath, content: initial },
+    })
+    expect(createResponse.ok()).toBe(true)
+
+    try {
+      await gotoWorkspace(page)
+      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const markdown = viewer.getByTestId('markdown-document')
+      const editor = getMarkdownEditor(viewer)
+
+      await expect(markdown).toHaveAttribute('data-mode', 'edit')
+      await expect(editor).toBeVisible()
+      await expect(markdown.locator('.cm-editor')).toBeVisible()
+      await expect(viewer.locator('textarea')).toHaveCount(0)
+      expect(await copyMarkdownSource(page, editor)).toBe(initial)
+
+      await editor.fill(updated)
+      await Promise.all([
+        page.waitForResponse((response) => {
+          if (!response.url().includes('/api/files/edit') || response.status() !== 200) return false
+          const body = response.request().postDataJSON() as {
+            path?: string
+          } | null
+          return body?.path === filePath
+        }),
+        editor.press('Control+s'),
+      ])
+
+      const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
+      const readResponse = await sharedContext.request.get(`${origin}/api/media/${encodedPath}`)
+      expect(readResponse.ok()).toBe(true)
+      expect(await readResponse.text()).toBe(updated)
+    } finally {
+      await sharedContext.request.post(`${origin}/api/files/delete`, {
+        data: { path: filePath },
+      })
+    }
+  })
+
+  test('editable Markdown keeps ordinary link clicks in the editor and opens Ctrl+click externally', async () => {
+    const { fileName, filePath } = uniqueWorkspaceMarkdownPath('workspace-link-interaction')
+    const externalUrl = `https://example.com/workspace-editor-${Date.now()}`
+    const source = `# Link interaction\n\n[External target](${externalUrl})\n`
+    let popup: Page | undefined
+    await createWorkspaceMarkdown(filePath, source)
+    await sharedContext.route(externalUrl, async (route) => {
+      await route.fulfill({
+        contentType: 'text/html',
+        body: '<p>External target</p>',
+      })
+    })
+
+    try {
+      await gotoWorkspace(page)
+      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const document = viewer.getByTestId('markdown-document')
+      const editor = getMarkdownEditor(viewer)
+      const link = document.getByRole('link', { name: 'External target' })
+      const workspaceUrl = page.url()
+      const originalPageCount = sharedContext.pages().length
+
+      await expect(editor).toBeVisible()
+      await expect(link).toBeVisible()
+      await link.click()
+
+      await expect(editor).toBeFocused()
+      await expect(page).toHaveURL(workspaceUrl)
+      expect(sharedContext.pages()).toHaveLength(originalPageCount)
+      expect(await copyMarkdownSource(page, editor)).toBe(source)
+
+      await editor.press('Control+Home')
+      await expect(link).toBeVisible()
+      const popupPromise = sharedContext.waitForEvent('page')
+      await link.click({ modifiers: ['Control'] })
+      popup = await popupPromise
+      await expect(popup).toHaveURL(externalUrl)
+
+      expect(await readWorkspaceMarkdown(filePath)).toBe(source)
+    } finally {
+      await popup?.close()
+      await sharedContext.unroute(externalUrl)
+      await deleteWorkspaceMarkdown(filePath)
+    }
+  })
+
+  test('editable Markdown image click reveals source and double-click opens fullscreen', async () => {
+    const { fileName, filePath } = uniqueWorkspaceMarkdownPath('workspace-image-interaction')
+    const imageSource = '![workspace photo](SharedContent/photo.png)'
+    const source = `# Image interaction\n\n${imageSource}\n`
+    await createWorkspaceMarkdown(filePath, source)
+
+    try {
+      await gotoWorkspace(page)
+      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const document = viewer.getByTestId('markdown-document')
+      const editor = getMarkdownEditor(viewer)
+      const image = document.locator('img.cm-md-image[alt="workspace photo"]')
+
+      await expect(editor).toBeVisible()
+      await expect(image).toBeVisible()
+      await image.click()
+      await expect(document.locator('.cm-md-image-source')).toHaveText(imageSource)
+      expect(await copyMarkdownSource(page, editor)).toBe(source)
+
+      await editor.press('Control+Home')
+      await expect(image).toBeVisible()
+      const imageBox = await image.boundingBox()
+      expect(imageBox).not.toBeNull()
+      await page.mouse.dblclick(
+        imageBox!.x + imageBox!.width / 2,
+        imageBox!.y + imageBox!.height / 2,
+      )
+
+      const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
+      await expect(overlay).toBeVisible()
+      await overlay.getByRole('button', { name: 'Close' }).click()
+      await expect(overlay).not.toBeVisible()
+      expect(await readWorkspaceMarkdown(filePath)).toBe(source)
+    } finally {
+      await deleteWorkspaceMarkdown(filePath)
+    }
+  })
+
+  test('refreshes a clean Markdown editor after a remote update', async ({ browser }) => {
+    const { fileName, filePath } = uniqueWorkspaceMarkdownPath('workspace-clean-remote')
+    const initial = '# Clean remote update\n\nInitial content.\n'
+    const remote = '# Clean remote update\n\nRemote replacement.\n'
+    const secondContext = await createWorkspaceE2EContext(browser)
+    await createWorkspaceMarkdown(filePath, initial)
+
+    try {
+      await gotoWorkspace(page)
+      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const editor = getMarkdownEditor(viewer)
+      await expect(editor).toBeVisible()
+      expect(await copyMarkdownSource(page, editor)).toBe(initial)
+
+      const response = await secondContext.request.post(`${workspaceE2EOrigin()}/api/files/edit`, {
+        data: { path: filePath, content: remote },
+      })
+      expect(response.ok()).toBe(true)
+
+      await expect.poll(() => copyMarkdownSource(page, editor)).toBe(remote)
+      await expect(viewer.getByText('This file changed elsewhere.')).toHaveCount(0)
+      expect(await readWorkspaceMarkdown(filePath)).toBe(remote)
+    } finally {
+      await secondContext.close()
+      await deleteWorkspaceMarkdown(filePath)
+    }
+  })
+
+  test('serializes rapid Ctrl+S saves and persists the latest Markdown exactly', async () => {
+    const { fileName, filePath } = uniqueWorkspaceMarkdownPath('workspace-save-order')
+    const initial = '# Save ordering\n\nInitial.\n'
+    const first = '# Save ordering\n\nFirst queued save.\n'
+    const latest = '# Save ordering\n\nLatest rapid save.\n'
+    let releaseFirstSave = () => {}
+    let markFirstSaveStarted = () => {}
+    const firstSaveGate = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve
+    })
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      markFirstSaveStarted = resolve
+    })
+    let targetRequestCount = 0
+    let completedTargetRequestCount = 0
+    const onResponse = (response: Response) => {
+      if (!response.url().includes('/api/files/edit') || response.status() !== 200) return
+      const body = response.request().postDataJSON() as {
+        path?: string
+      } | null
+      if (body?.path === filePath) completedTargetRequestCount += 1
+    }
+
+    await createWorkspaceMarkdown(filePath, initial)
+    page.on('response', onResponse)
+    await page.route('**/api/files/edit', async (route) => {
+      const body = route.request().postDataJSON() as { path?: string } | null
+      if (body?.path === filePath) {
+        targetRequestCount += 1
+        if (targetRequestCount === 1) {
+          markFirstSaveStarted()
+          await firstSaveGate
+        }
+      }
+      await route.continue()
+    })
+
+    try {
+      await gotoWorkspace(page)
+      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const editor = getMarkdownEditor(viewer)
+      await expect(editor).toBeVisible()
+      expect(await copyMarkdownSource(page, editor)).toBe(initial)
+
+      await editor.fill(first)
+      await editor.press('Control+s')
+      await firstSaveStarted
+
+      await editor.fill(latest)
+      await editor.press('Control+s')
+      await editor.press('Control+s')
+      await page.waitForTimeout(100)
+      expect(targetRequestCount).toBe(1)
+
+      releaseFirstSave()
+      await expect.poll(() => completedTargetRequestCount).toBe(3)
+      await expect.poll(() => readWorkspaceMarkdown(filePath)).toBe(latest)
+      expect(await copyMarkdownSource(page, editor)).toBe(latest)
+    } finally {
+      releaseFirstSave()
+      page.off('response', onResponse)
+      await page.unroute('**/api/files/edit')
+      await deleteWorkspaceMarkdown(filePath)
+    }
+  })
+
   test('keeps a dirty KB editor when the file changes from a second context', async ({
     browser,
   }) => {
@@ -312,20 +581,23 @@ test.describe('Workspace Text Viewer', () => {
       await browserPane.locator('table').getByText(fileName, { exact: true }).click()
 
       const viewer = getWindowGroups(page).nth(1).locator('.workspace-window-content')
-      const textarea = viewer.locator('textarea')
-      await expect(textarea).toHaveValue('# Original\n')
-      await textarea.fill('# Local dirty edit\n')
+      const editor = getMarkdownEditor(viewer)
+      await expect(editor).toBeVisible()
+      expect(await copyMarkdownSource(page, editor)).toBe('# Original\n')
+      await editor.fill('# Local dirty edit\n')
 
       await secondContext.request.post(`${origin}/api/files/edit`, {
         data: { path: filePath, content: '# Remote edit\n' },
       })
 
       await expect(viewer.getByText('This file changed elsewhere.')).toBeVisible()
-      await expect(textarea).toHaveValue('# Local dirty edit\n')
+      expect(await copyMarkdownSource(page, editor)).toBe('# Local dirty edit\n')
       await viewer.getByRole('button', { name: 'Reload remote version' }).click()
-      await expect(textarea).toHaveValue('# Remote edit\n')
+      await expect.poll(() => copyMarkdownSource(page, editor)).toBe('# Remote edit\n')
     } finally {
-      await secondContext.request.post(`${origin}/api/files/delete`, { data: { path: filePath } })
+      await secondContext.request.post(`${origin}/api/files/delete`, {
+        data: { path: filePath },
+      })
       await secondContext.close()
     }
   })
@@ -341,7 +613,7 @@ test.describe('Workspace Text Viewer', () => {
       await expect(viewer.getByText(/\d+ lines/)).toBeVisible()
     })
     await test.step('does not show edit button for non-editable folders', async () => {
-      await expect(viewer.getByRole('button', { name: 'Edit' })).not.toBeVisible()
+      await expect(viewer.getByRole('button', { name: 'Edit', exact: true })).not.toBeVisible()
     })
     await test.step('copy button exists', async () => {
       await expect(viewer.locator('button[title="Copy to clipboard"]')).toBeVisible()
@@ -358,8 +630,13 @@ test.describe('Workspace Text Viewer', () => {
   test('renders markdown headings and formatting', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Documents', 'notes.md')
-    await expect(viewer.locator('h1:has-text("Test Notes")')).toBeVisible()
-    await expect(viewer.locator('strong:has-text("markdown")')).toBeVisible()
+    const document = getMarkdownDocument(viewer)
+    await expect(document).toBeVisible()
+    await expect(viewer.locator('.cm-md-heading-1')).toContainText('Test Notes')
+    await expect(viewer.locator('.cm-md-strong')).toContainText('markdown')
+    await expect(
+      viewer.locator('[role="link"][data-markdown-link="https://example.com"]'),
+    ).toContainText('a link')
   })
 
   test('markdown image fullscreen overlay open and close paths', async () => {
@@ -368,7 +645,7 @@ test.describe('Workspace Text Viewer', () => {
     const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
 
     await test.step('opens fullscreen from image click', async () => {
-      const img = viewer.locator('img[alt="photo"]')
+      const img = viewer.locator('img.cm-md-image[alt="photo"]')
       await expect(img).toBeVisible()
       await img.click()
       await expect(overlay).toBeVisible()
@@ -380,14 +657,14 @@ test.describe('Workspace Text Viewer', () => {
     })
 
     await test.step('closes on backdrop click', async () => {
-      await viewer.locator('img[alt="photo"]').click()
+      await viewer.locator('img.cm-md-image[alt="photo"]').click()
       await expect(overlay).toBeVisible()
       await overlay.click({ position: { x: 10, y: 10 } })
       await expect(overlay).not.toBeVisible()
     })
 
     await test.step('closes on close button', async () => {
-      await viewer.locator('img[alt="photo"]').click()
+      await viewer.locator('img.cm-md-image[alt="photo"]').click()
       await expect(overlay).toBeVisible()
       await overlay.getByRole('button', { name: 'Close' }).click()
       await expect(overlay).not.toBeVisible()
@@ -399,76 +676,117 @@ test.describe('Workspace Text Viewer', () => {
     const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')
 
     await test.step('auto-enters edit mode in editable folders', async () => {
-      await expect(viewer.locator('textarea')).toBeVisible()
+      await expect(getMarkdownEditor(viewer)).toBeVisible()
+      await expect(viewer.getByTestId('markdown-document')).toHaveAttribute('data-mode', 'edit')
       await expect(viewer.getByRole('button', { name: 'Read only' })).toBeVisible()
     })
 
-    await test.step('shows textarea with file content', async () => {
-      const content = await viewer.locator('textarea').inputValue()
+    await test.step('shows editor with exact Markdown source', async () => {
+      const content = await copyMarkdownSource(page, getMarkdownEditor(viewer))
       expect(content).toContain('Todo List')
     })
 
-    await test.step('switches between edit and read-only mode', async () => {
+    await test.step('switches one CodeMirror document between edit and read modes', async () => {
       await viewer.getByRole('button', { name: 'Read only' }).click()
-      await expect(viewer.locator('textarea')).not.toBeVisible()
-      await expect(viewer.locator('h1:has-text("Todo List")')).toBeVisible()
-      await viewer.getByRole('button', { name: 'Edit' }).click()
-      await expect(viewer.locator('textarea')).toBeVisible()
+      await expect(getMarkdownEditor(viewer)).not.toBeVisible()
+      const document = getMarkdownDocument(viewer)
+      await expect(document).toBeVisible()
+      await expect(viewer.locator('.cm-md-heading-1')).toContainText('Todo List')
+      await expect(viewer.locator('input[data-markdown-task="read"]').first()).toBeDisabled()
+      expect(await copyMarkdownSource(page, document)).toContain('# Todo List')
+      await viewer.getByRole('button', { name: 'Edit', exact: true }).click()
+      const editor = getMarkdownEditor(viewer)
+      await expect(editor).toBeVisible()
+      await editor.press('ArrowRight')
+      await expect(viewer.locator('input[data-markdown-task="edit"]').first()).toBeEnabled()
     })
   })
 
   test('keeps cursor position while typing within existing text', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')
-    const textarea = viewer.locator('textarea')
-    await expect(textarea).toBeVisible()
-    const original = await textarea.inputValue()
+    const editor = getMarkdownEditor(viewer)
+    await expect(editor).toBeVisible()
+    const original = await copyMarkdownSource(page, editor)
     const position = original.indexOf('Todo')
     expect(position).toBeGreaterThanOrEqual(0)
 
-    await textarea.evaluate((element, selectionStart) => {
-      const input = element as HTMLTextAreaElement
-      input.focus()
-      input.setSelectionRange(selectionStart, selectionStart)
-    }, position)
-    for (const character of 'abcde') {
-      await textarea.press(character)
-      await Promise.all([
-        page.waitForResponse(
-          (response) => response.url().includes('/api/files/edit') && response.ok(),
-        ),
-        page.waitForResponse(
-          (response) => response.url().includes('/api/media/Notes/todo.md') && response.ok(),
-        ),
-      ])
-    }
+    await editor.focus()
+    await page.keyboard.press('Control+Home')
+    for (let index = 0; index < position; index += 1) await page.keyboard.press('ArrowRight')
+    for (const character of 'abcde') await editor.press(character)
 
-    expect(await textarea.inputValue()).toBe(
+    expect(await copyMarkdownSource(page, editor)).toBe(
       `${original.slice(0, position)}abcde${original.slice(position)}`,
     )
-    expect(
-      await textarea.evaluate((element) => (element as HTMLTextAreaElement).selectionStart),
-    ).toBe(position + 5)
-    await textarea.fill(original)
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes('/api/files/edit') && response.ok(),
+      ),
+      editor.press('Control+s'),
+    ])
+    await editor.fill(original)
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes('/api/files/edit') && response.ok(),
+      ),
+      editor.press('Control+s'),
+    ])
   })
 
-  test('saves edits and persists changes', async () => {
+  test('isolates workspace navigation keys while Markdown editor is focused', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')
-    const textarea = viewer.locator('textarea')
-    await expect(textarea).toBeVisible({ timeout: 10_000 })
+    const editor = getMarkdownEditor(viewer)
+    const original = await copyMarkdownSource(page, editor)
+    const navigationKeys = [
+      'ArrowLeft',
+      'ArrowRight',
+      'ArrowUp',
+      'ArrowDown',
+      'Home',
+      'End',
+      'PageUp',
+      'PageDown',
+    ]
 
-    await textarea.fill('# Updated Todo\n\n- Brand new item\n')
+    await page.evaluate((keys) => {
+      const state = window as typeof window & {
+        __markdownBubbledKeys?: string[]
+      }
+      state.__markdownBubbledKeys = []
+      window.addEventListener('keydown', (event) => {
+        if (keys.includes(event.key)) state.__markdownBubbledKeys?.push(event.key)
+      })
+    }, navigationKeys)
 
-    const viewerWindow = page
-      .locator(WORKSPACE_VISIBLE_WINDOW_GROUP)
-      .filter({ has: page.locator('.workspace-window-content').locator('textarea') })
-      .first()
+    await editor.focus()
+    for (const key of navigationKeys) await page.keyboard.press(key)
+
+    expect(
+      await page.evaluate(
+        () =>
+          (window as typeof window & { __markdownBubbledKeys?: string[] }).__markdownBubbledKeys,
+      ),
+    ).toEqual([])
+    expect(await copyMarkdownSource(page, editor)).toBe(original)
+    await expect(getWindowGroups(page)).toHaveCount(2)
+  })
+
+  test('Ctrl+S saves edits and persists changes', async () => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Notes', 'todo.md')
+    const editor = getMarkdownEditor(viewer)
+    await expect(editor).toBeVisible({ timeout: 10_000 })
+
+    await editor.fill('# Updated Todo\n\n- Brand new item\n')
+
+    const viewerWindow = getWindowGroups(page).nth(1)
     await Promise.all([
       page.waitForResponse(
         (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
       ),
-      viewerWindow.locator('[data-testid="window-drag-handle"]').click(),
+      editor.press('Control+s'),
     ])
 
     const closeBtn = viewerWindow.locator('.workspace-window-buttons button:has(.lucide-x)')
@@ -479,19 +797,14 @@ test.describe('Workspace Text Viewer', () => {
     await content.locator('table').getByText('todo.md').click()
     await expect(getWindowGroups(page)).toHaveCount(2)
 
-    const newViewer = page
-      .locator(WORKSPACE_VISIBLE_WINDOW_GROUP)
-      .filter({ has: page.locator('.workspace-window-content textarea') })
-      .first()
-      .locator('.workspace-window-content')
-    await expect(newViewer.locator('textarea')).toBeVisible({ timeout: 10_000 })
-    const saved = await newViewer.locator('textarea').inputValue()
+    const newViewer = getWindowGroups(page).nth(1).locator('.workspace-window-content')
+    const newEditor = getMarkdownEditor(newViewer)
+    await expect(newEditor).toBeVisible({ timeout: 10_000 })
+    const saved = await copyMarkdownSource(page, newEditor)
     expect(saved).toContain('Updated Todo')
     expect(saved).toContain('Brand new item')
 
-    await newViewer
-      .locator('textarea')
-      .fill('# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n')
+    await newEditor.fill('# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n')
     await Promise.all([
       page.waitForResponse(
         (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,

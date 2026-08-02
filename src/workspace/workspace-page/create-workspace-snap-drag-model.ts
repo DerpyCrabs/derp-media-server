@@ -4,6 +4,7 @@ import {
   assistGridSpanToBounds,
   assistShapeMatchingSpan,
   detectEdgeAssistGridSpan,
+  expandEdgeAssistSpanToAvailableTracks,
   findSharedAssistGridLines,
   type AssistGridSpan,
 } from '@/lib/workspace-assist-grid'
@@ -291,9 +292,19 @@ export function createWorkspaceSnapDragModel(options: {
     }
     if (overAssistPanel) snapAssistSticky = true
 
-    const edgeSpan = detectEdgeAssistGridSpan(lx, ly, rect.width, rect.height, shape, {
+    const detectedEdgeSpan = detectEdgeAssistGridSpan(lx, ly, rect.width, rect.height, shape, {
       suppressTopEdgeSpans: false,
     })
+    const dragged = ws?.windows.find((window) => window.id === windowId)
+    const draggedGroupId = dragged ? groupIdForWindow(dragged) : null
+    const edgeSpan = detectedEdgeSpan
+      ? expandEdgeAssistSpanToAvailableTracks(
+          ws?.windows.filter(
+            (window) => draggedGroupId === null || groupIdForWindow(window) !== draggedGroupId,
+          ) ?? [],
+          detectedEdgeSpan,
+        )
+      : null
     setDragEdgeGridSpan(edgeSpan)
 
     let z: SnapDetectResult | null = edgeSpan ? 'edge-grid' : null

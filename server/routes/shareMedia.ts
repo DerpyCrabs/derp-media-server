@@ -9,6 +9,7 @@ import {
   isPathEditable,
   writeBinaryFile,
   fileExists,
+  deleteFile,
 } from '@/lib/file-system'
 import { getMimeType, formatFileSize } from '@/lib/media-utils'
 import { extractAudioMetadata, extractAudioTrack } from '@/server/lib/audio-helpers'
@@ -33,6 +34,15 @@ import {
   getKnowledgeBaseRootForPath,
 } from '@/lib/knowledge-base'
 import { broadcastFileChange } from '@/lib/file-change-emitter'
+import {
+  consumeShareImageRollbackGrant,
+  createShareImageRollbackGrant,
+  finalizeSingleFileShareImagePreview,
+  forgetSingleFileShareImagePreview,
+  isAuthorizedSingleFileShareImage,
+  recordSingleFileShareImagePreview,
+  restoreShareImageRollbackGrant,
+} from '@/server/lib/shared-markdown-images'
 
 /** Safe basename for KB pasted images (Obsidian-style names include spaces). */
 function sanitizeKbPastedImageFileName(name: unknown): string | null {
@@ -86,77 +96,103 @@ function resolveSharePathHTTP(share: ShareLink, subPath: string): string | null 
   return resolveShareSubPath(share, subPath)
 }
 
-export function registerShareMediaRoutes(app: FastifyInstance) {
-  // ── Stream shared media with range support ─────────────────────────
-  app.get('/api/share/:token/media/*', async (request, reply) => {
-    try {
-      const { token } = request.params as { token: string }
-      const filePath = (request.params as { '*': string })['*']
+function statShareMedia(resolvedPath: string) {
+  const fullPath = getFilePath(resolvedPath)
+  return { fullPath, stats: statSync(fullPath) }
+}
 
-      const share = await getShare(token)
-      if (!share) return reply.status(404).send({ error: 'Share not found' })
-      if (!validateShareAccessHTTP(request, share, reply)) return reply
+async function resolveShareMediaHTTP(token: string, share: ShareLink, requestedPath: string) {
+  if (!share.isDirectory) {
+    const directPath = requestedPath === share.path || requestedPath === '.' ? share.path : null
+    if (directPath) return statShareMedia(directPath)
 
-      let resolvedPath: string | null
+    const knowledgeBases = await getKnowledgeBases()
+    return (await isAuthorizedSingleFileShareImage(
+      token,
+      share.path,
+      requestedPath,
+      knowledgeBases,
+    ))
+      ? statShareMedia(requestedPath)
+      : null
+  }
 
-      if (share.isDirectory) {
-        resolvedPath = resolveSharePathHTTP(share, filePath)
-      } else {
-        resolvedPath = filePath === share.path || filePath === '.' ? share.path : null
-      }
+  const candidate = resolveSharePathHTTP(share, requestedPath)
+  if (candidate === null) return null
+  return statShareMedia(candidate)
+}
 
-      if (resolvedPath === null) {
-        const knowledgeBases = await getKnowledgeBases()
-        if (isKnowledgeBaseImagePath(filePath, share.path, knowledgeBases)) {
-          resolvedPath = filePath
-        } else {
-          return reply.status(403).send({ error: 'Invalid path' })
-        }
-      }
+async function resolveSharedKnowledgeBaseImageHTTP(share: ShareLink, requestedPath: string) {
+  if (!share.isDirectory) return null
+  const knowledgeBases = await getKnowledgeBases()
+  if (!isKnowledgeBaseImagePath(requestedPath, share.path, knowledgeBases)) return null
+  return statShareMedia(requestedPath)
+}
 
-      const fullPath = getFilePath(resolvedPath)
-      const stats = statSync(fullPath)
+async function streamSharedMedia(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  knowledgeBaseImage: boolean,
+) {
+  try {
+    const { token } = request.params as { token: string }
+    const filePath = (request.params as { '*': string })['*']
 
-      if (!stats.isFile()) {
-        return reply.status(400).send({ error: 'Not a file' })
-      }
+    const share = await getShare(token)
+    if (!share) return reply.status(404).send({ error: 'Share not found' })
+    if (!validateShareAccessHTTP(request, share, reply)) return reply
 
-      const extension = path.extname(fullPath).slice(1)
-      const mimeType = getMimeType(extension)
-      const range = request.headers.range
+    const resolved = knowledgeBaseImage
+      ? await resolveSharedKnowledgeBaseImageHTTP(share, filePath)
+      : await resolveShareMediaHTTP(token, share, filePath)
+    if (resolved === null) return reply.status(403).send({ error: 'Invalid path' })
+    const { fullPath, stats } = resolved
 
-      if (range) {
-        const parts = range.replace(/bytes=/, '').split('-')
-        const start = parseInt(parts[0], 10)
-        const end = parts[1] ? parseInt(parts[1], 10) : stats.size - 1
-        const chunkSize = end - start + 1
+    if (!stats.isFile()) return reply.status(400).send({ error: 'Not a file' })
 
-        const stream = createReadStream(fullPath, { start, end })
-        reply.raw.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${stats.size}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': chunkSize,
-          'Content-Type': mimeType,
-          'Cache-Control': 'no-cache',
-        })
-        stream.pipe(reply.raw)
-        return reply
-      }
+    const extension = path.extname(fullPath).slice(1)
+    const mimeType = getMimeType(extension)
+    const range = request.headers.range
 
-      const stream = createReadStream(fullPath)
-      reply.raw.writeHead(200, {
-        'Content-Type': mimeType,
-        'Content-Length': stats.size,
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-')
+      const start = parseInt(parts[0], 10)
+      const end = parts[1] ? parseInt(parts[1], 10) : stats.size - 1
+      const chunkSize = end - start + 1
+
+      const stream = createReadStream(fullPath, { start, end })
+      reply.raw.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${stats.size}`,
         'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': mimeType,
         'Cache-Control': 'no-cache',
       })
       stream.pipe(reply.raw)
       return reply
-    } catch (error) {
-      console.error('Error streaming shared media:', error)
-      return reply.status(404).send({ error: 'File not found' })
     }
-  })
+
+    const stream = createReadStream(fullPath)
+    reply.raw.writeHead(200, {
+      'Content-Type': mimeType,
+      'Content-Length': stats.size,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-cache',
+    })
+    stream.pipe(reply.raw)
+    return reply
+  } catch (error) {
+    console.error('Error streaming shared media:', error)
+    return reply.status(404).send({ error: 'File not found' })
+  }
+}
+
+export function registerShareMediaRoutes(app: FastifyInstance) {
+  // ── Stream shared media with range support ─────────────────────────
+  app.get('/api/share/:token/media/*', (request, reply) => streamSharedMedia(request, reply, false))
+  app.get('/api/share/:token/knowledge-base-image/*', (request, reply) =>
+    streamSharedMedia(request, reply, true),
+  )
 
   // ── Thumbnails for shared media ────────────────────────────────────
   app.get('/api/share/:token/thumbnail/*', async (request, reply) => {
@@ -168,7 +204,11 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
       if (!share) return reply.status(404).send({ error: 'Share not found' })
       if (!validateShareAccessHTTP(request, share, reply)) return reply
 
-      const resolved = resolveSharePathHTTP(share, filePath)
+      const resolved = share.isDirectory
+        ? resolveSharePathHTTP(share, filePath)
+        : filePath === share.path || filePath === '.'
+          ? share.path
+          : null
       if (resolved === null) {
         sendPlaceholder(reply, 'public, max-age=31536000')
         return reply
@@ -358,7 +398,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
 
       const resolved = share.isDirectory
         ? resolveSharePathHTTP(share, filePath)
-        : filePath === '.'
+        : filePath === '.' || filePath === share.path
           ? share.path
           : null
       if (resolved === null) return reply.status(403).send({ error: 'Invalid path' })
@@ -384,7 +424,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
 
       const resolved = share.isDirectory
         ? resolveSharePathHTTP(share, filePath)
-        : filePath === '.'
+        : filePath === '.' || filePath === share.path
           ? share.path
           : null
       if (resolved === null) return reply.status(403).send({ error: 'Invalid path' })
@@ -443,7 +483,7 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
         imagesDir = `${sharePath}/images`
       } else {
         const fileDir = path.dirname(sharePath).replace(/\\/g, '/')
-        imagesDir = `${fileDir}/images`
+        imagesDir = fileDir === '.' ? 'images' : `${fileDir}/images`
       }
 
       if (!isPathEditable(imagesDir)) {
@@ -470,16 +510,71 @@ export function registerShareMediaRoutes(app: FastifyInstance) {
 
       await writeBinaryFile(imagePath, base64Content)
       await addShareUsedBytes(token, contentSize)
+      if (!share.isDirectory) {
+        recordSingleFileShareImagePreview(token, share.path, imagePath)
+      }
+      const rollbackId = createShareImageRollbackGrant(token, share.path, imagePath, contentSize)
 
       const parentDir = path.dirname(imagePath).replace(/\\/g, '/')
       broadcastFileChange(parentDir === '.' ? '' : parentDir, imagePath)
 
-      return reply.send({ success: true, path: imagePath, fileName: baseFileName })
+      return reply.send({
+        success: true,
+        path: imagePath,
+        fileName: baseFileName,
+        rollbackId,
+      })
     } catch (error) {
       console.error('Error uploading image:', error)
       return reply
         .status(500)
         .send({ error: error instanceof Error ? error.message : 'Failed to upload image' })
     }
+  })
+
+  app.post('/api/share/:token/cancel-image-upload', async (request, reply) => {
+    const { token } = request.params as { token: string }
+    const share = await getShare(token)
+    if (!share) return reply.status(404).send({ error: 'Share not found' })
+    if (!validateShareAccessHTTP(request, share, reply)) return reply
+
+    const rollbackId = (request.body as { rollbackId?: unknown }).rollbackId
+    if (typeof rollbackId !== 'string') {
+      return reply.status(400).send({ error: 'Image rollback capability is required' })
+    }
+    const grant = consumeShareImageRollbackGrant(rollbackId, token, share.path)
+    if (!grant) {
+      return reply.status(403).send({ error: 'Image upload cannot be cancelled' })
+    }
+
+    try {
+      await deleteFile(grant.uploadedPath)
+      await addShareUsedBytes(token, -grant.accountedBytes)
+      forgetSingleFileShareImagePreview(token, share.path, grant.uploadedPath)
+      const parentDir = path.dirname(grant.uploadedPath).replace(/\\/g, '/')
+      broadcastFileChange(parentDir === '.' ? '' : parentDir, grant.uploadedPath)
+      return reply.send({ success: true })
+    } catch (error) {
+      restoreShareImageRollbackGrant(rollbackId, grant)
+      throw error
+    }
+  })
+
+  app.post('/api/share/:token/finalize-image-upload', async (request, reply) => {
+    const { token } = request.params as { token: string }
+    const share = await getShare(token)
+    if (!share) return reply.status(404).send({ error: 'Share not found' })
+    if (!validateShareAccessHTTP(request, share, reply)) return reply
+
+    const rollbackId = (request.body as { rollbackId?: unknown }).rollbackId
+    if (typeof rollbackId !== 'string') {
+      return reply.status(400).send({ error: 'Image rollback capability is required' })
+    }
+    const grant = consumeShareImageRollbackGrant(rollbackId, token, share.path)
+    if (!grant) {
+      return reply.status(403).send({ error: 'Image upload is no longer pending' })
+    }
+    finalizeSingleFileShareImagePreview(token, share.path, grant.uploadedPath)
+    return reply.send({ success: true })
   })
 }

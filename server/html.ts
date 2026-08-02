@@ -334,7 +334,7 @@ async function prefetchShareViewerQueries(
     if (resolvedViewingPath && viewingType === MediaType.TEXT) {
       prefetchPromises.push(
         queryClient.prefetchQuery({
-          queryKey: queryKeys.shareText(share.token, viewingPath),
+          queryKey: queryKeys.shareText(share.token, share.path, viewingPath),
           queryFn: () => getTextFileContent(resolvedViewingPath),
         }),
       )
@@ -480,20 +480,22 @@ export async function dehydrateForRoute(
           let knowledgeBaseRoot: string | null = null
           let adminViewMode: 'list' | 'grid' = 'list'
 
-          if (authorized && share.isDirectory) {
+          if (authorized) {
             const knowledgeBasesList = await getKnowledgeBases()
             knowledgeBaseRoot = getKnowledgeBaseRootForPath(
               share.path.replace(/\\/g, '/'),
               knowledgeBasesList,
             )
-            isKnowledgeBase = knowledgeBaseRoot !== null
+            isKnowledgeBase = share.isDirectory && knowledgeBaseRoot !== null
 
-            try {
-              const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
-              const allSettings = JSON.parse(data)
-              const settings = allSettings[config.libraryKey]
-              adminViewMode = settings?.viewModes?.[share.path] || 'list'
-            } catch {}
+            if (share.isDirectory) {
+              try {
+                const data = await fs.readFile(SETTINGS_FILE, 'utf-8')
+                const allSettings = JSON.parse(data)
+                const settings = allSettings[config.libraryKey]
+                adminViewMode = settings?.viewModes?.[share.path] || 'list'
+              } catch {}
+            }
           }
 
           await queryClient.prefetchQuery({

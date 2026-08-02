@@ -129,7 +129,7 @@ self.addEventListener('fetch', (event) => {
 
   if (
     url.pathname.startsWith('/api/media/') ||
-    /^\/api\/share\/[^/]+\/media\//.test(url.pathname)
+    /^\/api\/share\/[^/]+\/(?:media|knowledge-base-image)\//.test(url.pathname)
   ) {
     const adminPath = url.pathname.startsWith('/api/media/')
       ? decodeURIComponent(url.pathname.slice('/api/media/'.length)).replace(/^\/+|\/+$/g, '')

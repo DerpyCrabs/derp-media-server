@@ -50,6 +50,11 @@ describe('isKnowledgeBaseImagePath', () => {
     expect(isKnowledgeBaseImagePath('Notes/images/sub/diagram.png', 'Notes', kbs)).toBe(false)
   })
 
+  test('returns false for non-image files in the attachment directory', () => {
+    expect(isKnowledgeBaseImagePath('Notes/images/private.txt', 'Notes', kbs)).toBe(false)
+    expect(isKnowledgeBaseImagePath('Notes/images/page.html', 'Notes', kbs)).toBe(false)
+  })
+
   test('returns false for path outside images dir', () => {
     expect(isKnowledgeBaseImagePath('Notes/welcome.md', 'Notes', kbs)).toBe(false)
   })
