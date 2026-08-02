@@ -67,7 +67,7 @@ export function TaskbarGroupRow(props: {
       <div
         data-taskbar-window-row
         data-taskbar-active={isActive() ? '' : undefined}
-        class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden border-r border-border px-2 ${
+        class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden px-2 ${
           isActive()
             ? 'border-b-2 border-b-primary bg-muted text-foreground'
             : 'border-b-2 border-b-transparent bg-muted/50 text-muted-foreground'

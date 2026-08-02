@@ -4,7 +4,10 @@ import {
   useWorkspaceFileOpenTargetStore,
   type WorkspaceFileOpenTarget,
 } from '@/lib/workspace-file-open-target'
-import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
+import {
+  MAX_TILED_WINDOW_GAP,
+  useWorkspacePreferredSnapStore,
+} from '@/lib/workspace-preferred-snap-store'
 import Check from 'lucide-solid/icons/check'
 import Monitor from 'lucide-solid/icons/monitor'
 import Moon from 'lucide-solid/icons/moon'
@@ -89,6 +92,11 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
   const snapAssistOnTopDrag = createMemo(() => {
     void prefSnapTick()
     return useWorkspacePreferredSnapStore.getState().snapAssistOnTopDrag
+  })
+
+  const tiledWindowGap = createMemo(() => {
+    void prefSnapTick()
+    return useWorkspacePreferredSnapStore.getState().tiledWindowGap
   })
 
   function setFileTarget(value: WorkspaceFileOpenTarget) {
@@ -353,6 +361,26 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                 />
                 <span>Show snap assist when dragging to the top-center strip (~300px wide)</span>
               </label>
+              <label class='block text-sm font-medium' for='workspace-tile-gap'>
+                Window gaps: {tiledWindowGap() === 0 ? 'Off' : `${tiledWindowGap()}px`}
+              </label>
+              <input
+                id='workspace-tile-gap'
+                type='range'
+                min='0'
+                max={MAX_TILED_WINDOW_GAP}
+                step='1'
+                value={tiledWindowGap()}
+                class='mt-2 w-full'
+                onInput={(e) =>
+                  useWorkspacePreferredSnapStore
+                    .getState()
+                    .setTiledWindowGap(e.currentTarget.valueAsNumber)
+                }
+              />
+              <p class='mt-1 text-xs text-muted-foreground'>
+                Adds space between tiled windows and along viewport and panel edges.
+              </p>
             </div>
           </div>
         </div>

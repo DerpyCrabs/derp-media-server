@@ -134,7 +134,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
               <Show when={props.pinnedItems().length > 0 && props.taskbarGroupIds().length > 0}>
                 <div class='w-2 shrink-0' aria-hidden />
               </Show>
-              <div class='flex min-w-0 flex-1 items-center gap-0 overflow-x-auto'>
+              <div class='flex min-w-0 flex-1 items-center gap-1 overflow-x-auto'>
                 {props.taskbarWindowRows()}
               </div>
             </Show>
@@ -145,7 +145,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
             </Show>
           </div>
 
-          <div class='flex shrink-0 items-center gap-1 border-l border-border pl-2'>
+          <div class='flex shrink-0 items-center gap-1 pl-2'>
             <Show when={!props.pageProps.shareConfig}>
               <FileSearchButton
                 title='Search library and open a new window'

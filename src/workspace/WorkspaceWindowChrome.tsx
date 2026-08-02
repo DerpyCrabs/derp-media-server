@@ -17,6 +17,9 @@ import {
 import type { MergeTarget } from './merge-target'
 import { groupIdForWindow } from './tab-group-ops'
 import { WorkspaceTabStrip } from './WorkspaceTabStrip'
+import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
+import { useStoreSync } from '@/src/lib/solid-store-sync'
+import { applyWorkspaceTileGap } from '@/lib/workspace-tile-gaps'
 
 const MIN_W = 360
 const MIN_H = 260
@@ -106,6 +109,7 @@ function shouldBlockWindowDragStart(
 export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const [windowGroupEl, setWindowGroupEl] = createSignal<HTMLDivElement | null>(null)
   const [titleBarEl, setTitleBarEl] = createSignal<HTMLDivElement | null>(null)
+  const preferredSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
 
   createEffect(() => {
     const el = windowGroupEl()
@@ -136,6 +140,21 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const hasTiling = createMemo(() => !!win()?.layout?.tiling)
   const isSnapped = createMemo(() => (hasTiling() || !!snapZone()) && !isFullscreen())
   const isFloating = createMemo(() => !isFullscreen() && !hasTiling() && !snapZone())
+  const tiledWindowGap = createMemo(() => {
+    void preferredSnapTick()
+    return useWorkspacePreferredSnapStore.getState().tiledWindowGap
+  })
+  const visualBounds = createMemo(() => {
+    const container = props.containerEl()
+    const rect = container?.getBoundingClientRect()
+    return applyWorkspaceTileGap(
+      b(),
+      rect ? { width: rect.width, height: rect.height } : null,
+      tiledWindowGap(),
+      isSnapped(),
+    )
+  })
+  const useRoundedTileCorners = createMemo(() => isSnapped() && tiledWindowGap() > 0)
 
   const resizeMap = createMemo(() => {
     const container = props.containerEl()
@@ -342,10 +361,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     <div
       class='absolute flex flex-col'
       style={{
-        left: `${b().x}px`,
-        top: `${b().y}px`,
-        width: isMinimized() ? '1px' : `${b().width}px`,
-        height: isMinimized() ? '1px' : `${b().height}px`,
+        left: `${visualBounds().x}px`,
+        top: `${visualBounds().y}px`,
+        width: isMinimized() ? '1px' : `${visualBounds().width}px`,
+        height: isMinimized() ? '1px' : `${visualBounds().height}px`,
         'z-index': win()?.layout?.zIndex ?? 1,
         ...(isMinimized()
           ? {
@@ -364,7 +383,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         data-window-group={props.groupId}
         data-workspace-window-minimized={isMinimized() ? '' : undefined}
         class={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl ${
-          isFloating()
+          isFloating() || useRoundedTileCorners()
             ? 'rounded-lg outline outline-1 -outline-offset-1 outline-border'
             : 'rounded-none'
         } ${props.isActive ? 'border-border shadow-black/20' : ''}`}
