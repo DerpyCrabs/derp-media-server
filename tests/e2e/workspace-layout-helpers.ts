@@ -1,5 +1,5 @@
 import type { AssistGridShape } from '@/lib/workspace-assist-grid'
-import { TOP_SNAP_ASSIST_CENTER_BAND_PX } from '@/lib/use-snap-zones'
+import { snapAssistSurfaceWidth } from '@/lib/use-snap-zones'
 import type { Page, Locator } from '@playwright/test'
 import { expect } from '@playwright/test'
 
@@ -122,8 +122,11 @@ export async function dragToEdge(
       endY = containerHeight / 2
       break
     case 'top':
-      // Avoid top-center snap-assist band (~300px); target first horizontal segment on top edge.
-      endX = Math.min(viewport.width * 0.12, TOP_SNAP_ASSIST_CENTER_BAND_PX / 2)
+      // Avoid responsive top-center snap-assist handle; target first top-edge segment.
+      endX = Math.min(
+        viewport.width * 0.12,
+        snapAssistSurfaceWidth(viewport.width, viewport.height) / 2,
+      )
       endY = 5
       break
     case 'top-half':

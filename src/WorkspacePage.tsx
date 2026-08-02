@@ -1203,6 +1203,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           workspaceAreaNode={snap.workspaceAreaNode}
           getWorkspaceAreaElement={snap.getWorkspaceAreaElement}
           snapAssistShown={snap.snapAssistShown}
+          engageSnapAssistFromHandle={snap.engageSnapAssistFromHandle}
+          disengageSnapAssistFromPanel={snap.disengageSnapAssistFromPanel}
           assistHoverPick={snap.assistHoverPick}
           bindSnapAssistRoot={(el) => snap.bindSnapAssistRoot(el)}
           renderedGroupIds={orderedWindowGroupIds}

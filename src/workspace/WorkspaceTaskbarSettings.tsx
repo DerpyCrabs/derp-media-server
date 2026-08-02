@@ -359,7 +359,7 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                       .setSnapAssistOnTopDrag(e.currentTarget.checked)
                   }
                 />
-                <span>Show snap assist when dragging to the top-center strip (~300px wide)</span>
+                <span>Show snap assist when dragging to the top-center handle</span>
               </label>
               <label class='block text-sm font-medium' for='workspace-tile-gap'>
                 Window gaps: {tiledWindowGap() === 0 ? 'Off' : `${tiledWindowGap()}px`}

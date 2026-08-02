@@ -227,7 +227,71 @@ test.describe('Edge Snapping', () => {
 })
 
 test.describe('Snap assist bar', () => {
-  test('stays pinned to screen edge after pointer leaves top area', async () => {
+  test('shows a discoverable top-edge handle while dragging', async () => {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'workspace-preferred-snap',
+        JSON.stringify({
+          state: {
+            assistGridShape: '3x2',
+            snapAssistOnTopDrag: true,
+            tiledWindowGap: 12,
+          },
+          version: 0,
+        }),
+      )
+    })
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    const group = getWindowGroups(page).first()
+    const handle = getDragHandle(group)
+    const hbox = await handle.boundingBox()
+    if (!hbox) throw new Error('Handle not visible')
+
+    await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(hbox.x + hbox.width / 2 + 20, hbox.y + hbox.height / 2 + 20, {
+      steps: 8,
+    })
+
+    const assistHandle = page.locator('[data-workspace-snap-assist-handle]')
+    await expect(assistHandle).toBeVisible()
+    const box = await assistHandle.boundingBox()
+    if (!box) throw new Error('Snap assist handle not laid out')
+    expect(box?.y).toBe(0)
+    expect(box.width).toBeGreaterThan(380)
+    expect(box.width).toBeLessThan(440)
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 12 })
+    const assist = page.locator('[data-workspace-snap-assist]')
+    await expect(assist).toBeVisible()
+    const assistBox = await assist.boundingBox()
+    if (!assistBox) throw new Error('Snap assist panel not laid out')
+    expect(assistBox.width).toBe(box.width)
+    const miniBox = await assistMiniGrid(page, '3x2')
+      .locator('[data-assist-master-grid]')
+      .boundingBox()
+    if (!miniBox) throw new Error('Snap layout thumbnail not laid out')
+    const viewport = page.viewportSize()!
+    expect(miniBox.width / miniBox.height).toBeCloseTo(viewport.width / viewport.height, 1)
+
+    await page.setViewportSize({ width: 700, height: 1100 })
+    await expect
+      .poll(async () => (await assist.boundingBox())?.width ?? Number.POSITIVE_INFINITY)
+      .toBeLessThan(240)
+    const portraitAssistBox = await assist.boundingBox()
+    const portraitMiniBox = await assistMiniGrid(page, '3x2')
+      .locator('[data-assist-master-grid]')
+      .boundingBox()
+    if (!portraitAssistBox || !portraitMiniBox)
+      throw new Error('Portrait snap layouts not laid out')
+    expect(portraitAssistBox.width).toBeLessThan(240)
+    expect(portraitMiniBox.width / portraitMiniBox.height).toBeCloseTo(700 / 1100, 1)
+    await expect(assistHandle).toBeHidden()
+    await page.mouse.up()
+  })
+
+  test('collapses to handle after pointer leaves panel', async () => {
     await page.addInitScript(() => {
       localStorage.setItem(
         'workspace-preferred-snap',
@@ -258,11 +322,17 @@ test.describe('Snap assist bar', () => {
     await expect(assist).toHaveCSS('position', 'fixed')
     const edgeBox = await assist.boundingBox()
     expect(edgeBox?.y).toBe(0)
+    if (!edgeBox) throw new Error('Snap assist not laid out')
+
+    await page.mouse.move(edgeBox.x + edgeBox.width / 2, edgeBox.y + edgeBox.height / 2, {
+      steps: 12,
+    })
 
     await page.mouse.move(viewport.width / 2, Math.min(viewport.height - 80, 420), {
       steps: 24,
     })
-    await expect(assist).toBeVisible()
+    await expect(assist).toBeHidden()
+    await expect(page.locator('[data-workspace-snap-assist-handle]')).toBeVisible()
     await page.mouse.up()
   })
 

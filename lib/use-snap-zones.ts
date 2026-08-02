@@ -2,10 +2,14 @@ import type { SnapZone } from '@/lib/use-workspace'
 
 export const SNAP_EDGE_THRESHOLD_PX = 36
 
-/** Total width of the top-center region that opens snap assist (centered on the workspace). */
-export const TOP_SNAP_ASSIST_CENTER_BAND_PX = 300
+export const TOP_SNAP_ASSIST_HANDLE_HEIGHT_PX = 8
 
-export const TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX = TOP_SNAP_ASSIST_CENTER_BAND_PX / 2
+export function snapAssistSurfaceWidth(viewportWidth: number, viewportHeight: number): number {
+  const thumbnailWidth = viewportWidth >= 640 ? 96 : 84
+  const columns = viewportWidth >= viewportHeight ? 4 : 2
+  const contentWidth = columns * thumbnailWidth + (columns - 1) * 6 + 14
+  return Math.min(contentWidth, Math.max(0, viewportWidth - 16))
+}
 
 export type SnapDetectResult = SnapZone | 'snap-assist' | 'edge-grid'
 

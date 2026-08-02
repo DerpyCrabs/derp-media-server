@@ -21,10 +21,11 @@ import {
 } from '@/lib/workspace-geometry'
 import type { PersistedWorkspaceState, SnapZone } from '@/lib/use-workspace'
 import {
-  SNAP_EDGE_THRESHOLD_PX,
-  TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX,
+  TOP_SNAP_ASSIST_HANDLE_HEIGHT_PX,
+  snapAssistSurfaceWidth,
   type SnapDetectResult,
 } from '@/lib/use-snap-zones'
+import { layoutViewportClientSize } from '@/lib/layout-viewport'
 import {
   findMergeTarget,
   mergeTargetGroupSignature,
@@ -47,6 +48,7 @@ export function createWorkspaceSnapDragModel(options: {
   let workspaceAreaEl: HTMLDivElement | undefined
   let snapPreviewEl: HTMLDivElement | undefined
   let snapAssistRootEl: HTMLDivElement | undefined
+  let snapAssistSticky = false
   const [workspaceAreaNode, setWorkspaceAreaNode] = createSignal<HTMLDivElement | null>(null)
   const [workspaceCanvasSize, setWorkspaceCanvasSize] = createSignal<WorkspaceCanvasSize | null>(
     null,
@@ -242,7 +244,7 @@ export function createWorkspaceSnapDragModel(options: {
 
     const ws = workspace()
     const hit =
-      !snapAssistEngaged() && ws && c
+      !snapAssistEngaged() && !snapAssistSticky && ws && c
         ? mergePreviewForPointer(ws.windows, windowId, clientX, clientY)
         : null
     setMergeTargetPreview(hit)
@@ -266,16 +268,26 @@ export function createWorkspaceSnapDragModel(options: {
     const st = useWorkspacePreferredSnapStore.getState()
     const shape = st.assistGridShape
     const assistOn = st.snapAssistOnTopDrag
-    const nearTop = ly <= SNAP_EDGE_THRESHOLD_PX
+    const viewport = layoutViewportClientSize()
+    const nearTop = clientY >= 0 && clientY <= TOP_SNAP_ASSIST_HANDLE_HEIGHT_PX
+    const assistTargetWidth = snapAssistSurfaceWidth(viewport.w, viewport.h)
     const topInnerBand =
-      assistOn && nearTop && Math.abs(lx - rect.width / 2) <= TOP_SNAP_ASSIST_CENTER_HALF_WIDTH_PX
+      assistOn && nearTop && Math.abs(clientX - viewport.w / 2) <= assistTargetWidth / 2
     const assistRect = snapAssistRootEl?.getBoundingClientRect()
     const overAssistPanel =
       assistOn && assistRect ? clientInDomRect(clientX, clientY, assistRect) : false
 
+    if (snapAssistSticky && !overAssistPanel) {
+      snapAssistSticky = false
+      setSnapAssistEngaged(false)
+      setSnapAssistShown(false)
+      setAssistHoverPick(null)
+    }
+
     if (topInnerBand || overAssistPanel) {
       setSnapAssistEngaged(true)
     }
+    if (overAssistPanel) snapAssistSticky = true
 
     const edgeSpan = detectEdgeAssistGridSpan(lx, ly, rect.width, rect.height, shape, {
       suppressTopEdgeSpans: false,
@@ -284,7 +296,7 @@ export function createWorkspaceSnapDragModel(options: {
 
     let z: SnapDetectResult | null = edgeSpan ? 'edge-grid' : null
 
-    if (assistOn && snapAssistEngaged()) {
+    if (assistOn && (snapAssistEngaged() || snapAssistSticky)) {
       setSnapAssistShown(true)
     } else {
       setSnapAssistShown(false)
@@ -293,7 +305,7 @@ export function createWorkspaceSnapDragModel(options: {
     setDragSnapZone(z)
     if (p) applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag)
 
-    const assistBarVisible = assistOn && snapAssistEngaged()
+    const assistBarVisible = assistOn && (snapAssistEngaged() || snapAssistSticky)
     if (assistBarVisible && snapAssistRootEl) {
       setAssistHoverPick(pickAssistSlotFromPoint(clientX, clientY, snapAssistRootEl))
     } else {
@@ -468,6 +480,7 @@ export function createWorkspaceSnapDragModel(options: {
 
   function clearSnapAssistDragUi() {
     invalidateMergeGroupCache()
+    snapAssistSticky = false
     setSnapAssistShown(false)
     setSnapAssistEngaged(false)
     setAssistHoverPick(null)
@@ -475,6 +488,24 @@ export function createWorkspaceSnapDragModel(options: {
     setDragSnapWindowId(null)
     setMergeTargetPreview(null)
     draggedWindowIdForSnap = null
+  }
+
+  function engageSnapAssistFromHandle() {
+    preferredSnapTick()
+    if (!draggedWindowIdForSnap || !useWorkspacePreferredSnapStore.getState().snapAssistOnTopDrag) {
+      return
+    }
+    snapAssistSticky = true
+    setMergeTargetPreview(null)
+    setSnapAssistEngaged(true)
+    setSnapAssistShown(true)
+  }
+
+  function disengageSnapAssistFromPanel() {
+    snapAssistSticky = false
+    setSnapAssistEngaged(false)
+    setSnapAssistShown(false)
+    setAssistHoverPick(null)
   }
 
   function onDragPointerEnd(
@@ -493,7 +524,7 @@ export function createWorkspaceSnapDragModel(options: {
     setDragEdgeGridSpan(null)
 
     const wsMerge = workspace()
-    if (wsMerge) {
+    if (wsMerge && !snapAssistEngaged() && !snapAssistSticky) {
       const rect = workspaceAreaEl?.getBoundingClientRect()
       const hit = findMergeTarget(
         wsMerge.windows,
@@ -580,6 +611,8 @@ export function createWorkspaceSnapDragModel(options: {
     getWorkspaceAreaElement: () => workspaceAreaEl,
     dragSnapWindowId,
     snapAssistShown,
+    engageSnapAssistFromHandle,
+    disengageSnapAssistFromPanel,
     assistHoverPick,
     mergeTargetPreview,
     handleDragPointerMove,

@@ -35,6 +35,8 @@ export type WorkspacePageCanvasProps = {
   workspaceAreaNode: () => HTMLDivElement | null
   getWorkspaceAreaElement: () => HTMLDivElement | undefined
   snapAssistShown: () => boolean
+  engageSnapAssistFromHandle: () => void
+  disengageSnapAssistFromPanel: () => void
   assistHoverPick: () => AssistSlotPick | null
   bindSnapAssistRoot: (el: HTMLDivElement | null) => void
   renderedGroupIds: () => string[]
@@ -131,8 +133,10 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
       <Show when={props.workspaceAreaNode()}>
         {(area) => (
           <WorkspaceSnapAssistBar
-            container={area()}
             visible={props.snapAssistShown()}
+            dragging={props.dragSnapWindowId() != null}
+            onHandleEnter={props.engageSnapAssistFromHandle}
+            onPanelLeave={props.disengageSnapAssistFromPanel}
             hoverPick={props.assistHoverPick()}
             rootRef={(el) => {
               props.bindSnapAssistRoot(el ?? null)
