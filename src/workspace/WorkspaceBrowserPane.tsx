@@ -1454,8 +1454,9 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     >
       <div
         data-no-window-drag
-        class='flex h-9 shrink-0 items-center border-b border-border bg-muted/50 px-2 py-0'
+        class='relative flex h-9 shrink-0 items-center bg-muted/50 px-2 py-0'
       >
+        <div class='pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border' aria-hidden />
         <div class='flex w-full min-w-0 flex-wrap items-center justify-between gap-1'>
           <div
             data-breadcrumb-slot
