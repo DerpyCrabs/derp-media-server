@@ -5,9 +5,8 @@ import { narrowPickToAssistShape, pickAssistSlotFromPoint } from '@/lib/workspac
 import { createEffect, onCleanup, onMount, createMemo, createSignal } from 'solid-js'
 import X from 'lucide-solid/icons/x'
 import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
+import { snapAssistSurfaceWidth } from '@/lib/use-snap-zones'
 
-const PICKER_APPROX_WIDTH = 420
-const PICKER_APPROX_HEIGHT = 360
 const MIN_TILE_WIDTH = 360
 const MIN_TILE_HEIGHT = 260
 
@@ -79,9 +78,9 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     void measuredBox()
     const a = props.anchorRect
     const m = measuredBox()
-    const pw = Math.max(1, m?.w ?? PICKER_APPROX_WIDTH)
-    const ph = Math.max(1, m?.h ?? PICKER_APPROX_HEIGHT)
     const { w: vw, h: vh } = layoutViewportClientSize()
+    const pw = Math.max(1, m?.w ?? snapAssistSurfaceWidth(vw, vh))
+    const ph = Math.max(1, m?.h ?? (vw >= vh ? 112 : 360))
     const vx0 = 0
     const vy0 = 0
     const vx1 = vw
@@ -106,8 +105,15 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
   })
 
   const aspect = createMemo(() => {
-    const rect = props.container.getBoundingClientRect()
-    return rect.height > 0 ? rect.width / rect.height : 16 / 12
+    void layoutVersion()
+    const { w, h } = layoutViewportClientSize()
+    return h > 0 ? w / h : 16 / 9
+  })
+
+  const surfaceWidth = createMemo(() => {
+    void layoutVersion()
+    const { w, h } = layoutViewportClientSize()
+    return snapAssistSurfaceWidth(w, h)
   })
 
   const spanUnavailable = (span: AssistGridSpan) => {
@@ -171,35 +177,37 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     <div
       ref={(el) => setPickerRoot(el ?? null)}
       data-tiling-picker
-      class='fixed z-[9999] w-[420px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
+      class='fixed z-[9999] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
       style={{
         left: `${layout().left}px`,
         top: `${layout().top}px`,
+        width: `${surfaceWidth()}px`,
       }}
       on:pointerleave={() => setPointerPick(null)}
       role='dialog'
       aria-label='Choose window layout'
     >
-      <div class='flex items-start justify-between border-b border-border/70 px-4 py-3'>
-        <div>
-          <div class='text-sm font-semibold text-foreground'>Choose window layout</div>
-        </div>
+      <div class='flex h-8 items-center justify-between border-b border-border/70 px-2'>
+        <div class='text-xs font-semibold text-foreground'>Choose window layout</div>
         <button
           type='button'
-          class='-mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+          class='inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
           aria-label='Close layout picker'
           onClick={() => props.onClose()}
         >
           <X class='h-3.5 w-3.5' stroke-width={2} />
         </button>
       </div>
-      <div class='grid max-h-[min(72vh,430px)] grid-cols-2 gap-2 overflow-y-auto p-3'>
+      <div
+        class={`grid max-h-[calc(100vh-40px)] justify-items-center gap-1.5 overflow-y-auto p-1.5 ${aspect() >= 1 ? 'grid-cols-4' : 'grid-cols-2'}`}
+      >
         <WorkspaceSnapAssistMasterGrid
           shape='2x2'
           getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x2')}
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('2x2')}
           pickMode
+          compact
           onPickSpan={(span) => props.onSelectSpan(span)}
           isSpanDisabled={spanUnavailable}
         />
@@ -209,6 +217,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('3x2')}
           pickMode
+          compact
           onPickSpan={(span) => props.onSelectSpan(span)}
           isSpanDisabled={spanUnavailable}
         />
@@ -218,6 +227,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('2x3')}
           pickMode
+          compact
           onPickSpan={(span) => props.onSelectSpan(span)}
           isSpanDisabled={spanUnavailable}
         />
@@ -227,6 +237,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
           aspectRatio={aspect()}
           layoutLabel={shapeLabel('3x3')}
           pickMode
+          compact
           onPickSpan={(span) => props.onSelectSpan(span)}
           isSpanDisabled={spanUnavailable}
         />

@@ -59,7 +59,13 @@ test.describe('Tiling Layout Picker', () => {
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
-    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
+    const picker = page.locator('[data-tiling-picker]')
+    await expect(picker).toBeVisible()
+    const pickerBox = await picker.boundingBox()
+    if (!pickerBox) throw new Error('Layout picker not laid out')
+    expect(pickerBox.width).toBeGreaterThan(380)
+    expect(pickerBox.width).toBeLessThan(440)
+    expect(pickerBox.height).toBeLessThan(160)
 
     await assistMiniGrid(page, '3x2').getByTestId('snap-assist-master-cell').click()
     await waitForWindowBoundsStable(page, groups.first())
@@ -327,6 +333,9 @@ test.describe('Vertical viewport (portrait)', () => {
     await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
     await expect(page.locator('[data-assist-mini-grid]')).toHaveCount(4)
+    const pickerBox = await page.locator('[data-tiling-picker]').boundingBox()
+    if (!pickerBox) throw new Error('Layout picker not laid out')
+    expect(pickerBox.width).toBeLessThan(240)
   })
 
   test('snapping to top-half via picker fills top half of viewport', async () => {

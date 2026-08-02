@@ -124,6 +124,7 @@ export type WorkspaceSnapAssistMasterGridProps = {
   /** Shown above the mini grid; defaults to the shape label (e.g. 3×2). */
   layoutLabel?: string
   pickMode?: boolean
+  compact?: boolean
   onPickSpan?: (span: AssistGridSpan) => void
   isSpanDisabled?: (span: AssistGridSpan) => boolean
 }
@@ -164,6 +165,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
       class={cn(
         'flex min-w-0 flex-col',
         props.pickMode &&
+          !props.compact &&
           'rounded-lg border border-transparent bg-muted/20 p-2 transition-colors hover:border-border hover:bg-muted/35 focus-within:border-primary/50',
       )}
       data-assist-mini-grid={props.shape}
@@ -174,7 +176,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
         data-assist-master-grid
         class={cn(
           'relative grid shrink-0 rounded-md border border-border bg-background/70 p-1 shadow-inner',
-          props.pickMode ? 'w-full' : 'w-21 sm:w-24',
+          props.pickMode && !props.compact ? 'w-full' : 'w-21 sm:w-24',
         )}
         style={{
           'aspect-ratio': String(props.aspectRatio),
