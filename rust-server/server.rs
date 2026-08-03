@@ -12,6 +12,7 @@ use tokio::{
     process::{Child, Command},
     sync::{Mutex, RwLock},
 };
+use tower_http::compression::CompressionLayer;
 
 async fn rustls_config(tls: &TlsConfig) -> Result<axum_server::tls_rustls::RustlsConfig, String> {
     if let Some(path) = &tls.pfx_path {
@@ -129,6 +130,7 @@ fn router(state: Shared) -> Router {
             state.clone(),
             routes::auth::middleware,
         ))
+        .layer(CompressionLayer::new())
         .with_state(state)
 }
 

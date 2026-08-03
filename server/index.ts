@@ -36,6 +36,7 @@ async function createApp() {
 
   await app.register(fastifyCookie)
   await app.register(import('@fastify/multipart'), { limits: { fileSize: 10_000_000_000 } })
+  if (!isDev) await app.register(import('@fastify/compress'))
 
   app.addHook('onRequest', authMiddleware)
 

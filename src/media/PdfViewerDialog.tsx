@@ -2,7 +2,7 @@ import { getMediaType } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
 import { stripSharePrefix } from '@/lib/source-context'
 import * as pdfjs from 'pdfjs-dist'
-import workerSource from 'pdfjs-dist/build/pdf.worker.min.mjs?raw'
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import ChevronLeft from 'lucide-solid/icons/chevron-left'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import Download from 'lucide-solid/icons/download'
@@ -14,7 +14,6 @@ import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
 import { closeViewer } from '../lib/url-state-actions'
 
-const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }))
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 type Props = { shareContext?: { token: string; sharePath: string } | null }
