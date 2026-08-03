@@ -509,6 +509,43 @@ test.describe('Taskbar', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
   })
 
+  test('restoring a minimized tab group keeps its active tab', async () => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const content = getVisibleContent(groups.first())
+
+    await content.getByText('Documents', { exact: true }).click()
+    await content.getByText('readme.txt').click()
+    await expect(groups).toHaveCount(2)
+
+    const secondHandle = getDragHandle(groups.nth(1))
+    const secondBox = await secondHandle.boundingBox()
+    const firstBox = await getDragHandle(groups.first()).boundingBox()
+    if (!secondBox || !firstBox) throw new Error('Handles not visible')
+
+    await dragFromTo(
+      page,
+      secondBox.x + secondBox.width / 2,
+      secondBox.y + secondBox.height / 2,
+      firstBox.x + firstBox.width / 2,
+      firstBox.y + 16,
+    )
+    await waitForWindowBoundsStable(page, groups.first())
+
+    await expect(groups).toHaveCount(1)
+    const tabs = workspaceTabs(page.locator('.workspace-tab-strip'))
+    await expect(tabs).toHaveCount(2)
+    await expect(tabs.nth(1)).toHaveClass(/bg-background/)
+
+    await groups.first().getByRole('button', { name: 'Minimize' }).click()
+    await expect(groups).toHaveCount(0)
+    await page.locator('[data-taskbar-window-row]').first().locator('button').first().click()
+
+    await expect(groups).toHaveCount(1)
+    await expect(tabs.nth(1)).toHaveClass(/bg-background/)
+    await expect(getVisibleContent(groups.first())).toContainText('This is a test readme file.')
+  })
+
   test('minimizing focused window focuses the next window', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)

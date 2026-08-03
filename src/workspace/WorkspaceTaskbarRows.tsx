@@ -52,13 +52,14 @@ export function TaskbarGroupRow(props: {
     const g = groupWindows()
     const lid = leader()?.id ?? g[0]?.id
     if (!lid) return
+    const visibleId = activeTabId() || lid
     const isMinimized = leader()?.layout?.minimized ?? false
     if (isMinimized) {
-      props.focusWindow(lid)
+      props.focusWindow(visibleId)
     } else if (isActive()) {
       props.setWindowMinimized(lid, true)
     } else {
-      props.focusWindow(lid)
+      props.focusWindow(visibleId)
     }
   }
 
