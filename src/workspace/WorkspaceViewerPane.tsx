@@ -221,6 +221,10 @@ export function WorkspaceViewerPane(props: Props) {
 
   const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
   const [rotation, setRotation] = createSignal(0)
+  let imageWheelDelta = 0
+  let imageWheelResetTimer: ReturnType<typeof setTimeout> | undefined
+  let imageWheelUnlockTimer: ReturnType<typeof setTimeout> | undefined
+  let imageWheelLocked = false
 
   createEffect(() => {
     viewingPath()
@@ -257,6 +261,38 @@ export function WorkspaceViewerPane(props: Props) {
     const prevFile = list[i - 1]
     props.onUpdateViewing(props.windowId, prevFile.path)
   }
+
+  function handleImageWheel(e: WheelEvent) {
+    if (e.ctrlKey || !window.matchMedia('(pointer: fine)').matches) return
+    e.preventDefault()
+    if (imageWheelLocked) return
+
+    const multiplier =
+      e.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? window.innerHeight
+          : 1
+    imageWheelDelta += e.deltaY * multiplier
+    clearTimeout(imageWheelResetTimer)
+    imageWheelResetTimer = setTimeout(() => {
+      imageWheelDelta = 0
+    }, 150)
+
+    if (Math.abs(imageWheelDelta) < 40) return
+    if (imageWheelDelta > 0) goNextImage()
+    else goPrevImage()
+    imageWheelDelta = 0
+    imageWheelLocked = true
+    imageWheelUnlockTimer = setTimeout(() => {
+      imageWheelLocked = false
+    }, 250)
+  }
+
+  onCleanup(() => {
+    clearTimeout(imageWheelResetTimer)
+    clearTimeout(imageWheelUnlockTimer)
+  })
 
   createEffect(() => {
     if (mediaType() !== MediaType.IMAGE || !viewingPath()) return
@@ -571,7 +607,11 @@ export function WorkspaceViewerPane(props: Props) {
               </button>
             </div>
           </div>
-          <div class='relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-2'>
+          <div
+            data-testid='workspace-image-surface'
+            class='relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-2'
+            onWheel={handleImageWheel}
+          >
             <button
               type='button'
               class='absolute top-0 bottom-0 left-0 z-10 w-[30%] cursor-pointer'

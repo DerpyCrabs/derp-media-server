@@ -16,6 +16,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  onMount,
   type Accessor,
   type JSX,
 } from 'solid-js'
@@ -69,6 +70,11 @@ function ImageViewerInner(props: {
   let activePointer: number | null = null
   let gestureStartX = 0
   let lastTouchAt = 0
+  let wheelDelta = 0
+  let wheelResetTimer: ReturnType<typeof setTimeout> | undefined
+  let wheelUnlockTimer: ReturnType<typeof setTimeout> | undefined
+  let wheelLocked = false
+  let viewerElement!: HTMLDivElement
 
   createEffect(() => {
     void props.viewingPath
@@ -209,6 +215,43 @@ function ImageViewerInner(props: {
     else goNext()
   }
 
+  function handleWheel(e: WheelEvent) {
+    if (e.ctrlKey || !window.matchMedia('(pointer: fine)').matches) return
+    e.preventDefault()
+    if (wheelLocked) return
+
+    const multiplier =
+      e.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? window.innerHeight
+          : 1
+    wheelDelta += e.deltaY * multiplier
+    clearTimeout(wheelResetTimer)
+    wheelResetTimer = setTimeout(() => {
+      wheelDelta = 0
+    }, 150)
+
+    if (Math.abs(wheelDelta) < 40) return
+    if (wheelDelta > 0) goNext()
+    else goPrevious()
+    wheelDelta = 0
+    wheelLocked = true
+    wheelUnlockTimer = setTimeout(() => {
+      wheelLocked = false
+    }, 250)
+  }
+
+  onCleanup(() => {
+    clearTimeout(wheelResetTimer)
+    clearTimeout(wheelUnlockTimer)
+  })
+
+  onMount(() => {
+    viewerElement.addEventListener('wheel', handleWheel, { passive: false })
+    onCleanup(() => viewerElement.removeEventListener('wheel', handleWheel))
+  })
+
   const imgStyle = createMemo((): JSX.CSSProperties => {
     const z = zoom()
     const base: JSX.CSSProperties =
@@ -238,6 +281,7 @@ function ImageViewerInner(props: {
       aria-modal='true'
       aria-labelledby='image-viewer-title'
       class='fixed inset-0 z-50 flex flex-col bg-black/95'
+      ref={viewerElement}
     >
       <span class='sr-only'>
         <h2 id='image-viewer-title'>{fileName()}</h2>

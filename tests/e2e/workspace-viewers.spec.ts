@@ -323,6 +323,20 @@ test.describe('Workspace Image Viewer', () => {
     await expect(viewer.locator('img[alt="photo.jpg"]')).toBeVisible()
     await expect(viewer.getByText('1 of 2')).toBeVisible()
   })
+
+  test('image viewer: desktop scroll wheel navigation', async () => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Images', 'photo.jpg')
+    await expect(viewer.getByText('1 of 2')).toBeVisible()
+
+    await viewer.getByTestId('workspace-image-surface').hover()
+    await page.mouse.wheel(0, 100)
+    await expect(viewer.locator('img[alt="photo.png"]')).toBeVisible()
+
+    await page.waitForTimeout(300)
+    await page.mouse.wheel(0, -100)
+    await expect(viewer.locator('img[alt="photo.jpg"]')).toBeVisible()
+  })
 })
 
 test.describe('Workspace PDF Viewer', () => {

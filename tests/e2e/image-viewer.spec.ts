@@ -131,6 +131,18 @@ test.describe('Image Viewer', () => {
     await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
   })
 
+  test('navigates images with desktop scroll wheel', async ({ page }) => {
+    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await expect(page.getByText('1 of 2')).toBeVisible()
+    await page.getByTestId('image-gesture-surface').hover()
+    await page.mouse.wheel(0, 100)
+    await expect(page.locator('img[alt="photo.png"]')).toBeVisible()
+
+    await page.waitForTimeout(300)
+    await page.mouse.wheel(0, -100)
+    await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
+  })
+
   test('shows image counter', async ({ page }) => {
     await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
     await expect(page.getByText('1 of 2')).toBeVisible()
