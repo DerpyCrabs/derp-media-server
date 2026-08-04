@@ -34,7 +34,11 @@ import {
   workspaceWindowsByGroupId,
   type MergeTarget,
 } from '@/src/workspace/merge-target'
-import { groupIdForWindow, mergeWindowIntoGroupState } from '@/src/workspace/tab-group-ops'
+import {
+  groupIdForWindow,
+  mergeWindowIntoGroupState,
+  resolveGroupVisibleTabId,
+} from '@/src/workspace/tab-group-ops'
 import { applySnapPreviewBounds, applySnapPreviewLayout } from '@/src/workspace/snap-preview'
 import { createEffect, createSignal, onCleanup, type Accessor, type Setter } from 'solid-js'
 import type { WorkspaceBounds } from '@/src/workspace/WorkspaceWindowChrome'
@@ -447,14 +451,58 @@ export function createWorkspaceSnapDragModel(options: {
       if (!prev) return prev
       const win = prev.windows.find((x) => x.id === windowId)
       const gid = win ? groupIdForWindow(win) : null
+      const windows = prev.windows.map((w) =>
+        gid && groupIdForWindow(w) === gid
+          ? { ...w, layout: { ...w.layout, minimized } }
+          : !gid && w.id === windowId
+            ? { ...w, layout: { ...w.layout, minimized } }
+            : w,
+      )
+
+      if (!minimized) return { ...prev, windows }
+
+      const activeId = prev.activeWindowId
+      if (activeId == null) return { ...prev, windows }
+      const activeWin = windows.find((x) => x.id === activeId)
+      if (!activeWin) return { ...prev, windows }
+      const activeGid = groupIdForWindow(activeWin)
+      const minimizingActive =
+        (gid != null && activeGid === gid) || (gid == null && activeId === windowId)
+      if (!minimizingActive) return { ...prev, windows }
+
+      let bestGid: string | null = null
+      let bestZ = -Infinity
+      const seen = new Set<string>()
+      for (const w of windows) {
+        if (w.layout?.minimized) continue
+        const wg = groupIdForWindow(w)
+        if (gid != null && wg === gid) continue
+        if (seen.has(wg)) continue
+        seen.add(wg)
+        const z = w.layout?.zIndex ?? 0
+        if (z >= bestZ) {
+          bestZ = z
+          bestGid = wg
+        }
+      }
+      if (!bestGid) return { ...prev, windows }
+
+      const focusId =
+        resolveGroupVisibleTabId(
+          {
+            windows,
+            activeTabMap: prev.activeTabMap,
+            tabGroupSplits: prev.tabGroupSplits,
+          },
+          bestGid,
+        ) || bestGid
+      const newZ = maxWorkspaceWindowZ(windows) + 1
       return {
         ...prev,
-        windows: prev.windows.map((w) =>
-          gid && groupIdForWindow(w) === gid
-            ? { ...w, layout: { ...w.layout, minimized } }
-            : !gid && w.id === windowId
-              ? { ...w, layout: { ...w.layout, minimized } }
-              : w,
+        activeWindowId: focusId,
+        activeTabMap: { ...prev.activeTabMap, [bestGid]: focusId },
+        windows: windows.map((w) =>
+          groupIdForWindow(w) === bestGid ? { ...w, layout: { ...w.layout, zIndex: newZ } } : w,
         ),
       }
     })

@@ -570,6 +570,12 @@ test.describe('Taskbar', () => {
 
     await expect(getWindowGroups(page)).toHaveCount(1)
     await expect(getVisibleContent(groups.first())).toContainText('Documents')
+    const activeTaskbar = page.locator('[data-taskbar-window-row][data-taskbar-active]')
+    await expect(activeTaskbar).toHaveCount(1)
+    await expect(activeTaskbar).toContainText('Documents')
+    await expect(page.locator('[data-taskbar-window-row]:not([data-taskbar-active])')).toHaveCount(
+      1,
+    )
   })
 
   test('closes window from taskbar', async () => {
