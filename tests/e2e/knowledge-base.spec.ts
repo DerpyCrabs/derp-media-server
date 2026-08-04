@@ -55,6 +55,29 @@ test.describe('Knowledge Base', () => {
     await expect(page.getByText('.md extension will be added')).toBeVisible()
   })
 
+  test('empty-space context menu offers new file and new folder', async ({ page }) => {
+    const folderName = `ctx-menu-empty-${Date.now()}`
+    await page.goto('/?dir=Notes')
+    await page.locator('button[title="Create new folder"]').click()
+    await page.getByPlaceholder('Folder name').fill(folderName)
+    await page.getByRole('button', { name: 'Create' }).click()
+    await expect(page.locator('table').getByText(folderName)).toBeVisible()
+    await page.goto(`/?dir=Notes/${folderName}`)
+    await expect(page.getByTestId('directory-empty')).toBeVisible()
+
+    await page
+      .getByTestId('upload-drop-zone')
+      .click({ button: 'right', position: { x: 40, y: 120 } })
+    const menu = page.getByTestId('directory-background-context-menu')
+    await expect(menu).toBeVisible()
+    await expect(page.getByTestId('directory-bg-menu-new-file')).toBeVisible()
+    await expect(page.getByTestId('directory-bg-menu-new-folder')).toBeVisible()
+
+    await page.getByTestId('directory-bg-menu-new-file').click()
+    await expect(page.getByText('.md extension will be added')).toBeVisible()
+    await expect(page.locator('input[placeholder*="File name"]')).toBeVisible()
+  })
+
   test('toggles KB on a folder via context menu', async ({ page }) => {
     await page.goto('/')
     await page.locator('table tr').filter({ hasText: 'SharedContent' }).click({ button: 'right' })

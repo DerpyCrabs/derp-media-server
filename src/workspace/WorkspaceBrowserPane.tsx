@@ -58,6 +58,7 @@ import {
 } from 'solid-js'
 import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu'
 import { Breadcrumbs } from '../file-browser/Breadcrumbs'
+import { DirectoryBackgroundContextMenu } from '../file-browser/DirectoryBackgroundContextMenu'
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbInlineCreateFooter } from '../file-browser/KbInlineCreateFooter'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
@@ -111,6 +112,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
   const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
   const [inlineName, setInlineName] = createSignal('')
+  const [directoryBackgroundMenu, setDirectoryBackgroundMenu] = createSignal<{
+    x: number
+    y: number
+  } | null>(null)
   const [showRename, setShowRename] = createSignal(false)
   const [renamingItem, setRenamingItem] = createSignal<FileItem | null>(null)
   const [renameNewName, setRenameNewName] = createSignal('')
@@ -591,6 +596,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
+  })
+
+  createEffect(() => {
+    if (fileRowMenu.menu()) setDirectoryBackgroundMenu(null)
   })
 
   const deleteMutation = useMutation(() => ({
@@ -1182,6 +1191,17 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     createFolderMutation.reset()
   }
 
+  function openDirectoryBackgroundContextMenu(e: MouseEvent) {
+    if (!showInlineCreate()) return
+    const target = e.target
+    if (!(target instanceof Element)) return
+    if (target.closest('[data-file-path]')) return
+    e.preventDefault()
+    e.stopPropagation()
+    fileRowMenu.dismiss()
+    setDirectoryBackgroundMenu({ x: e.clientX, y: e.clientY })
+  }
+
   function workspacePrefetchCtx(): PrefetchFolderHoverContext {
     const sh = share()
     if (sh) {
@@ -1593,6 +1613,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           onDragOver={onExternalUploadDragOver}
           onDrop={(e) => void onExternalUploadDrop(e)}
           onPaste={(e) => void handlePasteEvent(e)}
+          onContextMenu={openDirectoryBackgroundContextMenu}
         >
           <div
             ref={(el) => {
@@ -1903,6 +1924,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               </div>
             )}
           </Show>
+
+          <DirectoryBackgroundContextMenu
+            menu={directoryBackgroundMenu}
+            onDismiss={() => setDirectoryBackgroundMenu(null)}
+            onNewFile={openCreateFileDialog}
+            onNewFolder={openCreateFolderDialog}
+          />
 
           <WorkspaceBrowserModalLayer
             iconEditTarget={iconEditTarget}

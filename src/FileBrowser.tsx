@@ -70,6 +70,7 @@ import {
   makeAvailableOffline,
   removeOfflineFile,
 } from './lib/offline-files'
+import { DirectoryBackgroundContextMenu } from './file-browser/DirectoryBackgroundContextMenu'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
 import { KbSearchResults } from './file-browser/KbSearchResults'
@@ -387,6 +388,10 @@ export function FileBrowser() {
   const [showPasteDialog, setShowPasteDialog] = createSignal(false)
   const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
   const [inlineName, setInlineName] = createSignal('')
+  const [directoryBackgroundMenu, setDirectoryBackgroundMenu] = createSignal<{
+    x: number
+    y: number
+  } | null>(null)
   let inlineFileInputEl: HTMLInputElement | undefined
   let inlineFolderInputEl: HTMLInputElement | undefined
   let kbSearchInputEl: HTMLInputElement | undefined
@@ -404,6 +409,10 @@ export function FileBrowser() {
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
+  })
+
+  createEffect(() => {
+    if (fileRowMenu.menu()) setDirectoryBackgroundMenu(null)
   })
 
   const isUploading = createMemo(() => uploadToast().kind === 'uploading')
@@ -797,6 +806,17 @@ export function FileBrowser() {
     setInlineName('')
     createFileMutation.reset()
     createFolderMutation.reset()
+  }
+
+  function openDirectoryBackgroundContextMenu(e: MouseEvent) {
+    if (!showInlineCreate()) return
+    const target = e.target
+    if (!(target instanceof Element)) return
+    if (target.closest('[data-file-path]')) return
+    e.preventDefault()
+    e.stopPropagation()
+    fileRowMenu.dismiss()
+    setDirectoryBackgroundMenu({ x: e.clientX, y: e.clientY })
   }
 
   const renameTargetExists = createMemo(() => {
@@ -1345,6 +1365,7 @@ export function FileBrowser() {
                 onDragLeave={onExternalUploadDragLeave}
                 onDragOver={onExternalUploadDragOver}
                 onDrop={(e) => void onExternalUploadDrop(e)}
+                onContextMenu={openDirectoryBackgroundContextMenu}
               >
                 <div>
                   <Show when={filesQuery.isError}>
@@ -1849,6 +1870,13 @@ export function FileBrowser() {
               </div>
             </div>
           </div>
+
+          <DirectoryBackgroundContextMenu
+            menu={directoryBackgroundMenu}
+            onDismiss={() => setDirectoryBackgroundMenu(null)}
+            onNewFile={openCreateFile}
+            onNewFolder={openCreateFolder}
+          />
 
           <FileBrowserModalLayer
             iconEditTarget={iconEditTarget}
