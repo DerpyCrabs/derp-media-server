@@ -39,14 +39,19 @@ function workspaceTabs(tabStrip: Locator) {
   return tabStrip.locator('[data-workspace-tab-id]')
 }
 
-function getTaskbarCloseButtons(page: Page) {
-  return page.locator('[data-taskbar-window-row] button[aria-label^="Close "]')
+function getTaskbarWindowRows(page: Page) {
+  return page.locator('[data-taskbar-window-row]')
+}
+
+async function closeTaskbarWindow(page: Page, row: Locator) {
+  await row.click({ button: 'right' })
+  await page.getByTestId('workspace-taskbar-menu-close').click()
 }
 
 async function closeAllWindows(page: Page) {
-  const closeBtns = getTaskbarCloseButtons(page)
-  while ((await closeBtns.count()) > 0) {
-    await closeBtns.first().click()
+  const rows = getTaskbarWindowRows(page)
+  while ((await rows.count()) > 0) {
+    await closeTaskbarWindow(page, rows.first())
     await page.waitForTimeout(50)
   }
 }
@@ -227,8 +232,7 @@ test.describe('Tab Merging and Splitting', () => {
     )
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
-    const taskbarCloseBtn = getTaskbarCloseButtons(page)
-    const label = await taskbarCloseBtn.first().getAttribute('aria-label')
+    const label = await getTaskbarWindowRows(page).first().getAttribute('aria-label')
     expect(label).toContain('+1')
   })
 
@@ -263,7 +267,7 @@ test.describe('Tab Merging and Splitting', () => {
     const tabs = workspaceTabs(tabStrip)
     await expect(tabs).toHaveCount(2)
 
-    const getTaskbarLabel = () => getTaskbarCloseButtons(page).first().getAttribute('aria-label')
+    const getTaskbarLabel = () => getTaskbarWindowRows(page).first().getAttribute('aria-label')
 
     const labelAfterMerge = await getTaskbarLabel()
     expect(labelAfterMerge).toContain('readme.txt')
@@ -463,12 +467,12 @@ test.describe('Taskbar', () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
 
-    const rows = page.locator('[data-taskbar-window-row]')
+    const rows = getTaskbarWindowRows(page)
     await expect(rows).toHaveCount(2)
     await expect(rows.nth(1)).toHaveAttribute('data-taskbar-active', '')
     await expect(rows.first()).not.toHaveAttribute('data-taskbar-active')
 
-    await rows.first().locator('button').first().click()
+    await rows.first().click()
 
     await expect(rows.first()).toHaveAttribute('data-taskbar-active', '')
     await expect(rows.nth(1)).not.toHaveAttribute('data-taskbar-active')
@@ -487,9 +491,9 @@ test.describe('Taskbar', () => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
-    const firstTaskbarItem = page.locator('[data-taskbar-window-row]').first()
+    const firstTaskbarItem = getTaskbarWindowRows(page).first()
     await expect(firstTaskbarItem).toHaveAttribute('data-taskbar-active', '')
-    await firstTaskbarItem.locator('button').first().click()
+    await firstTaskbarItem.click()
 
     await expect(getWindowGroups(page)).toHaveCount(0)
   })
@@ -503,8 +507,8 @@ test.describe('Taskbar', () => {
     await minimizeBtn.click()
     await expect(getWindowGroups(page)).toHaveCount(0)
 
-    const firstTaskbarItem = page.locator('[data-taskbar-window-row]').first()
-    await firstTaskbarItem.locator('button').first().click()
+    const firstTaskbarItem = getTaskbarWindowRows(page).first()
+    await firstTaskbarItem.click()
 
     await expect(getWindowGroups(page)).toHaveCount(1)
   })
@@ -539,7 +543,7 @@ test.describe('Taskbar', () => {
 
     await groups.first().getByRole('button', { name: 'Minimize' }).click()
     await expect(groups).toHaveCount(0)
-    await page.locator('[data-taskbar-window-row]').first().locator('button').first().click()
+    await getTaskbarWindowRows(page).first().click()
 
     await expect(groups).toHaveCount(1)
     await expect(tabs.nth(1)).toHaveClass(/bg-background/)
@@ -551,8 +555,8 @@ test.describe('Taskbar', () => {
     await openBrowserWindow(page)
     await expect(getWindowGroups(page)).toHaveCount(2)
 
-    const firstTaskbarItem = page.locator('[data-taskbar-window-row]').first()
-    await firstTaskbarItem.locator('button').first().click()
+    const firstTaskbarItem = getTaskbarWindowRows(page).first()
+    await firstTaskbarItem.click()
     await page.waitForTimeout(50)
 
     const groups = getWindowGroups(page)
@@ -560,8 +564,8 @@ test.describe('Taskbar', () => {
     await firstContent.getByText('Documents', { exact: true }).click()
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
-    const secondTaskbarItem = page.locator('[data-taskbar-window-row]').nth(1)
-    await secondTaskbarItem.locator('button').first().click()
+    const secondTaskbarItem = getTaskbarWindowRows(page).nth(1)
+    await secondTaskbarItem.click()
     await page.waitForTimeout(50)
 
     const secondGroup = groups.nth(1)
@@ -578,14 +582,27 @@ test.describe('Taskbar', () => {
     )
   })
 
-  test('closes window from taskbar', async () => {
+  test('closes window from taskbar context menu', async () => {
     await gotoWorkspace(page)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
-    const taskbarCloseBtn = getTaskbarCloseButtons(page)
-    await taskbarCloseBtn.first().click()
+    await closeTaskbarWindow(page, getTaskbarWindowRows(page).first())
 
     await expect(getWindowGroups(page)).toHaveCount(0)
+  })
+
+  test('taskbar context menu can minimize and restore', async () => {
+    await gotoWorkspace(page)
+    await expect(getWindowGroups(page)).toHaveCount(1)
+
+    const row = getTaskbarWindowRows(page).first()
+    await row.click({ button: 'right' })
+    await page.getByTestId('workspace-taskbar-menu-minimize').click()
+    await expect(getWindowGroups(page)).toHaveCount(0)
+
+    await row.click({ button: 'right' })
+    await page.getByTestId('workspace-taskbar-menu-restore').click()
+    await expect(getWindowGroups(page)).toHaveCount(1)
   })
 })
 

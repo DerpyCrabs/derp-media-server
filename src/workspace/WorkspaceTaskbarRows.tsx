@@ -1,9 +1,10 @@
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
+import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { workspaceTaskbarRowIcon } from '../lib/use-file-icon'
-import X from 'lucide-solid/icons/x'
-import { Show } from 'solid-js'
+import { FloatingContextMenu } from '../file-browser/FloatingContextMenu'
+import { Show, createSignal } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { resolveGroupVisibleTabId, tabsInGroup } from './tab-group-ops'
 
@@ -19,6 +20,8 @@ export function TaskbarGroupRow(props: {
   setWindowMinimized: (id: string, minimized: boolean) => void
   closeWindow: (id: string) => void
 }) {
+  const [menu, setMenu] = createSignal<{ x: number; y: number } | null>(null)
+
   const groupWindows = () => tabsInGroup(props.workspace()?.windows ?? [], props.groupId)
   const leader = () => groupWindows()[0]
   const activeTabId = () => {
@@ -47,14 +50,14 @@ export function TaskbarGroupRow(props: {
     return path ? `${isDir ? 'Folder' : 'File'}: ${path}` : getWorkspaceWindowTitle(d)
   }
   const isActive = () => groupWindows().some((w) => w.id === props.activeWindowId())
+  const isMinimized = () => leader()?.layout?.minimized ?? false
 
   const onSelect = () => {
     const g = groupWindows()
     const lid = leader()?.id ?? g[0]?.id
     if (!lid) return
     const visibleId = activeTabId() || lid
-    const isMinimized = leader()?.layout?.minimized ?? false
-    if (isMinimized) {
+    if (isMinimized()) {
       props.focusWindow(visibleId)
     } else if (isActive()) {
       props.setWindowMinimized(lid, true)
@@ -63,20 +66,33 @@ export function TaskbarGroupRow(props: {
     }
   }
 
+  const restoreOrFocus = () => {
+    const lid = leader()?.id
+    if (!lid) return
+    props.focusWindow(activeTabId() || lid)
+  }
+
+  const minimize = () => {
+    const lid = leader()?.id
+    if (!lid) return
+    props.setWindowMinimized(lid, true)
+  }
+
+  const close = () => {
+    const lid = leader()?.id
+    if (!lid) return
+    props.closeWindow(lid)
+  }
+
   return (
     <Show when={leader() && displayWindow()}>
-      <div
-        data-taskbar-window-row
-        data-taskbar-active={isActive() ? '' : undefined}
-        class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1 overflow-hidden px-2 ${
-          isActive()
-            ? 'border-b-2 border-b-primary bg-muted text-foreground'
-            : 'border-b-2 border-b-transparent bg-muted/50 text-muted-foreground'
-        }`}
-      >
+      <>
         <button
           type='button'
+          data-taskbar-window-row
+          data-taskbar-active={isActive() ? '' : undefined}
           title={tooltip()}
+          aria-label={rowLabel()}
           aria-current={isActive() ? 'true' : undefined}
           onMouseDown={(e) => {
             if (e.button === 0) {
@@ -91,7 +107,16 @@ export function TaskbarGroupRow(props: {
             }
             onSelect()
           }}
-          class='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left text-xs touch-manipulation'
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setMenu({ x: e.clientX, y: e.clientY })
+          }}
+          class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1.5 overflow-hidden px-2 text-left text-xs touch-manipulation ${
+            isActive()
+              ? 'border-b-2 border-b-primary bg-muted text-foreground'
+              : 'border-b-2 border-b-transparent bg-muted/50 text-muted-foreground'
+          }`}
         >
           <span class='inline-flex shrink-0'>
             {workspaceTaskbarRowIcon(
@@ -102,15 +127,64 @@ export function TaskbarGroupRow(props: {
           </span>
           <span class='min-w-0 truncate'>{rowLabel()}</span>
         </button>
-        <button
-          type='button'
-          class='flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
-          aria-label={`Close ${rowLabel()}`}
-          onClick={() => props.closeWindow(leader()!.id)}
+        <FloatingContextMenu
+          state={menu}
+          anchor={(m) => ({ x: m.x, y: m.y })}
+          onDismiss={() => setMenu(null)}
+          zIndex={FLOATING_Z_PIN_MENU}
+          data-slot='taskbar-window-context-menu'
+          data-testid='workspace-taskbar-window-context-menu'
+          pinContextMenuRoot
         >
-          <X class='h-4 w-4' stroke-width={2} />
-        </button>
-      </div>
+          {() => (
+            <>
+              <Show when={isMinimized()}>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  data-testid='workspace-taskbar-menu-restore'
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => {
+                    restoreOrFocus()
+                    setMenu(null)
+                  }}
+                >
+                  Restore
+                </button>
+              </Show>
+              <Show when={!isMinimized()}>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  data-testid='workspace-taskbar-menu-minimize'
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => {
+                    minimize()
+                    setMenu(null)
+                  }}
+                >
+                  Minimize
+                </button>
+              </Show>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                data-testid='workspace-taskbar-menu-close'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  close()
+                  setMenu(null)
+                }}
+              >
+                Close
+              </button>
+            </>
+          )}
+        </FloatingContextMenu>
+      </>
     </Show>
   )
 }
