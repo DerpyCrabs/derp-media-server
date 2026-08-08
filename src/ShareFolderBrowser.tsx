@@ -12,6 +12,7 @@ import {
 import { queryKeys } from '@/lib/query-keys'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
@@ -226,8 +227,7 @@ export function ShareFolderBrowser(props: Props) {
     if (inlineMode() !== 'file') return false
     const stem = inlineName().trim()
     if (!stem) return false
-    const addExt = inKb() ? '.md' : '.txt'
-    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    const finalName = normalizeNewFilePath(stem, inKb())
     return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
   })
 
@@ -241,8 +241,7 @@ export function ShareFolderBrowser(props: Props) {
   function submitInlineFile() {
     const stem = inlineName().trim()
     if (!stem || inlineFileExists() || !showInlineCreate()) return
-    const defaultExt = inKb() ? '.md' : '.txt'
-    const fileStem = stem.includes('.') ? stem : `${stem}${defaultExt}`
+    const fileStem = normalizeNewFilePath(stem, inKb())
     const subPath = currentSubDir() ? `${currentSubDir()}/${fileStem}` : fileStem
     const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
     const fullPath = sharePathNorm ? `${sharePathNorm}/${subPath}` : subPath
@@ -527,7 +526,7 @@ export function ShareFolderBrowser(props: Props) {
     e.preventDefault()
     let name = newItemName().trim()
     if (!name) return
-    if (!name.includes('.')) name = `${name}${inKb() ? '.md' : '.txt'}`
+    name = normalizeNewFilePath(name, inKb())
     const sub = currentSubDir() ? `${currentSubDir()}/${name}` : name
     createFileMutation.mutate({ type: 'file', path: sub, content: '' })
   }

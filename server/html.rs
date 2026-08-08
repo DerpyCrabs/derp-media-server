@@ -199,7 +199,7 @@ async fn dehydrated(
         .into_owned()
         .collect::<HashMap<_, _>>();
     let mut queries = Vec::new();
-    if path == "/" || path == "/workspace" {
+    if path == "/" || path == "/workspace" || path == "/canvas" {
         let dir = params.get("dir").cloned().unwrap_or_default();
         if path == "/"
             && dir != "Favorites"

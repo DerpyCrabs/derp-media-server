@@ -1,0 +1,253 @@
+import { api } from '@/lib/api'
+import {
+  FILE_SEARCH_DEFAULT_LIMIT,
+  FILE_SEARCH_MIN_QUERY_LENGTH,
+  fileSearchCodePointLength,
+  fileSearchResultToFileItem,
+  normalizeFileSearchText,
+  type FileSearchResponse,
+  type FileSearchResult,
+} from '@/lib/file-search'
+import type { CanvasFrame, CanvasWindow } from '@/lib/infinite-canvas'
+import { queryKeys } from '@/lib/query-keys'
+import { fileItemIcon, type FileIconContext } from '@/src/lib/use-file-icon'
+import { useQuery } from '@tanstack/solid-query'
+import Frame from 'lucide-solid/icons/frame'
+import Search from 'lucide-solid/icons/search'
+import SquareStack from 'lucide-solid/icons/square-stack'
+import X from 'lucide-solid/icons/x'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
+
+type CanvasSearchItem =
+  | { kind: 'window'; id: string; title: string; detail: string }
+  | { kind: 'frame'; id: string; title: string; detail: string }
+  | { kind: 'file'; result: FileSearchResult; title: string; detail: string }
+
+type Props = {
+  frames: CanvasFrame[]
+  windows: CanvasWindow[]
+  fileIconContext: FileIconContext
+  onClose: () => void
+  onWindow: (id: string) => void
+  onFrame: (id: string) => void
+  onFile: (result: FileSearchResult) => void
+}
+
+function windowDetail(window: CanvasWindow): string {
+  return window.definition.type === 'browser'
+    ? (window.definition.initialState.dir ?? 'Library root')
+    : (window.definition.initialState.viewing ?? '')
+}
+
+function libraryResultIcon(item: CanvasSearchItem, context: FileIconContext): JSX.Element | null {
+  if (item.kind !== 'file') return null
+  return fileItemIcon(fileSearchResultToFileItem(item.result), context)
+}
+
+export function CanvasSearchPalette(props: Props) {
+  const [query, setQuery] = createSignal('')
+  const [debounced, setDebounced] = createSignal('')
+  const [activeIndex, setActiveIndex] = createSignal(0)
+  let inputEl: HTMLInputElement | undefined
+  const previousFocus = document.activeElement as HTMLElement | null
+
+  createEffect(() => {
+    const value = query()
+    const timer = window.setTimeout(() => setDebounced(value.trim()), 120)
+    onCleanup(() => window.clearTimeout(timer))
+  })
+
+  const normalized = createMemo(() => normalizeFileSearchText(debounced()))
+  const localMatches = createMemo(() => {
+    const needle = normalized()
+    if (!needle) return [] as CanvasSearchItem[]
+    const windows: CanvasSearchItem[] = props.windows
+      .filter((window) =>
+        normalizeFileSearchText(`${window.definition.title} ${windowDetail(window)}`).includes(
+          needle,
+        ),
+      )
+      .map((window) => ({
+        kind: 'window',
+        id: window.id,
+        title: window.definition.title,
+        detail: windowDetail(window),
+      }))
+    const frames: CanvasSearchItem[] = props.frames
+      .filter((frame) => normalizeFileSearchText(frame.name).includes(needle))
+      .map((frame) => ({
+        kind: 'frame',
+        id: frame.id,
+        title: frame.name,
+        detail: `${props.windows.filter((window) => window.frameId === frame.id).length} windows`,
+      }))
+    return [...windows, ...frames]
+  })
+
+  const canSearchFiles = createMemo(
+    () => fileSearchCodePointLength(normalized()) >= FILE_SEARCH_MIN_QUERY_LENGTH,
+  )
+  const fileQuery = useQuery(() => ({
+    queryKey: queryKeys.fileSearch(normalized()),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      api<FileSearchResponse>(
+        `/api/files/search?q=${encodeURIComponent(debounced())}&limit=${FILE_SEARCH_DEFAULT_LIMIT}`,
+        { signal },
+      ),
+    enabled: canSearchFiles(),
+    staleTime: 0,
+    gcTime: 30_000,
+  }))
+  const fileMatches = createMemo((): CanvasSearchItem[] =>
+    (fileQuery.data?.results ?? []).map((result) => ({
+      kind: 'file',
+      result,
+      title: result.name,
+      detail: result.parentPath || result.rootName,
+    })),
+  )
+  const items = createMemo(() => [...localMatches(), ...fileMatches()])
+
+  createEffect(() => {
+    void normalized()
+    setActiveIndex(0)
+  })
+
+  createEffect(() => {
+    const oldOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    queueMicrotask(() => inputEl?.focus())
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      props.onClose()
+    }
+    document.addEventListener('keydown', close)
+    onCleanup(() => {
+      document.body.style.overflow = oldOverflow
+      document.removeEventListener('keydown', close)
+      queueMicrotask(() => previousFocus?.focus())
+    })
+  })
+
+  function choose(item: CanvasSearchItem) {
+    if (item.kind === 'window') props.onWindow(item.id)
+    else if (item.kind === 'frame') props.onFrame(item.id)
+    else props.onFile(item.result)
+    props.onClose()
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    const all = items()
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      if (all.length) setActiveIndex((index) => (index + 1) % all.length)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (all.length) setActiveIndex((index) => (index - 1 + all.length) % all.length)
+    } else if (event.key === 'Enter') {
+      const item = all[activeIndex()]
+      if (!item) return
+      event.preventDefault()
+      choose(item)
+    }
+  }
+
+  return (
+    <Portal mount={document.body}>
+      <div
+        class='fixed inset-0 z-[1100000] flex items-start justify-center bg-black/55 px-4 pt-[10vh]'
+        onPointerDown={(event) => event.target === event.currentTarget && props.onClose()}
+      >
+        <div
+          role='dialog'
+          aria-modal='true'
+          aria-label='Search canvas and library'
+          data-testid='canvas-search-palette'
+          class='flex w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl'
+          style={{ 'max-height': 'min(480px, calc(100vh - 96px))' }}
+        >
+          <div class='flex items-center gap-2 border-b border-border px-3 py-2'>
+            <Search class='size-5 text-muted-foreground' />
+            <input
+              ref={(element) => (inputEl = element)}
+              class='h-11 min-w-0 flex-1 bg-transparent text-base outline-none'
+              placeholder='Search windows, frames, files and folders…'
+              value={query()}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={onKeyDown}
+            />
+            <button
+              type='button'
+              class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
+              aria-label='Close search'
+              onClick={props.onClose}
+            >
+              <X class='size-5' />
+            </button>
+          </div>
+          <div class='min-h-52 flex-1 overflow-y-auto p-2'>
+            <Show when={!normalized()}>
+              <p class='flex min-h-48 items-center justify-center text-sm text-muted-foreground'>
+                Search current canvas immediately. Type {FILE_SEARCH_MIN_QUERY_LENGTH} characters
+                for library results.
+              </p>
+            </Show>
+            <Show when={normalized() && items().length === 0 && !fileQuery.isFetching}>
+              <p class='flex min-h-48 items-center justify-center text-sm text-muted-foreground'>
+                No matches.
+              </p>
+            </Show>
+            <For each={items()}>
+              {(item, index) => (
+                <>
+                  <Show when={index() === 0 || items()[index() - 1]?.kind !== item.kind}>
+                    <p class='px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase'>
+                      {item.kind === 'window'
+                        ? 'Open windows'
+                        : item.kind === 'frame'
+                          ? 'Frames'
+                          : 'Library'}
+                    </p>
+                  </Show>
+                  <button
+                    type='button'
+                    data-search-result-kind={item.kind}
+                    data-search-result-path={item.kind === 'file' ? item.result.path : undefined}
+                    class={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left ${
+                      index() === activeIndex()
+                        ? 'bg-accent text-accent-foreground'
+                        : 'hover:bg-muted'
+                    }`}
+                    onPointerMove={() => setActiveIndex(index())}
+                    onClick={() => choose(item)}
+                  >
+                    <Show when={item.kind === 'window'}>
+                      <SquareStack class='size-5 shrink-0' />
+                    </Show>
+                    <Show when={item.kind === 'frame'}>
+                      <Frame class='size-5 shrink-0' />
+                    </Show>
+                    <Show when={item.kind === 'file'}>
+                      <span class='shrink-0'>{libraryResultIcon(item, props.fileIconContext)}</span>
+                    </Show>
+                    <span class='min-w-0'>
+                      <span class='block truncate text-sm font-medium'>{item.title}</span>
+                      <span class='block truncate text-xs text-muted-foreground'>
+                        {item.detail}
+                      </span>
+                    </span>
+                  </button>
+                </>
+              )}
+            </For>
+            <Show when={fileQuery.isFetching}>
+              <p class='px-3 py-3 text-xs text-muted-foreground'>Searching library…</p>
+            </Show>
+          </div>
+        </div>
+      </div>
+    </Portal>
+  )
+}

@@ -7,6 +7,7 @@ import { FileBrowser } from './FileBrowser'
 import { ShareRoute } from './ShareRoute'
 import { ShareWorkspacePage } from './ShareWorkspacePage'
 import { WorkspacePage } from './WorkspacePage'
+import { CanvasPage } from './CanvasPage'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { post } from '@/lib/api'
 import { OfflineStatus } from './OfflineStatus'
@@ -124,6 +125,12 @@ export function App() {
           <>
             <SolidThemeSync />
             <WorkspacePage />
+          </>
+        </Match>
+        <Match when={path() === '/canvas'}>
+          <>
+            <SolidThemeSync />
+            <CanvasPage />
           </>
         </Match>
       </Switch>

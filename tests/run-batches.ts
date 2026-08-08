@@ -20,6 +20,7 @@ const BATCHES = [
       'upload',
       'file-browser-misc',
       'file-search-palette',
+      'infinite-canvas',
     ],
   },
   {

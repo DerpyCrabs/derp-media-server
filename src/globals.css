@@ -666,3 +666,12 @@ body {
 .workspace-layout [data-slot='input'] {
   user-select: text;
 }
+
+.canvas-layout input,
+.canvas-layout textarea,
+.canvas-layout .markdown-document,
+.canvas-layout .markdown-document .cm-editor,
+.canvas-layout .markdown-document .cm-content,
+.canvas-layout [data-slot='input'] {
+  user-select: text;
+}

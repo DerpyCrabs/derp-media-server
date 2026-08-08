@@ -30,6 +30,7 @@ import type { ShareLink } from '@/lib/shares'
 import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
+import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
@@ -743,8 +744,7 @@ export function FileBrowser() {
   const fileExists = createMemo(() => {
     const n = newItemName().trim()
     if (!n) return false
-    const defaultExt = inKb() ? '.md' : '.txt'
-    const fileName = n.includes('.') ? n : `${n}${defaultExt}`
+    const fileName = normalizeNewFilePath(n, inKb())
     return files().some((f) => !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase())
   })
 
@@ -754,8 +754,7 @@ export function FileBrowser() {
     if (inlineMode() !== 'file') return false
     const stem = inlineName().trim()
     if (!stem) return false
-    const addExt = inKb() ? '.md' : '.txt'
-    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    const finalName = normalizeNewFilePath(stem, inKb())
     return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
   })
 
@@ -770,8 +769,7 @@ export function FileBrowser() {
     const stem = inlineName().trim()
     if (!stem || inlineFileExists() || !showInlineCreate()) return
     const base = currentPath() ? `${currentPath()}/${stem}` : stem
-    const defaultExt = inKb() ? '.md' : '.txt'
-    const finalPath = base.includes('.') ? base : `${base}${defaultExt}`
+    const finalPath = normalizeNewFilePath(base, inKb())
     createFileMutation.mutate(
       { type: 'file', path: finalPath, content: '' },
       {
@@ -1087,8 +1085,7 @@ export function FileBrowser() {
     let filePath = newItemName().trim()
     if (!filePath) return
     filePath = currentPath() ? `${currentPath()}/${filePath}` : filePath
-    const defaultExt = inKb() ? '.md' : '.txt'
-    if (!filePath.includes('.')) filePath = `${filePath}${defaultExt}`
+    filePath = normalizeNewFilePath(filePath, inKb())
     createFileMutation.mutate(
       { type: 'file', path: filePath, content: '' },
       {

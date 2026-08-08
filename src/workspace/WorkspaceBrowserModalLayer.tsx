@@ -315,7 +315,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
             </h2>
             <p class='text-muted-foreground mt-1 text-sm'>
               {props.inKb()
-                ? 'Enter a name. A .md extension will be added if none is provided.'
+                ? 'Enter a note name. A .md extension will be added unless it already ends in .md.'
                 : 'Enter a name. A .txt extension will be added if none is provided.'}
             </p>
             <input

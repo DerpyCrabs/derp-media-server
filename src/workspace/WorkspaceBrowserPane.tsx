@@ -34,6 +34,7 @@ import { fileDownloadHref } from '@/lib/download-urls'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { useWorkspaceFileOpenTargetStore } from '@/lib/workspace-file-open-target'
@@ -949,9 +950,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const name = newFileName().trim()
     if (!name || fileExists()) return
     const sh = share()
-    const addExt = inKb() ? '.md' : '.txt'
     if (sh) {
-      const stem = name.includes('.') ? name : `${name}${addExt}`
+      const stem = normalizeNewFilePath(name, inKb())
       const rel = listDir() ? `${listDir()}/${stem}` : stem
       void createFileMutation
         .mutateAsync({ path: rel, content: '', shareToken: sh.token })
@@ -962,7 +962,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       return
     }
     const base = currentPath() ? `${currentPath()}/${name}` : name
-    const finalPath = base.includes('.') ? base : `${base}${addExt}`
+    const finalPath = normalizeNewFilePath(base, inKb())
     void createFileMutation.mutateAsync({ path: finalPath, content: '' }).then(() => {
       setShowCreateFile(false)
       setNewFileName('')
@@ -1072,8 +1072,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const fileExists = createMemo(() => {
     const stem = newFileName().trim()
     if (!stem) return false
-    const addExt = inKb() ? '.md' : '.txt'
-    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    const finalName = normalizeNewFilePath(stem, inKb())
     const fl = finalName.toLowerCase()
     const st = stem.toLowerCase()
     return files().some(
@@ -1117,8 +1116,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (inlineMode() !== 'file') return false
     const stem = inlineName().trim()
     if (!stem) return false
-    const addExt = inKb() ? '.md' : '.txt'
-    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    const finalName = normalizeNewFilePath(stem, inKb())
     return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
   })
 
@@ -1133,8 +1131,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const stem = inlineName().trim()
     if (!stem || inlineFileExists() || !showInlineCreate()) return
     const sh = share()
-    const addExt = inKb() ? '.md' : '.txt'
-    const fileStem = stem.includes('.') ? stem : `${stem}${addExt}`
+    const fileStem = normalizeNewFilePath(stem, inKb())
     try {
       if (sh) {
         const rel = listDir() ? `${listDir()}/${fileStem}` : fileStem
@@ -1151,7 +1148,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         return
       }
       const base = currentPath() ? `${currentPath()}/${stem}` : stem
-      const finalPath = base.includes('.') ? base : `${base}${addExt}`
+      const finalPath = normalizeNewFilePath(base, inKb())
       await createFileMutation.mutateAsync({ path: finalPath, content: '' })
       setInlineMode(null)
       setInlineName('')
