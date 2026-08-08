@@ -5,7 +5,7 @@ edition = "2024"
 
 [[bin]]
 name = "derp-media-server"
-path = "rust-server/main.rs"
+path = "server/main.rs"
 
 [dependencies]
 aes-gcm = "0.11"

@@ -3,7 +3,7 @@
 - Use `bun run tsgo` for TypeScript checks. Do not use `tsc`.
 - Check `bun run lint-errors` after changes.
 - After larger changes, run `bun run test:batch`.
-- The UI is **Solid.js** under [`src/`](src/) with Vite ([`vite.config.ts`](vite.config.ts)), Tailwind ([`src/globals.css`](src/globals.css)), and [`@tanstack/solid-query`](https://tanstack.com/query/latest/docs/framework/solid/overview) for server-prefetched data (`window.__DEHYDRATED_STATE__` from [`rust-server/html.rs`](rust-server/html.rs)).
+- The UI is **Solid.js** under [`src/`](src/) with Vite ([`vite.config.ts`](vite.config.ts)), Tailwind ([`src/globals.css`](src/globals.css)), and [`@tanstack/solid-query`](https://tanstack.com/query/latest/docs/framework/solid/overview) for server-prefetched data (`window.__DEHYDRATED_STATE__` from [`server/html.rs`](server/html.rs)).
 - Prefer explicit reactivity: signals, memos, `<Show>` / `<For>`; use `class` for CSS. Avoid breaking prop reactivity when spreading props.
 - Shared view must not use admin-only routes; share flows stay scoped by `shareToken`.
 - When adding e2e tests, keep files independent so they can run in parallel without ordering assumptions.
@@ -11,8 +11,8 @@
 
 ## Commands
 
-- **Dev:** `bun run dev` — Rust API server launches Vite separately and proxies frontend requests. `bun run dev:bun` keeps Fastify reference server available.
-- **Production:** `bun run build` then `bun run start` — Rust serves static `dist/client` with dehydrated TanStack Query state. `bun run start:bun` runs production Fastify server.
+- **Dev:** `bun run dev` — Rust API server launches Vite separately and proxies frontend requests.
+- **Production:** `bun run build` then `bun run start` — Rust serves static `dist/client` with dehydrated TanStack Query state.
 - **E2E:** `bun run test` or `bun run test:batch` — specs in [`tests/e2e/`](tests/e2e/), config [`playwright.config.ts`](playwright.config.ts), batches in [`tests/run-batches.ts`](tests/run-batches.ts).
 
 ## Solid patterns

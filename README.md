@@ -2,7 +2,7 @@
 
 > Mostly vibe-coded; treat it as a personal tool, not a hardened product.
 
-Self-hosted media library with a **Solid.js** + Vite web UI and a **Fastify** API on **Bun**. Browse, play, and edit files; optional password auth; token-based shares; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
+Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** server. Browse, play, and edit files; optional password auth; token-based shares; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
 
 ## Features (high level)
 
@@ -14,7 +14,7 @@ Self-hosted media library with a **Solid.js** + Vite web UI and a **Fastify** AP
 
 ## Quick start
 
-**Needs:** [Bun](https://bun.sh). **Optional:** FFmpeg for video thumbnails, audio-only video playback and tests.
+**Needs:** [Rust](https://www.rust-lang.org/tools/install) and [Bun](https://bun.sh). **Optional:** FFmpeg for video thumbnails, audio-only video playback and tests.
 
 ```bash
 bun install
@@ -149,7 +149,7 @@ Plain HTTP remains available for local browser development at `http://localhost`
 
 ## Stack
 
-Solid.js, Vite, TanStack Query (Solid), Tailwind CSS v4, Fastify, Bun, TypeScript, Playwright, oxlint / oxfmt.
+Rust, Axum, Solid.js, Vite, TanStack Query (Solid), Tailwind CSS v4, Bun, TypeScript, Playwright, oxlint / oxfmt.
 
 ## License
 

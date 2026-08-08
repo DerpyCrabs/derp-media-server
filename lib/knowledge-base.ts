@@ -1,19 +1,4 @@
-import { promises as fs } from 'fs'
-import { config, getDataFilePath } from '@/lib/config'
-
-const SETTINGS_FILE = getDataFilePath('settings.json')
 const markdownImageExtension = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico|tiff?|avif)$/i
-
-export async function getKnowledgeBases(): Promise<string[]> {
-  try {
-    const raw = await fs.readFile(SETTINGS_FILE, 'utf-8')
-    const parsed: Record<string, { knowledgeBases?: string[] }> = JSON.parse(raw)
-    const settings = parsed[config.libraryKey] || {}
-    return settings.knowledgeBases || []
-  } catch {
-    return []
-  }
-}
 
 export function getKnowledgeBaseRootForPath(
   filePath: string,
