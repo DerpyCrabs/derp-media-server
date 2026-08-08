@@ -32,6 +32,7 @@ tests/fixtures/test-config-*.jsonc
 
 # production
 /build
+/app-data/
 
 # misc
 .DS_Store

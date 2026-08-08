@@ -189,11 +189,9 @@ pub(crate) async fn run() {
         preview_sequence: AtomicU64::new(0),
         login_attempts: Mutex::new(HashMap::new()),
         share_verify_attempts: Mutex::new(HashMap::new()),
-        thumbnails: thumbnails::Thumbnailer::new(
-            std::env::current_dir().unwrap().join(".thumbnails"),
-        ),
+        thumbnails: thumbnails::Thumbnailer::new(config.data_path.join("thumbnails")),
         image_variants: image_variants::ImageVariants::new(
-            std::env::current_dir().unwrap().join(".image-variants"),
+            config.data_path.join("image-variants"),
             config.image_optimization.clone(),
         ),
         file_search: FileSearch::new(config.file_search.clone(), search_roots),

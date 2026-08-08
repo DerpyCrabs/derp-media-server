@@ -60,10 +60,13 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 |                           | `TLS_CERT_PATH`             | PEM certificate used to serve HTTPS                                         |
 |                           | `TLS_KEY_PATH`              | PEM private key used to serve HTTPS                                         |
 
-`dataPath` (shares DB, etc.) is config-file only; defaults next to the config file.
+`dataPath` is config-file only and contains app-created settings, stats, shares, mounts, search
+index, thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
+On first startup with the default path, legacy data beside the config and legacy caches in the
+working directory are migrated automatically.
 
 File search is enabled by default and stores its rebuildable SQLite index under
-`<dataPath>/.search-index`. The index uses bounded background reconciliation on every platform and
+`<dataPath>/search-index`. The index uses bounded background reconciliation on every platform and
 best-effort recursive watchers on local Windows/macOS roots. Linux and network roots use polling so
 large libraries do not consume per-directory watcher limits.
 
@@ -75,8 +78,6 @@ large libraries do not consume per-directory watcher limits.
     "maxRecursiveWatchers": 32,
     "maxFsConcurrency": 4,
     "reconcileDirectoriesPerSecond": 128,
-    // Set this to a local disk when dataPath is on a network filesystem.
-    "indexPath": ".data/.search-index/files-v1.sqlite",
   },
 }
 ```
@@ -97,7 +98,8 @@ and cache size remain configurable; omitted fields use these defaults:
 ```
 
 `maxCacheSize` accepts `KB`, `MB`, `GB`, `KiB`, `MiB`, and `GiB` suffixes case-insensitively.
-Variants live under `.image-variants`; changing widths or quality creates distinct cache entries.
+Variants live under `<dataPath>/image-variants`; changing widths or quality creates distinct cache
+entries. Generated thumbnails live under `<dataPath>/thumbnails`.
 
 Use `mediaDirs` when serving multiple media roots:
 

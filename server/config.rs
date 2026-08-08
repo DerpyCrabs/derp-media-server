@@ -171,7 +171,6 @@ impl Default for ImageOptimizationConfig {
 #[serde(rename_all = "camelCase")]
 struct RawFileSearchConfig {
     enabled: Option<serde_json::Value>,
-    index_path: Option<serde_json::Value>,
     watch_mode: Option<serde_json::Value>,
     max_recursive_watchers: Option<serde_json::Value>,
     max_fs_concurrency: Option<serde_json::Value>,
@@ -488,6 +487,92 @@ fn parse_js_positive_integer(value: &str) -> Option<u64> {
     digits.parse::<u64>().ok().filter(|seconds| *seconds > 0)
 }
 
+const DURABLE_DATA: [&str; 4] = ["settings.json", "stats.json", "shares.json", "mounts.json"];
+const REBUILDABLE_DATA: [(&str, &str); 3] = [
+    (".search-index", "search-index"),
+    (".thumbnails", "thumbnails"),
+    (".image-variants", "image-variants"),
+];
+
+fn migrate_legacy_data(
+    config_dir: &Path,
+    working_dir: &Path,
+    data_path: &Path,
+) -> Result<(), String> {
+    fs::create_dir_all(data_path).map_err(|error| {
+        format!(
+            "Failed to create app data directory {}: {error}",
+            data_path.display()
+        )
+    })?;
+
+    for name in DURABLE_DATA {
+        let source = config_dir.join(name);
+        let destination = data_path.join(name);
+        if source.exists() && destination.exists() {
+            return Err(format!(
+                "Cannot migrate {}: both {} and {} exist",
+                name,
+                source.display(),
+                destination.display()
+            ));
+        }
+    }
+    for name in DURABLE_DATA {
+        let source = config_dir.join(name);
+        if !source.exists() {
+            continue;
+        }
+        let destination = data_path.join(name);
+        fs::rename(&source, &destination).map_err(|error| {
+            format!(
+                "Failed to migrate {} to {}: {error}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+        println!(
+            "Migrated app data from {} to {}",
+            source.display(),
+            destination.display()
+        );
+    }
+
+    for (legacy_name, destination_name) in REBUILDABLE_DATA {
+        let source_dir = if legacy_name == ".search-index" {
+            config_dir
+        } else {
+            working_dir
+        };
+        let source = source_dir.join(legacy_name);
+        if !source.exists() {
+            continue;
+        }
+        let destination = data_path.join(destination_name);
+        if destination.exists() {
+            eprintln!(
+                "Warning: not migrating rebuildable data from {} because {} already exists",
+                source.display(),
+                destination.display()
+            );
+            continue;
+        }
+        match fs::rename(&source, &destination) {
+            Ok(()) => println!(
+                "Migrated app data from {} to {}",
+                source.display(),
+                destination.display()
+            ),
+            Err(error) => eprintln!(
+                "Warning: failed to migrate rebuildable data from {} to {}: {error}",
+                source.display(),
+                destination.display()
+            ),
+        }
+    }
+    Ok(())
+}
+
 impl Config {
     pub fn load() -> Result<Self, String> {
         let cwd = env::current_dir().map_err(|e| e.to_string())?;
@@ -627,6 +712,7 @@ impl Config {
         for root in &mut roots {
             root.path = std::path::absolute(&root.path).map_err(|error| error.to_string())?;
         }
+        let uses_default_data_path = raw.data_path.is_none();
         let data_path = raw
             .data_path
             .map(|p| {
@@ -636,7 +722,17 @@ impl Config {
                     config_dir.join(p)
                 }
             })
-            .unwrap_or_else(|| config_dir.to_path_buf());
+            .unwrap_or_else(|| config_dir.join("app-data"));
+        if uses_default_data_path {
+            migrate_legacy_data(config_dir, &cwd, &data_path)?;
+        } else {
+            fs::create_dir_all(&data_path).map_err(|error| {
+                format!(
+                    "Failed to create app data directory {}: {error}",
+                    data_path.display()
+                )
+            })?;
+        }
         let mut auth = raw.auth.unwrap_or_default();
         if let Ok(v) = env::var("AUTH_ENABLED") {
             auth.enabled = v == "true" || v == "1";
@@ -682,21 +778,7 @@ impl Config {
                 .as_ref()
                 .and_then(serde_json::Value::as_bool)
                 != Some(false),
-            index_path: raw_search
-                .index_path
-                .as_ref()
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|path| !path.is_empty())
-                .map(PathBuf::from)
-                .map(|path| {
-                    if path.is_absolute() {
-                        path
-                    } else {
-                        config_dir.join(path)
-                    }
-                })
-                .unwrap_or_else(|| data_path.join(".search-index").join("files-v1.sqlite")),
+            index_path: data_path.join("search-index").join("files-v1.sqlite"),
             watch_mode: if raw_search
                 .watch_mode
                 .as_ref()
@@ -858,5 +940,67 @@ mod tests {
         assert!(image_optimization(Some(serde_json::json!({"quality":0}))).is_err());
         assert!(image_optimization(Some(serde_json::json!({"maxCacheSize":"10TB"}))).is_err());
         assert!(image_optimization(Some(serde_json::json!({"maxBytes":"10GiB"}))).is_err());
+    }
+
+    #[test]
+    fn migrates_legacy_app_data() {
+        let base =
+            std::env::temp_dir().join(format!("derp-data-migration-{}", uuid::Uuid::new_v4()));
+        let config_dir = base.join("config");
+        let working_dir = base.join("working");
+        let data_path = config_dir.join("app-data");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(&working_dir).unwrap();
+        for name in DURABLE_DATA {
+            fs::write(config_dir.join(name), name).unwrap();
+        }
+        fs::create_dir(config_dir.join(".search-index")).unwrap();
+        fs::create_dir(working_dir.join(".thumbnails")).unwrap();
+        fs::create_dir(working_dir.join(".image-variants")).unwrap();
+
+        migrate_legacy_data(&config_dir, &working_dir, &data_path).unwrap();
+
+        for name in DURABLE_DATA {
+            assert!(!config_dir.join(name).exists());
+            assert_eq!(fs::read_to_string(data_path.join(name)).unwrap(), name);
+        }
+        for name in ["search-index", "thumbnails", "image-variants"] {
+            assert!(data_path.join(name).is_dir());
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn durable_migration_conflict_stops_before_moving_files() {
+        let base =
+            std::env::temp_dir().join(format!("derp-data-conflict-{}", uuid::Uuid::new_v4()));
+        let data_path = base.join("app-data");
+        fs::create_dir_all(&data_path).unwrap();
+        fs::write(base.join("settings.json"), "legacy").unwrap();
+        fs::write(data_path.join("settings.json"), "current").unwrap();
+        fs::write(base.join("stats.json"), "legacy stats").unwrap();
+
+        let error = migrate_legacy_data(&base, &base, &data_path).unwrap_err();
+
+        assert!(error.contains("both"));
+        assert!(base.join("settings.json").exists());
+        assert!(base.join("stats.json").exists());
+        assert!(!data_path.join("stats.json").exists());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn rebuildable_migration_conflict_keeps_both_directories() {
+        let base =
+            std::env::temp_dir().join(format!("derp-cache-conflict-{}", uuid::Uuid::new_v4()));
+        let data_path = base.join("app-data");
+        fs::create_dir_all(base.join(".search-index")).unwrap();
+        fs::create_dir_all(data_path.join("search-index")).unwrap();
+
+        migrate_legacy_data(&base, &base, &data_path).unwrap();
+
+        assert!(base.join(".search-index").is_dir());
+        assert!(data_path.join("search-index").is_dir());
+        fs::remove_dir_all(base).unwrap();
     }
 }
