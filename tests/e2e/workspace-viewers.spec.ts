@@ -267,9 +267,18 @@ test.describe('Workspace Image Viewer', () => {
     await test.step('rotates image via rotate button', async () => {
       const img = viewer.locator('img[alt="photo.jpg"]')
       await expect(img).toBeVisible()
-      await viewer.locator('button:has(.lucide-rotate-cw)').click()
-      const transform = await img.evaluate((el) => el.style.transform)
-      expect(transform).toContain('rotate(90deg)')
+      const rotateButton = viewer.locator('button:has(.lucide-rotate-cw)')
+      await rotateButton.click()
+      expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(90deg)')
+      const surfaceBox = (await viewer.getByTestId('workspace-image-surface').boundingBox())!
+      const imageBox = (await img.boundingBox())!
+      expect(imageBox.x).toBeGreaterThanOrEqual(surfaceBox.x)
+      expect(imageBox.y).toBeGreaterThanOrEqual(surfaceBox.y)
+      expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(surfaceBox.x + surfaceBox.width)
+      expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(surfaceBox.y + surfaceBox.height)
+
+      await rotateButton.click({ clickCount: 3 })
+      expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(0deg)')
     })
 
     await test.step('fit-to-screen resets zoom and rotation', async () => {

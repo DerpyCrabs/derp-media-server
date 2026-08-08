@@ -67,13 +67,40 @@ test.describe('Image Viewer', () => {
   })
 
   test('rotates image via rotate button', async ({ page }) => {
+    let releaseNextImage!: () => void
+    const nextImageGate = new Promise<void>((resolve) => {
+      releaseNextImage = resolve
+    })
+    await page.route('**/api/image/Images/photo.png*', async (route) => {
+      await nextImageGate
+      await route.continue()
+    })
     await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
     const img = page.locator('img[alt="photo.jpg"]')
     await expect(img).toBeVisible()
 
-    await page.locator('button:has(.lucide-rotate-cw)').click()
-    const transform = await img.evaluate((el) => el.style.transform)
-    expect(transform).toContain('rotate(90deg)')
+    const rotateButton = page.locator('button:has(.lucide-rotate-cw)')
+    await rotateButton.click()
+    expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(90deg)')
+    const surfaceBox = (await page.getByTestId('image-gesture-surface').boundingBox())!
+    const imageBox = (await img.boundingBox())!
+    expect(imageBox.x).toBeGreaterThanOrEqual(surfaceBox.x)
+    expect(imageBox.y).toBeGreaterThanOrEqual(surfaceBox.y)
+    expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(surfaceBox.x + surfaceBox.width)
+    expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(surfaceBox.y + surfaceBox.height)
+
+    await rotateButton.click({ clickCount: 3 })
+    expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(0deg)')
+
+    await rotateButton.click()
+    await page.keyboard.press('ArrowRight')
+    const nextImage = page.locator('img[alt="photo.png"]')
+    expect(await nextImage.evaluate((el) => el.style.transform)).toContain('rotate(90deg)')
+
+    releaseNextImage()
+    await expect(nextImage).toBeVisible()
+    await expect(nextImage).toHaveAttribute('src', /\/api\/image\/Images\/photo\.png/)
+    expect(await nextImage.evaluate((el) => el.style.transform)).toContain('rotate(0deg)')
   })
 
   test('fit-to-screen button resets zoom and rotation', async ({ page }) => {

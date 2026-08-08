@@ -16,6 +16,7 @@ type Options = {
   viewport: Accessor<HTMLElement | undefined>
   zoom: Accessor<number | 'fit'>
   prefetchPaths: Accessor<string[]>
+  onDisplayPath?: (path: string) => void
 }
 
 const configRequests = new Map<string, Promise<boolean>>()
@@ -77,7 +78,17 @@ export function createResponsiveImage(options: Options) {
     if (!viewport) return
     const update = () => {
       const bounds = viewport.getBoundingClientRect()
-      setDimensions({ width: bounds.width, height: bounds.height })
+      const style = getComputedStyle(viewport)
+      setDimensions({
+        width: Math.max(
+          0,
+          bounds.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        ),
+        height: Math.max(
+          0,
+          bounds.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+        ),
+      })
     }
     update()
     const observer = new ResizeObserver(update)
@@ -172,11 +183,13 @@ export function createResponsiveImage(options: Options) {
         .catch(() => undefined)
         .then(() => {
           if (cancelled) return
+          const path = options.path()
+          if (loadedPath() !== path) options.onDisplayPath?.(path)
           setDisplayedSrc(value)
           setLoading(false)
           setShowSpinner(false)
           setError(false)
-          setLoadedPath(options.path())
+          setLoadedPath(path)
         })
     }
     image.onerror = () => {
@@ -231,5 +244,5 @@ export function createResponsiveImage(options: Options) {
     onCleanup(() => controllers.forEach((controller) => controller.abort()))
   })
 
-  return { src: displayedSrc, loading, showSpinner, error, retry }
+  return { src: displayedSrc, loading, showSpinner, error, retry, dimensions }
 }

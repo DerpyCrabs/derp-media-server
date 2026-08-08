@@ -229,12 +229,6 @@ export function WorkspaceViewerPane(props: Props) {
   let imageWheelFlushTimer: ReturnType<typeof setTimeout> | undefined
   let pendingImageWheelSteps = 0
 
-  createEffect(() => {
-    viewingPath()
-    setZoom('fit')
-    setRotation(0)
-  })
-
   const fileName = createMemo(() => viewingPath().split(/[/\\]/).pop() ?? 'file')
 
   const currentImageIndex = createMemo(() =>
@@ -258,6 +252,10 @@ export function WorkspaceViewerPane(props: Props) {
     viewport: imageSurface,
     zoom,
     prefetchPaths: imagePrefetchPaths,
+    onDisplayPath: () => {
+      setZoom('fit')
+      setRotation(0)
+    },
   })
 
   function moveImage(offset: number) {
@@ -338,11 +336,13 @@ export function WorkspaceViewerPane(props: Props) {
 
   const imgStyle = createMemo((): JSX.CSSProperties => {
     const z = zoom()
+    const quarterTurn = rotation() % 180 !== 0
+    const { width, height } = responsiveImage.dimensions()
     const base: JSX.CSSProperties =
       z === 'fit'
         ? {
-            width: '100%',
-            height: '100%',
+            width: quarterTurn && height > 0 ? `${height}px` : '100%',
+            height: quarterTurn && width > 0 ? `${width}px` : '100%',
             'object-fit': 'contain',
           }
         : {
@@ -579,12 +579,12 @@ export function WorkspaceViewerPane(props: Props) {
               <button
                 type='button'
                 class='inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                onClick={() =>
+                onClick={() => {
                   setZoom((prev) => {
                     const cur = prev === 'fit' ? 100 : prev
                     return Math.max(cur - 25, 25)
                   })
-                }
+                }}
               >
                 <ZoomOut class='h-3.5 w-3.5' stroke-width={2} />
               </button>
@@ -594,12 +594,12 @@ export function WorkspaceViewerPane(props: Props) {
               <button
                 type='button'
                 class='inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                onClick={() =>
+                onClick={() => {
                   setZoom((prev) => {
                     const cur = prev === 'fit' ? 100 : prev
                     return Math.min(cur + 25, 400)
                   })
-                }
+                }}
               >
                 <ZoomIn class='h-3.5 w-3.5' stroke-width={2} />
               </button>
@@ -632,7 +632,8 @@ export function WorkspaceViewerPane(props: Props) {
           </div>
           <div
             data-testid='workspace-image-surface'
-            class='relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-2'
+            class='relative flex min-h-0 flex-1 items-center justify-center p-2'
+            classList={{ 'overflow-hidden': zoom() === 'fit', 'overflow-auto': zoom() !== 'fit' }}
             ref={setImageSurface}
             onWheel={handleImageWheel}
           >
@@ -670,7 +671,7 @@ export function WorkspaceViewerPane(props: Props) {
               <img
                 src={responsiveImage.src()}
                 alt={fileName()}
-                class='pointer-events-none max-h-full transition-transform duration-200'
+                class='pointer-events-none shrink-0'
                 classList={{ invisible: responsiveImage.showSpinner() }}
                 style={imgStyle()}
               />

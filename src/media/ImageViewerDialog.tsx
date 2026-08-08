@@ -78,12 +78,6 @@ function ImageViewerInner(props: {
   let pendingWheelSteps = 0
   let viewerElement!: HTMLDivElement
 
-  createEffect(() => {
-    void props.viewingPath
-    setZoom('fit')
-    setRotation(0)
-  })
-
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
 
   const downloadHref = createMemo(() => {
@@ -113,6 +107,10 @@ function ImageViewerInner(props: {
     viewport: imageSurface,
     zoom,
     prefetchPaths,
+    onDisplayPath: () => {
+      setZoom('fit')
+      setRotation(0)
+    },
   })
 
   function handleClose() {
@@ -269,11 +267,13 @@ function ImageViewerInner(props: {
 
   const imgStyle = createMemo((): JSX.CSSProperties => {
     const z = zoom()
+    const quarterTurn = rotation() % 180 !== 0
+    const { width, height } = responsiveImage.dimensions()
     const base: JSX.CSSProperties =
       z === 'fit'
         ? {
-            width: '100%',
-            height: '100%',
+            width: quarterTurn && height > 0 ? `${height}px` : '100%',
+            height: quarterTurn && width > 0 ? `${width}px` : '100%',
             'object-fit': 'contain',
           }
         : {
@@ -365,7 +365,8 @@ function ImageViewerInner(props: {
 
       <div
         data-testid='image-gesture-surface'
-        class='relative flex flex-1 touch-pan-y items-center justify-center overflow-auto p-4'
+        class='relative flex flex-1 touch-pan-y items-center justify-center p-4'
+        classList={{ 'overflow-hidden': zoom() === 'fit', 'overflow-auto': zoom() !== 'fit' }}
         ref={setImageSurface}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
@@ -405,7 +406,7 @@ function ImageViewerInner(props: {
           <img
             src={responsiveImage.src()}
             alt={fileName()}
-            class='pointer-events-none select-none transition-transform duration-200'
+            class='pointer-events-none shrink-0 select-none'
             classList={{ invisible: responsiveImage.showSpinner() }}
             style={imgStyle()}
           />
