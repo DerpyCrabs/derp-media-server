@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod file_search;
 mod html;
+mod image_variants;
 mod markdown_images;
 mod media;
 mod routes;

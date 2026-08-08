@@ -22,7 +22,9 @@ test.describe('Image Viewer', () => {
   test('opens image viewer when clicking an image file', async ({ page }) => {
     await page.goto('/?dir=Images')
     await page.locator('table').getByText('photo.jpg').click()
-    await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
+    const image = page.locator('img[alt="photo.jpg"]')
+    await expect(image).toBeVisible()
+    await expect(image).toHaveAttribute('src', /\/api\/image\/Images\/photo\.jpg\?/)
   })
 
   test('reflects viewing image in URL', async ({ page }) => {

@@ -225,7 +225,9 @@ test.describe('Share Viewers & Players', () => {
   test('opens image viewer when clicking an image in shared folder', async ({ page }) => {
     await page.goto(folderShareUrl)
     await page.locator('table').getByText('photo.jpg').click()
-    await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
+    const image = page.locator('img[alt="photo.jpg"]')
+    await expect(image).toBeVisible()
+    await expect(image).toHaveAttribute('src', /\/api\/share\/.*\/image\/photo\.jpg\?/)
   })
 
   test('image viewer shows zoom controls in share', async ({ page }) => {

@@ -2,7 +2,7 @@ use crate::{
     app::{AppState, Shared, emit_admin, settings_path},
     config::{Config, TlsConfig},
     file_search::FileSearch,
-    routes, thumbnails,
+    image_variants, routes, thumbnails,
 };
 use axum::{Router, extract::DefaultBodyLimit, middleware};
 use std::sync::atomic::AtomicU64;
@@ -191,6 +191,10 @@ pub(crate) async fn run() {
         share_verify_attempts: Mutex::new(HashMap::new()),
         thumbnails: thumbnails::Thumbnailer::new(
             std::env::current_dir().unwrap().join(".thumbnails"),
+        ),
+        image_variants: image_variants::ImageVariants::new(
+            std::env::current_dir().unwrap().join(".image-variants"),
+            config.image_optimization.clone(),
         ),
         file_search: FileSearch::new(config.file_search.clone(), search_roots),
     });

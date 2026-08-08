@@ -55,6 +55,7 @@ yarn-error.log*
 
 # thumbnail cache
 .thumbnails
+.image-variants/
 settings.json
 stats.json
 shares.json

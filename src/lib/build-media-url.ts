@@ -20,6 +20,52 @@ export function buildMediaUrl(filePath: string, ctx: MediaShareContext): string 
   return buildAdminMediaUrl(filePath)
 }
 
+export type ResponsiveImageRequest = {
+  width: number
+  height: number
+  dpr: number
+  scale: number
+  priority: 'active' | 'next' | 'prefetch'
+}
+
+function imageQuery(request: ResponsiveImageRequest): string {
+  const params = new URLSearchParams({
+    width: String(Math.max(1, Math.round(request.width))),
+    height: String(Math.max(1, Math.round(request.height))),
+    dpr: String(request.dpr),
+    scale: String(request.scale),
+    priority: request.priority,
+  })
+  return params.toString()
+}
+
+export function buildAdminImageUrl(filePath: string, request: ResponsiveImageRequest): string {
+  return `/api/image/${encodeSegments(filePath)}?${imageQuery(request)}`
+}
+
+export function buildShareImageUrl(
+  shareToken: string,
+  shareBasePath: string,
+  filePath: string,
+  request: ResponsiveImageRequest,
+): string {
+  return `/api/share/${shareToken}/image/${encodeSegments(shareRequestPath(filePath, shareBasePath))}?${imageQuery(request)}`
+}
+
+export function buildImageUrl(
+  filePath: string,
+  ctx: MediaShareContext,
+  request: ResponsiveImageRequest,
+): string {
+  return ctx
+    ? buildShareImageUrl(ctx.token, ctx.sharePath, filePath, request)
+    : buildAdminImageUrl(filePath, request)
+}
+
+export function buildImageConfigUrl(ctx: MediaShareContext): string {
+  return ctx ? `/api/share/${ctx.token}/image-config` : '/api/image-config'
+}
+
 export function buildShareMediaUrl(
   shareToken: string,
   shareBasePath: string,

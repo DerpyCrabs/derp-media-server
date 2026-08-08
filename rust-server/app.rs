@@ -2,7 +2,7 @@ use crate::{
     config::{Config, MediaRoot},
     error::AppResult,
     file_search::FileSearch,
-    media, shares, store, thumbnails,
+    image_variants, media, shares, store, thumbnails,
 };
 use axum::http::{HeaderMap, header};
 use base64::Engine;
@@ -32,6 +32,7 @@ pub(crate) struct AppState {
     pub login_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub share_verify_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub thumbnails: thumbnails::Thumbnailer,
+    pub image_variants: image_variants::ImageVariants,
     pub file_search: Arc<FileSearch>,
 }
 

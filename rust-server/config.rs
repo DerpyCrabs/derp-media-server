@@ -143,8 +143,28 @@ struct RawConfig {
     data_path: Option<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_file_search")]
     file_search: Option<RawFileSearchConfig>,
+    image_optimization: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_tls")]
     tls: Option<TlsConfig>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ImageOptimizationConfig {
+    pub enabled: bool,
+    pub widths: Vec<u32>,
+    pub quality: u8,
+    pub max_cache_size: u64,
+}
+
+impl Default for ImageOptimizationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            widths: vec![640, 1280, 1920, 2560, 3840],
+            quality: 82,
+            max_cache_size: 10 * 1024 * 1024 * 1024,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -167,7 +187,100 @@ pub struct Config {
     pub auth: AuthConfig,
     pub data_path: PathBuf,
     pub file_search: FileSearchConfig,
+    pub image_optimization: ImageOptimizationConfig,
     pub tls: Option<TlsConfig>,
+}
+
+fn parse_cache_size(value: &str) -> Result<u64, String> {
+    let value = value.trim();
+    let split = value
+        .find(|character: char| !character.is_ascii_digit() && character != '.')
+        .ok_or_else(|| "imageOptimization.maxCacheSize requires a size suffix".to_string())?;
+    let number = value[..split]
+        .parse::<f64>()
+        .map_err(|_| "imageOptimization.maxCacheSize has an invalid number".to_string())?;
+    if !number.is_finite() || number <= 0.0 {
+        return Err("imageOptimization.maxCacheSize must be positive".into());
+    }
+    let suffix = value[split..].trim().to_ascii_lowercase();
+    let multiplier = match suffix.as_str() {
+        "kb" => 1_000_u64.pow(1),
+        "mb" => 1_000_u64.pow(2),
+        "gb" => 1_000_u64.pow(3),
+        "kib" => 1_024_u64.pow(1),
+        "mib" => 1_024_u64.pow(2),
+        "gib" => 1_024_u64.pow(3),
+        _ => {
+            return Err(
+                "imageOptimization.maxCacheSize suffix must be KB, MB, GB, KiB, MiB, or GiB".into(),
+            );
+        }
+    };
+    let bytes = number * multiplier as f64;
+    if bytes > u64::MAX as f64 {
+        return Err("imageOptimization.maxCacheSize is too large".into());
+    }
+    Ok(bytes.floor() as u64)
+}
+
+fn image_optimization(value: Option<serde_json::Value>) -> Result<ImageOptimizationConfig, String> {
+    let mut config = ImageOptimizationConfig::default();
+    let Some(value) = value else {
+        return Ok(config);
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| "imageOptimization must be an object".to_string())?;
+    for key in object.keys() {
+        if !matches!(
+            key.as_str(),
+            "enabled" | "widths" | "quality" | "maxCacheSize"
+        ) {
+            return Err(format!("Unknown imageOptimization option: {key}"));
+        }
+    }
+    if let Some(value) = object.get("enabled") {
+        config.enabled = value
+            .as_bool()
+            .ok_or_else(|| "imageOptimization.enabled must be a boolean".to_string())?;
+    }
+    if let Some(value) = object.get("widths") {
+        let values = value
+            .as_array()
+            .ok_or_else(|| "imageOptimization.widths must be an array".to_string())?;
+        if values.is_empty() {
+            return Err("imageOptimization.widths must not be empty".into());
+        }
+        let mut widths = Vec::with_capacity(values.len());
+        for value in values {
+            let width = value.as_u64().ok_or_else(|| {
+                "imageOptimization.widths must contain positive integers".to_string()
+            })?;
+            if !(1..=16_384).contains(&width) {
+                return Err("imageOptimization.widths values must be between 1 and 16384".into());
+            }
+            widths.push(width as u32);
+        }
+        if !widths.windows(2).all(|pair| pair[0] < pair[1]) {
+            return Err("imageOptimization.widths must be unique and strictly ascending".into());
+        }
+        config.widths = widths;
+    }
+    if let Some(value) = object.get("quality") {
+        let quality = value
+            .as_u64()
+            .ok_or_else(|| "imageOptimization.quality must be an integer".to_string())?;
+        if !(1..=100).contains(&quality) {
+            return Err("imageOptimization.quality must be between 1 and 100".into());
+        }
+        config.quality = quality as u8;
+    }
+    if let Some(value) = object.get("maxCacheSize") {
+        config.max_cache_size = parse_cache_size(value.as_str().ok_or_else(|| {
+            "imageOptimization.maxCacheSize must be a human-readable string".to_string()
+        })?)?;
+    }
+    Ok(config)
 }
 
 fn root_name(path: &Path, explicit: Option<serde_json::Value>) -> Result<String, String> {
@@ -561,6 +674,7 @@ impl Config {
             .or(raw.share_link_domain)
             .filter(|value| !value.trim().is_empty())
             .map(normalize_share_domain);
+        let image_optimization = image_optimization(raw.image_optimization)?;
         let raw_search = raw.file_search.unwrap_or_default();
         let file_search = FileSearchConfig {
             enabled: raw_search
@@ -668,6 +782,7 @@ impl Config {
             auth,
             data_path,
             file_search,
+            image_optimization,
             tls,
         })
     }
@@ -723,5 +838,25 @@ mod tests {
         assert_eq!(parse_js_positive_integer("  +12seconds"), Some(12));
         assert_eq!(parse_js_positive_integer("-12"), None);
         assert_eq!(parse_js_positive_integer("words"), None);
+    }
+
+    #[test]
+    fn image_optimization_defaults_and_human_sizes() {
+        let defaults = image_optimization(None).unwrap();
+        assert!(defaults.enabled);
+        assert_eq!(defaults.widths, vec![640, 1280, 1920, 2560, 3840]);
+        assert_eq!(defaults.quality, 82);
+        assert_eq!(defaults.max_cache_size, 10 * 1024 * 1024 * 1024);
+        assert_eq!(parse_cache_size("10Gb").unwrap(), 10_000_000_000);
+        assert_eq!(parse_cache_size("1.5GiB").unwrap(), 1_610_612_736);
+        assert!(parse_cache_size("1000").is_err());
+    }
+
+    #[test]
+    fn image_optimization_rejects_invalid_values() {
+        assert!(image_optimization(Some(serde_json::json!({"widths":[640,640]}))).is_err());
+        assert!(image_optimization(Some(serde_json::json!({"quality":0}))).is_err());
+        assert!(image_optimization(Some(serde_json::json!({"maxCacheSize":"10TB"}))).is_err());
+        assert!(image_optimization(Some(serde_json::json!({"maxBytes":"10GiB"}))).is_err());
     }
 }

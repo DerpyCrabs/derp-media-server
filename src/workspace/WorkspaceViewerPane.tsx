@@ -30,12 +30,14 @@ import Download from 'lucide-solid/icons/download'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
+import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import RotateCw from 'lucide-solid/icons/rotate-cw'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
+import { createResponsiveImage } from '../lib/responsive-image'
 import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
 import type { TextViewerShareContext } from '../media/TextViewerDialog'
@@ -221,10 +223,11 @@ export function WorkspaceViewerPane(props: Props) {
 
   const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
   const [rotation, setRotation] = createSignal(0)
+  const [imageSurface, setImageSurface] = createSignal<HTMLDivElement>()
   let imageWheelDelta = 0
   let imageWheelResetTimer: ReturnType<typeof setTimeout> | undefined
-  let imageWheelUnlockTimer: ReturnType<typeof setTimeout> | undefined
-  let imageWheelLocked = false
+  let imageWheelFlushTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingImageWheelSteps = 0
 
   createEffect(() => {
     viewingPath()
@@ -241,31 +244,44 @@ export function WorkspaceViewerPane(props: Props) {
     currentImageIndex() !== -1 ? currentImageIndex() + 1 : 1,
   )
   const totalImages = createMemo(() => imageFiles().length)
+  const imagePrefetchPaths = createMemo(() => {
+    const index = currentImageIndex()
+    return index < 0
+      ? []
+      : imageFiles()
+          .slice(index + 1, index + 3)
+          .map((file) => file.path)
+  })
+  const responsiveImage = createResponsiveImage({
+    path: viewingPath,
+    context: share,
+    viewport: imageSurface,
+    zoom,
+    prefetchPaths: imagePrefetchPaths,
+  })
 
-  function goNextImage() {
+  function moveImage(offset: number) {
     const list = imageFiles()
     const vp = viewingPath()
     if (!vp || list.length === 0) return
     const i = list.findIndex((f) => f.path === vp)
-    if (i === -1 || i === list.length - 1) return
-    const nextFile = list[i + 1]
-    props.onUpdateViewing(props.windowId, nextFile.path)
+    if (i === -1) return
+    const target = Math.max(0, Math.min(list.length - 1, i + offset))
+    if (target === i) return
+    props.onUpdateViewing(props.windowId, list[target].path)
+  }
+
+  function goNextImage() {
+    moveImage(1)
   }
 
   function goPrevImage() {
-    const list = imageFiles()
-    const vp = viewingPath()
-    if (!vp || list.length === 0) return
-    const i = list.findIndex((f) => f.path === vp)
-    if (i === -1 || i === 0) return
-    const prevFile = list[i - 1]
-    props.onUpdateViewing(props.windowId, prevFile.path)
+    moveImage(-1)
   }
 
   function handleImageWheel(e: WheelEvent) {
     if (e.ctrlKey || !window.matchMedia('(pointer: fine)').matches) return
     e.preventDefault()
-    if (imageWheelLocked) return
 
     const multiplier =
       e.deltaMode === WheelEvent.DOM_DELTA_LINE
@@ -280,18 +296,25 @@ export function WorkspaceViewerPane(props: Props) {
     }, 150)
 
     if (Math.abs(imageWheelDelta) < 40) return
-    if (imageWheelDelta > 0) goNextImage()
-    else goPrevImage()
+    pendingImageWheelSteps += imageWheelDelta > 0 ? 1 : -1
     imageWheelDelta = 0
-    imageWheelLocked = true
-    imageWheelUnlockTimer = setTimeout(() => {
-      imageWheelLocked = false
-    }, 250)
+    flushImageWheelSteps()
+  }
+
+  function flushImageWheelSteps() {
+    if (imageWheelFlushTimer || pendingImageWheelSteps === 0) return
+    const steps = pendingImageWheelSteps
+    pendingImageWheelSteps = 0
+    moveImage(steps)
+    imageWheelFlushTimer = setTimeout(() => {
+      imageWheelFlushTimer = undefined
+      flushImageWheelSteps()
+    }, 100)
   }
 
   onCleanup(() => {
     clearTimeout(imageWheelResetTimer)
-    clearTimeout(imageWheelUnlockTimer)
+    clearTimeout(imageWheelFlushTimer)
   })
 
   createEffect(() => {
@@ -610,6 +633,7 @@ export function WorkspaceViewerPane(props: Props) {
           <div
             data-testid='workspace-image-surface'
             class='relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-2'
+            ref={setImageSurface}
             onWheel={handleImageWheel}
           >
             <button
@@ -624,12 +648,33 @@ export function WorkspaceViewerPane(props: Props) {
               onClick={goNextImage}
               aria-label='Next image'
             />
-            <img
-              src={mediaUrl()}
-              alt={fileName()}
-              class='pointer-events-none max-h-full transition-transform duration-200'
-              style={imgStyle()}
-            />
+            <Show when={responsiveImage.showSpinner()}>
+              <LoaderCircle
+                class='absolute top-1/2 left-1/2 z-20 h-6 w-6 -translate-x-1/2 -translate-y-1/2 animate-spin text-white/80'
+                aria-label='Loading image'
+              />
+            </Show>
+            <Show when={responsiveImage.error()}>
+              <div class='z-20 flex flex-col items-center gap-2 text-sm text-white'>
+                <p>Could not load image</p>
+                <button
+                  type='button'
+                  class='rounded-md border border-white/30 px-2.5 py-1 hover:bg-white/10'
+                  onClick={responsiveImage.retry}
+                >
+                  Retry
+                </button>
+              </div>
+            </Show>
+            <Show when={responsiveImage.src() && !responsiveImage.error()}>
+              <img
+                src={responsiveImage.src()}
+                alt={fileName()}
+                class='pointer-events-none max-h-full transition-transform duration-200'
+                classList={{ invisible: responsiveImage.showSpinner() }}
+                style={imgStyle()}
+              />
+            </Show>
           </div>
         </div>
       </Show>

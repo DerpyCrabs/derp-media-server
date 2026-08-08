@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildAudioExtractUrl,
   buildAudioMetadataUrl,
+  buildImageUrl,
   buildShareMediaUrl,
   buildThumbnailUrl,
 } from '@/src/lib/build-media-url'
@@ -28,6 +29,24 @@ describe('share media URLs', () => {
   test('keeps directory-share file requests relative to share root', () => {
     expect(buildShareMediaUrl('token', 'Shared', 'Shared/nested/note.md')).toBe(
       '/api/share/token/media/nested/note.md',
+    )
+  })
+
+  test('builds responsive image URLs with authorized share-relative paths', () => {
+    expect(
+      buildImageUrl(
+        'Shared/nested/photo.jpg',
+        { token: 'token', sharePath: 'Shared' },
+        {
+          width: 901.4,
+          height: 600.6,
+          dpr: 2,
+          scale: 1.25,
+          priority: 'next',
+        },
+      ),
+    ).toBe(
+      '/api/share/token/image/nested/photo.jpg?width=901&height=601&dpr=2&scale=1.25&priority=next',
     )
   })
 })

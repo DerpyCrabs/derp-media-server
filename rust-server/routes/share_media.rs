@@ -25,11 +25,12 @@ use std::path::Path as FsPath;
 use std::sync::atomic::Ordering;
 use tokio::fs;
 
-async fn media_file(
-    State(state): State<Shared>,
-    Path((token, path)): Path<(String, String)>,
-    headers: HeaderMap,
-) -> AppResult<Response> {
+async fn shared_media_logical(
+    state: &Shared,
+    token: &str,
+    path: &str,
+    headers: &HeaderMap,
+) -> AppResult<String> {
     let share = validate(&state, &token, &headers)?;
     let canonical_path = markdown_images::canonical(&path);
     let authorized_reference =
@@ -54,7 +55,7 @@ async fn media_file(
         previews.retain(|_, preview| preview.finalized_at.is_some() || preview.expires_at > now);
         let key = canonical_path
             .as_ref()
-            .map(|path| (token.clone(), share.path.clone(), path.clone()));
+            .map(|path| (token.to_string(), share.path.clone(), path.clone()));
         if authorized_reference {
             if let Some(key) = &key {
                 previews.remove(key);
@@ -73,6 +74,15 @@ async fn media_file(
     } else {
         return Err(AppError::forbidden("Path outside share boundary"));
     };
+    Ok(logical)
+}
+
+async fn media_file(
+    State(state): State<Shared>,
+    Path((token, path)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let logical = shared_media_logical(&state, &token, &path, &headers).await?;
     let mut response = media_routes::media_path(&state, &logical, &headers)
         .await
         .map_err(|error| {
@@ -87,6 +97,33 @@ async fn media_file(
         axum::http::HeaderValue::from_static("no-cache"),
     );
     Ok(response)
+}
+
+async fn image_file(
+    State(state): State<Shared>,
+    Path((token, path)): Path<(String, String)>,
+    Query(query): Query<media_routes::ImageQuery>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let logical = shared_media_logical(&state, &token, &path, &headers).await?;
+    media_routes::image_path(&state, &logical, &query, &headers)
+        .await
+        .map_err(|error| {
+            if error.0 == StatusCode::NOT_FOUND {
+                AppError::not_found("File not found")
+            } else {
+                error
+            }
+        })
+}
+
+async fn image_config(
+    State(state): State<Shared>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<Value>> {
+    validate(&state, &token, &headers)?;
+    Ok(Json(json!({ "enabled": state.image_variants.enabled() })))
 }
 
 async fn thumbnail(
@@ -617,6 +654,8 @@ async fn download(
 pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/share/{token}/media/{*path}", get(media_file))
+        .route("/api/share/{token}/image-config", get(image_config))
+        .route("/api/share/{token}/image/{*path}", get(image_file))
         .route("/api/share/{token}/thumbnail/{*path}", get(thumbnail))
         .route(
             "/api/share/{token}/audio/metadata/{*path}",

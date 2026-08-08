@@ -51,6 +51,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `mediaDirs`               |                             | Multiple named media roots, each with optional editable folders             |
 | `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under single-root `mediaDir` where writes are allowed |
 | `fileSearch`              |                             | Persistent filename/path search index settings                              |
+| `imageOptimization`       |                             | Responsive viewer variants and disk-cache settings                          |
 | `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                                 |
 | `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                                |
 | `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
@@ -79,6 +80,24 @@ large libraries do not consume per-directory watcher limits.
   },
 }
 ```
+
+Image optimization is enabled by default for full-screen and workspace image viewers. Static
+JPEG, PNG, and WebP files are converted on demand to responsive WebP variants. Widths, quality,
+and cache size remain configurable; omitted fields use these defaults:
+
+```jsonc
+{
+  "imageOptimization": {
+    "enabled": true,
+    "widths": [640, 1280, 1920, 2560, 3840],
+    "quality": 82,
+    "maxCacheSize": "10GiB",
+  },
+}
+```
+
+`maxCacheSize` accepts `KB`, `MB`, `GB`, `KiB`, `MiB`, and `GiB` suffixes case-insensitively.
+Variants live under `.image-variants`; changing widths or quality creates distinct cache entries.
 
 Use `mediaDirs` when serving multiple media roots:
 

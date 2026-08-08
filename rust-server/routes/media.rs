@@ -1,12 +1,13 @@
 use crate::{
     app::{AppState, Shared, roots},
     error::{AppError, AppResult},
+    image_variants::{Demand, Priority},
     media, thumbnails,
 };
 use axum::{
     Router,
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -18,6 +19,7 @@ use lofty::{
     probe::Probe,
     tag::ItemKey,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{path::Path as FsPath, time::UNIX_EPOCH};
 use tokio::{
@@ -74,6 +76,139 @@ pub(crate) async fn thumbnail_path(state: &AppState, logical: &str) -> Response 
 
 async fn thumbnail(State(state): State<Shared>, Path(path): Path<String>) -> Response {
     thumbnail_path(&state, &path).await
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ImageQuery {
+    width: f64,
+    height: f64,
+    dpr: f64,
+    scale: f64,
+    priority: String,
+}
+
+impl ImageQuery {
+    fn demand(&self) -> AppResult<Demand> {
+        let priority = match self.priority.as_str() {
+            "active" => Priority::Active,
+            "next" => Priority::Next,
+            "prefetch" => Priority::Prefetch,
+            _ => return Err(AppError::bad("Invalid image priority")),
+        };
+        let demand = Demand {
+            viewport_width: self.width,
+            viewport_height: self.height,
+            dpr: self.dpr,
+            scale: self.scale,
+            priority,
+        };
+        if !self.width.is_finite()
+            || !self.height.is_finite()
+            || !self.dpr.is_finite()
+            || !self.scale.is_finite()
+            || self.width <= 0.0
+            || self.height <= 0.0
+            || self.width > 32_768.0
+            || self.height > 32_768.0
+            || self.dpr <= 0.0
+            || !(0.25..=4.0).contains(&self.scale)
+        {
+            return Err(AppError::bad("Invalid image dimensions"));
+        }
+        Ok(demand)
+    }
+}
+
+fn not_modified(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
+}
+
+fn image_not_modified(etag: &str) -> Response {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::NOT_MODIFIED;
+    let headers = response.headers_mut();
+    headers.insert(header::ETAG, HeaderValue::from_str(etag).unwrap());
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    response
+}
+
+pub(crate) async fn image_path(
+    state: &AppState,
+    logical: &str,
+    query: &ImageQuery,
+    headers: &HeaderMap,
+) -> AppResult<Response> {
+    let resolved = media::resolve(&state.config, &roots(state), logical)?;
+    let metadata = fs::metadata(&resolved.full).await.map_err(AppError::io)?;
+    if !metadata.is_file() {
+        return Err(AppError::bad("Not a file"));
+    }
+    let modified = metadata
+        .modified()
+        .unwrap_or(UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let source_etag = format!("\"source-m{modified}-s{}\"", metadata.len());
+    if let Some(variant) = state
+        .image_variants
+        .read(&resolved.full, query.demand()?)
+        .await
+    {
+        if not_modified(headers, &variant.etag) {
+            return Ok(image_not_modified(&variant.etag));
+        }
+        let mut response = Response::new(Body::from(variant.data));
+        let values = response.headers_mut();
+        values.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/webp"));
+        values.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-cache"),
+        );
+        values.insert(header::ETAG, HeaderValue::from_str(&variant.etag).unwrap());
+        return Ok(response);
+    }
+    if not_modified(headers, &source_etag) {
+        return Ok(image_not_modified(&source_etag));
+    }
+    let mut response = media_path(state, logical, headers).await?;
+    let values = response.headers_mut();
+    values.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    values.insert(header::ETAG, HeaderValue::from_str(&source_etag).unwrap());
+    Ok(response)
+}
+
+async fn image_file(
+    State(state): State<Shared>,
+    Path(path): Path<String>,
+    Query(query): Query<ImageQuery>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    image_path(&state, &path, &query, &headers)
+        .await
+        .map_err(|error| {
+            if error.1.contains("Invalid path") {
+                AppError::forbidden("Invalid path")
+            } else if error.0 == StatusCode::NOT_FOUND {
+                AppError::not_found("File not found")
+            } else {
+                error
+            }
+        })
+}
+
+async fn image_config(State(state): State<Shared>) -> JsonValue {
+    axum::Json(json!({ "enabled": state.image_variants.enabled() }))
 }
 
 pub(crate) async fn audio_metadata_path(full: &FsPath) -> AppResult<JsonValue> {
@@ -376,6 +511,8 @@ async fn media_file(
 pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/media/{*path}", get(media_file))
+        .route("/api/image-config", get(image_config))
+        .route("/api/image/{*path}", get(image_file))
         .route("/api/thumbnail/{*path}", get(thumbnail))
         .route("/api/audio/metadata/{*path}", get(audio_metadata))
         .route("/api/audio/extract/{*path}", get(extract_audio))
