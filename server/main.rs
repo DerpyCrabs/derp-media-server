@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod canvas_persistence;
 mod config;
 mod error;
 mod file_search;

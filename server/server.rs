@@ -113,6 +113,7 @@ fn vite_port(server_port: u16) -> u16 {
 fn router(state: Shared) -> Router {
     Router::new()
         .merge(routes::auth::router())
+        .merge(routes::canvases::router())
         .merge(routes::files::router())
         .merge(routes::settings::router())
         .merge(routes::mounts::router())

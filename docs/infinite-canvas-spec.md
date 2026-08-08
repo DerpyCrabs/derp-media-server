@@ -15,14 +15,15 @@ Test whether stable two-dimensional placement improves project discoverability, 
 - Canvas starts blank.
 - Files and reusable browser/viewer/editor components are shared with the existing application.
 - Canvas windows, frames, camera, geometry, and history are isolated from workspace state.
-- Canvas state is versioned and stored only in browser `localStorage`.
+- Canvases are named, versioned, stored immediately in browser `localStorage`, and synchronized to
+  admin-only server storage when online.
 
 ## World and camera
 
 - Canvas is an unbounded two-dimensional world with stable world coordinates.
 - Middle-button drag pans. `Ctrl+wheel` zooms around cursor. Zoom is capped at 100%, so
   workspace windows never render larger than their native size.
-- Top bar contains breadcrumb, unified search, undo/redo, Fit All, zoom out, zoom percentage/reset, zoom in, and reset under overflow actions.
+- Top bar contains canvas picker, breadcrumb, unified search, undo/redo, Fit All, zoom out, zoom percentage/reset, zoom in, and reset under overflow actions.
 - `Ctrl+P` opens unified search and overrides browser Print only on `/canvas`.
 - Search jumps, Fit All, breadcrumb navigation, and focus transitions animate unless reduced motion is requested.
 - Desktop with mouse is supported. Touch/mobile/trackpad-specific interaction is outside first implementation.
@@ -101,6 +102,9 @@ Existing indexed library search APIs remain source of file results. Sections are
 
 ## Persistence and recovery
 
+- Multiple named canvases can be created, renamed, switched, and deleted.
+- Local writes never wait for network. Reconnect and periodic online sync merge records by timestamp
+  and stable writer ID; deletion tombstones prevent deleted canvases from reappearing.
 - Persist window definitions/paths, browser folders, bounds, z-order, parent frames, frame metadata, and camera.
 - Do not persist focus, menus, editor selection, scroll offsets, media playback position, or undo stack.
 - Missing paths retain geometry and display unavailable state with Retry, Search replacement, and Remove actions where component/API detection permits.
@@ -117,7 +121,7 @@ release. Large directory listings retain their existing row virtualization and r
 ## Acceptance checks
 
 - `/canvas` loads blank without creating/changing normal workspace state.
-- Reload restores local canvas map and camera.
+- Reload restores active local canvas immediately; online sync restores and reconciles named canvases across devices.
 - Frames reject overlap, carry children, capture enclosed windows, and release excluded windows.
 - Move/resize quantize to grid; insertions avoid existing windows without moving them.
 - Search jumps existing windows/frames and creates new library windows correctly.

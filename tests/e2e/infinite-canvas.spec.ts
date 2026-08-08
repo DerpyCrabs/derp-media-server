@@ -6,14 +6,138 @@ const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/canvases**', async (route) => {
+    const body =
+      route.request().method() === 'POST'
+        ? (route.request().postDataJSON() as { canvases?: unknown[] })
+        : null
+    await route.fulfill({ json: { canvases: body?.canvases ?? [] } })
+  })
   await page.addInitScript(() => {
     if (sessionStorage.getItem('canvas-test-initialized')) return
     sessionStorage.setItem('canvas-test-initialized', '1')
     localStorage.removeItem('infinite-canvas-state-v1')
+    localStorage.removeItem('infinite-canvases-v1')
     localStorage.setItem('workspace-state-test-sentinel', 'untouched')
   })
   await page.goto('/canvas')
   await expect(page.getByTestId('infinite-canvas')).toBeVisible()
+})
+
+test('creates, names, switches, and restores canvases', async ({ page }) => {
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await page.getByLabel('Name').fill('Projects')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Projects')
+
+  await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 160, y: 140 } })
+  await page.getByRole('button', { name: 'New frame' }).click()
+  await page.getByLabel('Name').fill('Project frame')
+  await page.getByRole('button', { name: 'Save' }).click()
+
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await page.getByLabel('Name').fill('Empty')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByTestId('canvas-frame')).toHaveCount(0)
+
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'Projects', exact: true }).click()
+  await expect(page.getByTestId('canvas-frame')).toContainText('Project frame')
+
+  await page.getByTestId('canvas-name-trigger').click()
+  const renameProjects = page.getByLabel('Rename Projects')
+  const projectsRow = page.getByTestId('canvas-list-item').filter({ hasText: 'Projects' })
+  await expect(projectsRow.locator('[data-canvas-row-actions]')).toHaveCSS('opacity', '0')
+  await projectsRow.hover()
+  await expect(projectsRow.locator('[data-canvas-row-actions]')).toHaveCSS('opacity', '1')
+  await renameProjects.click()
+  await page.getByLabel('Name').fill('Projects renamed')
+  await page.getByRole('button', { name: 'Save' }).click()
+
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByTestId('canvas-list-item').filter({ hasText: 'Empty' }).hover()
+  await page.getByLabel('Delete Empty').click()
+  await page.getByRole('button', { name: 'Delete canvas' }).click()
+  await page.getByTestId('canvas-name-trigger').click()
+  await expect(page.getByRole('button', { name: 'Empty', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Projects renamed')
+  await expect(page.getByTestId('canvas-frame')).toContainText('Project frame')
+})
+
+test('keeps edits offline and syncs them after reconnect', async ({ page, context }) => {
+  let syncedNames: string[] = []
+  await page.unroute('**/api/canvases**')
+  await page.route('**/api/canvases**', async (route) => {
+    const body =
+      route.request().method() === 'POST'
+        ? (route.request().postDataJSON() as {
+            canvases?: Array<{ name?: string; deleted?: boolean }>
+          })
+        : null
+    if (body?.canvases) {
+      syncedNames = body.canvases
+        .filter((canvas) => !canvas.deleted)
+        .map((canvas) => canvas.name ?? '')
+    }
+    await route.fulfill({ json: { canvases: body?.canvases ?? [] } })
+  })
+
+  await context.setOffline(true)
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await page.getByLabel('Name').fill('Offline plan')
+  await page.getByRole('button', { name: 'Save' }).click()
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
+          canvases?: Array<{ name?: string }>
+        }
+        return saved.canvases?.some((canvas) => canvas.name === 'Offline plan') ?? false
+      }),
+    )
+    .toBe(true)
+  await context.setOffline(false)
+  await expect.poll(() => syncedNames).toContain('Offline plan')
+})
+
+test('persists canvas records through server sync API', async ({ request }) => {
+  const id = `canvas-e2e-${Date.now()}`
+  const record = {
+    id,
+    name: 'Server canvas',
+    updatedAt: Date.now(),
+    writerId: 'playwright',
+    deleted: false,
+    state: {
+      version: 1,
+      frames: [],
+      windows: [],
+      camera: { x: 0, y: 0, zoom: 1 },
+      windowSizeByType: {},
+      nextItemId: 1,
+      nextZIndex: 1,
+    },
+  }
+  const saved = await request.post('/api/canvases/sync', { data: { canvases: [record] } })
+  expect(saved.ok()).toBe(true)
+
+  const loaded = await request.get('/api/canvases')
+  expect(loaded.ok()).toBe(true)
+  const body = (await loaded.json()) as { canvases: Array<{ id: string; name: string }> }
+  expect(body.canvases).toContainEqual(expect.objectContaining({ id, name: 'Server canvas' }))
+
+  const deleted = await request.post('/api/canvases/sync', {
+    data: {
+      canvases: [{ ...record, state: null, deleted: true, updatedAt: record.updatedAt + 1 }],
+    },
+  })
+  expect(deleted.ok()).toBe(true)
 })
 
 test('creates and locally restores isolated frames and windows', async ({ page }) => {

@@ -142,6 +142,10 @@ pub(crate) fn settings_path(state: &AppState) -> PathBuf {
     state.config.data_path.join("settings.json")
 }
 
+pub(crate) fn canvases_path(state: &AppState) -> PathBuf {
+    state.config.data_path.join("canvases.json")
+}
+
 pub(crate) fn stats_path(state: &AppState) -> PathBuf {
     state.config.data_path.join("stats.json")
 }

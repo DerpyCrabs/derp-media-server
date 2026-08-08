@@ -1,4 +1,15 @@
 import { api } from '@/lib/api'
+import {
+  CANVAS_COLLECTION_STORAGE_KEY,
+  compareCanvasRecords,
+  createCanvasRecord,
+  loadCanvasCollection,
+  mergeCanvasRecords,
+  nextCanvasTimestamp,
+  parseCanvasRecords,
+  serializeCanvasCollection,
+  type CanvasCollection,
+} from '@/lib/canvas-persistence'
 import { getFileDragData, hasFileDragData, isDirectoryFileDragData } from '@/lib/file-drag-data'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 import {
@@ -15,7 +26,6 @@ import {
   findNearestFreeCanvasRect,
   frameAtWindowCenter,
   framesOverlap,
-  loadInfiniteCanvasState,
   reconcileFrameMembership,
   rectContainsPoint,
   serializeInfiniteCanvasState,
@@ -48,9 +58,12 @@ import Maximize from 'lucide-solid/icons/maximize'
 import MoreHorizontal from 'lucide-solid/icons/more-horizontal'
 import Move from 'lucide-solid/icons/move'
 import Palette from 'lucide-solid/icons/palette'
+import Pencil from 'lucide-solid/icons/pencil'
+import Plus from 'lucide-solid/icons/plus'
 import Redo2 from 'lucide-solid/icons/redo-2'
 import RotateCcw from 'lucide-solid/icons/rotate-ccw'
 import Search from 'lucide-solid/icons/search'
+import Trash2 from 'lucide-solid/icons/trash-2'
 import Undo2 from 'lucide-solid/icons/undo-2'
 import X from 'lucide-solid/icons/x'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
@@ -87,6 +100,9 @@ type ContextMenuState =
 type Selection = { kind: 'window'; id: string } | null
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 type CanvasDialogState =
+  | { kind: 'new-canvas' }
+  | { kind: 'rename-canvas'; canvasId: string }
+  | { kind: 'delete-canvas'; canvasId: string; canvasName: string }
   | { kind: 'new-frame'; point: { x: number; y: number } }
   | { kind: 'rename-frame'; frameId: string }
   | { kind: 'delete-frame'; frameId: string; frameName: string }
@@ -195,11 +211,20 @@ function MenuButton(props: {
 
 export function CanvasPage() {
   useAdminEventsStream()
-  const [state, setState] = createSignal<InfiniteCanvasState>(
+  const browserStorage =
     typeof localStorage === 'undefined'
-      ? createEmptyCanvasState()
-      : loadInfiniteCanvasState(localStorage),
+      ? ({ getItem: () => null } as Pick<Storage, 'getItem'>)
+      : localStorage
+  const hadLocalCanvas = Boolean(
+    browserStorage.getItem(CANVAS_COLLECTION_STORAGE_KEY) ??
+    browserStorage.getItem(CANVAS_STORAGE_KEY),
   )
+  const initialCollection = loadCanvasCollection(browserStorage)
+  const initialCanvas = initialCollection.canvases.find(
+    (item) => item.id === initialCollection.activeId && !item.deleted,
+  )!
+  const [collection, setCollection] = createSignal<CanvasCollection>(initialCollection)
+  const [state, setState] = createSignal<InfiniteCanvasState>(initialCanvas.state!)
   const [undoStack, setUndoStack] = createSignal<InfiniteCanvasState[]>([])
   const [redoStack, setRedoStack] = createSignal<InfiniteCanvasState[]>([])
   const [selection, setSelection] = createSignal<Selection>(null)
@@ -208,6 +233,7 @@ export function CanvasPage() {
   const [searchOpen, setSearchOpen] = createSignal(false)
   const [searchAnchor, setSearchAnchor] = createSignal<{ x: number; y: number } | null>(null)
   const [overflowOpen, setOverflowOpen] = createSignal(false)
+  const [canvasMenuOpen, setCanvasMenuOpen] = createSignal(false)
   const [invalidFrameId, setInvalidFrameId] = createSignal<string | null>(null)
   const [geometryActive, setGeometryActive] = createSignal(false)
   const [cameraAnimating, setCameraAnimating] = createSignal(false)
@@ -218,6 +244,9 @@ export function CanvasPage() {
   let worldEl: HTMLDivElement | undefined
   let animationTimer: number | undefined
   let persistenceTimer: number | undefined
+  let syncTimer: number | undefined
+  let syncInterval: number | undefined
+  let syncRunning = false
   const panController = createCanvasPanController({
     camera: () => state().camera,
     viewport: () => viewportEl,
@@ -258,6 +287,121 @@ export function CanvasPage() {
     pinnedTaskbarItems: [],
   }))
 
+  const activeCanvas = createMemo(() =>
+    collection().canvases.find((item) => item.id === collection().activeId && !item.deleted),
+  )
+  const availableCanvases = createMemo(() => collection().canvases.filter((item) => !item.deleted))
+
+  function storeCollection(next: CanvasCollection) {
+    localStorage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(next))
+    localStorage.setItem(CANVAS_STORAGE_KEY, serializeInfiniteCanvasState(state()))
+  }
+
+  function persistActiveState(): CanvasCollection {
+    const serialized = serializeInfiniteCanvasState(state())
+    let result = collection()
+    setCollection((current) => {
+      const active = current.canvases.find((item) => item.id === current.activeId && !item.deleted)
+      if (!active || (active.state && serializeInfiniteCanvasState(active.state) === serialized)) {
+        result = current
+        return current
+      }
+      const updatedAt = nextCanvasTimestamp(current)
+      result = {
+        ...current,
+        lastTimestamp: updatedAt,
+        canvases: current.canvases.map((item) =>
+          item.id === current.activeId
+            ? { ...item, state: cloneState(state()), updatedAt, writerId: current.writerId }
+            : item,
+        ),
+      }
+      return result
+    })
+    storeCollection(result)
+    return result
+  }
+
+  function scheduleSync(delay = 700) {
+    if (syncTimer !== undefined) window.clearTimeout(syncTimer)
+    syncTimer = window.setTimeout(() => {
+      syncTimer = undefined
+      void syncCanvases()
+    }, delay)
+  }
+
+  async function syncCanvases(pullFirst = false) {
+    if (syncRunning || navigator.onLine === false) {
+      return
+    }
+    syncRunning = true
+    try {
+      let current = persistActiveState()
+      if (pullFirst) {
+        const pulled = await api<{ canvases: unknown[] }>('/api/canvases')
+        const remote = parseCanvasRecords(pulled.canvases)
+        const remoteActive = remote
+          .filter((item) => !item.deleted)
+          .sort((a, b) => compareCanvasRecords(b, a))[0]
+        if (!hadLocalCanvas && remoteActive) {
+          current = {
+            ...current,
+            activeId: remoteActive.id,
+            lastTimestamp: Math.max(current.lastTimestamp, remoteActive.updatedAt),
+            canvases: remote,
+          }
+          setCollection(current)
+          setState(cloneState(remoteActive.state!))
+          setUndoStack([])
+          setRedoStack([])
+        } else {
+          current = { ...current, canvases: mergeCanvasRecords(current.canvases, remote) }
+          setCollection(current)
+        }
+      }
+      const response = await api<{ canvases: unknown[] }>('/api/canvases/sync', {
+        method: 'POST',
+        body: JSON.stringify({ canvases: current.canvases }),
+      })
+      const latest = collection()
+      const canvases = mergeCanvasRecords(latest.canvases, parseCanvasRecords(response.canvases))
+      const active = canvases.find((item) => item.id === latest.activeId && !item.deleted)
+      const fallback = active ?? canvases.find((item) => !item.deleted)
+      if (fallback) {
+        const next = {
+          ...latest,
+          activeId: fallback.id,
+          lastTimestamp: Math.max(latest.lastTimestamp, ...canvases.map((item) => item.updatedAt)),
+          canvases,
+        }
+        setCollection(next)
+        if (
+          serializeInfiniteCanvasState(fallback.state!) !== serializeInfiniteCanvasState(state())
+        ) {
+          setState(cloneState(fallback.state!))
+          setUndoStack([])
+          setRedoStack([])
+        }
+        storeCollection(next)
+      } else {
+        const record = createCanvasRecord(latest, 'Untitled canvas')
+        const next = {
+          ...latest,
+          activeId: record.id,
+          lastTimestamp: record.updatedAt,
+          canvases: [...canvases, record],
+        }
+        setCollection(next)
+        setState(cloneState(record.state!))
+        storeCollection(next)
+        scheduleSync(50)
+      }
+    } catch {
+    } finally {
+      syncRunning = false
+    }
+  }
+
   onMount(() => {
     const oldHtmlOverflow = document.documentElement.style.overflow
     const oldBodyOverflow = document.body.style.overflow
@@ -268,11 +412,14 @@ export function CanvasPage() {
     const dismissContextMenu = (event: PointerEvent) => {
       if ((event.target as HTMLElement | null)?.closest('[data-canvas-context-menu]')) return
       setMenu(null)
+      if (!(event.target as HTMLElement | null)?.closest('[data-canvas-picker]')) {
+        setCanvasMenuOpen(false)
+      }
     }
     const clearFileDropPreview = () => setFileDropPreview(null)
     const clearFileDropPreviewAfterDrop = () => queueMicrotask(clearFileDropPreview)
-    const persistBeforePageTeardown = () =>
-      localStorage.setItem(CANVAS_STORAGE_KEY, serializeInfiniteCanvasState(state()))
+    const persistBeforePageTeardown = () => persistActiveState()
+    const syncWhenOnline = () => void syncCanvases()
     const updateFileDropPreview = (event: DragEvent) => {
       const transfer = event.dataTransfer
       const rect = viewport?.getBoundingClientRect()
@@ -301,6 +448,9 @@ export function CanvasPage() {
     document.addEventListener('drop', clearFileDropPreviewAfterDrop, true)
     window.addEventListener('blur', clearFileDropPreview)
     window.addEventListener('pagehide', persistBeforePageTeardown)
+    window.addEventListener('online', syncWhenOnline)
+    syncInterval = window.setInterval(() => void syncCanvases(), 30_000)
+    void syncCanvases(true)
     onCleanup(() => {
       viewport?.removeEventListener('pointerdown', beginPan, true)
       document.removeEventListener('pointerdown', dismissContextMenu, true)
@@ -309,24 +459,28 @@ export function CanvasPage() {
       document.removeEventListener('drop', clearFileDropPreviewAfterDrop, true)
       window.removeEventListener('blur', clearFileDropPreview)
       window.removeEventListener('pagehide', persistBeforePageTeardown)
+      window.removeEventListener('online', syncWhenOnline)
+      if (syncInterval !== undefined) window.clearInterval(syncInterval)
       document.documentElement.style.overflow = oldHtmlOverflow
       document.body.style.overflow = oldBodyOverflow
     })
   })
 
   createEffect(() => {
-    const value = serializeInfiniteCanvasState(state())
+    serializeInfiniteCanvasState(state())
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
     persistenceTimer = window.setTimeout(() => {
-      localStorage.setItem(CANVAS_STORAGE_KEY, value)
+      persistActiveState()
       persistenceTimer = undefined
+      scheduleSync()
     }, 220)
   })
 
   onCleanup(() => {
     if (animationTimer !== undefined) window.clearTimeout(animationTimer)
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
-    localStorage.setItem(CANVAS_STORAGE_KEY, serializeInfiniteCanvasState(state()))
+    if (syncTimer !== undefined) window.clearTimeout(syncTimer)
+    persistActiveState()
     panController.dispose()
   })
 
@@ -342,6 +496,98 @@ export function CanvasPage() {
     if (sameState(before, after)) return
     pushGesture(before, after)
     setState(after)
+  }
+
+  function saveCollection(next: CanvasCollection) {
+    setCollection(next)
+    storeCollection(next)
+    scheduleSync(50)
+  }
+
+  function switchCanvas(id: string) {
+    persistActiveState()
+    const target = collection().canvases.find((item) => item.id === id && !item.deleted)
+    if (!target?.state) return
+    const next = { ...collection(), activeId: id }
+    setCollection(next)
+    setState(cloneState(target.state))
+    setUndoStack([])
+    setRedoStack([])
+    clearSelection()
+    setCanvasMenuOpen(false)
+    storeCollection(next)
+  }
+
+  function createNamedCanvas() {
+    const current = persistActiveState()
+    const record = createCanvasRecord(current, dialogInput())
+    const next = {
+      ...current,
+      activeId: record.id,
+      lastTimestamp: record.updatedAt,
+      canvases: [...current.canvases, record],
+    }
+    setCollection(next)
+    setState(cloneState(record.state!))
+    setUndoStack([])
+    setRedoStack([])
+    clearSelection()
+    storeCollection(next)
+    scheduleSync(50)
+    setDialog(null)
+  }
+
+  function renameCanvas(canvasId: string) {
+    const name = dialogInput().trim()
+    if (!name) return
+    const current = persistActiveState()
+    const updatedAt = nextCanvasTimestamp(current)
+    saveCollection({
+      ...current,
+      lastTimestamp: updatedAt,
+      canvases: current.canvases.map((item) =>
+        item.id === canvasId ? { ...item, name, updatedAt, writerId: current.writerId } : item,
+      ),
+    })
+    setDialog(null)
+  }
+
+  function deleteCanvas(canvasId: string) {
+    const current = persistActiveState()
+    const updatedAt = nextCanvasTimestamp(current)
+    let canvases = current.canvases.map((item) =>
+      item.id === canvasId
+        ? {
+            ...item,
+            state: null,
+            deleted: true,
+            updatedAt,
+            writerId: current.writerId,
+          }
+        : item,
+    )
+    let fallback = canvases.find((item) => item.id === current.activeId && !item.deleted)
+    fallback ??= canvases.find((item) => !item.deleted)
+    if (!fallback) {
+      fallback = createCanvasRecord({ ...current, lastTimestamp: updatedAt }, 'Untitled canvas')
+      canvases = [...canvases, fallback]
+    }
+    const next = {
+      ...current,
+      activeId: fallback.id,
+      lastTimestamp: Math.max(updatedAt, fallback.updatedAt),
+      canvases,
+    }
+    setCollection(next)
+    if (current.activeId === canvasId) {
+      setState(cloneState(fallback.state!))
+      setUndoStack([])
+      setRedoStack([])
+      clearSelection()
+    }
+    storeCollection(next)
+    scheduleSync(50)
+    setDialog(null)
   }
 
   function undo() {
@@ -1074,16 +1320,85 @@ export function CanvasPage() {
   return (
     <div class='canvas-layout fixed inset-0 flex select-none flex-col overflow-hidden bg-background text-foreground'>
       <header class='relative z-[100000] flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/95 px-2 shadow-sm backdrop-blur'>
-        <button
-          type='button'
-          class='rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-muted'
-          onClick={() => {
-            clearSelection()
-            fitAll()
-          }}
-        >
-          Canvas
-        </button>
+        <div class='relative' data-canvas-picker>
+          <button
+            type='button'
+            data-testid='canvas-name-trigger'
+            class='max-w-56 truncate rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-muted'
+            onClick={() => setCanvasMenuOpen((open) => !open)}
+          >
+            {activeCanvas()?.name ?? 'Canvas'}
+          </button>
+          <Show when={canvasMenuOpen()}>
+            <div class='absolute top-10 left-0 w-64 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+              <div class='max-h-64 overflow-auto'>
+                <For each={availableCanvases()}>
+                  {(canvas) => (
+                    <div
+                      data-testid='canvas-list-item'
+                      class={`group flex h-9 w-full items-center rounded-md text-sm hover:bg-muted ${
+                        canvas.id === collection().activeId ? 'bg-muted font-medium' : ''
+                      }`}
+                    >
+                      <button
+                        type='button'
+                        class='min-w-0 flex-1 self-stretch truncate px-2.5 text-left'
+                        onClick={() => switchCanvas(canvas.id)}
+                      >
+                        {canvas.name}
+                      </button>
+                      <div
+                        data-canvas-row-actions
+                        class='pointer-events-none flex shrink-0 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
+                      >
+                        <button
+                          type='button'
+                          aria-label={`Rename ${canvas.name}`}
+                          title='Rename canvas'
+                          class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground'
+                          onClick={() => {
+                            setDialogInput(canvas.name)
+                            setDialog({ kind: 'rename-canvas', canvasId: canvas.id })
+                            setCanvasMenuOpen(false)
+                          }}
+                        >
+                          <Pencil class='size-4' />
+                        </button>
+                        <button
+                          type='button'
+                          aria-label={`Delete ${canvas.name}`}
+                          title='Delete canvas'
+                          class='mr-0.5 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+                          onClick={() => {
+                            setDialog({
+                              kind: 'delete-canvas',
+                              canvasId: canvas.id,
+                              canvasName: canvas.name,
+                            })
+                            setCanvasMenuOpen(false)
+                          }}
+                        >
+                          <Trash2 class='size-4' />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+              <div class='my-1 border-t border-border' />
+              <MenuButton
+                onClick={() => {
+                  setDialogInput('')
+                  setDialog({ kind: 'new-canvas' })
+                  setCanvasMenuOpen(false)
+                }}
+              >
+                <Plus class='size-4' />
+                New canvas
+              </MenuButton>
+            </div>
+          </Show>
+        </div>
         <Show when={selectedFrame()}>
           {(frame) => (
             <>
@@ -1745,26 +2060,45 @@ export function CanvasPage() {
               aria-modal='true'
               class='w-full max-w-sm rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
             >
-              <Show when={current().kind === 'new-frame' || current().kind === 'rename-frame'}>
+              <Show
+                when={
+                  current().kind === 'new-canvas' ||
+                  current().kind === 'rename-canvas' ||
+                  current().kind === 'new-frame' ||
+                  current().kind === 'rename-frame'
+                }
+              >
                 <form
                   onSubmit={(event) => {
                     event.preventDefault()
                     const value = dialogInput().trim()
                     if (!value) return
                     const valueDialog = current()
-                    if (valueDialog.kind === 'new-frame') addFrame(valueDialog.point, value)
+                    if (valueDialog.kind === 'new-canvas') createNamedCanvas()
+                    else if (valueDialog.kind === 'rename-canvas')
+                      renameCanvas(valueDialog.canvasId)
+                    else if (valueDialog.kind === 'new-frame') addFrame(valueDialog.point, value)
                     else if (valueDialog.kind === 'rename-frame')
                       applyFrameName(valueDialog.frameId, value)
-                    setDialog(null)
+                    if (valueDialog.kind === 'new-frame' || valueDialog.kind === 'rename-frame') {
+                      setDialog(null)
+                    }
                   }}
                 >
                   <h2 class='text-base font-semibold'>
-                    {current().kind === 'new-frame' ? 'New frame' : 'Rename frame'}
+                    {current().kind === 'new-canvas'
+                      ? 'New canvas'
+                      : current().kind === 'rename-canvas'
+                        ? 'Rename canvas'
+                        : current().kind === 'new-frame'
+                          ? 'New frame'
+                          : 'Rename frame'}
                   </h2>
                   <label class='mt-4 block text-sm text-muted-foreground'>Name</label>
                   <input
                     autofocus
                     aria-label='Name'
+                    maxlength={120}
                     class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
                     value={dialogInput()}
                     onInput={(event) => setDialogInput(event.currentTarget.value)}
@@ -1785,6 +2119,34 @@ export function CanvasPage() {
                     </button>
                   </div>
                 </form>
+              </Show>
+              <Show when={current().kind === 'delete-canvas'}>
+                <h2 class='text-base font-semibold'>Delete canvas?</h2>
+                <p class='mt-2 text-sm text-muted-foreground'>
+                  “{(current() as Extract<CanvasDialogState, { kind: 'delete-canvas' }>).canvasName}
+                  ” will be removed on every synced device. Underlying files remain untouched.
+                </p>
+                <div class='mt-5 flex justify-end gap-2'>
+                  <button
+                    type='button'
+                    class='h-9 rounded-md px-3 text-sm hover:bg-muted'
+                    onClick={() => setDialog(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type='button'
+                    class='h-9 rounded-md bg-destructive px-3 text-sm text-white'
+                    onClick={() =>
+                      deleteCanvas(
+                        (current() as Extract<CanvasDialogState, { kind: 'delete-canvas' }>)
+                          .canvasId,
+                      )
+                    }
+                  >
+                    Delete canvas
+                  </button>
+                </div>
               </Show>
               <Show when={current().kind === 'delete-frame'}>
                 <h2 class='text-base font-semibold'>Delete frame?</h2>

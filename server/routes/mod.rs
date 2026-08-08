@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod canvases;
 pub mod files;
 pub mod media;
 pub mod mounts;
