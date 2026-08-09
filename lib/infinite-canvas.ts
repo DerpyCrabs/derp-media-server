@@ -78,6 +78,66 @@ export function createEmptyCanvasState(): InfiniteCanvasState {
   }
 }
 
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function preserveArray<T>(current: T[], incoming: T[]): T[] {
+  return current.length === incoming.length &&
+    current.every((item, index) => item === incoming[index])
+    ? current
+    : incoming
+}
+
+export function reconcileInfiniteCanvasState(
+  current: InfiniteCanvasState,
+  incoming: InfiniteCanvasState,
+): InfiniteCanvasState {
+  if (sameValue(current, incoming)) return current
+
+  const currentWindows = new Map(current.windows.map((window) => [window.id, window]))
+  const windows = preserveArray(
+    current.windows,
+    incoming.windows.map((window) => {
+      const existing = currentWindows.get(window.id)
+      if (!existing) return window
+      if (sameValue(existing, window)) return existing
+      return sameValue(existing.definition, window.definition)
+        ? { ...window, definition: existing.definition }
+        : window
+    }),
+  )
+  const currentCards = new Map(current.cards.map((card) => [card.id, card]))
+  const cards = preserveArray(
+    current.cards,
+    incoming.cards.map((card) => {
+      const existing = currentCards.get(card.id)
+      return existing && sameValue(existing, card) ? existing : card
+    }),
+  )
+  const currentConnectors = new Map(
+    current.connectors.map((connector) => [connector.id, connector]),
+  )
+  const connectors = preserveArray(
+    current.connectors,
+    incoming.connectors.map((connector) => {
+      const existing = currentConnectors.get(connector.id)
+      return existing && sameValue(existing, connector) ? existing : connector
+    }),
+  )
+
+  return {
+    ...incoming,
+    windows,
+    cards,
+    connectors,
+    camera: sameValue(current.camera, incoming.camera) ? current.camera : incoming.camera,
+    windowSizeByType: sameValue(current.windowSizeByType, incoming.windowSizeByType)
+      ? current.windowSizeByType
+      : incoming.windowSizeByType,
+  }
+}
+
 export function snapCanvasValue(value: number): number {
   return Math.round(value / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE
 }

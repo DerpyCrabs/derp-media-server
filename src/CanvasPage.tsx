@@ -1,11 +1,15 @@
 import { api } from '@/lib/api'
 import {
   CANVAS_SNAPSHOTS_STORAGE_KEY,
+  CANVAS_TEMPLATES,
   buildCanvasContext,
   createCanvasExport,
+  createCanvasTemplateState,
   parseCanvasExport,
   parseCanvasSnapshots,
+  type CanvasContextContent,
   type CanvasSnapshot,
+  type CanvasTemplateKey,
 } from '@/lib/canvas-features'
 import {
   CANVAS_COLLECTION_STORAGE_KEY,
@@ -32,6 +36,7 @@ import {
   createEmptyCanvasState,
   findNearestFreeCanvasRect,
   parseInfiniteCanvasState,
+  reconcileInfiniteCanvasState,
   serializeInfiniteCanvasState,
   snapCanvasRect,
   snapCanvasValue,
@@ -62,6 +67,7 @@ import {
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
+import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Copy from 'lucide-solid/icons/copy'
 import Download from 'lucide-solid/icons/download'
 import FileText from 'lucide-solid/icons/file-text'
@@ -69,16 +75,12 @@ import FolderOpen from 'lucide-solid/icons/folder-open'
 import Focus from 'lucide-solid/icons/focus'
 import Maximize from 'lucide-solid/icons/maximize'
 import MoreHorizontal from 'lucide-solid/icons/more-horizontal'
-import Move from 'lucide-solid/icons/move'
-import Palette from 'lucide-solid/icons/palette'
 import Pencil from 'lucide-solid/icons/pencil'
 import Plus from 'lucide-solid/icons/plus'
-import Link2 from 'lucide-solid/icons/link-2'
 import Lock from 'lucide-solid/icons/lock'
 import MessageSquare from 'lucide-solid/icons/message-square'
 import PanelLeft from 'lucide-solid/icons/panel-left'
 import Save from 'lucide-solid/icons/save'
-import Sparkles from 'lucide-solid/icons/sparkles'
 import Upload from 'lucide-solid/icons/upload'
 import Redo2 from 'lucide-solid/icons/redo-2'
 import RotateCcw from 'lucide-solid/icons/rotate-ccw'
@@ -112,6 +114,47 @@ const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
 }
 const LIVE_ZOOM = 0.62
 const FAR_ZOOM = 0.28
+const AI_DOCUMENT_CHARACTER_LIMIT = 24_000
+const AI_TOTAL_CHARACTER_LIMIT = 60_000
+
+type NoteStarterKey = 'blank' | 'meeting' | 'decision' | 'reading' | 'hardware' | 'prompt'
+
+const NOTE_STARTERS: Array<{
+  key: NoteStarterKey
+  label: string
+  content: string
+}> = [
+  { key: 'blank', label: 'Blank', content: '' },
+  {
+    key: 'meeting',
+    label: 'Meeting notes',
+    content: '## Agenda\n\n## Notes\n\n## Actions\n\n- [ ] ',
+  },
+  { key: 'decision', label: 'Decision', content: '## Decision\n\n## Context\n\n## Consequences\n' },
+  {
+    key: 'reading',
+    label: 'Reading notes',
+    content: '## Questions\n\n## Claims\n\n## Evidence\n\n## Quotes\n',
+  },
+  {
+    key: 'hardware',
+    label: 'Hardware note',
+    content: '## Requirements\n\n## Interfaces\n\n## Validation\n',
+  },
+  {
+    key: 'prompt',
+    label: 'Prompt brief',
+    content: '## Role\n\n## Goal\n\n## Constraints\n\n## Output format\n\n## Evaluation criteria\n',
+  },
+]
+
+type CanvasAiContextSource = {
+  id: string
+  title: string
+  detail: string
+  status: 'included' | 'reference' | 'failed'
+  characters: number
+}
 
 type ContextMenuState =
   | { kind: 'canvas'; clientX: number; clientY: number; worldX: number; worldY: number }
@@ -121,6 +164,14 @@ type Selection = { kind: 'window'; id: string } | null
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 type CanvasDialogState =
   | { kind: 'new-canvas' }
+  | { kind: 'new-note'; point: { x: number; y: number }; initialContent: string }
+  | {
+      kind: 'ai-context'
+      instruction: string
+      context: string
+      sources: CanvasAiContextSource[]
+      loading: boolean
+    }
   | { kind: 'rename-canvas'; canvasId: string }
   | { kind: 'delete-canvas'; canvasId: string; canvasName: string }
   | { kind: 'reset-canvas' }
@@ -295,6 +346,9 @@ export function CanvasPage() {
   const [cameraAnimating, setCameraAnimating] = createSignal(false)
   const [dialog, setDialog] = createSignal<CanvasDialogState | null>(null)
   const [dialogInput, setDialogInput] = createSignal('')
+  const [canvasTemplate, setCanvasTemplate] = createSignal<CanvasTemplateKey>('blank')
+  const [noteDirectory, setNoteDirectory] = createSignal('')
+  const [noteStarter, setNoteStarter] = createSignal<NoteStarterKey>('blank')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
   const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
   const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'offline' | 'error'>(
@@ -334,6 +388,11 @@ export function CanvasPage() {
   }))
   const editableFolders = createMemo(() => authQuery.data?.editableFolders ?? [])
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
+  const writableDirectories = createMemo(() =>
+    [...new Set([...knowledgeBases(), ...editableFolders()])].map((path) =>
+      path.replace(/\\/g, '/').replace(/\/$/, ''),
+    ),
+  )
   const fileIconContext = createMemo(() => ({
     ...EMPTY_FILE_ICON_CONTEXT,
     customIcons: settingsQuery.data?.customIcons ?? {},
@@ -427,7 +486,7 @@ export function CanvasPage() {
             canvases: remote,
           }
           setCollection(current)
-          setState(cloneState(remoteActive.state!))
+          setState((activeState) => reconcileInfiniteCanvasState(activeState, remoteActive.state!))
           setUndoStack([])
           setRedoStack([])
         } else {
@@ -445,6 +504,9 @@ export function CanvasPage() {
       })
       const latest = collection()
       const canvases = mergeCanvasRecords(latest.canvases, parseCanvasRecords(response.canvases))
+      const previousActive = latest.canvases.find(
+        (item) => item.id === latest.activeId && !item.deleted,
+      )
       const active = canvases.find((item) => item.id === latest.activeId && !item.deleted)
       const fallback = active ?? canvases.find((item) => !item.deleted)
       if (fallback) {
@@ -455,11 +517,13 @@ export function CanvasPage() {
           canvases,
         }
         setCollection(next)
+        const remoteStateWins =
+          fallback.id !== latest.activeId || fallback.updatedAt > (previousActive?.updatedAt ?? 0)
         if (
-          fallback.id !== latest.activeId &&
+          remoteStateWins &&
           serializeInfiniteCanvasState(fallback.state!) !== serializeInfiniteCanvasState(state())
         ) {
-          setState(cloneState(fallback.state!))
+          setState((activeState) => reconcileInfiniteCanvasState(activeState, fallback.state!))
           setUndoStack([])
           setRedoStack([])
         }
@@ -615,7 +679,11 @@ export function CanvasPage() {
 
   function createNamedCanvas() {
     const current = persistActiveState()
-    const record = createCanvasRecord(current, dialogInput(), createEmptyCanvasState())
+    const record = createCanvasRecord(
+      current,
+      dialogInput(),
+      createCanvasTemplateState(canvasTemplate()),
+    )
     const next = {
       ...current,
       activeId: record.id,
@@ -949,10 +1017,9 @@ export function CanvasPage() {
     point = viewportCenterWorld(),
     content = '',
     requestedTitle = 'Canvas note',
+    requestedDirectory = '',
   ) {
-    const directory = (knowledgeBases()[0] ?? editableFolders()[0])
-      ?.replace(/\\/g, '/')
-      .replace(/\/$/, '')
+    const directory = requestedDirectory || writableDirectories()[0]
     if (!directory) {
       setDialog({
         kind: 'message',
@@ -989,6 +1056,68 @@ export function CanvasPage() {
         message: error instanceof Error ? error.message : 'Could not create text file.',
       })
     }
+  }
+
+  function openNoteComposer(
+    point = viewportCenterWorld(),
+    initialContent = '',
+    requestedTitle = 'Canvas note',
+  ) {
+    if (!writableDirectories().length) {
+      setDialog({
+        kind: 'message',
+        message: 'Configure an editable folder or knowledge base before creating text files.',
+      })
+      return
+    }
+    setDialogInput(requestedTitle)
+    setNoteDirectory(writableDirectories()[0] ?? '')
+    setNoteStarter('blank')
+    setDialog({ kind: 'new-note', point, initialContent })
+  }
+
+  function createDocumentFromComposer(value: Extract<CanvasDialogState, { kind: 'new-note' }>) {
+    const starter = NOTE_STARTERS.find((item) => item.key === noteStarter())?.content ?? ''
+    const content = value.initialContent || starter
+    setDialog(null)
+    void addTextEditor(value.point, content, dialogInput(), noteDirectory())
+  }
+
+  function addQuickNote(point = viewportCenterWorld(), body = '', title = 'Untitled note') {
+    let createdId = ''
+    commit((current) => {
+      const id = `canvas-card-${current.nextItemId}`
+      createdId = id
+      const bounds = findNearestFreeCanvasRect(
+        { x: point.x - 176, y: point.y - 112, width: 352, height: 224 },
+        placementObstacles(current),
+      )
+      return {
+        ...current,
+        cards: [
+          ...current.cards,
+          {
+            id,
+            kind: 'note',
+            title,
+            body,
+            url: null,
+            color: '#6366f1',
+            bounds,
+            zIndex: current.nextZIndex,
+            locked: false,
+            tags: [],
+          },
+        ],
+        nextItemId: current.nextItemId + 1,
+        nextZIndex: current.nextZIndex + 1,
+      }
+    })
+    if (!createdId) return
+    selectCard(createdId)
+    queueMicrotask(() => {
+      document.querySelector<HTMLTextAreaElement>(`[data-card-id="${createdId}"] textarea`)?.focus()
+    })
   }
 
   function updateCard(
@@ -1341,16 +1470,118 @@ export function CanvasPage() {
     }
   }
 
-  function askAiAboutSelection(instruction = 'Help me analyze, improve, or continue this work.') {
+  async function prepareAiContext(
+    instruction = 'Help me analyze, improve, or continue this work.',
+  ) {
     const ids = selectedIds().length
       ? selectedIds()
       : [...state().windows.map((item) => item.id), ...state().cards.map((item) => item.id)]
-    const context = buildCanvasContext(state(), ids)
+    setDialog({ kind: 'ai-context', instruction, context: '', sources: [], loading: true })
+    const selected = new Set(ids)
+    const contents: Record<string, CanvasContextContent> = {}
+    const sources: CanvasAiContextSource[] = []
+    let remaining = AI_TOTAL_CHARACTER_LIMIT
+
+    for (const card of state().cards.filter((item) => selected.has(item.id))) {
+      const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
+      const content = card.body.slice(0, allowed)
+      contents[card.id] = { content, truncated: content.length < card.body.length }
+      remaining -= content.length
+      sources.push({
+        id: card.id,
+        title: card.title || 'Untitled note',
+        detail: contents[card.id]!.truncated ? 'Note content truncated' : 'Note content included',
+        status: 'included',
+        characters: content.length,
+      })
+    }
+
+    for (const item of state().windows.filter((window) => selected.has(window.id))) {
+      const path = item.definition.initialState.viewing ?? item.definition.initialState.dir ?? ''
+      if (item.definition.type === 'hermes' && item.definition.hermes) {
+        const key = ensureHermesChat(item.definition.hermes)
+        const transcript = (hermesSessions[key]?.messages ?? [])
+          .filter((message) => message.text.trim())
+          .map(
+            (message) => `${message.role === 'assistant' ? 'AI' : 'You'}: ${message.text.trim()}`,
+          )
+          .join('\n\n')
+        const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
+        const content = transcript.slice(0, allowed)
+        if (content) {
+          contents[item.id] = { content, truncated: content.length < transcript.length }
+          remaining -= content.length
+        }
+        sources.push({
+          id: item.id,
+          title: item.definition.title,
+          detail: content ? 'Chat transcript included' : 'Chat title included',
+          status: content ? 'included' : 'reference',
+          characters: content.length,
+        })
+        continue
+      }
+      if (
+        item.definition.type !== 'viewer' ||
+        !path ||
+        getMediaType(path.split('.').at(-1) ?? '') !== MediaType.TEXT
+      ) {
+        sources.push({
+          id: item.id,
+          title: item.definition.title,
+          detail: path ? `Reference only: ${path}` : 'Reference only',
+          status: 'reference',
+          characters: 0,
+        })
+        continue
+      }
+      try {
+        const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`)
+        if (!response.ok) throw new Error('Failed to load document')
+        const fullContent = await response.text()
+        const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
+        const content = fullContent.slice(0, allowed)
+        contents[item.id] = { content, truncated: content.length < fullContent.length }
+        remaining -= content.length
+        sources.push({
+          id: item.id,
+          title: item.definition.title,
+          detail: contents[item.id]!.truncated
+            ? `Document truncated: ${path}`
+            : `Document included: ${path}`,
+          status: 'included',
+          characters: content.length,
+        })
+      } catch {
+        sources.push({
+          id: item.id,
+          title: item.definition.title,
+          detail: `Could not load: ${path}`,
+          status: 'failed',
+          characters: 0,
+        })
+      }
+    }
+
+    setDialog({
+      kind: 'ai-context',
+      instruction,
+      context: buildCanvasContext(state(), ids, contents),
+      sources,
+      loading: false,
+    })
+  }
+
+  function sendAiContext(value: Extract<CanvasDialogState, { kind: 'ai-context' }>) {
     const id = addBlankHermesWindow()
     const definition = state().windows.find((item) => item.id === id)?.definition
     if (!definition?.hermes) return
     const key = ensureHermesChat(definition.hermes)
-    setHermesComposer(key, `${instruction}\n\nUse following canvas context:\n\n${context}`)
+    setHermesComposer(
+      key,
+      `${value.instruction}\n\nUse following canvas context:\n\n${value.context}`,
+    )
+    setDialog(null)
     focusWindow(id)
   }
 
@@ -1370,7 +1601,7 @@ export function CanvasPage() {
       return
     }
     const bounds = item.bounds
-    void addTextEditor(
+    openNoteComposer(
       { x: bounds.x + bounds.width + 208, y: bounds.y + 112 },
       transcript,
       `${item.definition.title} transcript`,
@@ -1882,12 +2113,23 @@ export function CanvasPage() {
 
   return (
     <div class='canvas-layout fixed inset-0 flex select-none flex-col overflow-hidden bg-background text-foreground'>
-      <header class='relative z-[100000] flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/95 px-2 shadow-sm backdrop-blur'>
-        <div class='relative' data-canvas-picker>
+      <header class='relative z-[100000] flex h-12 shrink-0 items-center border-b border-border bg-card/95 px-2 shadow-sm backdrop-blur'>
+        <div class='mr-2 flex h-8 shrink-0 items-center border-r border-border pr-2'>
+          <button
+            type='button'
+            title='Canvas outline'
+            aria-label='Canvas outline'
+            class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
+            onClick={() => setOutlineOpen((open) => !open)}
+          >
+            <PanelLeft class='size-4' />
+          </button>
+        </div>
+        <div class='relative min-w-0' data-canvas-picker>
           <button
             type='button'
             data-testid='canvas-name-trigger'
-            class='max-w-56 truncate rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-muted'
+            class='max-w-[32vw] truncate rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-muted sm:max-w-56'
             onClick={() => setCanvasMenuOpen((open) => !open)}
           >
             {activeCanvas()?.name ?? 'Canvas'}
@@ -1956,6 +2198,7 @@ export function CanvasPage() {
               <MenuButton
                 onClick={() => {
                   setDialogInput('')
+                  setCanvasTemplate('blank')
                   setDialog({ kind: 'new-canvas' })
                   setCanvasMenuOpen(false)
                 }}
@@ -1969,11 +2212,11 @@ export function CanvasPage() {
         <Show when={selectedWindow()}>
           {(item) => (
             <>
-              <ChevronRight class='size-4 text-muted-foreground' />
+              <ChevronRight class='hidden size-4 text-muted-foreground lg:block' />
               <button
                 type='button'
                 data-testid='canvas-window-breadcrumb'
-                class='max-w-48 truncate rounded px-2 py-1 text-sm hover:bg-muted'
+                class='hidden max-w-48 truncate rounded px-2 py-1 text-sm hover:bg-muted lg:block'
                 onClick={() => focusWindow(item().id)}
               >
                 {item().definition.title}
@@ -1981,178 +2224,170 @@ export function CanvasPage() {
             </>
           )}
         </Show>
-        <div class='ml-auto flex items-center gap-1'>
-          <span
-            data-testid='canvas-sync-status'
-            class='hidden rounded px-2 text-[11px] text-muted-foreground sm:inline'
-            classList={{
-              'text-destructive': syncStatus() === 'error',
-              'text-amber-500': syncStatus() === 'offline',
-            }}
-            title={
-              syncStatus() === 'saved'
-                ? 'Canvas saved and synced'
-                : syncStatus() === 'saving'
-                  ? 'Saving canvas'
-                  : syncStatus() === 'offline'
-                    ? 'Saved locally; sync resumes when online'
-                    : 'Canvas saved locally; server sync failed'
-            }
-          >
-            {syncStatus() === 'saved'
-              ? 'Saved'
-              : syncStatus() === 'saving'
-                ? 'Saving…'
-                : syncStatus() === 'offline'
-                  ? 'Offline'
-                  : 'Sync failed'}
-          </span>
-          <Show when={!readOnlyMode()}>
-            <div class='relative' data-canvas-add>
-              <button
-                type='button'
-                data-testid='canvas-add-trigger'
-                class='inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm text-primary-foreground hover:bg-primary/90'
-                aria-expanded={addMenuOpen()}
-                onClick={() => setAddMenuOpen((open) => !open)}
-              >
-                <Plus class='size-4' />
-                Add
-              </button>
-              <Show when={addMenuOpen()}>
-                <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
-                  <MenuButton
-                    onClick={() => {
-                      void addTextEditor()
-                      setAddMenuOpen(false)
-                    }}
-                  >
-                    <FileText class='size-4' /> New text
-                  </MenuButton>
-                  <MenuButton
-                    onClick={() => {
-                      addFileWindow(null, viewportCenterWorld())
-                      setAddMenuOpen(false)
-                    }}
-                  >
-                    <FolderOpen class='size-4' /> File browser
-                  </MenuButton>
-                  <MenuButton
-                    onClick={() => {
-                      addBlankHermesWindow()
-                      setAddMenuOpen(false)
-                    }}
-                  >
-                    <MessageSquare class='size-4' /> AI chat
-                  </MenuButton>
-                </div>
-              </Show>
-            </div>
+        <div class='ml-auto flex shrink-0 items-center gap-2'>
+          <Show when={syncStatus() === 'error'}>
+            <button
+              type='button'
+              data-testid='canvas-sync-error'
+              class='inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm text-destructive hover:bg-destructive/10'
+              title='Canvas is saved locally, but server sync failed'
+              onClick={() => void syncCanvases()}
+            >
+              <CircleAlert class='size-4' />
+              <span class='hidden sm:inline'>Sync failed</span>
+              <span class='hidden font-medium md:inline'>Retry</span>
+            </button>
           </Show>
-          <button
-            type='button'
-            title='Canvas outline'
-            aria-label='Canvas outline'
-            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
-            onClick={() => setOutlineOpen((open) => !open)}
+          <div
+            data-testid='canvas-create-tools'
+            class='flex items-center rounded-lg border border-border/70 bg-background/50 p-0.5 shadow-sm'
           >
-            <PanelLeft class='size-4' />
-          </button>
-          <Show when={lastAudioWindow()}>
-            {(item) => (
-              <button
-                type='button'
-                data-testid='canvas-playing-audio-focus'
-                aria-label={`Focus audio player: ${item().definition.title}`}
-                title={`Focus audio player: ${item().definition.title}`}
-                class='text-primary hover:bg-primary/10 inline-flex size-8 items-center justify-center rounded-md'
-                onClick={() => focusWindow(item().id)}
-              >
-                <Volume2 class='size-4' />
-              </button>
-            )}
-          </Show>
-          <button
-            type='button'
-            data-testid='canvas-search-trigger'
-            class='inline-flex h-8 items-center gap-2 rounded-md px-2 text-sm hover:bg-muted'
-            onClick={() => openSearch(null)}
+            <Show when={!readOnlyMode()}>
+              <div class='relative' data-canvas-add>
+                <button
+                  type='button'
+                  data-testid='canvas-add-trigger'
+                  class='inline-flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90'
+                  aria-label='Add to canvas'
+                  title='Add to canvas'
+                  aria-expanded={addMenuOpen()}
+                  onClick={() => setAddMenuOpen((open) => !open)}
+                >
+                  <Plus class='size-4' />
+                </button>
+                <Show when={addMenuOpen()}>
+                  <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+                    <MenuButton
+                      onClick={() => {
+                        addQuickNote()
+                        setAddMenuOpen(false)
+                      }}
+                    >
+                      <FileText class='size-4' /> Quick note
+                    </MenuButton>
+                    <MenuButton
+                      onClick={() => {
+                        openNoteComposer()
+                        setAddMenuOpen(false)
+                      }}
+                    >
+                      <FileText class='size-4' /> New document
+                    </MenuButton>
+                    <MenuButton
+                      onClick={() => {
+                        addFileWindow(null, viewportCenterWorld())
+                        setAddMenuOpen(false)
+                      }}
+                    >
+                      <FolderOpen class='size-4' /> File browser
+                    </MenuButton>
+                    <MenuButton
+                      onClick={() => {
+                        addBlankHermesWindow()
+                        setAddMenuOpen(false)
+                      }}
+                    >
+                      <MessageSquare class='size-4' /> AI chat
+                    </MenuButton>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+            <Show when={lastAudioWindow()}>
+              {(item) => (
+                <button
+                  type='button'
+                  data-testid='canvas-playing-audio-focus'
+                  aria-label={`Focus audio player: ${item().definition.title}`}
+                  title={`Focus audio player: ${item().definition.title}`}
+                  class='inline-flex size-8 items-center justify-center rounded-md text-primary hover:bg-primary/10'
+                  onClick={() => focusWindow(item().id)}
+                >
+                  <Volume2 class='size-4' />
+                </button>
+              )}
+            </Show>
+            <button
+              type='button'
+              data-testid='canvas-search-trigger'
+              aria-label='Search canvas'
+              title='Search canvas'
+              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
+              onClick={() => openSearch(null)}
+            >
+              <Search class='size-4' />
+            </button>
+          </div>
+          <div
+            data-testid='canvas-history-tools'
+            class='hidden items-center rounded-lg border border-border/70 bg-background/50 p-0.5 shadow-sm md:flex'
           >
-            <Search class='size-4' />
-            Search
-          </button>
-          <button
-            type='button'
-            title='Undo'
-            disabled={!undoStack().length}
-            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
-            onClick={undo}
+            <button
+              type='button'
+              title='Undo'
+              aria-label='Undo'
+              disabled={!undoStack().length}
+              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
+              onClick={undo}
+            >
+              <Undo2 class='size-4' />
+            </button>
+            <button
+              type='button'
+              title='Redo'
+              aria-label='Redo'
+              disabled={!redoStack().length}
+              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
+              onClick={redo}
+            >
+              <Redo2 class='size-4' />
+            </button>
+          </div>
+          <div
+            data-testid='canvas-overflow-tools'
+            class='relative flex items-center rounded-lg border border-border/70 bg-background/50 p-0.5 shadow-sm'
           >
-            <Undo2 class='size-4' />
-          </button>
-          <button
-            type='button'
-            title='Redo'
-            disabled={!redoStack().length}
-            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
-            onClick={redo}
-          >
-            <Redo2 class='size-4' />
-          </button>
-          <button
-            type='button'
-            title='Previous view (Alt+Left)'
-            aria-label='Previous view'
-            disabled={!viewHistory().length}
-            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
-            onClick={previousView}
-          >
-            <ChevronRight class='size-4 rotate-180' />
-          </button>
-          <button
-            type='button'
-            title='Fit all'
-            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
-            onClick={fitAll}
-          >
-            <Maximize class='size-4' />
-          </button>
-          <button
-            type='button'
-            title='Zoom out'
-            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
-            onClick={() => zoomBy(0.8)}
-          >
-            <ZoomOut class='size-4' />
-          </button>
-          <button
-            type='button'
-            title='Reset zoom'
-            class='h-8 min-w-14 rounded-md px-2 text-xs tabular-nums hover:bg-muted'
-            onClick={() => zoomBy(1 / state().camera.zoom)}
-          >
-            {Math.round(state().camera.zoom * 100)}%
-          </button>
-          <button
-            type='button'
-            title='Zoom in'
-            disabled={state().camera.zoom >= CANVAS_MAX_ZOOM}
-            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
-            onClick={() => zoomBy(1.25)}
-          >
-            <ZoomIn class='size-4' />
-          </button>
-          <div class='relative'>
             <button
               type='button'
               title='More'
-              class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
+              aria-label='More canvas actions'
+              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
               onClick={() => setOverflowOpen((open) => !open)}
             >
               <MoreHorizontal class='size-4' />
             </button>
             <Show when={overflowOpen()}>
               <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+                <div class='md:hidden'>
+                  <MenuButton
+                    disabled={!undoStack().length}
+                    onClick={() => {
+                      undo()
+                      setOverflowOpen(false)
+                    }}
+                  >
+                    <Undo2 class='size-4' /> Undo
+                  </MenuButton>
+                  <MenuButton
+                    disabled={!redoStack().length}
+                    onClick={() => {
+                      redo()
+                      setOverflowOpen(false)
+                    }}
+                  >
+                    <Redo2 class='size-4' /> Redo
+                  </MenuButton>
+                </div>
+                <MenuButton
+                  disabled={!viewHistory().length}
+                  onClick={() => {
+                    previousView()
+                    setOverflowOpen(false)
+                  }}
+                >
+                  <ChevronRight class='size-4 rotate-180' /> Previous view
+                </MenuButton>
+                <div class='my-1 border-t border-border' />
                 <MenuButton
                   onClick={() => {
                     saveSnapshot()
@@ -2226,6 +2461,42 @@ export function CanvasPage() {
         </div>
       </header>
 
+      <div class='fixed right-3 bottom-3 z-[104000] flex items-center gap-0.5 rounded-lg border border-border bg-popover/95 p-1 shadow-xl backdrop-blur'>
+        <button
+          type='button'
+          title='Fit all'
+          class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
+          onClick={fitAll}
+        >
+          <Maximize class='size-4' />
+        </button>
+        <button
+          type='button'
+          title='Zoom out'
+          class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
+          onClick={() => zoomBy(0.8)}
+        >
+          <ZoomOut class='size-4' />
+        </button>
+        <button
+          type='button'
+          title='Reset zoom'
+          class='h-8 min-w-12 rounded-md px-1.5 text-xs tabular-nums hover:bg-muted'
+          onClick={() => zoomBy(1 / state().camera.zoom)}
+        >
+          {Math.round(state().camera.zoom * 100)}%
+        </button>
+        <button
+          type='button'
+          title='Zoom in'
+          disabled={state().camera.zoom >= CANVAS_MAX_ZOOM}
+          class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
+          onClick={() => zoomBy(1.25)}
+        >
+          <ZoomIn class='size-4' />
+        </button>
+      </div>
+
       <Show when={outlineOpen()}>
         <aside class='fixed top-12 bottom-0 left-0 z-[110000] flex w-72 flex-col border-r border-border bg-card/95 shadow-xl backdrop-blur'>
           <div class='flex h-11 items-center justify-between border-b px-3'>
@@ -2241,7 +2512,7 @@ export function CanvasPage() {
           </div>
           <div class='min-h-0 flex-1 overflow-auto p-2'>
             <p class='px-2 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase'>
-              Legacy notes
+              Notes
             </p>
             <For each={state().cards}>
               {(card) => (
@@ -2276,51 +2547,62 @@ export function CanvasPage() {
         </aside>
       </Show>
 
-      <Show when={selectedIds().length > 1}>
-        <div class='fixed top-14 left-1/2 z-[105000] flex -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+      <Show when={selectedIds().length > 0}>
+        <div class='fixed top-14 left-1/2 z-[105000] flex max-w-[calc(100vw-16px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-lg border border-border bg-popover p-1 shadow-xl'>
           <span class='px-2 text-xs text-muted-foreground'>{selectedIds().length} selected</span>
+          <Show when={selectedIds().length > 1}>
+            <button
+              type='button'
+              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
+              onClick={() => alignSelected('left')}
+            >
+              Align left
+            </button>
+            <button
+              type='button'
+              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
+              onClick={() => alignSelected('top')}
+            >
+              Align top
+            </button>
+            <button
+              type='button'
+              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted disabled:opacity-40'
+              disabled={selectedIds().length < 3}
+              onClick={distributeSelected}
+            >
+              Distribute
+            </button>
+            <button
+              type='button'
+              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted disabled:opacity-40'
+              disabled={selectedIds().length !== 2}
+              onClick={connectSelected}
+            >
+              Connect
+            </button>
+          </Show>
+          <Show when={selectedIds().length === 1}>
+            <button
+              type='button'
+              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
+              onClick={() => toggleConnectorEndpoint(selectedIds()[0]!)}
+            >
+              {connectingFrom() ? 'Cancel connect' : 'Connect'}
+            </button>
+          </Show>
           <button
             type='button'
-            class='h-8 rounded px-2 text-xs hover:bg-muted'
-            onClick={() => alignSelected('left')}
-          >
-            Align left
-          </button>
-          <button
-            type='button'
-            class='h-8 rounded px-2 text-xs hover:bg-muted'
-            onClick={() => alignSelected('top')}
-          >
-            Align top
-          </button>
-          <button
-            type='button'
-            class='h-8 rounded px-2 text-xs hover:bg-muted'
-            disabled={selectedIds().length < 3}
-            onClick={distributeSelected}
-          >
-            Distribute
-          </button>
-          <button
-            type='button'
-            class='h-8 rounded px-2 text-xs hover:bg-muted'
-            disabled={selectedIds().length !== 2}
-            onClick={connectSelected}
-          >
-            Connect
-          </button>
-          <button
-            type='button'
-            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
             onClick={toggleSelectedLock}
           >
             Lock/unlock
           </button>
           <button
             type='button'
-            class='h-8 rounded bg-primary px-2 text-xs text-primary-foreground hover:bg-primary/90'
+            class='h-8 shrink-0 rounded bg-primary px-2 text-xs text-primary-foreground hover:bg-primary/90'
             onClick={() =>
-              askAiAboutSelection(
+              void prepareAiContext(
                 'Summarize this material. Preserve key decisions, facts, and open questions.',
               )
             }
@@ -2329,29 +2611,31 @@ export function CanvasPage() {
           </button>
           <button
             type='button'
-            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
             onClick={() =>
-              askAiAboutSelection(
+              void prepareAiContext(
                 'Extract concrete tasks. Return a prioritized checklist with owners or dependencies when stated.',
               )
             }
           >
             Tasks
           </button>
+          <Show when={selectedIds().length > 1}>
+            <button
+              type='button'
+              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
+              onClick={() =>
+                void prepareAiContext(
+                  'Compare selected material. Identify agreements, conflicts, gaps, and a recommended synthesis.',
+                )
+              }
+            >
+              Compare
+            </button>
+          </Show>
           <button
             type='button'
-            class='h-8 rounded px-2 text-xs hover:bg-muted'
-            onClick={() =>
-              askAiAboutSelection(
-                'Compare selected material. Identify agreements, conflicts, gaps, and a recommended synthesis.',
-              )
-            }
-          >
-            Compare
-          </button>
-          <button
-            type='button'
-            class='h-8 rounded px-2 text-xs text-destructive hover:bg-destructive/10'
+            class='h-8 shrink-0 rounded px-2 text-xs text-destructive hover:bg-destructive/10'
             onClick={deleteSelected}
           >
             Delete
@@ -2386,14 +2670,14 @@ export function CanvasPage() {
         }}
         onDblClick={(event) => {
           if (readOnlyMode() || event.target !== event.currentTarget) return
-          void addTextEditor(screenToWorld(event.clientX, event.clientY))
+          openNoteComposer(screenToWorld(event.clientX, event.clientY))
         }}
         onPaste={(event) => {
           if (readOnlyMode() || editableTarget(event.target)) return
           const text = event.clipboardData?.getData('text/plain').trim()
           if (!text) return
           event.preventDefault()
-          void addTextEditor(viewportCenterWorld(), text, text.split(/\r?\n/, 1)[0]?.slice(0, 40))
+          openNoteComposer(viewportCenterWorld(), text, text.split(/\r?\n/, 1)[0]?.slice(0, 40))
         }}
         onWheel={(event) => {
           if (!event.ctrlKey && !event.metaKey) return
@@ -2458,15 +2742,22 @@ export function CanvasPage() {
             <div class='pointer-events-auto max-w-lg rounded-2xl border border-border bg-card/90 p-7 text-center shadow-xl backdrop-blur'>
               <h1 class='text-lg font-semibold'>Build your knowledge canvas</h1>
               <p class='mt-2 text-sm leading-6 text-muted-foreground'>
-                Double-click anywhere for a text editor. Drop files or add an AI chat.
+                Double-click anywhere for a document. Add quick notes, drop files, or ask AI.
               </p>
               <div class='mt-5 flex flex-wrap justify-center gap-2'>
                 <button
                   type='button'
                   class='rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground'
-                  onClick={() => void addTextEditor()}
+                  onClick={() => addQuickNote()}
                 >
-                  New text
+                  Quick note
+                </button>
+                <button
+                  type='button'
+                  class='rounded-md border border-border px-3 py-2 text-sm hover:bg-muted'
+                  onClick={() => openNoteComposer()}
+                >
+                  New document
                 </button>
                 <button
                   type='button'
@@ -2746,12 +3037,22 @@ export function CanvasPage() {
               <MenuButton
                 onClick={() => {
                   const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
-                  void addTextEditor({ x: value.worldX, y: value.worldY })
+                  addQuickNote({ x: value.worldX, y: value.worldY })
                   setMenu(null)
                 }}
               >
                 <FileText class='size-4' />
-                New text
+                Quick note
+              </MenuButton>
+              <MenuButton
+                onClick={() => {
+                  const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
+                  openNoteComposer({ x: value.worldX, y: value.worldY })
+                  setMenu(null)
+                }}
+              >
+                <FileText class='size-4' />
+                New document
               </MenuButton>
               <MenuButton
                 onClick={() => {
@@ -2891,7 +3192,15 @@ export function CanvasPage() {
             <div
               role='dialog'
               aria-modal='true'
-              class='w-full max-w-sm rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
+              class='w-full rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
+              classList={{
+                'max-w-2xl': current().kind === 'ai-context',
+                'max-w-lg': current().kind === 'new-note' || current().kind === 'new-canvas',
+                'max-w-sm':
+                  current().kind !== 'ai-context' &&
+                  current().kind !== 'new-note' &&
+                  current().kind !== 'new-canvas',
+              }}
             >
               <Show when={current().kind === 'new-canvas' || current().kind === 'rename-canvas'}>
                 <form
@@ -2917,6 +3226,30 @@ export function CanvasPage() {
                     value={dialogInput()}
                     onInput={(event) => setDialogInput(event.currentTarget.value)}
                   />
+                  <Show when={current().kind === 'new-canvas'}>
+                    <fieldset class='mt-4'>
+                      <legend class='text-sm text-muted-foreground'>Template</legend>
+                      <div class='mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                        <For each={CANVAS_TEMPLATES}>
+                          {(template) => (
+                            <button
+                              type='button'
+                              class='rounded-lg border p-2.5 text-left hover:bg-muted'
+                              classList={{
+                                'border-primary bg-primary/10': canvasTemplate() === template.key,
+                              }}
+                              onClick={() => setCanvasTemplate(template.key)}
+                            >
+                              <span class='block text-sm font-medium'>{template.label}</span>
+                              <span class='mt-0.5 block text-[11px] leading-4 text-muted-foreground'>
+                                {template.description}
+                              </span>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </fieldset>
+                  </Show>
                   <div class='mt-5 flex justify-end gap-2'>
                     <button
                       type='button'
@@ -2933,6 +3266,166 @@ export function CanvasPage() {
                     </button>
                   </div>
                 </form>
+              </Show>
+              <Show
+                when={
+                  current().kind === 'new-note'
+                    ? (current() as Extract<CanvasDialogState, { kind: 'new-note' }>)
+                    : undefined
+                }
+              >
+                {(value) => (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      if (!dialogInput().trim() || !noteDirectory()) return
+                      createDocumentFromComposer(value())
+                    }}
+                  >
+                    <h2 class='text-base font-semibold'>New document</h2>
+                    <p class='mt-1 text-xs text-muted-foreground'>
+                      Creates a Markdown file and opens it on this canvas.
+                    </p>
+                    <label class='mt-4 block text-sm text-muted-foreground'>Title</label>
+                    <input
+                      autofocus
+                      aria-label='Document title'
+                      maxlength={120}
+                      class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
+                      value={dialogInput()}
+                      onInput={(event) => setDialogInput(event.currentTarget.value)}
+                    />
+                    <label class='mt-4 block text-sm text-muted-foreground'>Location</label>
+                    <select
+                      aria-label='Document location'
+                      class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
+                      value={noteDirectory()}
+                      onChange={(event) => setNoteDirectory(event.currentTarget.value)}
+                    >
+                      <For each={writableDirectories()}>
+                        {(directory) => <option value={directory}>{directory}</option>}
+                      </For>
+                    </select>
+                    <Show when={!value().initialContent}>
+                      <label class='mt-4 block text-sm text-muted-foreground'>Starter</label>
+                      <select
+                        aria-label='Document starter'
+                        class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
+                        value={noteStarter()}
+                        onChange={(event) =>
+                          setNoteStarter(event.currentTarget.value as NoteStarterKey)
+                        }
+                      >
+                        <For each={NOTE_STARTERS}>
+                          {(starter) => <option value={starter.key}>{starter.label}</option>}
+                        </For>
+                      </select>
+                    </Show>
+                    <div class='mt-5 flex justify-end gap-2'>
+                      <button
+                        type='button'
+                        class='h-9 rounded-md px-3 text-sm hover:bg-muted'
+                        onClick={() => setDialog(null)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type='submit'
+                        class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
+                        disabled={!dialogInput().trim() || !noteDirectory()}
+                      >
+                        Create document
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </Show>
+              <Show
+                when={
+                  current().kind === 'ai-context'
+                    ? (current() as Extract<CanvasDialogState, { kind: 'ai-context' }>)
+                    : undefined
+                }
+              >
+                {(value) => {
+                  const context = value
+                  return (
+                    <>
+                      <h2 class='text-base font-semibold'>Review AI context</h2>
+                      <p class='mt-1 text-xs text-muted-foreground'>
+                        Confirm what AI receives. Text documents and chat transcripts include
+                        content; other media remain references.
+                      </p>
+                      <Show
+                        when={!context().loading}
+                        fallback={
+                          <p class='flex min-h-44 items-center justify-center text-sm text-muted-foreground'>
+                            Loading selected materialâ€¦
+                          </p>
+                        }
+                      >
+                        <div class='mt-4 max-h-48 space-y-1 overflow-auto rounded-lg border border-border p-2'>
+                          <For each={context().sources}>
+                            {(source) => (
+                              <div class='flex items-start gap-3 rounded-md px-2 py-2 text-sm'>
+                                <span
+                                  class='mt-1 size-2 shrink-0 rounded-full'
+                                  classList={{
+                                    'bg-emerald-500': source.status === 'included',
+                                    'bg-amber-500': source.status === 'reference',
+                                    'bg-destructive': source.status === 'failed',
+                                  }}
+                                />
+                                <span class='min-w-0 flex-1'>
+                                  <span class='block truncate font-medium'>{source.title}</span>
+                                  <span class='block truncate text-xs text-muted-foreground'>
+                                    {source.detail}
+                                  </span>
+                                </span>
+                                <Show when={source.characters > 0}>
+                                  <span class='shrink-0 text-[11px] tabular-nums text-muted-foreground'>
+                                    {source.characters.toLocaleString()} chars
+                                  </span>
+                                </Show>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                        <div class='mt-3 flex items-center justify-between text-xs text-muted-foreground'>
+                          <span>{context().sources.length} sources</span>
+                          <span>
+                            ~{Math.ceil(context().context.length / 4).toLocaleString()} tokens
+                          </span>
+                        </div>
+                        <details class='mt-3 rounded-lg border border-border'>
+                          <summary class='cursor-pointer px-3 py-2 text-sm'>
+                            Preview assembled context
+                          </summary>
+                          <pre class='max-h-48 overflow-auto whitespace-pre-wrap border-t border-border p-3 text-xs select-text'>
+                            {context().context}
+                          </pre>
+                        </details>
+                      </Show>
+                      <div class='mt-5 flex justify-end gap-2'>
+                        <button
+                          type='button'
+                          class='h-9 rounded-md px-3 text-sm hover:bg-muted'
+                          onClick={() => setDialog(null)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type='button'
+                          class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
+                          disabled={context().loading || !context().context}
+                          onClick={() => sendAiContext(context())}
+                        >
+                          Open in AI chat
+                        </button>
+                      </div>
+                    </>
+                  )
+                }}
               </Show>
               <Show when={current().kind === 'snapshots'}>
                 <h2 class='text-base font-semibold'>Snapshot history</h2>
@@ -2994,7 +3487,7 @@ export function CanvasPage() {
                   <dt>
                     <kbd class='rounded border px-1.5 py-0.5'>Double-click</kbd>
                   </dt>
-                  <dd>Text editor at pointer</dd>
+                  <dd>New document at pointer</dd>
                   <dt>
                     <kbd class='rounded border px-1.5 py-0.5'>Space + drag</kbd>
                   </dt>
@@ -3069,8 +3562,8 @@ export function CanvasPage() {
               <Show when={current().kind === 'reset-canvas'}>
                 <h2 class='text-base font-semibold'>Reset local canvas?</h2>
                 <p class='mt-2 text-sm text-muted-foreground'>
-                  Legacy notes, relationships, and canvas windows will be removed. Underlying files
-                  remain untouched.
+                  Notes, relationships, and canvas windows will be removed. Underlying files remain
+                  untouched.
                 </p>
                 <div class='mt-5 flex justify-end gap-2'>
                   <button

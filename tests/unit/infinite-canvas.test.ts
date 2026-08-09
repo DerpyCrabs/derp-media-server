@@ -5,6 +5,7 @@ import {
   createEmptyCanvasState,
   findNearestFreeCanvasRect,
   parseInfiniteCanvasState,
+  reconcileInfiniteCanvasState,
   snapCanvasRect,
   type CanvasWindow,
 } from '@/lib/infinite-canvas'
@@ -52,6 +53,24 @@ describe('infinite canvas geometry', () => {
 })
 
 describe('infinite canvas persistence', () => {
+  test('reconciles remote state without replacing unchanged canvas branches', () => {
+    const current = createEmptyCanvasState()
+    const stable = canvasWindow('canvas-window-1', { x: 0, y: 0, width: 320, height: 224 })
+    const moved = canvasWindow('canvas-window-2', { x: 320, y: 0, width: 320, height: 224 })
+    current.windows = [stable, moved]
+    const incoming = structuredClone(current)
+    incoming.windows[1]!.bounds.x = 640
+    incoming.nextZIndex = 3
+
+    const reconciled = reconcileInfiniteCanvasState(current, incoming)
+    expect(reconciled).not.toBe(current)
+    expect(reconciled.windows[0]).toBe(stable)
+    expect(reconciled.windows[1]).not.toBe(moved)
+    expect(reconciled.windows[1]!.definition).toBe(moved.definition)
+    expect(reconciled.camera).toBe(current.camera)
+    expect(reconcileInfiniteCanvasState(current, structuredClone(current))).toBe(current)
+  })
+
   test('rejects unknown versions and sanitizes camera zoom', () => {
     expect(parseInfiniteCanvasState({ version: 2, windows: [] })).toBeNull()
     const parsed = parseInfiniteCanvasState({

@@ -67,10 +67,112 @@ test('creates, names, switches, and restores canvases', async ({ page }) => {
 })
 
 test('creates a real Markdown editor at the default canvas position', async ({ page }) => {
+  const title = `Design brief ${Date.now()}`
   await page.getByTestId('canvas-add-trigger').click()
-  await page.getByRole('banner').getByRole('button', { name: 'New text', exact: true }).click()
+  await page.getByRole('banner').getByRole('button', { name: 'New document', exact: true }).click()
+  await expect(page.getByText('Creates a Markdown file and opens it on this canvas.')).toBeVisible()
+  await page.getByLabel('Document title').fill(title)
+  await page.getByLabel('Document starter').selectOption('decision')
+  await page.getByRole('button', { name: 'Create document' }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
-  await expect(page.getByRole('textbox', { name: /Canvas note.* Markdown editor/ })).toBeVisible()
+  await expect(
+    page.getByRole('textbox', { name: new RegExp(`${title}.* Markdown editor`) }),
+  ).toBeVisible()
+})
+
+test('creates quick notes and frame-free canvas templates', async ({ page }) => {
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
+  await expect(page.getByTestId('canvas-card')).toHaveCount(1)
+  await expect(page.getByLabel('Untitled note body')).toBeFocused()
+
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await page.getByLabel('Name').fill('Hardware plan')
+  await page.getByRole('button', { name: /Hardware/ }).click()
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByTestId('canvas-card')).toHaveCount(5)
+  await expect(page.getByLabel('Requirements body')).toBeVisible()
+  const activeState = await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
+      activeId?: string
+      canvases?: Array<{ id: string; state?: Record<string, unknown> }>
+    }
+    return raw.canvases?.find((canvas) => canvas.id === raw.activeId)?.state
+  })
+  expect(activeState).not.toHaveProperty('frames')
+})
+
+test('previews grounded document content before opening AI chat', async ({ page }) => {
+  await page.route('**/api/files/download?*', async (route) => {
+    await route.fulfill({
+      contentType: 'text/markdown',
+      body: '# Grounded requirement\n\nUSB-C input must tolerate 20 V.',
+    })
+  })
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window')
+  await browserWindow.locator('[data-file-path="Documents"]').click()
+  await browserWindow.locator('[data-file-path="Documents/notes.md"]').click()
+  await page.getByRole('button', { name: 'Summarize' }).click()
+  await expect(page.getByRole('heading', { name: 'Review AI context' })).toBeVisible()
+  await expect(page.getByText(/Document included: Documents\/notes\.md/)).toBeVisible()
+  await page.getByText('Preview assembled context').click()
+  await expect(page.getByText('USB-C input must tolerate 20 V.')).toBeVisible()
+})
+
+test('keeps primary and zoom controls reachable on narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 700 })
+  await expect(page.getByText('Saved', { exact: true })).toHaveCount(0)
+  const outline = page.getByTitle('Canvas outline')
+  const title = page.getByTestId('canvas-name-trigger')
+  expect((await outline.boundingBox())!.x).toBeLessThan((await title.boundingBox())!.x)
+  await expect(page.getByTestId('canvas-add-trigger')).toHaveText('')
+  await expect(page.getByTestId('canvas-search-trigger')).toHaveText('')
+  await expect(page.getByTestId('canvas-create-tools')).toHaveCSS('border-top-width', '1px')
+  await expect(page.getByTestId('canvas-overflow-tools')).toHaveCSS('border-top-width', '1px')
+  for (const locator of [
+    outline,
+    page.getByTestId('canvas-name-trigger'),
+    page.getByTestId('canvas-add-trigger'),
+    page.getByTestId('canvas-search-trigger'),
+    page.getByTitle('More'),
+    page.getByTitle('Fit all'),
+    page.getByTitle('Zoom in'),
+  ]) {
+    await expect(locator).toBeVisible()
+    const box = await locator.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x + box!.width).toBeLessThanOrEqual(600)
+  }
+})
+
+test('shows only actionable canvas sync errors', async ({ page }) => {
+  let failSync = true
+  await page.unroute('**/api/canvases**')
+  await page.route('**/api/canvases**', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fulfill({ json: { canvases: [] } })
+      return
+    }
+    if (failSync) {
+      await route.fulfill({ status: 500, json: { error: 'sync failed' } })
+      return
+    }
+    const body = route.request().postDataJSON() as { canvases?: unknown[] }
+    await route.fulfill({ json: { canvases: body.canvases ?? [] } })
+  })
+
+  await page.reload()
+  const retry = page.getByTestId('canvas-sync-error')
+  await expect(retry).toContainText('Sync failed')
+  await expect(retry).toContainText('Retry')
+
+  failSync = false
+  await retry.click()
+  await expect(retry).toHaveCount(0)
 })
 
 test('does not replace a live Hermes pane with stale sync content', async ({ page }) => {
@@ -847,12 +949,12 @@ test('dismisses canvas context menu when interacting with a window', async ({ pa
   const window = page.getByTestId('canvas-window')
   await expect(window).toBeVisible()
 
-  await canvas.click({ button: 'right', position: { x: 1150, y: 650 } })
+  await canvas.click({ button: 'right', position: { x: 900, y: 650 } })
   await expect(page.locator('[data-canvas-context-menu]')).toBeVisible()
   await window.click({ position: { x: 120, y: 100 } })
   await expect(page.locator('[data-canvas-context-menu]')).toBeHidden()
 
-  await canvas.click({ button: 'right', position: { x: 1150, y: 650 } })
+  await canvas.click({ button: 'right', position: { x: 900, y: 650 } })
   await expect(page.locator('[data-canvas-context-menu]')).toBeVisible()
   const box = await window.boundingBox()
   if (!box) throw new Error('Canvas window not laid out')

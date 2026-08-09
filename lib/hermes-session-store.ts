@@ -177,6 +177,12 @@ function normalizeMessages(value: unknown): HermesMessage[] {
   })
 }
 
+function sameHermesMessages(left: HermesMessage[], right: HermesMessage[]): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  return left.every((message, index) => JSON.stringify(message) === JSON.stringify(right[index]))
+}
+
 let streamSequence = 0
 
 function ensureHermesStreamMessage(key: string): number | undefined {
@@ -365,7 +371,8 @@ export async function refreshHermesChat(key: string) {
       current.length > historyLimit
         ? [...current.slice(0, current.length - historyLimit), ...refreshed]
         : refreshed
-    setSessions(key, 'messages', reconcile(messages, { key: 'id' }))
+    if (!sameHermesMessages(current, messages))
+      setSessions(key, 'messages', reconcile(messages, { key: 'id' }))
     setSessions(key, {
       hasOlderMessages:
         (Array.isArray(payload.messages)

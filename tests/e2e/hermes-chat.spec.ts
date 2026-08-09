@@ -306,6 +306,7 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
       constructor() {
         ;(window as any).__emitHermesEvent = (value: unknown) =>
           this.onmessage?.({ data: JSON.stringify(value) })
+        ;(window as any).__reopenHermesEvents = () => this.onopen?.()
         queueMicrotask(() => this.onopen?.())
       }
       close() {}
@@ -340,6 +341,26 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
   const transcript = chat.getByTestId('hermes-transcript')
   await expect(chat.getByText('Transcript row 29')).toBeVisible()
   const initialHistoryRequests = historyRequests
+  await transcript.evaluate((element) => {
+    let mutations = 0
+    const observer = new MutationObserver((records) => {
+      mutations += records.length
+    })
+    observer.observe(element, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+    ;(window as any).__hermesTranscriptMutations = () => mutations
+    ;(window as any).__stopHermesTranscriptObserver = () => observer.disconnect()
+  })
+  await page.evaluate(() => (window as any).__reopenHermesEvents())
+  await expect.poll(() => historyRequests).toBeGreaterThan(initialHistoryRequests)
+  await page.waitForTimeout(100)
+  expect(await page.evaluate(() => (window as any).__hermesTranscriptMutations())).toBe(0)
+  await page.evaluate(() => (window as any).__stopHermesTranscriptObserver())
+  const historyRequestsAfterRefresh = historyRequests
   const composer = chat.getByPlaceholder('Message Hermes…')
   await composer.fill('Immediate optimistic prompt')
   await chat.getByRole('button', { name: 'Send' }).click()
@@ -398,7 +419,7 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
   await expect(streamMessage).toContainText('Final streamed answer')
   await expect(streamMessage.getByLabel('Hermes is working')).toHaveCount(0)
   await expect(chat.getByText('Immediate optimistic prompt', { exact: true })).toBeVisible()
-  expect(historyRequests).toBe(initialHistoryRequests)
+  expect(historyRequests).toBe(historyRequestsAfterRefresh)
 })
 
 test('pages older history and opens externally active sessions in observer mode', async () => {

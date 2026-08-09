@@ -254,7 +254,7 @@ export function CanvasSearchPalette(props: Props) {
                       {item.kind === 'window'
                         ? 'Open windows'
                         : item.kind === 'card'
-                          ? 'Legacy notes'
+                          ? 'Notes'
                           : 'Library'}
                     </p>
                   </Show>
