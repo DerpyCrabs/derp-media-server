@@ -3,7 +3,9 @@ import {
   CANVAS_SNAPSHOTS_STORAGE_KEY,
   CANVAS_TEMPLATES,
   buildCanvasContext,
+  canvasItemTitle,
   createCanvasExport,
+  createReadingQuoteBody,
   createCanvasTemplateState,
   parseCanvasExport,
   parseCanvasSnapshots,
@@ -95,10 +97,12 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount }
 import { CanvasSearchPalette } from './canvas/CanvasSearchPalette'
 import { CanvasCardsLayer } from './canvas/CanvasCardsLayer'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
+import { bindReadingProgress as bindReadingProgressEvents } from './canvas/reading-progress'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
@@ -116,6 +120,7 @@ const LIVE_ZOOM = 0.62
 const FAR_ZOOM = 0.28
 const AI_DOCUMENT_CHARACTER_LIMIT = 24_000
 const AI_TOTAL_CHARACTER_LIMIT = 60_000
+const CANVAS_READING_POSITION_PREFIX = 'canvas-reading-position-v1'
 
 type NoteStarterKey = 'blank' | 'meeting' | 'decision' | 'reading' | 'hardware' | 'prompt'
 
@@ -164,7 +169,13 @@ type Selection = { kind: 'window'; id: string } | null
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 type CanvasDialogState =
   | { kind: 'new-canvas' }
-  | { kind: 'new-note'; point: { x: number; y: number }; initialContent: string }
+  | {
+      kind: 'new-note'
+      point: { x: number; y: number }
+      initialContent: string
+      promoteCardId?: string
+    }
+  | { kind: 'ai-compose'; instruction: string; ids: string[]; scope: 'selection' | 'canvas' }
   | {
       kind: 'ai-context'
       instruction: string
@@ -180,6 +191,12 @@ type CanvasDialogState =
   | { kind: 'import-canvas' }
   | { kind: 'message'; message: string }
 type FileDropPreview = { bounds: CanvasRect }
+type QuoteCapture = {
+  windowId: string
+  text: string
+  clientX: number
+  clientY: number
+}
 
 function cloneState(state: InfiniteCanvasState): InfiniteCanvasState {
   return (
@@ -209,6 +226,32 @@ function fileItemFromDrag(path: string, isDirectory: boolean): FileItem {
     extension,
     size: 0,
     type: isDirectory ? MediaType.FOLDER : getMediaType(extension),
+  }
+}
+
+async function loadCanvasDocumentText(path: string, mediaType: MediaType): Promise<string> {
+  const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`)
+  if (!response.ok) throw new Error('Failed to load document')
+  if (mediaType !== MediaType.PDF) return response.text()
+  const pdfjs = await import('pdfjs-dist')
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+  const task = pdfjs.getDocument({ data: new Uint8Array(await response.arrayBuffer()) })
+  const document = await task.promise
+  try {
+    const pages: string[] = []
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber)
+      const content = await page.getTextContent()
+      pages.push(
+        content.items
+          .map((item) => ('str' in item ? item.str : ''))
+          .filter(Boolean)
+          .join(' '),
+      )
+    }
+    return pages.join('\n\n')
+  } finally {
+    await task.destroy()
   }
 }
 
@@ -314,6 +357,33 @@ function MenuButton(props: {
   )
 }
 
+function canvasDialogLabel(dialog: CanvasDialogState): string {
+  switch (dialog.kind) {
+    case 'new-canvas':
+      return 'New canvas'
+    case 'rename-canvas':
+      return 'Edit canvas title'
+    case 'new-note':
+      return 'New document'
+    case 'ai-compose':
+      return 'Choose AI context'
+    case 'ai-context':
+      return 'Review AI context'
+    case 'snapshots':
+      return 'Snapshot history'
+    case 'shortcuts':
+      return 'Canvas shortcuts'
+    case 'delete-canvas':
+      return 'Delete canvas'
+    case 'reset-canvas':
+      return 'Reset canvas'
+    case 'import-canvas':
+      return 'Import canvas'
+    case 'message':
+      return 'Canvas message'
+  }
+}
+
 export function CanvasPage() {
   useAdminEventsStream()
   const browserStorage =
@@ -342,6 +412,7 @@ export function CanvasPage() {
   const [addMenuOpen, setAddMenuOpen] = createSignal(false)
   const [outlineOpen, setOutlineOpen] = createSignal(false)
   const [canvasMenuOpen, setCanvasMenuOpen] = createSignal(false)
+  const [canvasQuery, setCanvasQuery] = createSignal('')
   const [geometryActive, setGeometryActive] = createSignal(false)
   const [cameraAnimating, setCameraAnimating] = createSignal(false)
   const [dialog, setDialog] = createSignal<CanvasDialogState | null>(null)
@@ -359,9 +430,11 @@ export function CanvasPage() {
     parseCanvasSnapshots(browserStorage.getItem(CANVAS_SNAPSHOTS_STORAGE_KEY)),
   )
   const [connectingFrom, setConnectingFrom] = createSignal<string | null>(null)
+  const [quoteCapture, setQuoteCapture] = createSignal<QuoteCapture | null>(null)
   const [viewHistory, setViewHistory] = createSignal<InfiniteCanvasState['camera'][]>([])
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let importInputEl: HTMLInputElement | undefined
+  let dialogEl: HTMLDivElement | undefined
   let viewportEl: HTMLDivElement | undefined
   let worldEl: HTMLDivElement | undefined
   let animationTimer: number | undefined
@@ -418,6 +491,57 @@ export function CanvasPage() {
     collection().canvases.find((item) => item.id === collection().activeId && !item.deleted),
   )
   const availableCanvases = createMemo(() => collection().canvases.filter((item) => !item.deleted))
+  const filteredCanvases = createMemo(() => {
+    const query = canvasQuery().trim().toLocaleLowerCase()
+    const canvases = [...availableCanvases()].sort((a, b) => b.updatedAt - a.updatedAt)
+    return query
+      ? canvases.filter((item) => item.name.toLocaleLowerCase().includes(query))
+      : canvases
+  })
+
+  createEffect(() => {
+    const current = dialog()
+    if (!current) return
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    queueMicrotask(() => {
+      const focusable = dialogEl?.querySelector<HTMLElement>(
+        'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]',
+      )
+      focusable?.focus()
+    })
+    const handleDialogKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setDialog(null)
+        return
+      }
+      if (event.key !== 'Tab' || !dialogEl) return
+      const focusable = [
+        ...dialogEl.querySelectorAll<HTMLElement>(
+          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]',
+        ),
+      ].filter((element) => element.offsetParent !== null)
+      if (!focusable.length) return
+      const first = focusable[0]!
+      const last = focusable.at(-1)!
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleDialogKeydown)
+    onCleanup(() => {
+      document.removeEventListener('keydown', handleDialogKeydown)
+      queueMicrotask(() => {
+        if (previousFocus?.isConnected) previousFocus.focus()
+        else document.querySelector<HTMLElement>('[data-testid="canvas-name-trigger"]')?.focus()
+      })
+    })
+  })
 
   function storeCollection(next: CanvasCollection) {
     localStorage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(next))
@@ -698,6 +822,27 @@ export function CanvasPage() {
     storeCollection(next)
     scheduleSync(50)
     setDialog(null)
+  }
+
+  function duplicateCanvas(canvasId: string) {
+    const current = persistActiveState()
+    const source = current.canvases.find((item) => item.id === canvasId && !item.deleted)
+    if (!source?.state) return
+    const record = createCanvasRecord(current, `${source.name} copy`, cloneState(source.state))
+    const next = {
+      ...current,
+      activeId: record.id,
+      lastTimestamp: record.updatedAt,
+      canvases: [...current.canvases, record],
+    }
+    setCollection(next)
+    setState(cloneState(record.state!))
+    setUndoStack([])
+    setRedoStack([])
+    clearSelection()
+    setCanvasMenuOpen(false)
+    storeCollection(next)
+    scheduleSync(50)
   }
 
   function renameCanvas(canvasId: string) {
@@ -1025,7 +1170,7 @@ export function CanvasPage() {
         kind: 'message',
         message: 'Configure an editable folder or knowledge base before creating text files.',
       })
-      return
+      return false
     }
     const timestamp = new Date()
       .toISOString()
@@ -1050,11 +1195,13 @@ export function CanvasPage() {
         },
         point,
       )
+      return true
     } catch (error) {
       setDialog({
         kind: 'message',
         message: error instanceof Error ? error.message : 'Could not create text file.',
       })
+      return false
     }
   }
 
@@ -1062,6 +1209,7 @@ export function CanvasPage() {
     point = viewportCenterWorld(),
     initialContent = '',
     requestedTitle = 'Canvas note',
+    promoteCardId?: string,
   ) {
     if (!writableDirectories().length) {
       setDialog({
@@ -1073,17 +1221,36 @@ export function CanvasPage() {
     setDialogInput(requestedTitle)
     setNoteDirectory(writableDirectories()[0] ?? '')
     setNoteStarter('blank')
-    setDialog({ kind: 'new-note', point, initialContent })
+    setDialog({ kind: 'new-note', point, initialContent, promoteCardId })
   }
 
-  function createDocumentFromComposer(value: Extract<CanvasDialogState, { kind: 'new-note' }>) {
+  async function createDocumentFromComposer(
+    value: Extract<CanvasDialogState, { kind: 'new-note' }>,
+  ) {
     const starter = NOTE_STARTERS.find((item) => item.key === noteStarter())?.content ?? ''
     const content = value.initialContent || starter
     setDialog(null)
-    void addTextEditor(value.point, content, dialogInput(), noteDirectory())
+    const created = await addTextEditor(value.point, content, dialogInput(), noteDirectory())
+    if (created && value.promoteCardId) deleteCard(value.promoteCardId)
   }
 
-  function addQuickNote(point = viewportCenterWorld(), body = '', title = 'Untitled note') {
+  function promoteCard(cardId: string) {
+    const card = state().cards.find((item) => item.id === cardId)
+    if (!card) return
+    openNoteComposer(
+      { x: card.bounds.x + card.bounds.width + 208, y: card.bounds.y + 112 },
+      card.body,
+      card.title || 'Canvas note',
+      card.id,
+    )
+  }
+
+  function addQuickNote(
+    point = viewportCenterWorld(),
+    body = '',
+    title = 'Untitled note',
+    tags: string[] = [],
+  ) {
     let createdId = ''
     commit((current) => {
       const id = `canvas-card-${current.nextItemId}`
@@ -1106,7 +1273,7 @@ export function CanvasPage() {
             bounds,
             zIndex: current.nextZIndex,
             locked: false,
-            tags: [],
+            tags,
           },
         ],
         nextItemId: current.nextItemId + 1,
@@ -1118,6 +1285,67 @@ export function CanvasPage() {
     queueMicrotask(() => {
       document.querySelector<HTMLTextAreaElement>(`[data-card-id="${createdId}"] textarea`)?.focus()
     })
+    return createdId
+  }
+
+  function detectReadingQuote(windowId: string, event: PointerEvent) {
+    const content = (event.currentTarget as HTMLElement | null)?.closest(
+      '[data-canvas-window-content]',
+    )
+    queueMicrotask(() => {
+      const selected = document.getSelection()
+      const text = selected?.toString().trim() ?? ''
+      if (!text || text.length > 12_000 || !selected?.rangeCount) {
+        setQuoteCapture(null)
+        return
+      }
+      const ancestor = selected.getRangeAt(0).commonAncestorContainer
+      if (!content?.contains(ancestor)) return
+      const rect = selected.getRangeAt(0).getBoundingClientRect()
+      setQuoteCapture({
+        windowId,
+        text,
+        clientX: Math.min(window.innerWidth - 150, Math.max(12, rect.left + rect.width / 2 - 70)),
+        clientY: Math.max(56, rect.top - 44),
+      })
+    })
+  }
+
+  function saveReadingQuote() {
+    const capture = quoteCapture()
+    if (!capture) return
+    const source = state().windows.find((item) => item.id === capture.windowId)
+    if (!source) return
+    const path =
+      source.definition.initialState.viewing ??
+      source.definition.initialState.dir ??
+      source.definition.title
+    addQuickNote(
+      {
+        x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE + 176,
+        y: source.bounds.y + 112,
+      },
+      createReadingQuoteBody(capture.text, path),
+      `Quote · ${source.definition.title}`,
+      ['quote', 'reading'],
+    )
+    document.getSelection()?.removeAllRanges()
+    setQuoteCapture(null)
+  }
+
+  function readingPositionKey(windowId: string) {
+    const item = state().windows.find((window) => window.id === windowId)
+    const path = item?.definition.initialState.viewing
+    return path ? `${CANVAS_READING_POSITION_PREFIX}:${collection().activeId}:${path}` : null
+  }
+
+  function bindReadingProgress(element: HTMLDivElement, windowId: string) {
+    onCleanup(
+      bindReadingProgressEvents({
+        element,
+        key: () => readingPositionKey(windowId),
+      }),
+    )
   }
 
   function updateCard(
@@ -1131,6 +1359,35 @@ export function CanvasPage() {
       Object.assign(card, patch)
       return { ...current, cards: [...current.cards] }
     })
+    const suggestedName = patch.title?.trim()
+    if (suggestedName && activeCanvas()?.name === 'Untitled canvas') {
+      setCollection((current) => {
+        const updatedAt = nextCanvasTimestamp(current)
+        return {
+          ...current,
+          lastTimestamp: updatedAt,
+          canvases: current.canvases.map((canvas) =>
+            canvas.id === current.activeId
+              ? {
+                  ...canvas,
+                  name: suggestedName.slice(0, 120),
+                  updatedAt,
+                  writerId: current.writerId,
+                }
+              : canvas,
+          ),
+        }
+      })
+    }
+  }
+
+  function updateConnector(connectorId: string, label: string) {
+    setState((current) => ({
+      ...current,
+      connectors: current.connectors.map((connector) =>
+        connector.id === connectorId ? { ...connector, label: label.slice(0, 120) } : connector,
+      ),
+    }))
   }
 
   function toggleCardLock(cardId: string) {
@@ -1470,33 +1727,56 @@ export function CanvasPage() {
     }
   }
 
+  function openAiCompose(instruction = 'Help me analyze, improve, or continue this work.') {
+    const ids = selectedIds().length
+      ? [...selectedIds()]
+      : [...state().cards.map((item) => item.id), ...state().windows.map((item) => item.id)]
+    setDialog({
+      kind: 'ai-compose',
+      instruction,
+      ids,
+      scope: selectedIds().length ? 'selection' : 'canvas',
+    })
+  }
+
+  function updateAiCompose(
+    patch: Partial<Pick<Extract<CanvasDialogState, { kind: 'ai-compose' }>, 'instruction' | 'ids'>>,
+  ) {
+    setDialog((current) => (current?.kind === 'ai-compose' ? { ...current, ...patch } : current))
+  }
+
   async function prepareAiContext(
     instruction = 'Help me analyze, improve, or continue this work.',
+    requestedIds?: string[],
   ) {
-    const ids = selectedIds().length
-      ? selectedIds()
-      : [...state().windows.map((item) => item.id), ...state().cards.map((item) => item.id)]
+    const ids = requestedIds ?? []
+    if (!ids.length) {
+      setDialog({ kind: 'message', message: 'Select at least one source for AI context.' })
+      return
+    }
     setDialog({ kind: 'ai-context', instruction, context: '', sources: [], loading: true })
-    const selected = new Set(ids)
     const contents: Record<string, CanvasContextContent> = {}
     const sources: CanvasAiContextSource[] = []
     let remaining = AI_TOTAL_CHARACTER_LIMIT
 
-    for (const card of state().cards.filter((item) => selected.has(item.id))) {
-      const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
-      const content = card.body.slice(0, allowed)
-      contents[card.id] = { content, truncated: content.length < card.body.length }
-      remaining -= content.length
-      sources.push({
-        id: card.id,
-        title: card.title || 'Untitled note',
-        detail: contents[card.id]!.truncated ? 'Note content truncated' : 'Note content included',
-        status: 'included',
-        characters: content.length,
-      })
-    }
-
-    for (const item of state().windows.filter((window) => selected.has(window.id))) {
+    for (const id of ids) {
+      const card = state().cards.find((item) => item.id === id)
+      if (card) {
+        const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
+        const content = card.body.slice(0, allowed)
+        contents[card.id] = { content, truncated: content.length < card.body.length }
+        remaining -= content.length
+        sources.push({
+          id: card.id,
+          title: card.title || 'Untitled note',
+          detail: contents[card.id]!.truncated ? 'Note content truncated' : 'Note content included',
+          status: 'included',
+          characters: content.length,
+        })
+        continue
+      }
+      const item = state().windows.find((window) => window.id === id)
+      if (!item) continue
       const path = item.definition.initialState.viewing ?? item.definition.initialState.dir ?? ''
       if (item.definition.type === 'hermes' && item.definition.hermes) {
         const key = ensureHermesChat(item.definition.hermes)
@@ -1521,10 +1801,11 @@ export function CanvasPage() {
         })
         continue
       }
+      const mediaType = getMediaType(path.split('.').at(-1) ?? '')
       if (
         item.definition.type !== 'viewer' ||
         !path ||
-        getMediaType(path.split('.').at(-1) ?? '') !== MediaType.TEXT
+        (mediaType !== MediaType.TEXT && mediaType !== MediaType.PDF)
       ) {
         sources.push({
           id: item.id,
@@ -1536,9 +1817,7 @@ export function CanvasPage() {
         continue
       }
       try {
-        const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`)
-        if (!response.ok) throw new Error('Failed to load document')
-        const fullContent = await response.text()
+        const fullContent = await loadCanvasDocumentText(path, mediaType)
         const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
         const content = fullContent.slice(0, allowed)
         contents[item.id] = { content, truncated: content.length < fullContent.length }
@@ -1548,7 +1827,7 @@ export function CanvasPage() {
           title: item.definition.title,
           detail: contents[item.id]!.truncated
             ? `Document truncated: ${path}`
-            : `Document included: ${path}`,
+            : `${mediaType === MediaType.PDF ? 'PDF text' : 'Document'} included: ${path}`,
           status: 'included',
           characters: content.length,
         })
@@ -2119,7 +2398,7 @@ export function CanvasPage() {
             type='button'
             title='Canvas outline'
             aria-label='Canvas outline'
-            class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
+            class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
             onClick={() => setOutlineOpen((open) => !open)}
           >
             <PanelLeft class='size-4' />
@@ -2135,9 +2414,19 @@ export function CanvasPage() {
             {activeCanvas()?.name ?? 'Canvas'}
           </button>
           <Show when={canvasMenuOpen()}>
-            <div class='absolute top-10 left-0 w-72 rounded-lg border border-border bg-popover p-1 shadow-xl'>
-              <div class='max-h-64 overflow-auto'>
-                <For each={availableCanvases()}>
+            <div class='absolute top-10 left-0 w-80 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+              <div class='border-b border-border p-1.5'>
+                <input
+                  type='search'
+                  aria-label='Search canvases'
+                  placeholder='Search canvases…'
+                  class='h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
+                  value={canvasQuery()}
+                  onInput={(event) => setCanvasQuery(event.currentTarget.value)}
+                />
+              </div>
+              <div class='max-h-72 overflow-auto py-1'>
+                <For each={filteredCanvases()}>
                   {(canvas) => (
                     <div
                       data-testid='canvas-list-item'
@@ -2153,6 +2442,8 @@ export function CanvasPage() {
                       >
                         <span class='block truncate'>{canvas.name}</span>
                         <span class='block text-[10px] font-normal text-muted-foreground'>
+                          {(canvas.state?.cards.length ?? 0).toLocaleString()} notes ·{' '}
+                          {(canvas.state?.windows.length ?? 0).toLocaleString()} windows ·{' '}
                           {new Date(canvas.updatedAt).toLocaleString()}
                         </span>
                       </button>
@@ -2164,7 +2455,7 @@ export function CanvasPage() {
                           type='button'
                           aria-label={`Rename ${canvas.name}`}
                           title='Rename canvas'
-                          class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground'
+                          class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground'
                           onClick={() => {
                             setDialogInput(canvas.name)
                             setDialog({ kind: 'rename-canvas', canvasId: canvas.id })
@@ -2175,9 +2466,18 @@ export function CanvasPage() {
                         </button>
                         <button
                           type='button'
+                          aria-label={`Duplicate ${canvas.name}`}
+                          title='Duplicate canvas'
+                          class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground'
+                          onClick={() => duplicateCanvas(canvas.id)}
+                        >
+                          <Copy class='size-4' />
+                        </button>
+                        <button
+                          type='button'
                           aria-label={`Delete ${canvas.name}`}
                           title='Delete canvas'
-                          class='mr-0.5 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+                          class='mr-0.5 inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
                           onClick={() => {
                             setDialog({
                               kind: 'delete-canvas',
@@ -2247,7 +2547,7 @@ export function CanvasPage() {
                 <button
                   type='button'
                   data-testid='canvas-add-trigger'
-                  class='inline-flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90'
+                  class='inline-flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90'
                   aria-label='Add to canvas'
                   title='Add to canvas'
                   aria-expanded={addMenuOpen()}
@@ -2312,7 +2612,7 @@ export function CanvasPage() {
               data-testid='canvas-search-trigger'
               aria-label='Search canvas'
               title='Search canvas'
-              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
+              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
               onClick={() => openSearch(null)}
             >
               <Search class='size-4' />
@@ -2327,7 +2627,7 @@ export function CanvasPage() {
               title='Undo'
               aria-label='Undo'
               disabled={!undoStack().length}
-              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
+              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
               onClick={undo}
             >
               <Undo2 class='size-4' />
@@ -2337,7 +2637,7 @@ export function CanvasPage() {
               title='Redo'
               aria-label='Redo'
               disabled={!redoStack().length}
-              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
+              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
               onClick={redo}
             >
               <Redo2 class='size-4' />
@@ -2351,7 +2651,7 @@ export function CanvasPage() {
               type='button'
               title='More'
               aria-label='More canvas actions'
-              class='inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
+              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
               onClick={() => setOverflowOpen((open) => !open)}
             >
               <MoreHorizontal class='size-4' />
@@ -2465,7 +2765,8 @@ export function CanvasPage() {
         <button
           type='button'
           title='Fit all'
-          class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
+          aria-label='Fit all canvas content'
+          class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
           onClick={fitAll}
         >
           <Maximize class='size-4' />
@@ -2473,7 +2774,8 @@ export function CanvasPage() {
         <button
           type='button'
           title='Zoom out'
-          class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
+          aria-label='Zoom out canvas'
+          class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
           onClick={() => zoomBy(0.8)}
         >
           <ZoomOut class='size-4' />
@@ -2481,7 +2783,8 @@ export function CanvasPage() {
         <button
           type='button'
           title='Reset zoom'
-          class='h-8 min-w-12 rounded-md px-1.5 text-xs tabular-nums hover:bg-muted'
+          aria-label={`Reset canvas zoom, currently ${Math.round(state().camera.zoom * 100)} percent`}
+          class='h-10 min-w-14 rounded-md px-1.5 text-xs tabular-nums hover:bg-muted'
           onClick={() => zoomBy(1 / state().camera.zoom)}
         >
           {Math.round(state().camera.zoom * 100)}%
@@ -2489,8 +2792,9 @@ export function CanvasPage() {
         <button
           type='button'
           title='Zoom in'
+          aria-label='Zoom in canvas'
           disabled={state().camera.zoom >= CANVAS_MAX_ZOOM}
-          class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
+          class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
           onClick={() => zoomBy(1.25)}
         >
           <ZoomIn class='size-4' />
@@ -2602,7 +2906,7 @@ export function CanvasPage() {
             type='button'
             class='h-8 shrink-0 rounded bg-primary px-2 text-xs text-primary-foreground hover:bg-primary/90'
             onClick={() =>
-              void prepareAiContext(
+              openAiCompose(
                 'Summarize this material. Preserve key decisions, facts, and open questions.',
               )
             }
@@ -2613,7 +2917,7 @@ export function CanvasPage() {
             type='button'
             class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
             onClick={() =>
-              void prepareAiContext(
+              openAiCompose(
                 'Extract concrete tasks. Return a prioritized checklist with owners or dependencies when stated.',
               )
             }
@@ -2625,7 +2929,7 @@ export function CanvasPage() {
               type='button'
               class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
               onClick={() =>
-                void prepareAiContext(
+                openAiCompose(
                   'Compare selected material. Identify agreements, conflicts, gaps, and a recommended synthesis.',
                 )
               }
@@ -2670,23 +2974,46 @@ export function CanvasPage() {
         }}
         onDblClick={(event) => {
           if (readOnlyMode() || event.target !== event.currentTarget) return
-          openNoteComposer(screenToWorld(event.clientX, event.clientY))
+          addQuickNote(screenToWorld(event.clientX, event.clientY))
         }}
         onPaste={(event) => {
           if (readOnlyMode() || editableTarget(event.target)) return
           const text = event.clipboardData?.getData('text/plain').trim()
           if (!text) return
           event.preventDefault()
-          openNoteComposer(viewportCenterWorld(), text, text.split(/\r?\n/, 1)[0]?.slice(0, 40))
+          addQuickNote(
+            viewportCenterWorld(),
+            text,
+            text.split(/\r?\n/, 1)[0]?.slice(0, 40) || 'Pasted note',
+          )
         }}
         onWheel={(event) => {
-          if (!event.ctrlKey && !event.metaKey) return
-          event.preventDefault()
-          zoomAt(
-            event.clientX,
-            event.clientY,
-            state().camera.zoom * Math.exp(-event.deltaY * 0.002),
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault()
+            zoomAt(
+              event.clientX,
+              event.clientY,
+              state().camera.zoom * Math.exp(-event.deltaY * 0.002),
+            )
+            return
+          }
+          if (
+            (event.target as Element | null)?.closest(
+              '[data-testid="canvas-window"], [data-testid="canvas-card"]',
+            )
           )
+            return
+          event.preventDefault()
+          const horizontal = event.shiftKey && event.deltaX === 0 ? event.deltaY : event.deltaX
+          const vertical = event.shiftKey && event.deltaX === 0 ? 0 : event.deltaY
+          setState((current) => ({
+            ...current,
+            camera: {
+              ...current.camera,
+              x: current.camera.x - horizontal,
+              y: current.camera.y - vertical,
+            },
+          }))
         }}
         onContextMenu={onCanvasContextMenu}
         onDragOver={(event) => {
@@ -2742,7 +3069,7 @@ export function CanvasPage() {
             <div class='pointer-events-auto max-w-lg rounded-2xl border border-border bg-card/90 p-7 text-center shadow-xl backdrop-blur'>
               <h1 class='text-lg font-semibold'>Build your knowledge canvas</h1>
               <p class='mt-2 text-sm leading-6 text-muted-foreground'>
-                Double-click anywhere for a document. Add quick notes, drop files, or ask AI.
+                Double-click anywhere for an instant note. Add documents, drop files, or ask AI.
               </p>
               <div class='mt-5 flex flex-wrap justify-center gap-2'>
                 <button
@@ -2807,6 +3134,9 @@ export function CanvasPage() {
             onToggleLock={toggleCardLock}
             onDelete={deleteCard}
             onConnect={toggleConnectorEndpoint}
+            onPromote={promoteCard}
+            itemTitle={(id) => canvasItemTitle(state(), id)}
+            onChangeConnector={updateConnector}
             onDeleteConnector={deleteConnector}
           />
 
@@ -2881,9 +3211,11 @@ export function CanvasPage() {
                     </Show>
                   </div>
                   <div
+                    ref={(element) => bindReadingProgress(element, windowId)}
                     data-canvas-window-content
                     class='absolute top-8 right-0 bottom-0 left-0 overflow-hidden rounded-b-lg text-sm text-muted-foreground'
                     onContextMenu={(event) => event.stopPropagation()}
+                    onPointerUp={(event) => detectReadingQuote(windowId, event)}
                   >
                     <div
                       class='h-full'
@@ -3021,6 +3353,33 @@ export function CanvasPage() {
           </div>
         </div>
       </div>
+
+      <Show when={quoteCapture()}>
+        {(capture) => (
+          <div
+            class='fixed z-[115000] flex items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-xl'
+            style={{ left: `${capture().clientX}px`, top: `${capture().clientY}px` }}
+          >
+            <button
+              type='button'
+              class='inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-medium hover:bg-muted'
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={saveReadingQuote}
+            >
+              <FileText class='size-4' /> Save quote to note
+            </button>
+            <button
+              type='button'
+              aria-label='Dismiss quote capture'
+              class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => setQuoteCapture(null)}
+            >
+              <X class='size-4' />
+            </button>
+          </div>
+        )}
+      </Show>
 
       <Show when={menu()}>
         {(current) => (
@@ -3190,18 +3549,24 @@ export function CanvasPage() {
             onPointerDown={(event) => event.target === event.currentTarget && setDialog(null)}
           >
             <div
+              ref={(element) => (dialogEl = element)}
               role='dialog'
               aria-modal='true'
+              aria-labelledby='canvas-dialog-title'
               class='w-full rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
               classList={{
-                'max-w-2xl': current().kind === 'ai-context',
+                'max-w-2xl': current().kind === 'ai-context' || current().kind === 'ai-compose',
                 'max-w-lg': current().kind === 'new-note' || current().kind === 'new-canvas',
                 'max-w-sm':
                   current().kind !== 'ai-context' &&
+                  current().kind !== 'ai-compose' &&
                   current().kind !== 'new-note' &&
                   current().kind !== 'new-canvas',
               }}
             >
+              <span id='canvas-dialog-title' class='sr-only'>
+                {canvasDialogLabel(current())}
+              </span>
               <Show when={current().kind === 'new-canvas' || current().kind === 'rename-canvas'}>
                 <form
                   onSubmit={(event) => {
@@ -3282,9 +3647,13 @@ export function CanvasPage() {
                       createDocumentFromComposer(value())
                     }}
                   >
-                    <h2 class='text-base font-semibold'>New document</h2>
+                    <h2 class='text-base font-semibold'>
+                      {value().promoteCardId ? 'Promote note to document' : 'New document'}
+                    </h2>
                     <p class='mt-1 text-xs text-muted-foreground'>
-                      Creates a Markdown file and opens it on this canvas.
+                      {value().promoteCardId
+                        ? 'Creates a Markdown file, opens it here, then removes the canvas card.'
+                        : 'Creates a Markdown file and opens it on this canvas.'}
                     </p>
                     <label class='mt-4 block text-sm text-muted-foreground'>Title</label>
                     <input
@@ -3334,11 +3703,168 @@ export function CanvasPage() {
                         class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
                         disabled={!dialogInput().trim() || !noteDirectory()}
                       >
-                        Create document
+                        {value().promoteCardId ? 'Promote note' : 'Create document'}
                       </button>
                     </div>
                   </form>
                 )}
+              </Show>
+              <Show
+                when={
+                  current().kind === 'ai-compose'
+                    ? (current() as Extract<CanvasDialogState, { kind: 'ai-compose' }>)
+                    : undefined
+                }
+              >
+                {(value) => {
+                  const compose = value
+                  const allItems = () => [
+                    ...state().cards.map((item) => ({
+                      id: item.id,
+                      title: item.title || 'Untitled note',
+                      detail: 'Canvas note',
+                    })),
+                    ...state().windows.map((item) => ({
+                      id: item.id,
+                      title: item.definition.title,
+                      detail:
+                        item.definition.initialState.viewing ??
+                        item.definition.initialState.dir ??
+                        item.definition.type,
+                    })),
+                  ]
+                  const orderedItems = () => {
+                    const byId = new Map(allItems().map((item) => [item.id, item]))
+                    return [
+                      ...compose().ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
+                      ...allItems().filter((item) => !compose().ids.includes(item.id)),
+                    ]
+                  }
+                  const moveSource = (id: string, offset: number) => {
+                    const ids = [...compose().ids]
+                    const index = ids.indexOf(id)
+                    const target = index + offset
+                    if (index < 0 || target < 0 || target >= ids.length) return
+                    ;[ids[index], ids[target]] = [ids[target]!, ids[index]!]
+                    updateAiCompose({ ids })
+                  }
+                  return (
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void prepareAiContext(compose().instruction.trim(), compose().ids)
+                      }}
+                    >
+                      <h2 class='text-base font-semibold'>Choose AI context</h2>
+                      <p class='mt-1 text-xs text-muted-foreground'>
+                        Scope:{' '}
+                        {compose().scope === 'selection' ? 'current selection' : 'entire canvas'}.
+                        AI receives only checked sources.
+                      </p>
+                      <label class='mt-4 block text-sm font-medium' for='canvas-ai-instruction'>
+                        Instruction
+                      </label>
+                      <textarea
+                        id='canvas-ai-instruction'
+                        class='mt-1 min-h-24 w-full resize-y rounded-md border border-input bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-ring'
+                        value={compose().instruction}
+                        onInput={(event) =>
+                          updateAiCompose({ instruction: event.currentTarget.value })
+                        }
+                      />
+                      <fieldset class='mt-4'>
+                        <div class='flex items-center justify-between'>
+                          <legend class='text-sm font-medium'>Sources</legend>
+                          <div class='flex gap-1'>
+                            <button
+                              type='button'
+                              class='h-10 rounded-md px-3 text-xs hover:bg-muted'
+                              onClick={() =>
+                                updateAiCompose({ ids: allItems().map((item) => item.id) })
+                              }
+                            >
+                              Select all
+                            </button>
+                            <button
+                              type='button'
+                              class='h-10 rounded-md px-3 text-xs hover:bg-muted'
+                              onClick={() => updateAiCompose({ ids: [] })}
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                        <div class='mt-2 max-h-56 overflow-auto rounded-lg border border-border p-1'>
+                          <For each={orderedItems()}>
+                            {(item) => (
+                              <div class='flex min-h-12 items-center gap-3 rounded-md px-3 py-1 hover:bg-muted'>
+                                <input
+                                  type='checkbox'
+                                  aria-label={`Include ${item.title}`}
+                                  checked={compose().ids.includes(item.id)}
+                                  onChange={(event) =>
+                                    updateAiCompose({
+                                      ids: event.currentTarget.checked
+                                        ? [...compose().ids, item.id]
+                                        : compose().ids.filter((id) => id !== item.id),
+                                    })
+                                  }
+                                />
+                                <span class='min-w-0 flex-1'>
+                                  <span class='block truncate text-sm font-medium'>
+                                    {item.title}
+                                  </span>
+                                  <span class='block truncate text-xs text-muted-foreground'>
+                                    {item.detail}
+                                  </span>
+                                </span>
+                                <Show when={compose().ids.includes(item.id)}>
+                                  <button
+                                    type='button'
+                                    aria-label={`Move ${item.title} earlier`}
+                                    class='size-10 rounded-md text-xs hover:bg-background'
+                                    onClick={() => moveSource(item.id, -1)}
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    type='button'
+                                    aria-label={`Move ${item.title} later`}
+                                    class='size-10 rounded-md text-xs hover:bg-background'
+                                    onClick={() => moveSource(item.id, 1)}
+                                  >
+                                    ↓
+                                  </button>
+                                </Show>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </fieldset>
+                      <div class='mt-5 flex items-center justify-between gap-3'>
+                        <span class='text-xs text-muted-foreground'>
+                          {compose().ids.length} sources selected
+                        </span>
+                        <div class='flex gap-2'>
+                          <button
+                            type='button'
+                            class='h-10 rounded-md px-3 text-sm hover:bg-muted'
+                            onClick={() => setDialog(null)}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type='submit'
+                            class='h-10 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
+                            disabled={!compose().instruction.trim() || !compose().ids.length}
+                          >
+                            Review context
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  )
+                }}
               </Show>
               <Show
                 when={
@@ -3367,7 +3893,10 @@ export function CanvasPage() {
                         <div class='mt-4 max-h-48 space-y-1 overflow-auto rounded-lg border border-border p-2'>
                           <For each={context().sources}>
                             {(source) => (
-                              <div class='flex items-start gap-3 rounded-md px-2 py-2 text-sm'>
+                              <div
+                                data-testid='canvas-ai-context-source'
+                                class='flex items-start gap-3 rounded-md px-2 py-2 text-sm'
+                              >
                                 <span
                                   class='mt-1 size-2 shrink-0 rounded-full'
                                   classList={{
@@ -3487,7 +4016,11 @@ export function CanvasPage() {
                   <dt>
                     <kbd class='rounded border px-1.5 py-0.5'>Double-click</kbd>
                   </dt>
-                  <dd>New document at pointer</dd>
+                  <dd>New instant note at pointer</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Two-finger scroll</kbd>
+                  </dt>
+                  <dd>Pan canvas background</dd>
                   <dt>
                     <kbd class='rounded border px-1.5 py-0.5'>Space + drag</kbd>
                   </dt>

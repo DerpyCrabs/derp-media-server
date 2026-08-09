@@ -21,7 +21,8 @@ Test whether stable two-dimensional placement improves project discoverability, 
 ## World and camera
 
 - Canvas is an unbounded two-dimensional world with stable world coordinates.
-- Middle-button drag pans. `Ctrl+wheel` zooms around cursor. Zoom is capped at 100%, so
+- Middle-button or Space drag pans. Two-finger/plain wheel pans canvas background; `Ctrl+wheel`
+  zooms around cursor. Embedded readers retain native scrolling. Zoom is capped at 100%, so
   workspace windows never render larger than their native size.
 - Top bar contains canvas picker, breadcrumb, unified search, undo/redo, Fit All, zoom out, zoom percentage/reset, zoom in, and reset under overflow actions.
 - `Ctrl+P` opens unified search and overrides browser Print only on `/canvas`.
@@ -68,14 +69,18 @@ Test whether stable two-dimensional placement improves project discoverability, 
   Preview begins only after cursor reaches canvas space outside existing windows. Dragged items
   intentionally permit duplicates.
 - Operating-system file drops are unsupported.
-- Notes are created through file browser. Canvas-native scratch notes are deferred.
+- Double-click and canvas paste create instant canvas notes. Notes can be promoted to Markdown
+  documents in a configured writable directory. Explicit New document creates a file directly.
+- Selecting text in a canvas document offers cited quote capture beside source. Reading position is
+  restored locally per canvas and document.
 
 ## Unified search
 
 Results are grouped in this order:
 
 1. Open canvas windows: jump to window.
-2. Indexed library results: create browser/viewer using placement rules.
+2. Canvas notes: jump to note.
+3. Indexed library results: create browser/viewer using placement rules.
 
 Existing indexed library search APIs remain source of file results. Sections are visually distinct.
 
@@ -95,6 +100,13 @@ Existing indexed library search APIs remain source of file results. Sections are
 - Canvas undo/redo covers create, close, move, and resize.
 - `Ctrl+Z/Y` controls canvas only while canvas background/chrome owns focus; focused editors retain their own undo stack.
 - Undo history may reset on reload.
+
+## AI context
+
+- AI actions always open source preflight showing selection or entire-canvas scope.
+- Users can include, exclude, and order sources and edit instruction before context assembly.
+- Text and PDF documents contribute extracted text within per-source and total limits.
+- Relationships use item titles and optional labels in assembled context.
 
 ## Performance
 

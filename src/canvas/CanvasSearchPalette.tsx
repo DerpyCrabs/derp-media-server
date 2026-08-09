@@ -52,6 +52,7 @@ export function CanvasSearchPalette(props: Props) {
   const [activeIndex, setActiveIndex] = createSignal(0)
   const [scope, setScope] = createSignal<SearchScope>('all')
   let inputEl: HTMLInputElement | undefined
+  let dialogEl: HTMLDivElement | undefined
   const previousFocus = document.activeElement as HTMLElement | null
 
   createEffect(() => {
@@ -143,9 +144,25 @@ export function CanvasSearchPalette(props: Props) {
     document.body.style.overflow = 'hidden'
     queueMicrotask(() => inputEl?.focus())
     const close = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      props.onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        props.onClose()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogEl) return
+      const focusable = [
+        ...dialogEl.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])'),
+      ].filter((element) => element.offsetParent !== null)
+      if (!focusable.length) return
+      const first = focusable[0]!
+      const last = focusable.at(-1)!
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', close)
     onCleanup(() => {
@@ -185,6 +202,7 @@ export function CanvasSearchPalette(props: Props) {
         onPointerDown={(event) => event.target === event.currentTarget && props.onClose()}
       >
         <div
+          ref={(element) => (dialogEl = element)}
           role='dialog'
           aria-modal='true'
           aria-label='Search canvas and library'
@@ -196,6 +214,7 @@ export function CanvasSearchPalette(props: Props) {
             <Search class='size-5 text-muted-foreground' />
             <input
               ref={(element) => (inputEl = element)}
+              aria-label='Search canvas and library'
               class='h-11 min-w-0 flex-1 bg-transparent text-base outline-none'
               placeholder='Search windows, files and folders…'
               value={query()}

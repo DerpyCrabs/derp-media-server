@@ -1,5 +1,6 @@
 import { type CanvasCard, type CanvasConnector, type CanvasWindow } from '@/lib/infinite-canvas'
 import Link2 from 'lucide-solid/icons/link-2'
+import FileText from 'lucide-solid/icons/file-text'
 import Lock from 'lucide-solid/icons/lock'
 import LockOpen from 'lucide-solid/icons/lock-open'
 import Trash2 from 'lucide-solid/icons/trash-2'
@@ -24,6 +25,9 @@ type Props = {
   onToggleLock: (id: string) => void
   onDelete: (id: string) => void
   onConnect: (id: string) => void
+  onPromote: (id: string) => void
+  itemTitle: (id: string) => string
+  onChangeConnector: (id: string, label: string) => void
   onDeleteConnector: (id: string) => void
 }
 
@@ -59,18 +63,7 @@ export function CanvasCardsLayer(props: Props) {
             }))
             return (
               <Show when={points().from && points().to}>
-                <g
-                  class='pointer-events-auto cursor-pointer'
-                  onDblClick={() => props.onDeleteConnector(connector.id)}
-                >
-                  <line
-                    x1={points().from!.x}
-                    y1={points().from!.y}
-                    x2={points().to!.x}
-                    y2={points().to!.y}
-                    stroke='transparent'
-                    stroke-width='16'
-                  />
+                <g class='pointer-events-none'>
                   <line
                     x1={points().from!.x}
                     y1={points().from!.y}
@@ -80,17 +73,6 @@ export function CanvasCardsLayer(props: Props) {
                     stroke-width='2'
                     marker-end='url(#canvas-arrow)'
                   />
-                  <Show when={connector.label}>
-                    <text
-                      x={(points().from!.x + points().to!.x) / 2}
-                      y={(points().from!.y + points().to!.y) / 2 - 8}
-                      fill={connector.color}
-                      text-anchor='middle'
-                      class='text-xs'
-                    >
-                      {connector.label}
-                    </text>
-                  </Show>
                 </g>
               </Show>
             )
@@ -148,6 +130,15 @@ export function CanvasCardsLayer(props: Props) {
                   onInput={(event) => props.onChange(card.id, { title: event.currentTarget.value })}
                 />
                 <Show when={selected(card.id) && !props.readOnly}>
+                  <button
+                    type='button'
+                    title='Promote to Markdown document'
+                    aria-label='Promote to Markdown document'
+                    class='inline-flex size-8 items-center justify-center rounded hover:bg-background/70'
+                    onClick={() => props.onPromote(card.id)}
+                  >
+                    <FileText class='size-3.5' />
+                  </button>
                   <button
                     type='button'
                     title={
@@ -226,6 +217,62 @@ export function CanvasCardsLayer(props: Props) {
                 />
               </Show>
             </article>
+          )
+        }}
+      </For>
+      <For each={props.connectors}>
+        {(connector) => {
+          const points = createMemo(() => ({
+            from: center(props, connector.fromId),
+            to: center(props, connector.toId),
+          }))
+          const editing = () => selected(connector.fromId) || selected(connector.toId)
+          return (
+            <Show when={points().from && points().to}>
+              <Show
+                when={editing()}
+                fallback={
+                  <Show when={connector.label}>
+                    <span
+                      class='pointer-events-none absolute z-[2000000] -translate-x-1/2 -translate-y-1/2 rounded border border-border bg-popover/90 px-2 py-1 text-xs shadow-sm'
+                      style={{
+                        left: `${(points().from!.x + points().to!.x) / 2}px`,
+                        top: `${(points().from!.y + points().to!.y) / 2}px`,
+                      }}
+                    >
+                      {connector.label}
+                    </span>
+                  </Show>
+                }
+              >
+                <div
+                  class='absolute z-[2000000] flex h-10 w-48 -translate-x-1/2 -translate-y-1/2 items-center rounded-md border border-border bg-popover/95 px-1 shadow-md'
+                  style={{
+                    left: `${(points().from!.x + points().to!.x) / 2}px`,
+                    top: `${(points().from!.y + points().to!.y) / 2}px`,
+                  }}
+                >
+                  <input
+                    aria-label={`Relationship from ${props.itemTitle(connector.fromId)} to ${props.itemTitle(connector.toId)}`}
+                    class='min-w-0 flex-1 bg-transparent px-2 text-xs outline-none'
+                    value={connector.label}
+                    placeholder='Relationship'
+                    onInput={(event) =>
+                      props.onChangeConnector(connector.id, event.currentTarget.value)
+                    }
+                  />
+                  <button
+                    type='button'
+                    aria-label='Delete relationship'
+                    title='Delete relationship'
+                    class='inline-flex size-8 shrink-0 items-center justify-center rounded text-destructive hover:bg-destructive/10'
+                    onClick={() => props.onDeleteConnector(connector.id)}
+                  >
+                    <Trash2 class='size-3.5' />
+                  </button>
+                </div>
+              </Show>
+            </Show>
           )
         }}
       </For>

@@ -198,6 +198,21 @@ export function canvasItemBounds(state: InfiniteCanvasState, id: string): Canvas
 
 export type CanvasContextContent = { content: string; truncated?: boolean }
 
+export function canvasItemTitle(state: InfiniteCanvasState, id: string): string {
+  const card = state.cards.find((item) => item.id === id)
+  if (card) return card.title || 'Untitled note'
+  return state.windows.find((item) => item.id === id)?.definition.title || id
+}
+
+export function createReadingQuoteBody(quote: string, sourcePath: string): string {
+  const quoted = quote
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join('\n')
+  return `${quoted}\n\nSource: ${sourcePath}`
+}
+
 export function buildCanvasContext(
   state: InfiniteCanvasState,
   ids: string[],
@@ -205,20 +220,26 @@ export function buildCanvasContext(
 ): string {
   const selected = new Set(ids)
   const parts: string[] = ['# Canvas context']
-  for (const card of state.cards.filter((item) => selected.has(item.id))) {
-    const note = itemContents[card.id]
-    parts.push(`\n## ${card.title || 'Note'}\n${note?.content ?? card.body}`)
-    if (note?.truncated) parts.push('\n[Content truncated to fit AI context]')
-    if (card.url) parts.push(`\nURL: ${card.url}`)
-    if (card.tags.length) parts.push(`\nTags: ${card.tags.join(', ')}`)
-  }
-  for (const window of state.windows.filter((item) => selected.has(item.id))) {
-    const path = window.definition.initialState.viewing ?? window.definition.initialState.dir ?? ''
-    parts.push(`\n## Source: ${window.definition.title}\n${path}`)
-    const document = itemContents[window.id]
-    if (document?.content) {
-      parts.push(`\n${document.content}`)
-      if (document.truncated) parts.push('\n[Content truncated to fit AI context]')
+  for (const id of ids) {
+    const card = state.cards.find((item) => item.id === id)
+    if (card) {
+      const note = itemContents[card.id]
+      parts.push(`\n## ${card.title || 'Note'}\n${note?.content ?? card.body}`)
+      if (note?.truncated) parts.push('\n[Content truncated to fit AI context]')
+      if (card.url) parts.push(`\nURL: ${card.url}`)
+      if (card.tags.length) parts.push(`\nTags: ${card.tags.join(', ')}`)
+      continue
+    }
+    const window = state.windows.find((item) => item.id === id)
+    if (window) {
+      const path =
+        window.definition.initialState.viewing ?? window.definition.initialState.dir ?? ''
+      parts.push(`\n## Source: ${window.definition.title}\n${path}`)
+      const document = itemContents[window.id]
+      if (document?.content) {
+        parts.push(`\n${document.content}`)
+        if (document.truncated) parts.push('\n[Content truncated to fit AI context]')
+      }
     }
   }
   const links = state.connectors.filter(
@@ -226,8 +247,11 @@ export function buildCanvasContext(
   )
   if (links.length) {
     parts.push('\n## Relationships')
-    for (const link of links)
-      parts.push(`- ${link.fromId} -> ${link.toId}${link.label ? `: ${link.label}` : ''}`)
+    for (const link of links) {
+      const from = canvasItemTitle(state, link.fromId)
+      const to = canvasItemTitle(state, link.toId)
+      parts.push(`- ${from} -> ${to}${link.label ? `: ${link.label}` : ''}`)
+    }
   }
   return parts.join('\n').trim()
 }

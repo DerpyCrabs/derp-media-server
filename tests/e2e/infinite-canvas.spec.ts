@@ -117,10 +117,167 @@ test('previews grounded document content before opening AI chat', async ({ page 
   await browserWindow.locator('[data-file-path="Documents"]').click()
   await browserWindow.locator('[data-file-path="Documents/notes.md"]').click()
   await page.getByRole('button', { name: 'Summarize' }).click()
+  await expect(page.getByRole('heading', { name: 'Choose AI context' })).toBeVisible()
+  await expect(page.getByText('Scope: current selection.')).toBeVisible()
+  await page.getByRole('button', { name: 'Review context' }).click()
   await expect(page.getByRole('heading', { name: 'Review AI context' })).toBeVisible()
   await expect(page.getByText(/Document included: Documents\/notes\.md/)).toBeVisible()
   await page.getByText('Preview assembled context').click()
   await expect(page.getByText('USB-C input must tolerate 20 V.')).toBeVisible()
+})
+
+test('extracts PDF text for AI context without opening the standalone PDF viewer', async ({
+  page,
+}) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window')
+  await browserWindow.locator('[data-file-path="Documents"]').click()
+  await browserWindow.locator('[data-file-path="Documents/sample.pdf"]').click()
+
+  await page.getByRole('button', { name: 'Summarize' }).click()
+  await page.getByRole('button', { name: 'Review context' }).click()
+  await expect(page.getByText('PDF text included: Documents/sample.pdf')).toBeVisible()
+  await expect(page.getByText('Could not load: Documents/sample.pdf')).toHaveCount(0)
+})
+
+test('uses chosen AI source order when allocating the context budget', async ({ page }) => {
+  test.setTimeout(30_000)
+  const titles = ['First source', 'Second source', 'Priority source']
+  for (const [index, title] of titles.entries()) {
+    await page.getByTestId('canvas-add-trigger').click()
+    await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
+    const card = page.getByTestId('canvas-card').last()
+    await card.getByLabel('Card title').fill(title)
+    await card.locator('textarea').fill(String(index + 1).repeat(24_000))
+  }
+
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ position: { x: 1050, y: 500 } })
+  await page.keyboard.press('Control+a')
+  await page.getByRole('button', { name: 'Summarize' }).click()
+  await page.getByRole('button', { name: 'Move Priority source earlier' }).click()
+  await page.getByRole('button', { name: 'Move Priority source earlier' }).click()
+  await page.getByRole('button', { name: 'Review context' }).click()
+
+  const sources = page.getByTestId('canvas-ai-context-source')
+  await expect(sources.first()).toContainText('Priority source')
+  await expect(sources.first()).toContainText('24,000 chars')
+  await expect(sources.last()).toContainText('12,000 chars')
+})
+
+test('captures instant notes by double-click and paste', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.dblclick({ position: { x: 100, y: 100 } })
+  await expect(page.getByTestId('canvas-card')).toHaveCount(1)
+  await expect(page.getByLabel('Untitled note body')).toBeFocused()
+
+  await canvas.click({ position: { x: 900, y: 500 } })
+  await canvas.evaluate((element) => {
+    const data = new DataTransfer()
+    data.setData('text/plain', 'Pasted project note')
+    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: data }))
+  })
+  await expect(page.getByTestId('canvas-card')).toHaveCount(2)
+  await expect(page.getByLabel('Pasted project note body')).toHaveValue('Pasted project note')
+})
+
+test('captures selected reading text as a cited note', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window')
+  await browserWindow.locator('[data-file-path="Documents"]').click()
+  await browserWindow.locator('[data-file-path="Documents/notes.md"]').click()
+
+  const viewer = page
+    .getByTestId('canvas-window')
+    .filter({ has: page.getByTestId('markdown-document') })
+  await expect(viewer).toBeVisible()
+  const content = viewer.locator('[data-canvas-window-content]')
+  await viewer.getByTestId('markdown-document').evaluate((element) => {
+    const selectable = element.querySelector('.cm-content')
+    if (!selectable) throw new Error('Markdown content not ready')
+    const range = document.createRange()
+    range.selectNodeContents(selectable)
+    const selection = document.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  })
+  await content.dispatchEvent('pointerup')
+  await page.getByRole('button', { name: 'Save quote to note' }).click()
+  const quoteBody = page.getByLabel('Quote · notes.md body')
+  await expect(quoteBody).toHaveValue(/Source: Documents\/notes\.md/)
+  const quote = quoteBody.locator('xpath=ancestor::article')
+  await expect(quote.getByLabel('Card tags')).toHaveValue('quote, reading')
+})
+
+test('edits and deletes accessible relationship labels', async ({ page }) => {
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
+  await page.getByLabel('Card title').fill('Requirement')
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
+  await page.getByLabel('Card title').last().fill('Architecture')
+
+  const cards = page.getByTestId('canvas-card')
+  await cards.first().click({ position: { x: 8, y: 18 } })
+  await cards.last().click({ position: { x: 8, y: 18 }, modifiers: ['Control'] })
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  const relationship = page.getByLabel('Relationship from Requirement to Architecture')
+  await relationship.fill('drives')
+  await expect(relationship).toHaveValue('drives')
+  await page.getByRole('button', { name: 'Delete relationship' }).click()
+  await expect(relationship).toHaveCount(0)
+})
+
+test('searches, summarizes, and duplicates canvases from picker', async ({ page }) => {
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
+  await page.getByLabel('Card title').fill('Research board')
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Research board')
+
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByLabel('Search canvases').fill('Research')
+  const row = page.getByTestId('canvas-list-item').filter({ hasText: 'Research board' })
+  await expect(row).toContainText('1 notes')
+  await row.hover()
+  await page.getByLabel('Duplicate Research board').click()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Research board copy')
+  await expect(page.getByTestId('canvas-card')).toHaveCount(1)
+})
+
+test('pans canvas background with an unmodified wheel', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.hover({ position: { x: 900, y: 500 } })
+  const before = await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
+      camera?: { x?: number; y?: number }
+    }
+    return raw.camera ?? { x: 0, y: 0 }
+  })
+  await page.mouse.wheel(40, 80)
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
+          camera?: { x?: number; y?: number }
+        }
+        return raw.camera
+      }),
+    )
+    .toEqual({ x: (before.x ?? 0) - 40, y: (before.y ?? 0) - 80, zoom: 1 })
+})
+
+test('closes canvas dialogs with Escape and restores focus', async ({ page }) => {
+  const trigger = page.getByTestId('canvas-name-trigger')
+  await trigger.click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await expect(page.getByRole('dialog', { name: 'New canvas' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'New canvas' })).toHaveCount(0)
+  await expect(trigger).toBeFocused()
 })
 
 test('keeps primary and zoom controls reachable on narrow screens', async ({ page }) => {
@@ -773,7 +930,7 @@ test('does not remount existing panes when another window opens', async ({ page 
 
   const content = firstWindow.locator('[data-canvas-window-content]')
   await content.evaluate((element) => element.setAttribute('data-remount-sentinel', 'stable'))
-  await canvas.click({ button: 'right', position: { x: 1100, y: 650 } })
+  await canvas.click({ button: 'right', position: { x: 1000, y: 580 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
 
   await expect(page.getByTestId('canvas-window')).toHaveCount(2)

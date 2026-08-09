@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   buildCanvasContext,
+  createReadingQuoteBody,
   createCanvasExport,
   createCanvasTemplateState,
   parseCanvasExport,
@@ -48,5 +49,33 @@ describe('canvas knowledge features', () => {
     })
     expect(context).toContain('USB-C input, 20 V maximum.')
     expect(context).toContain('Content truncated')
+  })
+
+  test('uses readable titles for relationships in AI context', () => {
+    const state = createCanvasTemplateState('project')
+    state.connectors.push({
+      id: 'canvas-connector-8',
+      fromId: state.cards[0]!.id,
+      toId: state.cards[1]!.id,
+      label: 'informs',
+      color: '#64748b',
+    })
+    const context = buildCanvasContext(state, [state.cards[0]!.id, state.cards[1]!.id])
+    expect(context).toContain('- Project brief -> Architecture notes: informs')
+    expect(context).not.toContain('canvas-card-1 -> canvas-card-2')
+  })
+
+  test('formats reading quotes with source provenance', () => {
+    expect(createReadingQuoteBody('Line one\nLine two', 'Docs/design.md')).toBe(
+      '> Line one\n> Line two\n\nSource: Docs/design.md',
+    )
+  })
+
+  test('preserves chosen source order in AI context', () => {
+    const state = createCanvasTemplateState('project')
+    const context = buildCanvasContext(state, [state.cards[1]!.id, state.cards[0]!.id])
+    expect(context.indexOf('## Architecture notes')).toBeLessThan(
+      context.indexOf('## Project brief'),
+    )
   })
 })
