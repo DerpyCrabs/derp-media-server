@@ -52,6 +52,18 @@ describe('setFileDragData / getFileDragData', () => {
     expect(result).toEqual(data)
   })
 
+  test('round-trips opaque virtual open target for cross-surface drops', () => {
+    const dt = createMockDataTransfer()
+    const data: FileDragData = {
+      path: 'opaque-provider-entry',
+      isDirectory: false,
+      sourceKind: 'local',
+      virtualOpenTarget: { type: 'hermesSession', sessionId: 'durable-1', readOnly: false },
+    }
+    setFileDragData(dt, data)
+    expect(getFileDragData(dt)).toEqual(data)
+  })
+
   test('sets text/plain with the file path', () => {
     const dt = createMockDataTransfer()
     setFileDragData(dt, {

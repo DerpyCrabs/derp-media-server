@@ -21,6 +21,11 @@ import Star from 'lucide-solid/icons/star'
 import Video from 'lucide-solid/icons/video'
 import { Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import type { WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
+import { virtualAppearanceForPath, type VirtualAppearance } from '@/lib/virtual-directory'
+import Archive from 'lucide-solid/icons/archive'
+import Bot from 'lucide-solid/icons/bot'
+import FolderKanban from 'lucide-solid/icons/folder-kanban'
+import MessageSquare from 'lucide-solid/icons/message-square'
 
 export type FileIconContext = {
   customIcons: Record<string, string>
@@ -69,6 +74,36 @@ function colorClass(mediaType: MediaType): string {
     default:
       return 'text-yellow-500'
   }
+}
+
+function virtualAppearanceIcon(appearance: VirtualAppearance, size: IconSize): JSX.Element {
+  const { cls, sz, sw } = sizeProps(size)
+  const color = appearance.color
+    ? ''
+    : appearance.tone === 'violet'
+      ? 'text-violet-500'
+      : appearance.tone === 'indigo'
+        ? 'text-indigo-500'
+        : 'text-muted-foreground'
+  const Icon =
+    getSolidIconComponent(appearance.icon) ??
+    (appearance.icon === 'agent-directory'
+      ? Bot
+      : appearance.icon === 'agent-session'
+        ? MessageSquare
+        : appearance.icon === 'project'
+          ? FolderKanban
+          : appearance.icon === 'archive'
+            ? Archive
+            : FolderKanban)
+  return (
+    <Icon
+      class={`${cls} ${color}`}
+      style={appearance.color ? { color: appearance.color } : undefined}
+      size={sz}
+      stroke-width={sw}
+    />
+  )
 }
 
 function renderFileIcon(
@@ -170,7 +205,9 @@ export function fileItemIcon(
   file: FileItem,
   ctx: FileIconContext,
   size: IconSize = 'md',
+  appearance?: VirtualAppearance,
 ): JSX.Element {
+  if (appearance) return virtualAppearanceIcon(appearance, size)
   return renderFileIcon(
     file.type,
     file.path,
@@ -309,7 +346,9 @@ function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
 export function gridHeroIcon(
   file: FileItem,
   ctx: FileIconContext = EMPTY_FILE_ICON_CONTEXT,
+  appearance?: VirtualAppearance,
 ): JSX.Element {
+  if (appearance) return gridHeroIconScaleWrap(virtualAppearanceIcon(appearance, 'md'))
   const fp = norm(file.path)
   const customIconName = ctx.customIcons[file.path] ?? ctx.customIcons[fp]
   if (customIconName && getSolidIconComponent(customIconName)) {
@@ -332,6 +371,13 @@ export function workspaceTabIcon(
   ctx: FileIconContext,
   size: IconSize = 'sm',
 ): JSX.Element {
+  const virtualAppearance = virtualAppearanceForPath(
+    tab.iconPath ??
+      (tab.type === 'hermes'
+        ? `Hermes Sessions/session/${tab.hermes?.sessionId ?? tab.hermes?.draftId ?? 'draft'}`
+        : ''),
+  )
+  if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, size)
   const iconType = tab.iconType ?? (tab.type === 'browser' ? MediaType.FOLDER : MediaType.OTHER)
   const iconPath = tab.iconPath ?? (tab.type === 'browser' ? (tab.initialState.dir ?? '') : '')
   return renderFileIcon(
@@ -351,6 +397,13 @@ export function workspaceTaskbarRowIcon(
   playbackPath: string | null,
   size: IconSize = 'sm',
 ): JSX.Element {
+  const virtualAppearance = virtualAppearanceForPath(
+    tab.iconPath ??
+      (tab.type === 'hermes'
+        ? `Hermes Sessions/session/${tab.hermes?.sessionId ?? tab.hermes?.draftId ?? 'draft'}`
+        : ''),
+  )
+  if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, size)
   const path =
     tab.iconPath ??
     (tab.type === 'browser'
@@ -381,6 +434,8 @@ export function pinnedShellIcon(
   settingsCustomIcons: Record<string, string>,
   ctx: FileIconContext,
 ): JSX.Element {
+  const virtualAppearance = virtualAppearanceForPath(pin.path)
+  if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, 'md')
   const p = norm(pin.path)
   const customName = pin.customIconName ?? settingsCustomIcons[pin.path] ?? settingsCustomIcons[p]
   const mediaType = pin.isDirectory

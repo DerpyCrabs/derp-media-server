@@ -1,4 +1,5 @@
 import type { FileItem } from '@/lib/types'
+import type { VirtualOpenTarget } from '@/lib/virtual-directory'
 import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
 import type { Accessor } from 'solid-js'
 import type { FileIconContext } from '../lib/use-file-icon'
@@ -17,6 +18,7 @@ export type WorkspaceBrowserPaneProps = {
   editableFolders: string[]
   onNavigateDir: (windowId: string, dir: string) => void
   onOpenViewer: (windowId: string, file: FileItem) => void
+  onOpenVirtualTarget?: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
   onAddToTaskbar: (file: FileItem) => void
   onOpenInNewTab?: (
     windowId: string,

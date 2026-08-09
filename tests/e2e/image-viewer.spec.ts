@@ -1,4 +1,9 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
+
+async function useListView(page: Page) {
+  await page.getByRole('button', { name: 'List view' }).click()
+  await expect(page.locator('table')).toBeVisible()
+}
 
 test.describe('Image Viewer', () => {
   test('image thumbnails appear in grid view', async ({ page }) => {
@@ -21,6 +26,7 @@ test.describe('Image Viewer', () => {
 
   test('opens image viewer when clicking an image file', async ({ page }) => {
     await page.goto('/?dir=Images')
+    await useListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     const image = page.locator('img[alt="photo.jpg"]')
     await expect(image).toBeVisible()
@@ -29,6 +35,7 @@ test.describe('Image Viewer', () => {
 
   test('reflects viewing image in URL', async ({ page }) => {
     await page.goto('/?dir=Images')
+    await useListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(page).toHaveURL(/viewing=Images.*photo\.jpg/)
   })
@@ -118,6 +125,7 @@ test.describe('Image Viewer', () => {
 
   test('navigates to next image with ArrowRight key', async ({ page }) => {
     await page.goto('/?dir=Images')
+    await useListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
     await expect(page.getByText('1 of 2')).toBeVisible()
@@ -131,6 +139,7 @@ test.describe('Image Viewer', () => {
 
   test('navigates to previous image with ArrowLeft key', async ({ page }) => {
     await page.goto('/?dir=Images')
+    await useListView(page)
     await page.locator('table').getByText('photo.png').click()
     await expect(page.locator('img[alt="photo.png"]')).toBeVisible()
 
@@ -183,6 +192,7 @@ test.describe('Image Viewer', () => {
 
     await page.locator('button:has(.lucide-x)').click()
     await expect(page.locator('img[alt="photo.jpg"]')).not.toBeVisible()
+    await useListView(page)
     await expect(page.locator('table').getByText('photo.jpg')).toBeVisible()
     await expect(page).not.toHaveURL(/viewing=/)
   })

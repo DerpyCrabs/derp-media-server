@@ -115,6 +115,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::auth::router())
         .merge(routes::canvases::router())
         .merge(routes::files::router())
+        .merge(routes::hermes_chat::router())
         .merge(routes::settings::router())
         .merge(routes::mounts::router())
         .merge(routes::shares::router())
@@ -172,18 +173,29 @@ pub(crate) async fn run() {
     search_roots.extend(runtime_roots.clone());
     let (events, _) = tokio::sync::broadcast::channel(256);
     let (admin_events, _) = tokio::sync::broadcast::channel(256);
+    let (hermes_events, _) = tokio::sync::broadcast::channel(1024);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap();
+    let hermes: Option<Arc<dyn crate::hermes::HermesTransport>> =
+        config.hermes.clone().map(|value| {
+            Arc::new(crate::hermes::HermesHub::new(
+                value,
+                client.clone(),
+                hermes_events.clone(),
+            )) as Arc<dyn crate::hermes::HermesTransport>
+        });
     let state = Arc::new(AppState {
         config: config.clone(),
         runtime_roots: RwLock::new(runtime_roots),
         store_lock: Mutex::new(()),
         dev,
         vite_port,
-        client: reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .unwrap(),
+        client,
         events,
         admin_events,
+        hermes_events,
         image_grants: Mutex::new(HashMap::new()),
         share_images: Mutex::new(HashMap::new()),
         image_operations: Mutex::new(()),
@@ -196,6 +208,9 @@ pub(crate) async fn run() {
             config.image_optimization.clone(),
         ),
         file_search: FileSearch::new(config.file_search.clone(), search_roots),
+        hermes,
+        hermes_project_operations: Mutex::new(()),
+        hermes_runtime_ids: Mutex::new(HashMap::new()),
     });
     watch_settings(&state);
     let address = format!("0.0.0.0:{}", config.port);

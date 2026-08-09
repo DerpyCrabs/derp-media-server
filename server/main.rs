@@ -4,6 +4,7 @@ mod canvas_persistence;
 mod config;
 mod error;
 mod file_search;
+mod hermes;
 mod html;
 mod image_variants;
 mod markdown_images;
@@ -13,6 +14,7 @@ mod server;
 mod shares;
 mod store;
 mod thumbnails;
+mod virtual_directory;
 mod workspace_persistence;
 
 #[tokio::main]

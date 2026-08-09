@@ -59,8 +59,14 @@ fn valid_state(state: &Value) -> bool {
                 && window.get("bounds").is_some_and(valid_rect)
                 && matches!(
                     definition.get("type").and_then(Value::as_str),
-                    Some("browser" | "viewer")
+                    Some("browser" | "viewer" | "hermes")
                 )
+                && (definition.get("type").and_then(Value::as_str) != Some("hermes")
+                    || definition
+                        .get("hermes")
+                        .and_then(|h| h.get("sessionId"))
+                        .and_then(Value::as_str)
+                        .is_some())
                 && local
                 && safe_paths
         })

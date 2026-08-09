@@ -146,6 +146,45 @@ struct RawConfig {
     image_optimization: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_tls")]
     tls: Option<TlsConfig>,
+    hermes: Option<RawHermesConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RawHermesConfig {
+    gateway_url: String,
+    token: Option<String>,
+    token_env: Option<String>,
+    profile: Option<String>,
+    filesystem_mode: Option<HermesFilesystemMode>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HermesFilesystemMode {
+    Upload,
+    Shared,
+}
+
+#[derive(Clone)]
+pub struct HermesConfig {
+    pub gateway_url: url::Url,
+    pub token: Option<String>,
+    pub profile: Option<String>,
+    #[allow(dead_code)]
+    pub filesystem_mode: HermesFilesystemMode,
+}
+
+impl std::fmt::Debug for HermesConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HermesConfig")
+            .field("gateway_url", &self.gateway_url)
+            .field("token", &self.token.as_ref().map(|_| "[redacted]"))
+            .field("profile", &self.profile)
+            .field("filesystem_mode", &self.filesystem_mode)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -188,6 +227,38 @@ pub struct Config {
     pub file_search: FileSearchConfig,
     pub image_optimization: ImageOptimizationConfig,
     pub tls: Option<TlsConfig>,
+    pub hermes: Option<HermesConfig>,
+}
+
+fn hermes_config(raw: Option<RawHermesConfig>) -> Result<Option<HermesConfig>, String> {
+    let Some(raw) = raw else { return Ok(None) };
+    if raw.token.is_some() && raw.token_env.is_some() {
+        return Err("hermes.token and hermes.tokenEnv cannot both be configured".into());
+    }
+    let mut gateway_url = url::Url::parse(raw.gateway_url.trim())
+        .map_err(|_| "hermes.gatewayUrl must be a valid HTTP or HTTPS URL".to_string())?;
+    if !matches!(gateway_url.scheme(), "http" | "https") || gateway_url.host_str().is_none() {
+        return Err("hermes.gatewayUrl must be a valid HTTP or HTTPS URL".into());
+    }
+    gateway_url.set_query(None);
+    gateway_url.set_fragment(None);
+    if !gateway_url.path().ends_with('/') {
+        gateway_url.set_path(&format!("{}/", gateway_url.path()));
+    }
+    let token = match raw.token_env {
+        Some(name) => Some(
+            env::var(&name)
+                .map_err(|_| format!("Hermes token environment variable {name} is not set"))?,
+        ),
+        None => raw.token,
+    }
+    .filter(|value| !value.is_empty());
+    Ok(Some(HermesConfig {
+        gateway_url,
+        token,
+        profile: raw.profile.filter(|value| !value.trim().is_empty()),
+        filesystem_mode: raw.filesystem_mode.unwrap_or(HermesFilesystemMode::Upload),
+    }))
 }
 
 fn parse_cache_size(value: &str) -> Result<u64, String> {
@@ -856,6 +927,7 @@ impl Config {
         }) {
             tls = None;
         }
+        let hermes = hermes_config(raw.hermes)?;
         Ok(Self {
             port,
             roots,
@@ -866,6 +938,7 @@ impl Config {
             file_search,
             image_optimization,
             tls,
+            hermes,
         })
     }
 }
@@ -873,6 +946,33 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hermes_config_validates_and_defaults() {
+        let raw: RawConfig =
+            json5::from_str(r#"{ hermes: { gatewayUrl: "http://127.0.0.1:4000" } }"#).unwrap();
+        let config = hermes_config(raw.hermes).unwrap().unwrap();
+        assert_eq!(config.gateway_url.as_str(), "http://127.0.0.1:4000/");
+        assert_eq!(config.filesystem_mode, HermesFilesystemMode::Upload);
+
+        let secret = HermesConfig {
+            token: Some("never-print-this".into()),
+            ..config.clone()
+        };
+        assert!(!format!("{secret:?}").contains("never-print-this"));
+
+        let raw: RawConfig = json5::from_str(
+            r#"{ hermes: { gatewayUrl: "http://localhost:4000", token: "a", tokenEnv: "B" } }"#,
+        )
+        .unwrap();
+        assert!(hermes_config(raw.hermes).is_err());
+
+        let raw: RawConfig = json5::from_str(
+            r#"{ hermes: { gatewayUrl: "ftp://invalid", filesystemMode: "shared" } }"#,
+        )
+        .unwrap();
+        assert!(hermes_config(raw.hermes).is_err());
+    }
 
     #[test]
     fn auth_config_matches_javascript_coercion_and_sanitizing() {

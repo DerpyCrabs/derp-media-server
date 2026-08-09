@@ -2,6 +2,7 @@ import {
   CANVAS_STORAGE_KEY,
   createEmptyCanvasState,
   parseInfiniteCanvasState,
+  serializeInfiniteCanvasState,
   type InfiniteCanvasState,
 } from './infinite-canvas'
 
@@ -145,7 +146,14 @@ export function nextCanvasTimestamp(collection: CanvasCollection, now = Date.now
 }
 
 export function serializeCanvasCollection(collection: CanvasCollection): string {
-  return JSON.stringify(collection)
+  return JSON.stringify({
+    ...collection,
+    canvases: collection.canvases.map((canvas) =>
+      canvas.state
+        ? { ...canvas, state: JSON.parse(serializeInfiniteCanvasState(canvas.state)) }
+        : canvas,
+    ),
+  })
 }
 
 export function createCanvasRecord(

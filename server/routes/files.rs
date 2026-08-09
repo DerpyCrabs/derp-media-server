@@ -24,16 +24,127 @@ use tokio_util::io::ReaderStream;
 struct DirQuery {
     #[serde(default)]
     dir: String,
+    surface: Option<String>,
+    #[serde(default)]
+    offset: usize,
+}
+
+#[derive(Deserialize)]
+struct VirtualPathQuery {
+    path: String,
 }
 
 async fn list(
     State(state): State<Shared>,
     Query(query): Query<DirQuery>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(json!({"files":list_items(&state, &query.dir)?})))
+    if query.dir == crate::virtual_directory::HERMES_ROOT
+        || query
+            .dir
+            .starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
+    {
+        if query.surface.as_deref() != Some("workspace") {
+            return Err(AppError::not_found("Directory not found"));
+        }
+        return Ok(Json(
+            serde_json::to_value(
+                crate::virtual_directory::list_hermes(&state, &query.dir, query.offset).await?,
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?,
+        ));
+    }
+    let mut files = list_items(&state, &query.dir)?;
+    let mut entries = serde_json::Map::new();
+    if query.dir.is_empty()
+        && query.surface.as_deref() == Some("workspace")
+        && state.hermes.is_some()
+    {
+        let path = crate::virtual_directory::HERMES_ROOT.to_string();
+        files.push(media::FileItem {
+            name: path.clone(),
+            path: path.clone(),
+            media_type: "folder".into(),
+            size: 0,
+            extension: String::new(),
+            is_directory: true,
+            is_virtual: Some(true),
+            view_count: None,
+            share_token: None,
+            thumbnail_generated: None,
+            version: None,
+        });
+        entries.insert(
+            path,
+            json!({"provider":"hermes","kind":"root","capabilities":["open"],
+                "appearance":{"icon":"agent-directory","tone":"violet"}}),
+        );
+    }
+    let directory = crate::virtual_directory::is_builtin_path(&query.dir).then(|| {
+        json!({"provider":"builtin","kind":"collection","path":query.dir,"capabilities":[],
+            "offset":0,"pageSize":files.len(),"total":files.len()})
+    });
+    Ok(Json(
+        json!({"files":files,"virtualEntries":entries,"virtualDirectory":directory}),
+    ))
+}
+
+async fn virtual_action(
+    State(state): State<Shared>,
+    Json(body): Json<crate::virtual_directory::ActionBody>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(crate::virtual_directory::action(&state, body).await?))
+}
+
+async fn virtual_open(
+    State(state): State<Shared>,
+    Query(query): Query<VirtualPathQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(
+        crate::virtual_directory::session_detail(&state, &query.path).await?,
+    ))
+}
+
+async fn virtual_export(
+    State(state): State<Shared>,
+    Query(query): Query<VirtualPathQuery>,
+) -> AppResult<Json<Value>> {
+    let id = crate::virtual_directory::session_id_from_path(&query.path)?;
+    let hub = state
+        .hermes
+        .as_ref()
+        .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))?;
+    let query = hub
+        .profile()
+        .map(|profile| vec![("profile", profile.to_string())])
+        .unwrap_or_default();
+    Ok(Json(
+        hub.get(&format!("api/sessions/{id}/export"), &query)
+            .await?,
+    ))
+}
+
+async fn virtual_fs(
+    State(state): State<Shared>,
+    Query(query): Query<VirtualPathQuery>,
+) -> AppResult<Json<Value>> {
+    let hub = state
+        .hermes
+        .as_ref()
+        .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))?;
+    Ok(Json(hub.get("api/fs/list", &[("path", query.path)]).await?))
 }
 
 pub(crate) fn list_items(state: &AppState, dir: &str) -> AppResult<Vec<media::FileItem>> {
+    if let Some(result) = crate::virtual_directory::list_builtin(state, dir) {
+        return result;
+    }
+    list_directory(state, dir)
+}
+
+pub(crate) fn legacy_virtual_items(
+    state: &AppState,
+    dir: &str,
+) -> Option<AppResult<Vec<media::FileItem>>> {
     if dir == "Shares" {
         let runtime = roots(state);
         let mut items = Vec::new();
@@ -74,7 +185,7 @@ pub(crate) fn list_items(state: &AppState, dir: &str) -> AppResult<Vec<media::Fi
                 version: None,
             });
         }
-        return Ok(items);
+        return Some(Ok(items));
     }
     if dir == "Favorites" || dir == "Most Played" {
         let section = if dir == "Favorites" {
@@ -154,9 +265,9 @@ pub(crate) fn list_items(state: &AppState, dir: &str) -> AppResult<Vec<media::Fi
                 version: None,
             });
         }
-        return Ok(items);
+        return Some(Ok(items));
     }
-    list_directory(state, dir)
+    None
 }
 
 #[derive(Deserialize)]
@@ -595,4 +706,8 @@ pub fn router() -> Router<Shared> {
             post(upload).layer(DefaultBodyLimit::max(10_000_000_000usize)),
         )
         .route("/api/files/download", get(download))
+        .route("/api/virtual-directory/action", post(virtual_action))
+        .route("/api/virtual-directory/open", get(virtual_open))
+        .route("/api/virtual-directory/export", get(virtual_export))
+        .route("/api/virtual-directory/fs", get(virtual_fs))
 }

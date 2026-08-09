@@ -12,6 +12,7 @@ import Settings from 'lucide-solid/icons/settings'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
+import type { VirtualCapability, VirtualEntry } from '@/lib/virtual-directory'
 import { isOfflineFeatureAvailable, isPathAvailableOffline } from '../lib/offline-files'
 
 type MenuState = { x: number; y: number; file: FileItem }
@@ -53,6 +54,8 @@ type FileRowContextMenuProps = {
   workspaceDefaultFileOpen?: Accessor<'new-tab' | 'new-window'>
   /** Workspace: open a file in a floating window (when default mode is new-tab). */
   onOpenFileInNewWindow?: (file: FileItem) => void
+  getVirtualEntry?: (file: FileItem) => VirtualEntry | undefined
+  onVirtualAction?: (action: VirtualCapability, file: FileItem) => void
 }
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
@@ -65,6 +68,9 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
     >
       {(ctx) => {
         const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
+        const virtualEntry = () => props.getVirtualEntry?.(ctx.file)
+        const canVirtual = (capability: VirtualCapability) =>
+          virtualEntry()?.capabilities.includes(capability) ?? false
         const showRevokeShare = () => !!ctx.file.shareToken
         const showDeleteFile = () => {
           if (ctx.file.isVirtual || ctx.file.shareToken) return false
@@ -119,6 +125,162 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
 
         return (
           <>
+            <Show when={canVirtual('rename')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('rename', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Rename
+              </button>
+            </Show>
+            <Show when={canVirtual('branch')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('branch', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Branch
+              </button>
+            </Show>
+            <Show when={canVirtual('moveToProject')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('moveToProject', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Move to project…
+              </button>
+            </Show>
+            <Show when={canVirtual('copyId')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('copyId', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Copy session ID
+              </button>
+            </Show>
+            <Show when={canVirtual('addProjectFolder')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('addProjectFolder', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Add gateway directory…
+              </button>
+            </Show>
+            <Show when={canVirtual('removeProjectFolder')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('removeProjectFolder', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Remove gateway directory…
+              </button>
+            </Show>
+            <Show when={canVirtual('setPrimaryFolder')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('setPrimaryFolder', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Set primary directory…
+              </button>
+            </Show>
+            <Show when={canVirtual('setAppearance')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('setAppearance', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Appearance…
+              </button>
+            </Show>
+            <Show when={canVirtual('archive')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('archive', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Archive
+              </button>
+            </Show>
+            <Show when={canVirtual('restore')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('restore', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Restore
+              </button>
+            </Show>
+            <Show when={canVirtual('deleteProject')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='text-destructive flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('deleteProject', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Delete Project
+              </button>
+            </Show>
+            <Show when={canVirtual('deletePermanently')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='text-destructive flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => {
+                  props.onVirtualAction?.('deletePermanently', ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                Delete Permanently
+              </button>
+            </Show>
             <Show when={props.onSetIcon && !ctx.file.isVirtual}>
               <button
                 type='button'
@@ -203,7 +365,12 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 {props.openInWorkspaceLabel ?? 'Open in Workspace'}
               </button>
             </Show>
-            <Show when={props.onAddToTaskbar && !ctx.file.isVirtual}>
+            <Show
+              when={
+                props.onAddToTaskbar &&
+                (!ctx.file.isVirtual || virtualEntry()?.openTarget?.type === 'hermesSession')
+              }
+            >
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -274,18 +441,20 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                   : 'Set as Knowledge Base'}
               </button>
             </Show>
-            <button
-              type='button'
-              data-slot='context-menu-item'
-              class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-              role='menuitem'
-              onClick={() => {
-                props.onDownload(ctx.file)
-                props.onDismiss()
-              }}
-            >
-              {downloadLabel()}
-            </button>
+            <Show when={!ctx.file.isVirtual || canVirtual('download')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onDownload(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                {downloadLabel()}
+              </button>
+            </Show>
             <Show when={isOfflineFeatureAvailable() && props.onMakeAvailableOffline}>
               <button
                 type='button'

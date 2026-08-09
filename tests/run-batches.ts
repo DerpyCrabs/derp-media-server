@@ -34,6 +34,7 @@ const BATCHES = [
       'workspace-layout-sessions',
       'workspace-named-layouts',
       'workspace-file-open-target',
+      'hermes-chat',
     ],
   },
   {
@@ -72,6 +73,11 @@ const BATCHES = [
 
 const ROOT = path.resolve(__dirname, '..')
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
+const requestedConcurrency = Number.parseInt(process.env.E2E_BATCH_CONCURRENCY ?? '3', 10)
+const batchConcurrency = Math.min(
+  BATCHES.length,
+  Number.isFinite(requestedConcurrency) ? Math.max(1, requestedConcurrency) : 3,
+)
 
 function generateBatchConfig(batchId: string, port: number): string {
   const configPath = path.join(FIXTURES_DIR, `test-config-${batchId}.jsonc`)
@@ -202,12 +208,29 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<{
   })
 }
 
+async function runBatches() {
+  const results = new Array<Awaited<ReturnType<typeof runBatch>>>(BATCHES.length)
+  let nextBatchIndex = 0
+
+  async function runNext() {
+    while (nextBatchIndex < BATCHES.length) {
+      const batchIndex = nextBatchIndex++
+      results[batchIndex] = await runBatch(BATCHES[batchIndex])
+    }
+  }
+
+  await Promise.all(Array.from({ length: batchConcurrency }, runNext))
+  return results
+}
+
 async function main() {
-  console.log(`Starting ${BATCHES.length} test batches in parallel...\n`)
+  console.log(
+    `Starting ${BATCHES.length} test batches (${batchConcurrency} concurrent, 4 workers each)...\n`,
+  )
   const startTime = Date.now()
 
   try {
-    const results = await Promise.all(BATCHES.map(runBatch))
+    const results = await runBatches()
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     console.log(`\n${'─'.repeat(60)}`)

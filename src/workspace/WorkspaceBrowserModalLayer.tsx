@@ -3,7 +3,8 @@ import type { ShareLink } from '@/lib/shares'
 import type { FileItem } from '@/lib/types'
 import type { Accessor } from 'solid-js'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
-import { Show } from 'solid-js'
+import type { VirtualCapability, VirtualEntry } from '@/lib/virtual-directory'
+import { For, Show } from 'solid-js'
 import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu'
 import { BreadcrumbContextMenu } from '../file-browser/BreadcrumbContextMenu'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
@@ -89,6 +90,9 @@ export type WorkspaceBrowserModalLayerProps = {
   deletePending: boolean
   revokeSharePending?: boolean
   onConfirmDelete: () => void
+  deleteTitle?: string
+  deleteDescription?: string
+  deleteConfirmLabel?: string
   showCreateFolder: Accessor<boolean>
   setShowCreateFolder: (v: boolean) => void
   newFolderName: Accessor<string>
@@ -98,6 +102,15 @@ export type WorkspaceBrowserModalLayerProps = {
   createFolderIsError: boolean
   createFolderError: Error | undefined
   folderExists: Accessor<boolean>
+  virtualProjectForm?: Accessor<boolean>
+  projectPrimaryPath?: Accessor<string>
+  setProjectPrimaryPath?: (v: string) => void
+  projectAdditionalPaths?: Accessor<string>
+  setProjectAdditionalPaths?: (v: string) => void
+  gatewayPickerPath?: Accessor<string>
+  setGatewayPickerPath?: (v: string) => void
+  gatewayDirectoryEntries?: Accessor<{ name: string; path: string; isDirectory: boolean }[]>
+  gatewayDirectoryError?: Accessor<string | undefined>
   showCreateFile: Accessor<boolean>
   setShowCreateFile: (v: boolean) => void
   newFileName: Accessor<string>
@@ -125,6 +138,8 @@ export type WorkspaceBrowserModalLayerProps = {
   onPickNewTabTarget?: () => void
   workspaceDefaultFileOpen?: Accessor<WorkspaceFileOpenTarget>
   onOpenFileInNewWindow?: (file: FileItem) => void
+  getVirtualEntry?: (file: FileItem) => VirtualEntry | undefined
+  onVirtualAction?: (action: VirtualCapability, file: FileItem) => void
 }
 
 export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProps) {
@@ -183,6 +198,8 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onPickNewTabTarget={props.onPickNewTabTarget}
         workspaceDefaultFileOpen={props.workspaceDefaultFileOpen}
         onOpenFileInNewWindow={props.onOpenFileInNewWindow}
+        getVirtualEntry={props.getVirtualEntry}
+        onVirtualAction={props.onVirtualAction}
       />
       <Show when={props.onContextShare}>
         <ShareDialog
@@ -230,6 +247,9 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         isPending={props.deletePending || !!props.revokeSharePending}
         onDismiss={() => props.setDeleteTarget(null)}
         onConfirm={props.onConfirmDelete}
+        title={props.deleteTitle}
+        description={props.deleteDescription}
+        confirmLabel={props.deleteConfirmLabel}
       />
 
       <Show when={props.showCreateFolder()}>
@@ -243,14 +263,14 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
             role='dialog'
             aria-modal='true'
             aria-labelledby='workspace-create-folder-title'
-            class='bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-lg'
+            class='bg-card max-h-[calc(100%-1rem)] w-full max-w-sm overflow-y-auto rounded-lg border border-border p-4 shadow-lg'
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id='workspace-create-folder-title' class='text-lg font-semibold'>
-              Create folder
+            <h2 id='workspace-create-folder-title' class='text-base font-semibold'>
+              {props.virtualProjectForm?.() ? 'Create Hermes project' : 'Create folder'}
             </h2>
             <form
-              class='mt-4 space-y-4'
+              class='mt-3 space-y-2.5'
               onSubmit={(e) => {
                 e.preventDefault()
                 props.submitCreateFolder()
@@ -258,11 +278,76 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
             >
               <input
                 type='text'
-                class='mt-0 w-full rounded-md border border-input bg-background px-3 py-2 text-sm'
-                placeholder='Folder name'
+                class='mt-0 h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm'
+                placeholder={props.virtualProjectForm?.() ? 'Project name' : 'Folder name'}
                 value={props.newFolderName()}
                 onInput={(e) => props.setNewFolderName((e.currentTarget as HTMLInputElement).value)}
               />
+              <Show when={props.virtualProjectForm?.()}>
+                <label class='block space-y-1 text-xs text-muted-foreground'>
+                  <span>Primary directory</span>
+                  <input
+                    type='text'
+                    class='h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground'
+                    placeholder='/existing/gateway/path'
+                    value={props.projectPrimaryPath?.() ?? ''}
+                    onInput={(e) => props.setProjectPrimaryPath?.(e.currentTarget.value)}
+                  />
+                </label>
+                <details class='rounded-md border border-border px-2.5 py-1.5 text-xs'>
+                  <summary class='cursor-pointer text-muted-foreground'>
+                    Additional directories
+                  </summary>
+                  <textarea
+                    class='mt-2 min-h-14 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground'
+                    placeholder='One gateway path per line'
+                    value={props.projectAdditionalPaths?.() ?? ''}
+                    onInput={(e) => props.setProjectAdditionalPaths?.(e.currentTarget.value)}
+                  />
+                </details>
+                <details class='rounded-md border border-border px-2.5 py-1.5 text-xs'>
+                  <summary class='cursor-pointer text-muted-foreground'>
+                    Browse gateway directories
+                  </summary>
+                  <div class='mt-2 space-y-2'>
+                    <div class='flex items-center justify-between gap-2'>
+                      <span class='truncate text-xs text-muted-foreground'>
+                        Gateway: {props.gatewayPickerPath?.() || '(gateway cwd)'}
+                      </span>
+                      <Show when={props.gatewayPickerPath?.()}>
+                        <button
+                          type='button'
+                          class='h-7 rounded border border-input px-2 text-xs'
+                          onClick={() =>
+                            props.setProjectPrimaryPath?.(props.gatewayPickerPath?.() ?? '')
+                          }
+                        >
+                          Use current
+                        </button>
+                      </Show>
+                    </div>
+                    <Show when={props.gatewayDirectoryError?.()}>
+                      <p class='text-destructive text-xs'>{props.gatewayDirectoryError?.()}</p>
+                    </Show>
+                    <div class='max-h-28 overflow-auto'>
+                      <For each={props.gatewayDirectoryEntries?.() ?? []}>
+                        {(entry) => (
+                          <Show when={entry.isDirectory}>
+                            <button
+                              type='button'
+                              class='block w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-muted'
+                              onDblClick={() => props.setGatewayPickerPath?.(entry.path)}
+                              onClick={() => props.setProjectPrimaryPath?.(entry.path)}
+                            >
+                              {entry.name}
+                            </button>
+                          </Show>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </details>
+              </Show>
               <Show when={props.folderExists()}>
                 <p class='text-sm text-amber-600'>A folder with this name already exists.</p>
               </Show>
@@ -271,20 +356,21 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
                   {props.createFolderError?.message ?? 'Create failed'}
                 </p>
               </Show>
-              <div class='flex justify-end gap-2'>
+              <div class='sticky bottom-0 -mx-1 flex justify-end gap-2 bg-card px-1 pt-1'>
                 <button
                   type='button'
-                  class='h-9 rounded-md border border-input px-4 text-sm'
+                  class='h-8 rounded-md border border-input px-3 text-sm'
                   onClick={() => props.setShowCreateFolder(false)}
                 >
                   Cancel
                 </button>
                 <button
                   type='submit'
-                  class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm disabled:opacity-50'
+                  class='bg-primary text-primary-foreground hover:bg-primary/90 h-8 rounded-md px-3 text-sm disabled:opacity-50'
                   disabled={
                     props.createFolderPending ||
                     !props.newFolderName().trim() ||
+                    (!!props.virtualProjectForm?.() && !props.projectPrimaryPath?.().trim()) ||
                     props.folderExists()
                   }
                 >

@@ -25,6 +25,7 @@ pub(crate) struct AppState {
     pub client: reqwest::Client,
     pub events: tokio::sync::broadcast::Sender<FileEvent>,
     pub admin_events: tokio::sync::broadcast::Sender<Value>,
+    pub hermes_events: tokio::sync::broadcast::Sender<Value>,
     pub image_grants: Mutex<HashMap<String, ImageGrant>>,
     pub share_images: Mutex<HashMap<(String, String, String), ImagePreview>>,
     pub image_operations: Mutex<()>,
@@ -34,6 +35,9 @@ pub(crate) struct AppState {
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,
     pub file_search: Arc<FileSearch>,
+    pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
+    pub hermes_project_operations: Mutex<()>,
+    pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Clone)]

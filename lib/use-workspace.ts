@@ -12,6 +12,7 @@ import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrat
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
+import { deletedHermesSessionIds } from '@/lib/hermes-session-store'
 
 export interface WorkspaceSource {
   kind: 'local' | 'share'
@@ -79,7 +80,7 @@ export interface WorkspaceTilingPlacement {
 
 export interface WorkspaceWindowDefinition {
   id: string
-  type: 'browser' | 'viewer'
+  type: 'browser' | 'viewer' | 'hermes'
   title: string
   iconName?: string | null
   iconPath?: string | null
@@ -94,6 +95,13 @@ export interface WorkspaceWindowDefinition {
   layout?: WorkspaceWindowLayout
   /** When set on a browser, open-in-new-tab targets this window's tab group (if it still exists). */
   fileOpenTargetWindowId?: string | null
+  /** Durable Hermes identity. Draft ids exist only in live UI state and are stripped on save. */
+  hermes?: {
+    sessionId?: string
+    draftId?: string
+    cwd?: string | null
+    readOnly?: boolean
+  }
 }
 
 export type PinnedTaskbarItem = WorkspaceTaskbarPin
@@ -165,8 +173,9 @@ function parseBrowserTabIconColor(v: unknown): string | undefined {
 }
 
 export function serializeWorkspacePersistedState(state: PersistedWorkspaceState): string {
+  const windows = persistentWorkspaceWindows(state.windows)
   return JSON.stringify({
-    windows: state.windows,
+    windows,
     activeWindowId: state.activeWindowId,
     activeTabMap: sortTabMapKeys(state.activeTabMap ?? {}),
     nextWindowId: state.nextWindowId,
@@ -182,8 +191,9 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
 }
 
 export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): string {
+  const windows = persistentWorkspaceWindows(state.windows)
   return JSON.stringify({
-    windows: state.windows,
+    windows,
     activeWindowId: state.activeWindowId,
     activeTabMap: sortTabMapKeys(state.activeTabMap ?? {}),
     nextWindowId: state.nextWindowId,
@@ -193,6 +203,22 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
       : {}),
     ...(state.fileOpenTarget ? { fileOpenTarget: state.fileOpenTarget } : {}),
   })
+}
+
+export function persistentWorkspaceWindows(windows: WorkspaceWindowDefinition[]) {
+  return windows
+    .filter((window) => window.type !== 'hermes' || !!window.hermes?.sessionId)
+    .filter(
+      (window) =>
+        window.type !== 'hermes' ||
+        !window.hermes?.sessionId ||
+        !deletedHermesSessionIds.has(window.hermes.sessionId),
+    )
+    .map((window) => {
+      if (window.type !== 'hermes') return window
+      const { draftId: _draftId, ...hermes } = window.hermes ?? {}
+      return { ...window, hermes }
+    })
 }
 
 function groupIdForWorkspaceMember(w: WorkspaceWindowDefinition): string {
@@ -369,14 +395,16 @@ export function normalizePersistedWorkspaceState(
       (w): w is WorkspaceWindowDefinition =>
         !!w &&
         typeof w.id === 'string' &&
-        (w.type === 'browser' || w.type === 'viewer') &&
+        (w.type === 'browser' || w.type === 'viewer' || w.type === 'hermes') &&
         !!w.source &&
-        isValidSource(w.source),
+        isValidSource(w.source) &&
+        (w.type !== 'hermes' ||
+          (w.source.kind === 'local' && typeof w.hermes?.sessionId === 'string')),
     )
     .map((w, i) => {
       const b = w.layout?.bounds
       // Keep saved pixel bounds for legacy assist-custom → tiling migration before viewport clamp.
-      const bounds = b ?? createDefaultBounds(i, w.type)
+      const bounds = b ?? createDefaultBounds(i, w.type === 'browser' ? 'browser' : 'viewer')
       return {
         ...w,
         layout: {

@@ -1,4 +1,5 @@
 import type { WorkspaceWindowDefinition } from './use-workspace'
+import { deletedHermesSessionIds } from './hermes-session-store'
 
 export const CANVAS_STORAGE_KEY = 'infinite-canvas-state-v1'
 export const CANVAS_SCHEMA_VERSION = 1
@@ -11,7 +12,7 @@ export const CANVAS_MIN_WINDOW_HEIGHT = 224
 
 export type CanvasRect = { x: number; y: number; width: number; height: number }
 export type CanvasCamera = { x: number; y: number; zoom: number }
-export type CanvasWindowType = 'browser' | 'viewer'
+export type CanvasWindowType = 'browser' | 'viewer' | 'hermes'
 export type CanvasWindowSize = Pick<CanvasRect, 'width' | 'height'>
 
 export type CanvasFrame = {
@@ -286,7 +287,9 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
       continue
     if (
       definition.id !== window.id ||
-      (definition.type !== 'browser' && definition.type !== 'viewer')
+      (definition.type !== 'browser' &&
+        definition.type !== 'viewer' &&
+        definition.type !== 'hermes')
     )
       continue
     itemIds.add(window.id)
@@ -306,6 +309,14 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
             ? { viewing: initialStateRaw.viewing }
             : {}),
         },
+        ...(definition.type === 'hermes' && typeof definition.hermes?.sessionId === 'string'
+          ? {
+              hermes: {
+                sessionId: definition.hermes.sessionId,
+                readOnly: !!definition.hermes.readOnly,
+              },
+            }
+          : {}),
         tabGroupId: null,
       },
       bounds,
@@ -322,6 +333,7 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
     | undefined
   const browserSize = parseWindowSize(sizesRaw?.browser)
   const viewerSize = parseWindowSize(sizesRaw?.viewer)
+  const hermesSize = parseWindowSize(sizesRaw?.hermes)
   const nextItemId = Math.max(0, ...Array.from(itemIds, canvasItemNumber)) + 1
   const nextZIndex = Math.max(0, ...windows.map((window) => window.zIndex)) + 1
   return {
@@ -336,6 +348,7 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
     windowSizeByType: {
       ...(browserSize ? { browser: browserSize } : {}),
       ...(viewerSize ? { viewer: viewerSize } : {}),
+      ...(hermesSize ? { hermes: hermesSize } : {}),
     },
     nextItemId: Math.max(
       nextItemId,
@@ -356,5 +369,22 @@ export function loadInfiniteCanvasState(storage: Pick<Storage, 'getItem'>): Infi
 }
 
 export function serializeInfiniteCanvasState(state: InfiniteCanvasState): string {
-  return JSON.stringify(state)
+  return JSON.stringify({
+    ...state,
+    windows: state.windows
+      .filter(
+        (window) => window.definition.type !== 'hermes' || !!window.definition.hermes?.sessionId,
+      )
+      .filter(
+        (window) =>
+          window.definition.type !== 'hermes' ||
+          !window.definition.hermes?.sessionId ||
+          !deletedHermesSessionIds.has(window.definition.hermes.sessionId),
+      )
+      .map((window) => {
+        if (window.definition.type !== 'hermes') return window
+        const { draftId: _draftId, ...hermes } = window.definition.hermes ?? {}
+        return { ...window, definition: { ...window.definition, hermes } }
+      }),
+  })
 }

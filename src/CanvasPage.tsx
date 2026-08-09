@@ -26,6 +26,7 @@ import {
   findNearestFreeCanvasRect,
   frameAtWindowCenter,
   framesOverlap,
+  parseInfiniteCanvasState,
   reconcileFrameMembership,
   rectContainsPoint,
   serializeInfiniteCanvasState,
@@ -48,6 +49,9 @@ import type {
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
+import type { VirtualOpenTarget } from '@/lib/virtual-directory'
+import { canCloseHermesWindow } from '@/lib/hermes-session-store'
+import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import Copy from 'lucide-solid/icons/copy'
@@ -111,7 +115,10 @@ type CanvasDialogState =
 type FileDropPreview = { bounds: CanvasRect; frameId: string | null }
 
 function cloneState(state: InfiniteCanvasState): InfiniteCanvasState {
-  return structuredClone(state)
+  return (
+    parseInfiniteCanvasState(JSON.parse(serializeInfiniteCanvasState(state))) ??
+    createEmptyCanvasState()
+  )
 }
 
 function sameState(a: InfiniteCanvasState, b: InfiniteCanvasState): boolean {
@@ -854,6 +861,103 @@ export function CanvasPage() {
     )
   }
 
+  function openHermesFromBrowser(
+    sourceWindowId: string,
+    file: FileItem,
+    target: VirtualOpenTarget,
+  ) {
+    const source = state().windows.find((window) => window.id === sourceWindowId)
+    if (!source) return
+    if (target.sessionId) {
+      const existing = state().windows.find(
+        (window) =>
+          window.definition.type === 'hermes' &&
+          window.definition.hermes?.sessionId === target.sessionId,
+      )
+      if (existing) {
+        focusWindow(existing.id)
+        return
+      }
+    }
+    const sourceBounds = canvasWindowWorldBounds(source, state().frames)
+    addHermesWindow(
+      file,
+      target,
+      { x: sourceBounds.x + sourceBounds.width + CANVAS_GRID_SIZE, y: sourceBounds.y },
+      source.frameId,
+    )
+  }
+
+  function addHermesWindow(
+    file: FileItem,
+    target: VirtualOpenTarget,
+    point: { x: number; y: number },
+    requestedFrameId?: string | null,
+    requestedBounds?: CanvasRect,
+  ) {
+    if (target.sessionId) {
+      const existing = state().windows.find(
+        (window) =>
+          window.definition.type === 'hermes' &&
+          window.definition.hermes?.sessionId === target.sessionId,
+      )
+      if (existing) {
+        focusWindow(existing.id)
+        return
+      }
+    }
+    commit((current) => {
+      const id = `canvas-window-${current.nextItemId}`
+      const definition: WorkspaceWindowDefinition = {
+        id,
+        type: 'hermes',
+        title: target.type === 'hermesDraft' ? 'New Hermes session' : file.name,
+        iconName: null,
+        iconPath: file.path,
+        iconIsVirtual: true,
+        source: LOCAL_SOURCE,
+        initialState: {},
+        tabGroupId: null,
+        hermes: {
+          sessionId: target.sessionId,
+          draftId: target.type === 'hermesDraft' ? crypto.randomUUID() : undefined,
+          cwd: target.projectPath,
+          readOnly: target.readOnly,
+        },
+      }
+      const worldBounds = findNearestFreeCanvasRect(
+        { ...point, ...(current.windowSizeByType.hermes ?? DEFAULT_WINDOW) },
+        placementObstacles(requestedFrameId ?? null, current),
+      )
+      const bounds = requestedBounds ?? worldBounds
+      const base: CanvasWindow = {
+        id,
+        definition,
+        bounds,
+        frameId: null,
+        zIndex: current.nextZIndex,
+      }
+      return {
+        ...current,
+        windows: [
+          ...current.windows,
+          withCanvasWindowWorldBounds(base, bounds, requestedFrameId ?? null, current.frames),
+        ],
+        nextItemId: current.nextItemId + 1,
+        nextZIndex: current.nextZIndex + 1,
+      }
+    })
+  }
+
+  function bindHermesSession(windowId: string, sessionId: string) {
+    updateDefinition(windowId, (definition) => ({
+      ...definition,
+      title: definition.title === 'New Hermes session' ? 'Hermes session' : definition.title,
+      iconPath: `Hermes Sessions/session/${sessionId}`,
+      hermes: { ...definition.hermes, sessionId, draftId: undefined },
+    }))
+  }
+
   function updateDefinition(
     windowId: string,
     update: (definition: WorkspaceWindowDefinition) => WorkspaceWindowDefinition,
@@ -887,6 +991,8 @@ export function CanvasPage() {
   }
 
   function closeWindow(windowId: string) {
+    const target = state().windows.find((window) => window.id === windowId)
+    if (!canCloseHermesWindow(target?.definition.hermes)) return
     commit((current) => ({
       ...current,
       windows: current.windows.filter((window) => window.id !== windowId),
@@ -897,6 +1003,10 @@ export function CanvasPage() {
   function duplicateWindow(windowId: string) {
     const source = state().windows.find((window) => window.id === windowId)
     if (!source) return
+    if (source.definition.type === 'hermes') {
+      focusWindow(windowId)
+      return
+    }
     const world = canvasWindowWorldBounds(source, state().frames)
     const file =
       source.definition.type === 'browser'
@@ -1576,8 +1686,22 @@ export function CanvasPage() {
           const point = screenToWorld(event.clientX, event.clientY)
           const placement =
             fileDropPreview() ??
-            fileWindowPlacement(point, state(), data.isDirectory ? 'browser' : 'viewer')
+            fileWindowPlacement(
+              point,
+              state(),
+              data.virtualOpenTarget ? 'hermes' : data.isDirectory ? 'browser' : 'viewer',
+            )
           setFileDropPreview(null)
+          if (data.virtualOpenTarget) {
+            addHermesWindow(
+              fileItemFromDrag(data.path, false),
+              data.virtualOpenTarget,
+              point,
+              placement.frameId,
+              placement.bounds,
+            )
+            return
+          }
           addFileWindow(fileItemFromDrag(data.path, data.isDirectory), point, {
             duplicate: true,
             frameId: placement.frameId,
@@ -1738,6 +1862,7 @@ export function CanvasPage() {
                           editableFolders={editableFolders()}
                           onNavigateDir={navigateDir}
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
+                          onOpenVirtualTarget={openHermesFromBrowser}
                           onAddToTaskbar={() => {}}
                           onOpenInNewTab={(windowId, file) =>
                             openFromBrowser(windowId, fileItemFromDrag(file.path, file.isDirectory))
@@ -1763,6 +1888,15 @@ export function CanvasPage() {
                           shareCanEdit={false}
                           shareCanUpload={false}
                           onUpdateViewing={updateViewing}
+                        />
+                      </Show>
+                      <Show when={item()!.definition.type === 'hermes'}>
+                        <HermesChatPane
+                          window={() => item()!.definition}
+                          onSessionCreated={(id) => bindHermesSession(windowId, id)}
+                          onTitleChanged={(title) =>
+                            updateDefinition(windowId, (definition) => ({ ...definition, title }))
+                          }
                         />
                       </Show>
                     </div>
