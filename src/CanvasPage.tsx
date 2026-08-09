@@ -1,5 +1,13 @@
 import { api } from '@/lib/api'
 import {
+  CANVAS_SNAPSHOTS_STORAGE_KEY,
+  buildCanvasContext,
+  createCanvasExport,
+  parseCanvasExport,
+  parseCanvasSnapshots,
+  type CanvasSnapshot,
+} from '@/lib/canvas-features'
+import {
   CANVAS_COLLECTION_STORAGE_KEY,
   compareCanvasRecords,
   createCanvasRecord,
@@ -21,19 +29,13 @@ import {
   CANVAS_STORAGE_KEY,
   canvasContentBounds,
   canvasWindowVisualBounds,
-  canvasWindowWorldBounds,
   createEmptyCanvasState,
   findNearestFreeCanvasRect,
-  frameAtWindowCenter,
-  framesOverlap,
   parseInfiniteCanvasState,
-  reconcileFrameMembership,
-  rectContainsPoint,
   serializeInfiniteCanvasState,
   snapCanvasRect,
   snapCanvasValue,
-  withCanvasWindowWorldBounds,
-  type CanvasFrame,
+  type CanvasCard,
   type CanvasRect,
   type CanvasWindow,
   type CanvasWindowSize,
@@ -51,20 +53,33 @@ import type {
 } from '@/lib/use-workspace'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
-import { canCloseHermesWindow } from '@/lib/hermes-session-store'
+import {
+  canCloseHermesWindow,
+  ensureHermesChat,
+  hermesSessions,
+  setHermesComposer,
+} from '@/lib/hermes-session-store'
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import Copy from 'lucide-solid/icons/copy'
+import Download from 'lucide-solid/icons/download'
+import FileText from 'lucide-solid/icons/file-text'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import Focus from 'lucide-solid/icons/focus'
-import FrameIcon from 'lucide-solid/icons/frame'
 import Maximize from 'lucide-solid/icons/maximize'
 import MoreHorizontal from 'lucide-solid/icons/more-horizontal'
 import Move from 'lucide-solid/icons/move'
 import Palette from 'lucide-solid/icons/palette'
 import Pencil from 'lucide-solid/icons/pencil'
 import Plus from 'lucide-solid/icons/plus'
+import Link2 from 'lucide-solid/icons/link-2'
+import Lock from 'lucide-solid/icons/lock'
+import MessageSquare from 'lucide-solid/icons/message-square'
+import PanelLeft from 'lucide-solid/icons/panel-left'
+import Save from 'lucide-solid/icons/save'
+import Sparkles from 'lucide-solid/icons/sparkles'
+import Upload from 'lucide-solid/icons/upload'
 import Redo2 from 'lucide-solid/icons/redo-2'
 import RotateCcw from 'lucide-solid/icons/rotate-ccw'
 import Search from 'lucide-solid/icons/search'
@@ -76,6 +91,7 @@ import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { CanvasSearchPalette } from './canvas/CanvasSearchPalette'
+import { CanvasCardsLayer } from './canvas/CanvasCardsLayer'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
@@ -83,16 +99,6 @@ import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
 
 const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
-const FRAME_COLORS = [
-  '#6366f1',
-  '#0ea5e9',
-  '#14b8a6',
-  '#84cc16',
-  '#f59e0b',
-  '#f97316',
-  '#ec4899',
-  '#8b5cf6',
-]
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
   browser: { width: 640, height: 480 },
   viewer: { width: 640, height: 480 },
@@ -104,13 +110,11 @@ const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
   'viewer-pdf': { width: 768, height: 544 },
   'viewer-other': { width: 480, height: 320 },
 }
-const DEFAULT_FRAME = { width: 1024, height: 672 }
 const LIVE_ZOOM = 0.62
 const FAR_ZOOM = 0.28
 
 type ContextMenuState =
   | { kind: 'canvas'; clientX: number; clientY: number; worldX: number; worldY: number }
-  | { kind: 'frame'; clientX: number; clientY: number; frameId: string }
   | { kind: 'window'; clientX: number; clientY: number; windowId: string }
 
 type Selection = { kind: 'window'; id: string } | null
@@ -119,12 +123,12 @@ type CanvasDialogState =
   | { kind: 'new-canvas' }
   | { kind: 'rename-canvas'; canvasId: string }
   | { kind: 'delete-canvas'; canvasId: string; canvasName: string }
-  | { kind: 'new-frame'; point: { x: number; y: number } }
-  | { kind: 'rename-frame'; frameId: string }
-  | { kind: 'delete-frame'; frameId: string; frameName: string }
   | { kind: 'reset-canvas' }
+  | { kind: 'snapshots' }
+  | { kind: 'shortcuts' }
+  | { kind: 'import-canvas' }
   | { kind: 'message'; message: string }
-type FileDropPreview = { bounds: CanvasRect; frameId: string | null }
+type FileDropPreview = { bounds: CanvasRect }
 
 function cloneState(state: InfiniteCanvasState): InfiniteCanvasState {
   return (
@@ -269,7 +273,8 @@ export function CanvasPage() {
     browserStorage.getItem(CANVAS_COLLECTION_STORAGE_KEY) ??
     browserStorage.getItem(CANVAS_STORAGE_KEY),
   )
-  const initialCollection = loadCanvasCollection(browserStorage)
+  const loadedCollection = loadCanvasCollection(browserStorage)
+  const initialCollection = loadedCollection
   const initialCanvas = initialCollection.canvases.find(
     (item) => item.id === initialCollection.activeId && !item.deleted,
   )!
@@ -278,19 +283,31 @@ export function CanvasPage() {
   const [undoStack, setUndoStack] = createSignal<InfiniteCanvasState[]>([])
   const [redoStack, setRedoStack] = createSignal<InfiniteCanvasState[]>([])
   const [selection, setSelection] = createSignal<Selection>(null)
-  const [breadcrumbFrameId, setBreadcrumbFrameId] = createSignal<string | null>(null)
+  const [selectedIds, setSelectedIds] = createSignal<string[]>([])
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null)
   const [searchOpen, setSearchOpen] = createSignal(false)
   const [searchAnchor, setSearchAnchor] = createSignal<{ x: number; y: number } | null>(null)
   const [overflowOpen, setOverflowOpen] = createSignal(false)
+  const [addMenuOpen, setAddMenuOpen] = createSignal(false)
+  const [outlineOpen, setOutlineOpen] = createSignal(false)
   const [canvasMenuOpen, setCanvasMenuOpen] = createSignal(false)
-  const [invalidFrameId, setInvalidFrameId] = createSignal<string | null>(null)
   const [geometryActive, setGeometryActive] = createSignal(false)
   const [cameraAnimating, setCameraAnimating] = createSignal(false)
   const [dialog, setDialog] = createSignal<CanvasDialogState | null>(null)
   const [dialogInput, setDialogInput] = createSignal('')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
   const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
+  const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'offline' | 'error'>(
+    'saved',
+  )
+  const readOnlyMode = () => false
+  const [snapshots, setSnapshots] = createSignal<CanvasSnapshot[]>(
+    parseCanvasSnapshots(browserStorage.getItem(CANVAS_SNAPSHOTS_STORAGE_KEY)),
+  )
+  const [connectingFrom, setConnectingFrom] = createSignal<string | null>(null)
+  const [viewHistory, setViewHistory] = createSignal<InfiniteCanvasState['camera'][]>([])
+  const [spaceHeld, setSpaceHeld] = createSignal(false)
+  let importInputEl: HTMLInputElement | undefined
   let viewportEl: HTMLDivElement | undefined
   let worldEl: HTMLDivElement | undefined
   let animationTimer: number | undefined
@@ -332,7 +349,7 @@ export function CanvasPage() {
       ...window.definition,
       layout: { ...window.definition.layout, bounds: window.bounds, zIndex: window.zIndex },
     })),
-    activeWindowId: selection()?.id ?? null,
+    activeWindowId: selection()?.kind === 'window' ? selection()!.id : null,
     activeTabMap: {},
     nextWindowId: state().nextItemId,
     pinnedTaskbarItems: [],
@@ -349,6 +366,7 @@ export function CanvasPage() {
   }
 
   function persistActiveState(): CanvasCollection {
+    if (readOnlyMode()) return collection()
     const serialized = serializeInfiniteCanvasState(state())
     let result = collection()
     setCollection((current) => {
@@ -374,6 +392,8 @@ export function CanvasPage() {
   }
 
   function scheduleSync(delay = 700) {
+    if (readOnlyMode()) return
+    setSyncStatus(navigator.onLine === false ? 'offline' : 'saving')
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     syncTimer = window.setTimeout(() => {
       syncTimer = undefined
@@ -382,10 +402,15 @@ export function CanvasPage() {
   }
 
   async function syncCanvases(pullFirst = false) {
-    if (syncRunning || navigator.onLine === false) {
+    if (navigator.onLine === false) {
+      setSyncStatus('offline')
+      return
+    }
+    if (syncRunning) {
       return
     }
     syncRunning = true
+    setSyncStatus('saving')
     try {
       let current = persistActiveState()
       if (pullFirst) {
@@ -410,6 +435,10 @@ export function CanvasPage() {
           setCollection(current)
         }
       }
+      if (readOnlyMode()) {
+        setSyncStatus('saved')
+        return
+      }
       const response = await api<{ canvases: unknown[] }>('/api/canvases/sync', {
         method: 'POST',
         body: JSON.stringify({ canvases: current.canvases }),
@@ -427,6 +456,7 @@ export function CanvasPage() {
         }
         setCollection(next)
         if (
+          fallback.id !== latest.activeId &&
           serializeInfiniteCanvasState(fallback.state!) !== serializeInfiniteCanvasState(state())
         ) {
           setState(cloneState(fallback.state!))
@@ -447,7 +477,9 @@ export function CanvasPage() {
         storeCollection(next)
         scheduleSync(50)
       }
+      setSyncStatus('saved')
     } catch {
+      setSyncStatus('error')
     } finally {
       syncRunning = false
     }
@@ -466,11 +498,13 @@ export function CanvasPage() {
       if (!(event.target as HTMLElement | null)?.closest('[data-canvas-picker]')) {
         setCanvasMenuOpen(false)
       }
+      if (!(event.target as HTMLElement | null)?.closest('[data-canvas-add]')) setAddMenuOpen(false)
     }
     const clearFileDropPreview = () => setFileDropPreview(null)
     const clearFileDropPreviewAfterDrop = () => queueMicrotask(clearFileDropPreview)
     const persistBeforePageTeardown = () => persistActiveState()
     const syncWhenOnline = () => void syncCanvases()
+    const markOffline = () => setSyncStatus('offline')
     const updateFileDropPreview = (event: DragEvent) => {
       const transfer = event.dataTransfer
       const rect = viewport?.getBoundingClientRect()
@@ -507,6 +541,7 @@ export function CanvasPage() {
     window.addEventListener('blur', clearFileDropPreview)
     window.addEventListener('pagehide', persistBeforePageTeardown)
     window.addEventListener('online', syncWhenOnline)
+    window.addEventListener('offline', markOffline)
     syncInterval = window.setInterval(() => void syncCanvases(), 30_000)
     void syncCanvases(true)
     onCleanup(() => {
@@ -518,6 +553,7 @@ export function CanvasPage() {
       window.removeEventListener('blur', clearFileDropPreview)
       window.removeEventListener('pagehide', persistBeforePageTeardown)
       window.removeEventListener('online', syncWhenOnline)
+      window.removeEventListener('offline', markOffline)
       if (syncInterval !== undefined) window.clearInterval(syncInterval)
       document.documentElement.style.overflow = oldHtmlOverflow
       document.body.style.overflow = oldBodyOverflow
@@ -579,7 +615,7 @@ export function CanvasPage() {
 
   function createNamedCanvas() {
     const current = persistActiveState()
-    const record = createCanvasRecord(current, dialogInput())
+    const record = createCanvasRecord(current, dialogInput(), createEmptyCanvasState())
     const next = {
       ...current,
       activeId: record.id,
@@ -687,6 +723,10 @@ export function CanvasPage() {
   }
 
   function animateCamera(camera: InfiniteCanvasState['camera']) {
+    const current = state().camera
+    if (current.x !== camera.x || current.y !== camera.y || current.zoom !== camera.zoom) {
+      setViewHistory((items) => [...items.slice(-29), current])
+    }
     setCameraAnimating(true)
     if (animationTimer !== undefined) window.clearTimeout(animationTimer)
     setState((current) => ({ ...current, camera }))
@@ -726,7 +766,7 @@ export function CanvasPage() {
     const current = state()
     const bounds = current.windows
       .filter((window) => windowIds.includes(window.id))
-      .map((window) => canvasWindowWorldBounds(window, current.frames))
+      .map((window) => window.bounds)
     if (bounds.length === 0) return
     const padding = 24
     const visible = bounds.every((rect) => {
@@ -746,20 +786,31 @@ export function CanvasPage() {
 
   function clearSelection() {
     setSelection(null)
-    setBreadcrumbFrameId(null)
+    setSelectedIds([])
+    setConnectingFrom(null)
   }
 
-  function selectWindow(windowId: string) {
+  function selectWindow(windowId: string, additive = false) {
     setSelection({ kind: 'window', id: windowId })
-    setBreadcrumbFrameId(null)
+    setSelectedIds((current) =>
+      additive
+        ? current.includes(windowId)
+          ? current.filter((id) => id !== windowId)
+          : [...current, windowId]
+        : [windowId],
+    )
   }
 
-  function focusFrame(frameId: string) {
-    const frame = state().frames.find((candidate) => candidate.id === frameId)
-    if (!frame) return
+  function selectCard(cardId: string, additive = false) {
     setSelection(null)
-    setBreadcrumbFrameId(frameId)
-    fitBounds(frame.bounds)
+    setSelectedIds((current) =>
+      additive
+        ? current.includes(cardId)
+          ? current.filter((id) => id !== cardId)
+          : [...current, cardId]
+        : [cardId],
+    )
+    if (connectingFrom() && connectingFrom() !== cardId) finishConnector(cardId)
   }
 
   function focusWindow(windowId: string) {
@@ -767,7 +818,14 @@ export function CanvasPage() {
     if (!item) return
     bringToFront(windowId)
     selectWindow(windowId)
-    fitBounds(canvasWindowWorldBounds(item, state().frames), 1)
+    fitBounds(item.bounds, 1)
+  }
+
+  function focusCard(cardId: string) {
+    const card = state().cards.find((candidate) => candidate.id === cardId)
+    if (!card) return
+    selectCard(cardId)
+    fitBounds(card.bounds, 1.4)
   }
 
   function bringToFront(windowId: string) {
@@ -780,11 +838,11 @@ export function CanvasPage() {
     }))
   }
 
-  function placementObstacles(frameId: string | null, current: InfiniteCanvasState) {
-    const windows = current.windows
-      .filter((window) => window.frameId === frameId)
-      .map((window) => canvasWindowWorldBounds(window, current.frames))
-    return frameId ? windows : [...windows, ...current.frames.map((frame) => frame.bounds)]
+  function placementObstacles(current: InfiniteCanvasState) {
+    return [
+      ...current.windows.map((window) => window.bounds),
+      ...current.cards.map((card) => card.bounds),
+    ]
   }
 
   function fileWindowPlacement(
@@ -792,8 +850,6 @@ export function CanvasPage() {
     current: InfiniteCanvasState,
     sizeKey: CanvasWindowSizeKey,
   ): FileDropPreview {
-    const frameId =
-      current.frames.find((frame) => rectContainsPoint(frame.bounds, point.x, point.y))?.id ?? null
     const size =
       current.windowSizeByType[sizeKey] ??
       (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
@@ -804,8 +860,7 @@ export function CanvasPage() {
       ...size,
     }
     return {
-      bounds: findNearestFreeCanvasRect(desired, placementObstacles(frameId, current)),
-      frameId,
+      bounds: findNearestFreeCanvasRect(desired, placementObstacles(current)),
     }
   }
 
@@ -847,7 +902,7 @@ export function CanvasPage() {
   function addFileWindow(
     file: FileItem | null,
     point: { x: number; y: number },
-    options: { duplicate?: boolean; frameId?: string | null; worldBounds?: CanvasRect } = {},
+    options: { duplicate?: boolean; worldBounds?: CanvasRect } = {},
   ) {
     if (file && !options.duplicate) {
       const existing = existingWindowForFile(file)
@@ -862,11 +917,6 @@ export function CanvasPage() {
       createdId = id
       const definition = makeDefinition(id, file ?? undefined)
       const sizeKey = windowSizeKey(definition)
-      const containingFrame = current.frames.find((frame) =>
-        rectContainsPoint(frame.bounds, point.x, point.y),
-      )
-      const frameId =
-        options.frameId === undefined ? (containingFrame?.id ?? null) : options.frameId
       const worldBounds =
         options.worldBounds ??
         findNearestFreeCanvasRect(
@@ -876,24 +926,17 @@ export function CanvasPage() {
               (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
               DEFAULT_WINDOW_SIZE[sizeKey]),
           },
-          placementObstacles(frameId, current),
+          placementObstacles(current),
         )
       const base: CanvasWindow = {
         id,
         definition,
         bounds: worldBounds,
-        frameId: null,
         zIndex: current.nextZIndex,
       }
-      const nextWindow = withCanvasWindowWorldBounds(
-        base,
-        worldBounds,
-        frameId ?? null,
-        current.frames,
-      )
       return {
         ...current,
-        windows: [...current.windows, nextWindow],
+        windows: [...current.windows, base],
         nextItemId: current.nextItemId + 1,
         nextZIndex: current.nextZIndex + 1,
       }
@@ -902,30 +945,436 @@ export function CanvasPage() {
     return createdId
   }
 
-  function requestAddFrame(point: { x: number; y: number }) {
-    setDialogInput('New project')
-    setDialog({ kind: 'new-frame', point })
+  async function addTextEditor(
+    point = viewportCenterWorld(),
+    content = '',
+    requestedTitle = 'Canvas note',
+  ) {
+    const directory = (knowledgeBases()[0] ?? editableFolders()[0])
+      ?.replace(/\\/g, '/')
+      .replace(/\/$/, '')
+    if (!directory) {
+      setDialog({
+        kind: 'message',
+        message: 'Configure an editable folder or knowledge base before creating text files.',
+      })
+      return
+    }
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:T]/g, '-')
+      .replace(/\.\d{3}Z$/, '')
+    const safeTitle = requestedTitle.replace(/[<>:"/\\|?*]/g, '-').trim() || 'Canvas note'
+    const name = `${safeTitle} ${timestamp}.md`
+    const path = `${directory}/${name}`
+    try {
+      await api('/api/files/create', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'file', path, content }),
+      })
+      addFileWindow(
+        {
+          name,
+          path,
+          type: MediaType.TEXT,
+          size: content.length,
+          extension: 'md',
+          isDirectory: false,
+        },
+        point,
+      )
+    } catch (error) {
+      setDialog({
+        kind: 'message',
+        message: error instanceof Error ? error.message : 'Could not create text file.',
+      })
+    }
   }
 
-  function addFrame(point: { x: number; y: number }, requestedName: string) {
-    const name = requestedName.trim()
-    if (!name) return
+  function updateCard(
+    cardId: string,
+    patch: Partial<Pick<CanvasCard, 'title' | 'body' | 'url' | 'tags'>>,
+  ) {
+    if (readOnlyMode()) return
+    setState((current) => {
+      const card = current.cards.find((item) => item.id === cardId)
+      if (!card) return current
+      Object.assign(card, patch)
+      return { ...current, cards: [...current.cards] }
+    })
+  }
+
+  function toggleCardLock(cardId: string) {
+    commit((current) => ({
+      ...current,
+      cards: current.cards.map((card) =>
+        card.id === cardId ? { ...card, locked: !card.locked } : card,
+      ),
+    }))
+  }
+
+  function deleteCard(cardId: string) {
+    commit((current) => ({
+      ...current,
+      cards: current.cards.filter((card) => card.id !== cardId),
+      connectors: current.connectors.filter(
+        (connector) => connector.fromId !== cardId && connector.toId !== cardId,
+      ),
+    }))
+    setSelectedIds((ids) => ids.filter((id) => id !== cardId))
+  }
+
+  function toggleConnectorEndpoint(itemId: string) {
+    const fromId = connectingFrom()
+    if (!fromId) {
+      setConnectingFrom(itemId)
+      if (!selectedIds().includes(itemId)) setSelectedIds([itemId])
+      return
+    }
+    if (fromId === itemId) {
+      setConnectingFrom(null)
+      return
+    }
+    finishConnector(itemId)
+  }
+
+  function finishConnector(toId: string) {
+    const fromId = connectingFrom()
+    if (!fromId || fromId === toId) return
     commit((current) => {
-      const id = `canvas-frame-${current.nextItemId}`
-      const bounds = findNearestFreeCanvasRect(
-        { x: point.x, y: point.y, ...DEFAULT_FRAME },
-        current.frames.map((frame) => frame.bounds),
-      )
-      const next = {
+      if (current.connectors.some((item) => item.fromId === fromId && item.toId === toId))
+        return current
+      return {
         ...current,
-        frames: [
-          ...current.frames,
-          { id, name, color: FRAME_COLORS[current.frames.length % FRAME_COLORS.length]!, bounds },
+        connectors: [
+          ...current.connectors,
+          {
+            id: `canvas-connector-${current.nextItemId}`,
+            fromId,
+            toId,
+            label: '',
+            color: '#64748b',
+          },
         ],
         nextItemId: current.nextItemId + 1,
       }
-      return reconcileFrameMembership(next, id)
     })
+    setConnectingFrom(null)
+    setSelectedIds([fromId, toId])
+  }
+
+  function deleteConnector(connectorId: string) {
+    commit((current) => ({
+      ...current,
+      connectors: current.connectors.filter((connector) => connector.id !== connectorId),
+    }))
+  }
+
+  function startCardMove(cardId: string, event: PointerEvent) {
+    if (readOnlyMode()) return
+    if (event.button !== 0) return
+    const before = cloneState(state())
+    const source = before.cards.find((card) => card.id === cardId)
+    if (!source || source.locked) return
+    event.preventDefault()
+    event.stopPropagation()
+    selectCard(cardId, event.ctrlKey || event.metaKey || event.shiftKey)
+    const ids = selectedIds().includes(cardId) ? selectedIds() : [cardId]
+    const starts = new Map(
+      before.cards
+        .filter((card) => ids.includes(card.id) && !card.locked)
+        .map((card) => [card.id, card.bounds]),
+    )
+    const startX = event.clientX
+    const startY = event.clientY
+    const move = (next: PointerEvent) => {
+      const dx = snapCanvasValue((next.clientX - startX) / state().camera.zoom)
+      const dy = snapCanvasValue((next.clientY - startY) / state().camera.zoom)
+      setState((current) => ({
+        ...current,
+        cards: current.cards.map((card) => {
+          const start = starts.get(card.id)
+          if (!start) return card
+          return { ...card, bounds: { ...start, x: start.x + dx, y: start.y + dy } }
+        }),
+      }))
+    }
+    const end = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+      pushGesture(before, state())
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end, { once: true })
+  }
+
+  function startCardResize(cardId: string, direction: ResizeDirection, event: PointerEvent) {
+    if (readOnlyMode()) return
+    if (event.button !== 0) return
+    const before = cloneState(state())
+    const card = before.cards.find((item) => item.id === cardId)
+    if (!card || card.locked) return
+    event.preventDefault()
+    event.stopPropagation()
+    const start = card.bounds
+    const startX = event.clientX
+    const startY = event.clientY
+    const move = (next: PointerEvent) => {
+      const bounds = resizeRect(
+        start,
+        (next.clientX - startX) / state().camera.zoom,
+        (next.clientY - startY) / state().camera.zoom,
+        direction,
+      )
+      setState((current) => ({
+        ...current,
+        cards: current.cards.map((item) => (item.id === cardId ? { ...item, bounds } : item)),
+      }))
+    }
+    const end = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+      pushGesture(before, state())
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end, { once: true })
+  }
+
+  function alignSelected(axis: 'left' | 'top') {
+    const ids = selectedIds()
+    if (ids.length < 2) return
+    commit((current) => {
+      const rects = [
+        ...current.windows
+          .filter((item) => ids.includes(item.id))
+          .map((item) => [item.id, item.bounds] as const),
+        ...current.cards
+          .filter((item) => ids.includes(item.id) && !item.locked)
+          .map((item) => [item.id, item.bounds] as const),
+      ]
+      if (rects.length < 2) return current
+      const target = Math.min(...rects.map(([, bounds]) => (axis === 'left' ? bounds.x : bounds.y)))
+      const byId = new Map(rects)
+      return {
+        ...current,
+        windows: current.windows.map((item) => {
+          const bounds = byId.get(item.id)
+          if (!bounds) return item
+          return { ...item, bounds: { ...bounds, [axis === 'left' ? 'x' : 'y']: target } }
+        }),
+        cards: current.cards.map((item) => {
+          const bounds = byId.get(item.id)
+          if (!bounds || item.locked) return item
+          return { ...item, bounds: { ...bounds, [axis === 'left' ? 'x' : 'y']: target } }
+        }),
+      }
+    })
+  }
+
+  function distributeSelected() {
+    const ids = selectedIds()
+    if (ids.length < 3) return
+    commit((current) => {
+      const rects = [
+        ...current.windows
+          .filter((item) => ids.includes(item.id))
+          .map((item) => [item.id, item.bounds] as const),
+        ...current.cards
+          .filter((item) => ids.includes(item.id) && !item.locked)
+          .map((item) => [item.id, item.bounds] as const),
+      ].sort((a, b) => a[1].x - b[1].x)
+      if (rects.length < 3) return current
+      const left = rects[0]![1].x
+      const right = rects.at(-1)![1].x
+      const step = (right - left) / (rects.length - 1)
+      const positions = new Map(
+        rects.map(([id], index) => [id, snapCanvasValue(left + index * step)]),
+      )
+      return {
+        ...current,
+        windows: current.windows.map((item) => {
+          const x = positions.get(item.id)
+          if (x === undefined) return item
+          return { ...item, bounds: { ...item.bounds, x } }
+        }),
+        cards: current.cards.map((item) => {
+          const x = positions.get(item.id)
+          if (x === undefined || item.locked) return item
+          return { ...item, bounds: { ...item.bounds, x } }
+        }),
+      }
+    })
+  }
+
+  function deleteSelected() {
+    const ids = new Set(selectedIds())
+    if (!ids.size) return
+    commit((current) => {
+      const removed = new Set([
+        ...current.windows
+          .filter((item) => ids.has(item.id) && !item.locked)
+          .map((item) => item.id),
+        ...current.cards.filter((item) => ids.has(item.id) && !item.locked).map((item) => item.id),
+      ])
+      const windows = current.windows.filter((item) => !removed.has(item.id))
+      const cards = current.cards.filter((item) => !removed.has(item.id))
+      return {
+        ...current,
+        windows,
+        cards,
+        connectors: current.connectors.filter(
+          (item) => !removed.has(item.fromId) && !removed.has(item.toId),
+        ),
+      }
+    })
+    clearSelection()
+  }
+
+  function nudgeSelected(dx: number, dy: number, resize = false) {
+    const ids = new Set(selectedIds())
+    if (!ids.size) return
+    commit((current) => {
+      const windows = current.windows.map((item) => {
+        if (!ids.has(item.id)) return item
+        const bounds = item.bounds
+        const next = snapCanvasRect({
+          ...bounds,
+          ...(resize
+            ? { width: bounds.width + dx, height: bounds.height + dy }
+            : { x: bounds.x + dx, y: bounds.y + dy }),
+        })
+        return { ...item, bounds: next }
+      })
+      const cards = current.cards.map((item) => {
+        if (!ids.has(item.id) || item.locked) return item
+        const bounds = item.bounds
+        const next = snapCanvasRect({
+          ...bounds,
+          ...(resize
+            ? { width: bounds.width + dx, height: bounds.height + dy }
+            : { x: bounds.x + dx, y: bounds.y + dy }),
+        })
+        return { ...item, bounds: next }
+      })
+      return { ...current, windows, cards }
+    })
+  }
+
+  function toggleSelectedLock() {
+    const ids = new Set(selectedIds())
+    if (!ids.size) return
+    const allLocked = [
+      ...state().windows.filter((item) => ids.has(item.id)),
+      ...state().cards.filter((item) => ids.has(item.id)),
+    ].every((item) => !!item.locked)
+    commit((current) => ({
+      ...current,
+      windows: current.windows.map((item) =>
+        ids.has(item.id) ? { ...item, locked: !allLocked } : item,
+      ),
+      cards: current.cards.map((item) =>
+        ids.has(item.id) ? { ...item, locked: !allLocked } : item,
+      ),
+    }))
+  }
+
+  function connectSelected() {
+    const ids = selectedIds()
+    if (ids.length !== 2) return
+    setConnectingFrom(ids[0]!)
+    finishConnector(ids[1]!)
+  }
+
+  function saveSnapshot(name = `Snapshot ${new Date().toLocaleString()}`) {
+    const snapshot: CanvasSnapshot = {
+      id: crypto.randomUUID(),
+      canvasId: collection().activeId,
+      name,
+      createdAt: Date.now(),
+      state: cloneState(state()),
+    }
+    const next = [snapshot, ...snapshots()].slice(0, 30)
+    setSnapshots(next)
+    localStorage.setItem(CANVAS_SNAPSHOTS_STORAGE_KEY, JSON.stringify(next))
+  }
+
+  function restoreSnapshot(snapshot: CanvasSnapshot) {
+    commit(() => cloneState(snapshot.state))
+    setDialog(null)
+    clearSelection()
+  }
+
+  function exportCanvas() {
+    const bundle = createCanvasExport(activeCanvas()?.name ?? 'Canvas', cloneState(state()))
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${(activeCanvas()?.name ?? 'canvas').replace(/[^a-z0-9._-]+/gi, '-')}.canvas.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    setOverflowOpen(false)
+  }
+
+  async function importCanvasFile(file: File) {
+    try {
+      const bundle = parseCanvasExport(JSON.parse(await file.text()))
+      if (!bundle) throw new Error('Unsupported canvas file')
+      const current = persistActiveState()
+      const record = createCanvasRecord(current, bundle.name, bundle.state)
+      const next = {
+        ...current,
+        activeId: record.id,
+        lastTimestamp: record.updatedAt,
+        canvases: [...current.canvases, record],
+      }
+      setCollection(next)
+      setState(cloneState(bundle.state))
+      storeCollection(next)
+      scheduleSync(50)
+      setDialog(null)
+    } catch (error) {
+      setDialog({
+        kind: 'message',
+        message: error instanceof Error ? error.message : 'Import failed',
+      })
+    }
+  }
+
+  function askAiAboutSelection(instruction = 'Help me analyze, improve, or continue this work.') {
+    const ids = selectedIds().length
+      ? selectedIds()
+      : [...state().windows.map((item) => item.id), ...state().cards.map((item) => item.id)]
+    const context = buildCanvasContext(state(), ids)
+    const id = addBlankHermesWindow()
+    const definition = state().windows.find((item) => item.id === id)?.definition
+    if (!definition?.hermes) return
+    const key = ensureHermesChat(definition.hermes)
+    setHermesComposer(key, `${instruction}\n\nUse following canvas context:\n\n${context}`)
+    focusWindow(id)
+  }
+
+  function captureHermesAsNote(windowId: string) {
+    const item = state().windows.find((window) => window.id === windowId)
+    if (item?.definition.type !== 'hermes' || !item.definition.hermes) return
+    const key = ensureHermesChat(item.definition.hermes)
+    const messages = hermesSessions[key]?.messages ?? []
+    const transcript = messages
+      .filter((message) => message.text.trim())
+      .map(
+        (message) => `## ${message.role === 'assistant' ? 'AI' : 'You'}\n\n${message.text.trim()}`,
+      )
+      .join('\n\n---\n\n')
+    if (!transcript) {
+      setDialog({ kind: 'message', message: 'Chat has no messages to capture yet.' })
+      return
+    }
+    const bounds = item.bounds
+    void addTextEditor(
+      { x: bounds.x + bounds.width + 208, y: bounds.y + 112 },
+      transcript,
+      `${item.definition.title} transcript`,
+    )
   }
 
   function openFromBrowser(sourceWindowId: string, file: FileItem, duplicate = false) {
@@ -938,11 +1387,11 @@ export function CanvasPage() {
         return
       }
     }
-    const bounds = canvasWindowWorldBounds(source, state().frames)
+    const bounds = source.bounds
     const createdId = addFileWindow(
       file,
       { x: bounds.x + bounds.width + CANVAS_GRID_SIZE, y: bounds.y },
-      { duplicate, frameId: source.frameId },
+      { duplicate },
     )
     if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
   }
@@ -965,20 +1414,17 @@ export function CanvasPage() {
         return
       }
     }
-    const sourceBounds = canvasWindowWorldBounds(source, state().frames)
-    addHermesWindow(
-      file,
-      target,
-      { x: sourceBounds.x + sourceBounds.width + CANVAS_GRID_SIZE, y: sourceBounds.y },
-      source.frameId,
-    )
+    const sourceBounds = source.bounds
+    addHermesWindow(file, target, {
+      x: sourceBounds.x + sourceBounds.width + CANVAS_GRID_SIZE,
+      y: sourceBounds.y,
+    })
   }
 
   function addHermesWindow(
     file: FileItem,
     target: VirtualOpenTarget,
     point: { x: number; y: number },
-    requestedFrameId?: string | null,
     requestedBounds?: CanvasRect,
   ) {
     if (target.sessionId) {
@@ -989,11 +1435,13 @@ export function CanvasPage() {
       )
       if (existing) {
         focusWindow(existing.id)
-        return
+        return existing.id
       }
     }
+    let createdId = ''
     commit((current) => {
       const id = `canvas-window-${current.nextItemId}`
+      createdId = id
       const definition: WorkspaceWindowDefinition = {
         id,
         type: 'hermes',
@@ -1016,26 +1464,40 @@ export function CanvasPage() {
           ...point,
           ...(current.windowSizeByType.hermes ?? DEFAULT_WINDOW_SIZE.hermes),
         },
-        placementObstacles(requestedFrameId ?? null, current),
+        placementObstacles(current),
       )
       const bounds = requestedBounds ?? worldBounds
       const base: CanvasWindow = {
         id,
         definition,
         bounds,
-        frameId: null,
         zIndex: current.nextZIndex,
       }
       return {
         ...current,
-        windows: [
-          ...current.windows,
-          withCanvasWindowWorldBounds(base, bounds, requestedFrameId ?? null, current.frames),
-        ],
+        windows: [...current.windows, base],
         nextItemId: current.nextItemId + 1,
         nextZIndex: current.nextZIndex + 1,
       }
     })
+    if (createdId) selectWindow(createdId)
+    return createdId
+  }
+
+  function addBlankHermesWindow(point = viewportCenterWorld()) {
+    return addHermesWindow(
+      {
+        name: 'New AI chat',
+        path: 'Hermes Sessions/draft',
+        type: MediaType.OTHER,
+        size: 0,
+        extension: '',
+        isDirectory: false,
+        isVirtual: true,
+      },
+      { type: 'hermesDraft', readOnly: false },
+      point,
+    )
   }
 
   function bindHermesSession(windowId: string, sessionId: string) {
@@ -1084,7 +1546,7 @@ export function CanvasPage() {
     setState((current) => {
       const item = current.windows.find((window) => window.id === windowId)
       if (!item) return current
-      const world = canvasWindowWorldBounds(item, current.frames)
+      const world = item.bounds
       const contentHeight = Math.max(320, Math.min(576, world.height - 32))
       const sized = snapCanvasRect({
         ...world,
@@ -1094,9 +1556,7 @@ export function CanvasPage() {
       return {
         ...current,
         windows: current.windows.map((window) =>
-          window.id === windowId
-            ? withCanvasWindowWorldBounds(window, sized, window.frameId, current.frames)
-            : window,
+          window.id === windowId ? { ...window, bounds: sized } : window,
         ),
       }
     })
@@ -1117,8 +1577,12 @@ export function CanvasPage() {
     commit((current) => ({
       ...current,
       windows: current.windows.filter((window) => window.id !== windowId),
+      connectors: current.connectors.filter(
+        (connector) => connector.fromId !== windowId && connector.toId !== windowId,
+      ),
     }))
-    if (selection()?.id === windowId) clearSelection()
+    setSelectedIds((ids) => ids.filter((id) => id !== windowId))
+    if (selection()?.id === windowId) setSelection(null)
   }
 
   function duplicateWindow(windowId: string) {
@@ -1128,7 +1592,7 @@ export function CanvasPage() {
       focusWindow(windowId)
       return
     }
-    const world = canvasWindowWorldBounds(source, state().frames)
+    const world = source.bounds
     const file =
       source.definition.type === 'browser'
         ? fileItemFromDrag(source.definition.initialState.dir ?? '', true)
@@ -1136,179 +1600,86 @@ export function CanvasPage() {
     addFileWindow(
       file,
       { x: world.x + CANVAS_GRID_SIZE * 2, y: world.y + CANVAS_GRID_SIZE * 2 },
-      { duplicate: true, frameId: source.frameId },
+      { duplicate: true },
     )
   }
 
-  function moveWindowToFrame(windowId: string, frameId: string | null) {
-    commit((current) => ({
-      ...current,
-      windows: current.windows.map((window) => {
-        if (window.id !== windowId) return window
-        return withCanvasWindowWorldBounds(
-          window,
-          canvasWindowWorldBounds(window, current.frames),
-          frameId,
-          current.frames,
-        )
-      }),
-    }))
-  }
-
-  function deleteFrame(frameId: string) {
-    const frame = state().frames.find((candidate) => candidate.id === frameId)
-    if (!frame) return
-    const hasChildren = state().windows.some((window) => window.frameId === frameId)
-    if (hasChildren) {
-      setDialog({ kind: 'delete-frame', frameId, frameName: frame.name })
-      return
-    }
-    deleteFrameNow(frameId)
-  }
-
-  function deleteFrameNow(frameId: string) {
-    commit((current) => {
-      const windows = current.windows.map((window) => {
-        if (window.frameId !== frameId) return window
-        return withCanvasWindowWorldBounds(
-          window,
-          canvasWindowWorldBounds(window, current.frames),
-          null,
-          current.frames,
-        )
-      })
-      return {
-        ...current,
-        frames: current.frames.filter((candidate) => candidate.id !== frameId),
-        windows,
-      }
-    })
-    clearSelection()
-  }
-
-  function renameFrame(frameId: string) {
-    const frame = state().frames.find((candidate) => candidate.id === frameId)
-    if (!frame) return
-    setDialogInput(frame.name)
-    setDialog({ kind: 'rename-frame', frameId })
-  }
-
-  function applyFrameName(frameId: string, requestedName: string) {
-    const name = requestedName.trim()
-    if (!name) return
-    commit((current) => ({
-      ...current,
-      frames: current.frames.map((candidate) =>
-        candidate.id === frameId ? { ...candidate, name } : candidate,
-      ),
-    }))
-  }
-
-  function colorFrame(frameId: string, color: string) {
-    commit((current) => ({
-      ...current,
-      frames: current.frames.map((frame) => (frame.id === frameId ? { ...frame, color } : frame)),
-    }))
-  }
-
-  function resizeFrameToContents(frameId: string) {
-    const current = state()
-    const frame = current.frames.find((candidate) => candidate.id === frameId)
-    if (!frame) return
-    const children = current.windows.filter((window) => window.frameId === frameId)
-    if (!children.length) return
-    const rects = children.map((window) => canvasWindowWorldBounds(window, current.frames))
-    const left = Math.min(...rects.map((rect) => rect.x)) - CANVAS_GRID_SIZE
-    const top = Math.min(...rects.map((rect) => rect.y)) - CANVAS_GRID_SIZE * 2
-    const right = Math.max(...rects.map((rect) => rect.x + rect.width)) + CANVAS_GRID_SIZE
-    const bottom = Math.max(...rects.map((rect) => rect.y + rect.height)) + CANVAS_GRID_SIZE
-    const bounds = snapCanvasRect({ x: left, y: top, width: right - left, height: bottom - top })
-    if (framesOverlap(current.frames, frameId, bounds)) {
-      setDialog({
-        kind: 'message',
-        message: 'Cannot resize frame because it would overlap another frame.',
-      })
-      return
-    }
-    commit((draft) => {
-      const worldById = new Map(
-        draft.windows
-          .filter((window) => window.frameId === frameId)
-          .map((window) => [window.id, canvasWindowWorldBounds(window, draft.frames)]),
-      )
-      const frames = draft.frames.map((candidate) =>
-        candidate.id === frameId ? { ...candidate, bounds } : candidate,
-      )
-      const windows = draft.windows.map((window) => {
-        const world = worldById.get(window.id)
-        return world ? withCanvasWindowWorldBounds(window, world, frameId, frames) : window
-      })
-      return reconcileFrameMembership({ ...draft, frames, windows }, frameId)
-    })
-  }
-
   function startWindowMove(windowId: string, event: PointerEvent) {
+    if (readOnlyMode()) return
     if (event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
     bringToFront(windowId)
-    selectWindow(windowId)
+    if (!selectedIds().includes(windowId)) selectWindow(windowId)
     const before = cloneState(state())
     const item = before.windows.find((window) => window.id === windowId)
-    if (!item) return
-    const start = canvasWindowWorldBounds(item, before.frames)
+    if (!item || item.locked) return
+    const ids = selectedIds().includes(windowId) ? selectedIds() : [windowId]
+    const windowStarts = new Map(
+      before.windows
+        .filter((window) => ids.includes(window.id))
+        .map((window) => [window.id, window.bounds]),
+    )
+    const cardStarts = new Map(
+      before.cards
+        .filter((card) => ids.includes(card.id) && !card.locked)
+        .map((card) => [card.id, card.bounds]),
+    )
     const startX = event.clientX
     const startY = event.clientY
     setGeometryActive(true)
     const move = (next: PointerEvent) => {
       const dx = (next.clientX - startX) / state().camera.zoom
       const dy = (next.clientY - startY) / state().camera.zoom
-      const bounds = {
-        ...start,
-        x: snapCanvasValue(start.x + dx),
-        y: snapCanvasValue(start.y + dy),
-      }
       setState((current) => ({
         ...current,
-        windows: current.windows.map((window) =>
-          window.id === windowId
-            ? withCanvasWindowWorldBounds(window, bounds, window.frameId, current.frames)
-            : window,
-        ),
+        windows: current.windows.map((window) => {
+          const start = windowStarts.get(window.id)
+          return start
+            ? {
+                ...window,
+                bounds: {
+                  ...start,
+                  x: snapCanvasValue(start.x + dx),
+                  y: snapCanvasValue(start.y + dy),
+                },
+              }
+            : window
+        }),
+        cards: current.cards.map((card) => {
+          const start = cardStarts.get(card.id)
+          return start
+            ? {
+                ...card,
+                bounds: {
+                  ...start,
+                  x: snapCanvasValue(start.x + dx),
+                  y: snapCanvasValue(start.y + dy),
+                },
+              }
+            : card
+        }),
       }))
     }
     const end = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
       setGeometryActive(false)
-      const current = state()
-      const moved = current.windows.find((window) => window.id === windowId)
-      if (!moved) return
-      const world = canvasWindowWorldBounds(moved, current.frames)
-      const target = frameAtWindowCenter(world, current.frames)
-      const after = {
-        ...current,
-        windows: current.windows.map((window) =>
-          window.id === windowId
-            ? withCanvasWindowWorldBounds(window, world, target?.id ?? null, current.frames)
-            : window,
-        ),
-      }
-      setState(after)
-      pushGesture(before, after)
+      pushGesture(before, state())
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end, { once: true })
   }
 
   function startWindowResize(windowId: string, direction: ResizeDirection, event: PointerEvent) {
+    if (readOnlyMode()) return
     if (event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
     const before = cloneState(state())
     const item = before.windows.find((window) => window.id === windowId)
-    if (!item) return
-    const start = canvasWindowWorldBounds(item, before.frames)
+    if (!item || item.locked) return
+    const start = item.bounds
     const startX = event.clientX
     const startY = event.clientY
     setGeometryActive(true)
@@ -1322,9 +1693,7 @@ export function CanvasPage() {
       setState((current) => ({
         ...current,
         windows: current.windows.map((window) =>
-          window.id === windowId
-            ? withCanvasWindowWorldBounds(window, bounds, window.frameId, current.frames)
-            : window,
+          window.id === windowId ? { ...window, bounds } : window,
         ),
       }))
     }
@@ -1335,113 +1704,14 @@ export function CanvasPage() {
       const current = state()
       const resized = current.windows.find((window) => window.id === windowId)
       if (!resized) return
-      const world = canvasWindowWorldBounds(resized, current.frames)
-      const target = frameAtWindowCenter(world, current.frames)
+      const bounds = resized.bounds
       const after = {
         ...current,
         windowSizeByType: {
           ...current.windowSizeByType,
-          [windowSizeKey(resized.definition)]: { width: world.width, height: world.height },
+          [windowSizeKey(resized.definition)]: { width: bounds.width, height: bounds.height },
         },
-        windows: current.windows.map((window) =>
-          window.id === windowId
-            ? withCanvasWindowWorldBounds(window, world, target?.id ?? null, current.frames)
-            : window,
-        ),
       }
-      setState(after)
-      pushGesture(before, after)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end, { once: true })
-  }
-
-  function startFrameMove(frameId: string, event: PointerEvent) {
-    if (event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    clearSelection()
-    const before = cloneState(state())
-    const frame = before.frames.find((candidate) => candidate.id === frameId)
-    if (!frame) return
-    const startX = event.clientX
-    const startY = event.clientY
-    setGeometryActive(true)
-    const move = (next: PointerEvent) => {
-      const bounds = {
-        ...frame.bounds,
-        x: snapCanvasValue(frame.bounds.x + (next.clientX - startX) / state().camera.zoom),
-        y: snapCanvasValue(frame.bounds.y + (next.clientY - startY) / state().camera.zoom),
-      }
-      setInvalidFrameId(framesOverlap(state().frames, frameId, bounds) ? frameId : null)
-      setState((current) => ({
-        ...current,
-        frames: current.frames.map((candidate) =>
-          candidate.id === frameId ? { ...candidate, bounds } : candidate,
-        ),
-      }))
-    }
-    const end = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      setGeometryActive(false)
-      if (invalidFrameId() === frameId) {
-        setState(before)
-        setInvalidFrameId(null)
-        return
-      }
-      const after = reconcileFrameMembership(state(), frameId)
-      setState(after)
-      pushGesture(before, after)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end, { once: true })
-  }
-
-  function startFrameResize(frameId: string, direction: ResizeDirection, event: PointerEvent) {
-    if (event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    const before = cloneState(state())
-    const frame = before.frames.find((candidate) => candidate.id === frameId)
-    if (!frame) return
-    const startX = event.clientX
-    const startY = event.clientY
-    const childWorldBounds = new Map(
-      before.windows
-        .filter((window) => window.frameId === frameId)
-        .map((window) => [window.id, canvasWindowWorldBounds(window, before.frames)]),
-    )
-    setGeometryActive(true)
-    const move = (next: PointerEvent) => {
-      const bounds = resizeRect(
-        frame.bounds,
-        (next.clientX - startX) / state().camera.zoom,
-        (next.clientY - startY) / state().camera.zoom,
-        direction,
-      )
-      setInvalidFrameId(framesOverlap(state().frames, frameId, bounds) ? frameId : null)
-      setState((current) => {
-        const frames = current.frames.map((candidate) =>
-          candidate.id === frameId ? { ...candidate, bounds } : candidate,
-        )
-        const windows = current.windows.map((window) => {
-          const world = childWorldBounds.get(window.id)
-          return world ? withCanvasWindowWorldBounds(window, world, frameId, frames) : window
-        })
-        return { ...current, frames, windows }
-      })
-    }
-    const end = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      setGeometryActive(false)
-      if (invalidFrameId() === frameId) {
-        setState(before)
-        setInvalidFrameId(null)
-        return
-      }
-      const after = reconcileFrameMembership(state(), frameId)
       setState(after)
       pushGesture(before, after)
     }
@@ -1450,9 +1720,19 @@ export function CanvasPage() {
   }
 
   function beginPan(event: PointerEvent) {
-    if (event.button !== 1) return
+    const allowPrimary = spaceHeld() || event.target === viewportEl
+    if (event.button !== 1 && !(allowPrimary && event.button === 0)) return
     setMenu(null)
-    panController.begin(event)
+    setViewHistory((items) => [...items.slice(-29), state().camera])
+    panController.begin(event, allowPrimary)
+  }
+
+  function previousView() {
+    const history = viewHistory()
+    const camera = history.at(-1)
+    if (!camera) return
+    setViewHistory(history.slice(0, -1))
+    setState((current) => ({ ...current, camera }))
   }
 
   function zoomAt(clientX: number, clientY: number, nextZoom: number) {
@@ -1478,6 +1758,7 @@ export function CanvasPage() {
 
   function onCanvasContextMenu(event: MouseEvent) {
     event.preventDefault()
+    if (readOnlyMode()) return
     const world = screenToWorld(event.clientX, event.clientY)
     setMenu({
       kind: 'canvas',
@@ -1523,6 +1804,11 @@ export function CanvasPage() {
         return
       }
       if (editableTarget(event.target)) return
+      if (event.code === 'Space') {
+        event.preventDefault()
+        setSpaceHeld(true)
+        return
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault()
         if (event.shiftKey) redo()
@@ -1530,23 +1816,52 @@ export function CanvasPage() {
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
         event.preventDefault()
         redo()
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+        event.preventDefault()
+        setSelectedIds([
+          ...state().windows.map((item) => item.id),
+          ...state().cards.map((item) => item.id),
+        ])
+      } else if (event.altKey && event.key === 'ArrowLeft') {
+        event.preventDefault()
+        previousView()
+      } else if (selectedIds().length && event.key.startsWith('Arrow')) {
+        event.preventDefault()
+        const distance = CANVAS_GRID_SIZE * (event.shiftKey ? 4 : 1)
+        nudgeSelected(
+          event.key === 'ArrowLeft' ? -distance : event.key === 'ArrowRight' ? distance : 0,
+          event.key === 'ArrowUp' ? -distance : event.key === 'ArrowDown' ? distance : 0,
+          event.ctrlKey || event.metaKey,
+        )
+      } else if (event.key === '?') {
+        event.preventDefault()
+        setDialog({ kind: 'shortcuts' })
+      } else if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (!readOnlyMode() && selectedIds().length) {
+          event.preventDefault()
+          deleteSelected()
+        }
       } else if (event.key === 'Escape') {
         setMenu(null)
         clearSelection()
       }
     }
+    const keyup = (event: KeyboardEvent) => {
+      if (event.code === 'Space') setSpaceHeld(false)
+    }
     window.addEventListener('keydown', keydown)
-    onCleanup(() => window.removeEventListener('keydown', keydown))
+    window.addEventListener('keyup', keyup)
+    onCleanup(() => {
+      window.removeEventListener('keydown', keydown)
+      window.removeEventListener('keyup', keyup)
+    })
   })
 
   const selectedWindow = createMemo(() => {
     const selected = selection()
-    return selected ? state().windows.find((window) => window.id === selected.id) : undefined
-  })
-  const selectedFrame = createMemo(() => {
-    const selected = selectedWindow()
-    const frameId = selected ? selected.frameId : breadcrumbFrameId()
-    return frameId ? state().frames.find((frame) => frame.id === frameId) : undefined
+    return selected?.kind === 'window'
+      ? state().windows.find((window) => window.id === selected.id)
+      : undefined
   })
   const lastAudioWindow = createMemo(() => {
     const audioWindows = state().windows.filter(
@@ -1578,22 +1893,26 @@ export function CanvasPage() {
             {activeCanvas()?.name ?? 'Canvas'}
           </button>
           <Show when={canvasMenuOpen()}>
-            <div class='absolute top-10 left-0 w-64 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+            <div class='absolute top-10 left-0 w-72 rounded-lg border border-border bg-popover p-1 shadow-xl'>
               <div class='max-h-64 overflow-auto'>
                 <For each={availableCanvases()}>
                   {(canvas) => (
                     <div
                       data-testid='canvas-list-item'
-                      class={`group flex h-9 w-full items-center rounded-md text-sm hover:bg-muted ${
+                      class={`group flex min-h-11 w-full items-center rounded-md text-sm hover:bg-muted ${
                         canvas.id === collection().activeId ? 'bg-muted font-medium' : ''
                       }`}
                     >
                       <button
                         type='button'
-                        class='min-w-0 flex-1 self-stretch truncate px-2.5 text-left'
+                        aria-label={canvas.name}
+                        class='min-w-0 flex-1 self-stretch px-2.5 text-left'
                         onClick={() => switchCanvas(canvas.id)}
                       >
-                        {canvas.name}
+                        <span class='block truncate'>{canvas.name}</span>
+                        <span class='block text-[10px] font-normal text-muted-foreground'>
+                          {new Date(canvas.updatedAt).toLocaleString()}
+                        </span>
                       </button>
                       <div
                         data-canvas-row-actions
@@ -1647,21 +1966,6 @@ export function CanvasPage() {
             </div>
           </Show>
         </div>
-        <Show when={selectedFrame()}>
-          {(frame) => (
-            <>
-              <ChevronRight class='size-4 text-muted-foreground' />
-              <button
-                type='button'
-                data-testid='canvas-frame-breadcrumb'
-                class='max-w-48 truncate rounded px-2 py-1 text-sm hover:bg-muted'
-                onClick={() => focusFrame(frame().id)}
-              >
-                {frame().name}
-              </button>
-            </>
-          )}
-        </Show>
         <Show when={selectedWindow()}>
           {(item) => (
             <>
@@ -1678,6 +1982,82 @@ export function CanvasPage() {
           )}
         </Show>
         <div class='ml-auto flex items-center gap-1'>
+          <span
+            data-testid='canvas-sync-status'
+            class='hidden rounded px-2 text-[11px] text-muted-foreground sm:inline'
+            classList={{
+              'text-destructive': syncStatus() === 'error',
+              'text-amber-500': syncStatus() === 'offline',
+            }}
+            title={
+              syncStatus() === 'saved'
+                ? 'Canvas saved and synced'
+                : syncStatus() === 'saving'
+                  ? 'Saving canvas'
+                  : syncStatus() === 'offline'
+                    ? 'Saved locally; sync resumes when online'
+                    : 'Canvas saved locally; server sync failed'
+            }
+          >
+            {syncStatus() === 'saved'
+              ? 'Saved'
+              : syncStatus() === 'saving'
+                ? 'Saving…'
+                : syncStatus() === 'offline'
+                  ? 'Offline'
+                  : 'Sync failed'}
+          </span>
+          <Show when={!readOnlyMode()}>
+            <div class='relative' data-canvas-add>
+              <button
+                type='button'
+                data-testid='canvas-add-trigger'
+                class='inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm text-primary-foreground hover:bg-primary/90'
+                aria-expanded={addMenuOpen()}
+                onClick={() => setAddMenuOpen((open) => !open)}
+              >
+                <Plus class='size-4' />
+                Add
+              </button>
+              <Show when={addMenuOpen()}>
+                <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+                  <MenuButton
+                    onClick={() => {
+                      void addTextEditor()
+                      setAddMenuOpen(false)
+                    }}
+                  >
+                    <FileText class='size-4' /> New text
+                  </MenuButton>
+                  <MenuButton
+                    onClick={() => {
+                      addFileWindow(null, viewportCenterWorld())
+                      setAddMenuOpen(false)
+                    }}
+                  >
+                    <FolderOpen class='size-4' /> File browser
+                  </MenuButton>
+                  <MenuButton
+                    onClick={() => {
+                      addBlankHermesWindow()
+                      setAddMenuOpen(false)
+                    }}
+                  >
+                    <MessageSquare class='size-4' /> AI chat
+                  </MenuButton>
+                </div>
+              </Show>
+            </div>
+          </Show>
+          <button
+            type='button'
+            title='Canvas outline'
+            aria-label='Canvas outline'
+            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted'
+            onClick={() => setOutlineOpen((open) => !open)}
+          >
+            <PanelLeft class='size-4' />
+          </button>
           <Show when={lastAudioWindow()}>
             {(item) => (
               <button
@@ -1718,6 +2098,16 @@ export function CanvasPage() {
             onClick={redo}
           >
             <Redo2 class='size-4' />
+          </button>
+          <button
+            type='button'
+            title='Previous view (Alt+Left)'
+            aria-label='Previous view'
+            disabled={!viewHistory().length}
+            class='inline-flex size-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
+            onClick={previousView}
+          >
+            <ChevronRight class='size-4 rotate-180' />
           </button>
           <button
             type='button'
@@ -1762,7 +2152,39 @@ export function CanvasPage() {
               <MoreHorizontal class='size-4' />
             </button>
             <Show when={overflowOpen()}>
-              <div class='absolute top-10 right-0 w-44 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+              <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+                <MenuButton
+                  onClick={() => {
+                    saveSnapshot()
+                    setOverflowOpen(false)
+                  }}
+                >
+                  <Save class='size-4' />
+                  Save snapshot
+                </MenuButton>
+                <MenuButton
+                  onClick={() => {
+                    setDialog({ kind: 'snapshots' })
+                    setOverflowOpen(false)
+                  }}
+                >
+                  <RotateCcw class='size-4' />
+                  Snapshot history
+                </MenuButton>
+                <MenuButton onClick={exportCanvas}>
+                  <Download class='size-4' />
+                  Export canvas
+                </MenuButton>
+                <MenuButton
+                  onClick={() => {
+                    importInputEl?.click()
+                    setOverflowOpen(false)
+                  }}
+                >
+                  <Upload class='size-4' />
+                  Import canvas
+                </MenuButton>
+                <div class='my-1 border-t border-border' />
                 <MenuButton
                   onClick={() => {
                     setState((current) => ({ ...current, camera: { x: 0, y: 0, zoom: 1 } }))
@@ -1776,17 +2198,172 @@ export function CanvasPage() {
                   <X class='size-4' />
                   Reset canvas
                 </MenuButton>
+                <MenuButton
+                  onClick={() => {
+                    setDialog({ kind: 'shortcuts' })
+                    setOverflowOpen(false)
+                  }}
+                >
+                  <span class='inline-flex size-4 items-center justify-center font-semibold'>
+                    ?
+                  </span>
+                  Shortcuts
+                </MenuButton>
               </div>
             </Show>
           </div>
+          <input
+            ref={(element) => (importInputEl = element)}
+            type='file'
+            accept='.json,.canvas.json,application/json'
+            class='hidden'
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              if (file) void importCanvasFile(file)
+              event.currentTarget.value = ''
+            }}
+          />
         </div>
       </header>
+
+      <Show when={outlineOpen()}>
+        <aside class='fixed top-12 bottom-0 left-0 z-[110000] flex w-72 flex-col border-r border-border bg-card/95 shadow-xl backdrop-blur'>
+          <div class='flex h-11 items-center justify-between border-b px-3'>
+            <span class='text-sm font-semibold'>Canvas outline</span>
+            <button
+              type='button'
+              aria-label='Close canvas outline'
+              class='size-8 rounded hover:bg-muted'
+              onClick={() => setOutlineOpen(false)}
+            >
+              <X class='mx-auto size-4' />
+            </button>
+          </div>
+          <div class='min-h-0 flex-1 overflow-auto p-2'>
+            <p class='px-2 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase'>
+              Legacy notes
+            </p>
+            <For each={state().cards}>
+              {(card) => (
+                <button
+                  type='button'
+                  class='flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted'
+                  onClick={() => focusCard(card.id)}
+                >
+                  <FileText class='size-4 shrink-0' />
+                  <span class='truncate'>{card.title || 'Untitled note'}</span>
+                </button>
+              )}
+            </For>
+            <p class='px-2 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase'>
+              Windows
+            </p>
+            <For each={state().windows}>
+              {(item) => (
+                <button
+                  type='button'
+                  class='flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted'
+                  onClick={() => focusWindow(item.id)}
+                >
+                  <span class='shrink-0'>
+                    {workspaceTabIcon(item.definition, fileIconContext(), 'sm')}
+                  </span>
+                  <span class='truncate'>{item.definition.title}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </aside>
+      </Show>
+
+      <Show when={selectedIds().length > 1}>
+        <div class='fixed top-14 left-1/2 z-[105000] flex -translate-x-1/2 items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+          <span class='px-2 text-xs text-muted-foreground'>{selectedIds().length} selected</span>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            onClick={() => alignSelected('left')}
+          >
+            Align left
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            onClick={() => alignSelected('top')}
+          >
+            Align top
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            disabled={selectedIds().length < 3}
+            onClick={distributeSelected}
+          >
+            Distribute
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            disabled={selectedIds().length !== 2}
+            onClick={connectSelected}
+          >
+            Connect
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            onClick={toggleSelectedLock}
+          >
+            Lock/unlock
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded bg-primary px-2 text-xs text-primary-foreground hover:bg-primary/90'
+            onClick={() =>
+              askAiAboutSelection(
+                'Summarize this material. Preserve key decisions, facts, and open questions.',
+              )
+            }
+          >
+            Summarize
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            onClick={() =>
+              askAiAboutSelection(
+                'Extract concrete tasks. Return a prioritized checklist with owners or dependencies when stated.',
+              )
+            }
+          >
+            Tasks
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs hover:bg-muted'
+            onClick={() =>
+              askAiAboutSelection(
+                'Compare selected material. Identify agreements, conflicts, gaps, and a recommended synthesis.',
+              )
+            }
+          >
+            Compare
+          </button>
+          <button
+            type='button'
+            class='h-8 rounded px-2 text-xs text-destructive hover:bg-destructive/10'
+            onClick={deleteSelected}
+          >
+            Delete
+          </button>
+        </div>
+      </Show>
 
       <div
         ref={(element) => (viewportEl = element)}
         data-testid='infinite-canvas'
         class='relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none'
-        classList={{ 'cursor-grabbing': false }}
+        classList={{ 'cursor-grab': spaceHeld(), 'cursor-grabbing': geometryActive() }}
         style={{
           'background-image':
             state().camera.zoom < FAR_ZOOM
@@ -1807,6 +2384,17 @@ export function CanvasPage() {
             event.currentTarget.focus()
           }
         }}
+        onDblClick={(event) => {
+          if (readOnlyMode() || event.target !== event.currentTarget) return
+          void addTextEditor(screenToWorld(event.clientX, event.clientY))
+        }}
+        onPaste={(event) => {
+          if (readOnlyMode() || editableTarget(event.target)) return
+          const text = event.clipboardData?.getData('text/plain').trim()
+          if (!text) return
+          event.preventDefault()
+          void addTextEditor(viewportCenterWorld(), text, text.split(/\r?\n/, 1)[0]?.slice(0, 40))
+        }}
         onWheel={(event) => {
           if (!event.ctrlKey && !event.metaKey) return
           event.preventDefault()
@@ -1818,6 +2406,7 @@ export function CanvasPage() {
         }}
         onContextMenu={onCanvasContextMenu}
         onDragOver={(event) => {
+          if (readOnlyMode()) return
           if (!event.dataTransfer || !hasFileDragData(event.dataTransfer)) return
           if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
           event.preventDefault()
@@ -1829,6 +2418,7 @@ export function CanvasPage() {
         }}
         onDragEnd={() => setFileDropPreview(null)}
         onDrop={(event) => {
+          if (readOnlyMode()) return
           const transfer = event.dataTransfer
           if (!transfer) return
           if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
@@ -1853,18 +2443,56 @@ export function CanvasPage() {
               fileItemFromDrag(data.path, false),
               data.virtualOpenTarget,
               point,
-              placement.frameId,
               placement.bounds,
             )
             return
           }
           addFileWindow(fileItemFromDrag(data.path, data.isDirectory), point, {
             duplicate: true,
-            frameId: placement.frameId,
             worldBounds: placement.bounds,
           })
         }}
       >
+        <Show when={!readOnlyMode() && !state().windows.length && !state().cards.length}>
+          <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-8'>
+            <div class='pointer-events-auto max-w-lg rounded-2xl border border-border bg-card/90 p-7 text-center shadow-xl backdrop-blur'>
+              <h1 class='text-lg font-semibold'>Build your knowledge canvas</h1>
+              <p class='mt-2 text-sm leading-6 text-muted-foreground'>
+                Double-click anywhere for a text editor. Drop files or add an AI chat.
+              </p>
+              <div class='mt-5 flex flex-wrap justify-center gap-2'>
+                <button
+                  type='button'
+                  class='rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground'
+                  onClick={() => void addTextEditor()}
+                >
+                  New text
+                </button>
+                <button
+                  type='button'
+                  class='rounded-md border border-border px-3 py-2 text-sm hover:bg-muted'
+                  onClick={() => addFileWindow(null, viewportCenterWorld())}
+                >
+                  Browse files
+                </button>
+                <button
+                  type='button'
+                  class='rounded-md border border-border px-3 py-2 text-sm hover:bg-muted'
+                  onClick={() => addBlankHermesWindow()}
+                >
+                  Ask AI
+                </button>
+              </div>
+              <button
+                type='button'
+                class='mt-4 text-xs text-muted-foreground underline'
+                onClick={() => setDialog({ kind: 'shortcuts' })}
+              >
+                View shortcuts
+              </button>
+            </div>
+          </div>
+        </Show>
         <div
           ref={(element) => (worldEl = element)}
           data-testid='canvas-world'
@@ -1874,71 +2502,31 @@ export function CanvasPage() {
             transform: `translate3d(${state().camera.x}px, ${state().camera.y}px, 0) scale(${state().camera.zoom})`,
           }}
         >
-          <For each={state().frames}>
-            {(frame) => (
-              <div
-                data-testid='canvas-frame'
-                data-frame-id={frame.id}
-                class='absolute rounded-lg border bg-card/10 shadow-sm'
-                classList={{
-                  'border-destructive bg-destructive/10': invalidFrameId() === frame.id,
-                }}
-                style={{
-                  left: `${frame.bounds.x}px`,
-                  top: `${frame.bounds.y}px`,
-                  width: `${frame.bounds.width}px`,
-                  height: `${frame.bounds.height}px`,
-                  'border-color': invalidFrameId() === frame.id ? undefined : frame.color,
-                }}
-                onPointerDown={(event) => {
-                  if (event.button === 0 && event.target === event.currentTarget) {
-                    clearSelection()
-                    setMenu(null)
-                    viewportEl?.focus()
-                  }
-                }}
-                onDblClick={() => focusFrame(frame.id)}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setMenu({
-                    kind: 'frame',
-                    clientX: event.clientX,
-                    clientY: event.clientY,
-                    frameId: frame.id,
-                  })
-                }}
-              >
-                <div
-                  data-testid='canvas-frame-header'
-                  class='absolute top-0 right-0 left-0 flex h-8 cursor-move items-center gap-2 rounded-t-lg px-2.5 text-xs font-medium'
-                  style={{ background: `color-mix(in srgb, ${frame.color} 12%, transparent)` }}
-                  onPointerDown={(event) => startFrameMove(frame.id, event)}
-                >
-                  <span class='size-2.5 rounded-full' style={{ background: frame.color }} />
-                  <span class='truncate'>{frame.name}</span>
-                  <Show when={state().camera.zoom < FAR_ZOOM}>
-                    <span class='ml-auto text-xs font-normal text-muted-foreground'>
-                      {state().windows.filter((window) => window.frameId === frame.id).length}{' '}
-                      windows
-                    </span>
-                  </Show>
-                </div>
-                <ResizeHandles
-                  onStart={(direction, event) => startFrameResize(frame.id, direction, event)}
-                />
-              </div>
-            )}
-          </For>
+          <CanvasCardsLayer
+            cards={state().cards}
+            connectors={state().connectors}
+            windows={state().windows}
+            selectedIds={selectedIds()}
+            connectingFrom={connectingFrom()}
+            readOnly={readOnlyMode()}
+            onSelect={selectCard}
+            onMoveStart={startCardMove}
+            onResizeStart={startCardResize}
+            onChange={updateCard}
+            onToggleLock={toggleCardLock}
+            onDelete={deleteCard}
+            onConnect={toggleConnectorEndpoint}
+            onDeleteConnector={deleteConnector}
+          />
 
           <For each={state().windows.map((window) => window.id)}>
             {(windowId) => {
               const item = createMemo(() =>
                 state().windows.find((window) => window.id === windowId),
               )
-              const worldBounds = createMemo(() => canvasWindowWorldBounds(item()!, state().frames))
+              const worldBounds = createMemo(() => item()!.bounds)
               const visualBounds = createMemo(() => canvasWindowVisualBounds(worldBounds()))
-              const selected = () => selection()?.id === windowId
+              const selected = () => selectedIds().includes(windowId)
               return (
                 <div
                   data-testid='canvas-window'
@@ -1955,8 +2543,9 @@ export function CanvasPage() {
                     height: `${visualBounds().height}px`,
                     'z-index': selected() ? 1000000 + item()!.zIndex : item()!.zIndex,
                   }}
-                  onPointerDown={() => {
-                    selectWindow(windowId)
+                  onPointerDown={(event) => {
+                    selectWindow(windowId, event.ctrlKey || event.metaKey || event.shiftKey)
+                    if (connectingFrom() && connectingFrom() !== windowId) finishConnector(windowId)
                   }}
                   onDblClick={() => state().camera.zoom < LIVE_ZOOM && focusWindow(windowId)}
                   onContextMenu={(event) => {
@@ -1964,6 +2553,7 @@ export function CanvasPage() {
                       return
                     event.preventDefault()
                     event.stopPropagation()
+                    if (readOnlyMode()) return
                     setMenu({
                       kind: 'window',
                       clientX: event.clientX,
@@ -1984,15 +2574,20 @@ export function CanvasPage() {
                       {workspaceTabIcon(item()!.definition, fileIconContext(), 'sm')}
                     </span>
                     <span class='min-w-0 flex-1 truncate'>{item()!.definition.title}</span>
-                    <button
-                      type='button'
-                      class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
-                      aria-label={`Close ${item()!.definition.title}`}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={() => closeWindow(windowId)}
-                    >
-                      <X class='size-3.5' stroke-width={2} />
-                    </button>
+                    <Show when={item()!.locked}>
+                      <Lock class='size-3.5 text-muted-foreground' />
+                    </Show>
+                    <Show when={!readOnlyMode()}>
+                      <button
+                        type='button'
+                        class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                        aria-label={`Close ${item()!.definition.title}`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => closeWindow(windowId)}
+                      >
+                        <X class='size-3.5' stroke-width={2} />
+                      </button>
+                    </Show>
                   </div>
                   <div
                     data-canvas-window-content
@@ -2015,7 +2610,7 @@ export function CanvasPage() {
                           shareCanEdit={false}
                           shareCanDelete={false}
                           shareIsKnowledgeBase={false}
-                          editableFolders={editableFolders()}
+                          editableFolders={readOnlyMode() ? [] : editableFolders()}
                           onNavigateDir={navigateDir}
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
                           onOpenVirtualTarget={openHermesFromBrowser}
@@ -2042,7 +2637,7 @@ export function CanvasPage() {
                           contentVisible={() => true}
                           workspace={workspace}
                           sharePanel={() => null}
-                          editableFolders={editableFolders()}
+                          editableFolders={readOnlyMode() ? [] : editableFolders()}
                           knowledgeBases={knowledgeBases()}
                           shareCanEdit={false}
                           shareCanUpload={false}
@@ -2076,7 +2671,7 @@ export function CanvasPage() {
                       </div>
                     </Show>
                   </div>
-                  <Show when={selected()}>
+                  <Show when={selected() && !readOnlyMode()}>
                     <ResizeHandles
                       onStart={(direction, event) => startWindowResize(windowId, direction, event)}
                     />
@@ -2088,9 +2683,7 @@ export function CanvasPage() {
           <Show when={state().camera.zoom < FAR_ZOOM}>
             <For each={state().windows}>
               {(item) => {
-                const bounds = canvasWindowVisualBounds(
-                  canvasWindowWorldBounds(item, state().frames),
-                )
+                const bounds = canvasWindowVisualBounds(item.bounds)
                 return (
                   <button
                     type='button'
@@ -2153,12 +2746,12 @@ export function CanvasPage() {
               <MenuButton
                 onClick={() => {
                   const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
-                  requestAddFrame({ x: value.worldX, y: value.worldY })
+                  void addTextEditor({ x: value.worldX, y: value.worldY })
                   setMenu(null)
                 }}
               >
-                <FrameIcon class='size-4' />
-                New frame
+                <FileText class='size-4' />
+                New text
               </MenuButton>
               <MenuButton
                 onClick={() => {
@@ -2178,6 +2771,16 @@ export function CanvasPage() {
               >
                 <FolderOpen class='size-4' />
                 Open file browser
+              </MenuButton>
+              <MenuButton
+                onClick={() => {
+                  const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
+                  addBlankHermesWindow({ x: value.worldX, y: value.worldY })
+                  setMenu(null)
+                }}
+              >
+                <MessageSquare class='size-4' />
+                New AI chat
               </MenuButton>
               <div class='my-1 border-t border-border' />
               <MenuButton
@@ -2199,74 +2802,6 @@ export function CanvasPage() {
                 Reset view
               </MenuButton>
             </Show>
-            <Show when={current().kind === 'frame'}>
-              {(() => {
-                const frameId = (current() as Extract<ContextMenuState, { kind: 'frame' }>).frameId
-                return (
-                  <>
-                    <MenuButton
-                      onClick={() => {
-                        focusFrame(frameId)
-                        setMenu(null)
-                      }}
-                    >
-                      <Focus class='size-4' />
-                      Focus frame
-                    </MenuButton>
-                    <MenuButton
-                      onClick={() => {
-                        renameFrame(frameId)
-                        setMenu(null)
-                      }}
-                    >
-                      <FrameIcon class='size-4' />
-                      Rename
-                    </MenuButton>
-                    <div class='px-2.5 py-2'>
-                      <p class='mb-2 flex items-center gap-2 text-xs text-muted-foreground'>
-                        <Palette class='size-3.5' />
-                        Color
-                      </p>
-                      <div class='flex flex-wrap gap-2'>
-                        <For each={FRAME_COLORS}>
-                          {(color) => (
-                            <button
-                              type='button'
-                              aria-label={`Set frame color ${color}`}
-                              class='size-6 rounded-full border-2 border-background shadow ring-1 ring-border'
-                              style={{ background: color }}
-                              onClick={() => {
-                                colorFrame(frameId, color)
-                                setMenu(null)
-                              }}
-                            />
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                    <MenuButton
-                      onClick={() => {
-                        resizeFrameToContents(frameId)
-                        setMenu(null)
-                      }}
-                    >
-                      <Maximize class='size-4' />
-                      Resize to contents
-                    </MenuButton>
-                    <MenuButton
-                      danger
-                      onClick={() => {
-                        deleteFrame(frameId)
-                        setMenu(null)
-                      }}
-                    >
-                      <X class='size-4' />
-                      Delete frame
-                    </MenuButton>
-                  </>
-                )
-              })()}
-            </Show>
             <Show when={current().kind === 'window'}>
               {(() => {
                 const windowId = (current() as Extract<ContextMenuState, { kind: 'window' }>)
@@ -2282,6 +2817,22 @@ export function CanvasPage() {
                       <Focus class='size-4' />
                       Focus
                     </MenuButton>
+                    <Show
+                      when={
+                        state().windows.find((window) => window.id === windowId)?.definition
+                          .type === 'hermes'
+                      }
+                    >
+                      <MenuButton
+                        onClick={() => {
+                          captureHermesAsNote(windowId)
+                          setMenu(null)
+                        }}
+                      >
+                        <FileText class='size-4' />
+                        Capture chat as note
+                      </MenuButton>
+                    </Show>
                     <MenuButton
                       onClick={() => {
                         duplicateWindow(windowId)
@@ -2291,32 +2842,16 @@ export function CanvasPage() {
                       <Copy class='size-4' />
                       Open another copy
                     </MenuButton>
-                    <p class='px-2.5 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase'>
-                      Move to frame
-                    </p>
                     <MenuButton
                       onClick={() => {
-                        moveWindowToFrame(windowId, null)
+                        setSelectedIds([windowId])
+                        toggleSelectedLock()
                         setMenu(null)
                       }}
                     >
-                      <Move class='size-4' />
-                      Top level
+                      <Lock class='size-4' />
+                      Lock / unlock
                     </MenuButton>
-                    <For each={state().frames}>
-                      {(frame) => (
-                        <MenuButton
-                          onClick={() => {
-                            moveWindowToFrame(windowId, frame.id)
-                            setMenu(null)
-                          }}
-                        >
-                          <span class='size-3 rounded-full' style={{ background: frame.color }} />
-                          {frame.name}
-                        </MenuButton>
-                      )}
-                    </For>
-                    <div class='my-1 border-t border-border' />
                     <MenuButton
                       danger
                       onClick={() => {
@@ -2337,12 +2872,12 @@ export function CanvasPage() {
 
       <Show when={searchOpen()}>
         <CanvasSearchPalette
-          frames={state().frames}
           windows={state().windows}
+          cards={state().cards}
           fileIconContext={fileIconContext()}
           onClose={() => setSearchOpen(false)}
           onWindow={focusWindow}
-          onFrame={focusFrame}
+          onCard={focusCard}
           onFile={onLibrarySearchResult}
         />
       </Show>
@@ -2358,14 +2893,7 @@ export function CanvasPage() {
               aria-modal='true'
               class='w-full max-w-sm rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
             >
-              <Show
-                when={
-                  current().kind === 'new-canvas' ||
-                  current().kind === 'rename-canvas' ||
-                  current().kind === 'new-frame' ||
-                  current().kind === 'rename-frame'
-                }
-              >
+              <Show when={current().kind === 'new-canvas' || current().kind === 'rename-canvas'}>
                 <form
                   onSubmit={(event) => {
                     event.preventDefault()
@@ -2375,22 +2903,10 @@ export function CanvasPage() {
                     if (valueDialog.kind === 'new-canvas') createNamedCanvas()
                     else if (valueDialog.kind === 'rename-canvas')
                       renameCanvas(valueDialog.canvasId)
-                    else if (valueDialog.kind === 'new-frame') addFrame(valueDialog.point, value)
-                    else if (valueDialog.kind === 'rename-frame')
-                      applyFrameName(valueDialog.frameId, value)
-                    if (valueDialog.kind === 'new-frame' || valueDialog.kind === 'rename-frame') {
-                      setDialog(null)
-                    }
                   }}
                 >
                   <h2 class='text-base font-semibold'>
-                    {current().kind === 'new-canvas'
-                      ? 'New canvas'
-                      : current().kind === 'rename-canvas'
-                        ? 'Rename canvas'
-                        : current().kind === 'new-frame'
-                          ? 'New frame'
-                          : 'Rename frame'}
+                    {current().kind === 'new-canvas' ? 'New canvas' : 'Rename canvas'}
                   </h2>
                   <label class='mt-4 block text-sm text-muted-foreground'>Name</label>
                   <input
@@ -2417,6 +2933,110 @@ export function CanvasPage() {
                     </button>
                   </div>
                 </form>
+              </Show>
+              <Show when={current().kind === 'snapshots'}>
+                <h2 class='text-base font-semibold'>Snapshot history</h2>
+                <p class='mt-1 text-xs text-muted-foreground'>
+                  Local snapshots for current canvas.
+                </p>
+                <div class='mt-4 max-h-80 space-y-1 overflow-auto'>
+                  <Show
+                    when={
+                      snapshots().filter((item) => item.canvasId === collection().activeId).length
+                    }
+                    fallback={
+                      <p class='py-8 text-center text-sm text-muted-foreground'>
+                        No snapshots yet.
+                      </p>
+                    }
+                  >
+                    <For
+                      each={snapshots().filter((item) => item.canvasId === collection().activeId)}
+                    >
+                      {(snapshot) => (
+                        <button
+                          type='button'
+                          class='flex w-full items-center rounded-md px-3 py-2 text-left hover:bg-muted'
+                          onClick={() => restoreSnapshot(snapshot)}
+                        >
+                          <span class='min-w-0 flex-1'>
+                            <span class='block truncate text-sm font-medium'>{snapshot.name}</span>
+                            <span class='block text-xs text-muted-foreground'>
+                              {new Date(snapshot.createdAt).toLocaleString()}
+                            </span>
+                          </span>
+                          <RotateCcw class='size-4' />
+                        </button>
+                      )}
+                    </For>
+                  </Show>
+                </div>
+                <div class='mt-5 flex justify-end gap-2'>
+                  <button
+                    type='button'
+                    class='h-9 rounded-md px-3 text-sm hover:bg-muted'
+                    onClick={() => setDialog(null)}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type='button'
+                    class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground'
+                    onClick={() => saveSnapshot()}
+                  >
+                    Save snapshot
+                  </button>
+                </div>
+              </Show>
+              <Show when={current().kind === 'shortcuts'}>
+                <h2 class='text-base font-semibold'>Canvas shortcuts</h2>
+                <dl class='mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-sm'>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Double-click</kbd>
+                  </dt>
+                  <dd>Text editor at pointer</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Space + drag</kbd>
+                  </dt>
+                  <dd>Pan canvas</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Ctrl/⌘ + wheel</kbd>
+                  </dt>
+                  <dd>Zoom at pointer</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Ctrl/⌘ + P</kbd>
+                  </dt>
+                  <dd>Search</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Ctrl/⌘ + A</kbd>
+                  </dt>
+                  <dd>Select all</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Arrow keys</kbd>
+                  </dt>
+                  <dd>Nudge selection; Shift moves faster</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Ctrl/⌘ + arrows</kbd>
+                  </dt>
+                  <dd>Resize selection</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Alt + Left</kbd>
+                  </dt>
+                  <dd>Previous view</dd>
+                  <dt>
+                    <kbd class='rounded border px-1.5 py-0.5'>Delete</kbd>
+                  </dt>
+                  <dd>Delete selection</dd>
+                </dl>
+                <div class='mt-5 flex justify-end'>
+                  <button
+                    type='button'
+                    class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground'
+                    onClick={() => setDialog(null)}
+                  >
+                    Done
+                  </button>
+                </div>
               </Show>
               <Show when={current().kind === 'delete-canvas'}>
                 <h2 class='text-base font-semibold'>Delete canvas?</h2>
@@ -2446,39 +3066,11 @@ export function CanvasPage() {
                   </button>
                 </div>
               </Show>
-              <Show when={current().kind === 'delete-frame'}>
-                <h2 class='text-base font-semibold'>Delete frame?</h2>
-                <p class='mt-2 text-sm text-muted-foreground'>
-                  Windows in “
-                  {(current() as Extract<CanvasDialogState, { kind: 'delete-frame' }>).frameName}”
-                  will move to top level. Files remain untouched.
-                </p>
-                <div class='mt-5 flex justify-end gap-2'>
-                  <button
-                    type='button'
-                    class='h-9 rounded-md px-3 text-sm hover:bg-muted'
-                    onClick={() => setDialog(null)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type='button'
-                    class='h-9 rounded-md bg-destructive px-3 text-sm text-white'
-                    onClick={() => {
-                      deleteFrameNow(
-                        (current() as Extract<CanvasDialogState, { kind: 'delete-frame' }>).frameId,
-                      )
-                      setDialog(null)
-                    }}
-                  >
-                    Delete frame
-                  </button>
-                </div>
-              </Show>
               <Show when={current().kind === 'reset-canvas'}>
                 <h2 class='text-base font-semibold'>Reset local canvas?</h2>
                 <p class='mt-2 text-sm text-muted-foreground'>
-                  Frames and canvas windows will be removed. Underlying files remain untouched.
+                  Legacy notes, relationships, and canvas windows will be removed. Underlying files
+                  remain untouched.
                 </p>
                 <div class='mt-5 flex justify-end gap-2'>
                   <button

@@ -23,25 +23,42 @@ export type CanvasWindowSizeKey =
   | 'viewer-other'
 export type CanvasWindowSize = Pick<CanvasRect, 'width' | 'height'>
 
-export type CanvasFrame = {
+export type CanvasCardKind = 'note'
+
+export type CanvasCard = {
   id: string
-  name: string
+  kind: CanvasCardKind
+  title: string
+  body: string
+  url: string | null
   color: string
   bounds: CanvasRect
+  zIndex: number
+  locked: boolean
+  tags: string[]
+}
+
+export type CanvasConnector = {
+  id: string
+  fromId: string
+  toId: string
+  label: string
+  color: string
 }
 
 export type CanvasWindow = {
   id: string
   definition: WorkspaceWindowDefinition
   bounds: CanvasRect
-  frameId: string | null
   zIndex: number
+  locked?: boolean
 }
 
 export type InfiniteCanvasState = {
   version: 1
-  frames: CanvasFrame[]
   windows: CanvasWindow[]
+  cards: CanvasCard[]
+  connectors: CanvasConnector[]
   camera: CanvasCamera
   windowSizeByType: Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>>
   nextItemId: number
@@ -51,8 +68,9 @@ export type InfiniteCanvasState = {
 export function createEmptyCanvasState(): InfiniteCanvasState {
   return {
     version: CANVAS_SCHEMA_VERSION,
-    frames: [],
     windows: [],
+    cards: [],
+    connectors: [],
     camera: { x: 0, y: 0, zoom: 1 },
     windowSizeByType: {},
     nextItemId: 1,
@@ -77,30 +95,6 @@ export function rectsOverlap(a: CanvasRect, b: CanvasRect): boolean {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 }
 
-export function rectContainsRect(outer: CanvasRect, inner: CanvasRect): boolean {
-  return (
-    inner.x >= outer.x &&
-    inner.y >= outer.y &&
-    inner.x + inner.width <= outer.x + outer.width &&
-    inner.y + inner.height <= outer.y + outer.height
-  )
-}
-
-export function rectContainsPoint(rect: CanvasRect, x: number, y: number): boolean {
-  return x >= rect.x && y >= rect.y && x <= rect.x + rect.width && y <= rect.y + rect.height
-}
-
-export function canvasWindowWorldBounds(window: CanvasWindow, frames: CanvasFrame[]): CanvasRect {
-  if (!window.frameId) return window.bounds
-  const frame = frames.find((candidate) => candidate.id === window.frameId)
-  if (!frame) return window.bounds
-  return {
-    ...window.bounds,
-    x: frame.bounds.x + window.bounds.x,
-    y: frame.bounds.y + window.bounds.y,
-  }
-}
-
 export function canvasWindowVisualBounds(bounds: CanvasRect): CanvasRect {
   const inset = CANVAS_WINDOW_GAP / 2
   return {
@@ -109,65 +103,6 @@ export function canvasWindowVisualBounds(bounds: CanvasRect): CanvasRect {
     width: Math.max(1, bounds.width - CANVAS_WINDOW_GAP),
     height: Math.max(1, bounds.height - CANVAS_WINDOW_GAP),
   }
-}
-
-export function withCanvasWindowWorldBounds(
-  window: CanvasWindow,
-  bounds: CanvasRect,
-  frameId: string | null,
-  frames: CanvasFrame[],
-): CanvasWindow {
-  if (!frameId) return { ...window, frameId: null, bounds }
-  const frame = frames.find((candidate) => candidate.id === frameId)
-  if (!frame) return { ...window, frameId: null, bounds }
-  return {
-    ...window,
-    frameId,
-    bounds: { ...bounds, x: bounds.x - frame.bounds.x, y: bounds.y - frame.bounds.y },
-  }
-}
-
-export function frameAtWindowCenter(
-  bounds: CanvasRect,
-  frames: CanvasFrame[],
-  excludeFrameId?: string | null,
-): CanvasFrame | null {
-  const x = bounds.x + bounds.width / 2
-  const y = bounds.y + bounds.height / 2
-  return (
-    frames.find((frame) => frame.id !== excludeFrameId && rectContainsPoint(frame.bounds, x, y)) ??
-    null
-  )
-}
-
-export function reconcileFrameMembership(
-  state: InfiniteCanvasState,
-  changedFrameId?: string,
-): InfiniteCanvasState {
-  const frames = state.frames
-  const changedFrame = changedFrameId
-    ? frames.find((frame) => frame.id === changedFrameId)
-    : undefined
-  const windows = state.windows.map((window) => {
-    const world = canvasWindowWorldBounds(window, frames)
-    if (window.frameId) {
-      const parent = frames.find((frame) => frame.id === window.frameId)
-      if (
-        !parent ||
-        !rectContainsPoint(parent.bounds, world.x + world.width / 2, world.y + world.height / 2)
-      ) {
-        return withCanvasWindowWorldBounds(window, world, null, frames)
-      }
-      return window
-    }
-    if (!changedFrame || !rectContainsRect(changedFrame.bounds, world)) return window
-    return withCanvasWindowWorldBounds(window, world, changedFrame.id, frames)
-  })
-  return { ...state, windows }
-}
-
-export function framesOverlap(frames: CanvasFrame[], frameId: string, bounds: CanvasRect): boolean {
-  return frames.some((frame) => frame.id !== frameId && rectsOverlap(frame.bounds, bounds))
 }
 
 function ringOffsets(ring: number): Array<[number, number]> {
@@ -201,8 +136,8 @@ export function findNearestFreeCanvasRect(
 
 export function canvasContentBounds(state: InfiniteCanvasState): CanvasRect | null {
   const rects = [
-    ...state.frames.map((frame) => frame.bounds),
-    ...state.windows.map((window) => canvasWindowWorldBounds(window, state.frames)),
+    ...state.windows.map((window) => window.bounds),
+    ...state.cards.map((card) => card.bounds),
   ]
   if (rects.length === 0) return null
   const left = Math.min(...rects.map((rect) => rect.x))
@@ -244,41 +179,17 @@ function parseWindowSize(value: unknown): CanvasWindowSize | undefined {
 }
 
 function canvasItemNumber(id: string): number {
-  const match = /^canvas-(?:frame|window)-(\d+)$/.exec(id)
+  const match = /^canvas-(?:window|card|connector)-(\d+)$/.exec(id)
   return match ? Number(match[1]) : 0
 }
 
 export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Partial<InfiniteCanvasState>
-  if (
-    raw.version !== CANVAS_SCHEMA_VERSION ||
-    !Array.isArray(raw.frames) ||
-    !Array.isArray(raw.windows)
-  ) {
+  if (raw.version !== CANVAS_SCHEMA_VERSION || !Array.isArray(raw.windows)) {
     return null
   }
   const itemIds = new Set<string>()
-  const frames: CanvasFrame[] = []
-  for (const value of raw.frames) {
-    if (!value || typeof value !== 'object') continue
-    const frame = value as Partial<CanvasFrame>
-    const bounds = parseRect(frame.bounds)
-    if (
-      !bounds ||
-      typeof frame.id !== 'string' ||
-      typeof frame.name !== 'string' ||
-      itemIds.has(frame.id)
-    )
-      continue
-    itemIds.add(frame.id)
-    frames.push({
-      id: frame.id,
-      name: frame.name,
-      color: typeof frame.color === 'string' ? frame.color : '#6366f1',
-      bounds,
-    })
-  }
   const windows: CanvasWindow[] = []
   for (const value of raw.windows) {
     if (!value || typeof value !== 'object') continue
@@ -328,11 +239,74 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
         tabGroupId: null,
       },
       bounds,
-      frameId:
-        typeof window.frameId === 'string' && frames.some((frame) => frame.id === window.frameId)
-          ? window.frameId
-          : null,
       zIndex: Math.max(1, Math.floor(finiteNumber(window.zIndex, 1))),
+      locked: !!window.locked,
+    })
+  }
+  const cards: CanvasCard[] = []
+  for (const value of Array.isArray(raw.cards) ? raw.cards : []) {
+    if (!value || typeof value !== 'object') continue
+    const card = value as Partial<CanvasCard>
+    const legacyKind = (value as { kind?: unknown }).kind
+    const bounds = parseRect(card.bounds)
+    if (
+      !bounds ||
+      typeof card.id !== 'string' ||
+      itemIds.has(card.id) ||
+      (legacyKind !== 'note' && legacyKind !== 'prompt' && legacyKind !== 'link')
+    )
+      continue
+    const url = typeof card.url === 'string' && /^https?:\/\//i.test(card.url) ? card.url : null
+    itemIds.add(card.id)
+    cards.push({
+      id: card.id,
+      kind: 'note',
+      title:
+        typeof card.title === 'string' && card.title
+          ? card.title.slice(0, 160)
+          : legacyKind === 'link' && url
+            ? url.slice(0, 160)
+            : '',
+      body: `${typeof card.body === 'string' ? card.body : ''}${legacyKind === 'link' && url ? `\n\n${url}` : ''}`.slice(
+        0,
+        250_000,
+      ),
+      url: null,
+      color: typeof card.color === 'string' ? card.color : '#6366f1',
+      bounds,
+      zIndex: Math.max(1, Math.floor(finiteNumber(card.zIndex, 1))),
+      locked: !!card.locked,
+      tags: Array.isArray(card.tags)
+        ? card.tags
+            .filter((tag): tag is string => typeof tag === 'string')
+            .map((tag) => tag.trim().slice(0, 40))
+            .filter(Boolean)
+            .slice(0, 20)
+        : [],
+    })
+  }
+  const connectors: CanvasConnector[] = []
+  const connectableIds = new Set([...windows, ...cards].map((item) => item.id))
+  for (const value of Array.isArray(raw.connectors) ? raw.connectors : []) {
+    if (!value || typeof value !== 'object') continue
+    const connector = value as Partial<CanvasConnector>
+    if (
+      typeof connector.id !== 'string' ||
+      itemIds.has(connector.id) ||
+      typeof connector.fromId !== 'string' ||
+      typeof connector.toId !== 'string' ||
+      connector.fromId === connector.toId ||
+      !connectableIds.has(connector.fromId) ||
+      !connectableIds.has(connector.toId)
+    )
+      continue
+    itemIds.add(connector.id)
+    connectors.push({
+      id: connector.id,
+      fromId: connector.fromId,
+      toId: connector.toId,
+      label: typeof connector.label === 'string' ? connector.label.slice(0, 120) : '',
+      color: typeof connector.color === 'string' ? connector.color : '#64748b',
     })
   }
   const cameraRaw = raw.camera as Partial<CanvasCamera> | undefined
@@ -357,21 +331,20 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
     }),
   ) as Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>>
   const nextItemId = Math.max(0, ...Array.from(itemIds, canvasItemNumber)) + 1
-  const nextZIndex = Math.max(0, ...windows.map((window) => window.zIndex)) + 1
+  const nextZIndex =
+    Math.max(0, ...windows.map((window) => window.zIndex), ...cards.map((card) => card.zIndex)) + 1
   return {
     version: CANVAS_SCHEMA_VERSION,
-    frames,
     windows,
+    cards,
+    connectors,
     camera: {
       x: finiteNumber(cameraRaw?.x, 0),
       y: finiteNumber(cameraRaw?.y, 0),
       zoom: Math.min(CANVAS_MAX_ZOOM, Math.max(CANVAS_MIN_ZOOM, finiteNumber(cameraRaw?.zoom, 1))),
     },
     windowSizeByType,
-    nextItemId: Math.max(
-      nextItemId,
-      Math.floor(finiteNumber(raw.nextItemId, windows.length + frames.length + 1)),
-    ),
+    nextItemId: Math.max(nextItemId, Math.floor(finiteNumber(raw.nextItemId, windows.length + 1))),
     nextZIndex: Math.max(nextZIndex, Math.floor(finiteNumber(raw.nextZIndex, windows.length + 1))),
   }
 }

@@ -11,7 +11,7 @@ import Users from 'lucide-solid/icons/users'
 import MoreHorizontal from 'lucide-solid/icons/ellipsis'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import CircleCheck from 'lucide-solid/icons/circle-check'
-import { ErrorBoundary, For, Show, createMemo, createSignal } from 'solid-js'
+import { ErrorBoundary, For, Show, createMemo, createSignal, onCleanup } from 'solid-js'
 import { classifyHermesTool, hermesImageUrl } from '@/lib/hermes-chat-parity'
 import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 
@@ -347,6 +347,24 @@ export function HermesMessageCard(props: {
   onSpeak?: (message: HermesMessage) => void
   onRetry?: () => void
 }) {
+  let actionsEl: HTMLDetailsElement | undefined
+  const closeActionsOutside = (event: PointerEvent) => {
+    if (actionsEl && !actionsEl.contains(event.target as Node)) actionsEl.open = false
+  }
+  const closeActionsOnEscape = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && actionsEl?.open) actionsEl.open = false
+  }
+  const removeActionsDismissListeners = () => {
+    document.removeEventListener('pointerdown', closeActionsOutside, true)
+    document.removeEventListener('keydown', closeActionsOnEscape, true)
+  }
+  const syncActionsDismissListeners = () => {
+    removeActionsDismissListeners()
+    if (!actionsEl?.open) return
+    document.addEventListener('pointerdown', closeActionsOutside, true)
+    document.addEventListener('keydown', closeActionsOnEscape, true)
+  }
+  onCleanup(removeActionsDismissListeners)
   const pendingToolCalls = createMemo(
     () =>
       props.message.toolCalls?.filter((call) => !props.completedToolCallIds?.has(call.id)) ?? [],
@@ -436,14 +454,16 @@ export function HermesMessageCard(props: {
               }
             >
               <details
+                ref={actionsEl}
                 data-testid='hermes-message-actions'
-                class='ml-auto w-fit text-[11px] text-muted-foreground'
+                class='relative ml-auto h-5 w-fit text-[11px] text-muted-foreground'
+                onToggle={syncActionsDismissListeners}
               >
                 <summary class='flex h-5 cursor-pointer list-none items-center rounded px-1 opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100'>
                   <MoreHorizontal class='h-3.5 w-3.5' />
                   <span class='sr-only'>Message actions</span>
                 </summary>
-                <div class='mt-0.5 flex min-w-28 flex-col rounded-md border border-border bg-popover p-0.5 shadow-sm'>
+                <div class='absolute right-0 bottom-full z-30 mb-0.5 flex min-w-28 flex-col rounded-md border border-border bg-popover p-0.5 shadow-sm'>
                   <Show when={props.message.text}>
                     <button
                       class='rounded px-2 py-1 text-left hover:bg-muted hover:text-foreground'

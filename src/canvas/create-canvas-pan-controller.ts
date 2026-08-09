@@ -10,8 +10,8 @@ type CanvasPanControllerOptions = {
 export function createCanvasPanController(options: CanvasPanControllerOptions) {
   let disposeActive: (() => void) | undefined
 
-  function begin(event: PointerEvent) {
-    if (event.button !== 1) return
+  function begin(event: PointerEvent, allowPrimary = false) {
+    if (event.button !== 1 && !(allowPrimary && event.button === 0)) return
     event.preventDefault()
     disposeActive?.()
 

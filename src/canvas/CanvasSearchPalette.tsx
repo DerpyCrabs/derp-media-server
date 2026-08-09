@@ -8,11 +8,10 @@ import {
   type FileSearchResponse,
   type FileSearchResult,
 } from '@/lib/file-search'
-import type { CanvasFrame, CanvasWindow } from '@/lib/infinite-canvas'
+import type { CanvasCard, CanvasWindow } from '@/lib/infinite-canvas'
 import { queryKeys } from '@/lib/query-keys'
 import { fileItemIcon, type FileIconContext } from '@/src/lib/use-file-icon'
 import { useQuery } from '@tanstack/solid-query'
-import Frame from 'lucide-solid/icons/frame'
 import Search from 'lucide-solid/icons/search'
 import SquareStack from 'lucide-solid/icons/square-stack'
 import X from 'lucide-solid/icons/x'
@@ -21,16 +20,18 @@ import { Portal } from 'solid-js/web'
 
 type CanvasSearchItem =
   | { kind: 'window'; id: string; title: string; detail: string }
-  | { kind: 'frame'; id: string; title: string; detail: string }
+  | { kind: 'card'; id: string; title: string; detail: string }
   | { kind: 'file'; result: FileSearchResult; title: string; detail: string }
 
+type SearchScope = 'all' | 'canvas' | 'notes' | 'library'
+
 type Props = {
-  frames: CanvasFrame[]
   windows: CanvasWindow[]
+  cards: CanvasCard[]
   fileIconContext: FileIconContext
   onClose: () => void
   onWindow: (id: string) => void
-  onFrame: (id: string) => void
+  onCard: (id: string) => void
   onFile: (result: FileSearchResult) => void
 }
 
@@ -49,6 +50,7 @@ export function CanvasSearchPalette(props: Props) {
   const [query, setQuery] = createSignal('')
   const [debounced, setDebounced] = createSignal('')
   const [activeIndex, setActiveIndex] = createSignal(0)
+  const [scope, setScope] = createSignal<SearchScope>('all')
   let inputEl: HTMLInputElement | undefined
   const previousFocus = document.activeElement as HTMLElement | null
 
@@ -62,31 +64,44 @@ export function CanvasSearchPalette(props: Props) {
   const localMatches = createMemo(() => {
     const needle = normalized()
     if (!needle) return [] as CanvasSearchItem[]
-    const windows: CanvasSearchItem[] = props.windows
-      .filter((window) =>
-        normalizeFileSearchText(`${window.definition.title} ${windowDetail(window)}`).includes(
-          needle,
-        ),
-      )
-      .map((window) => ({
-        kind: 'window',
-        id: window.id,
-        title: window.definition.title,
-        detail: windowDetail(window),
-      }))
-    const frames: CanvasSearchItem[] = props.frames
-      .filter((frame) => normalizeFileSearchText(frame.name).includes(needle))
-      .map((frame) => ({
-        kind: 'frame',
-        id: frame.id,
-        title: frame.name,
-        detail: `${props.windows.filter((window) => window.frameId === frame.id).length} windows`,
-      }))
-    return [...windows, ...frames]
+    const windows: CanvasSearchItem[] =
+      scope() === 'notes' || scope() === 'library'
+        ? []
+        : props.windows
+            .filter((window) =>
+              normalizeFileSearchText(
+                `${window.definition.title} ${windowDetail(window)}`,
+              ).includes(needle),
+            )
+            .map((window) => ({
+              kind: 'window',
+              id: window.id,
+              title: window.definition.title,
+              detail: windowDetail(window),
+            }))
+    const cards: CanvasSearchItem[] =
+      scope() === 'library'
+        ? []
+        : props.cards
+            .filter((card) =>
+              normalizeFileSearchText(
+                `${card.title} ${card.body} ${card.url ?? ''} ${card.tags.join(' ')}`,
+              ).includes(needle),
+            )
+            .map((card) => ({
+              kind: 'card',
+              id: card.id,
+              title: card.title || 'Untitled note',
+              detail: card.body.slice(0, 100) || 'Canvas note',
+            }))
+    return [...cards, ...windows]
   })
 
   const canSearchFiles = createMemo(
-    () => fileSearchCodePointLength(normalized()) >= FILE_SEARCH_MIN_QUERY_LENGTH,
+    () =>
+      scope() !== 'canvas' &&
+      scope() !== 'notes' &&
+      fileSearchCodePointLength(normalized()) >= FILE_SEARCH_MIN_QUERY_LENGTH,
   )
   const fileQuery = useQuery(() => ({
     queryKey: queryKeys.fileSearch(normalized()),
@@ -99,14 +114,23 @@ export function CanvasSearchPalette(props: Props) {
     staleTime: 0,
     gcTime: 30_000,
   }))
-  const fileMatches = createMemo((): CanvasSearchItem[] =>
-    (fileQuery.data?.results ?? []).map((result) => ({
-      kind: 'file',
-      result,
-      title: result.name,
-      detail: result.parentPath || result.rootName,
-    })),
-  )
+  const fileMatches = createMemo((): CanvasSearchItem[] => {
+    const needle = normalized()
+    return [...(fileQuery.data?.results ?? [])]
+      .sort((a, b) => {
+        const aName = normalizeFileSearchText(a.name)
+        const bName = normalizeFileSearchText(b.name)
+        const score = (name: string) =>
+          name === needle ? 0 : name.startsWith(needle) ? 1 : name.includes(needle) ? 2 : 3
+        return score(aName) - score(bName) || a.path.split('/').length - b.path.split('/').length
+      })
+      .map((result) => ({
+        kind: 'file',
+        result,
+        title: result.name,
+        detail: result.parentPath || result.rootName,
+      }))
+  })
   const items = createMemo(() => [...localMatches(), ...fileMatches()])
 
   createEffect(() => {
@@ -133,7 +157,7 @@ export function CanvasSearchPalette(props: Props) {
 
   function choose(item: CanvasSearchItem) {
     if (item.kind === 'window') props.onWindow(item.id)
-    else if (item.kind === 'frame') props.onFrame(item.id)
+    else if (item.kind === 'card') props.onCard(item.id)
     else props.onFile(item.result)
     props.onClose()
   }
@@ -173,7 +197,7 @@ export function CanvasSearchPalette(props: Props) {
             <input
               ref={(element) => (inputEl = element)}
               class='h-11 min-w-0 flex-1 bg-transparent text-base outline-none'
-              placeholder='Search windows, frames, files and folders…'
+              placeholder='Search windows, files and folders…'
               value={query()}
               onInput={(event) => setQuery(event.currentTarget.value)}
               onKeyDown={onKeyDown}
@@ -186,6 +210,29 @@ export function CanvasSearchPalette(props: Props) {
             >
               <X class='size-5' />
             </button>
+          </div>
+          <div class='flex gap-1 border-b border-border px-3 py-2'>
+            <For
+              each={
+                [
+                  ['all', 'All'],
+                  ['canvas', 'Canvas'],
+                  ['notes', 'Notes'],
+                  ['library', 'Library'],
+                ] as Array<[SearchScope, string]>
+              }
+            >
+              {([value, label]) => (
+                <button
+                  type='button'
+                  class='rounded-full px-3 py-1 text-xs hover:bg-muted'
+                  classList={{ 'bg-primary text-primary-foreground': scope() === value }}
+                  onClick={() => setScope(value)}
+                >
+                  {label}
+                </button>
+              )}
+            </For>
           </div>
           <div class='min-h-52 flex-1 overflow-y-auto p-2'>
             <Show when={!normalized()}>
@@ -206,8 +253,8 @@ export function CanvasSearchPalette(props: Props) {
                     <p class='px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase'>
                       {item.kind === 'window'
                         ? 'Open windows'
-                        : item.kind === 'frame'
-                          ? 'Frames'
+                        : item.kind === 'card'
+                          ? 'Legacy notes'
                           : 'Library'}
                     </p>
                   </Show>
@@ -226,8 +273,8 @@ export function CanvasSearchPalette(props: Props) {
                     <Show when={item.kind === 'window'}>
                       <SquareStack class='size-5 shrink-0' />
                     </Show>
-                    <Show when={item.kind === 'frame'}>
-                      <Frame class='size-5 shrink-0' />
+                    <Show when={item.kind === 'card'}>
+                      <SquareStack class='size-5 shrink-0' />
                     </Show>
                     <Show when={item.kind === 'file'}>
                       <span class='shrink-0'>{libraryResultIcon(item, props.fileIconContext)}</span>

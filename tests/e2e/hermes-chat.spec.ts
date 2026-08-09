@@ -195,7 +195,18 @@ test('renders parity controls and native export, then archives read-only', async
     'opacity',
     '0',
   )
+  const transcriptBeforeActions = await chat
+    .getByTestId('hermes-transcript')
+    .evaluate((element) => ({ scrollHeight: element.scrollHeight, scrollTop: element.scrollTop }))
   await chat.getByTestId('hermes-message-actions').last().locator('summary').click()
+  await expect
+    .poll(() =>
+      chat.getByTestId('hermes-transcript').evaluate((element) => ({
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop,
+      })),
+    )
+    .toEqual(transcriptBeforeActions)
   const actionsBox = (await chat.getByTestId('hermes-message-actions').last().boundingBox())!
   expect(actionsBox.x).toBeGreaterThanOrEqual(chatBox.x)
   expect(actionsBox.x + actionsBox.width).toBeLessThanOrEqual(chatBox.x + chatBox.width)
@@ -204,6 +215,8 @@ test('renders parity controls and native export, then archives read-only', async
       .getByTestId('hermes-transcript')
       .evaluate((element) => element.scrollWidth <= element.clientWidth),
   ).toBe(true)
+  await chat.getByPlaceholder('Message Hermes…').click()
+  await expect(chat.getByTestId('hermes-message-actions').last()).not.toHaveAttribute('open', '')
   await expect(chat.getByRole('button', { name: 'Rename' })).toBeHidden()
   await expect(page.locator('.workspace-tab-strip svg.text-violet-500')).toBeVisible()
   await expect(chat.getByText('unknown.future_tool')).toHaveCount(1)

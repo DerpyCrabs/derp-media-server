@@ -23,19 +23,9 @@ fn valid_rect(value: &Value) -> bool {
 
 fn valid_state(state: &Value) -> bool {
     if state.get("version").and_then(Value::as_u64) != Some(1)
-        || !state.get("frames").is_some_and(Value::is_array)
         || !state.get("windows").is_some_and(Value::is_array)
         || !state.get("camera").is_some_and(Value::is_object)
     {
-        return false;
-    }
-    if !state["frames"].as_array().is_some_and(|frames| {
-        frames.iter().all(|frame| {
-            frame.get("id").and_then(Value::as_str).is_some()
-                && frame.get("name").and_then(Value::as_str).is_some()
-                && frame.get("bounds").is_some_and(valid_rect)
-        })
-    }) {
         return false;
     }
     state["windows"].as_array().is_some_and(|windows| {
@@ -146,7 +136,6 @@ mod tests {
             "deleted":deleted,
             "state":if deleted { Value::Null } else { json!({
                 "version":1,
-                "frames":[],
                 "windows":[],
                 "camera":{"x":0,"y":0,"zoom":1},
                 "windowSizeByType":{},

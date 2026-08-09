@@ -31,20 +31,18 @@ test('creates, names, switches, and restores canvases', async ({ page }) => {
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Projects')
 
-  await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 160, y: 140 } })
-  await page.getByRole('button', { name: 'New frame' }).click()
-  await page.getByLabel('Name').fill('Project frame')
-  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('button', { name: 'File browser' }).click()
 
   await page.getByTestId('canvas-name-trigger').click()
   await page.getByRole('button', { name: 'New canvas' }).click()
   await page.getByLabel('Name').fill('Empty')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByTestId('canvas-frame')).toHaveCount(0)
+  await expect(page.getByTestId('canvas-window')).toHaveCount(0)
 
   await page.getByTestId('canvas-name-trigger').click()
   await page.getByRole('button', { name: 'Projects', exact: true }).click()
-  await expect(page.getByTestId('canvas-frame')).toContainText('Project frame')
+  await expect(page.getByTestId('canvas-window')).toHaveCount(1)
 
   await page.getByTestId('canvas-name-trigger').click()
   const renameProjects = page.getByLabel('Rename Projects')
@@ -65,7 +63,47 @@ test('creates, names, switches, and restores canvases', async ({ page }) => {
   await page.keyboard.press('Escape')
   await page.reload()
   await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Projects renamed')
-  await expect(page.getByTestId('canvas-frame')).toContainText('Project frame')
+  await expect(page.getByTestId('canvas-window')).toHaveCount(1)
+})
+
+test('creates a real Markdown editor at the default canvas position', async ({ page }) => {
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('banner').getByRole('button', { name: 'New text', exact: true }).click()
+  await expect(page.getByTestId('canvas-window')).toHaveCount(1)
+  await expect(page.getByRole('textbox', { name: /Canvas note.* Markdown editor/ })).toBeVisible()
+})
+
+test('does not replace a live Hermes pane with stale sync content', async ({ page }) => {
+  let syncResponses = 0
+  await page.unroute('**/api/canvases**')
+  await page.route('**/api/canvases**', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fulfill({ json: { canvases: [] } })
+      return
+    }
+    const body = route.request().postDataJSON() as { canvases: any[] }
+    syncResponses += 1
+    const stale = body.canvases.map((canvas) => ({
+      ...canvas,
+      updatedAt: canvas.updatedAt + 1,
+      state: {
+        ...canvas.state,
+        windows: canvas.state.windows.map((window: any) => ({
+          ...window,
+          definition:
+            window.definition.type === 'hermes'
+              ? { ...window.definition, title: 'Stale remote chat' }
+              : window.definition,
+        })),
+      },
+    }))
+    await route.fulfill({ json: { canvases: stale } })
+  })
+
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('button', { name: 'AI chat' }).click()
+  await expect.poll(() => syncResponses).toBeGreaterThan(0)
+  await expect(page.getByTestId('canvas-window')).not.toContainText('Stale remote chat')
 })
 
 test('keeps edits offline and syncs them after reconnect', async ({ page, context }) => {
@@ -116,7 +154,6 @@ test('persists canvas records through server sync API', async ({ request }) => {
     deleted: false,
     state: {
       version: 1,
-      frames: [],
       windows: [],
       camera: { x: 0, y: 0, zoom: 1 },
       windowSizeByType: {},
@@ -140,24 +177,7 @@ test('persists canvas records through server sync API', async ({ request }) => {
   expect(deleted.ok()).toBe(true)
 })
 
-test('creates and locally restores isolated frames and windows', async ({ page }) => {
-  await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 160, y: 140 } })
-  await page.getByRole('button', { name: 'New frame' }).click()
-  await page.getByLabel('Name').fill('Media Server')
-  await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByTestId('canvas-frame')).toHaveCount(1)
-  await expect(page.getByTestId('canvas-frame')).toContainText('Media Server')
-  await expect(page.getByTestId('canvas-frame')).not.toHaveClass(/ring-/)
-  await expect(page.getByTestId('canvas-frame').locator('[data-canvas-resize]')).toHaveCount(8)
-  const frameChrome = await page.getByTestId('canvas-frame').evaluate((element) => ({
-    borderWidth: getComputedStyle(element).borderTopWidth,
-    radius: getComputedStyle(element).borderTopLeftRadius,
-  }))
-  expect(frameChrome).toEqual({ borderWidth: '1px', radius: '10px' })
-  await expect(page.getByTestId('canvas-frame-header')).toHaveCSS('height', '32px')
-  await page.getByTestId('canvas-frame').click({ position: { x: 100, y: 100 } })
-  await expect(page.locator('header')).not.toContainText('Media Server')
-
+test('locally restores canvas windows', async ({ page }) => {
   await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 32, y: 650 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
@@ -167,65 +187,23 @@ test('creates and locally restores isolated frames and windows', async ({ page }
       page.evaluate(() => {
         const raw = localStorage.getItem('infinite-canvas-state-v1')
         if (!raw) return null
-        const state = JSON.parse(raw) as { frames?: unknown[]; windows?: unknown[] }
-        return [state.frames?.length ?? 0, state.windows?.length ?? 0]
+        const state = JSON.parse(raw) as { windows?: unknown[] }
+        return state.windows?.length ?? 0
       }),
     )
-    .toEqual([1, 1])
+    .toBe(1)
   await page.reload()
-  await expect(page.getByTestId('canvas-frame')).toHaveCount(1)
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
   expect(await page.evaluate(() => localStorage.getItem('workspace-state-test-sentinel'))).toBe(
     'untouched',
   )
 })
 
-test('keeps clicked frame as breadcrumb root', async ({ page }) => {
-  const canvas = page.getByTestId('infinite-canvas')
-  await canvas.click({ button: 'right', position: { x: 700, y: 400 } })
-  await page.getByRole('button', { name: 'Open file browser' }).click()
-
-  await canvas.click({ button: 'right', position: { x: 100, y: 100 } })
-  await page.getByRole('button', { name: 'New frame' }).click()
-  await page.getByLabel('Name').fill('Breadcrumb project')
-  await page.getByRole('button', { name: 'Save' }).click()
-
-  await expect(page.getByTestId('canvas-frame')).toHaveCount(1)
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const raw = localStorage.getItem('infinite-canvas-state-v1')
-        if (!raw) return null
-        const state = JSON.parse(raw)
-        return [state.frames?.length, state.windows?.length]
-      }),
-    )
-    .toEqual([1, 1])
-  await page.evaluate(() => {
-    const key = 'infinite-canvas-state-v1'
-    const state = JSON.parse(localStorage.getItem(key)!)
-    const frame = state.frames[0]
-    const window = state.windows[0]
-    window.bounds.x -= frame.bounds.x
-    window.bounds.y -= frame.bounds.y
-    window.frameId = frame.id
-    localStorage.setItem(key, JSON.stringify(state))
-  })
-  await page.reload()
-  await page.getByTestId('canvas-window').click({ position: { x: 20, y: 20 } })
-
-  await expect(page.getByTestId('canvas-frame-breadcrumb')).toHaveText('Breadcrumb project')
-  await expect(page.getByTestId('canvas-window-breadcrumb')).toBeVisible()
-  await page.getByTestId('canvas-frame-breadcrumb').click()
-  await expect(page.getByTestId('canvas-frame-breadcrumb')).toHaveText('Breadcrumb project')
-  await expect(page.getByTestId('canvas-window-breadcrumb')).toHaveCount(0)
-})
-
 test('opens unified search with Ctrl+P and overrides print', async ({ page }) => {
   await page.keyboard.press('Control+P')
   const palette = page.getByTestId('canvas-search-palette')
   await expect(palette).toBeVisible()
-  await expect(page.getByPlaceholder('Search windows, frames, files and folders…')).toBeFocused()
+  await expect(page.getByPlaceholder('Search windows, files and folders…')).toBeFocused()
   const box = await palette.boundingBox()
   if (!box) throw new Error('Canvas search palette not laid out')
   expect(box.height).toBeLessThan(360)
@@ -279,6 +257,7 @@ test('zooms around cursor and resets zoom from toolbar', async ({ page }) => {
   await page.mouse.wheel(0, 300)
   await page.keyboard.up('Control')
   await expect.poll(() => page.getByTitle('Reset zoom').textContent()).not.toBe(before)
+  await expect(page.getByTitle('Zoom in')).toBeEnabled()
   await page.getByTitle('Reset zoom').click()
   await expect(page.getByTitle('Reset zoom')).toHaveText('100%')
   await expect(page.getByTitle('Zoom in')).toBeDisabled()
@@ -869,16 +848,16 @@ test('dismisses canvas context menu when interacting with a window', async ({ pa
   await expect(window).toBeVisible()
 
   await canvas.click({ button: 'right', position: { x: 1150, y: 650 } })
-  await expect(page.getByRole('button', { name: 'New frame' })).toBeVisible()
+  await expect(page.locator('[data-canvas-context-menu]')).toBeVisible()
   await window.click({ position: { x: 120, y: 100 } })
-  await expect(page.getByRole('button', { name: 'New frame' })).toBeHidden()
+  await expect(page.locator('[data-canvas-context-menu]')).toBeHidden()
 
   await canvas.click({ button: 'right', position: { x: 1150, y: 650 } })
-  await expect(page.getByRole('button', { name: 'New frame' })).toBeVisible()
+  await expect(page.locator('[data-canvas-context-menu]')).toBeVisible()
   const box = await window.boundingBox()
   if (!box) throw new Error('Canvas window not laid out')
   await page.mouse.move(box.x + 120, box.y + 16)
   await page.mouse.down()
-  await expect(page.getByRole('button', { name: 'New frame' })).toBeHidden()
+  await expect(page.locator('[data-canvas-context-menu]')).toBeHidden()
   await page.mouse.up()
 })

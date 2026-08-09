@@ -48,14 +48,12 @@ describe('Hermes window persistence boundary', () => {
         id: 'draft',
         definition: hermesWindow('draft'),
         bounds: { x: 0, y: 0, width: 640, height: 480 },
-        frameId: null,
         zIndex: 1,
       },
       {
         id: 'saved',
         definition: hermesWindow('saved', 'durable-2'),
         bounds: { x: 640, y: 0, width: 640, height: 480 },
-        frameId: null,
         zIndex: 2,
       },
     ]
