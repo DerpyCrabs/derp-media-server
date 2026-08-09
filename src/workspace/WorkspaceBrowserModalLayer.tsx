@@ -48,11 +48,12 @@ export type WorkspaceBrowserModalLayerProps = {
   isContextDirEditable: Accessor<boolean>
   shareDeleteGated: Accessor<boolean>
   shareCanDelete: boolean
-  onAddToTaskbar: (file: FileItem) => void
+  onAddToTaskbar?: (file: FileItem) => void
   onFileRowRename?: (file: FileItem) => void
   onFileRowMove?: (file: FileItem) => void
   onSetRowIcon?: (file: FileItem) => void
   onOpenInNewTabFromRow?: (file: FileItem) => void
+  openInNewTabLabel?: string
   showOpenInNewTabForFiles: boolean
   onOpenInSplitViewFromRow?: (file: FileItem) => void
   onOpenInMediaServer?: (file: FileItem) => void
@@ -186,6 +187,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onMove={props.onFileRowMove}
         onSetIcon={props.onSetRowIcon}
         onOpenInNewTab={props.onOpenInNewTabFromRow}
+        openInNewTabLabel={props.openInNewTabLabel}
         showOpenInNewTabForFiles={props.showOpenInNewTabForFiles}
         onOpenInSplitView={props.onOpenInSplitViewFromRow}
         onOpenInWorkspace={props.onOpenInMediaServer}

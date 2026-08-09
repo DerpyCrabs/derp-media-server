@@ -124,11 +124,15 @@ describe('infinite canvas persistence', () => {
       windowSizeByType: {
         browser: { width: 707, height: 515 },
         viewer: { width: 511, height: 333 },
+        'viewer-audio': { width: 481, height: 225 },
+        'viewer-video': { width: 799, height: 479 },
       },
     })
     expect(parsed?.windowSizeByType).toEqual({
       browser: { width: 704, height: 512 },
       viewer: { width: 512, height: 320 },
+      'viewer-audio': { width: 480, height: 224 },
+      'viewer-video': { width: 800, height: 480 },
     })
   })
 

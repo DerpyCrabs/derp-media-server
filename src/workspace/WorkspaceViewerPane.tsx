@@ -1,7 +1,7 @@
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
 import {
   createTextDocumentTarget,
@@ -31,12 +31,31 @@ import ExternalLink from 'lucide-solid/icons/external-link'
 import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
+import Music2 from 'lucide-solid/icons/music-2'
+import Pause from 'lucide-solid/icons/pause'
+import Play from 'lucide-solid/icons/play'
 import RotateCw from 'lucide-solid/icons/rotate-cw'
+import Volume2 from 'lucide-solid/icons/volume-2'
+import VolumeX from 'lucide-solid/icons/volume-x'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import type { Accessor } from 'solid-js'
-import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
-import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  type JSX,
+} from 'solid-js'
+import {
+  buildAdminMediaUrl,
+  buildAudioMetadataUrl,
+  buildShareMediaUrl,
+} from '../lib/build-media-url'
 import { createResponsiveImage } from '../lib/responsive-image'
 import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
@@ -66,6 +85,9 @@ type Props = {
   onListenOnlyHandoff?: (detail: WorkspaceVideoListenOnlyDetail) => void
   /** Close the viewer tab after switching to taskbar audio (playback keeps running). */
   onListenOnlyDismissViewer?: () => void
+  showListenOnly?: boolean
+  onAudioPlay?: (element: HTMLAudioElement) => void
+  onAudioPause?: (element: HTMLAudioElement) => void
 }
 
 type WorkspaceTextSaveQueryKey =
@@ -82,6 +104,27 @@ function shareEditRelativePath(viewingPath: string, sharePath: string): string {
   const sp = sharePath.replace(/\\/g, '/')
   const fileFwd = viewingPath.replace(/\\/g, '/')
   return fileFwd.startsWith(sp + '/') ? fileFwd.slice(sp.length + 1) : fileFwd
+}
+
+type AudioMetadata = {
+  title?: string
+  artist?: string
+  album?: string
+  coverArt?: string | null
+  duration?: number
+}
+
+async function fetchAudioMetadata(url: string): Promise<AudioMetadata> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('Failed to fetch audio metadata')
+  return response.json() as Promise<AudioMetadata>
+}
+
+function formatMediaTime(time: number): string {
+  if (!Number.isFinite(time) || time < 0) return '0:00'
+  const minutes = Math.floor(time / 60)
+  const seconds = Math.floor(time % 60)
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 export function WorkspaceViewerPane(props: Props) {
@@ -131,10 +174,50 @@ export function WorkspaceViewerPane(props: Props) {
   const dirFromWindow = createMemo(() => win()?.initialState?.dir ?? '')
 
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
+  const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
+  const [mediaLoading, setMediaLoading] = createSignal(false)
+  const [mediaError, setMediaError] = createSignal<string | null>(null)
+  const [audioPlaying, setAudioPlaying] = createSignal(false)
+  const [audioCurrentTime, setAudioCurrentTime] = createSignal(0)
+  const [audioDuration, setAudioDuration] = createSignal(0)
+  const [audioVolume, setAudioVolume] = createSignal(1)
+  const [audioMuted, setAudioMuted] = createSignal(false)
+  const [audioSurfaceEl, setAudioSurfaceEl] = createSignal<HTMLDivElement>()
+  const [audioSurfaceSize, setAudioSurfaceSize] = createSignal({ width: 576, height: 256 })
+
+  createEffect(() => {
+    const element = audioSurfaceEl()
+    if (!element) return
+    const update = () => {
+      const rect = element.getBoundingClientRect()
+      setAudioSurfaceSize({ width: rect.width, height: rect.height })
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  })
+
+  const audioLayout = createMemo<'compact' | 'standard' | 'expanded'>(() => {
+    const size = audioSurfaceSize()
+    if (size.width >= 640 && size.height >= 236) return 'expanded'
+    if (size.width < 480 || size.height < 230) return 'compact'
+    return 'standard'
+  })
 
   const viewerShowVideoSurface = createMemo(
     () => mediaType() === MediaType.VIDEO && !!viewingPath(),
   )
+
+  createEffect(() => {
+    viewingPath()
+    const type = mediaType()
+    setMediaError(null)
+    setMediaLoading(type === MediaType.VIDEO || type === MediaType.AUDIO)
+    setAudioPlaying(false)
+    setAudioCurrentTime(0)
+    setAudioDuration(0)
+  })
 
   createEffect(() => {
     const path = viewingPath()
@@ -166,7 +249,6 @@ export function WorkspaceViewerPane(props: Props) {
         void vid.play().catch(() => {})
       }
       vid.addEventListener('canplay', onCanPlay)
-      vid.addEventListener('error', onCanPlay)
       vid.src = url
       vid.load()
     } else if (timeToRestore > 0) {
@@ -180,9 +262,55 @@ export function WorkspaceViewerPane(props: Props) {
 
     onCleanup(() => {
       vid.removeEventListener('canplay', onCanPlay)
-      vid.removeEventListener('error', onCanPlay)
     })
   })
+
+  function handleMediaError(element: HTMLMediaElement) {
+    const code = element.error?.code
+    setMediaLoading(false)
+    setMediaError(code ? `Playback failed (media error ${code}).` : 'Playback failed.')
+  }
+
+  function retryMedia() {
+    const element = mediaType() === MediaType.VIDEO ? videoEl() : audioEl()
+    if (!element) return
+    setMediaError(null)
+    setMediaLoading(true)
+    element.load()
+    void element.play().catch(() => {})
+  }
+
+  function toggleAudioPlayback() {
+    const element = audioEl()
+    if (!element) return
+    if (element.paused) void element.play().catch(() => {})
+    else element.pause()
+  }
+
+  function seekAudio(time: number) {
+    const element = audioEl()
+    if (!element || !Number.isFinite(time)) return
+    element.currentTime = time
+    setAudioCurrentTime(time)
+  }
+
+  function setAudioPlayerVolume(volume: number) {
+    const element = audioEl()
+    const next = Math.max(0, Math.min(1, volume))
+    setAudioVolume(next)
+    setAudioMuted(next === 0)
+    if (element) {
+      element.volume = next
+      element.muted = next === 0
+    }
+  }
+
+  function toggleAudioMute() {
+    const element = audioEl()
+    const muted = !audioMuted()
+    setAudioMuted(muted)
+    if (element) element.muted = muted
+  }
 
   createEffect(() => {
     const vis = props.contentVisible()
@@ -213,13 +341,64 @@ export function WorkspaceViewerPane(props: Props) {
               `/api/share/${sh.token}/files?dir=${encodeURIComponent(listDirForFiles())}`,
             )
           : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(listDirForFiles())}`),
-      enabled: mediaType() === MediaType.IMAGE && Boolean(viewingPath()),
+      enabled:
+        (mediaType() === MediaType.IMAGE || mediaType() === MediaType.AUDIO) &&
+        Boolean(viewingPath()),
     }
   })
 
   const imageFiles = createMemo(() =>
     (filesQuery.data?.files ?? []).filter((f) => f.type === MediaType.IMAGE),
   )
+  const folderAudioFiles = createMemo(() =>
+    (filesQuery.data?.files ?? []).filter((file) => file.type === MediaType.AUDIO),
+  )
+
+  const audioMetadataUrl = createMemo(() => {
+    const path = viewingPath()
+    if (!path || mediaType() !== MediaType.AUDIO) return ''
+    return buildAudioMetadataUrl(path, share())
+  })
+
+  const audioMetadataQuery = useQuery(() => ({
+    queryKey: queryKeys.audioMetadata(viewingPath()),
+    queryFn: () => fetchAudioMetadata(audioMetadataUrl()),
+    enabled: !!audioMetadataUrl(),
+    refetchOnWindowFocus: false,
+  }))
+
+  const playlistMetadataQueries = useQueries(() => ({
+    queries: folderAudioFiles().map((file) => {
+      const url = buildAudioMetadataUrl(file.path, share())
+      return {
+        queryKey: queryKeys.audioMetadata(file.path),
+        queryFn: () => fetchAudioMetadata(url),
+        enabled: mediaType() === MediaType.AUDIO && audioLayout() === 'expanded',
+        refetchOnWindowFocus: false,
+      }
+    }),
+  }))
+
+  const folderCoverUrl = createMemo(() => {
+    const cover = (filesQuery.data?.files ?? []).find((file) => {
+      if (file.type !== MediaType.IMAGE) return false
+      const stem = file.name.toLowerCase().replace(/\.[^.]+$/, '')
+      return stem === 'cover' || stem === 'folder'
+    })
+    if (!cover) return null
+    const sh = share()
+    return sh
+      ? buildShareMediaUrl(sh.token, sh.sharePath, cover.path)
+      : buildAdminMediaUrl(cover.path)
+  })
+
+  const audioArtworkUrl = createMemo(() => audioMetadataQuery.data?.coverArt || folderCoverUrl())
+
+  const audioDisplayDuration = createMemo(() => {
+    const elementDuration = audioDuration()
+    if (elementDuration > 0) return elementDuration
+    return audioMetadataQuery.data?.duration ?? 0
+  })
 
   const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
   const [rotation, setRotation] = createSignal(0)
@@ -562,6 +741,185 @@ export function WorkspaceViewerPane(props: Props) {
     buildResolveMarkdownImageUrl(viewingPath(), textViewerShareCtx(), kbList()),
   )
 
+  function AudioArtwork(props: { class: string }) {
+    return (
+      <div
+        class={`ring-border/70 relative shrink-0 overflow-hidden rounded-lg bg-neutral-900 shadow-md ring-1 ${props.class}`}
+      >
+        <Show
+          when={audioArtworkUrl()}
+          fallback={
+            <div class='flex h-full w-full items-center justify-center bg-gradient-to-br from-fuchsia-950 to-neutral-950'>
+              <Music2 class='h-8 w-8 text-fuchsia-300/80' stroke-width={1.5} />
+            </div>
+          }
+        >
+          <img src={audioArtworkUrl()!} alt='Album art' class='h-full w-full object-cover' />
+        </Show>
+      </div>
+    )
+  }
+
+  function AudioInfo(props: { compact?: boolean }) {
+    return (
+      <div class='min-w-0'>
+        <h2
+          class={`truncate font-semibold leading-tight text-foreground ${props.compact ? 'text-sm' : 'text-lg'}`}
+          title={audioMetadataQuery.data?.title || fileName()}
+        >
+          {audioMetadataQuery.data?.title || fileName()}
+        </h2>
+        <p class='mt-0.5 truncate text-xs text-muted-foreground'>
+          {audioMetadataQuery.data?.artist || 'Unknown artist'}
+        </p>
+        <Show when={!props.compact}>
+          <p class='truncate text-[11px] text-muted-foreground/75'>
+            {audioMetadataQuery.data?.album || dirFromWindow() || 'Unknown album'}
+          </p>
+          <div class='mt-1.5 flex gap-1.5 text-[10px] text-muted-foreground'>
+            <span class='rounded bg-muted px-1.5 py-0.5 font-medium'>{ext().toUpperCase()}</span>
+            <span class='rounded bg-muted px-1.5 py-0.5 tabular-nums'>
+              {formatMediaTime(audioDisplayDuration())}
+            </span>
+          </div>
+        </Show>
+      </div>
+    )
+  }
+
+  function AudioSeek() {
+    return (
+      <div class='flex min-w-0 items-center gap-2 text-[10px] text-muted-foreground'>
+        <span class='w-8 text-right tabular-nums'>{formatMediaTime(audioCurrentTime())}</span>
+        <input
+          type='range'
+          aria-label='Playback position'
+          min={0}
+          max={audioDisplayDuration() || 0}
+          step={0.1}
+          value={audioCurrentTime()}
+          onInput={(event) => seekAudio(Number.parseFloat(event.currentTarget.value))}
+          class='[&::-webkit-slider-thumb]:bg-primary h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
+        />
+        <span class='w-8 tabular-nums'>{formatMediaTime(audioDisplayDuration())}</span>
+      </div>
+    )
+  }
+
+  function AudioTransport() {
+    return (
+      <div class='flex min-w-0 items-center gap-2'>
+        <button
+          type='button'
+          aria-label={audioPlaying() ? 'Pause' : 'Play'}
+          class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex size-9 shrink-0 items-center justify-center rounded-full shadow-sm'
+          onClick={toggleAudioPlayback}
+        >
+          <Show when={audioPlaying()} fallback={<Play class='size-4' fill='currentColor' />}>
+            <Pause class='size-4' fill='currentColor' />
+          </Show>
+        </button>
+        <button
+          type='button'
+          aria-label={audioMuted() ? 'Unmute' : 'Mute'}
+          class='hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md'
+          onClick={toggleAudioMute}
+        >
+          <Show when={audioMuted()} fallback={<Volume2 class='size-4' />}>
+            <VolumeX class='size-4' />
+          </Show>
+        </button>
+        <input
+          type='range'
+          aria-label='Volume'
+          min={0}
+          max={1}
+          step={0.01}
+          value={audioMuted() ? 0 : audioVolume()}
+          onInput={(event) => setAudioPlayerVolume(Number.parseFloat(event.currentTarget.value))}
+          class='[&::-webkit-slider-thumb]:bg-foreground h-1.5 min-w-10 flex-1 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
+        />
+        <a
+          href={downloadHref()}
+          download={fileName()}
+          aria-label='Download'
+          title='Download'
+          class='hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md'
+        >
+          <Download class='size-4' />
+        </a>
+      </div>
+    )
+  }
+
+  function StandardAudioPlayer() {
+    return (
+      <div class='grid h-full min-h-0 grid-cols-[112px_minmax(0,1fr)] items-center gap-4 p-4'>
+        <AudioArtwork class='size-28' />
+        <div class='min-w-0 space-y-2.5'>
+          <AudioInfo />
+          <AudioSeek />
+          <AudioTransport />
+        </div>
+      </div>
+    )
+  }
+
+  function CompactAudioPlayer() {
+    return (
+      <div class='flex h-full min-h-0 flex-col justify-center gap-2.5 p-3'>
+        <div class='flex min-w-0 items-center gap-3'>
+          <AudioArtwork class='size-12' />
+          <div class='min-w-0 flex-1'>
+            <AudioInfo compact />
+          </div>
+        </div>
+        <AudioSeek />
+        <AudioTransport />
+      </div>
+    )
+  }
+
+  function AudioPlaylist() {
+    return (
+      <div
+        data-testid='canvas-audio-playlist'
+        class='flex h-full min-h-0 flex-col border-l border-border bg-muted/20'
+      >
+        <div class='border-b border-border px-3 py-2.5'>
+          <p class='truncate text-[11px] text-muted-foreground'>{dirFromWindow()}</p>
+        </div>
+        <div class='min-h-0 flex-1 overflow-auto p-1.5'>
+          <For each={folderAudioFiles()}>
+            {(file, index) => {
+              const active = () => file.path === viewingPath()
+              const label = () => {
+                const metadata = playlistMetadataQueries[index()]?.data as AudioMetadata | undefined
+                const title = metadata?.title?.trim() || file.name
+                const artist = metadata?.artist?.trim()
+                return artist ? `${artist} — ${title}` : title
+              }
+              return (
+                <button
+                  type='button'
+                  data-audio-playlist-path={file.path}
+                  class='flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted'
+                  classList={{ 'bg-primary/10 text-primary': active() }}
+                  onClick={() => props.onUpdateViewing(props.windowId, file.path)}
+                >
+                  <Music2 class='size-3.5 shrink-0' />
+                  <span class='min-w-0 flex-1 truncate text-xs' title={label()}>
+                    {label()}
+                  </span>
+                </button>
+              )
+            }}
+          </For>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       data-no-window-drag
@@ -721,37 +1079,65 @@ export function WorkspaceViewerPane(props: Props) {
       <Show when={mediaType() === MediaType.VIDEO && viewingPath()}>
         <div class='flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-black'>
           <div class='group relative flex min-h-0 min-w-0 flex-1 flex-col bg-black'>
-            <div class='absolute top-2 right-2 z-10 opacity-0 transition-opacity group-hover:opacity-100'>
-              <button
-                type='button'
-                title='Listen only'
-                class='bg-secondary inline-flex h-7 w-7 items-center justify-center rounded-md'
-                onClick={() => {
-                  const handoff = props.onListenOnlyHandoff
-                  const vid = videoEl()
-                  const path = viewingPath()
-                  if (!path) return
-                  if (handoff) {
-                    handoff({
-                      path,
-                      dir: dirFromWindow() || undefined,
-                      videoCurrentTime: vid?.currentTime ?? 0,
-                    })
-                    return
-                  }
-                  const key = props.storageKey
-                  if (vid) useWorkspaceAudio.getState().setCurrentTime(vid.currentTime)
-                  if (key) {
-                    useWorkspaceAudio.getState().armUserGestureTransport(path)
-                    useWorkspaceAudio.getState().playAudio(path, dirFromWindow() || undefined)
-                    useWorkspaceAudio.getState().setAudioOnly(key, true)
-                  }
-                  props.onListenOnlyDismissViewer?.()
-                }}
-              >
-                <Headphones class='h-4 w-4' stroke-width={2} />
-              </button>
-            </div>
+            <Show when={props.showListenOnly !== false}>
+              <div class='absolute top-2 right-2 z-10 opacity-0 transition-opacity group-hover:opacity-100'>
+                <button
+                  type='button'
+                  title='Listen only'
+                  class='bg-secondary inline-flex h-7 w-7 items-center justify-center rounded-md'
+                  onClick={() => {
+                    const handoff = props.onListenOnlyHandoff
+                    const vid = videoEl()
+                    const path = viewingPath()
+                    if (!path) return
+                    if (handoff) {
+                      handoff({
+                        path,
+                        dir: dirFromWindow() || undefined,
+                        videoCurrentTime: vid?.currentTime ?? 0,
+                      })
+                      return
+                    }
+                    const key = props.storageKey
+                    if (vid) useWorkspaceAudio.getState().setCurrentTime(vid.currentTime)
+                    if (key) {
+                      useWorkspaceAudio.getState().armUserGestureTransport(path)
+                      useWorkspaceAudio.getState().playAudio(path, dirFromWindow() || undefined)
+                      useWorkspaceAudio.getState().setAudioOnly(key, true)
+                    }
+                    props.onListenOnlyDismissViewer?.()
+                  }}
+                >
+                  <Headphones class='h-4 w-4' stroke-width={2} />
+                </button>
+              </div>
+            </Show>
+            <Show when={mediaLoading() && !mediaError()}>
+              <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/45 text-white'>
+                <LoaderCircle class='h-7 w-7 animate-spin' stroke-width={2} />
+              </div>
+            </Show>
+            <Show when={mediaError()}>
+              <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center text-white'>
+                <p class='text-sm'>{mediaError()}</p>
+                <div class='flex gap-2'>
+                  <button
+                    type='button'
+                    class='rounded-md bg-white px-3 py-1.5 text-sm text-black'
+                    onClick={retryMedia}
+                  >
+                    Retry
+                  </button>
+                  <a
+                    href={downloadHref()}
+                    download={fileName()}
+                    class='rounded-md border border-white/40 px-3 py-1.5 text-sm'
+                  >
+                    Download
+                  </a>
+                </div>
+              </div>
+            </Show>
             <video
               ref={(el) => setVideoEl(el ?? undefined)}
               class='min-h-0 w-full flex-1 bg-black object-contain'
@@ -759,6 +1145,9 @@ export function WorkspaceViewerPane(props: Props) {
               playsinline
               data-media-type={MediaType.VIDEO}
               title={fileName()}
+              onLoadStart={() => setMediaLoading(true)}
+              onCanPlay={() => setMediaLoading(false)}
+              onError={(event) => handleMediaError(event.currentTarget)}
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget
                 if (v.videoWidth > 0 && v.videoHeight > 0) {
@@ -771,9 +1160,80 @@ export function WorkspaceViewerPane(props: Props) {
       </Show>
 
       <Show when={mediaType() === MediaType.AUDIO && viewingPath()}>
-        <div class='flex h-full min-h-0 flex-col items-center justify-center gap-4 bg-muted/30 p-6'>
-          <p class='text-muted-foreground text-sm'>{fileName()}</p>
-          <audio src={mediaUrl()} controls class='w-full max-w-md' title={fileName()} />
+        <div
+          ref={setAudioSurfaceEl}
+          data-testid='canvas-audio-player-ui'
+          data-audio-layout={audioLayout()}
+          class='relative h-full min-h-0 overflow-hidden bg-gradient-to-br from-muted/45 via-background to-background'
+        >
+          <audio
+            ref={(element) => setAudioEl(element)}
+            src={mediaUrl()}
+            preload='auto'
+            class='hidden'
+            title={fileName()}
+            data-canvas-audio-player={props.windowId}
+            onLoadStart={() => setMediaLoading(true)}
+            onCanPlay={() => setMediaLoading(false)}
+            onLoadedMetadata={(event) => setAudioDuration(event.currentTarget.duration || 0)}
+            onDurationChange={(event) => setAudioDuration(event.currentTarget.duration || 0)}
+            onTimeUpdate={(event) => setAudioCurrentTime(event.currentTarget.currentTime)}
+            onPlay={(event) => {
+              setAudioPlaying(true)
+              props.onAudioPlay?.(event.currentTarget)
+            }}
+            onPause={(event) => {
+              setAudioPlaying(false)
+              props.onAudioPause?.(event.currentTarget)
+            }}
+            onEnded={(event) => {
+              setAudioPlaying(false)
+              props.onAudioPause?.(event.currentTarget)
+            }}
+            onError={(event) => handleMediaError(event.currentTarget)}
+          />
+
+          <Show when={mediaLoading() && !mediaError()}>
+            <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/55 backdrop-blur-sm'>
+              <LoaderCircle class='h-7 w-7 animate-spin text-muted-foreground' stroke-width={2} />
+            </div>
+          </Show>
+          <Show when={mediaError()}>
+            <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center'>
+              <p class='text-destructive text-sm'>{mediaError()}</p>
+              <div class='flex gap-2'>
+                <button
+                  type='button'
+                  class='rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground'
+                  onClick={retryMedia}
+                >
+                  Retry
+                </button>
+                <a
+                  href={downloadHref()}
+                  download={fileName()}
+                  class='rounded-md border border-input px-3 py-1.5 text-sm'
+                >
+                  Download
+                </a>
+              </div>
+            </div>
+          </Show>
+
+          <Switch>
+            <Match when={audioLayout() === 'compact'}>
+              <CompactAudioPlayer />
+            </Match>
+            <Match when={audioLayout() === 'expanded'}>
+              <div class='grid h-full min-h-0 grid-cols-[minmax(0,1fr)_272px]'>
+                <StandardAudioPlayer />
+                <AudioPlaylist />
+              </div>
+            </Match>
+            <Match when={audioLayout() === 'standard'}>
+              <StandardAudioPlayer />
+            </Match>
+          </Switch>
         </div>
       </Show>
 

@@ -36,7 +36,8 @@ import {
   type CanvasFrame,
   type CanvasRect,
   type CanvasWindow,
-  type CanvasWindowType,
+  type CanvasWindowSize,
+  type CanvasWindowSizeKey,
   type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
 import { getMediaType } from '@/lib/media-utils'
@@ -69,6 +70,7 @@ import RotateCcw from 'lucide-solid/icons/rotate-ccw'
 import Search from 'lucide-solid/icons/search'
 import Trash2 from 'lucide-solid/icons/trash-2'
 import Undo2 from 'lucide-solid/icons/undo-2'
+import Volume2 from 'lucide-solid/icons/volume-2'
 import X from 'lucide-solid/icons/x'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
@@ -91,7 +93,17 @@ const FRAME_COLORS = [
   '#ec4899',
   '#8b5cf6',
 ]
-const DEFAULT_WINDOW = { width: 640, height: 480 }
+const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
+  browser: { width: 640, height: 480 },
+  viewer: { width: 640, height: 480 },
+  hermes: { width: 640, height: 480 },
+  'viewer-audio': { width: 576, height: 288 },
+  'viewer-video': { width: 800, height: 480 },
+  'viewer-image': { width: 640, height: 480 },
+  'viewer-text': { width: 768, height: 544 },
+  'viewer-pdf': { width: 768, height: 544 },
+  'viewer-other': { width: 480, height: 320 },
+}
 const DEFAULT_FRAME = { width: 1024, height: 672 }
 const LIVE_ZOOM = 0.62
 const FAR_ZOOM = 0.28
@@ -143,6 +155,37 @@ function fileItemFromDrag(path: string, isDirectory: boolean): FileItem {
     size: 0,
     type: isDirectory ? MediaType.FOLDER : getMediaType(extension),
   }
+}
+
+function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
+  switch (mediaType) {
+    case MediaType.AUDIO:
+      return 'viewer-audio'
+    case MediaType.VIDEO:
+      return 'viewer-video'
+    case MediaType.IMAGE:
+      return 'viewer-image'
+    case MediaType.TEXT:
+      return 'viewer-text'
+    case MediaType.PDF:
+      return 'viewer-pdf'
+    default:
+      return 'viewer-other'
+  }
+}
+
+function windowSizeKey(definition: WorkspaceWindowDefinition): CanvasWindowSizeKey {
+  if (definition.type !== 'viewer') return definition.type
+  const path = definition.initialState.viewing ?? ''
+  return mediaWindowSizeKey(getMediaType(path.split('.').at(-1) ?? ''))
+}
+
+function unionRects(rects: CanvasRect[]): CanvasRect {
+  const left = Math.min(...rects.map((rect) => rect.x))
+  const top = Math.min(...rects.map((rect) => rect.y))
+  const right = Math.max(...rects.map((rect) => rect.x + rect.width))
+  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
+  return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
 function editableTarget(target: EventTarget | null): boolean {
@@ -247,6 +290,7 @@ export function CanvasPage() {
   const [dialog, setDialog] = createSignal<CanvasDialogState | null>(null)
   const [dialogInput, setDialogInput] = createSignal('')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
+  const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
   let viewportEl: HTMLDivElement | undefined
   let worldEl: HTMLDivElement | undefined
   let animationTimer: number | undefined
@@ -444,9 +488,16 @@ export function CanvasPage() {
         clearFileDropPreview()
         return
       }
-      const type = isDirectoryFileDragData(transfer) ? 'browser' : 'viewer'
+      const data = getFileDragData(transfer)
+      const sizeKey = data?.virtualOpenTarget
+        ? 'hermes'
+        : isDirectoryFileDragData(transfer)
+          ? 'browser'
+          : data
+            ? mediaWindowSizeKey(getMediaType(data.path.split('.').at(-1) ?? ''))
+            : 'viewer'
       setFileDropPreview(
-        fileWindowPlacement(screenToWorld(event.clientX, event.clientY), state(), type),
+        fileWindowPlacement(screenToWorld(event.clientX, event.clientY), state(), sizeKey),
       )
     }
     document.addEventListener('pointerdown', dismissContextMenu, true)
@@ -520,6 +571,7 @@ export function CanvasPage() {
     setState(cloneState(target.state))
     setUndoStack([])
     setRedoStack([])
+    setLastAudioWindowId(null)
     clearSelection()
     setCanvasMenuOpen(false)
     storeCollection(next)
@@ -668,6 +720,30 @@ export function CanvasPage() {
     else animateCamera({ x: 0, y: 0, zoom: 1 })
   }
 
+  function ensureWindowsVisible(windowIds: string[]) {
+    const viewport = viewportEl?.getBoundingClientRect()
+    if (!viewport) return
+    const current = state()
+    const bounds = current.windows
+      .filter((window) => windowIds.includes(window.id))
+      .map((window) => canvasWindowWorldBounds(window, current.frames))
+    if (bounds.length === 0) return
+    const padding = 24
+    const visible = bounds.every((rect) => {
+      const left = rect.x * current.camera.zoom + current.camera.x
+      const top = rect.y * current.camera.zoom + current.camera.y
+      const right = left + rect.width * current.camera.zoom
+      const bottom = top + rect.height * current.camera.zoom
+      return (
+        left >= padding &&
+        top >= padding &&
+        right <= viewport.width - padding &&
+        bottom <= viewport.height - padding
+      )
+    })
+    if (!visible) fitBounds(unionRects(bounds), 1)
+  }
+
   function clearSelection() {
     setSelection(null)
     setBreadcrumbFrameId(null)
@@ -714,11 +790,14 @@ export function CanvasPage() {
   function fileWindowPlacement(
     point: { x: number; y: number },
     current: InfiniteCanvasState,
-    type: CanvasWindowType,
+    sizeKey: CanvasWindowSizeKey,
   ): FileDropPreview {
     const frameId =
       current.frames.find((frame) => rectContainsPoint(frame.bounds, point.x, point.y))?.id ?? null
-    const size = current.windowSizeByType[type] ?? DEFAULT_WINDOW
+    const size =
+      current.windowSizeByType[sizeKey] ??
+      (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
+      DEFAULT_WINDOW_SIZE[sizeKey]
     const desired = {
       x: point.x - size.width / 2,
       y: point.y - size.height / 2,
@@ -782,6 +861,7 @@ export function CanvasPage() {
       const id = `canvas-window-${current.nextItemId}`
       createdId = id
       const definition = makeDefinition(id, file ?? undefined)
+      const sizeKey = windowSizeKey(definition)
       const containingFrame = current.frames.find((frame) =>
         rectContainsPoint(frame.bounds, point.x, point.y),
       )
@@ -790,7 +870,12 @@ export function CanvasPage() {
       const worldBounds =
         options.worldBounds ??
         findNearestFreeCanvasRect(
-          { ...point, ...(current.windowSizeByType[definition.type] ?? DEFAULT_WINDOW) },
+          {
+            ...point,
+            ...(current.windowSizeByType[sizeKey] ??
+              (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
+              DEFAULT_WINDOW_SIZE[sizeKey]),
+          },
           placementObstacles(frameId, current),
         )
       const base: CanvasWindow = {
@@ -854,11 +939,12 @@ export function CanvasPage() {
       }
     }
     const bounds = canvasWindowWorldBounds(source, state().frames)
-    addFileWindow(
+    const createdId = addFileWindow(
       file,
       { x: bounds.x + bounds.width + CANVAS_GRID_SIZE, y: bounds.y },
       { duplicate, frameId: source.frameId },
     )
+    if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
   }
 
   function openHermesFromBrowser(
@@ -926,7 +1012,10 @@ export function CanvasPage() {
         },
       }
       const worldBounds = findNearestFreeCanvasRect(
-        { ...point, ...(current.windowSizeByType.hermes ?? DEFAULT_WINDOW) },
+        {
+          ...point,
+          ...(current.windowSizeByType.hermes ?? DEFAULT_WINDOW_SIZE.hermes),
+        },
         placementObstacles(requestedFrameId ?? null, current),
       )
       const bounds = requestedBounds ?? worldBounds
@@ -990,9 +1079,41 @@ export function CanvasPage() {
     }))
   }
 
+  function sizeVideoWindow(windowId: string, videoWidth: number, videoHeight: number) {
+    if (videoWidth <= 0 || videoHeight <= 0 || state().windowSizeByType['viewer-video']) return
+    setState((current) => {
+      const item = current.windows.find((window) => window.id === windowId)
+      if (!item) return current
+      const world = canvasWindowWorldBounds(item, current.frames)
+      const contentHeight = Math.max(320, Math.min(576, world.height - 32))
+      const sized = snapCanvasRect({
+        ...world,
+        width: Math.min(1024, contentHeight * (videoWidth / videoHeight)),
+        height: contentHeight + 32,
+      })
+      return {
+        ...current,
+        windows: current.windows.map((window) =>
+          window.id === windowId
+            ? withCanvasWindowWorldBounds(window, sized, window.frameId, current.frames)
+            : window,
+        ),
+      }
+    })
+    queueMicrotask(() => ensureWindowsVisible([windowId]))
+  }
+
+  function handleAudioPlay(windowId: string, element: HTMLAudioElement) {
+    document.querySelectorAll<HTMLAudioElement>('[data-canvas-audio-player]').forEach((audio) => {
+      if (audio !== element && !audio.paused) audio.pause()
+    })
+    setLastAudioWindowId(windowId)
+  }
+
   function closeWindow(windowId: string) {
     const target = state().windows.find((window) => window.id === windowId)
     if (!canCloseHermesWindow(target?.definition.hermes)) return
+    if (lastAudioWindowId() === windowId) setLastAudioWindowId(null)
     commit((current) => ({
       ...current,
       windows: current.windows.filter((window) => window.id !== windowId),
@@ -1220,7 +1341,7 @@ export function CanvasPage() {
         ...current,
         windowSizeByType: {
           ...current.windowSizeByType,
-          [resized.definition.type]: { width: world.width, height: world.height },
+          [windowSizeKey(resized.definition)]: { width: world.width, height: world.height },
         },
         windows: current.windows.map((window) =>
           window.id === windowId
@@ -1389,6 +1510,7 @@ export function CanvasPage() {
 
   function resetCanvasNow() {
     commit(() => createEmptyCanvasState())
+    setLastAudioWindowId(null)
     clearSelection()
     setOverflowOpen(false)
   }
@@ -1425,6 +1547,22 @@ export function CanvasPage() {
     const selected = selectedWindow()
     const frameId = selected ? selected.frameId : breadcrumbFrameId()
     return frameId ? state().frames.find((frame) => frame.id === frameId) : undefined
+  })
+  const lastAudioWindow = createMemo(() => {
+    const audioWindows = state().windows.filter(
+      (window) =>
+        window.definition.type === 'viewer' &&
+        getMediaType(window.definition.initialState.viewing?.split('.').at(-1) ?? '') ===
+          MediaType.AUDIO,
+    )
+    const id = lastAudioWindowId()
+    return (
+      audioWindows.find((window) => window.id === id) ??
+      audioWindows.reduce<CanvasWindow | undefined>(
+        (latest, window) => (!latest || window.zIndex > latest.zIndex ? window : latest),
+        undefined,
+      )
+    )
   })
 
   return (
@@ -1540,6 +1678,20 @@ export function CanvasPage() {
           )}
         </Show>
         <div class='ml-auto flex items-center gap-1'>
+          <Show when={lastAudioWindow()}>
+            {(item) => (
+              <button
+                type='button'
+                data-testid='canvas-playing-audio-focus'
+                aria-label={`Focus audio player: ${item().definition.title}`}
+                title={`Focus audio player: ${item().definition.title}`}
+                class='text-primary hover:bg-primary/10 inline-flex size-8 items-center justify-center rounded-md'
+                onClick={() => focusWindow(item().id)}
+              >
+                <Volume2 class='size-4' />
+              </button>
+            )}
+          </Show>
           <button
             type='button'
             data-testid='canvas-search-trigger'
@@ -1689,7 +1841,11 @@ export function CanvasPage() {
             fileWindowPlacement(
               point,
               state(),
-              data.virtualOpenTarget ? 'hermes' : data.isDirectory ? 'browser' : 'viewer',
+              data.virtualOpenTarget
+                ? 'hermes'
+                : data.isDirectory
+                  ? 'browser'
+                  : mediaWindowSizeKey(getMediaType(data.path.split('.').at(-1) ?? '')),
             )
           setFileDropPreview(null)
           if (data.virtualOpenTarget) {
@@ -1863,11 +2019,14 @@ export function CanvasPage() {
                           onNavigateDir={navigateDir}
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
                           onOpenVirtualTarget={openHermesFromBrowser}
-                          onAddToTaskbar={() => {}}
                           onOpenInNewTab={(windowId, file) =>
-                            openFromBrowser(windowId, fileItemFromDrag(file.path, file.isDirectory))
+                            openFromBrowser(
+                              windowId,
+                              fileItemFromDrag(file.path, file.isDirectory),
+                              true,
+                            )
                           }
-                          onOpenInSplitView={(windowId, file) => openFromBrowser(windowId, file)}
+                          openInNewTabLabel='Open in new canvas window'
                           onRequestPlay={(_source, path) =>
                             openFromBrowser(windowId, fileItemFromDrag(path, false))
                           }
@@ -1888,6 +2047,11 @@ export function CanvasPage() {
                           shareCanEdit={false}
                           shareCanUpload={false}
                           onUpdateViewing={updateViewing}
+                          onVideoMetadataLoaded={(width, height) =>
+                            sizeVideoWindow(windowId, width, height)
+                          }
+                          onAudioPlay={(element) => handleAudioPlay(windowId, element)}
+                          showListenOnly={false}
                         />
                       </Show>
                       <Show when={item()!.definition.type === 'hermes'}>

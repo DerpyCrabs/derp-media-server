@@ -2550,6 +2550,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             onFileRowMove={isContextDirEditable() ? openContextMove : undefined}
             onSetRowIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
             onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
+            openInNewTabLabel={props.openInNewTabLabel}
             showOpenInNewTabForFiles={!!props.onOpenInNewTab}
             onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
             onOpenInMediaServer={openDirectoryInMediaServer}

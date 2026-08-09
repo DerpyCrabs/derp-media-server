@@ -34,6 +34,7 @@ type FileRowContextMenuProps = {
   getPathHasShare?: (file: FileItem) => boolean
   onAddToTaskbar?: (file: FileItem) => void
   onOpenInNewTab?: (file: FileItem) => void
+  openInNewTabLabel?: string
   /** When true, show "Open in new tab" for files too (workspace). Default: folders only. */
   showOpenInNewTabForFiles?: boolean
   /** Workspace: open beside file browser in split view. */
@@ -121,7 +122,9 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
         }
 
         const openRowPrimaryLabel = () =>
-          fileContextIsNewWindow() ? 'Open in new window' : 'Open in new tab'
+          fileContextIsNewWindow()
+            ? 'Open in new window'
+            : (props.openInNewTabLabel ?? 'Open in new tab')
 
         return (
           <>

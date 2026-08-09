@@ -19,12 +19,13 @@ export type WorkspaceBrowserPaneProps = {
   onNavigateDir: (windowId: string, dir: string) => void
   onOpenViewer: (windowId: string, file: FileItem) => void
   onOpenVirtualTarget?: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
-  onAddToTaskbar: (file: FileItem) => void
+  onAddToTaskbar?: (file: FileItem) => void
   onOpenInNewTab?: (
     windowId: string,
     file: { path: string; isDirectory: boolean; isVirtual?: boolean },
     currentPath: string,
   ) => void
+  openInNewTabLabel?: string
   onOpenInSplitView?: (windowId: string, file: FileItem) => void
   onRequestPlay?: (source: WorkspaceSource, path: string, dir?: string) => void
   onBeginFileOpenTargetPick?: () => void

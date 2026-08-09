@@ -13,6 +13,14 @@ export const CANVAS_MIN_WINDOW_HEIGHT = 224
 export type CanvasRect = { x: number; y: number; width: number; height: number }
 export type CanvasCamera = { x: number; y: number; zoom: number }
 export type CanvasWindowType = 'browser' | 'viewer' | 'hermes'
+export type CanvasWindowSizeKey =
+  | CanvasWindowType
+  | 'viewer-audio'
+  | 'viewer-video'
+  | 'viewer-image'
+  | 'viewer-text'
+  | 'viewer-pdf'
+  | 'viewer-other'
 export type CanvasWindowSize = Pick<CanvasRect, 'width' | 'height'>
 
 export type CanvasFrame = {
@@ -35,7 +43,7 @@ export type InfiniteCanvasState = {
   frames: CanvasFrame[]
   windows: CanvasWindow[]
   camera: CanvasCamera
-  windowSizeByType: Partial<Record<CanvasWindowType, CanvasWindowSize>>
+  windowSizeByType: Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>>
   nextItemId: number
   nextZIndex: number
 }
@@ -329,11 +337,25 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
   }
   const cameraRaw = raw.camera as Partial<CanvasCamera> | undefined
   const sizesRaw = raw.windowSizeByType as
-    | Partial<Record<CanvasWindowType, CanvasWindowSize>>
+    | Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>>
     | undefined
-  const browserSize = parseWindowSize(sizesRaw?.browser)
-  const viewerSize = parseWindowSize(sizesRaw?.viewer)
-  const hermesSize = parseWindowSize(sizesRaw?.hermes)
+  const sizeKeys: CanvasWindowSizeKey[] = [
+    'browser',
+    'viewer',
+    'hermes',
+    'viewer-audio',
+    'viewer-video',
+    'viewer-image',
+    'viewer-text',
+    'viewer-pdf',
+    'viewer-other',
+  ]
+  const windowSizeByType = Object.fromEntries(
+    sizeKeys.flatMap((key) => {
+      const size = parseWindowSize(sizesRaw?.[key])
+      return size ? [[key, size]] : []
+    }),
+  ) as Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>>
   const nextItemId = Math.max(0, ...Array.from(itemIds, canvasItemNumber)) + 1
   const nextZIndex = Math.max(0, ...windows.map((window) => window.zIndex)) + 1
   return {
@@ -345,11 +367,7 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
       y: finiteNumber(cameraRaw?.y, 0),
       zoom: Math.min(CANVAS_MAX_ZOOM, Math.max(CANVAS_MIN_ZOOM, finiteNumber(cameraRaw?.zoom, 1))),
     },
-    windowSizeByType: {
-      ...(browserSize ? { browser: browserSize } : {}),
-      ...(viewerSize ? { viewer: viewerSize } : {}),
-      ...(hermesSize ? { hermes: hermesSize } : {}),
-    },
+    windowSizeByType,
     nextItemId: Math.max(
       nextItemId,
       Math.floor(finiteNumber(raw.nextItemId, windows.length + frames.length + 1)),

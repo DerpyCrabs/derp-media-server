@@ -368,7 +368,7 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
   })
   const preview = page.getByTestId('canvas-drop-preview')
   await expect(preview).toBeVisible()
-  await expect(preview).toContainText('640 × 480')
+  await expect(preview).toContainText('768 × 544')
   const previewBox = await preview.boundingBox()
   if (!previewBox) throw new Error('Canvas drop preview not laid out')
   expect(previewBox.x + previewBox.width / 2).toBeCloseTo(320, 0)
@@ -483,6 +483,202 @@ test('keeps file-browser directory and file clicks interactive', async ({ page }
   )
   await note.click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(2)
+})
+
+test('shows only canvas-supported file actions', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+
+  await page.locator('[data-file-path="Documents"]').click({ button: 'right' })
+  const menu = page.locator('[data-slot="file-row-context-menu"]')
+  await expect(menu.getByRole('menuitem', { name: 'Open in new canvas window' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Open in split view' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Open in new tab' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Add to taskbar' })).toHaveCount(0)
+})
+
+test('shows a metadata-rich canvas audio player', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Music"]').click()
+  await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
+
+  const audioWindow = page.getByTestId('canvas-window').filter({ has: page.locator('audio') })
+  await expect(audioWindow).toBeVisible()
+  const audio = audioWindow.locator('audio')
+  await expect(audioWindow.getByTestId('canvas-audio-player-ui')).toBeVisible()
+  await expect(audioWindow.getByRole('heading', { name: 'track.mp3' })).toBeVisible()
+  await expect(audioWindow.getByText('Unknown artist')).toBeVisible()
+  await expect(audioWindow.getByLabel('Playback position')).toBeVisible()
+  await expect(audioWindow.getByLabel('Volume')).toBeVisible()
+  await expect(audioWindow.getByLabel('Download')).toBeVisible()
+  await expect
+    .poll(async () => audio.evaluate((element: HTMLAudioElement) => element.readyState))
+    .toBeGreaterThanOrEqual(2)
+  const browserBox = await browserWindow.boundingBox()
+  const audioBox = await audioWindow.boundingBox()
+  if (!browserBox || !audioBox) throw new Error('Canvas media windows not laid out')
+  expect(audioBox.height).toBeLessThan(browserBox.height)
+})
+
+test('switches canvas audio layouts as its window is resized', async ({ page }) => {
+  await page.route('**/api/audio/metadata/Music/track.flac', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ title: 'Fixture Track', artist: 'Fixture Artist' }),
+    })
+  })
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Music"]').click()
+  await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
+
+  const audioWindow = page.getByTestId('canvas-window').filter({ has: page.locator('audio') })
+  const player = audioWindow.getByTestId('canvas-audio-player-ui')
+  await expect(player).toHaveAttribute('data-audio-layout', 'standard')
+  await audioWindow.evaluate((element: HTMLElement) => {
+    element.style.width = '800px'
+    element.style.height = '420px'
+  })
+  await expect(player).toHaveAttribute('data-audio-layout', 'expanded')
+  await expect(audioWindow.getByTestId('canvas-audio-playlist')).toBeVisible()
+  await expect(audioWindow.getByText('Folder playlist')).toHaveCount(0)
+  await expect(audioWindow.getByText('Fixture Artist — Fixture Track')).toBeVisible()
+  await expect(audioWindow.locator('[data-audio-playlist-path="Music/track.flac"]')).toBeVisible()
+
+  await audioWindow.evaluate((element: HTMLElement) => {
+    element.style.height = '288px'
+  })
+  await expect(player).toHaveAttribute('data-audio-layout', 'expanded')
+  await expect(audioWindow.getByTestId('canvas-audio-playlist')).toBeVisible()
+
+  await audioWindow.evaluate((element: HTMLElement) => {
+    element.style.width = '420px'
+    element.style.height = '220px'
+  })
+  await expect(player).toHaveAttribute('data-audio-layout', 'compact')
+  await expect(audioWindow.getByTestId('canvas-audio-playlist')).toHaveCount(0)
+})
+
+test('keeps multiple audio players but allows only one to play and focuses it from header', async ({
+  page,
+}) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Music"]').click()
+  await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
+
+  const firstWindow = page
+    .getByTestId('canvas-window')
+    .filter({ has: page.locator('audio[title="track.mp3"]') })
+  const firstAudio = firstWindow.locator('audio')
+  await firstAudio.evaluate((element: HTMLAudioElement) => {
+    element.loop = true
+  })
+  await expect
+    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => element.paused))
+    .toBe(true)
+  await expect(page.getByTestId('canvas-playing-audio-focus')).toHaveAttribute(
+    'aria-label',
+    /track\.mp3/,
+  )
+  await firstWindow.getByRole('button', { name: 'Play' }).click()
+  await expect
+    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => !element.paused))
+    .toBe(true)
+
+  await browserWindow.locator('[data-file-path="Music/track.flac"]').click()
+  const secondWindow = page
+    .getByTestId('canvas-window')
+    .filter({ has: page.locator('audio[title="track.flac"]') })
+  const secondAudio = secondWindow.locator('audio')
+  await secondAudio.evaluate((element: HTMLAudioElement) => {
+    element.loop = true
+  })
+  await expect(page.getByTestId('canvas-window')).toHaveCount(3)
+  await expect
+    .poll(async () => secondAudio.evaluate((element: HTMLAudioElement) => element.paused))
+    .toBe(true)
+  await expect
+    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => !element.paused))
+    .toBe(true)
+
+  await secondWindow.getByRole('button', { name: 'Play' }).click()
+  await expect
+    .poll(async () => secondAudio.evaluate((element: HTMLAudioElement) => !element.paused))
+    .toBe(true)
+  await expect
+    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => element.paused))
+    .toBe(true)
+
+  await firstWindow.getByRole('button', { name: 'Play' }).click()
+  await expect
+    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => !element.paused))
+    .toBe(true)
+  await expect
+    .poll(async () => secondAudio.evaluate((element: HTMLAudioElement) => element.paused))
+    .toBe(true)
+
+  await firstWindow.getByRole('button', { name: 'Pause' }).click()
+  await expect
+    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => element.paused))
+    .toBe(true)
+
+  await secondWindow.click({ position: { x: 120, y: 16 } })
+  await expect(page.getByTestId('canvas-window-breadcrumb')).toHaveText('track.flac')
+  const focusPlaying = page.getByTestId('canvas-playing-audio-focus')
+  await expect(focusPlaying).toHaveAttribute('aria-label', /track\.mp3/)
+  await focusPlaying.click()
+  await expect(page.getByTestId('canvas-window-breadcrumb')).toHaveText('track.mp3')
+})
+
+test('plays video, sizes it to media, and keeps it in viewport', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Videos"]').click()
+  await browserWindow.locator('[data-file-path="Videos/sample.mp4"]').click()
+
+  const videoWindow = page.getByTestId('canvas-window').filter({ has: page.locator('video') })
+  const video = videoWindow.locator('video')
+  await expect(video).toBeVisible()
+  await expect
+    .poll(async () => video.evaluate((element: HTMLVideoElement) => element.readyState))
+    .toBeGreaterThanOrEqual(2)
+  await expect(videoWindow.getByTitle('Listen only')).toHaveCount(0)
+
+  const canvasBox = await canvas.boundingBox()
+  const videoBox = await videoWindow.boundingBox()
+  if (!canvasBox || !videoBox) throw new Error('Canvas video window not laid out')
+  expect(videoBox.x).toBeGreaterThanOrEqual(canvasBox.x)
+  expect(videoBox.y).toBeGreaterThanOrEqual(canvasBox.y)
+  expect(videoBox.x + videoBox.width).toBeLessThanOrEqual(canvasBox.x + canvasBox.width)
+  expect(videoBox.y + videoBox.height).toBeLessThanOrEqual(canvasBox.y + canvasBox.height)
+})
+
+test('offers retry and download when canvas video fails', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Videos"]').click()
+  await browserWindow.locator('[data-file-path="Videos/sample.mp4"]').click()
+
+  const videoWindow = page.getByTestId('canvas-window').filter({ has: page.locator('video') })
+  await videoWindow
+    .locator('video')
+    .evaluate((element) => element.dispatchEvent(new Event('error')))
+  await expect(videoWindow.getByText(/Playback failed/)).toBeVisible()
+  await expect(videoWindow.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(videoWindow.getByRole('link', { name: 'Download' })).toBeVisible()
 })
 
 test('does not remount existing panes when another window opens', async ({ page }) => {
