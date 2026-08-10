@@ -227,6 +227,10 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
           ...(typeof initialStateRaw.viewing === 'string'
             ? { viewing: initialStateRaw.viewing }
             : {}),
+          ...(definition.type === 'viewer' &&
+          (initialStateRaw.readerKind === 'pdf' || initialStateRaw.readerKind === 'folder')
+            ? { readerKind: initialStateRaw.readerKind }
+            : {}),
         },
         ...(definition.type === 'hermes' && typeof definition.hermes?.sessionId === 'string'
           ? {

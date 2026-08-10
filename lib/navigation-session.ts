@@ -3,4 +3,5 @@ export interface NavigationState {
   viewing: string | null
   playing: string | null
   audioOnly: boolean
+  readerKind: 'pdf' | 'folder' | null
 }

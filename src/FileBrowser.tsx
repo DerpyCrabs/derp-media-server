@@ -1903,6 +1903,7 @@ export function FileBrowser() {
             getPathHasShare={getPathHasShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
             onContextOpenInWorkspace={handleContextOpenInWorkspace}
+            onContextOpenWithBrowser={handleFileClick}
             onContextOpenWithReader={openInReader}
             onContextToggleFavorite={handleContextToggleFavorite}
             isRowFavorite={isRowFavorite}

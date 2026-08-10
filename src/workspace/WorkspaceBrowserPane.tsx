@@ -92,7 +92,6 @@ import { registerKbSearchHotkeys } from '../file-browser/use-kb-search-hotkey'
 import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-focus'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
-import { openInReader } from '../reader/reader-url'
 import { useDeferredLoading } from '../lib/use-deferred-loading'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
@@ -1202,6 +1201,15 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   function openInSplitViewFromRow(file: FileItem) {
     props.onOpenInSplitView?.(props.windowId, file)
+  }
+
+  function openWithBrowser(file: FileItem) {
+    if (file.isDirectory) props.onNavigateDir(props.windowId, file.path)
+    else props.onOpenViewer(props.windowId, file)
+  }
+
+  function openWithReader(file: FileItem) {
+    props.onOpenReader(props.windowId, file)
   }
 
   function openCreateFileDialog() {
@@ -2555,7 +2563,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             showOpenInNewTabForFiles={!!props.onOpenInNewTab}
             onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
             onOpenInMediaServer={openDirectoryInMediaServer}
-            onOpenWithReader={share() ? undefined : openInReader}
+            onOpenWithBrowser={share() ? undefined : openWithBrowser}
+            onOpenWithReader={share() ? undefined : openWithReader}
             onContextDownload={handleContextDownload}
             getVirtualEntry={virtualEntry}
             onVirtualAction={handleVirtualAction}

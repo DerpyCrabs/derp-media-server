@@ -349,6 +349,35 @@ test.describe('Workspace Image Viewer', () => {
 })
 
 test.describe('Workspace PDF Viewer', () => {
+  test('opens image folders in a reader window with image selection active', async () => {
+    await gotoWorkspace(page)
+    const browser = getBrowserContent(page)
+    await browser.getByText('Images', { exact: true }).click({ button: 'right' })
+    await page.getByTestId('open-with-menu').click()
+    await expect(page.getByTestId('open-with-submenu')).toBeVisible()
+    await page.getByTestId('open-with-reader').click()
+
+    await expect(getWindowGroups(page)).toHaveCount(2)
+    const readerWindow = getWindowGroups(page).nth(1)
+    await expect(readerWindow.getByTestId('reader-dialog')).toBeVisible()
+    await expect(readerWindow.getByTestId('reader-image-page')).toHaveCount(2)
+    await expect(readerWindow.getByTestId('region-layer').first()).toHaveCSS(
+      'pointer-events',
+      'auto',
+    )
+    await expect(page.locator('body > [data-testid="reader-dialog"]')).toHaveCount(0)
+
+    await page.reload()
+
+    await expect(getWindowGroups(page)).toHaveCount(2)
+    const restoredReaderWindow = getWindowGroups(page).nth(1)
+    await expect(restoredReaderWindow.getByTestId('reader-dialog')).toBeVisible()
+    await expect(restoredReaderWindow.getByTestId('reader-image-page')).toHaveCount(2)
+    await expect(restoredReaderWindow.getByText('This file type cannot be previewed.')).toHaveCount(
+      0,
+    )
+  })
+
   test('keeps two readers independent and hands fullscreen between them', async () => {
     await page.addInitScript(() => {
       let active: Element | null = null

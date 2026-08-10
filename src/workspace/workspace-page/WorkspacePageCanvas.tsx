@@ -79,6 +79,7 @@ export type WorkspacePageCanvasProps = {
   startSplitPaneDrag: (groupId: string, e: PointerEvent) => void
   navigateDir: (windowId: string, dir: string) => void
   openViewerFromBrowser: (windowId: string, file: FileItem) => void
+  openReaderFromBrowser: (windowId: string, file: FileItem) => void
   openHermesFromBrowser: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
   bindHermesSession: (windowId: string, sessionId: string) => void
   openHermesBranch: (windowId: string, sessionId: string, title: string) => void
@@ -243,6 +244,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 fileIconContext={props.workspaceFileIconContext}
                                 onNavigateDir={props.navigateDir}
                                 onOpenViewer={props.openViewerFromBrowser}
+                                onOpenReader={props.openReaderFromBrowser}
                                 onOpenVirtualTarget={props.openHermesFromBrowser}
                                 onAddToTaskbar={props.addPinnedItem}
                                 onOpenInNewTab={(wid, file, path) =>
@@ -340,6 +342,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               fileIconContext={props.workspaceFileIconContext}
                               onNavigateDir={props.navigateDir}
                               onOpenViewer={props.openViewerFromBrowser}
+                              onOpenReader={props.openReaderFromBrowser}
                               onOpenVirtualTarget={props.openHermesFromBrowser}
                               onAddToTaskbar={props.addPinnedItem}
                               onOpenInNewTab={(wid, file, path) =>
@@ -434,6 +437,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 fileIconContext={props.workspaceFileIconContext}
                                 onNavigateDir={props.navigateDir}
                                 onOpenViewer={props.openViewerFromBrowser}
+                                onOpenReader={props.openReaderFromBrowser}
                                 onOpenVirtualTarget={props.openHermesFromBrowser}
                                 onAddToTaskbar={props.addPinnedItem}
                                 onOpenInNewTab={(wid, file, path) =>

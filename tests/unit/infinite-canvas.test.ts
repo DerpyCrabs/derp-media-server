@@ -155,4 +155,25 @@ describe('infinite canvas persistence', () => {
       tabGroupId: null,
     })
   })
+
+  test('preserves reader source kind for persisted viewer windows', () => {
+    const persisted = canvasWindow('canvas-window-1', {
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 224,
+    })
+    persisted.definition.initialState = {
+      viewing: 'Images',
+      readerKind: 'folder',
+    }
+    const parsed = parseInfiniteCanvasState({
+      ...createEmptyCanvasState(),
+      windows: [persisted],
+    })
+    expect(parsed?.windows[0]?.definition.initialState).toEqual({
+      viewing: 'Images',
+      readerKind: 'folder',
+    })
+  })
 })

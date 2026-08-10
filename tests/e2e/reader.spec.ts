@@ -16,6 +16,12 @@ async function disableAutomaticSelectionAction(page: Page) {
   await page.getByRole('button', { name: 'none', exact: true }).click()
 }
 
+async function chooseReaderFromOpenWith(page: Page) {
+  await page.getByTestId('open-with-menu').click()
+  await expect(page.getByTestId('open-with-submenu')).toBeVisible()
+  await page.getByTestId('open-with-reader').click()
+}
+
 async function selectPdfLines(page: Page, firstText: string, lastText = firstText) {
   await page
     .getByTestId('pdf-text-layer')
@@ -49,8 +55,8 @@ test.describe('Reader', () => {
   test('opens PDFs from file context menu and restores position settings', async ({ page }) => {
     await page.goto('/?dir=Documents')
     await page.locator('tr', { hasText: 'sample.pdf' }).click({ button: 'right' })
-    await expect(page.getByTestId('open-with-reader')).toHaveText('Open with...')
-    await page.getByTestId('open-with-reader').click()
+    await expect(page.getByTestId('open-with-menu')).toHaveText(/Open with/)
+    await chooseReaderFromOpenWith(page)
 
     await expect(page.getByTestId('reader-dialog')).toBeVisible()
     await expect(page.getByTestId('pdf-canvas').first()).toBeVisible()
@@ -61,7 +67,7 @@ test.describe('Reader', () => {
     await page.getByLabel('Close reader').click()
 
     await page.locator('tr', { hasText: 'sample.pdf' }).click({ button: 'right' })
-    await page.getByTestId('open-with-reader').click()
+    await chooseReaderFromOpenWith(page)
     await page.getByTestId('reader-settings-button').click()
     await expect(page.getByTestId('reader-settings')).toContainText('110%')
   })
@@ -69,11 +75,21 @@ test.describe('Reader', () => {
   test('opens image folders in natural order', async ({ page }) => {
     await page.goto('/')
     await page.locator('tr', { hasText: 'Images' }).click({ button: 'right' })
-    await page.getByTestId('open-with-reader').click()
+    await page.getByTestId('open-with-menu').click()
+    await expect(page.getByTestId('open-with-browser')).toBeVisible()
+    await expect(page.getByTestId('open-with-reader')).toBeVisible()
+    await page.getByTestId('open-with-browser').click()
+    await expect(page).toHaveURL(/dir=Images/)
+    await expect(page.getByTestId('reader-dialog')).toHaveCount(0)
+
+    await page.goto('/')
+    await page.locator('tr', { hasText: 'Images' }).click({ button: 'right' })
+    await chooseReaderFromOpenWith(page)
 
     await expect(page.getByTestId('reader-dialog')).toBeVisible()
     await expect(page.getByTestId('reader-image-page')).toHaveCount(2)
     await expect(page.getByTestId('reader-page-indicator')).not.toContainText('/ 0')
+    await expect(page.getByTestId('region-layer').first()).toHaveCSS('pointer-events', 'auto')
 
     await page.getByTestId('reader-settings-button').click()
     await page.getByRole('button', { name: 'page', exact: true }).click()
@@ -82,7 +98,7 @@ test.describe('Reader', () => {
     await page.getByLabel('Close reader').click()
 
     await page.locator('tr', { hasText: 'Images' }).click({ button: 'right' })
-    await page.getByTestId('open-with-reader').click()
+    await chooseReaderFromOpenWith(page)
     await expect(page.getByTestId('reader-page-indicator')).toContainText('Page 2 / 2')
   })
 

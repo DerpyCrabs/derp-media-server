@@ -578,6 +578,32 @@ test('keeps file-browser directory and file clicks interactive', async ({ page }
   await expect(page.getByTestId('canvas-window')).toHaveCount(2)
 })
 
+test('restores an image-folder reader after reload', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Images"]').click({ button: 'right' })
+  await page.getByTestId('open-with-menu').click()
+  await page.getByTestId('open-with-reader').click()
+
+  const readerWindow = page.getByTestId('canvas-window').filter({
+    has: page.getByTestId('reader-dialog'),
+  })
+  await expect(readerWindow).toBeVisible()
+  await expect(readerWindow.getByTestId('reader-image-page')).toHaveCount(2)
+  await expect(readerWindow.getByTestId('region-layer').first()).toHaveCSS('pointer-events', 'auto')
+
+  await page.reload()
+
+  const restoredReader = page.getByTestId('canvas-window').filter({
+    has: page.getByTestId('reader-dialog'),
+  })
+  await expect(restoredReader).toBeVisible()
+  await expect(restoredReader.getByTestId('reader-image-page')).toHaveCount(2)
+  await expect(restoredReader.getByText('This file type cannot be previewed.')).toHaveCount(0)
+})
+
 test('shows only canvas-supported file actions', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 40, y: 40 } })

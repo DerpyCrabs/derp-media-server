@@ -4,7 +4,9 @@ import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from 'lucide-solid/icons/app-window'
 import BookOpen from 'lucide-solid/icons/book-open'
 import Columns2 from 'lucide-solid/icons/columns-2'
+import ChevronRight from 'lucide-solid/icons/chevron-right'
 import ExternalLink from 'lucide-solid/icons/external-link'
+import FolderOpen from 'lucide-solid/icons/folder-open'
 import Link from 'lucide-solid/icons/link'
 import Pencil from 'lucide-solid/icons/pencil'
 import Pin from 'lucide-solid/icons/pin'
@@ -12,7 +14,7 @@ import Settings from 'lucide-solid/icons/settings'
 import Library from 'lucide-solid/icons/library'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
-import { Show } from 'solid-js'
+import { Show, createEffect, createSignal } from 'solid-js'
 import type { VirtualCapability, VirtualEntry } from '@/lib/virtual-directory'
 import { isOfflineFeatureAvailable, isPathAvailableOffline } from '../lib/offline-files'
 
@@ -41,6 +43,7 @@ type FileRowContextMenuProps = {
   /** Workspace: open beside file browser in split view. */
   onOpenInSplitView?: (file: FileItem) => void
   onOpenInWorkspace?: (file: FileItem) => void
+  onOpenWithBrowser?: (file: FileItem) => void
   onOpenWithReader?: (file: FileItem) => void
   openInWorkspaceLabel?: string
   onToggleFavorite?: (file: FileItem) => void
@@ -62,6 +65,11 @@ type FileRowContextMenuProps = {
 }
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
+  const [openWithOpen, setOpenWithOpen] = createSignal(false)
+  createEffect(() => {
+    if (!props.menu()) setOpenWithOpen(false)
+  })
+
   return (
     <FloatingContextMenu
       state={props.menu}
@@ -357,25 +365,72 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             </Show>
             <Show
               when={
+                props.onOpenWithBrowser &&
                 props.onOpenWithReader &&
                 !ctx.file.isVirtual &&
                 (ctx.file.isDirectory || ctx.file.type === MediaType.PDF)
               }
             >
-              <button
-                type='button'
-                data-slot='context-menu-item'
-                data-testid='open-with-reader'
-                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                role='menuitem'
-                onClick={() => {
-                  props.onOpenWithReader?.(ctx.file)
-                  props.onDismiss()
-                }}
+              <div
+                class='relative'
+                onPointerEnter={() => setOpenWithOpen(true)}
+                onPointerLeave={() => setOpenWithOpen(false)}
               >
-                <Library class='h-4 w-4 shrink-0' stroke-width={2} />
-                Open with...
-              </button>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  data-testid='open-with-menu'
+                  aria-haspopup='menu'
+                  aria-expanded={openWithOpen()}
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => setOpenWithOpen(true)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowRight') {
+                      event.preventDefault()
+                      setOpenWithOpen(true)
+                    }
+                  }}
+                >
+                  <Library class='h-4 w-4 shrink-0' stroke-width={2} />
+                  <span class='flex-1 text-left'>Open with...</span>
+                  <ChevronRight class='h-4 w-4 shrink-0' stroke-width={2} />
+                </button>
+                <Show when={openWithOpen()}>
+                  <div
+                    role='menu'
+                    data-testid='open-with-submenu'
+                    class='absolute top-[-4px] left-[calc(100%-2px)] z-10 min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
+                  >
+                    <button
+                      type='button'
+                      role='menuitem'
+                      data-testid='open-with-browser'
+                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                      onClick={() => {
+                        props.onOpenWithBrowser?.(ctx.file)
+                        props.onDismiss()
+                      }}
+                    >
+                      <FolderOpen class='h-4 w-4 shrink-0' stroke-width={2} />
+                      Browser
+                    </button>
+                    <button
+                      type='button'
+                      role='menuitem'
+                      data-testid='open-with-reader'
+                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                      onClick={() => {
+                        props.onOpenWithReader?.(ctx.file)
+                        props.onDismiss()
+                      }}
+                    >
+                      <BookOpen class='h-4 w-4 shrink-0' stroke-width={2} />
+                      Reader
+                    </button>
+                  </div>
+                </Show>
+              </div>
             </Show>
             <Show when={props.onOpenInWorkspace && ctx.file.isDirectory && !ctx.file.isVirtual}>
               <button

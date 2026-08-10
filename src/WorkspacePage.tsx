@@ -1079,6 +1079,39 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
+  function openReaderFromBrowser(fromWindowId: string, file: FileItem) {
+    const w = workspace()
+    const sourceWindow = w?.windows.find((window) => window.id === fromWindowId)
+    if (!w || !sourceWindow || (!file.isDirectory && file.type !== MediaType.PDF)) return
+    const n = w.nextWindowId
+    const id = `workspace-window-${n}`
+    const parentDir = file.path.split(/[/\\]/).slice(0, -1).join('/') || ''
+    const newWin: WorkspaceWindowDefinition = {
+      id,
+      type: 'viewer',
+      title: file.name,
+      iconName: null,
+      iconPath: file.path,
+      iconType: file.type,
+      iconIsVirtual: false,
+      source: sourceWindow.source,
+      initialState: {
+        dir: parentDir,
+        viewing: file.path,
+        readerKind: file.isDirectory ? 'folder' : 'pdf',
+      },
+      tabGroupId: null,
+      layout: createWindowLayout(undefined, createDefaultBounds(w.windows.length, 'viewer'), n),
+    }
+    newWin.layout = { ...newWin.layout, zIndex: maxWorkspaceWindowZ(w.windows) + 1 }
+    setWorkspace({
+      ...w,
+      windows: [...w.windows, newWin],
+      nextWindowId: n + 1,
+      activeWindowId: id,
+    })
+  }
+
   function openGlobalSearchResult(result: FileSearchResult) {
     const file = fileSearchResultToFileItem(result)
     const source = browserSource()
@@ -1390,6 +1423,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           startSplitPaneDrag={startSplitPaneDrag}
           navigateDir={navigateDir}
           openViewerFromBrowser={openViewerFromBrowser}
+          openReaderFromBrowser={openReaderFromBrowser}
           openHermesFromBrowser={openHermesFromBrowser}
           bindHermesSession={bindHermesSession}
           openHermesBranch={openHermesBranch}

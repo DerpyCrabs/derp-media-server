@@ -936,8 +936,13 @@ export function CanvasPage() {
     }
   }
 
-  function makeDefinition(id: string, file?: FileItem, dir = ''): WorkspaceWindowDefinition {
-    if (!file || file.isDirectory) {
+  function makeDefinition(
+    id: string,
+    file?: FileItem,
+    dir = '',
+    readerKind?: 'pdf' | 'folder',
+  ): WorkspaceWindowDefinition {
+    if (!file || (file.isDirectory && !readerKind)) {
       const path = file?.path ?? dir
       return {
         id,
@@ -957,7 +962,11 @@ export function CanvasPage() {
       iconPath: file.path,
       iconType: file.type,
       source: LOCAL_SOURCE,
-      initialState: { viewing: file.path, dir: parentPath(file.path) },
+      initialState: {
+        viewing: file.path,
+        dir: parentPath(file.path),
+        readerKind: readerKind ?? null,
+      },
       tabGroupId: null,
     }
   }
@@ -974,7 +983,11 @@ export function CanvasPage() {
   function addFileWindow(
     file: FileItem | null,
     point: { x: number; y: number },
-    options: { duplicate?: boolean; worldBounds?: CanvasRect } = {},
+    options: {
+      duplicate?: boolean
+      worldBounds?: CanvasRect
+      readerKind?: 'pdf' | 'folder'
+    } = {},
   ) {
     if (file && !options.duplicate) {
       const existing = existingWindowForFile(file)
@@ -987,7 +1000,7 @@ export function CanvasPage() {
     commit((current) => {
       const id = `canvas-window-${current.nextItemId}`
       createdId = id
-      const definition = makeDefinition(id, file ?? undefined)
+      const definition = makeDefinition(id, file ?? undefined, '', options.readerKind)
       const sizeKey = windowSizeKey(definition)
       const worldBounds =
         options.worldBounds ??
@@ -1187,6 +1200,17 @@ export function CanvasPage() {
       file,
       { x: bounds.x + bounds.width + CANVAS_GRID_SIZE, y: bounds.y },
       { duplicate },
+    )
+    if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
+  }
+
+  function openReaderFromBrowser(sourceWindowId: string, file: FileItem) {
+    const source = state().windows.find((window) => window.id === sourceWindowId)
+    if (!source || (!file.isDirectory && file.type !== MediaType.PDF)) return
+    const createdId = addFileWindow(
+      file,
+      { x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE, y: source.bounds.y },
+      { duplicate: true, readerKind: file.isDirectory ? 'folder' : 'pdf' },
     )
     if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
   }
@@ -2295,6 +2319,7 @@ export function CanvasPage() {
                           editableFolders={readOnlyMode() ? [] : editableFolders()}
                           onNavigateDir={navigateDir}
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
+                          onOpenReader={openReaderFromBrowser}
                           onOpenVirtualTarget={openHermesFromBrowser}
                           onOpenInNewTab={(windowId, file) =>
                             openFromBrowser(

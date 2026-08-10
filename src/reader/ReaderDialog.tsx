@@ -424,6 +424,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     setError('')
     if (!activePath) return
     applyPosition(loadReaderPosition(activePath))
+    if (kind === 'folder') setSelectionMode('image')
     setLoading(true)
     let cancelled = false
     if (kind === 'folder') {

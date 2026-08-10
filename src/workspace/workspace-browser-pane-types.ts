@@ -18,6 +18,7 @@ export type WorkspaceBrowserPaneProps = {
   editableFolders: string[]
   onNavigateDir: (windowId: string, dir: string) => void
   onOpenViewer: (windowId: string, file: FileItem) => void
+  onOpenReader: (windowId: string, file: FileItem) => void
   onOpenVirtualTarget?: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
   onAddToTaskbar?: (file: FileItem) => void
   onOpenInNewTab?: (

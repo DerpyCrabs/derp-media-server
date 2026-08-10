@@ -155,6 +155,7 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   const viewingPath = createMemo(() => win()?.initialState?.viewing ?? '')
+  const readerKind = createMemo(() => win()?.initialState?.readerKind ?? null)
   const currentTextTarget = createMemo(() => createTextDocumentTarget(viewingPath(), share()))
   const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
 
@@ -930,7 +931,18 @@ export function WorkspaceViewerPane(props: Props) {
       data-no-window-drag
       class='absolute inset-0 flex min-h-0 flex-col overflow-hidden bg-background'
     >
-      <Show when={mediaType() === MediaType.IMAGE && viewingPath()}>
+      <Show when={readerKind() && viewingPath()}>
+        <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
+          <ReaderDialog
+            sourcePath={viewingPath()}
+            sourceKind={readerKind()!}
+            embedded
+            showClose={false}
+          />
+        </div>
+      </Show>
+
+      <Show when={!readerKind() && mediaType() === MediaType.IMAGE && viewingPath()}>
         <div class='flex h-full min-h-0 flex-col bg-black'>
           <div class='flex h-8 shrink-0 items-center justify-between border-b border-white/10 bg-black/50 px-2'>
             <Show when={totalImages() > 0}>
@@ -1043,7 +1055,7 @@ export function WorkspaceViewerPane(props: Props) {
         </div>
       </Show>
 
-      <Show when={mediaType() === MediaType.PDF && viewingPath()}>
+      <Show when={!readerKind() && mediaType() === MediaType.PDF && viewingPath()}>
         <Show
           when={share()}
           fallback={
@@ -1095,7 +1107,7 @@ export function WorkspaceViewerPane(props: Props) {
         </Show>
       </Show>
 
-      <Show when={mediaType() === MediaType.VIDEO && viewingPath()}>
+      <Show when={!readerKind() && mediaType() === MediaType.VIDEO && viewingPath()}>
         <div class='flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-black'>
           <div class='group relative flex min-h-0 min-w-0 flex-1 flex-col bg-black'>
             <Show when={props.showListenOnly !== false}>
@@ -1178,7 +1190,7 @@ export function WorkspaceViewerPane(props: Props) {
         </div>
       </Show>
 
-      <Show when={mediaType() === MediaType.AUDIO && viewingPath()}>
+      <Show when={!readerKind() && mediaType() === MediaType.AUDIO && viewingPath()}>
         <div
           ref={setAudioSurfaceEl}
           data-testid='canvas-audio-player-ui'
@@ -1256,7 +1268,7 @@ export function WorkspaceViewerPane(props: Props) {
         </div>
       </Show>
 
-      <Show when={mediaType() === MediaType.TEXT && viewingPath()}>
+      <Show when={!readerKind() && mediaType() === MediaType.TEXT && viewingPath()}>
         <div class='flex h-full min-h-0 flex-col'>
           <div class='flex h-9 shrink-0 flex-wrap items-center gap-1 border-b border-border bg-muted/50 px-2'>
             <span class='text-muted-foreground flex items-center gap-1 text-xs'>
@@ -1425,7 +1437,7 @@ export function WorkspaceViewerPane(props: Props) {
         </div>
       </Show>
 
-      <Show when={mediaType() === MediaType.OTHER && viewingPath()}>
+      <Show when={!readerKind() && mediaType() === MediaType.OTHER && viewingPath()}>
         <div class='flex flex-1 flex-col items-center justify-center gap-4 p-6'>
           <p class='text-muted-foreground text-center text-sm'>
             This file type cannot be previewed.
