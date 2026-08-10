@@ -157,6 +157,13 @@ export function VideoPlayer(props: Props) {
     setIsMinimized(false)
   }
 
+  function persistPlaybackTime(video: HTMLVideoElement) {
+    const path = playingPath()
+    if (!path || !Number.isFinite(video.duration) || video.duration <= 0) return
+    useMediaPlayer.getState().setCurrentTime(video.currentTime)
+    useVideoPlaybackTime.getState().saveTime(path, video.currentTime, video.duration)
+  }
+
   onCleanup(() => {
     const vid = videoEl()
     if (vid) {
@@ -247,6 +254,8 @@ export function VideoPlayer(props: Props) {
               controls
               class='w-full bg-black'
               style={videoAreaStyle()}
+              onTimeUpdate={(event) => persistPlaybackTime(event.currentTarget)}
+              onPause={(event) => persistPlaybackTime(event.currentTarget)}
             >
               Your browser does not support the video tag.
             </video>

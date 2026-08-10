@@ -300,7 +300,7 @@ export function AudioPlayer(props: Props) {
       useMediaPlayer.getState().setCurrentTime(audio.currentTime)
       const path = playingPath()
       const dd = displayDuration()
-      if (path && isVideoFile() && audioOnly() && dd > 0) {
+      if (path && dd > 0) {
         useVideoPlaybackTime.getState().saveTime(path, audio.currentTime, dd)
       }
       if ('mediaSession' in navigator && Number.isFinite(audio.duration) && !audio.paused) {
@@ -443,16 +443,14 @@ export function AudioPlayer(props: Props) {
     const isSameFile = mp.currentFile === path
     const storedTime = untrack(() => mp.currentTime)
     const vidFile = isVideoFile()
-    const savedTime = untrack(() =>
-      vidFile ? useVideoPlaybackTime.getState().getSavedTime(path) : null,
-    )
+    const savedTime = untrack(() => useVideoPlaybackTime.getState().getSavedTime(path))
     const timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
 
     if (mp.currentFile !== path || mp.mediaType !== 'audio') {
       useMediaPlayer.getState().setCurrentFile(path, 'audio')
     }
 
-    const restoreSeek = (isSameFile || vidFile) && timeToRestore > 0
+    const restoreSeek = (isSameFile || savedTime !== null) && timeToRestore > 0
 
     const syncPlayPauseToStore = () => {
       const playing = useMediaPlayer.getState().isPlaying

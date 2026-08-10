@@ -6,7 +6,7 @@ import path from 'path'
  * Batches aim for similar wall time (~35–45s each with 4 workers): slowest spec per batch dominates.
  * Workspace layout is split into two files so they run in parallel in batch 1.
  */
-const BATCHES = [
+export const BATCHES = [
   {
     id: '1',
     tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome'],
@@ -18,9 +18,12 @@ const BATCHES = [
       'navigation',
       'breadcrumbs-adaptive',
       'upload',
+      'file-browser-directory-ux',
       'file-browser-misc',
       'file-search-palette',
+      'folder-virtualization',
       'infinite-canvas',
+      'stage1-performance',
     ],
   },
   {
@@ -34,6 +37,8 @@ const BATCHES = [
       'workspace-layout-sessions',
       'workspace-named-layouts',
       'workspace-file-open-target',
+      'workspace-share-from-browser',
+      'workspace-split-view',
       'hermes-chat',
     ],
   },
@@ -51,7 +56,16 @@ const BATCHES = [
   },
   {
     id: '5',
-    tests: ['audio-player', 'shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates'],
+    tests: [
+      'audio-player',
+      'video-audio-mode-switch',
+      'shares-manage',
+      'shares-use',
+      'share-audio-api',
+      'media-range',
+      'stage1-mobile-baseline',
+      'sse-live-updates',
+    ],
   },
   {
     id: '6',
@@ -264,4 +278,6 @@ async function main() {
   }
 }
 
-void main()
+if (import.meta.main) {
+  void main()
+}
