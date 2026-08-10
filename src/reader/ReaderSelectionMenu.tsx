@@ -5,6 +5,7 @@ import { Show, createEffect, createSignal, onCleanup, untrack } from 'solid-js'
 import type { ReaderDefaultAction } from '@/lib/reader-position'
 import { MarkdownContent } from './MarkdownContent'
 import { runReaderAi } from './reader-ai'
+import type { ReaderAiDetail } from './reader-state-client'
 
 export type ReaderSelection = {
   id: number
@@ -22,6 +23,7 @@ export type ReaderSelection = {
 export function ReaderSelectionMenu(props: {
   selection: ReaderSelection
   defaultAction: ReaderDefaultAction
+  aiDetail: ReaderAiDetail
   onTextChange: (text: string) => void
 }) {
   let previewRef!: HTMLDivElement
@@ -45,6 +47,7 @@ export function ReaderSelectionMenu(props: {
         kind: selection.kind,
         text: selection.text,
         imageData: selection.imageData,
+        detail: props.aiDetail,
       })
       if (currentRequest === requestId && props.selection.id === selection.id) setResult(nextResult)
     } catch (reason) {
@@ -58,7 +61,7 @@ export function ReaderSelectionMenu(props: {
   createEffect(() => {
     const id = props.selection.id
     const action = props.defaultAction
-    const key = `${id}:${action}`
+    const key = `${id}:${action}:${props.aiDetail}`
     if (!id || action === 'none' || key === lastAutomaticKey) return
     lastAutomaticKey = key
     void untrack(() => run(action))
@@ -188,7 +191,10 @@ export function ReaderSelectionMenu(props: {
           data-reader-copyable
           class='reader-selection-result box-border min-h-0 w-0 min-w-full max-w-full max-h-[220px] cursor-text overflow-auto rounded-[7px] border border-[#444] bg-[#202020] px-[10px] py-[9px] text-[0.88rem] leading-[1.42] whitespace-pre-wrap text-[#e8e8e8] select-text [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
         >
-          <Show when={task() === 'translate'} fallback={<MarkdownContent content={result()} />}>
+          <Show
+            when={task() === 'translate' && props.aiDetail === 'compact'}
+            fallback={<MarkdownContent content={result()} />}
+          >
             {result()}
           </Show>
         </div>

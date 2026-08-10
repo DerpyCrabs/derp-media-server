@@ -75,17 +75,23 @@ export function BookContent(props: {
       0,
       props.document.chapters.findIndex((chapter) => chapter.id === props.currentChapterId),
     )
+  const documentClass = () =>
+    [
+      'book-document',
+      `book-theme-${props.appearance.theme}`,
+      'min-h-full',
+      props.appearance.fontFamily === 'serif' && 'font-serif',
+      props.appearance.fontFamily === 'sans' && 'font-sans',
+      props.appearance.fontScale !== null && 'book-custom-font-size',
+      props.appearance.lineHeight !== null && 'book-custom-line-height',
+      props.appearance.contentWidth !== null && 'book-custom-width',
+    ]
+      .filter(Boolean)
+      .join(' ')
   return (
     <div
       data-testid='reader-book'
-      class={`book-document book-theme-${props.appearance.theme} min-h-full`}
-      classList={{
-        'font-serif': props.appearance.fontFamily === 'serif',
-        'font-sans': props.appearance.fontFamily === 'sans',
-        'book-custom-font-size': props.appearance.fontScale !== null,
-        'book-custom-line-height': props.appearance.lineHeight !== null,
-        'book-custom-width': props.appearance.contentWidth !== null,
-      }}
+      class={documentClass()}
       style={{
         '--book-font-scale': String(props.appearance.fontScale ?? 1),
         '--book-line-height': String(props.appearance.lineHeight ?? 1.65),

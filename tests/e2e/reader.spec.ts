@@ -139,8 +139,7 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('reader-outline')).toContainText('Second chapter')
     await page.getByRole('link', { name: 'Continue internally' }).click()
     await expect(page.getByTestId('reader-book-progress')).toContainText('Second chapter')
-    await page.getByTestId('reader-settings-button').click()
-    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    await page.getByRole('button', { name: 'Previous chapter' }).click()
     await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
     await page.getByLabel('Close reader').click()
 
@@ -221,15 +220,57 @@ test.describe('Reader', () => {
     await expect(settings).toContainText('50%')
     await expect(settings).toContainText('0.80')
     await expect(settings).toContainText('20rem')
+    const chapter = book.locator('[data-book-chapter="chapter-1"]')
+    const appearanceBeforeTheme = await chapter.evaluate((element) => {
+      const book = element.closest<HTMLElement>('[data-testid="reader-book"]')!
+      const style = getComputedStyle(book)
+      const chapterStyle = getComputedStyle(element)
+      return {
+        fontSize: style.fontSize,
+        lineHeight: chapterStyle.lineHeight,
+        maxWidth: chapterStyle.maxWidth,
+      }
+    })
+    expect(appearanceBeforeTheme).toEqual({
+      fontSize: '8px',
+      lineHeight: '6.4px',
+      maxWidth: '320px',
+    })
+    await settings.getByRole('button', { name: 'light', exact: true }).click()
+    await expect(settings).toContainText('50%')
+    await expect(settings).toContainText('0.80')
+    await expect(settings).toContainText('20rem')
+    await expect
+      .poll(() =>
+        chapter.evaluate((element) => {
+          const book = element.closest<HTMLElement>('[data-testid="reader-book"]')!
+          const style = getComputedStyle(book)
+          const chapterStyle = getComputedStyle(element)
+          return {
+            fontSize: style.fontSize,
+            lineHeight: chapterStyle.lineHeight,
+            maxWidth: chapterStyle.maxWidth,
+          }
+        }),
+      )
+      .toEqual(appearanceBeforeTheme)
+    await settings.getByRole('button', { name: 'detailed', exact: true }).click()
     await page.getByLabel('Close reader').click()
 
     await page.locator('tr', { hasText: 'reader.epub' }).click()
     await page.getByTestId('reader-settings-button').click()
-    await expect(page.getByRole('button', { name: 'dark', exact: true })).toHaveClass(
+    await expect(page.getByRole('button', { name: 'light', exact: true })).toHaveClass(
       /bg-\[#303030\]/,
     )
-    await expect(page.getByTestId('reader-book')).toHaveCSS('background-color', 'rgb(23, 23, 23)')
+    await expect(page.getByRole('button', { name: 'detailed', exact: true })).toHaveClass(
+      /bg-\[#303030\]/,
+    )
+    await expect(page.getByTestId('reader-book')).toHaveCSS(
+      'background-color',
+      'rgb(255, 253, 248)',
+    )
     await page.getByRole('button', { name: 'Reset appearance' }).click()
+    await page.getByRole('button', { name: 'compact', exact: true }).click()
     await page.getByLabel('Close reader').click()
   })
 

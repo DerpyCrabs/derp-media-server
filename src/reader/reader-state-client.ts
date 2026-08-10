@@ -15,6 +15,8 @@ export type BookAppearance = {
   theme: 'publisher' | 'light' | 'dark' | 'sepia'
 }
 
+export type ReaderAiDetail = 'compact' | 'detailed'
+
 export const DEFAULT_BOOK_APPEARANCE: BookAppearance = {
   fontFamily: 'publisher',
   fontScale: null,
@@ -41,6 +43,7 @@ type ReaderPreferences = {
   bookAppearance: BookAppearance
   selectionMode: 'text' | 'image'
   defaultAction: 'define' | 'translate' | 'none'
+  aiDetail: ReaderAiDetail
   outlineOpen: boolean
 }
 
@@ -48,6 +51,7 @@ export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
   bookAppearance: DEFAULT_BOOK_APPEARANCE,
   selectionMode: 'text',
   defaultAction: 'define',
+  aiDetail: 'compact',
   outlineOpen: true,
 }
 
@@ -211,6 +215,7 @@ function parsePreferences(value: unknown): ReaderPreferences {
     defaultAction: ['define', 'translate', 'none'].includes(input.defaultAction ?? '')
       ? input.defaultAction!
       : 'define',
+    aiDetail: input.aiDetail === 'detailed' ? 'detailed' : 'compact',
     outlineOpen: input.outlineOpen !== false,
   }
 }

@@ -46,7 +46,7 @@ const EPUB_FIXTURE = Buffer.from(
       '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><section id="destination"><h1>Second chapter</h1><p>EPUB destination text.</p></section></body></html>',
     ),
     'EPUB/styles/book.css': strToU8(
-      '@font-face { font-family: "Fixture Font"; src: url("../fonts/fixture.woff") format("woff"); font-weight: 400; } body { font-family: "Fixture Font"; background-color: rgb(255, 0, 0) !important; color: rgb(0, 255, 0) !important; }',
+      '@font-face { font-family: "Fixture Font"; src: url("../fonts/fixture.woff") format("woff"); font-weight: 400; } body { font-family: "Fixture Font"; font-size: 13px; background-color: rgb(255, 0, 0) !important; color: rgb(0, 255, 0) !important; }',
     ),
     'EPUB/fonts/fixture.woff': new Uint8Array([0x77, 0x4f, 0x46, 0x46]),
   }),

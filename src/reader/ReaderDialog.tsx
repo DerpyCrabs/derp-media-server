@@ -20,7 +20,16 @@ import * as pdfjs from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import 'pdfjs-dist/web/pdf_viewer.css'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Setter,
+} from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { ReaderSelectionMenu, type ReaderSelection } from './ReaderSelectionMenu'
 import { menuPositionForRect, visibleRectForRange } from './reader-geometry'
@@ -38,6 +47,7 @@ import {
   saveReaderPreferences,
   saveSyncedReaderState,
   type BookAppearance,
+  type ReaderAiDetail,
   type ReaderSyncedState,
 } from './reader-state-client'
 
@@ -420,6 +430,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   const [preferredSelectionMode, setPreferredSelectionMode] =
     createSignal<ReaderSelectionMode>('text')
   const [defaultAction, setDefaultAction] = createSignal<ReaderDefaultAction>('define')
+  const [aiDetail, setAiDetail] = createSignal<ReaderAiDetail>('compact')
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [pageJumpOpen, setPageJumpOpen] = createSignal(false)
   const [pageInput, setPageInput] = createSignal('1')
@@ -465,6 +476,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       bookAppearance: bookAppearance(),
       selectionMode: preferredSelectionMode(),
       defaultAction: defaultAction(),
+      aiDetail: aiDetail(),
       outlineOpen: outlineOpen(),
     }
     const queued = preferenceQueue.then(
@@ -605,6 +617,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         setSelectionMode(preferences.selectionMode)
         setPreferredSelectionMode(preferences.selectionMode)
         setDefaultAction(preferences.defaultAction)
+        setAiDetail(preferences.aiDetail)
         setOutlineOpen(preferences.outlineOpen)
         setBookAppearance(preferences.bookAppearance)
         setPreferencesReady(true)
@@ -855,6 +868,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     bookAppearance()
     preferredSelectionMode()
     defaultAction()
+    aiDetail()
     outlineOpen()
     window.clearTimeout(preferenceTimer)
     preferenceTimer = window.setTimeout(() => void persistPreferences(), 350)
@@ -1294,26 +1308,6 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                       </ReaderSetting>
                     </Show>
                     <Show when={sourceKind() === 'book'}>
-                      <ReaderSetting label='Navigation history'>
-                        <div class='grid grid-cols-2 gap-1'>
-                          <button
-                            type='button'
-                            class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] text-xs disabled:opacity-40'
-                            disabled={bookHistoryIndex() <= 0}
-                            onClick={() => moveBookHistory(-1)}
-                          >
-                            Back
-                          </button>
-                          <button
-                            type='button'
-                            class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] text-xs disabled:opacity-40'
-                            disabled={bookHistoryIndex() >= bookHistory().length - 1}
-                            onClick={() => moveBookHistory(1)}
-                          >
-                            Forward
-                          </button>
-                        </div>
-                      </ReaderSetting>
                       <BookAppearanceSettings
                         value={bookAppearance()}
                         onChange={setBookAppearance}
@@ -1338,6 +1332,16 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                         value={defaultAction()}
                         onChange={(value) => {
                           setDefaultAction(value as ReaderDefaultAction)
+                          setSettingsOpen(false)
+                        }}
+                      />
+                    </ReaderSetting>
+                    <ReaderSetting label='AI results'>
+                      <Segmented
+                        values={['compact', 'detailed']}
+                        value={aiDetail()}
+                        onChange={(value) => {
+                          setAiDetail(value as ReaderAiDetail)
                           setSettingsOpen(false)
                         }}
                       />
@@ -1505,6 +1509,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
               <ReaderSelectionMenu
                 selection={active()}
                 defaultAction={defaultAction()}
+                aiDetail={aiDetail()}
                 onTextChange={(text) =>
                   setSelection((value) => (value ? { ...value, text } : null))
                 }
@@ -1528,9 +1533,10 @@ function ReaderSetting(props: { label: string; children: unknown }) {
 
 function BookAppearanceSettings(props: {
   value: BookAppearance
-  onChange: (value: BookAppearance) => void
+  onChange: Setter<BookAppearance>
 }) {
-  const update = (next: Partial<BookAppearance>) => props.onChange({ ...props.value, ...next })
+  const update = (next: Partial<BookAppearance>) =>
+    props.onChange((current) => ({ ...current, ...next }))
   const adjust = (
     key: 'fontScale' | 'lineHeight' | 'contentWidth',
     amount: number,
