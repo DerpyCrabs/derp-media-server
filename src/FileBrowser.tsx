@@ -97,6 +97,7 @@ import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { useStoreSync } from './lib/solid-store-sync'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
+import { openInReader } from './reader/reader-url'
 import { persistViewMode } from '@/lib/view-mode-persistence'
 import { useViewStats } from './lib/use-view-stats'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
@@ -1902,6 +1903,7 @@ export function FileBrowser() {
             getPathHasShare={getPathHasShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
             onContextOpenInWorkspace={handleContextOpenInWorkspace}
+            onContextOpenWithReader={openInReader}
             onContextToggleFavorite={handleContextToggleFavorite}
             isRowFavorite={isRowFavorite}
             onContextRename={handleContextRename}

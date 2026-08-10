@@ -92,6 +92,7 @@ import { registerKbSearchHotkeys } from '../file-browser/use-kb-search-hotkey'
 import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-focus'
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
+import { openInReader } from '../reader/reader-url'
 import { useDeferredLoading } from '../lib/use-deferred-loading'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
@@ -2554,6 +2555,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             showOpenInNewTabForFiles={!!props.onOpenInNewTab}
             onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
             onOpenInMediaServer={openDirectoryInMediaServer}
+            onOpenWithReader={share() ? undefined : openInReader}
             onContextDownload={handleContextDownload}
             getVirtualEntry={virtualEntry}
             onVirtualAction={handleVirtualAction}

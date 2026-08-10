@@ -9,6 +9,7 @@ import Link from 'lucide-solid/icons/link'
 import Pencil from 'lucide-solid/icons/pencil'
 import Pin from 'lucide-solid/icons/pin'
 import Settings from 'lucide-solid/icons/settings'
+import Library from 'lucide-solid/icons/library'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
@@ -40,6 +41,7 @@ type FileRowContextMenuProps = {
   /** Workspace: open beside file browser in split view. */
   onOpenInSplitView?: (file: FileItem) => void
   onOpenInWorkspace?: (file: FileItem) => void
+  onOpenWithReader?: (file: FileItem) => void
   openInWorkspaceLabel?: string
   onToggleFavorite?: (file: FileItem) => void
   isFavorite?: (file: FileItem) => boolean
@@ -351,6 +353,28 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
               >
                 <Columns2 class='h-4 w-4 shrink-0' stroke-width={2} />
                 Open in split view
+              </button>
+            </Show>
+            <Show
+              when={
+                props.onOpenWithReader &&
+                !ctx.file.isVirtual &&
+                (ctx.file.isDirectory || ctx.file.type === MediaType.PDF)
+              }
+            >
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                data-testid='open-with-reader'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                role='menuitem'
+                onClick={() => {
+                  props.onOpenWithReader?.(ctx.file)
+                  props.onDismiss()
+                }}
+              >
+                <Library class='h-4 w-4 shrink-0' stroke-width={2} />
+                Open with...
               </button>
             </Show>
             <Show when={props.onOpenInWorkspace && ctx.file.isDirectory && !ctx.file.isVirtual}>

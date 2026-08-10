@@ -19,15 +19,59 @@ const MINIMAL_PNG = Buffer.from(
   'base64',
 )
 
-// Minimal valid PDF (single blank page)
-const MINIMAL_PDF = Buffer.from(
-  '%PDF-1.0\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
-    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
-    '3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n' +
-    'xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n' +
-    '0000000058 00000 n \n0000000115 00000 n \n' +
-    'trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF',
-)
+function pdfPages(pages: string[][]): Buffer {
+  const streams = pages.map((lines) =>
+    lines
+      .map(
+        (line, index) =>
+          `BT /F1 24 Tf 72 ${720 - index * 34} Td (${line.replace(/([\\()])/g, '\\$1')}) Tj ET`,
+      )
+      .join('\n'),
+  )
+  const fontObjectId = 3 + streams.length * 2
+  const pageObjects = streams.map((stream, index) => {
+    const pageObjectId = 3 + index * 2
+    const contentObjectId = pageObjectId + 1
+    return {
+      page: `${pageObjectId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>\nendobj\n`,
+      content: `${contentObjectId} 0 obj\n<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream\nendobj\n`,
+      pageObjectId,
+    }
+  })
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    `2 0 obj\n<< /Type /Pages /Kids [${pageObjects.map(({ pageObjectId }) => `${pageObjectId} 0 R`).join(' ')}] /Count ${streams.length} >>\nendobj\n`,
+    ...pageObjects.flatMap(({ page, content }) => [page, content]),
+    `${fontObjectId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`,
+  ]
+  let body = '%PDF-1.4\n'
+  const offsets = [0]
+  objects.forEach((object) => {
+    offsets.push(Buffer.byteLength(body))
+    body += object
+  })
+  const xrefOffset = Buffer.byteLength(body)
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  body += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('')
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+  return Buffer.from(body)
+}
+
+const MINIMAL_PDF = pdfPages([['Selectable PDF text']])
+export const READER_PDF = pdfPages([
+  [
+    'Selectable reader text begins here',
+    'Second selected line continues the passage',
+    'Third selected line keeps the block compact',
+    'Fourth selected line ends the selected block',
+  ],
+  ['Reader position anchor page 2'],
+  ['Reader position anchor page 3'],
+  ['Reader position anchor page 4'],
+])
 
 function hasFfmpeg(): boolean {
   try {
@@ -52,6 +96,10 @@ const MARKDOWN_EDITOR_MD_CONTENT =
   '# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n'
 
 export function patchTestMediaAfterCacheCopy(baseDir: string) {
+  const documentsDir = path.join(baseDir, 'Documents')
+  ensureDir(documentsDir)
+  fs.writeFileSync(path.join(documentsDir, 'reader-workspace.pdf'), READER_PDF)
+
   const notesDir = path.join(baseDir, 'Notes')
   ensureDir(notesDir)
   fs.writeFileSync(path.join(notesDir, 'autosave-parity.txt'), AUTOSAVE_PARITY_TXT_CONTENT)
@@ -137,6 +185,7 @@ export function generateTestMedia(baseDir: string) {
     JSON.stringify({ name: 'test', items: [1, 2, 3] }, null, 2),
   )
   fs.writeFileSync(path.join(docsDir, 'sample.pdf'), MINIMAL_PDF)
+  fs.writeFileSync(path.join(docsDir, 'reader-workspace.pdf'), READER_PDF)
   // Unsupported type for workspace "modal inside window" e2e test
   fs.writeFileSync(path.join(docsDir, 'unsupported.xyz'), Buffer.from('test'))
 

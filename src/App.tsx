@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/solid-query'
-import { Switch, Match, Show, createSignal, createMemo } from 'solid-js'
+import { Switch, Match, Show, createSignal, createMemo, lazy } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { SolidThemeSync } from './SolidThemeSync'
 import { ThemeSwitcher } from './ThemeSwitcher'
@@ -11,6 +11,10 @@ import { CanvasPage } from './CanvasPage'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { post } from '@/lib/api'
 import { OfflineStatus } from './OfflineStatus'
+
+const ReaderDialog = lazy(() =>
+  import('./reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
+)
 
 function LoginPage() {
   const [password, setPassword] = createSignal('')
@@ -134,6 +138,9 @@ export function App() {
           </>
         </Match>
       </Switch>
+      <Show when={new URLSearchParams(loc().search).has('reader')}>
+        <ReaderDialog />
+      </Show>
     </>
   )
 }

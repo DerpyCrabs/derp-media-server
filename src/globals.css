@@ -1,4 +1,64 @@
 @import 'tailwindcss';
+
+.reader-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: inherit;
+}
+
+.reader-markdown .markdown-document,
+.reader-markdown .markdown-document .cm-editor,
+.reader-markdown .markdown-document .cm-scroller,
+.reader-markdown .markdown-document .cm-content {
+  height: auto;
+  min-height: 0;
+  color: inherit;
+}
+
+.reader-markdown .markdown-document .cm-scroller {
+  overflow: visible;
+}
+
+.reader-markdown .markdown-document-compact .cm-content {
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.reader-viewport::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.reader-viewport::-webkit-scrollbar-track,
+.reader-selection-preview::-webkit-scrollbar-track,
+.reader-selection-result::-webkit-scrollbar-track {
+  background: #181818;
+}
+
+.reader-viewport::-webkit-scrollbar-thumb {
+  border: 3px solid #181818;
+  border-radius: 999px;
+  background: #555555;
+}
+
+.reader-selection-preview::-webkit-scrollbar,
+.reader-selection-result::-webkit-scrollbar {
+  width: 10px;
+}
+
+.reader-selection-preview::-webkit-scrollbar-thumb,
+.reader-selection-result::-webkit-scrollbar-thumb {
+  border: 2px solid #181818;
+  border-radius: 999px;
+  background: #555555;
+}
+
+@media (max-width: 820px) {
+  .reader-viewport {
+    padding: 14px;
+  }
+}
 @import 'tw-animate-css';
 
 @custom-variant dark (&:is([data-theme$='-dark'] *));

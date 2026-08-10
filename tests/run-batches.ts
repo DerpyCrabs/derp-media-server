@@ -59,6 +59,7 @@ const BATCHES = [
       'video-player',
       'image-viewer',
       'pdf-viewer',
+      'reader',
       'download',
       'text-editor',
       'knowledge-base',

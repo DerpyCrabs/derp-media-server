@@ -48,6 +48,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  lazy,
   onCleanup,
   type JSX,
 } from 'solid-js'
@@ -61,6 +62,10 @@ import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
 import type { TextViewerShareContext } from '../media/TextViewerDialog'
 import type { WorkspaceShareConfig } from './workspace-browser-pane-types'
+
+const ReaderDialog = lazy(() =>
+  import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
+)
 
 export type WorkspaceVideoListenOnlyDetail = {
   path: string
@@ -1039,41 +1044,55 @@ export function WorkspaceViewerPane(props: Props) {
       </Show>
 
       <Show when={mediaType() === MediaType.PDF && viewingPath()}>
-        <div class='flex h-full min-h-0 flex-col'>
-          <div class='flex h-8 shrink-0 items-center justify-end gap-0.5 border-b border-border bg-muted/50 px-1'>
-            <button
-              type='button'
-              title='Open in new tab'
-              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
-              onClick={handlePdfOpenTab}
-            >
-              <ExternalLink class='h-3.5 w-3.5' stroke-width={2} />
-            </button>
-            <button
-              type='button'
-              title='Download'
-              class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
-              onClick={() => {
-                const link = document.createElement('a')
-                link.href = downloadHref()
-                link.download = fileName()
-                document.body.appendChild(link)
-                link.click()
-                document.body.removeChild(link)
-              }}
-            >
-              <Download class='h-3.5 w-3.5' stroke-width={2} />
-            </button>
+        <Show
+          when={share()}
+          fallback={
+            <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
+              <ReaderDialog
+                sourcePath={viewingPath()}
+                sourceKind='pdf'
+                embedded
+                showClose={false}
+              />
+            </div>
+          }
+        >
+          <div class='flex h-full min-h-0 flex-col'>
+            <div class='flex h-8 shrink-0 items-center justify-end gap-0.5 border-b border-border bg-muted/50 px-1'>
+              <button
+                type='button'
+                title='Open in new tab'
+                class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
+                onClick={handlePdfOpenTab}
+              >
+                <ExternalLink class='h-3.5 w-3.5' stroke-width={2} />
+              </button>
+              <button
+                type='button'
+                title='Download'
+                class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
+                onClick={() => {
+                  const link = document.createElement('a')
+                  link.href = downloadHref()
+                  link.download = fileName()
+                  document.body.appendChild(link)
+                  link.click()
+                  document.body.removeChild(link)
+                }}
+              >
+                <Download class='h-3.5 w-3.5' stroke-width={2} />
+              </button>
+            </div>
+            <div class='flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-neutral-800'>
+              <embed
+                src={mediaUrl() ? `${mediaUrl()}#toolbar=1` : ''}
+                type='application/pdf'
+                class='h-full w-full'
+                title={fileName()}
+              />
+            </div>
           </div>
-          <div class='flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-neutral-800'>
-            <embed
-              src={mediaUrl() ? `${mediaUrl()}#toolbar=1` : ''}
-              type='application/pdf'
-              class='h-full w-full'
-              title={fileName()}
-            />
-          </div>
-        </div>
+        </Show>
       </Show>
 
       <Show when={mediaType() === MediaType.VIDEO && viewingPath()}>

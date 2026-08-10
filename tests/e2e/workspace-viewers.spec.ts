@@ -349,15 +349,139 @@ test.describe('Workspace Image Viewer', () => {
 })
 
 test.describe('Workspace PDF Viewer', () => {
-  test('PDF viewer embed and toolbar actions', async () => {
+  test('keeps two readers independent and hands fullscreen between them', async () => {
+    await page.addInitScript(() => {
+      let active: Element | null = null
+      Object.defineProperty(document, 'fullscreenElement', {
+        configurable: true,
+        get: () => active,
+      })
+      HTMLElement.prototype.requestFullscreen = async function () {
+        active = this
+        document.dispatchEvent(new Event('fullscreenchange'))
+      }
+      document.exitFullscreen = async () => {
+        active = null
+        document.dispatchEvent(new Event('fullscreenchange'))
+      }
+    })
+    await gotoWorkspace(page)
+    const browser = getBrowserContent(page)
+    await browser.getByText('Documents', { exact: true }).click()
+    await browser.locator('table').getByText('reader-workspace.pdf').click()
+    await expect(getWindowGroups(page)).toHaveCount(2)
+    await browser
+      .locator('table')
+      .getByText('sample.pdf')
+      .evaluate((row) => (row as HTMLElement).click())
+    await expect(getWindowGroups(page)).toHaveCount(3)
+
+    const readers = page.getByTestId('reader-dialog')
+    await expect(readers).toHaveCount(2)
+    await expect(readers.nth(0).getByTestId('reader-page-indicator')).toContainText('Page 1 / 4')
+    await expect(readers.nth(1).getByTestId('reader-page-indicator')).toContainText('Page 1 / 1')
+    await readers
+      .nth(0)
+      .getByTestId('reader-viewport')
+      .evaluate((viewport) => {
+        viewport.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      })
+    await page.keyboard.press('ArrowRight')
+    await expect(readers.nth(0).getByTestId('reader-page-indicator')).toContainText('Page 2 / 4')
+    await expect(readers.nth(1).getByTestId('reader-page-indicator')).toContainText('Page 1 / 1')
+    await readers
+      .nth(0)
+      .getByRole('button', { name: 'Enter fullscreen' })
+      .evaluate((button) => (button as HTMLElement).click())
+    await expect(readers.nth(0).getByRole('button', { name: 'Exit fullscreen' })).toBeVisible()
+    await expect(readers.nth(1).getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+
+    await readers
+      .nth(1)
+      .getByRole('button', { name: 'Enter fullscreen' })
+      .evaluate((button) => (button as HTMLElement).click())
+    await expect(readers.nth(0).getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+    await expect(readers.nth(1).getByRole('button', { name: 'Exit fullscreen' })).toBeVisible()
+    const secondIsFullscreen = await readers
+      .nth(1)
+      .evaluate((reader) => document.fullscreenElement === reader)
+    expect(secondIsFullscreen).toBe(true)
+
+    const secondText = readers.nth(1).locator('.textLayer span').filter({ hasText: 'Selectable' })
+    await expect(secondText).toBeVisible()
+    await secondText.evaluate((span) => {
+      const range = document.createRange()
+      range.selectNodeContents(span)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      const rect = span.getBoundingClientRect()
+      span.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          clientX: rect.right - 2,
+          clientY: rect.top + rect.height / 2,
+        }),
+      )
+    })
+    const secondMenu = readers.nth(1).getByTestId('reader-selection-menu')
+    await expect(secondMenu).toBeVisible()
+    const menuInsideSecondReader = await secondMenu.evaluate((menu) => {
+      const viewport = menu
+        .closest('[data-testid="reader-dialog"]')
+        ?.querySelector('[data-testid="reader-viewport"]')
+      if (!viewport) return false
+      const menuRect = menu.getBoundingClientRect()
+      const viewportRect = viewport.getBoundingClientRect()
+      return menuRect.top >= viewportRect.top && menuRect.bottom <= viewportRect.bottom
+    })
+    expect(menuInsideSecondReader).toBe(true)
+  })
+
+  test('opens PDF in reader with selection and position controls', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Documents', 'sample.pdf')
-    await test.step('opens PDF embed', async () => {
-      await expect(viewer.locator('embed[type="application/pdf"]')).toBeVisible()
+    await test.step('opens reader canvas instead of browser PDF embed', async () => {
+      await expect(viewer.getByTestId('reader-dialog')).toBeVisible()
+      await expect(viewer.getByTestId('pdf-canvas')).toBeVisible()
+      await expect(viewer.locator('embed[type="application/pdf"]')).toHaveCount(0)
     })
-    await test.step('shows download and open-in-new-tab buttons', async () => {
-      await expect(viewer.locator('button[title="Download"]')).toBeVisible()
-      await expect(viewer.locator('button[title="Open in new tab"]')).toBeVisible()
+    await test.step('shows reader settings', async () => {
+      await viewer.getByTestId('reader-settings-button').click()
+      await expect(viewer.getByTestId('reader-settings')).toContainText('Default action')
+      await expect(viewer.getByTestId('reader-settings')).toContainText('Select')
+      await viewer.getByRole('button', { name: 'none', exact: true }).click()
+    })
+    await test.step('opens selection menu from real mouse text selection', async () => {
+      const textSpan = viewer.locator('.textLayer span').filter({ hasText: 'Selectable' }).first()
+      await expect(textSpan).toBeVisible()
+      const bounds = await textSpan.boundingBox()
+      if (!bounds) throw new Error('Expected selectable PDF text bounds')
+      await textSpan.dblclick({ position: { x: 10, y: bounds.height / 2 } })
+      await expect
+        .poll(() => page.evaluate(() => window.getSelection()?.toString().trim() ?? ''))
+        .not.toBe('')
+      await expect(page.getByTestId('reader-selection-menu')).toBeVisible()
+      await expect(page.getByTestId('reader-selection-menu')).toContainText('Selectable')
+      const verticalAlignment = await page
+        .getByRole('textbox', { name: 'Selected text' })
+        .evaluate((input) => {
+          const field = input.parentElement?.getBoundingClientRect()
+          const translate = document
+            .querySelector<HTMLElement>('[data-testid="reader-translate"]')
+            ?.getBoundingClientRect()
+          const define = document
+            .querySelector<HTMLElement>('[data-testid="reader-define"]')
+            ?.getBoundingClientRect()
+          if (!field || !translate || !define) throw new Error('Selection action geometry missing')
+          const center = (rect: DOMRect) => rect.top + rect.height / 2
+          return {
+            translate: center(translate) - center(field),
+            define: center(define) - center(field),
+          }
+        })
+      expect(verticalAlignment.translate).toBeCloseTo(0, 1)
+      expect(verticalAlignment.define).toBeCloseTo(0, 1)
     })
   })
 })

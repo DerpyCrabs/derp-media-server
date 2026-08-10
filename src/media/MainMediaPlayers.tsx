@@ -7,9 +7,13 @@ import { ImageViewerDialog } from './ImageViewerDialog'
 import { TextViewerDialog, type TextViewerShareContext } from './TextViewerDialog'
 import { UnsupportedFileViewerDialog } from './UnsupportedFileViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
+import { closeViewer } from '../lib/url-state-actions'
 
 const PdfViewerDialog = lazy(() =>
   import('./PdfViewerDialog').then((module) => ({ default: module.PdfViewerDialog })),
+)
+const ReaderDialog = lazy(() =>
+  import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
 )
 
 type Props = {
@@ -23,14 +27,20 @@ type Props = {
 function LazyPdfViewerDialog(props: Pick<Props, 'shareContext'>) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
-  const isPdf = () => {
-    const viewingPath = params().get('viewing') ?? ''
-    return getMediaType(viewingPath.split('.').pop()?.toLowerCase() ?? '') === MediaType.PDF
-  }
+  const viewingPath = () => params().get('viewing') ?? ''
+  const isPdf = () =>
+    getMediaType(viewingPath().split('.').pop()?.toLowerCase() ?? '') === MediaType.PDF
 
   return (
     <Show when={isPdf()}>
-      <PdfViewerDialog shareContext={props.shareContext} />
+      <Show
+        when={props.shareContext}
+        fallback={
+          <ReaderDialog sourcePath={viewingPath()} sourceKind='pdf' onClose={closeViewer} />
+        }
+      >
+        <PdfViewerDialog shareContext={props.shareContext} />
+      </Show>
     </Show>
   )
 }
