@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppState, Shared, default_settings, settings_path},
+    app::{AppState, Shared, default_settings, emit_admin, settings_path},
     error::{AppError, AppResult},
     store, workspace_persistence,
 };
@@ -45,12 +45,15 @@ async fn get_settings(State(state): State<Shared>) -> Json<Value> {
 
 async fn mutate(
     state: &AppState,
-    mut update: impl FnMut(&mut Value) -> AppResult<Value>,
+    update: impl FnOnce(&mut Value) -> AppResult<Value>,
 ) -> AppResult<Json<Value>> {
-    let _guard = state.store_lock.lock().await;
-    let mut value = sanitized(state);
-    let result = update(&mut value)?;
-    store::update_section(&settings_path(state), &state.config.library_key, value)?;
+    let result = store::mutate_section(
+        &settings_path(state),
+        &state.config.library_key,
+        default_settings(),
+        update,
+    )?;
+    emit_admin(state, "settings-changed");
     Ok(Json(result))
 }
 

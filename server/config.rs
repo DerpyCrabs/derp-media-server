@@ -567,7 +567,13 @@ fn parse_js_positive_integer(value: &str) -> Option<u64> {
     digits.parse::<u64>().ok().filter(|seconds| *seconds > 0)
 }
 
-const DURABLE_DATA: [&str; 4] = ["settings.json", "stats.json", "shares.json", "mounts.json"];
+const DURABLE_DATA: [&str; 5] = [
+    "settings.json",
+    "stats.json",
+    "shares.json",
+    "mounts.json",
+    "canvases.json",
+];
 const REBUILDABLE_DATA: [(&str, &str); 3] = [
     (".search-index", "search-index"),
     (".thumbnails", "thumbnails"),

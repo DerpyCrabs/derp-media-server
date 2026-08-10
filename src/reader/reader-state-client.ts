@@ -95,6 +95,47 @@ const pendingKey = (path: string, share: MediaShareContext) =>
 
 type ReaderStateSaveResult = { revision: number; fingerprint: string; queued?: boolean } | null
 const readerStateSaveQueues = new Map<string, Promise<ReaderStateSaveResult>>()
+let readerStateSaveSequence = 0
+
+type PendingReaderState = {
+  state: ReaderSyncedState
+  revision: number
+  fingerprint: string
+  saveId?: number
+}
+
+const writePendingState = (
+  path: string,
+  share: MediaShareContext,
+  state: ReaderSyncedState,
+  revision: number,
+  fingerprint: string,
+  saveId: number,
+  currentOnly = false,
+) => {
+  try {
+    if (currentOnly) {
+      const pending = JSON.parse(
+        localStorage.getItem(pendingKey(path, share)) ?? 'null',
+      ) as PendingReaderState | null
+      if (pending?.saveId !== saveId) return
+    }
+    localStorage.setItem(
+      pendingKey(path, share),
+      JSON.stringify({ state, revision, fingerprint, saveId } satisfies PendingReaderState),
+    )
+  } catch {}
+}
+
+const removePendingState = (path: string, share: MediaShareContext, saveId: number) => {
+  const key = pendingKey(path, share)
+  try {
+    const pending = JSON.parse(localStorage.getItem(key) ?? 'null') as PendingReaderState | null
+    if (!pending || pending.saveId === saveId) localStorage.removeItem(key)
+  } catch {
+    localStorage.removeItem(key)
+  }
+}
 
 const retryTransient = async <T>(request: () => Promise<T>): Promise<T> => {
   let failure: unknown
@@ -145,6 +186,7 @@ async function saveSyncedReaderStateNow(
   state: ReaderSyncedState,
   revision: number,
   fingerprint: string,
+  saveId: number,
 ): Promise<ReaderStateSaveResult> {
   const requestPath = share ? shareRelativePath(path, share) : path
   try {
@@ -157,11 +199,14 @@ async function saveSyncedReaderStateNow(
       }),
     )
     if (!share) clearReaderPosition(path)
-    localStorage.removeItem(pendingKey(path, share))
+    removePendingState(path, share, saveId)
     return saved
   } catch (error) {
-    if (error instanceof ApiError && error.status === 409) return null
-    localStorage.setItem(pendingKey(path, share), JSON.stringify({ state, revision, fingerprint }))
+    if (error instanceof ApiError && error.status === 409) {
+      removePendingState(path, share, saveId)
+      return null
+    }
+    writePendingState(path, share, state, revision, fingerprint, saveId, true)
     return { revision, fingerprint, queued: true }
   }
 }
@@ -174,12 +219,15 @@ export function saveSyncedReaderState(
   fingerprint: string,
 ): Promise<ReaderStateSaveResult> {
   const key = pendingKey(path, share)
+  const saveId = ++readerStateSaveSequence
+  writePendingState(path, share, state, revision, fingerprint, saveId)
   const previous = readerStateSaveQueues.get(key)
   const queued = (async () => {
     const prior = await previous?.catch(() => null)
     const effectiveRevision =
       prior && !prior.queued && prior.fingerprint === fingerprint ? prior.revision : revision
-    return saveSyncedReaderStateNow(path, share, state, effectiveRevision, fingerprint)
+    writePendingState(path, share, state, effectiveRevision, fingerprint, saveId, true)
+    return saveSyncedReaderStateNow(path, share, state, effectiveRevision, fingerprint, saveId)
   })()
   readerStateSaveQueues.set(key, queued)
   const cleanup = () => {

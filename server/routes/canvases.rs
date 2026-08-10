@@ -20,13 +20,16 @@ async fn list(State(state): State<Shared>) -> Json<Value> {
 }
 
 async fn sync(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
-    let _guard = state.store_lock.lock().await;
-    let merged =
-        canvas_persistence::merge(&read(&state), body.get("canvases").unwrap_or(&Value::Null));
-    store::update_section(
+    let incoming = body.get("canvases").unwrap_or(&Value::Null);
+    let merged = store::mutate_section(
         &canvases_path(&state),
         &state.config.library_key,
-        merged.clone(),
+        json!([]),
+        |current| {
+            let merged = canvas_persistence::merge(current, incoming);
+            *current = merged.clone();
+            Ok(merged)
+        },
     )?;
     Ok(Json(json!({"canvases":merged})))
 }

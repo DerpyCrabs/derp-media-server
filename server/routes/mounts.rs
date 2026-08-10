@@ -2,7 +2,7 @@ use crate::{
     app::{AppState, Shared, all_roots, emit_admin, roots, timestamp_ms},
     config::{Config, MediaRoot},
     error::{AppError, AppResult},
-    shares, store,
+    shares, state_db,
 };
 use axum::{
     Json, Router,
@@ -14,30 +14,34 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn load(config: &Config) -> Vec<MediaRoot> {
-    let value = store::read(&config.data_path.join("mounts.json"));
-    value["mounts"]
-        .as_array()
+    state_db::mounts(&state_db::database(config))
+        .unwrap_or_default()
         .into_iter()
-        .flatten()
-        .filter_map(|mount| {
-            Some(MediaRoot {
-                id: mount["id"].as_str()?.into(),
-                name: mount["name"].as_str()?.into(),
-                path: PathBuf::from(mount["path"].as_str()?),
-                editable_folders: vec![],
-                read_only: true,
-                source: "mount".into(),
-                created_at: mount["createdAt"].as_u64().map(u128::from),
-            })
+        .map(|(id, name, path, created_at)| MediaRoot {
+            id,
+            name,
+            path,
+            editable_folders: vec![],
+            read_only: true,
+            source: "mount".into(),
+            created_at,
         })
         .collect()
 }
 
 fn persist(state: &AppState, mounts: &[MediaRoot]) -> AppResult<()> {
-    store::write(
-        &state.config.data_path.join("mounts.json"),
-        &json!({"version":1,"mounts":mounts.iter().map(|root| json!({"id":root.id,"name":root.name,"path":root.path,"createdAt":root.created_at.unwrap_or_else(timestamp_ms)})).collect::<Vec<_>>() }),
-    )
+    let values = mounts
+        .iter()
+        .map(|root| {
+            (
+                root.id.clone(),
+                root.name.clone(),
+                root.path.clone(),
+                Some(root.created_at.unwrap_or_else(timestamp_ms)),
+            )
+        })
+        .collect::<Vec<_>>();
+    state_db::replace_mounts(&state_db::database(&state.config), &values)
 }
 
 fn validate(

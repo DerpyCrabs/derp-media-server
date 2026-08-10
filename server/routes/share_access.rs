@@ -69,7 +69,6 @@ pub(crate) fn ensure_quota(share: &shares::Share, requested: u64) -> AppResult<(
 }
 
 pub(crate) async fn account_bytes(state: &AppState, token: &str, delta: i64) -> AppResult<()> {
-    let _guard = state.store_lock.lock().await;
     shares::add_used_bytes(&state.config, token, delta)?;
     Ok(())
 }
@@ -195,7 +194,6 @@ async fn pins(
         &share.path,
         &token,
     );
-    let _guard = state.store_lock.lock().await;
     shares::update_workspace(
         &state.config,
         &roots(&state),
@@ -221,7 +219,6 @@ async fn presets(
         body.get("presets").unwrap_or(&Value::Null),
         Some((&share.path, &token)),
     );
-    let _guard = state.store_lock.lock().await;
     shares::update_workspace(
         &state.config,
         &roots(&state),
@@ -247,14 +244,16 @@ async fn view(
     } else {
         share.path
     };
-    let _guard = state.store_lock.lock().await;
-    let mut stats = store::section(
+    store::mutate_section(
         &stats_path(&state),
         &state.config.library_key,
         json!({"views":{},"shareViews":{}}),
-    );
-    stats["shareViews"][&logical] = json!(stats["shareViews"][&logical].as_u64().unwrap_or(0) + 1);
-    store::update_section(&stats_path(&state), &state.config.library_key, stats)?;
+        |stats| {
+            stats["shareViews"][&logical] =
+                json!(stats["shareViews"][&logical].as_u64().unwrap_or(0) + 1);
+            Ok(())
+        },
+    )?;
     Ok(Json(json!({"success":true})))
 }
 

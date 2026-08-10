@@ -1,7 +1,7 @@
 use crate::{
     config::{Config, MediaRoot},
     error::{AppError, AppResult},
-    media, store,
+    media, state_db,
 };
 use aes_gcm::{
     Aes256Gcm, KeyInit,
@@ -11,7 +11,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, Mac};
 use scrypt::{Params, scrypt};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use sha2::Sha256;
 use std::{
     path::Path,
@@ -109,11 +109,7 @@ fn roots(config: &Config, runtime: &[MediaRoot]) -> Vec<MediaRoot> {
     r
 }
 pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
-    let path = config.data_path.join("shares.json");
-    let raw = store::section(&path, &config.library_key, json!({"shares":[]}));
-    let mut list: Vec<Share> =
-        serde_json::from_value(raw.get("shares").cloned().unwrap_or_else(|| json!([])))
-            .unwrap_or_default();
+    let mut list = raw(config).unwrap_or_default();
     let all = roots(config, runtime);
     for share in &mut list {
         if let (Some(id), Some(rel)) = (&share.root_id, &share.root_relative_path) {
@@ -140,22 +136,8 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
     }
     list
 }
-fn raw(config: &Config) -> Vec<Share> {
-    let path = config.data_path.join("shares.json");
-    serde_json::from_value(
-        store::section(&path, &config.library_key, json!({"shares":[]}))
-            .get("shares")
-            .cloned()
-            .unwrap_or_else(|| json!([])),
-    )
-    .unwrap_or_default()
-}
-fn save(config: &Config, list: &[Share]) -> AppResult<()> {
-    store::update_section(
-        &config.data_path.join("shares.json"),
-        &config.library_key,
-        json!({"shares":list}),
-    )
+fn raw(config: &Config) -> AppResult<Vec<Share>> {
+    state_db::shares(&state_db::database(config), &config.library_key)
 }
 pub fn create(
     config: &Config,
@@ -186,21 +168,19 @@ pub fn create(
         workspace_taskbar_pins: None,
         workspace_layout_presets: None,
     };
-    let mut list = raw(config);
-    list.push(share.clone());
-    save(config, &list)?;
+    state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
+        list.push(share.clone());
+        Ok(())
+    })?;
     share.passcode = plain;
     Ok(share)
 }
 pub fn delete(config: &Config, token: &str) -> AppResult<bool> {
-    let mut list = raw(config);
-    let len = list.len();
-    list.retain(|s| s.token != token);
-    if len == list.len() {
-        return Ok(false);
-    }
-    save(config, &list)?;
-    Ok(true)
+    state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
+        let len = list.len();
+        list.retain(|share| share.token != token);
+        Ok(len != list.len())
+    })
 }
 pub fn update(
     config: &Config,
@@ -209,17 +189,22 @@ pub fn update(
     editable: Option<bool>,
     restrictions: Option<Restrictions>,
 ) -> AppResult<Option<Share>> {
-    let mut list = raw(config);
-    let Some(s) = list.iter_mut().find(|s| s.token == token) else {
+    let changed =
+        state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
+            let Some(share) = list.iter_mut().find(|share| share.token == token) else {
+                return Ok(false);
+            };
+            if let Some(value) = editable {
+                share.editable = value;
+            }
+            if restrictions.is_some() {
+                share.restrictions = restrictions;
+            }
+            Ok(true)
+        })?;
+    if !changed {
         return Ok(None);
-    };
-    if let Some(v) = editable {
-        s.editable = v
     }
-    if restrictions.is_some() {
-        s.restrictions = restrictions
-    }
-    save(config, &list)?;
     Ok(read(config, runtime).into_iter().find(|s| s.token == token))
 }
 pub fn update_workspace(
@@ -229,34 +214,39 @@ pub fn update_workspace(
     pins: Option<Value>,
     presets: Option<Value>,
 ) -> AppResult<Option<Share>> {
-    let mut list = raw(config);
-    let Some(share) = list.iter_mut().find(|share| share.token == token) else {
+    let changed =
+        state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
+            let Some(share) = list.iter_mut().find(|share| share.token == token) else {
+                return Ok(false);
+            };
+            if let Some(value) = pins {
+                share.workspace_taskbar_pins = Some(value);
+            }
+            if let Some(value) = presets {
+                share.workspace_layout_presets = Some(value);
+            }
+            Ok(true)
+        })?;
+    if !changed {
         return Ok(None);
-    };
-    if let Some(value) = pins {
-        share.workspace_taskbar_pins = Some(value);
     }
-    if let Some(value) = presets {
-        share.workspace_layout_presets = Some(value);
-    }
-    save(config, &list)?;
     Ok(read(config, runtime)
         .into_iter()
         .find(|share| share.token == token))
 }
 pub fn add_used_bytes(config: &Config, token: &str, delta: i64) -> AppResult<bool> {
-    let mut list = raw(config);
-    let Some(share) = list.iter_mut().find(|share| share.token == token) else {
-        return Ok(false);
-    };
-    let current = share.used_bytes.unwrap_or(0);
-    share.used_bytes = Some(if delta >= 0 {
-        current.saturating_add(delta as u64)
-    } else {
-        current.saturating_sub(delta.unsigned_abs())
-    });
-    save(config, &list)?;
-    Ok(true)
+    state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
+        let Some(share) = list.iter_mut().find(|share| share.token == token) else {
+            return Ok(false);
+        };
+        let current = share.used_bytes.unwrap_or(0);
+        share.used_bytes = Some(if delta >= 0 {
+            current.saturating_add(delta as u64)
+        } else {
+            current.saturating_sub(delta.unsigned_abs())
+        });
+        Ok(true)
+    })
 }
 fn token() -> String {
     let mut b = [0; 16];

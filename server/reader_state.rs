@@ -1,7 +1,10 @@
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::{AppError, AppResult},
+    state_db,
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
-use std::{path::Path, time::Duration};
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct ReaderState {
@@ -20,36 +23,7 @@ fn like_prefix(path: &str) -> String {
 }
 
 fn connection(path: &Path) -> AppResult<Connection> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(AppError::io)?;
-    }
-    let connection =
-        Connection::open(path).map_err(|error| AppError::internal(error.to_string()))?;
-    connection
-        .busy_timeout(Duration::from_secs(5))
-        .map_err(|error| AppError::internal(error.to_string()))?;
-    connection
-        .execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA foreign_keys=ON;
-             CREATE TABLE IF NOT EXISTS reader_state (
-               scope TEXT NOT NULL,
-               path TEXT NOT NULL,
-               state_json TEXT NOT NULL,
-               fingerprint TEXT NOT NULL,
-               revision INTEGER NOT NULL,
-               updated_at INTEGER NOT NULL,
-               PRIMARY KEY(scope, path)
-             );
-             CREATE TABLE IF NOT EXISTS app_preferences (
-               scope TEXT PRIMARY KEY,
-               state_json TEXT NOT NULL,
-               revision INTEGER NOT NULL,
-               updated_at INTEGER NOT NULL
-             );",
-        )
-        .map_err(|error| AppError::internal(error.to_string()))?;
-    Ok(connection)
+    state_db::connection(path)
 }
 
 pub fn get(database: &Path, scope: &str, path: &str) -> AppResult<Option<ReaderState>> {

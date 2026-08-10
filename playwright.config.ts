@@ -17,6 +17,7 @@ const releaseServer =
   process.platform === 'win32'
     ? 'target\\release\\derp-media-server.exe --production'
     : 'target/release/derp-media-server --production'
+const seededReleaseServer = `bun tests/fixtures/seed-state.ts && ${releaseServer}`
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -59,7 +60,7 @@ export default defineConfig({
   globalSetup: './tests/fixtures/setup.ts',
   globalTeardown: './tests/fixtures/teardown.ts',
   webServer: {
-    command: releaseServer,
+    command: seededReleaseServer,
     url: `http://localhost:${port}`,
     reuseExistingServer: false,
     timeout: 120_000,

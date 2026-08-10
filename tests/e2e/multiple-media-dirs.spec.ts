@@ -266,11 +266,13 @@ test.describe.serial('Multiple media directories', () => {
     await page.goto(`${baseUrl}/share/${share.token}`)
     await expect(page.getByText('reconnected.txt')).toBeVisible()
 
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(tempDir, 'data', 'mounts.json'), 'utf-8'),
-    )
-    expect(persisted.mounts[0].id).toBe(mount.id)
-    expect(persisted.mounts[0].name).toBe('Cold Storage')
+    const persistedMounts = await page.request.get(`${baseUrl}/api/admin/mounts`)
+    expect((await persistedMounts.json()).mounts[0]).toMatchObject({
+      id: mount.id,
+      name: 'Cold Storage',
+    })
+    expect(fs.existsSync(path.join(tempDir, 'data', 'app.sqlite3'))).toBe(true)
+    expect(fs.existsSync(path.join(tempDir, 'data', 'mounts.json'))).toBe(false)
 
     const deleteResponse = await page.request.delete(`${baseUrl}/api/admin/mounts/${mount.id}`)
     expect(deleteResponse.ok()).toBe(true)

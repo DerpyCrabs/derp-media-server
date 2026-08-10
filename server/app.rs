@@ -19,7 +19,6 @@ use tokio::sync::{Mutex, RwLock};
 pub(crate) struct AppState {
     pub config: Config,
     pub runtime_roots: RwLock<Vec<MediaRoot>>,
-    pub store_lock: Mutex<()>,
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,

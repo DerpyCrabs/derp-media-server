@@ -15,6 +15,7 @@ mod reader_state;
 mod routes;
 mod server;
 mod shares;
+mod state_db;
 mod store;
 mod thumbnails;
 mod virtual_directory;

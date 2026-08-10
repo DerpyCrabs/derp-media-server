@@ -1,8 +1,8 @@
 use crate::{
-    app::{AppState, Shared, emit_admin, settings_path},
+    app::{AppState, Shared},
     config::{Config, TlsConfig},
     file_search::FileSearch,
-    image_variants, routes, thumbnails,
+    image_variants, routes, state_db, thumbnails,
 };
 use axum::{Router, extract::DefaultBodyLimit, middleware};
 use std::sync::atomic::AtomicU64;
@@ -137,29 +137,10 @@ fn router(state: Shared) -> Router {
         .with_state(state)
 }
 
-fn watch_settings(state: &Shared) {
-    let weak = Arc::downgrade(state);
-    tokio::spawn(async move {
-        let mut last_modified = None;
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let Some(state) = weak.upgrade() else { break };
-            let modified = fs::metadata(settings_path(&state))
-                .await
-                .ok()
-                .and_then(|metadata| metadata.modified().ok());
-            if last_modified.is_some() && modified.is_some() && modified != last_modified {
-                emit_admin(&state, "settings-changed");
-            }
-            if modified.is_some() {
-                last_modified = modified;
-            }
-        }
-    });
-}
-
 pub(crate) async fn run() {
     let config = Config::load().unwrap_or_else(|error| panic!("Failed to load config: {error}"));
+    state_db::initialize(&config)
+        .unwrap_or_else(|error| panic!("Failed to initialize app database: {error}"));
     let dev = std::env::var("NODE_ENV").unwrap_or_default() != "production"
         && !std::env::args().any(|argument| argument == "--production");
     let vite_port = vite_port(config.port);
@@ -205,7 +186,6 @@ pub(crate) async fn run() {
     let state = Arc::new(AppState {
         config: config.clone(),
         runtime_roots: RwLock::new(runtime_roots),
-        store_lock: Mutex::new(()),
         dev,
         vite_port,
         client,
@@ -230,7 +210,6 @@ pub(crate) async fn run() {
         hermes_project_operations: Mutex::new(()),
         hermes_runtime_ids: Mutex::new(HashMap::new()),
     });
-    watch_settings(&state);
     let address = format!("0.0.0.0:{}", config.port);
     if let Some(tls) = &config.tls {
         let tls = rustls_config(tls)
