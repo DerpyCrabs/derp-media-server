@@ -32,6 +32,8 @@ pub(crate) struct AppState {
     pub preview_sequence: AtomicU64,
     pub login_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub share_verify_attempts: Mutex<HashMap<String, (u32, u128)>>,
+    pub reader_state_writes: Mutex<HashMap<String, (u32, u128)>>,
+    pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,
     pub file_search: Arc<FileSearch>,

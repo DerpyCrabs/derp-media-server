@@ -228,7 +228,9 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
             ? { viewing: initialStateRaw.viewing }
             : {}),
           ...(definition.type === 'viewer' &&
-          (initialStateRaw.readerKind === 'pdf' || initialStateRaw.readerKind === 'folder')
+          (initialStateRaw.readerKind === 'pdf' ||
+            initialStateRaw.readerKind === 'folder' ||
+            initialStateRaw.readerKind === 'book')
             ? { readerKind: initialStateRaw.readerKind }
             : {}),
         },

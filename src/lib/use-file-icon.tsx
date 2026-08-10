@@ -69,6 +69,7 @@ function colorClass(mediaType: MediaType): string {
     case MediaType.TEXT:
       return 'text-cyan-500'
     case MediaType.PDF:
+    case MediaType.BOOK:
       return 'text-orange-500'
     case MediaType.OTHER:
     default:
@@ -193,6 +194,7 @@ function renderFileIcon(
     case MediaType.TEXT:
       return <FileText class={`${cls} text-cyan-500`} size={sz} stroke-width={sw} />
     case MediaType.PDF:
+    case MediaType.BOOK:
       return <Book class={`${cls} text-orange-500`} size={sz} stroke-width={sw} />
     case MediaType.OTHER:
       return <FileQuestion class={`${cls} text-yellow-500`} size={sz} stroke-width={sw} />

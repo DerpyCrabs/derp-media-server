@@ -12,7 +12,7 @@ import {
 } from '@/lib/text-document-target'
 import { queryKeys } from '@/lib/query-keys'
 import { fileDownloadHref } from '@/lib/download-urls'
-import { getMediaType } from '@/lib/media-utils'
+import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
 import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
@@ -27,7 +27,6 @@ import {
 } from '@/lib/text-editor-draft'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
 import Download from 'lucide-solid/icons/download'
-import ExternalLink from 'lucide-solid/icons/external-link'
 import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
@@ -86,6 +85,7 @@ type Props = {
   shareCanUpload: boolean
   onUpdateViewing: (windowId: string, path: string) => void
   onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
+  autoPlayVideo?: boolean
   /** Hand off video audio to taskbar; parent sets transport + closes tab if needed. */
   onListenOnlyHandoff?: (detail: WorkspaceVideoListenOnlyDetail) => void
   /** Close the viewer tab after switching to taskbar audio (playback keeps running). */
@@ -159,9 +159,7 @@ export function WorkspaceViewerPane(props: Props) {
   const currentTextTarget = createMemo(() => createTextDocumentTarget(viewingPath(), share()))
   const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
 
-  const mediaType = createMemo(() =>
-    getMediaType(viewingPath().split('.').pop()?.toLowerCase() ?? ''),
-  )
+  const mediaType = createMemo(() => getMediaTypeFromPath(viewingPath()))
 
   const mediaUrl = createMemo(() => {
     const path = viewingPath()
@@ -252,7 +250,7 @@ export function WorkspaceViewerPane(props: Props) {
             /* ignore */
           }
         }
-        void vid.play().catch(() => {})
+        if (props.autoPlayVideo !== false) void vid.play().catch(() => {})
       }
       vid.addEventListener('canplay', onCanPlay)
       vid.src = url
@@ -263,7 +261,7 @@ export function WorkspaceViewerPane(props: Props) {
       } catch {
         /* ignore */
       }
-      void vid.play().catch(() => {})
+      if (props.autoPlayVideo !== false) void vid.play().catch(() => {})
     }
 
     onCleanup(() => {
@@ -723,11 +721,6 @@ export function WorkspaceViewerPane(props: Props) {
     }
   }
 
-  function handlePdfOpenTab() {
-    const u = mediaUrl()
-    if (u) window.open(u, '_blank')
-  }
-
   function handleImageDownload() {
     const link = document.createElement('a')
     link.href = downloadHref()
@@ -931,15 +924,18 @@ export function WorkspaceViewerPane(props: Props) {
       data-no-window-drag
       class='absolute inset-0 flex min-h-0 flex-col overflow-hidden bg-background'
     >
-      <Show when={readerKind() && viewingPath()}>
-        <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-          <ReaderDialog
-            sourcePath={viewingPath()}
-            sourceKind={readerKind()!}
-            embedded
-            showClose={false}
-          />
-        </div>
+      <Show when={readerKind() && viewingPath()} keyed>
+        {(sourcePath) => (
+          <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
+            <ReaderDialog
+              sourcePath={sourcePath}
+              sourceKind={readerKind()!}
+              shareContext={share()}
+              embedded
+              showClose={false}
+            />
+          </div>
+        )}
       </Show>
 
       <Show when={!readerKind() && mediaType() === MediaType.IMAGE && viewingPath()}>
@@ -1055,56 +1051,32 @@ export function WorkspaceViewerPane(props: Props) {
         </div>
       </Show>
 
-      <Show when={!readerKind() && mediaType() === MediaType.PDF && viewingPath()}>
-        <Show
-          when={share()}
-          fallback={
-            <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-              <ReaderDialog
-                sourcePath={viewingPath()}
-                sourceKind='pdf'
-                embedded
-                showClose={false}
-              />
-            </div>
-          }
-        >
-          <div class='flex h-full min-h-0 flex-col'>
-            <div class='flex h-8 shrink-0 items-center justify-end gap-0.5 border-b border-border bg-muted/50 px-1'>
-              <button
-                type='button'
-                title='Open in new tab'
-                class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
-                onClick={handlePdfOpenTab}
-              >
-                <ExternalLink class='h-3.5 w-3.5' stroke-width={2} />
-              </button>
-              <button
-                type='button'
-                title='Download'
-                class='text-muted-foreground hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
-                onClick={() => {
-                  const link = document.createElement('a')
-                  link.href = downloadHref()
-                  link.download = fileName()
-                  document.body.appendChild(link)
-                  link.click()
-                  document.body.removeChild(link)
-                }}
-              >
-                <Download class='h-3.5 w-3.5' stroke-width={2} />
-              </button>
-            </div>
-            <div class='flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-neutral-800'>
-              <embed
-                src={mediaUrl() ? `${mediaUrl()}#toolbar=1` : ''}
-                type='application/pdf'
-                class='h-full w-full'
-                title={fileName()}
-              />
-            </div>
+      <Show when={!readerKind() && mediaType() === MediaType.PDF && viewingPath()} keyed>
+        {(sourcePath) => (
+          <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
+            <ReaderDialog
+              sourcePath={sourcePath}
+              sourceKind='pdf'
+              shareContext={share()}
+              embedded
+              showClose={false}
+            />
           </div>
-        </Show>
+        )}
+      </Show>
+
+      <Show when={!readerKind() && mediaType() === MediaType.BOOK && viewingPath()} keyed>
+        {(sourcePath) => (
+          <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
+            <ReaderDialog
+              sourcePath={sourcePath}
+              sourceKind='book'
+              shareContext={share()}
+              embedded
+              showClose={false}
+            />
+          </div>
+        )}
       </Show>
 
       <Show when={!readerKind() && mediaType() === MediaType.VIDEO && viewingPath()}>

@@ -4,6 +4,7 @@ export enum MediaType {
   IMAGE = 'image',
   TEXT = 'text',
   PDF = 'pdf',
+  BOOK = 'book',
   FOLDER = 'folder',
   OTHER = 'other',
 }

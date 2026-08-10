@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
+import { strToU8, zipSync } from 'fflate'
 
 // Minimal valid 1x1 JPEG
 const MINIMAL_JPEG = Buffer.from(
@@ -18,6 +19,53 @@ const MINIMAL_PNG = Buffer.from(
     'I7wAAAABJRU5ErkJggg==',
   'base64',
 )
+
+const EPUB_FIXTURE = Buffer.from(
+  zipSync({
+    mimetype: strToU8('application/epub+zip'),
+    'META-INF/container.xml': strToU8(
+      '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+    ),
+    'EPUB/package.opf': strToU8(
+      '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Reader EPUB Fixture</dc:title><dc:creator>Test Author</dc:creator><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="front" href="front.xhtml" media-type="application/xhtml+xml"/><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="style" href="styles/book.css" media-type="text/css"/><item id="font" href="fonts/fixture.woff" media-type="font/woff"/></manifest><spine><itemref idref="front"/><itemref idref="one"/><itemref idref="two"/></spine></package>',
+    ),
+    'EPUB/nav.xhtml': strToU8(
+      '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="one.xhtml">Opening</a></li><li><a href="two.xhtml">Second chapter</a></li></ol></nav></body></html>',
+    ),
+    'EPUB/front.xhtml': strToU8(
+      '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>Front matter outside the table of contents.</p></body></html>',
+    ),
+    'EPUB/one.xhtml': strToU8(
+      '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><section id="opening"><p class="chapter-title">Opening body without semantic heading</p><p>Selectable EPUB text begins here.</p>' +
+        '<p>Long chapter content used to verify exact reading position restoration.</p>'.repeat(
+          40,
+        ) +
+        '<script>alert("unsafe")</script><form><input value="unsafe"/></form><img src="https://example.invalid/tracker.png"/><p><a href="two.xhtml#destination">Continue internally</a></p></section></body></html>',
+    ),
+    'EPUB/two.xhtml': strToU8(
+      '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><section id="destination"><h1>Second chapter</h1><p>EPUB destination text.</p></section></body></html>',
+    ),
+    'EPUB/styles/book.css': strToU8(
+      '@font-face { font-family: "Fixture Font"; src: url("../fonts/fixture.woff") format("woff"); font-weight: 400; } body { font-family: "Fixture Font"; background-color: rgb(255, 0, 0) !important; color: rgb(0, 255, 0) !important; }',
+    ),
+    'EPUB/fonts/fixture.woff': new Uint8Array([0x77, 0x4f, 0x46, 0x46]),
+  }),
+)
+
+const FB2_FIXTURE = Buffer.from(
+  '<?xml version="1.0" encoding="UTF-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><genre>fiction</genre><author><first-name>Test</first-name><last-name>Author</last-name></author><book-title>Reader FB2 Fixture</book-title><lang>en</lang></title-info></description><body><section id="first"><title><p>First section</p></title><p>Selectable FB2 text begins here.</p><section id="nested"><title><p>Nested section</p></title><p>Nested FB2 content.</p></section></section></body></FictionBook>',
+)
+
+function writeBookFixtures(directory: string) {
+  fs.writeFileSync(path.join(directory, 'reader.epub'), EPUB_FIXTURE)
+  fs.writeFileSync(path.join(directory, 'reader-switch.epub'), EPUB_FIXTURE)
+  fs.writeFileSync(path.join(directory, 'reader-position.epub'), EPUB_FIXTURE)
+  fs.writeFileSync(path.join(directory, 'reader.fb2'), FB2_FIXTURE)
+  fs.writeFileSync(
+    path.join(directory, 'reader.fb2.zip'),
+    Buffer.from(zipSync({ 'reader.fb2': FB2_FIXTURE })),
+  )
+}
 
 function pdfPages(pages: string[][]): Buffer {
   const streams = pages.map((lines) =>
@@ -99,6 +147,8 @@ export function patchTestMediaAfterCacheCopy(baseDir: string) {
   const documentsDir = path.join(baseDir, 'Documents')
   ensureDir(documentsDir)
   fs.writeFileSync(path.join(documentsDir, 'reader-workspace.pdf'), READER_PDF)
+  fs.writeFileSync(path.join(documentsDir, 'reader.pdf'), READER_PDF)
+  writeBookFixtures(documentsDir)
 
   const notesDir = path.join(baseDir, 'Notes')
   ensureDir(notesDir)
@@ -186,6 +236,8 @@ export function generateTestMedia(baseDir: string) {
   )
   fs.writeFileSync(path.join(docsDir, 'sample.pdf'), MINIMAL_PDF)
   fs.writeFileSync(path.join(docsDir, 'reader-workspace.pdf'), READER_PDF)
+  fs.writeFileSync(path.join(docsDir, 'reader.pdf'), READER_PDF)
+  writeBookFixtures(docsDir)
   // Unsupported type for workspace "modal inside window" e2e test
   fs.writeFileSync(path.join(docsDir, 'unsupported.xyz'), Buffer.from('test'))
 
@@ -235,6 +287,7 @@ export function generateTestMedia(baseDir: string) {
   fs.writeFileSync(path.join(sharedDir, 'photo.jpg'), MINIMAL_JPEG)
   fs.writeFileSync(path.join(sharedDir, 'photo.png'), MINIMAL_PNG)
   fs.writeFileSync(path.join(sharedDir, 'sample.pdf'), MINIMAL_PDF)
+  writeBookFixtures(sharedDir)
   fs.writeFileSync(path.join(sharedDir, 'cover.jpg'), MINIMAL_JPEG)
   if (ff) {
     run(

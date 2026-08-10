@@ -98,6 +98,13 @@ export default async function setup(_config: FullConfig) {
           passcode: encryptPasscode('filepass'),
           createdAt: Date.now() - 2,
         },
+        {
+          token: 'test-book-share-token1',
+          path: 'Documents/reader.epub',
+          isDirectory: false,
+          editable: false,
+          createdAt: Date.now() - 3,
+        },
       ],
     },
   })

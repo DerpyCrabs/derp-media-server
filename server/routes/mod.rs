@@ -4,6 +4,7 @@ pub mod files;
 pub mod hermes_chat;
 pub mod media;
 pub mod mounts;
+pub mod reader_state;
 pub mod search;
 pub mod settings;
 pub mod share_access;

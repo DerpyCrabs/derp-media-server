@@ -125,6 +125,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::share_search::router())
         .merge(routes::stats::router())
         .merge(routes::media::router())
+        .merge(routes::reader_state::router())
         .merge(routes::sse::router())
         .fallback(crate::html::fallback)
         .layer(DefaultBodyLimit::max(1_048_576))
@@ -217,6 +218,8 @@ pub(crate) async fn run() {
         preview_sequence: AtomicU64::new(0),
         login_attempts: Mutex::new(HashMap::new()),
         share_verify_attempts: Mutex::new(HashMap::new()),
+        reader_state_writes: Mutex::new(HashMap::new()),
+        reader_state_db: Mutex::new(()),
         thumbnails: thumbnails::Thumbnailer::new(config.data_path.join("thumbnails")),
         image_variants: image_variants::ImageVariants::new(
             config.data_path.join("image-variants"),

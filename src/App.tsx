@@ -138,8 +138,8 @@ export function App() {
           </>
         </Match>
       </Switch>
-      <Show when={new URLSearchParams(loc().search).has('reader')}>
-        <ReaderDialog />
+      <Show when={new URLSearchParams(loc().search).get('reader')} keyed>
+        {(sourcePath) => <ReaderDialog sourcePath={sourcePath} />}
       </Show>
     </>
   )

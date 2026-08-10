@@ -34,7 +34,7 @@ import {
   type CanvasWindowSizeKey,
   type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
-import { getMediaType } from '@/lib/media-utils'
+import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
 import { queryKeys } from '@/lib/query-keys'
 import { MediaType, type FileItem } from '@/lib/types'
 import type { GlobalSettings } from '@/lib/use-settings'
@@ -161,6 +161,9 @@ function canvasWindowDetails(definition: WorkspaceWindowDefinition): {
   if (definition.initialState.readerKind === 'pdf') {
     return { kind: 'PDF reader', path }
   }
+  if (definition.initialState.readerKind === 'book') {
+    return { kind: 'Book reader', path }
+  }
 
   const kind =
     {
@@ -169,6 +172,7 @@ function canvasWindowDetails(definition: WorkspaceWindowDefinition): {
       [MediaType.IMAGE]: 'Image',
       [MediaType.TEXT]: 'Document',
       [MediaType.PDF]: 'PDF',
+      [MediaType.BOOK]: 'Book',
       [MediaType.FOLDER]: 'Folder',
       [MediaType.OTHER]: 'File',
     }[definition.iconType ?? MediaType.OTHER] ?? 'File'
@@ -183,7 +187,7 @@ function fileItemFromDrag(path: string, isDirectory: boolean): FileItem {
     isDirectory,
     extension,
     size: 0,
-    type: isDirectory ? MediaType.FOLDER : getMediaType(extension),
+    type: isDirectory ? MediaType.FOLDER : getMediaTypeFromPath(path),
   }
 }
 
@@ -198,6 +202,7 @@ function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
     case MediaType.TEXT:
       return 'viewer-text'
     case MediaType.PDF:
+    case MediaType.BOOK:
       return 'viewer-pdf'
     default:
       return 'viewer-other'
@@ -207,7 +212,7 @@ function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
 function windowSizeKey(definition: WorkspaceWindowDefinition): CanvasWindowSizeKey {
   if (definition.type !== 'viewer') return definition.type
   const path = definition.initialState.viewing ?? ''
-  return mediaWindowSizeKey(getMediaType(path.split('.').at(-1) ?? ''))
+  return mediaWindowSizeKey(getMediaTypeFromPath(path))
 }
 
 function unionRects(rects: CanvasRect[]): CanvasRect {
@@ -644,7 +649,7 @@ export function CanvasPage() {
         : isDirectoryFileDragData(transfer)
           ? 'browser'
           : data
-            ? mediaWindowSizeKey(getMediaType(data.path.split('.').at(-1) ?? ''))
+            ? mediaWindowSizeKey(getMediaTypeFromPath(data.path))
             : 'viewer'
       setFileDropPreview(
         fileWindowPlacement(screenToWorld(event.clientX, event.clientY), state(), sizeKey),
@@ -976,7 +981,7 @@ export function CanvasPage() {
     id: string,
     file?: FileItem,
     dir = '',
-    readerKind?: 'pdf' | 'folder',
+    readerKind?: 'pdf' | 'folder' | 'book',
   ): WorkspaceWindowDefinition {
     if (!file || (file.isDirectory && !readerKind)) {
       const path = file?.path ?? dir
@@ -1022,7 +1027,7 @@ export function CanvasPage() {
     options: {
       duplicate?: boolean
       worldBounds?: CanvasRect
-      readerKind?: 'pdf' | 'folder'
+      readerKind?: 'pdf' | 'folder' | 'book'
     } = {},
   ) {
     if (file && !options.duplicate) {
@@ -1242,11 +1247,11 @@ export function CanvasPage() {
 
   function openReaderFromBrowser(sourceWindowId: string, file: FileItem) {
     const source = state().windows.find((window) => window.id === sourceWindowId)
-    if (!source || (!file.isDirectory && file.type !== MediaType.PDF)) return
+    if (!source || !file.isDirectory) return
     const createdId = addFileWindow(
       file,
       { x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE, y: source.bounds.y },
-      { duplicate: true, readerKind: file.isDirectory ? 'folder' : 'pdf' },
+      { duplicate: true, readerKind: 'folder' },
     )
     if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
   }
@@ -1391,7 +1396,7 @@ export function CanvasPage() {
       ...definition,
       title: fileName(path),
       iconPath: path,
-      iconType: getMediaType(path.split('.').at(-1) ?? ''),
+      iconType: getMediaTypeFromPath(path),
       initialState: { ...definition.initialState, viewing: path, dir: parentPath(path) },
     }))
   }
@@ -1699,8 +1704,7 @@ export function CanvasPage() {
     const audioWindows = state().windows.filter(
       (window) =>
         window.definition.type === 'viewer' &&
-        getMediaType(window.definition.initialState.viewing?.split('.').at(-1) ?? '') ===
-          MediaType.AUDIO,
+        getMediaTypeFromPath(window.definition.initialState.viewing ?? '') === MediaType.AUDIO,
     )
     const id = lastAudioWindowId()
     return (
@@ -2020,38 +2024,40 @@ export function CanvasPage() {
         </div>
       </header>
 
-      <div
-        data-testid='canvas-zoom-control'
-        class='fixed right-3 bottom-3 z-[104000] flex h-11 items-center gap-2 rounded-lg border border-border bg-popover/95 px-2 shadow-xl backdrop-blur'
-        onWheel={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          const direction = Math.sign(event.deltaY || event.deltaX)
-          if (direction !== 0) setZoomFromControl(state().camera.zoom - direction * 0.05)
-        }}
-      >
-        <input
-          type='range'
-          title='Canvas zoom'
-          aria-label='Canvas zoom'
-          aria-valuetext={`${Math.round(state().camera.zoom * 100)} percent`}
-          min={Math.round(CANVAS_MIN_ZOOM * 100)}
-          max={Math.round(CANVAS_MAX_ZOOM * 100)}
-          step='1'
-          value={Math.round(state().camera.zoom * 100)}
-          class='[&::-webkit-slider-thumb]:bg-primary h-1.5 w-32 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
-          onInput={(event) => setZoomFromControl(event.currentTarget.valueAsNumber / 100)}
-        />
-        <button
-          type='button'
-          title='Reset zoom'
-          aria-label={`Reset canvas zoom, currently ${Math.round(state().camera.zoom * 100)} percent`}
-          class='h-8 min-w-12 rounded-md px-1 text-xs tabular-nums hover:bg-muted'
-          onClick={() => zoomBy(1 / state().camera.zoom)}
+      <Show when={!maximizedWindowId()}>
+        <div
+          data-testid='canvas-zoom-control'
+          class='fixed right-3 bottom-3 z-[104000] flex h-11 items-center gap-2 rounded-lg border border-border bg-popover/95 px-2 shadow-xl backdrop-blur'
+          onWheel={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            const direction = Math.sign(event.deltaY || event.deltaX)
+            if (direction !== 0) setZoomFromControl(state().camera.zoom - direction * 0.05)
+          }}
         >
-          {Math.round(state().camera.zoom * 100)}%
-        </button>
-      </div>
+          <input
+            type='range'
+            title='Canvas zoom'
+            aria-label='Canvas zoom'
+            aria-valuetext={`${Math.round(state().camera.zoom * 100)} percent`}
+            min={Math.round(CANVAS_MIN_ZOOM * 100)}
+            max={Math.round(CANVAS_MAX_ZOOM * 100)}
+            step='1'
+            value={Math.round(state().camera.zoom * 100)}
+            class='[&::-webkit-slider-thumb]:bg-primary h-1.5 w-32 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
+            onInput={(event) => setZoomFromControl(event.currentTarget.valueAsNumber / 100)}
+          />
+          <button
+            type='button'
+            title='Reset zoom'
+            aria-label={`Reset canvas zoom, currently ${Math.round(state().camera.zoom * 100)} percent`}
+            class='h-8 min-w-12 rounded-md px-1 text-xs tabular-nums hover:bg-muted'
+            onClick={() => zoomBy(1 / state().camera.zoom)}
+          >
+            {Math.round(state().camera.zoom * 100)}%
+          </button>
+        </div>
+      </Show>
 
       <Show when={outlineOpen()}>
         <aside class='fixed top-12 bottom-0 left-0 z-[110000] flex w-72 flex-col border-r border-border bg-card/95 shadow-xl backdrop-blur'>
@@ -2123,18 +2129,6 @@ export function CanvasPage() {
             )
             return
           }
-          if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
-          event.preventDefault()
-          const horizontal = event.shiftKey && event.deltaX === 0 ? event.deltaY : event.deltaX
-          const vertical = event.shiftKey && event.deltaX === 0 ? 0 : event.deltaY
-          setState((current) => ({
-            ...current,
-            camera: {
-              ...current.camera,
-              x: current.camera.x - horizontal,
-              y: current.camera.y - vertical,
-            },
-          }))
         }}
         onContextMenu={onCanvasContextMenu}
         onDragOver={(event) => {
@@ -2167,7 +2161,7 @@ export function CanvasPage() {
                 ? 'hermes'
                 : data.isDirectory
                   ? 'browser'
-                  : mediaWindowSizeKey(getMediaType(data.path.split('.').at(-1) ?? '')),
+                  : mediaWindowSizeKey(getMediaTypeFromPath(data.path)),
             )
           setFileDropPreview(null)
           if (data.virtualOpenTarget) {
@@ -2480,6 +2474,7 @@ export function CanvasPage() {
                           knowledgeBases={knowledgeBases()}
                           shareCanEdit={false}
                           shareCanUpload={false}
+                          autoPlayVideo={false}
                           onUpdateViewing={updateViewing}
                           onVideoMetadataLoaded={(width, height) =>
                             sizeVideoWindow(windowId, width, height)

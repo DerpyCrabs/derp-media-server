@@ -368,7 +368,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 props.onOpenWithBrowser &&
                 props.onOpenWithReader &&
                 !ctx.file.isVirtual &&
-                (ctx.file.isDirectory || ctx.file.type === MediaType.PDF)
+                ctx.file.isDirectory
               }
             >
               <div

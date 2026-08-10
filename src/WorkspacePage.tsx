@@ -1082,7 +1082,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   function openReaderFromBrowser(fromWindowId: string, file: FileItem) {
     const w = workspace()
     const sourceWindow = w?.windows.find((window) => window.id === fromWindowId)
-    if (!w || !sourceWindow || (!file.isDirectory && file.type !== MediaType.PDF)) return
+    if (!w || !sourceWindow || !file.isDirectory) return
     const n = w.nextWindowId
     const id = `workspace-window-${n}`
     const parentDir = file.path.split(/[/\\]/).slice(0, -1).join('/') || ''
@@ -1098,7 +1098,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       initialState: {
         dir: parentDir,
         viewing: file.path,
-        readerKind: file.isDirectory ? 'folder' : 'pdf',
+        readerKind: 'folder',
       },
       tabGroupId: null,
       layout: createWindowLayout(undefined, createDefaultBounds(w.windows.length, 'viewer'), n),

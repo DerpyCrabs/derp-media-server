@@ -10,6 +10,8 @@ mod html;
 mod image_variants;
 mod markdown_images;
 mod media;
+mod path_metadata;
+mod reader_state;
 mod routes;
 mod server;
 mod shares;

@@ -98,7 +98,7 @@ test('searches canvases from picker', async ({ page }) => {
   await expect(row).toBeVisible()
 })
 
-test('pans canvas background with an unmodified wheel', async ({ page }) => {
+test('keeps canvas camera fixed with an unmodified wheel', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.hover({ position: { x: 900, y: 500 } })
   const before = await page.evaluate(() => {
@@ -117,7 +117,7 @@ test('pans canvas background with an unmodified wheel', async ({ page }) => {
         return raw.camera
       }),
     )
-    .toEqual({ x: (before.x ?? 0) - 40, y: (before.y ?? 0) - 80, zoom: 1 })
+    .toEqual({ x: before.x ?? 0, y: before.y ?? 0, zoom: 1 })
 })
 
 test('closes canvas dialogs with Escape and restores focus', async ({ page }) => {
@@ -383,6 +383,17 @@ test('zooms around cursor and controls zoom from toolbar slider', async ({ page 
   await expect(slider).toHaveValue('100')
 })
 
+test('hides canvas zoom controls behind a maximized window', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 300, y: 240 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const window = page.getByTestId('canvas-window')
+  await window.getByRole('button', { name: /Maximize/ }).click()
+  await expect(page.getByTestId('canvas-zoom-control')).toHaveCount(0)
+  await window.getByRole('button', { name: /Minimize/ }).click()
+  await expect(page.getByTestId('canvas-zoom-control')).toBeVisible()
+})
+
 test('preserves window shape across semantic zoom levels', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 300, y: 240 } })
@@ -461,6 +472,56 @@ test('keeps browser panes mounted through every zoom level', async ({ page }) =>
   await expect(note).toBeVisible()
 })
 
+test('keeps canvas camera fixed when a book changes chapter or reopens', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Documents"]').click()
+  const bookRow = browserWindow.locator('[data-file-path="Documents/reader.epub"]')
+  await bookRow.click()
+  await expect(page.getByTestId('reader-book')).toBeVisible()
+  await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
+  await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
+
+  const selectableText = page
+    .getByTestId('reader-book')
+    .getByText('Selectable EPUB text begins here.')
+  const textBox = await selectableText.boundingBox()
+  if (!textBox) throw new Error('EPUB text not laid out')
+  const selectionY = textBox.y + textBox.height / 2
+  await page.mouse.move(textBox.x + 2, selectionY)
+  await page.mouse.down()
+  await page.mouse.move(Math.min(textBox.x + textBox.width - 2, textBox.x + 180), selectionY, {
+    steps: 8,
+  })
+  await page.mouse.up()
+  await expect
+    .poll(() => page.evaluate(() => window.getSelection()?.toString().trim() ?? ''))
+    .not.toBe('')
+  await expect(page.getByTestId('reader-selection-menu')).toBeVisible()
+
+  const cameraBefore = await page.getByTestId('canvas-world').getAttribute('style')
+  const offsets = () =>
+    canvas.evaluate((element) => ({
+      left: element.scrollLeft,
+      top: element.scrollTop,
+      pageX: window.scrollX,
+      pageY: window.scrollY,
+    }))
+  const offsetsBefore = await offsets()
+  await page.getByRole('button', { name: 'Next chapter' }).click()
+  await expect(page.getByTestId('reader-book-progress')).toContainText('Second chapter')
+  expect(await offsets()).toEqual(offsetsBefore)
+  expect(await page.getByTestId('canvas-world').getAttribute('style')).toBe(cameraBefore)
+
+  await page.getByRole('button', { name: 'Close reader.epub' }).click()
+  await bookRow.click()
+  await expect(page.getByTestId('reader-book')).toBeVisible()
+  expect(await offsets()).toEqual(offsetsBefore)
+  expect(await page.getByTestId('canvas-world').getAttribute('style')).toBe(cameraBefore)
+})
+
 test('fits short semantic cards across every zoom level', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
@@ -475,9 +536,26 @@ test('fits short semantic cards across every zoom level', async ({ page }) => {
     child: ReturnType<typeof page.getByTestId>,
     parent: typeof audioWindow,
   ) => {
-    const childBox = await child.boundingBox()
-    const parentBox = await parent.boundingBox()
-    if (!childBox || !parentBox) throw new Error('Semantic card element not laid out')
+    const parentHandle = await parent.elementHandle()
+    if (!parentHandle) throw new Error('Semantic card parent not laid out')
+    const { childBox, parentBox } = await child.evaluate((childElement, parentElement) => {
+      const childRect = childElement.getBoundingClientRect()
+      const parentRect = parentElement.getBoundingClientRect()
+      return {
+        childBox: {
+          x: childRect.x,
+          y: childRect.y,
+          width: childRect.width,
+          height: childRect.height,
+        },
+        parentBox: {
+          x: parentRect.x,
+          y: parentRect.y,
+          width: parentRect.width,
+          height: parentRect.height,
+        },
+      }
+    }, parentHandle)
     expect(childBox.x).toBeGreaterThanOrEqual(parentBox.x - 1)
     expect(childBox.y).toBeGreaterThanOrEqual(parentBox.y - 1)
     expect(childBox.x + childBox.width).toBeLessThanOrEqual(parentBox.x + parentBox.width + 1)
@@ -503,9 +581,16 @@ test('fits short semantic cards across every zoom level', async ({ page }) => {
   await expect(farSummaries).toHaveCount(2)
   for (const summary of await farSummaries.all()) {
     const content = summary.getByTestId('canvas-window-summary-content')
-    const summaryBox = await summary.boundingBox()
-    const contentBox = await content.boundingBox()
-    if (!summaryBox || !contentBox) throw new Error('Far summary not laid out')
+    const summaryHandle = await summary.elementHandle()
+    if (!summaryHandle) throw new Error('Far summary not laid out')
+    const { summaryBox, contentBox } = await content.evaluate((contentElement, summaryElement) => {
+      const summaryRect = summaryElement.getBoundingClientRect()
+      const contentRect = contentElement.getBoundingClientRect()
+      return {
+        summaryBox: { width: summaryRect.width, height: summaryRect.height },
+        contentBox: { width: contentRect.width, height: contentRect.height },
+      }
+    }, summaryHandle)
     expect(contentBox.width).toBeGreaterThanOrEqual(summaryBox.width - 1)
     expect(contentBox.height).toBeGreaterThanOrEqual(summaryBox.height - 1)
     await expectContained(summary.getByTestId('canvas-window-summary-title'), summary)
@@ -854,7 +939,7 @@ test('keeps multiple audio players but allows only one to play and focuses it fr
   await expect(page.getByTestId('canvas-window-breadcrumb')).toHaveText('track.mp3')
 })
 
-test('plays video, sizes it to media, and keeps it in viewport', async ({ page }) => {
+test('keeps canvas video paused while mounting and switching canvases', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
@@ -868,6 +953,9 @@ test('plays video, sizes it to media, and keeps it in viewport', async ({ page }
   await expect
     .poll(async () => video.evaluate((element: HTMLVideoElement) => element.readyState))
     .toBeGreaterThanOrEqual(2)
+  await expect
+    .poll(async () => video.evaluate((element: HTMLVideoElement) => element.paused))
+    .toBe(true)
   await expect(videoWindow.getByTitle('Listen only')).toHaveCount(0)
 
   const canvasBox = await canvas.boundingBox()
@@ -877,6 +965,19 @@ test('plays video, sizes it to media, and keeps it in viewport', async ({ page }
   expect(videoBox.y).toBeGreaterThanOrEqual(canvasBox.y)
   expect(videoBox.x + videoBox.width).toBeLessThanOrEqual(canvasBox.x + canvasBox.width)
   expect(videoBox.y + videoBox.height).toBeLessThanOrEqual(canvasBox.y + canvasBox.height)
+
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await page.getByLabel('Name').fill('Other canvas')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'Untitled canvas', exact: true }).click()
+  await expect(
+    page.getByTestId('canvas-window').filter({ has: page.locator('video') }),
+  ).toBeVisible()
+  await expect
+    .poll(async () => page.locator('video').evaluate((element: HTMLVideoElement) => element.paused))
+    .toBe(true)
 })
 
 test('offers retry and download when canvas video fails', async ({ page }) => {
@@ -1120,11 +1221,12 @@ test('auto-pans canvas while dragging a window near viewport edge', async ({ pag
   )
   const draggedBefore = await window.boundingBox()
   await page.waitForTimeout(300)
+  await page.mouse.up()
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
   const cameraAfter = await world.evaluate(
     (element) => new DOMMatrix(getComputedStyle(element).transform).e,
   )
   const draggedAfter = await window.boundingBox()
-  await page.mouse.up()
 
   expect(cameraAfter).toBeLessThan(cameraBefore - 100)
   expect(Math.abs((draggedAfter?.x ?? 0) - (draggedBefore?.x ?? 0))).toBeLessThan(20)

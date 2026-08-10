@@ -9,6 +9,14 @@ async function openSamplePdf(page: Page) {
   })
   await page.goto('/?dir=Documents&viewing=Documents%2Freader.pdf')
   await expect(page.getByTestId('pdf-text-layer').first()).toBeVisible()
+  await expect(page.getByTestId('reader-page-indicator')).toBeVisible()
+  await page.getByTestId('reader-page-indicator').click()
+  await page.getByTestId('reader-page-input').fill('1')
+  await page.getByTestId('reader-page-input').press('Enter')
+  await expect(page.getByTestId('reader-page-indicator')).toContainText('Page 1 / 4')
+  await expect(
+    page.getByTestId('pdf-text-layer').filter({ hasText: 'Selectable reader text' }),
+  ).toBeVisible()
 }
 
 async function disableAutomaticSelectionAction(page: Page) {
@@ -25,6 +33,7 @@ async function chooseReaderFromOpenWith(page: Page) {
 async function selectPdfLines(page: Page, firstText: string, lastText = firstText) {
   await page
     .getByTestId('pdf-text-layer')
+    .filter({ hasText: firstText })
     .first()
     .evaluate(
       (layer, phrases) => {
@@ -51,12 +60,38 @@ async function selectPdfLines(page: Page, firstText: string, lastText = firstTex
     )
 }
 
+async function selectBookText(page: Page, phrase: string) {
+  await page
+    .getByTestId('reader-book')
+    .getByText(phrase, { exact: false })
+    .first()
+    .evaluate((element, selectedPhrase) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+      let node = walker.nextNode()
+      while (node && !node.textContent?.includes(selectedPhrase)) node = walker.nextNode()
+      if (!node?.textContent) throw new Error('Expected EPUB selection text')
+      const start = node.textContent.indexOf(selectedPhrase)
+      const range = document.createRange()
+      range.setStart(node, start)
+      range.setEnd(node, start + selectedPhrase.length)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      const rect = range.getBoundingClientRect()
+      element.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          clientX: rect.right,
+          clientY: rect.top + rect.height / 2,
+        }),
+      )
+    }, phrase)
+}
+
 test.describe('Reader', () => {
-  test('opens PDFs from file context menu and restores position settings', async ({ page }) => {
+  test('opens PDFs directly and restores server-synced position settings', async ({ page }) => {
     await page.goto('/?dir=Documents')
-    await page.locator('tr', { hasText: 'sample.pdf' }).click({ button: 'right' })
-    await expect(page.getByTestId('open-with-menu')).toHaveText(/Open with/)
-    await chooseReaderFromOpenWith(page)
+    await page.locator('tr', { hasText: 'sample.pdf' }).click()
 
     await expect(page.getByTestId('reader-dialog')).toBeVisible()
     await expect(page.getByTestId('pdf-canvas').first()).toBeVisible()
@@ -66,10 +101,247 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('reader-settings')).toContainText('110%')
     await page.getByLabel('Close reader').click()
 
-    await page.locator('tr', { hasText: 'sample.pdf' }).click({ button: 'right' })
-    await chooseReaderFromOpenWith(page)
+    await page.locator('tr', { hasText: 'sample.pdf' }).click()
     await page.getByTestId('reader-settings-button').click()
     await expect(page.getByTestId('reader-settings')).toContainText('110%')
+  })
+
+  test('reads EPUB and FB2 as reflowable books with outlines', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    await page.locator('tr', { hasText: 'reader.epub' }).click()
+    await expect(page.getByTestId('reader-book')).toContainText('Selectable EPUB text begins here.')
+    await expect(page.getByTestId('reader-book').locator('script, form')).toHaveCount(0)
+    await expect(page.getByTestId('reader-book').locator('img[src^="http"]')).toHaveCount(0)
+    await expect
+      .poll(() => page.getByTestId('reader-book').locator('style').textContent())
+      .toContain('@font-face')
+    await expect
+      .poll(() => page.getByTestId('reader-book').locator('style').textContent())
+      .toContain('blob:')
+    if (!(await page.getByTestId('reader-outline').isVisible())) {
+      await page.getByTestId('reader-outline-button').click()
+    }
+    await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
+    await expect(page.getByTestId('reader-book-progress')).not.toContainText('Chapter 1')
+    await expect(page.getByTestId('reader-book').locator('[aria-label^="Chapter "]')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Previous chapter' }).click()
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
+    await page.waitForTimeout(350)
+    await selectBookText(page, 'Selectable EPUB text')
+    await expect(page.getByTestId('reader-selection-menu')).toBeVisible()
+    await expect(page.getByTestId('reader-selection-menu')).toContainText('Selectable EPUB text')
+    await expect(page.getByRole('button', { name: 'Define', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeVisible()
+    if (!(await page.getByTestId('reader-outline').isVisible())) {
+      await page.getByTestId('reader-outline-button').click()
+    }
+    await expect(page.getByTestId('reader-outline')).toContainText('Second chapter')
+    await page.getByRole('link', { name: 'Continue internally' }).click()
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Second chapter')
+    await page.getByTestId('reader-settings-button').click()
+    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
+    await page.getByLabel('Close reader').click()
+
+    await page
+      .locator('tr')
+      .filter({ has: page.getByText('reader.fb2', { exact: true }) })
+      .click()
+    await expect(page.getByTestId('reader-book')).toContainText('Selectable FB2 text begins here.')
+    if (!(await page.getByTestId('reader-outline').isVisible())) {
+      await page.getByTestId('reader-outline-button').click()
+    }
+    await expect(page.getByTestId('reader-outline')).toContainText('Nested section')
+    await page.getByLabel('Close reader').click()
+
+    await page
+      .locator('tr')
+      .filter({ has: page.getByText('reader.fb2.zip', { exact: true }) })
+      .click()
+    await expect(page.getByTestId('reader-book')).toContainText('Selectable FB2 text begins here.')
+  })
+
+  test('reads shared EPUB through token-scoped routes and restores communal progress', async ({
+    page,
+    browser,
+  }) => {
+    const infoResponse = await page.request.get('/api/share/test-book-share-token1/info')
+    expect(infoResponse.ok()).toBe(true)
+    expect(await infoResponse.json()).toMatchObject({ mediaType: 'book' })
+    await page.goto('/share/test-book-share-token1')
+    await expect.poll(() => page.url()).toContain('viewing=')
+    await expect(page.getByTestId('reader-book')).toContainText('Selectable EPUB text begins here.')
+    if (!(await page.getByTestId('reader-outline').isVisible())) {
+      await page.getByTestId('reader-outline-button').click()
+    }
+    await page.getByTestId('reader-outline').getByText('Second chapter').click()
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Second chapter')
+    await page.getByLabel('Close reader').click()
+    const otherContext = await browser.newContext({ serviceWorkers: 'block' })
+    const otherPage = await otherContext.newPage()
+    await otherPage.goto(`${new URL(page.url()).origin}/share/test-book-share-token1`)
+    await expect(otherPage.getByTestId('reader-book-progress')).toContainText('Second chapter')
+    await otherContext.close()
+  })
+
+  test('keeps book settings separate from chapter controls in narrow readers', async ({ page }) => {
+    await page.setViewportSize({ width: 500, height: 720 })
+    await page.goto('/?dir=Documents&viewing=Documents%2Freader.epub')
+    await expect(page.getByTestId('reader-book')).toBeVisible()
+    const next = await page.getByRole('button', { name: 'Next chapter' }).boundingBox()
+    const settings = await page.getByTestId('reader-settings-button').boundingBox()
+    if (!next || !settings) throw new Error('Book toolbar controls not laid out')
+    expect(settings.x).toBeGreaterThanOrEqual(next.x + next.width + 3)
+
+    await page.getByTestId('reader-settings-button').click()
+    const reader = await page.getByTestId('reader-dialog').boundingBox()
+    const menu = await page.getByTestId('reader-settings').boundingBox()
+    if (!reader || !menu) throw new Error('Book settings menu not laid out')
+    expect(menu.width).toBeGreaterThanOrEqual(380)
+    expect(menu.x).toBeGreaterThanOrEqual(reader.x)
+    expect(menu.x + menu.width).toBeLessThanOrEqual(reader.x + reader.width)
+  })
+
+  test('clamps and immediately persists reader-controlled book appearance', async ({ page }) => {
+    await page.goto('/?dir=Documents&viewing=Documents%2Freader.epub')
+    const book = page.getByTestId('reader-book')
+    await expect(book).toBeVisible()
+    await page.getByTestId('reader-settings-button').click()
+    await page.getByRole('button', { name: 'dark', exact: true }).click()
+    await expect(book).toHaveCSS('background-color', 'rgb(23, 23, 23)')
+
+    const decreases = page.getByRole('button', { name: 'Decrease', exact: true })
+    for (let index = 0; index < 12; index += 1) {
+      await decreases.nth(0).click()
+      await decreases.nth(1).click()
+      await decreases.nth(2).click()
+    }
+    const settings = page.getByTestId('reader-settings')
+    await expect(settings).toContainText('50%')
+    await expect(settings).toContainText('0.80')
+    await expect(settings).toContainText('20rem')
+    await page.getByLabel('Close reader').click()
+
+    await page.locator('tr', { hasText: 'reader.epub' }).click()
+    await page.getByTestId('reader-settings-button').click()
+    await expect(page.getByRole('button', { name: 'dark', exact: true })).toHaveClass(
+      /bg-\[#303030\]/,
+    )
+    await expect(page.getByTestId('reader-book')).toHaveCSS('background-color', 'rgb(23, 23, 23)')
+    await page.getByRole('button', { name: 'Reset appearance' }).click()
+    await page.getByLabel('Close reader').click()
+  })
+
+  test('saves old book position when mounted reader switches files', async ({ page }) => {
+    const epubSaves: Array<{ state?: { chapterProgress?: number }; status?: number }> = []
+    await page.route('**/api/reader-state', async (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as {
+          path?: string
+          state?: { chapterProgress?: number }
+        }
+        if (body.path === 'Documents/reader-switch.epub') {
+          const response = await route.fetch()
+          epubSaves.push({ ...body, status: response.status() })
+          await route.fulfill({ response })
+          return
+        }
+      }
+      await route.continue()
+    })
+    await page.goto('/?dir=Documents&viewing=Documents%2Freader-switch.epub')
+    await expect(page.getByTestId('reader-book')).toBeVisible()
+    if (!(await page.getByTestId('reader-outline').isVisible())) {
+      await page.getByTestId('reader-outline-button').click()
+    }
+    await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
+    const viewport = page.getByTestId('reader-viewport')
+    await expect
+      .poll(() =>
+        viewport.evaluate((element) => {
+          const chapter = element.querySelector<HTMLElement>('[data-book-chapter="chapter-1"]')!
+          const viewportTop = element.getBoundingClientRect().top
+          const chapterRect = chapter.getBoundingClientRect()
+          const progress = (viewportTop - chapterRect.top) / Math.max(1, chapterRect.height)
+          if (progress <= 0.1) element.scrollTop += 300
+          return progress
+        }),
+      )
+      .toBeGreaterThan(0.1)
+    const savedTop = await viewport.evaluate((element) => element.scrollTop)
+    await page.getByTestId('reader-dialog').evaluate((element) => {
+      element.setAttribute('data-reader-instance', 'old')
+      history.pushState(null, '', '/?dir=Documents&viewing=Documents%2Freader.fb2')
+    })
+    await expect(page.getByTestId('reader-book')).toContainText('Selectable FB2 text begins here.')
+    await expect(page.getByTestId('reader-dialog')).not.toHaveAttribute(
+      'data-reader-instance',
+      'old',
+    )
+    await expect.poll(() => epubSaves.at(-1)?.state?.chapterProgress ?? 0).toBeGreaterThan(0.1)
+    await expect.poll(() => epubSaves.at(-1)?.status ?? 0).toBe(200)
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(
+          '/api/reader-state?path=Documents%2Freader-switch.epub',
+        )
+        const body = (await response.json()) as { state?: { chapterProgress?: number } }
+        return body.state?.chapterProgress ?? 0
+      })
+      .toBeGreaterThan(0.1)
+
+    await page.evaluate(() => {
+      history.pushState(null, '', '/?dir=Documents&viewing=Documents%2Freader-switch.epub')
+    })
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
+    await expect
+      .poll(() => viewport.evaluate((element) => element.scrollTop))
+      .toBeCloseTo(savedTop, -1)
+  })
+
+  test('restores exact EPUB position inside a chapter', async ({ page }) => {
+    await page.goto('/?dir=Documents&viewing=Documents%2Freader-position.epub')
+    await expect(page.getByTestId('reader-book')).toBeVisible()
+    if (!(await page.getByTestId('reader-outline').isVisible())) {
+      await page.getByTestId('reader-outline-button').click()
+    }
+    await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
+    const viewport = page.getByTestId('reader-viewport')
+    await page.waitForTimeout(350)
+    await viewport.evaluate((element) => {
+      element.scrollTop += 300
+    })
+    await page.waitForTimeout(50)
+    const savedTop = await viewport.evaluate((element) => element.scrollTop)
+    expect(savedTop).toBeGreaterThan(250)
+    const geometry = await viewport.evaluate((element) => {
+      const chapter = element.querySelector('[data-book-chapter="chapter-1"]')!
+      const viewportRect = element.getBoundingClientRect()
+      const chapterRect = chapter.getBoundingClientRect()
+      return {
+        viewportTop: viewportRect.top,
+        chapterTop: chapterRect.top,
+        chapterHeight: chapterRect.height,
+      }
+    })
+    expect(geometry.chapterHeight).toBeLessThan(10_000)
+    await page.getByLabel('Close reader').click()
+    await expect(page.getByTestId('reader-dialog')).toBeHidden()
+    const storedResponse = await page.request.get(
+      '/api/reader-state?path=Documents%2Freader-position.epub',
+    )
+    const stored = (await storedResponse.json()) as {
+      state?: { chapterId?: string; chapterProgress?: number; scrollTop?: number }
+    }
+    expect(stored.state?.chapterId).toBe('chapter-1')
+    expect(stored.state?.chapterProgress).toBeGreaterThan(0.1)
+
+    await page.locator('tr', { hasText: 'reader-position.epub' }).click()
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
+    await expect
+      .poll(() => viewport.evaluate((element) => element.scrollTop))
+      .toBeCloseTo(savedTop, -1)
   })
 
   test('opens image folders in natural order', async ({ page }) => {

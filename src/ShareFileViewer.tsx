@@ -43,7 +43,7 @@ export function ShareFileViewer(props: Props) {
     const mt = props.shareInfo.mediaType
     if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
       playFile(props.shareInfo.path)
-    } else if (mt === MediaType.IMAGE || mt === MediaType.PDF) {
+    } else if (mt === MediaType.IMAGE || mt === MediaType.PDF || mt === MediaType.BOOK) {
       viewFile(props.shareInfo.path)
     }
   })
@@ -83,6 +83,7 @@ export function ShareFileViewer(props: Props) {
           when={
             props.shareInfo.mediaType === MediaType.IMAGE ||
             props.shareInfo.mediaType === MediaType.PDF ||
+            props.shareInfo.mediaType === MediaType.BOOK ||
             props.shareInfo.mediaType === MediaType.VIDEO ||
             props.shareInfo.mediaType === MediaType.AUDIO
           }

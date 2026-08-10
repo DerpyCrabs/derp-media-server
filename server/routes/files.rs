@@ -322,6 +322,7 @@ async fn create(
         (None, None) => unreachable!(),
     };
     fs::write(full, data).await.map_err(AppError::io)?;
+    crate::path_metadata::content_replaced(&state, &body.path)?;
     emit(&state, &body.path);
     Ok(Json(json!({"success":true,"message":"File saved"})))
 }
@@ -381,6 +382,7 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
         (None, None) => unreachable!(),
     };
     fs::write(full, data).await.map_err(AppError::io)?;
+    crate::path_metadata::content_replaced(&state, &body.path)?;
     emit(&state, &body.path);
     Ok(Json(json!({"success":true,"message":"File saved"})))
 }
@@ -404,6 +406,7 @@ async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppR
     } else {
         fs::remove_file(full).await.map_err(AppError::io)?;
     }
+    crate::path_metadata::removed(&state, &body.path).await?;
     emit(&state, &body.path);
     Ok(Json(
         json!({"success":true,"message":if metadata.is_dir(){"Folder deleted"}else{"File deleted"}}),
@@ -442,6 +445,7 @@ async fn rename(
         ));
     }
     fs::rename(old, new).await.map_err(AppError::io)?;
+    crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await?;
     emit(&state, &body.old_path);
     if parent_logical(&body.old_path) != parent_logical(&body.new_path) {
         emit(&state, &body.new_path);

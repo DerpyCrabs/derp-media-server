@@ -5,13 +5,14 @@ import {
   type ReaderPosition,
   type ReaderSelectionMode,
   type ReaderViewMode,
-  loadReaderPosition,
-  saveReaderPosition,
 } from '@/lib/reader-position'
 import { MediaType, type FileItem } from '@/lib/types'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Settings from 'lucide-solid/icons/settings'
+import PanelLeft from 'lucide-solid/icons/panel-left'
+import ChevronLeft from 'lucide-solid/icons/chevron-left'
+import ChevronRight from 'lucide-solid/icons/chevron-right'
 import X from 'lucide-solid/icons/x'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
@@ -24,7 +25,21 @@ import { Portal } from 'solid-js/web'
 import { ReaderSelectionMenu, type ReaderSelection } from './ReaderSelectionMenu'
 import { menuPositionForRect, visibleRectForRange } from './reader-geometry'
 import { closeReader } from './reader-url'
-import { buildAdminMediaUrl } from '../lib/build-media-url'
+import { buildMediaUrl, type MediaShareContext } from '../lib/build-media-url'
+import { parseBook } from './book-parser'
+import { renderBook, type RenderedBook } from './book-sanitize'
+import { BookContent } from './BookContent'
+import { ReaderOutline, type ReaderOutlineItem } from './ReaderOutline'
+import {
+  DEFAULT_BOOK_APPEARANCE,
+  DEFAULT_READER_PREFERENCES,
+  loadReaderPreferences,
+  loadSyncedReaderState,
+  saveReaderPreferences,
+  saveSyncedReaderState,
+  type BookAppearance,
+  type ReaderSyncedState,
+} from './reader-state-client'
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -40,7 +55,6 @@ type ReaderPage = {
   kind: 'pdf' | 'image'
 }
 
-const imageUrl = (path: string) => buildAdminMediaUrl(path.replace(/\\/g, '/'))
 const basename = (path: string) => path.split(/[/\\]/).filter(Boolean).at(-1) ?? path
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
 const naturalCompare = (left: FileItem, right: FileItem) =>
@@ -344,7 +358,8 @@ function RegionLayer(props: {
 
 type ReaderDialogProps = {
   sourcePath?: string
-  sourceKind?: 'pdf' | 'folder'
+  sourceKind?: 'pdf' | 'folder' | 'book'
+  shareContext?: MediaShareContext
   embedded?: boolean
   showClose?: boolean
   onClose?: () => void
@@ -356,15 +371,45 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   let viewport!: HTMLDivElement
   const menuHost = document.createElement('div')
   let saveTimer: number | undefined
+  let preferenceTimer: number | undefined
+  let saveQueue: Promise<void> = Promise.resolve()
+  let preferenceQueue: Promise<void> = Promise.resolve()
+  let closePersisted = false
   let selectionId = 0
   let pendingScrollTop = 0
+  let pendingBookAnchor: string | undefined
+  let pendingBookProgress = 0
+  let pendingOutlineExpanded: string[] | undefined
   const params = createMemo(() => new URLSearchParams(history().search))
   const path = createMemo(() => props.sourcePath ?? params().get('reader') ?? '')
   const sourceKind = createMemo(
-    () => props.sourceKind ?? (params().get('readerKind') === 'folder' ? 'folder' : 'pdf'),
+    () =>
+      props.sourceKind ??
+      (params().get('readerKind') === 'folder'
+        ? 'folder'
+        : params().get('readerKind') === 'book'
+          ? 'book'
+          : 'pdf'),
   )
   const [pages, setPages] = createSignal<ReaderPage[]>([])
   const [pdfDocument, setPdfDocument] = createSignal<PdfDocument>()
+  const [bookDocument, setBookDocument] = createSignal<RenderedBook>()
+  const [outline, setOutline] = createSignal<ReaderOutlineItem[]>([])
+  const [outlineOpen, setOutlineOpen] = createSignal(true)
+  const [outlineExpanded, setOutlineExpanded] = createSignal<string[]>([])
+  const [currentChapterId, setCurrentChapterId] = createSignal('')
+  const [currentChapterProgress, setCurrentChapterProgress] = createSignal(0)
+  const [bookHistory, setBookHistory] = createSignal<Array<{ chapterId: string; anchor?: string }>>(
+    [],
+  )
+  const [bookHistoryIndex, setBookHistoryIndex] = createSignal(-1)
+  const [bookAppearance, setBookAppearance] = createSignal<BookAppearance>({
+    ...DEFAULT_BOOK_APPEARANCE,
+  })
+  const [preferencesReady, setPreferencesReady] = createSignal(false)
+  const [stateRevision, setStateRevision] = createSignal(0)
+  const [stateFingerprint, setStateFingerprint] = createSignal('')
+  const [syncBlocked, setSyncBlocked] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
   const [currentPage, setCurrentPage] = createSignal(0)
@@ -372,6 +417,8 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   const [viewMode, setViewMode] = createSignal<ReaderViewMode>('continuous')
   const [fitMode, setFitMode] = createSignal<ReaderFitMode>('manual')
   const [selectionMode, setSelectionMode] = createSignal<ReaderSelectionMode>('text')
+  const [preferredSelectionMode, setPreferredSelectionMode] =
+    createSignal<ReaderSelectionMode>('text')
   const [defaultAction, setDefaultAction] = createSignal<ReaderDefaultAction>('define')
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [pageJumpOpen, setPageJumpOpen] = createSignal(false)
@@ -379,12 +426,59 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   const [fullscreen, setFullscreen] = createSignal(false)
   const [selection, setSelection] = createSignal<ReaderSelection | null>(null)
 
-  const title = createMemo(() => basename(path()))
+  const title = createMemo(() => bookDocument()?.metadata.title || basename(path()))
+  const bookNavigationChapterIds = createMemo(() => {
+    const targets: string[] = []
+    const collect = (items: ReaderOutlineItem[]) => {
+      for (const item of items) {
+        if (typeof item.target === 'string' && !targets.includes(item.target)) {
+          targets.push(item.target)
+        }
+        collect(item.children)
+      }
+    }
+    collect(outline())
+    return targets.length ? targets : (bookDocument()?.chapters.map((chapter) => chapter.id) ?? [])
+  })
+  const bookProgress = createMemo(() => {
+    const document = bookDocument()
+    if (!document) return 0
+    const index = Math.max(
+      0,
+      document.chapters.findIndex((chapter) => chapter.id === currentChapterId()),
+    )
+    const total = document.chapters.reduce(
+      (sum, chapter) => sum + Math.max(1, chapter.textLength),
+      0,
+    )
+    const before = document.chapters
+      .slice(0, index)
+      .reduce((sum, chapter) => sum + Math.max(1, chapter.textLength), 0)
+    const currentLength = Math.max(1, document.chapters[index]?.textLength ?? 1)
+    return total ? (before + currentLength * currentChapterProgress()) / total : 0
+  })
   const renderedPages = createMemo(() =>
     viewMode() === 'page' ? pages().slice(currentPage(), currentPage() + 1) : pages(),
   )
-  const close = () => {
-    persist()
+  const persistPreferences = () => {
+    const preferences = {
+      bookAppearance: bookAppearance(),
+      selectionMode: preferredSelectionMode(),
+      defaultAction: defaultAction(),
+      outlineOpen: outlineOpen(),
+    }
+    const queued = preferenceQueue.then(
+      () => saveReaderPreferences(props.shareContext, preferences),
+      () => saveReaderPreferences(props.shareContext, preferences),
+    )
+    preferenceQueue = queued.catch(() => {})
+    return queued
+  }
+  const close = async () => {
+    window.clearTimeout(saveTimer)
+    window.clearTimeout(preferenceTimer)
+    await Promise.all([persist(), persistPreferences()])
+    closePersisted = true
     if (props.onClose) props.onClose()
     else closeReader()
   }
@@ -414,22 +508,123 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     )
   }
 
+  const mediaUrl = (activePath: string) =>
+    buildMediaUrl(activePath.replace(/\\/g, '/'), props.shareContext)
+
+  const bookChapterElement = (chapterId: string) =>
+    viewport?.querySelector<HTMLElement>(`[data-book-chapter="${CSS.escape(chapterId)}"]`) ?? null
+
+  const scrollBookViewport = (
+    chapterId: string,
+    anchor?: string,
+    behavior: ScrollBehavior = 'auto',
+  ) => {
+    if (!viewport) return null
+    const chapter = bookChapterElement(chapterId)
+    const target = anchor ? chapter?.querySelector<HTMLElement>(`#${CSS.escape(anchor)}`) : chapter
+    if (!target) return chapter
+    const viewportRect = viewport.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    viewport.scrollTo({
+      top: viewport.scrollTop + targetRect.top - viewportRect.top,
+      behavior,
+    })
+    return target
+  }
+
+  const mapPdfOutline = async (
+    document: PdfDocument,
+    items: Awaited<ReturnType<PdfDocument['getOutline']>>,
+  ): Promise<ReaderOutlineItem[]> =>
+    Promise.all(
+      (items ?? []).map(async (item, index) => {
+        let target = 0
+        try {
+          const destination =
+            typeof item.dest === 'string' ? await document.getDestination(item.dest) : item.dest
+          if (destination?.[0])
+            target = await document.getPageIndex(
+              destination[0] as Parameters<PdfDocument['getPageIndex']>[0],
+            )
+        } catch {
+          target = 0
+        }
+        return {
+          id: `pdf-outline-${index}-${item.title}`,
+          label: item.title || `Page ${target + 1}`,
+          target,
+          children: await mapPdfOutline(document, item.items),
+        }
+      }),
+    )
+
   createEffect(() => {
     const activePath = path()
     const kind = sourceKind()
     setPages([])
     setPdfDocument(undefined)
+    setBookDocument((current) => {
+      current?.release()
+      return undefined
+    })
+    setOutline([])
+    setOutlineExpanded([])
+    setCurrentChapterId('')
+    setCurrentChapterProgress(0)
+    setBookHistory([])
+    setBookHistoryIndex(-1)
     setSelection(null)
     setSettingsOpen(false)
     setError('')
+    pendingBookAnchor = undefined
+    pendingBookProgress = 0
+    pendingOutlineExpanded = undefined
+    setSyncBlocked(false)
+    setPreferencesReady(false)
     if (!activePath) return
-    applyPosition(loadReaderPosition(activePath))
-    if (kind === 'folder') setSelectionMode('image')
     setLoading(true)
     let cancelled = false
-    if (kind === 'folder') {
-      void fetch(`/api/files?dir=${encodeURIComponent(activePath)}`)
-        .then(async (response) => {
+    let pdfTask: ReturnType<typeof pdfjs.getDocument> | undefined
+    void Promise.all([
+      loadSyncedReaderState(activePath, props.shareContext).catch(() => null),
+      loadReaderPreferences(props.shareContext).catch(() => ({ ...DEFAULT_READER_PREFERENCES })),
+    ])
+      .then(async ([saved, preferences]) => {
+        if (cancelled) return
+        if (saved) {
+          setStateRevision(saved.revision)
+          setStateFingerprint(saved.fingerprint)
+          if (saved.state) {
+            applyPosition(saved.state)
+            setCurrentChapterId(saved.state.chapterId ?? '')
+            pendingBookAnchor = saved.state.anchor
+            pendingBookProgress = saved.state.chapterProgress ?? 0
+            pendingOutlineExpanded = saved.state.outlineExpanded
+          }
+        }
+        setSelectionMode(preferences.selectionMode)
+        setPreferredSelectionMode(preferences.selectionMode)
+        setDefaultAction(preferences.defaultAction)
+        setOutlineOpen(preferences.outlineOpen)
+        setBookAppearance(preferences.bookAppearance)
+        setPreferencesReady(true)
+        if (kind === 'folder') setSelectionMode('image')
+        if (kind === 'book') setSelectionMode('text')
+
+        if (kind === 'folder') {
+          const share = props.shareContext
+          const base = share?.sharePath.replace(/\\/g, '/').replace(/\/$/, '') ?? ''
+          const normalized = activePath.replace(/\\/g, '/')
+          const relative =
+            normalized === base
+              ? ''
+              : normalized.startsWith(`${base}/`)
+                ? normalized.slice(base.length + 1)
+                : normalized
+          const listUrl = share
+            ? `/api/share/${encodeURIComponent(share.token)}/files?dir=${encodeURIComponent(relative)}`
+            : `/api/files?dir=${encodeURIComponent(activePath)}`
+          const response = await fetch(listUrl)
           const payload = await response.json()
           if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
           const files = ((payload.files ?? []) as FileItem[])
@@ -438,7 +633,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
           if (files.length === 0) throw new Error('Folder contains no supported images')
           const loaded = await Promise.all(
             files.map(async (file) => {
-              const source = imageUrl(file.path)
+              const source = mediaUrl(file.path)
               const size = await loadImageSize(source)
               return {
                 id: file.path,
@@ -453,60 +648,191 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
             setPages(loaded)
             restorePositionAfterLoad(loaded.length)
           }
-        })
-        .catch(
-          (reason) =>
-            !cancelled && setError(reason instanceof Error ? reason.message : String(reason)),
-        )
-        .finally(() => !cancelled && setLoading(false))
-    } else {
-      const task = pdfjs.getDocument({ url: imageUrl(activePath), withCredentials: true })
-      void task.promise
-        .then(async (document) => {
-          const loaded = await Promise.all(
-            Array.from({ length: document.numPages }, async (_, index) => {
-              const page = await document.getPage(index + 1)
-              const viewport = page.getViewport({ scale: 1 })
-              return {
-                id: `${activePath}#${index + 1}`,
-                name: `Page ${index + 1}`,
-                source: imageUrl(activePath),
-                width: viewport.width,
-                height: viewport.height,
-                kind: 'pdf' as const,
-              }
+          return
+        }
+
+        if (kind === 'book') {
+          const response = await fetch(mediaUrl(activePath), { credentials: 'include' })
+          if (!response.ok) throw new Error(`Could not open book (${response.status})`)
+          const parsed = await parseBook(await response.arrayBuffer(), basename(activePath))
+          if (cancelled) return
+          const rendered = renderBook(parsed)
+          setBookDocument(rendered)
+          const map = (items: typeof rendered.outline): ReaderOutlineItem[] =>
+            items.map((item) => ({
+              id: item.id,
+              label: item.label,
+              target: item.chapterId,
+              anchor: item.anchor,
+              children: map(item.children),
+            }))
+          const mappedOutline = map(rendered.outline)
+          const firstOutlineTarget = (items: ReaderOutlineItem[]): string | undefined => {
+            for (const item of items) {
+              if (typeof item.target === 'string') return item.target
+              const childTarget = firstOutlineTarget(item.children)
+              if (childTarget) return childTarget
+            }
+          }
+          const initialChapter =
+            currentChapterId() ||
+            firstOutlineTarget(mappedOutline) ||
+            rendered.chapters[0]?.id ||
+            ''
+          setCurrentChapterId(initialChapter)
+          setOutline(mappedOutline)
+          const allIds = (items: ReaderOutlineItem[]): string[] =>
+            items.flatMap((item) => [item.id, ...allIds(item.children)])
+          setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const restoreByProgress = pendingBookProgress > 0
+              const target = scrollBookViewport(
+                initialChapter,
+                restoreByProgress ? undefined : pendingBookAnchor,
+              )
+              if (restoreByProgress && target && viewport)
+                viewport.scrollTop += target.offsetHeight * Math.min(1, pendingBookProgress)
             }),
           )
-          if (!cancelled) {
-            setPdfDocument(document)
-            setPages(loaded)
-            restorePositionAfterLoad(loaded.length)
-          }
-        })
-        .catch(
-          (reason) =>
-            !cancelled && setError(reason instanceof Error ? reason.message : 'Could not open PDF'),
+          return
+        }
+
+        pdfTask = pdfjs.getDocument({ url: mediaUrl(activePath), withCredentials: true })
+        const loadedPdf = await pdfTask.promise
+        const loaded = await Promise.all(
+          Array.from({ length: loadedPdf.numPages }, async (_, index) => {
+            const page = await loadedPdf.getPage(index + 1)
+            const viewport = page.getViewport({ scale: 1 })
+            return {
+              id: `${activePath}#${index + 1}`,
+              name: `Page ${index + 1}`,
+              source: mediaUrl(activePath),
+              width: viewport.width,
+              height: viewport.height,
+              kind: 'pdf' as const,
+            }
+          }),
         )
-        .finally(() => !cancelled && setLoading(false))
-      onCleanup(() => void task.destroy())
-    }
+        if (!cancelled) {
+          setPdfDocument(loadedPdf)
+          setPages(loaded)
+          const mappedOutline = await mapPdfOutline(loadedPdf, await loadedPdf.getOutline())
+          setOutline(mappedOutline)
+          const allIds = (items: ReaderOutlineItem[]): string[] =>
+            items.flatMap((item) => [item.id, ...allIds(item.children)])
+          setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
+          restorePositionAfterLoad(loaded.length)
+        }
+      })
+      .catch(
+        (reason) =>
+          !cancelled &&
+          setError(reason instanceof Error ? reason.message : 'Could not open document'),
+      )
+      .finally(() => !cancelled && setLoading(false))
     onCleanup(() => {
       cancelled = true
+      void pdfTask?.destroy()
     })
   })
 
-  const persist = () => {
+  const capturePersistedState = () => {
     const activePath = path()
-    if (!activePath) return
-    saveReaderPosition(activePath, {
+    if (!activePath || !stateFingerprint() || syncBlocked()) return null
+    const currentBookChapter = viewport?.querySelector<HTMLElement>(
+      `[data-book-chapter="${CSS.escape(currentChapterId())}"]`,
+    )
+    const viewportTop = viewport?.getBoundingClientRect().top ?? 0
+    const currentBookChapterRect = currentBookChapter?.getBoundingClientRect()
+    const liveChapterProgress = currentBookChapterRect
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            (viewportTop - currentBookChapterRect.top) / Math.max(1, currentBookChapterRect.height),
+          ),
+        )
+      : currentChapterProgress()
+    const currentAnchor = currentBookChapter
+      ? [...currentBookChapter.querySelectorAll<HTMLElement>('[id]')].find((element) => {
+          const top = element.getBoundingClientRect().top
+          return top >= viewportTop - 4 && top <= viewportTop + 24
+        })?.id
+      : undefined
+    const next: ReaderSyncedState = {
       pageIndex: currentPage(),
       scrollTop: viewport?.scrollTop ?? 0,
       zoom: zoom(),
       viewMode: viewMode(),
       fitMode: fitMode(),
-      selectionMode: selectionMode(),
+      selectionMode: preferredSelectionMode(),
       defaultAction: defaultAction(),
-    })
+      chapterId: sourceKind() === 'book' ? currentChapterId() : undefined,
+      anchor: sourceKind() === 'book' ? currentAnchor : undefined,
+      progress: sourceKind() === 'book' ? bookProgress() : undefined,
+      chapterProgress: sourceKind() === 'book' ? liveChapterProgress : undefined,
+      outlineExpanded: outlineExpanded(),
+    }
+    return {
+      activePath,
+      next,
+      shareContext: props.shareContext,
+      revision: stateRevision(),
+      fingerprint: stateFingerprint(),
+    }
+  }
+
+  const persistNow = async (snapshot: NonNullable<ReturnType<typeof capturePersistedState>>) => {
+    const { activePath, next, shareContext, revision, fingerprint } = snapshot
+    const saved = await saveSyncedReaderState(
+      activePath,
+      shareContext,
+      next,
+      stateRevision() === revision ? revision : stateRevision(),
+      stateFingerprint() === fingerprint ? fingerprint : stateFingerprint(),
+    ).catch(() => null)
+    if (!saved) {
+      setSyncBlocked(true)
+      const latest = await loadSyncedReaderState(activePath, shareContext).catch(() => null)
+      if (latest) {
+        setStateRevision(latest.revision)
+        setStateFingerprint(latest.fingerprint)
+        if (latest.state && readerRoot.isConnected) {
+          applyPosition(latest.state)
+          setOutlineExpanded(latest.state.outlineExpanded ?? [])
+          if (sourceKind() === 'book' && latest.state.chapterId) {
+            setCurrentChapterProgress(latest.state.chapterProgress ?? 0)
+            const restoreByProgress = (latest.state.chapterProgress ?? 0) > 0
+            goToBookChapter(
+              latest.state.chapterId,
+              restoreByProgress ? undefined : latest.state.anchor,
+            )
+            if (restoreByProgress)
+              requestAnimationFrame(() => {
+                const target = bookChapterElement(latest.state!.chapterId!)
+                if (target && viewport)
+                  viewport.scrollTop += target.offsetHeight * (latest.state!.chapterProgress ?? 0)
+              })
+          } else restorePositionAfterLoad(pages().length)
+        }
+      }
+      window.setTimeout(() => setSyncBlocked(false), 1_500)
+      return
+    }
+    setStateRevision(saved.revision)
+    setStateFingerprint(saved.fingerprint)
+  }
+
+  const persist = () => {
+    const snapshot = capturePersistedState()
+    if (!snapshot) return Promise.resolve()
+    const queued = saveQueue.then(
+      () => persistNow(snapshot),
+      () => persistNow(snapshot),
+    )
+    saveQueue = queued.catch(() => {})
+    return queued
   }
 
   createEffect(() => {
@@ -517,9 +843,22 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     fitMode()
     selectionMode()
     defaultAction()
+    currentChapterId()
+    outlineExpanded()
     window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(persist, 250)
+    saveTimer = window.setTimeout(() => void persist(), 1_000)
     onCleanup(() => window.clearTimeout(saveTimer))
+  })
+
+  createEffect(() => {
+    if (!preferencesReady()) return
+    bookAppearance()
+    preferredSelectionMode()
+    defaultAction()
+    outlineOpen()
+    window.clearTimeout(preferenceTimer)
+    preferenceTimer = window.setTimeout(() => void persistPreferences(), 350)
+    onCleanup(() => window.clearTimeout(preferenceTimer))
   })
 
   const fit = () => {
@@ -551,6 +890,58 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         })
       })
     } else viewport?.scrollTo({ top: 0 })
+  }
+
+  const goToBookChapter = (chapterId: string, anchor?: string, recordHistory = false) => {
+    if (!chapterId) return
+    if (recordHistory) {
+      const next =
+        bookHistoryIndex() < 0
+          ? [{ chapterId: currentChapterId() }]
+          : bookHistory().slice(0, bookHistoryIndex() + 1)
+      next.push({ chapterId, anchor })
+      setBookHistory(next)
+      setBookHistoryIndex(next.length - 1)
+    }
+    setCurrentChapterId(chapterId)
+    setCurrentChapterProgress(0)
+    setSelection(null)
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        scrollBookViewport(chapterId, anchor, 'smooth')
+      }),
+    )
+  }
+
+  const adjacentBookChapter = (offset: number) => {
+    const chapters = bookDocument()?.chapters ?? []
+    const navigationIds = bookNavigationChapterIds()
+    if (!navigationIds.length) return
+    const currentNavigationIndex = navigationIds.indexOf(currentChapterId())
+    let targetIndex: number
+    if (currentNavigationIndex >= 0) {
+      targetIndex = currentNavigationIndex + offset
+    } else {
+      const currentSpineIndex = chapters.findIndex((chapter) => chapter.id === currentChapterId())
+      const navigationSpineIndexes = navigationIds.map((id) =>
+        chapters.findIndex((chapter) => chapter.id === id),
+      )
+      targetIndex =
+        offset > 0
+          ? navigationSpineIndexes.findIndex((index) => index > currentSpineIndex)
+          : navigationSpineIndexes.findLastIndex((index) => index < currentSpineIndex)
+      if (targetIndex < 0) targetIndex = offset > 0 ? 0 : navigationIds.length - 1
+    }
+    const targetId = navigationIds[Math.max(0, Math.min(navigationIds.length - 1, targetIndex))]
+    if (targetId) goToBookChapter(targetId, undefined, true)
+  }
+
+  const moveBookHistory = (offset: number) => {
+    const index = bookHistoryIndex() + offset
+    const entry = bookHistory()[index]
+    if (!entry) return
+    setBookHistoryIndex(index)
+    goToBookChapter(entry.chapterId, entry.anchor)
   }
 
   const commitPageJump = () => {
@@ -636,6 +1027,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       if (active) readerRoot.append(menuHost)
       else if (menuHost.isConnected) document.body.append(menuHost)
     }
+    const retryPendingSave = () => void persist()
     let selectionCaptureFrame = 0
     const captureFromRelease = (event: MouseEvent | PointerEvent) => {
       const target = event.target
@@ -650,12 +1042,19 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     document.addEventListener('fullscreenchange', fullscreenChange)
     document.addEventListener('pointerup', captureFromRelease)
     document.addEventListener('mouseup', captureFromRelease)
+    window.addEventListener('online', retryPendingSave)
     onCleanup(() => {
+      window.clearTimeout(saveTimer)
+      window.clearTimeout(preferenceTimer)
+      if (!closePersisted) void persist()
+      if (!closePersisted && preferencesReady()) void persistPreferences()
+      bookDocument()?.release()
       resize.disconnect()
       window.cancelAnimationFrame(selectionCaptureFrame)
       document.removeEventListener('fullscreenchange', fullscreenChange)
       document.removeEventListener('pointerup', captureFromRelease)
       document.removeEventListener('mouseup', captureFromRelease)
+      window.removeEventListener('online', retryPendingSave)
       menuHost.remove()
       if (activeReaderRoot === readerRoot) activeReaderRoot = null
     })
@@ -675,10 +1074,11 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
           setSettingsOpen(false)
           setPageJumpOpen(false)
         } else if (selection()) setSelection(null)
-        else if (!props.embedded || props.onClose) close()
+        else if (!props.embedded || props.onClose) void close()
         return
       }
       if (target?.closest('input, textarea, button, [contenteditable=true]')) return
+      if (sourceKind() === 'book') return
       const targets: Record<string, number> = {
         ArrowRight: currentPage() + 1,
         PageDown: currentPage() + 1,
@@ -709,13 +1109,39 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         onFocusIn={() => (activeReaderRoot = readerRoot)}
       >
         <header class='relative z-30 grid h-[39px] shrink-0 grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-1.5 border-b border-[#303030] bg-[#121212] px-1.5 py-[3px]'>
-          <div class='absolute top-[3px] bottom-[3px] left-1/2 -translate-x-1/2'>
-            <div class='relative grid h-full place-items-center'>
+          <Show when={outline().length}>
+            <button
+              type='button'
+              aria-label='Toggle document outline'
+              data-testid='reader-outline-button'
+              class='col-start-1 flex h-8 w-8 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+              onClick={() => setOutlineOpen((value) => !value)}
+            >
+              <PanelLeft size={18} />
+            </button>
+          </Show>
+          <Show when={sourceKind() === 'book' && bookDocument()}>
+            {(book) => (
+              <div
+                class='absolute left-11 hidden max-w-[24%] truncate text-xs text-white/65 lg:block'
+                title={[book().metadata.title, ...book().metadata.authors]
+                  .filter(Boolean)
+                  .join(' — ')}
+              >
+                {book().metadata.title || basename(path())}
+                <Show when={book().metadata.authors.length}>
+                  <span class='text-white/40'> — {book().metadata.authors.join(', ')}</span>
+                </Show>
+              </div>
+            )}
+          </Show>
+          <div class='col-start-2 row-start-1 flex min-w-0 items-center justify-center gap-1'>
+            <div class='contents'>
               <button
                 type='button'
                 aria-label={fullscreen() ? 'Exit fullscreen' : 'Enter fullscreen'}
                 title={fullscreen() ? 'Exit fullscreen' : 'Enter fullscreen'}
-                class='absolute top-1/2 right-[calc(100%+8px)] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                class='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
                 onClick={() => void toggleFullscreen()}
               >
                 <Show when={fullscreen()} fallback={<Maximize2 size={18} />}>
@@ -723,21 +1149,57 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                 </Show>
               </button>
               <div class='relative'>
-                <button
-                  type='button'
-                  data-testid='reader-page-indicator'
-                  class='flex h-8 min-w-[104px] items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#181818] px-2 text-sm tabular-nums hover:border-[#777]'
-                  title='Go to page'
-                  onClick={() => {
-                    setSettingsOpen(false)
-                    setPageInput(String(currentPage() + 1))
-                    setPageJumpOpen(true)
-                  }}
+                <Show
+                  when={sourceKind() === 'book'}
+                  fallback={
+                    <button
+                      type='button'
+                      data-testid='reader-page-indicator'
+                      class='flex h-8 min-w-[104px] items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#181818] px-2 text-sm tabular-nums hover:border-[#777]'
+                      title='Go to page'
+                      onClick={() => {
+                        setSettingsOpen(false)
+                        setPageInput(String(currentPage() + 1))
+                        setPageJumpOpen(true)
+                      }}
+                    >
+                      Page {Math.min(currentPage() + 1, Math.max(1, pages().length))} /{' '}
+                      {Math.max(1, pages().length)}
+                    </button>
+                  }
                 >
-                  Page {Math.min(currentPage() + 1, Math.max(1, pages().length))} /{' '}
-                  {Math.max(1, pages().length)}
-                </button>
-                <Show when={pageJumpOpen()}>
+                  <div class='flex items-center gap-1'>
+                    <button
+                      type='button'
+                      aria-label='Previous chapter'
+                      class='grid h-8 w-8 place-items-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                      onClick={() => adjacentBookChapter(-1)}
+                    >
+                      <ChevronLeft size={17} />
+                    </button>
+                    <button
+                      type='button'
+                      data-testid='reader-book-progress'
+                      class='flex h-8 w-[clamp(72px,28vw,260px)] min-w-0 items-center justify-center truncate rounded-lg border border-[#3a3a3a] bg-[#181818] px-2 text-sm hover:border-[#777]'
+                      onClick={() => setOutlineOpen(true)}
+                    >
+                      <span class='truncate'>
+                        {bookDocument()?.chapters.find(
+                          (chapter) => chapter.id === currentChapterId(),
+                        )?.title ?? 'Book'}
+                      </span>
+                    </button>
+                    <button
+                      type='button'
+                      aria-label='Next chapter'
+                      class='grid h-8 w-8 place-items-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                      onClick={() => adjacentBookChapter(1)}
+                    >
+                      <ChevronRight size={17} />
+                    </button>
+                  </div>
+                </Show>
+                <Show when={pageJumpOpen() && sourceKind() !== 'book'}>
                   <div class='absolute top-[38px] left-1/2 z-50 -translate-x-1/2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]'>
                     <input
                       data-testid='reader-page-input'
@@ -757,99 +1219,132 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                 </Show>
               </div>
             </div>
-          </div>
-          <div class='absolute top-1/2 left-[calc(50%+64px)] -translate-y-1/2'>
-            <div class='relative'>
-              <button
-                type='button'
-                aria-label='Reader settings'
-                data-testid='reader-settings-button'
-                class='flex h-8 w-8 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-                onClick={() => {
-                  setPageJumpOpen(false)
-                  setSettingsOpen((value) => !value)
-                }}
-              >
-                <Settings size={18} />
-              </button>
-              <Show when={settingsOpen()}>
-                <div
-                  class='absolute top-[38px] right-0 grid min-w-[216px] gap-2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]'
-                  data-testid='reader-settings'
+            <div class='relative shrink-0'>
+              <div class='relative'>
+                <button
+                  type='button'
+                  aria-label='Reader settings'
+                  data-testid='reader-settings-button'
+                  class='flex h-8 w-8 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                  onClick={() => {
+                    setPageJumpOpen(false)
+                    setSettingsOpen((value) => !value)
+                  }}
                 >
-                  <ReaderSetting label='View'>
-                    <Segmented
-                      values={['continuous', 'page']}
-                      value={viewMode()}
-                      onChange={(value) => {
-                        setViewMode(value as ReaderViewMode)
-                        setSettingsOpen(false)
-                      }}
-                    />
-                  </ReaderSetting>
-                  <ReaderSetting label='Fit'>
-                    <Segmented
-                      values={['width', 'height']}
-                      value={fitMode()}
-                      onChange={(value) => {
-                        setFitMode(value as ReaderFitMode)
-                        setSettingsOpen(false)
-                      }}
-                    />
-                  </ReaderSetting>
-                  <ReaderSetting label='Zoom'>
-                    <div class='grid grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] items-center'>
-                      <button
-                        type='button'
-                        aria-label='Reader zoom out'
-                        class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-                        onClick={() => {
-                          setFitMode('manual')
-                          setZoom((value) => clampZoom(value - 0.1))
+                  <Settings size={18} />
+                </button>
+                <Show when={settingsOpen()}>
+                  <div
+                    class='absolute top-[38px] right-0 z-50 grid gap-2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]'
+                    classList={{
+                      'w-[min(384px,calc(100vw-16px))]': sourceKind() === 'book',
+                      'min-w-[216px]': sourceKind() !== 'book',
+                    }}
+                    data-testid='reader-settings'
+                  >
+                    <Show when={sourceKind() !== 'book'}>
+                      <ReaderSetting label='View'>
+                        <Segmented
+                          values={['continuous', 'page']}
+                          value={viewMode()}
+                          onChange={(value) => {
+                            setViewMode(value as ReaderViewMode)
+                            setSettingsOpen(false)
+                          }}
+                        />
+                      </ReaderSetting>
+                      <ReaderSetting label='Fit'>
+                        <Segmented
+                          values={['width', 'height']}
+                          value={fitMode()}
+                          onChange={(value) => {
+                            setFitMode(value as ReaderFitMode)
+                            setSettingsOpen(false)
+                          }}
+                        />
+                      </ReaderSetting>
+                      <ReaderSetting label='Zoom'>
+                        <div class='grid grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] items-center'>
+                          <button
+                            type='button'
+                            aria-label='Reader zoom out'
+                            class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                            onClick={() => {
+                              setFitMode('manual')
+                              setZoom((value) => clampZoom(value - 0.1))
+                            }}
+                          >
+                            <ZoomOut size={17} />
+                          </button>
+                          <span class='text-center text-sm text-[#b8b8b8] tabular-nums'>
+                            {Math.round(zoom() * 100)}%
+                          </span>
+                          <button
+                            type='button'
+                            aria-label='Reader zoom in'
+                            class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                            onClick={() => {
+                              setFitMode('manual')
+                              setZoom((value) => clampZoom(value + 0.1))
+                            }}
+                          >
+                            <ZoomIn size={17} />
+                          </button>
+                        </div>
+                      </ReaderSetting>
+                    </Show>
+                    <Show when={sourceKind() === 'book'}>
+                      <ReaderSetting label='Navigation history'>
+                        <div class='grid grid-cols-2 gap-1'>
+                          <button
+                            type='button'
+                            class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] text-xs disabled:opacity-40'
+                            disabled={bookHistoryIndex() <= 0}
+                            onClick={() => moveBookHistory(-1)}
+                          >
+                            Back
+                          </button>
+                          <button
+                            type='button'
+                            class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] text-xs disabled:opacity-40'
+                            disabled={bookHistoryIndex() >= bookHistory().length - 1}
+                            onClick={() => moveBookHistory(1)}
+                          >
+                            Forward
+                          </button>
+                        </div>
+                      </ReaderSetting>
+                      <BookAppearanceSettings
+                        value={bookAppearance()}
+                        onChange={setBookAppearance}
+                      />
+                    </Show>
+                    <ReaderSetting label='Select'>
+                      <Segmented
+                        values={sourceKind() === 'book' ? ['text'] : ['text', 'image']}
+                        value={selectionMode()}
+                        onChange={(value) => {
+                          setSelectionMode(value as ReaderSelectionMode)
+                          setPreferredSelectionMode(value as ReaderSelectionMode)
+                          setSelection(null)
+                          window.getSelection()?.removeAllRanges()
+                          setSettingsOpen(false)
                         }}
-                      >
-                        <ZoomOut size={17} />
-                      </button>
-                      <span class='text-center text-sm text-[#b8b8b8] tabular-nums'>
-                        {Math.round(zoom() * 100)}%
-                      </span>
-                      <button
-                        type='button'
-                        aria-label='Reader zoom in'
-                        class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-                        onClick={() => {
-                          setFitMode('manual')
-                          setZoom((value) => clampZoom(value + 0.1))
+                      />
+                    </ReaderSetting>
+                    <ReaderSetting label='Default action'>
+                      <Segmented
+                        values={['define', 'translate', 'none']}
+                        value={defaultAction()}
+                        onChange={(value) => {
+                          setDefaultAction(value as ReaderDefaultAction)
+                          setSettingsOpen(false)
                         }}
-                      >
-                        <ZoomIn size={17} />
-                      </button>
-                    </div>
-                  </ReaderSetting>
-                  <ReaderSetting label='Select'>
-                    <Segmented
-                      values={['text', 'image']}
-                      value={selectionMode()}
-                      onChange={(value) => {
-                        setSelectionMode(value as ReaderSelectionMode)
-                        setSelection(null)
-                        window.getSelection()?.removeAllRanges()
-                        setSettingsOpen(false)
-                      }}
-                    />
-                  </ReaderSetting>
-                  <ReaderSetting label='Default action'>
-                    <Segmented
-                      values={['define', 'translate', 'none']}
-                      value={defaultAction()}
-                      onChange={(value) => {
-                        setDefaultAction(value as ReaderDefaultAction)
-                        setSettingsOpen(false)
-                      }}
-                    />
-                  </ReaderSetting>
-                </div>
-              </Show>
+                      />
+                    </ReaderSetting>
+                  </div>
+                </Show>
+              </div>
             </div>
           </div>
           <Show when={props.showClose !== false}>
@@ -858,89 +1353,151 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
               title='Close'
               aria-label='Close reader'
               class='col-start-3 flex h-8 w-8 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-              onClick={close}
+              onClick={() => void close()}
             >
               <X size={20} />
             </button>
           </Show>
         </header>
 
-        <div
-          ref={viewport}
-          data-testid='reader-viewport'
-          class='reader-viewport min-h-0 flex-1 overflow-auto bg-[#191919] px-2 pt-1 pb-2 [scrollbar-color:#555_#181818]'
-          classList={{ 'cursor-text': selectionMode() === 'text' }}
-          onPointerDown={(event) => {
-            setSettingsOpen(false)
-            setPageJumpOpen(false)
-            if (!(event.target as Element).closest('[data-testid="reader-selection-menu"]'))
-              setSelection(null)
-          }}
-          onScroll={(event) => {
-            syncSelectionMenu()
-            if (viewMode() === 'continuous') {
-              setCurrentPage(pageFromScroll(pages(), event.currentTarget.scrollTop, zoom()))
-            }
-            window.clearTimeout(saveTimer)
-            saveTimer = window.setTimeout(persist, 250)
-          }}
-        >
-          <Show when={loading()}>
-            <div class='flex h-full items-center justify-center text-sm text-white/60'>
-              Opening...
-            </div>
-          </Show>
-          <Show when={error()}>
-            <div
-              role='alert'
-              class='flex h-full items-center justify-center p-8 text-center text-red-300'
-            >
-              {error()}
-            </div>
-          </Show>
-          <Show when={!loading() && !error()}>
-            <For each={renderedPages()}>
-              {(page) => {
-                const pageIndex = () => pages().indexOf(page)
-                return (
-                  <article
-                    data-page-id={page.id}
-                    data-page-index={pageIndex()}
-                    data-reader-page-index={pageIndex()}
-                    class='mx-auto mb-2 w-fit scroll-mt-1'
-                    classList={{
-                      'max-w-none': page.kind === 'pdf',
-                      'max-w-full': page.kind !== 'pdf',
-                    }}
-                    aria-label={`Page ${pageIndex() + 1}`}
-                  >
-                    <Show
-                      when={page.kind === 'pdf' && pdfDocument()}
-                      fallback={
-                        <ImagePage
-                          page={page}
-                          zoom={zoom()}
-                          selectionMode={selectionMode()}
-                          onRegion={(next) => setSelection({ ...next, id: ++selectionId })}
-                        />
-                      }
-                    >
-                      {(document) => (
-                        <PdfPage
-                          document={document()}
-                          page={page}
-                          pageIndex={pageIndex()}
-                          zoom={zoom()}
-                          selectionMode={selectionMode()}
-                          onRegion={(next) => setSelection({ ...next, id: ++selectionId })}
-                        />
-                      )}
-                    </Show>
-                  </article>
-                )
+        <div class='relative flex min-h-0 flex-1'>
+          <Show when={outlineOpen() && outline().length}>
+            <ReaderOutline
+              title='Contents'
+              items={outline()}
+              active={sourceKind() === 'book' ? currentChapterId() : currentPage()}
+              onNavigate={(target, anchor) => {
+                if (typeof target === 'number') goToPage(target)
+                else goToBookChapter(target, anchor, true)
               }}
-            </For>
+              onClose={() => setOutlineOpen(false)}
+              expanded={outlineExpanded()}
+              onToggle={(id) =>
+                setOutlineExpanded((items) =>
+                  items.includes(id) ? items.filter((item) => item !== id) : [...items, id],
+                )
+              }
+            />
           </Show>
+          <div
+            ref={viewport}
+            data-testid='reader-viewport'
+            class='reader-viewport min-h-0 flex-1 overflow-auto bg-[#191919] px-2 pt-1 pb-2 [scrollbar-color:#555_#181818]'
+            classList={{ 'cursor-text': selectionMode() === 'text' }}
+            onPointerDown={(event) => {
+              setSettingsOpen(false)
+              setPageJumpOpen(false)
+              if (!(event.target as Element).closest('[data-testid="reader-selection-menu"]'))
+                setSelection(null)
+            }}
+            onScroll={(event) => {
+              syncSelectionMenu()
+              if (sourceKind() === 'book') {
+                const top = event.currentTarget.getBoundingClientRect().top + 8
+                const chapters = [
+                  ...event.currentTarget.querySelectorAll<HTMLElement>('[data-book-chapter]'),
+                ]
+                const atEnd =
+                  event.currentTarget.scrollHeight -
+                    event.currentTarget.clientHeight -
+                    event.currentTarget.scrollTop <=
+                  2
+                const current = atEnd
+                  ? chapters.at(-1)
+                  : chapters.find((chapter) => chapter.getBoundingClientRect().bottom > top)
+                if (current?.dataset.bookChapter) {
+                  setCurrentChapterId(current.dataset.bookChapter)
+                  const rect = current.getBoundingClientRect()
+                  setCurrentChapterProgress(
+                    Math.max(0, Math.min(1, (top - rect.top) / Math.max(1, rect.height))),
+                  )
+                }
+              } else if (viewMode() === 'continuous') {
+                setCurrentPage(pageFromScroll(pages(), event.currentTarget.scrollTop, zoom()))
+              }
+              window.clearTimeout(saveTimer)
+              saveTimer = window.setTimeout(() => void persist(), 1_000)
+            }}
+          >
+            <Show when={loading()}>
+              <div class='flex h-full items-center justify-center text-sm text-white/60'>
+                Opening...
+              </div>
+            </Show>
+            <Show when={error()}>
+              <div
+                role='alert'
+                class='flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-red-300'
+              >
+                <p>{error()}</p>
+                <a
+                  class='rounded border border-white/25 px-3 py-1.5 text-sm text-white hover:border-white/60'
+                  href={mediaUrl(path())}
+                  download={basename(path())}
+                >
+                  Download original
+                </a>
+              </div>
+            </Show>
+            <Show when={!loading() && !error()}>
+              <Show
+                when={sourceKind() === 'book' && bookDocument()}
+                fallback={
+                  <For each={renderedPages()}>
+                    {(page) => {
+                      const pageIndex = () => pages().indexOf(page)
+                      return (
+                        <article
+                          data-page-id={page.id}
+                          data-page-index={pageIndex()}
+                          data-reader-page-index={pageIndex()}
+                          class='mx-auto mb-2 w-fit scroll-mt-1'
+                          classList={{
+                            'max-w-none': page.kind === 'pdf',
+                            'max-w-full': page.kind !== 'pdf',
+                          }}
+                          aria-label={`Page ${pageIndex() + 1}`}
+                        >
+                          <Show
+                            when={page.kind === 'pdf' && pdfDocument()}
+                            fallback={
+                              <ImagePage
+                                page={page}
+                                zoom={zoom()}
+                                selectionMode={selectionMode()}
+                                onRegion={(next) => setSelection({ ...next, id: ++selectionId })}
+                              />
+                            }
+                          >
+                            {(document) => (
+                              <PdfPage
+                                document={document()}
+                                page={page}
+                                pageIndex={pageIndex()}
+                                zoom={zoom()}
+                                selectionMode={selectionMode()}
+                                onRegion={(next) => setSelection({ ...next, id: ++selectionId })}
+                              />
+                            )}
+                          </Show>
+                        </article>
+                      )
+                    }}
+                  </For>
+                }
+              >
+                {(document) => (
+                  <BookContent
+                    document={document()}
+                    appearance={bookAppearance()}
+                    currentChapterId={currentChapterId()}
+                    viewport={viewport}
+                    onNavigate={goToBookChapter}
+                  />
+                )}
+              </Show>
+            </Show>
+          </div>
         </div>
         <Portal mount={menuHost}>
           <Show when={selection()}>
@@ -966,6 +1523,101 @@ function ReaderSetting(props: { label: string; children: unknown }) {
       <h2 class='text-xs font-semibold text-white/60'>{props.label}</h2>
       {props.children as any}
     </section>
+  )
+}
+
+function BookAppearanceSettings(props: {
+  value: BookAppearance
+  onChange: (value: BookAppearance) => void
+}) {
+  const update = (next: Partial<BookAppearance>) => props.onChange({ ...props.value, ...next })
+  const adjust = (
+    key: 'fontScale' | 'lineHeight' | 'contentWidth',
+    amount: number,
+    fallback: number,
+  ) => {
+    const bounds = {
+      fontScale: [0.5, 3],
+      lineHeight: [0.8, 3],
+      contentWidth: [20, 100],
+    } as const
+    const [minimum, maximum] = bounds[key]
+    const value = Math.max(minimum, Math.min(maximum, (props.value[key] ?? fallback) + amount))
+    update({ [key]: Number(value.toFixed(2)) })
+  }
+  return (
+    <>
+      <ReaderSetting label='Font'>
+        <Segmented
+          values={['publisher', 'serif', 'sans']}
+          value={props.value.fontFamily}
+          onChange={(value) => update({ fontFamily: value as BookAppearance['fontFamily'] })}
+        />
+      </ReaderSetting>
+      <ReaderSetting label='Theme'>
+        <Segmented
+          values={['publisher', 'light', 'dark', 'sepia']}
+          value={props.value.theme}
+          onChange={(value) => update({ theme: value as BookAppearance['theme'] })}
+        />
+      </ReaderSetting>
+      <ReaderSetting label='Font size'>
+        <StepSetting
+          value={
+            props.value.fontScale === null
+              ? 'Publisher'
+              : `${Math.round(props.value.fontScale * 100)}%`
+          }
+          onDecrease={() => adjust('fontScale', -0.1, 1)}
+          onIncrease={() => adjust('fontScale', 0.1, 1)}
+        />
+      </ReaderSetting>
+      <ReaderSetting label='Line height'>
+        <StepSetting
+          value={props.value.lineHeight === null ? 'Publisher' : props.value.lineHeight.toFixed(2)}
+          onDecrease={() => adjust('lineHeight', -0.1, 1.65)}
+          onIncrease={() => adjust('lineHeight', 0.1, 1.65)}
+        />
+      </ReaderSetting>
+      <ReaderSetting label='Content width'>
+        <StepSetting
+          value={props.value.contentWidth === null ? 'Publisher' : `${props.value.contentWidth}rem`}
+          onDecrease={() => adjust('contentWidth', -4, 48)}
+          onIncrease={() => adjust('contentWidth', 4, 48)}
+        />
+      </ReaderSetting>
+      <button
+        type='button'
+        class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] text-xs hover:border-[#777]'
+        onClick={() => props.onChange({ ...DEFAULT_BOOK_APPEARANCE })}
+      >
+        Reset appearance
+      </button>
+    </>
+  )
+}
+
+function StepSetting(props: { value: string; onDecrease: () => void; onIncrease: () => void }) {
+  return (
+    <div class='grid grid-cols-[32px_minmax(82px,1fr)_32px] items-center'>
+      <button
+        type='button'
+        aria-label='Decrease'
+        class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+        onClick={props.onDecrease}
+      >
+        −
+      </button>
+      <span class='text-center text-xs text-white/70'>{props.value}</span>
+      <button
+        type='button'
+        aria-label='Increase'
+        class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+        onClick={props.onIncrease}
+      >
+        +
+      </button>
+    </div>
   )
 }
 

@@ -44,10 +44,26 @@ pub fn media_type(ext: &str) -> &'static str {
         "mp3" | "wav" | "m4a" | "flac" | "aac" | "opus" => "audio",
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "ico" => "image",
         "pdf" => "pdf",
+        "epub" | "fb2" | "fb2.zip" => "book",
         "txt" | "md" | "json" | "xml" | "csv" | "log" | "yaml" | "yml" | "ini" | "conf" | "sh"
         | "bat" | "ps1" | "js" | "ts" | "jsx" | "tsx" | "css" | "scss" | "html" | "py" | "java"
         | "c" | "cpp" | "h" | "cs" | "go" | "rs" | "php" | "rb" | "swift" | "kt" | "sql" => "text",
         _ => "other",
+    }
+}
+pub fn extension(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    if name.ends_with(".fb2.zip") {
+        "fb2.zip".into()
+    } else {
+        path.extension()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_ascii_lowercase()
     }
 }
 pub fn mime_type(ext: &str) -> &'static str {
@@ -73,6 +89,9 @@ pub fn mime_type(ext: &str) -> &'static str {
         "svg" => "image/svg+xml",
         "ico" => "image/x-icon",
         "pdf" => "application/pdf",
+        "epub" => "application/epub+zip",
+        "fb2" => "application/x-fictionbook+xml",
+        "fb2.zip" => "application/zip",
         "txt" | "log" | "ini" | "conf" | "bat" => "text/plain",
         "md" => "text/markdown",
         "json" => "application/json",
@@ -281,11 +300,7 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
         } else {
             rel
         };
-        let ext = Path::new(&name)
-            .extension()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_ascii_lowercase();
+        let ext = extension(Path::new(&name));
         let version = meta
             .modified()
             .ok()

@@ -1,5 +1,91 @@
 @import 'tailwindcss';
 
+.book-document {
+  background: #fffdf8;
+  color: #24211d;
+  user-select: text;
+}
+
+.book-document.book-custom-font-size {
+  font-size: calc(1rem * var(--book-font-scale));
+}
+.book-document.book-custom-line-height {
+  line-height: var(--book-line-height);
+}
+.book-document.font-serif .book-chapter,
+.book-document.font-serif .book-chapter * {
+  font-family: ui-serif, Georgia, serif !important;
+}
+.book-document.font-sans .book-chapter,
+.book-document.font-sans .book-chapter * {
+  font-family: ui-sans-serif, system-ui, sans-serif !important;
+}
+.book-document.book-custom-line-height .book-chapter,
+.book-document.book-custom-line-height .book-chapter * {
+  line-height: var(--book-line-height) !important;
+}
+
+.book-document.book-theme-dark {
+  background: #171717;
+  color: #e7e2da;
+}
+
+.book-document.book-theme-sepia {
+  background: #f1e5c8;
+  color: #3f3323;
+}
+
+.book-document.book-theme-light {
+  background: #fffdf8;
+  color: #24211d;
+}
+
+.book-document.book-custom-width .book-chapter {
+  max-width: var(--book-content-width);
+}
+.book-chapter :is(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.4em 0.65em;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.book-chapter h1 {
+  font-size: 1.9em;
+}
+.book-chapter h2 {
+  font-size: 1.55em;
+}
+.book-chapter h3 {
+  font-size: 1.25em;
+}
+.book-chapter p {
+  margin-block: 0.65em;
+}
+.book-chapter blockquote {
+  margin: 1em 1.5em;
+  opacity: 0.88;
+}
+.book-chapter img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2em auto;
+}
+.book-chapter [data-book-cover] img {
+  max-height: calc(100vh - 110px);
+}
+.book-chapter a {
+  color: #3273dc;
+  text-decoration: underline;
+}
+.book-chapter table {
+  max-width: 100%;
+  border-collapse: collapse;
+}
+.book-chapter :is(td, th) {
+  border: 1px solid currentColor;
+  padding: 0.35em;
+}
+
 .reader-markdown {
   min-width: 0;
   overflow-wrap: anywhere;

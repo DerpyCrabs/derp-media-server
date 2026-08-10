@@ -1,4 +1,4 @@
-import { getMediaType } from '@/lib/media-utils'
+import { getMediaTypeFromPath } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
 import { Show, lazy } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
@@ -9,9 +9,6 @@ import { UnsupportedFileViewerDialog } from './UnsupportedFileViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
 import { closeViewer } from '../lib/url-state-actions'
 
-const PdfViewerDialog = lazy(() =>
-  import('./PdfViewerDialog').then((module) => ({ default: module.PdfViewerDialog })),
-)
 const ReaderDialog = lazy(() =>
   import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
 )
@@ -24,23 +21,24 @@ type Props = {
   shareCanUpload?: boolean
 }
 
-function LazyPdfViewerDialog(props: Pick<Props, 'shareContext'>) {
+function LazyDocumentReader(props: Pick<Props, 'shareContext'>) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
-  const viewingPath = () => params().get('viewing') ?? ''
-  const isPdf = () =>
-    getMediaType(viewingPath().split('.').pop()?.toLowerCase() ?? '') === MediaType.PDF
+  const viewingPath = () => params().get('viewing') ?? props.shareContext?.sharePath ?? ''
+  const mediaType = () => getMediaTypeFromPath(viewingPath())
+  const readerKind = (): 'pdf' | 'book' | null =>
+    mediaType() === MediaType.PDF ? 'pdf' : mediaType() === MediaType.BOOK ? 'book' : null
 
   return (
-    <Show when={isPdf()}>
-      <Show
-        when={props.shareContext}
-        fallback={
-          <ReaderDialog sourcePath={viewingPath()} sourceKind='pdf' onClose={closeViewer} />
-        }
-      >
-        <PdfViewerDialog shareContext={props.shareContext} />
-      </Show>
+    <Show when={readerKind() && viewingPath()} keyed>
+      {(sourcePath) => (
+        <ReaderDialog
+          sourcePath={sourcePath}
+          sourceKind={getMediaTypeFromPath(sourcePath) === MediaType.PDF ? 'pdf' : 'book'}
+          shareContext={props.shareContext}
+          onClose={closeViewer}
+        />
+      )}
     </Show>
   )
 }
@@ -56,7 +54,7 @@ export function MainMediaPlayers(props: Props) {
         shareCanUpload={props.shareCanUpload}
       />
       <ImageViewerDialog shareContext={props.shareContext} />
-      <LazyPdfViewerDialog shareContext={props.shareContext} />
+      <LazyDocumentReader shareContext={props.shareContext} />
       <VideoPlayer shareContext={props.shareContext} />
       <AudioPlayer shareContext={props.shareContext} />
       <UnsupportedFileViewerDialog shareContext={props.shareContext} />

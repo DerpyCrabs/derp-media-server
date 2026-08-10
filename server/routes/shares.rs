@@ -120,6 +120,7 @@ async fn remove(State(state): State<Shared>, Json(body): Json<Value>) -> AppResu
     if !shares::delete(&state.config, token)? {
         return Err(AppError::not_found("Share not found"));
     }
+    crate::path_metadata::cleanup_share(&state, token)?;
     Ok(Json(json!({"success":true})))
 }
 
