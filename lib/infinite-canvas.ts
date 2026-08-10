@@ -23,42 +23,17 @@ export type CanvasWindowSizeKey =
   | 'viewer-other'
 export type CanvasWindowSize = Pick<CanvasRect, 'width' | 'height'>
 
-export type CanvasCardKind = 'note'
-
-export type CanvasCard = {
-  id: string
-  kind: CanvasCardKind
-  title: string
-  body: string
-  url: string | null
-  color: string
-  bounds: CanvasRect
-  zIndex: number
-  locked: boolean
-  tags: string[]
-}
-
-export type CanvasConnector = {
-  id: string
-  fromId: string
-  toId: string
-  label: string
-  color: string
-}
-
 export type CanvasWindow = {
   id: string
   definition: WorkspaceWindowDefinition
   bounds: CanvasRect
   zIndex: number
-  locked?: boolean
 }
 
 export type InfiniteCanvasState = {
   version: 1
   windows: CanvasWindow[]
-  cards: CanvasCard[]
-  connectors: CanvasConnector[]
+  maximizedWindowId: string | null
   camera: CanvasCamera
   windowSizeByType: Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>>
   nextItemId: number
@@ -69,8 +44,7 @@ export function createEmptyCanvasState(): InfiniteCanvasState {
   return {
     version: CANVAS_SCHEMA_VERSION,
     windows: [],
-    cards: [],
-    connectors: [],
+    maximizedWindowId: null,
     camera: { x: 0, y: 0, zoom: 1 },
     windowSizeByType: {},
     nextItemId: 1,
@@ -107,30 +81,9 @@ export function reconcileInfiniteCanvasState(
         : window
     }),
   )
-  const currentCards = new Map(current.cards.map((card) => [card.id, card]))
-  const cards = preserveArray(
-    current.cards,
-    incoming.cards.map((card) => {
-      const existing = currentCards.get(card.id)
-      return existing && sameValue(existing, card) ? existing : card
-    }),
-  )
-  const currentConnectors = new Map(
-    current.connectors.map((connector) => [connector.id, connector]),
-  )
-  const connectors = preserveArray(
-    current.connectors,
-    incoming.connectors.map((connector) => {
-      const existing = currentConnectors.get(connector.id)
-      return existing && sameValue(existing, connector) ? existing : connector
-    }),
-  )
-
   return {
     ...incoming,
     windows,
-    cards,
-    connectors,
     camera: sameValue(current.camera, incoming.camera) ? current.camera : incoming.camera,
     windowSizeByType: sameValue(current.windowSizeByType, incoming.windowSizeByType)
       ? current.windowSizeByType
@@ -194,19 +147,6 @@ export function findNearestFreeCanvasRect(
   return base
 }
 
-export function canvasContentBounds(state: InfiniteCanvasState): CanvasRect | null {
-  const rects = [
-    ...state.windows.map((window) => window.bounds),
-    ...state.cards.map((card) => card.bounds),
-  ]
-  if (rects.length === 0) return null
-  const left = Math.min(...rects.map((rect) => rect.x))
-  const top = Math.min(...rects.map((rect) => rect.y))
-  const right = Math.max(...rects.map((rect) => rect.x + rect.width))
-  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
-  return { x: left, y: top, width: right - left, height: bottom - top }
-}
-
 function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
@@ -239,7 +179,7 @@ function parseWindowSize(value: unknown): CanvasWindowSize | undefined {
 }
 
 function canvasItemNumber(id: string): number {
-  const match = /^canvas-(?:window|card|connector)-(\d+)$/.exec(id)
+  const match = /^canvas-window-(\d+)$/.exec(id)
   return match ? Number(match[1]) : 0
 }
 
@@ -300,73 +240,6 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
       },
       bounds,
       zIndex: Math.max(1, Math.floor(finiteNumber(window.zIndex, 1))),
-      locked: !!window.locked,
-    })
-  }
-  const cards: CanvasCard[] = []
-  for (const value of Array.isArray(raw.cards) ? raw.cards : []) {
-    if (!value || typeof value !== 'object') continue
-    const card = value as Partial<CanvasCard>
-    const legacyKind = (value as { kind?: unknown }).kind
-    const bounds = parseRect(card.bounds)
-    if (
-      !bounds ||
-      typeof card.id !== 'string' ||
-      itemIds.has(card.id) ||
-      (legacyKind !== 'note' && legacyKind !== 'prompt' && legacyKind !== 'link')
-    )
-      continue
-    const url = typeof card.url === 'string' && /^https?:\/\//i.test(card.url) ? card.url : null
-    itemIds.add(card.id)
-    cards.push({
-      id: card.id,
-      kind: 'note',
-      title:
-        typeof card.title === 'string' && card.title
-          ? card.title.slice(0, 160)
-          : legacyKind === 'link' && url
-            ? url.slice(0, 160)
-            : '',
-      body: `${typeof card.body === 'string' ? card.body : ''}${legacyKind === 'link' && url ? `\n\n${url}` : ''}`.slice(
-        0,
-        250_000,
-      ),
-      url: null,
-      color: typeof card.color === 'string' ? card.color : '#6366f1',
-      bounds,
-      zIndex: Math.max(1, Math.floor(finiteNumber(card.zIndex, 1))),
-      locked: !!card.locked,
-      tags: Array.isArray(card.tags)
-        ? card.tags
-            .filter((tag): tag is string => typeof tag === 'string')
-            .map((tag) => tag.trim().slice(0, 40))
-            .filter(Boolean)
-            .slice(0, 20)
-        : [],
-    })
-  }
-  const connectors: CanvasConnector[] = []
-  const connectableIds = new Set([...windows, ...cards].map((item) => item.id))
-  for (const value of Array.isArray(raw.connectors) ? raw.connectors : []) {
-    if (!value || typeof value !== 'object') continue
-    const connector = value as Partial<CanvasConnector>
-    if (
-      typeof connector.id !== 'string' ||
-      itemIds.has(connector.id) ||
-      typeof connector.fromId !== 'string' ||
-      typeof connector.toId !== 'string' ||
-      connector.fromId === connector.toId ||
-      !connectableIds.has(connector.fromId) ||
-      !connectableIds.has(connector.toId)
-    )
-      continue
-    itemIds.add(connector.id)
-    connectors.push({
-      id: connector.id,
-      fromId: connector.fromId,
-      toId: connector.toId,
-      label: typeof connector.label === 'string' ? connector.label.slice(0, 120) : '',
-      color: typeof connector.color === 'string' ? connector.color : '#64748b',
     })
   }
   const cameraRaw = raw.camera as Partial<CanvasCamera> | undefined
@@ -391,13 +264,15 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
     }),
   ) as Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>>
   const nextItemId = Math.max(0, ...Array.from(itemIds, canvasItemNumber)) + 1
-  const nextZIndex =
-    Math.max(0, ...windows.map((window) => window.zIndex), ...cards.map((card) => card.zIndex)) + 1
+  const nextZIndex = Math.max(0, ...windows.map((window) => window.zIndex)) + 1
+  const maximizedWindowId =
+    typeof raw.maximizedWindowId === 'string' && itemIds.has(raw.maximizedWindowId)
+      ? raw.maximizedWindowId
+      : null
   return {
     version: CANVAS_SCHEMA_VERSION,
     windows,
-    cards,
-    connectors,
+    maximizedWindowId,
     camera: {
       x: finiteNumber(cameraRaw?.x, 0),
       y: finiteNumber(cameraRaw?.y, 0),

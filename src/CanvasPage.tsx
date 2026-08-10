@@ -1,18 +1,5 @@
 import { api } from '@/lib/api'
-import {
-  CANVAS_SNAPSHOTS_STORAGE_KEY,
-  CANVAS_TEMPLATES,
-  buildCanvasContext,
-  canvasItemTitle,
-  createCanvasExport,
-  createReadingQuoteBody,
-  createCanvasTemplateState,
-  parseCanvasExport,
-  parseCanvasSnapshots,
-  type CanvasContextContent,
-  type CanvasSnapshot,
-  type CanvasTemplateKey,
-} from '@/lib/canvas-features'
+import { createCanvasExport, parseCanvasExport } from '@/lib/canvas-features'
 import {
   CANVAS_COLLECTION_STORAGE_KEY,
   compareCanvasRecords,
@@ -33,7 +20,6 @@ import {
   CANVAS_MIN_WINDOW_WIDTH,
   CANVAS_MIN_ZOOM,
   CANVAS_STORAGE_KEY,
-  canvasContentBounds,
   canvasWindowVisualBounds,
   createEmptyCanvasState,
   findNearestFreeCanvasRect,
@@ -42,7 +28,6 @@ import {
   serializeInfiniteCanvasState,
   snapCanvasRect,
   snapCanvasValue,
-  type CanvasCard,
   type CanvasRect,
   type CanvasWindow,
   type CanvasWindowSize,
@@ -60,29 +45,21 @@ import type {
 } from '@/lib/use-workspace'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
-import {
-  canCloseHermesWindow,
-  ensureHermesChat,
-  hermesSessions,
-  setHermesComposer,
-} from '@/lib/hermes-session-store'
+import { canCloseHermesWindow } from '@/lib/hermes-session-store'
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
-import Copy from 'lucide-solid/icons/copy'
 import Download from 'lucide-solid/icons/download'
 import FileText from 'lucide-solid/icons/file-text'
 import FolderOpen from 'lucide-solid/icons/folder-open'
-import Focus from 'lucide-solid/icons/focus'
-import Maximize from 'lucide-solid/icons/maximize'
+import Maximize2 from 'lucide-solid/icons/maximize-2'
 import MoreHorizontal from 'lucide-solid/icons/more-horizontal'
 import Pencil from 'lucide-solid/icons/pencil'
 import Plus from 'lucide-solid/icons/plus'
-import Lock from 'lucide-solid/icons/lock'
 import MessageSquare from 'lucide-solid/icons/message-square'
+import Minimize2 from 'lucide-solid/icons/minimize-2'
 import PanelLeft from 'lucide-solid/icons/panel-left'
-import Save from 'lucide-solid/icons/save'
 import Upload from 'lucide-solid/icons/upload'
 import Redo2 from 'lucide-solid/icons/redo-2'
 import RotateCcw from 'lucide-solid/icons/rotate-ccw'
@@ -95,14 +72,12 @@ import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { CanvasSearchPalette } from './canvas/CanvasSearchPalette'
-import { CanvasCardsLayer } from './canvas/CanvasCardsLayer'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
 import { bindReadingProgress as bindReadingProgressEvents } from './canvas/reading-progress'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
@@ -118,52 +93,15 @@ const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
 }
 const LIVE_ZOOM = 0.62
 const FAR_ZOOM = 0.28
-const AI_DOCUMENT_CHARACTER_LIMIT = 24_000
-const AI_TOTAL_CHARACTER_LIMIT = 60_000
 const CANVAS_READING_POSITION_PREFIX = 'canvas-reading-position-v1'
 
-type NoteStarterKey = 'blank' | 'meeting' | 'decision' | 'reading' | 'hardware' | 'prompt'
-
-const NOTE_STARTERS: Array<{
-  key: NoteStarterKey
-  label: string
-  content: string
-}> = [
-  { key: 'blank', label: 'Blank', content: '' },
-  {
-    key: 'meeting',
-    label: 'Meeting notes',
-    content: '## Agenda\n\n## Notes\n\n## Actions\n\n- [ ] ',
-  },
-  { key: 'decision', label: 'Decision', content: '## Decision\n\n## Context\n\n## Consequences\n' },
-  {
-    key: 'reading',
-    label: 'Reading notes',
-    content: '## Questions\n\n## Claims\n\n## Evidence\n\n## Quotes\n',
-  },
-  {
-    key: 'hardware',
-    label: 'Hardware note',
-    content: '## Requirements\n\n## Interfaces\n\n## Validation\n',
-  },
-  {
-    key: 'prompt',
-    label: 'Prompt brief',
-    content: '## Role\n\n## Goal\n\n## Constraints\n\n## Output format\n\n## Evaluation criteria\n',
-  },
-]
-
-type CanvasAiContextSource = {
-  id: string
-  title: string
-  detail: string
-  status: 'included' | 'reference' | 'failed'
-  characters: number
+type ContextMenuState = {
+  kind: 'canvas'
+  clientX: number
+  clientY: number
+  worldX: number
+  worldY: number
 }
-
-type ContextMenuState =
-  | { kind: 'canvas'; clientX: number; clientY: number; worldX: number; worldY: number }
-  | { kind: 'window'; clientX: number; clientY: number; windowId: string }
 
 type Selection = { kind: 'window'; id: string } | null
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
@@ -173,30 +111,13 @@ type CanvasDialogState =
       kind: 'new-note'
       point: { x: number; y: number }
       initialContent: string
-      promoteCardId?: string
-    }
-  | { kind: 'ai-compose'; instruction: string; ids: string[]; scope: 'selection' | 'canvas' }
-  | {
-      kind: 'ai-context'
-      instruction: string
-      context: string
-      sources: CanvasAiContextSource[]
-      loading: boolean
     }
   | { kind: 'rename-canvas'; canvasId: string }
   | { kind: 'delete-canvas'; canvasId: string; canvasName: string }
-  | { kind: 'reset-canvas' }
-  | { kind: 'snapshots' }
   | { kind: 'shortcuts' }
   | { kind: 'import-canvas' }
   | { kind: 'message'; message: string }
 type FileDropPreview = { bounds: CanvasRect }
-type QuoteCapture = {
-  windowId: string
-  text: string
-  clientX: number
-  clientY: number
-}
 
 function cloneState(state: InfiniteCanvasState): InfiniteCanvasState {
   return (
@@ -226,32 +147,6 @@ function fileItemFromDrag(path: string, isDirectory: boolean): FileItem {
     extension,
     size: 0,
     type: isDirectory ? MediaType.FOLDER : getMediaType(extension),
-  }
-}
-
-async function loadCanvasDocumentText(path: string, mediaType: MediaType): Promise<string> {
-  const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`)
-  if (!response.ok) throw new Error('Failed to load document')
-  if (mediaType !== MediaType.PDF) return response.text()
-  const pdfjs = await import('pdfjs-dist')
-  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-  const task = pdfjs.getDocument({ data: new Uint8Array(await response.arrayBuffer()) })
-  const document = await task.promise
-  try {
-    const pages: string[] = []
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber)
-      const content = await page.getTextContent()
-      pages.push(
-        content.items
-          .map((item) => ('str' in item ? item.str : ''))
-          .filter(Boolean)
-          .join(' '),
-      )
-    }
-    return pages.join('\n\n')
-  } finally {
-    await task.destroy()
   }
 }
 
@@ -365,18 +260,10 @@ function canvasDialogLabel(dialog: CanvasDialogState): string {
       return 'Edit canvas title'
     case 'new-note':
       return 'New document'
-    case 'ai-compose':
-      return 'Choose AI context'
-    case 'ai-context':
-      return 'Review AI context'
-    case 'snapshots':
-      return 'Snapshot history'
     case 'shortcuts':
       return 'Canvas shortcuts'
     case 'delete-canvas':
       return 'Delete canvas'
-    case 'reset-canvas':
-      return 'Reset canvas'
     case 'import-canvas':
       return 'Import canvas'
     case 'message':
@@ -401,6 +288,7 @@ export function CanvasPage() {
   )!
   const [collection, setCollection] = createSignal<CanvasCollection>(initialCollection)
   const [state, setState] = createSignal<InfiniteCanvasState>(initialCanvas.state!)
+  const maximizedWindowId = () => state().maximizedWindowId
   const [undoStack, setUndoStack] = createSignal<InfiniteCanvasState[]>([])
   const [redoStack, setRedoStack] = createSignal<InfiniteCanvasState[]>([])
   const [selection, setSelection] = createSignal<Selection>(null)
@@ -411,27 +299,20 @@ export function CanvasPage() {
   const [overflowOpen, setOverflowOpen] = createSignal(false)
   const [addMenuOpen, setAddMenuOpen] = createSignal(false)
   const [outlineOpen, setOutlineOpen] = createSignal(false)
+  const [viewportSize, setViewportSize] = createSignal({ width: 1, height: 1 })
   const [canvasMenuOpen, setCanvasMenuOpen] = createSignal(false)
   const [canvasQuery, setCanvasQuery] = createSignal('')
   const [geometryActive, setGeometryActive] = createSignal(false)
   const [cameraAnimating, setCameraAnimating] = createSignal(false)
   const [dialog, setDialog] = createSignal<CanvasDialogState | null>(null)
   const [dialogInput, setDialogInput] = createSignal('')
-  const [canvasTemplate, setCanvasTemplate] = createSignal<CanvasTemplateKey>('blank')
   const [noteDirectory, setNoteDirectory] = createSignal('')
-  const [noteStarter, setNoteStarter] = createSignal<NoteStarterKey>('blank')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
   const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
   const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'offline' | 'error'>(
     'saved',
   )
   const readOnlyMode = () => false
-  const [snapshots, setSnapshots] = createSignal<CanvasSnapshot[]>(
-    parseCanvasSnapshots(browserStorage.getItem(CANVAS_SNAPSHOTS_STORAGE_KEY)),
-  )
-  const [connectingFrom, setConnectingFrom] = createSignal<string | null>(null)
-  const [quoteCapture, setQuoteCapture] = createSignal<QuoteCapture | null>(null)
-  const [viewHistory, setViewHistory] = createSignal<InfiniteCanvasState['camera'][]>([])
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let importInputEl: HTMLInputElement | undefined
   let dialogEl: HTMLDivElement | undefined
@@ -679,6 +560,13 @@ export function CanvasPage() {
     document.documentElement.style.overflow = 'hidden'
     document.body.style.overflow = 'hidden'
     const viewport = viewportEl
+    const viewportObserver = new ResizeObserver(() => {
+      setViewportSize({
+        width: viewport?.clientWidth ?? 1,
+        height: viewport?.clientHeight ?? 1,
+      })
+    })
+    if (viewport) viewportObserver.observe(viewport)
     viewport?.addEventListener('pointerdown', beginPan, true)
     const dismissContextMenu = (event: PointerEvent) => {
       if ((event.target as HTMLElement | null)?.closest('[data-canvas-context-menu]')) return
@@ -687,6 +575,9 @@ export function CanvasPage() {
         setCanvasMenuOpen(false)
       }
       if (!(event.target as HTMLElement | null)?.closest('[data-canvas-add]')) setAddMenuOpen(false)
+      if (!(event.target as HTMLElement | null)?.closest('[data-canvas-overflow]')) {
+        setOverflowOpen(false)
+      }
     }
     const clearFileDropPreview = () => setFileDropPreview(null)
     const clearFileDropPreviewAfterDrop = () => queueMicrotask(clearFileDropPreview)
@@ -734,6 +625,7 @@ export function CanvasPage() {
     void syncCanvases(true)
     onCleanup(() => {
       viewport?.removeEventListener('pointerdown', beginPan, true)
+      viewportObserver.disconnect()
       document.removeEventListener('pointerdown', dismissContextMenu, true)
       document.removeEventListener('dragover', updateFileDropPreview, true)
       document.removeEventListener('dragend', clearFileDropPreview, true)
@@ -786,6 +678,18 @@ export function CanvasPage() {
     scheduleSync(50)
   }
 
+  function setMaximizedWindowId(windowId: string | null) {
+    setState((current) => {
+      const nextId =
+        windowId !== null && current.windows.some((window) => window.id === windowId)
+          ? windowId
+          : null
+      return current.maximizedWindowId === nextId
+        ? current
+        : { ...current, maximizedWindowId: nextId }
+    })
+  }
+
   function switchCanvas(id: string) {
     persistActiveState()
     const target = collection().canvases.find((item) => item.id === id && !item.deleted)
@@ -796,18 +700,15 @@ export function CanvasPage() {
     setUndoStack([])
     setRedoStack([])
     setLastAudioWindowId(null)
-    clearSelection()
+    setSelection(null)
+    setSelectedIds([])
     setCanvasMenuOpen(false)
     storeCollection(next)
   }
 
   function createNamedCanvas() {
     const current = persistActiveState()
-    const record = createCanvasRecord(
-      current,
-      dialogInput(),
-      createCanvasTemplateState(canvasTemplate()),
-    )
+    const record = createCanvasRecord(current, dialogInput())
     const next = {
       ...current,
       activeId: record.id,
@@ -818,31 +719,11 @@ export function CanvasPage() {
     setState(cloneState(record.state!))
     setUndoStack([])
     setRedoStack([])
-    clearSelection()
+    setSelection(null)
+    setSelectedIds([])
     storeCollection(next)
     scheduleSync(50)
     setDialog(null)
-  }
-
-  function duplicateCanvas(canvasId: string) {
-    const current = persistActiveState()
-    const source = current.canvases.find((item) => item.id === canvasId && !item.deleted)
-    if (!source?.state) return
-    const record = createCanvasRecord(current, `${source.name} copy`, cloneState(source.state))
-    const next = {
-      ...current,
-      activeId: record.id,
-      lastTimestamp: record.updatedAt,
-      canvases: [...current.canvases, record],
-    }
-    setCollection(next)
-    setState(cloneState(record.state!))
-    setUndoStack([])
-    setRedoStack([])
-    clearSelection()
-    setCanvasMenuOpen(false)
-    storeCollection(next)
-    scheduleSync(50)
   }
 
   function renameCanvas(canvasId: string) {
@@ -891,7 +772,8 @@ export function CanvasPage() {
       setState(cloneState(fallback.state!))
       setUndoStack([])
       setRedoStack([])
-      clearSelection()
+      setSelection(null)
+      setSelectedIds([])
     }
     storeCollection(next)
     scheduleSync(50)
@@ -936,10 +818,6 @@ export function CanvasPage() {
   }
 
   function animateCamera(camera: InfiniteCanvasState['camera']) {
-    const current = state().camera
-    if (current.x !== camera.x || current.y !== camera.y || current.zoom !== camera.zoom) {
-      setViewHistory((items) => [...items.slice(-29), current])
-    }
     setCameraAnimating(true)
     if (animationTimer !== undefined) window.clearTimeout(animationTimer)
     setState((current) => ({ ...current, camera }))
@@ -967,12 +845,6 @@ export function CanvasPage() {
     })
   }
 
-  function fitAll() {
-    const bounds = canvasContentBounds(state())
-    if (bounds) fitBounds(bounds, 1)
-    else animateCamera({ x: 0, y: 0, zoom: 1 })
-  }
-
   function ensureWindowsVisible(windowIds: string[]) {
     const viewport = viewportEl?.getBoundingClientRect()
     if (!viewport) return
@@ -998,12 +870,13 @@ export function CanvasPage() {
   }
 
   function clearSelection() {
+    setMaximizedWindowId(null)
     setSelection(null)
     setSelectedIds([])
-    setConnectingFrom(null)
   }
 
   function selectWindow(windowId: string, additive = false) {
+    if (maximizedWindowId() !== windowId) setMaximizedWindowId(null)
     setSelection({ kind: 'window', id: windowId })
     setSelectedIds((current) =>
       additive
@@ -1014,18 +887,6 @@ export function CanvasPage() {
     )
   }
 
-  function selectCard(cardId: string, additive = false) {
-    setSelection(null)
-    setSelectedIds((current) =>
-      additive
-        ? current.includes(cardId)
-          ? current.filter((id) => id !== cardId)
-          : [...current, cardId]
-        : [cardId],
-    )
-    if (connectingFrom() && connectingFrom() !== cardId) finishConnector(cardId)
-  }
-
   function focusWindow(windowId: string) {
     const item = state().windows.find((candidate) => candidate.id === windowId)
     if (!item) return
@@ -1034,11 +895,11 @@ export function CanvasPage() {
     fitBounds(item.bounds, 1)
   }
 
-  function focusCard(cardId: string) {
-    const card = state().cards.find((candidate) => candidate.id === cardId)
-    if (!card) return
-    selectCard(cardId)
-    fitBounds(card.bounds, 1.4)
+  function maximizeWindow(windowId: string) {
+    if (!state().windows.some((window) => window.id === windowId)) return
+    bringToFront(windowId)
+    selectWindow(windowId)
+    setMaximizedWindowId(windowId)
   }
 
   function bringToFront(windowId: string) {
@@ -1052,10 +913,7 @@ export function CanvasPage() {
   }
 
   function placementObstacles(current: InfiniteCanvasState) {
-    return [
-      ...current.windows.map((window) => window.bounds),
-      ...current.cards.map((card) => card.bounds),
-    ]
+    return [...current.windows.map((window) => window.bounds)]
   }
 
   function fileWindowPlacement(
@@ -1209,7 +1067,6 @@ export function CanvasPage() {
     point = viewportCenterWorld(),
     initialContent = '',
     requestedTitle = 'Canvas note',
-    promoteCardId?: string,
   ) {
     if (!writableDirectories().length) {
       setDialog({
@@ -1220,117 +1077,14 @@ export function CanvasPage() {
     }
     setDialogInput(requestedTitle)
     setNoteDirectory(writableDirectories()[0] ?? '')
-    setNoteStarter('blank')
-    setDialog({ kind: 'new-note', point, initialContent, promoteCardId })
+    setDialog({ kind: 'new-note', point, initialContent })
   }
 
   async function createDocumentFromComposer(
     value: Extract<CanvasDialogState, { kind: 'new-note' }>,
   ) {
-    const starter = NOTE_STARTERS.find((item) => item.key === noteStarter())?.content ?? ''
-    const content = value.initialContent || starter
     setDialog(null)
-    const created = await addTextEditor(value.point, content, dialogInput(), noteDirectory())
-    if (created && value.promoteCardId) deleteCard(value.promoteCardId)
-  }
-
-  function promoteCard(cardId: string) {
-    const card = state().cards.find((item) => item.id === cardId)
-    if (!card) return
-    openNoteComposer(
-      { x: card.bounds.x + card.bounds.width + 208, y: card.bounds.y + 112 },
-      card.body,
-      card.title || 'Canvas note',
-      card.id,
-    )
-  }
-
-  function addQuickNote(
-    point = viewportCenterWorld(),
-    body = '',
-    title = 'Untitled note',
-    tags: string[] = [],
-  ) {
-    let createdId = ''
-    commit((current) => {
-      const id = `canvas-card-${current.nextItemId}`
-      createdId = id
-      const bounds = findNearestFreeCanvasRect(
-        { x: point.x - 176, y: point.y - 112, width: 352, height: 224 },
-        placementObstacles(current),
-      )
-      return {
-        ...current,
-        cards: [
-          ...current.cards,
-          {
-            id,
-            kind: 'note',
-            title,
-            body,
-            url: null,
-            color: '#6366f1',
-            bounds,
-            zIndex: current.nextZIndex,
-            locked: false,
-            tags,
-          },
-        ],
-        nextItemId: current.nextItemId + 1,
-        nextZIndex: current.nextZIndex + 1,
-      }
-    })
-    if (!createdId) return
-    selectCard(createdId)
-    queueMicrotask(() => {
-      document.querySelector<HTMLTextAreaElement>(`[data-card-id="${createdId}"] textarea`)?.focus()
-    })
-    return createdId
-  }
-
-  function detectReadingQuote(windowId: string, event: PointerEvent) {
-    const content = (event.currentTarget as HTMLElement | null)?.closest(
-      '[data-canvas-window-content]',
-    )
-    queueMicrotask(() => {
-      const selected = document.getSelection()
-      const text = selected?.toString().trim() ?? ''
-      if (!text || text.length > 12_000 || !selected?.rangeCount) {
-        setQuoteCapture(null)
-        return
-      }
-      const ancestor = selected.getRangeAt(0).commonAncestorContainer
-      if (!content?.contains(ancestor)) return
-      const rect = selected.getRangeAt(0).getBoundingClientRect()
-      setQuoteCapture({
-        windowId,
-        text,
-        clientX: Math.min(window.innerWidth - 150, Math.max(12, rect.left + rect.width / 2 - 70)),
-        clientY: Math.max(56, rect.top - 44),
-      })
-    })
-  }
-
-  function saveReadingQuote() {
-    const capture = quoteCapture()
-    if (!capture) return
-    const source = state().windows.find((item) => item.id === capture.windowId)
-    if (!source) return
-    const path =
-      source.definition.initialState.viewing ??
-      source.definition.initialState.dir ??
-      source.definition.title
-    addQuickNote(
-      {
-        x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE + 176,
-        y: source.bounds.y + 112,
-      },
-      createReadingQuoteBody(capture.text, path),
-      `Quote · ${source.definition.title}`,
-      ['quote', 'reading'],
-    )
-    document.getSelection()?.removeAllRanges()
-    setQuoteCapture(null)
+    await addTextEditor(value.point, value.initialContent, dialogInput(), noteDirectory())
   }
 
   function readingPositionKey(windowId: string) {
@@ -1348,270 +1102,15 @@ export function CanvasPage() {
     )
   }
 
-  function updateCard(
-    cardId: string,
-    patch: Partial<Pick<CanvasCard, 'title' | 'body' | 'url' | 'tags'>>,
-  ) {
-    if (readOnlyMode()) return
-    setState((current) => {
-      const card = current.cards.find((item) => item.id === cardId)
-      if (!card) return current
-      Object.assign(card, patch)
-      return { ...current, cards: [...current.cards] }
-    })
-    const suggestedName = patch.title?.trim()
-    if (suggestedName && activeCanvas()?.name === 'Untitled canvas') {
-      setCollection((current) => {
-        const updatedAt = nextCanvasTimestamp(current)
-        return {
-          ...current,
-          lastTimestamp: updatedAt,
-          canvases: current.canvases.map((canvas) =>
-            canvas.id === current.activeId
-              ? {
-                  ...canvas,
-                  name: suggestedName.slice(0, 120),
-                  updatedAt,
-                  writerId: current.writerId,
-                }
-              : canvas,
-          ),
-        }
-      })
-    }
-  }
-
-  function updateConnector(connectorId: string, label: string) {
-    setState((current) => ({
-      ...current,
-      connectors: current.connectors.map((connector) =>
-        connector.id === connectorId ? { ...connector, label: label.slice(0, 120) } : connector,
-      ),
-    }))
-  }
-
-  function toggleCardLock(cardId: string) {
-    commit((current) => ({
-      ...current,
-      cards: current.cards.map((card) =>
-        card.id === cardId ? { ...card, locked: !card.locked } : card,
-      ),
-    }))
-  }
-
-  function deleteCard(cardId: string) {
-    commit((current) => ({
-      ...current,
-      cards: current.cards.filter((card) => card.id !== cardId),
-      connectors: current.connectors.filter(
-        (connector) => connector.fromId !== cardId && connector.toId !== cardId,
-      ),
-    }))
-    setSelectedIds((ids) => ids.filter((id) => id !== cardId))
-  }
-
-  function toggleConnectorEndpoint(itemId: string) {
-    const fromId = connectingFrom()
-    if (!fromId) {
-      setConnectingFrom(itemId)
-      if (!selectedIds().includes(itemId)) setSelectedIds([itemId])
-      return
-    }
-    if (fromId === itemId) {
-      setConnectingFrom(null)
-      return
-    }
-    finishConnector(itemId)
-  }
-
-  function finishConnector(toId: string) {
-    const fromId = connectingFrom()
-    if (!fromId || fromId === toId) return
-    commit((current) => {
-      if (current.connectors.some((item) => item.fromId === fromId && item.toId === toId))
-        return current
-      return {
-        ...current,
-        connectors: [
-          ...current.connectors,
-          {
-            id: `canvas-connector-${current.nextItemId}`,
-            fromId,
-            toId,
-            label: '',
-            color: '#64748b',
-          },
-        ],
-        nextItemId: current.nextItemId + 1,
-      }
-    })
-    setConnectingFrom(null)
-    setSelectedIds([fromId, toId])
-  }
-
-  function deleteConnector(connectorId: string) {
-    commit((current) => ({
-      ...current,
-      connectors: current.connectors.filter((connector) => connector.id !== connectorId),
-    }))
-  }
-
-  function startCardMove(cardId: string, event: PointerEvent) {
-    if (readOnlyMode()) return
-    if (event.button !== 0) return
-    const before = cloneState(state())
-    const source = before.cards.find((card) => card.id === cardId)
-    if (!source || source.locked) return
-    event.preventDefault()
-    event.stopPropagation()
-    selectCard(cardId, event.ctrlKey || event.metaKey || event.shiftKey)
-    const ids = selectedIds().includes(cardId) ? selectedIds() : [cardId]
-    const starts = new Map(
-      before.cards
-        .filter((card) => ids.includes(card.id) && !card.locked)
-        .map((card) => [card.id, card.bounds]),
-    )
-    const startX = event.clientX
-    const startY = event.clientY
-    const move = (next: PointerEvent) => {
-      const dx = snapCanvasValue((next.clientX - startX) / state().camera.zoom)
-      const dy = snapCanvasValue((next.clientY - startY) / state().camera.zoom)
-      setState((current) => ({
-        ...current,
-        cards: current.cards.map((card) => {
-          const start = starts.get(card.id)
-          if (!start) return card
-          return { ...card, bounds: { ...start, x: start.x + dx, y: start.y + dy } }
-        }),
-      }))
-    }
-    const end = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      pushGesture(before, state())
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end, { once: true })
-  }
-
-  function startCardResize(cardId: string, direction: ResizeDirection, event: PointerEvent) {
-    if (readOnlyMode()) return
-    if (event.button !== 0) return
-    const before = cloneState(state())
-    const card = before.cards.find((item) => item.id === cardId)
-    if (!card || card.locked) return
-    event.preventDefault()
-    event.stopPropagation()
-    const start = card.bounds
-    const startX = event.clientX
-    const startY = event.clientY
-    const move = (next: PointerEvent) => {
-      const bounds = resizeRect(
-        start,
-        (next.clientX - startX) / state().camera.zoom,
-        (next.clientY - startY) / state().camera.zoom,
-        direction,
-      )
-      setState((current) => ({
-        ...current,
-        cards: current.cards.map((item) => (item.id === cardId ? { ...item, bounds } : item)),
-      }))
-    }
-    const end = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      pushGesture(before, state())
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end, { once: true })
-  }
-
-  function alignSelected(axis: 'left' | 'top') {
-    const ids = selectedIds()
-    if (ids.length < 2) return
-    commit((current) => {
-      const rects = [
-        ...current.windows
-          .filter((item) => ids.includes(item.id))
-          .map((item) => [item.id, item.bounds] as const),
-        ...current.cards
-          .filter((item) => ids.includes(item.id) && !item.locked)
-          .map((item) => [item.id, item.bounds] as const),
-      ]
-      if (rects.length < 2) return current
-      const target = Math.min(...rects.map(([, bounds]) => (axis === 'left' ? bounds.x : bounds.y)))
-      const byId = new Map(rects)
-      return {
-        ...current,
-        windows: current.windows.map((item) => {
-          const bounds = byId.get(item.id)
-          if (!bounds) return item
-          return { ...item, bounds: { ...bounds, [axis === 'left' ? 'x' : 'y']: target } }
-        }),
-        cards: current.cards.map((item) => {
-          const bounds = byId.get(item.id)
-          if (!bounds || item.locked) return item
-          return { ...item, bounds: { ...bounds, [axis === 'left' ? 'x' : 'y']: target } }
-        }),
-      }
-    })
-  }
-
-  function distributeSelected() {
-    const ids = selectedIds()
-    if (ids.length < 3) return
-    commit((current) => {
-      const rects = [
-        ...current.windows
-          .filter((item) => ids.includes(item.id))
-          .map((item) => [item.id, item.bounds] as const),
-        ...current.cards
-          .filter((item) => ids.includes(item.id) && !item.locked)
-          .map((item) => [item.id, item.bounds] as const),
-      ].sort((a, b) => a[1].x - b[1].x)
-      if (rects.length < 3) return current
-      const left = rects[0]![1].x
-      const right = rects.at(-1)![1].x
-      const step = (right - left) / (rects.length - 1)
-      const positions = new Map(
-        rects.map(([id], index) => [id, snapCanvasValue(left + index * step)]),
-      )
-      return {
-        ...current,
-        windows: current.windows.map((item) => {
-          const x = positions.get(item.id)
-          if (x === undefined) return item
-          return { ...item, bounds: { ...item.bounds, x } }
-        }),
-        cards: current.cards.map((item) => {
-          const x = positions.get(item.id)
-          if (x === undefined || item.locked) return item
-          return { ...item, bounds: { ...item.bounds, x } }
-        }),
-      }
-    })
-  }
-
   function deleteSelected() {
     const ids = new Set(selectedIds())
     if (!ids.size) return
     commit((current) => {
-      const removed = new Set([
-        ...current.windows
-          .filter((item) => ids.has(item.id) && !item.locked)
-          .map((item) => item.id),
-        ...current.cards.filter((item) => ids.has(item.id) && !item.locked).map((item) => item.id),
-      ])
+      const removed = new Set(
+        current.windows.filter((item) => ids.has(item.id)).map((item) => item.id),
+      )
       const windows = current.windows.filter((item) => !removed.has(item.id))
-      const cards = current.cards.filter((item) => !removed.has(item.id))
-      return {
-        ...current,
-        windows,
-        cards,
-        connectors: current.connectors.filter(
-          (item) => !removed.has(item.fromId) && !removed.has(item.toId),
-        ),
-      }
+      return { ...current, windows }
     })
     clearSelection()
   }
@@ -1631,63 +1130,8 @@ export function CanvasPage() {
         })
         return { ...item, bounds: next }
       })
-      const cards = current.cards.map((item) => {
-        if (!ids.has(item.id) || item.locked) return item
-        const bounds = item.bounds
-        const next = snapCanvasRect({
-          ...bounds,
-          ...(resize
-            ? { width: bounds.width + dx, height: bounds.height + dy }
-            : { x: bounds.x + dx, y: bounds.y + dy }),
-        })
-        return { ...item, bounds: next }
-      })
-      return { ...current, windows, cards }
+      return { ...current, windows }
     })
-  }
-
-  function toggleSelectedLock() {
-    const ids = new Set(selectedIds())
-    if (!ids.size) return
-    const allLocked = [
-      ...state().windows.filter((item) => ids.has(item.id)),
-      ...state().cards.filter((item) => ids.has(item.id)),
-    ].every((item) => !!item.locked)
-    commit((current) => ({
-      ...current,
-      windows: current.windows.map((item) =>
-        ids.has(item.id) ? { ...item, locked: !allLocked } : item,
-      ),
-      cards: current.cards.map((item) =>
-        ids.has(item.id) ? { ...item, locked: !allLocked } : item,
-      ),
-    }))
-  }
-
-  function connectSelected() {
-    const ids = selectedIds()
-    if (ids.length !== 2) return
-    setConnectingFrom(ids[0]!)
-    finishConnector(ids[1]!)
-  }
-
-  function saveSnapshot(name = `Snapshot ${new Date().toLocaleString()}`) {
-    const snapshot: CanvasSnapshot = {
-      id: crypto.randomUUID(),
-      canvasId: collection().activeId,
-      name,
-      createdAt: Date.now(),
-      state: cloneState(state()),
-    }
-    const next = [snapshot, ...snapshots()].slice(0, 30)
-    setSnapshots(next)
-    localStorage.setItem(CANVAS_SNAPSHOTS_STORAGE_KEY, JSON.stringify(next))
-  }
-
-  function restoreSnapshot(snapshot: CanvasSnapshot) {
-    commit(() => cloneState(snapshot.state))
-    setDialog(null)
-    clearSelection()
   }
 
   function exportCanvas() {
@@ -1725,166 +1169,6 @@ export function CanvasPage() {
         message: error instanceof Error ? error.message : 'Import failed',
       })
     }
-  }
-
-  function openAiCompose(instruction = 'Help me analyze, improve, or continue this work.') {
-    const ids = selectedIds().length
-      ? [...selectedIds()]
-      : [...state().cards.map((item) => item.id), ...state().windows.map((item) => item.id)]
-    setDialog({
-      kind: 'ai-compose',
-      instruction,
-      ids,
-      scope: selectedIds().length ? 'selection' : 'canvas',
-    })
-  }
-
-  function updateAiCompose(
-    patch: Partial<Pick<Extract<CanvasDialogState, { kind: 'ai-compose' }>, 'instruction' | 'ids'>>,
-  ) {
-    setDialog((current) => (current?.kind === 'ai-compose' ? { ...current, ...patch } : current))
-  }
-
-  async function prepareAiContext(
-    instruction = 'Help me analyze, improve, or continue this work.',
-    requestedIds?: string[],
-  ) {
-    const ids = requestedIds ?? []
-    if (!ids.length) {
-      setDialog({ kind: 'message', message: 'Select at least one source for AI context.' })
-      return
-    }
-    setDialog({ kind: 'ai-context', instruction, context: '', sources: [], loading: true })
-    const contents: Record<string, CanvasContextContent> = {}
-    const sources: CanvasAiContextSource[] = []
-    let remaining = AI_TOTAL_CHARACTER_LIMIT
-
-    for (const id of ids) {
-      const card = state().cards.find((item) => item.id === id)
-      if (card) {
-        const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
-        const content = card.body.slice(0, allowed)
-        contents[card.id] = { content, truncated: content.length < card.body.length }
-        remaining -= content.length
-        sources.push({
-          id: card.id,
-          title: card.title || 'Untitled note',
-          detail: contents[card.id]!.truncated ? 'Note content truncated' : 'Note content included',
-          status: 'included',
-          characters: content.length,
-        })
-        continue
-      }
-      const item = state().windows.find((window) => window.id === id)
-      if (!item) continue
-      const path = item.definition.initialState.viewing ?? item.definition.initialState.dir ?? ''
-      if (item.definition.type === 'hermes' && item.definition.hermes) {
-        const key = ensureHermesChat(item.definition.hermes)
-        const transcript = (hermesSessions[key]?.messages ?? [])
-          .filter((message) => message.text.trim())
-          .map(
-            (message) => `${message.role === 'assistant' ? 'AI' : 'You'}: ${message.text.trim()}`,
-          )
-          .join('\n\n')
-        const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
-        const content = transcript.slice(0, allowed)
-        if (content) {
-          contents[item.id] = { content, truncated: content.length < transcript.length }
-          remaining -= content.length
-        }
-        sources.push({
-          id: item.id,
-          title: item.definition.title,
-          detail: content ? 'Chat transcript included' : 'Chat title included',
-          status: content ? 'included' : 'reference',
-          characters: content.length,
-        })
-        continue
-      }
-      const mediaType = getMediaType(path.split('.').at(-1) ?? '')
-      if (
-        item.definition.type !== 'viewer' ||
-        !path ||
-        (mediaType !== MediaType.TEXT && mediaType !== MediaType.PDF)
-      ) {
-        sources.push({
-          id: item.id,
-          title: item.definition.title,
-          detail: path ? `Reference only: ${path}` : 'Reference only',
-          status: 'reference',
-          characters: 0,
-        })
-        continue
-      }
-      try {
-        const fullContent = await loadCanvasDocumentText(path, mediaType)
-        const allowed = Math.max(0, Math.min(AI_DOCUMENT_CHARACTER_LIMIT, remaining))
-        const content = fullContent.slice(0, allowed)
-        contents[item.id] = { content, truncated: content.length < fullContent.length }
-        remaining -= content.length
-        sources.push({
-          id: item.id,
-          title: item.definition.title,
-          detail: contents[item.id]!.truncated
-            ? `Document truncated: ${path}`
-            : `${mediaType === MediaType.PDF ? 'PDF text' : 'Document'} included: ${path}`,
-          status: 'included',
-          characters: content.length,
-        })
-      } catch {
-        sources.push({
-          id: item.id,
-          title: item.definition.title,
-          detail: `Could not load: ${path}`,
-          status: 'failed',
-          characters: 0,
-        })
-      }
-    }
-
-    setDialog({
-      kind: 'ai-context',
-      instruction,
-      context: buildCanvasContext(state(), ids, contents),
-      sources,
-      loading: false,
-    })
-  }
-
-  function sendAiContext(value: Extract<CanvasDialogState, { kind: 'ai-context' }>) {
-    const id = addBlankHermesWindow()
-    const definition = state().windows.find((item) => item.id === id)?.definition
-    if (!definition?.hermes) return
-    const key = ensureHermesChat(definition.hermes)
-    setHermesComposer(
-      key,
-      `${value.instruction}\n\nUse following canvas context:\n\n${value.context}`,
-    )
-    setDialog(null)
-    focusWindow(id)
-  }
-
-  function captureHermesAsNote(windowId: string) {
-    const item = state().windows.find((window) => window.id === windowId)
-    if (item?.definition.type !== 'hermes' || !item.definition.hermes) return
-    const key = ensureHermesChat(item.definition.hermes)
-    const messages = hermesSessions[key]?.messages ?? []
-    const transcript = messages
-      .filter((message) => message.text.trim())
-      .map(
-        (message) => `## ${message.role === 'assistant' ? 'AI' : 'You'}\n\n${message.text.trim()}`,
-      )
-      .join('\n\n---\n\n')
-    if (!transcript) {
-      setDialog({ kind: 'message', message: 'Chat has no messages to capture yet.' })
-      return
-    }
-    const bounds = item.bounds
-    openNoteComposer(
-      { x: bounds.x + bounds.width + 208, y: bounds.y + 112 },
-      transcript,
-      `${item.definition.title} transcript`,
-    )
   }
 
   function openFromBrowser(sourceWindowId: string, file: FileItem, duplicate = false) {
@@ -2084,34 +1368,13 @@ export function CanvasPage() {
     const target = state().windows.find((window) => window.id === windowId)
     if (!canCloseHermesWindow(target?.definition.hermes)) return
     if (lastAudioWindowId() === windowId) setLastAudioWindowId(null)
+    if (maximizedWindowId() === windowId) setMaximizedWindowId(null)
     commit((current) => ({
       ...current,
       windows: current.windows.filter((window) => window.id !== windowId),
-      connectors: current.connectors.filter(
-        (connector) => connector.fromId !== windowId && connector.toId !== windowId,
-      ),
     }))
     setSelectedIds((ids) => ids.filter((id) => id !== windowId))
     if (selection()?.id === windowId) setSelection(null)
-  }
-
-  function duplicateWindow(windowId: string) {
-    const source = state().windows.find((window) => window.id === windowId)
-    if (!source) return
-    if (source.definition.type === 'hermes') {
-      focusWindow(windowId)
-      return
-    }
-    const world = source.bounds
-    const file =
-      source.definition.type === 'browser'
-        ? fileItemFromDrag(source.definition.initialState.dir ?? '', true)
-        : fileItemFromDrag(source.definition.initialState.viewing ?? '', false)
-    addFileWindow(
-      file,
-      { x: world.x + CANVAS_GRID_SIZE * 2, y: world.y + CANVAS_GRID_SIZE * 2 },
-      { duplicate: true },
-    )
   }
 
   function startWindowMove(windowId: string, event: PointerEvent) {
@@ -2123,17 +1386,12 @@ export function CanvasPage() {
     if (!selectedIds().includes(windowId)) selectWindow(windowId)
     const before = cloneState(state())
     const item = before.windows.find((window) => window.id === windowId)
-    if (!item || item.locked) return
+    if (!item) return
     const ids = selectedIds().includes(windowId) ? selectedIds() : [windowId]
     const windowStarts = new Map(
       before.windows
         .filter((window) => ids.includes(window.id))
         .map((window) => [window.id, window.bounds]),
-    )
-    const cardStarts = new Map(
-      before.cards
-        .filter((card) => ids.includes(card.id) && !card.locked)
-        .map((card) => [card.id, card.bounds]),
     )
     const startX = event.clientX
     const startY = event.clientY
@@ -2156,19 +1414,6 @@ export function CanvasPage() {
               }
             : window
         }),
-        cards: current.cards.map((card) => {
-          const start = cardStarts.get(card.id)
-          return start
-            ? {
-                ...card,
-                bounds: {
-                  ...start,
-                  x: snapCanvasValue(start.x + dx),
-                  y: snapCanvasValue(start.y + dy),
-                },
-              }
-            : card
-        }),
       }))
     }
     const end = () => {
@@ -2188,7 +1433,7 @@ export function CanvasPage() {
     event.stopPropagation()
     const before = cloneState(state())
     const item = before.windows.find((window) => window.id === windowId)
-    if (!item || item.locked) return
+    if (!item) return
     const start = item.bounds
     const startX = event.clientX
     const startY = event.clientY
@@ -2233,16 +1478,7 @@ export function CanvasPage() {
     const allowPrimary = spaceHeld() || event.target === viewportEl
     if (event.button !== 1 && !(allowPrimary && event.button === 0)) return
     setMenu(null)
-    setViewHistory((items) => [...items.slice(-29), state().camera])
     panController.begin(event, allowPrimary)
-  }
-
-  function previousView() {
-    const history = viewHistory()
-    const camera = history.at(-1)
-    if (!camera) return
-    setViewHistory(history.slice(0, -1))
-    setState((current) => ({ ...current, camera }))
   }
 
   function zoomAt(clientX: number, clientY: number, nextZoom: number) {
@@ -2295,17 +1531,6 @@ export function CanvasPage() {
     addFileWindow(fileSearchResultToFileItem(result), searchPlacement())
   }
 
-  function resetCanvas() {
-    setDialog({ kind: 'reset-canvas' })
-  }
-
-  function resetCanvasNow() {
-    commit(() => createEmptyCanvasState())
-    setLastAudioWindowId(null)
-    clearSelection()
-    setOverflowOpen(false)
-  }
-
   createEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
@@ -2328,13 +1553,8 @@ export function CanvasPage() {
         redo()
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
         event.preventDefault()
-        setSelectedIds([
-          ...state().windows.map((item) => item.id),
-          ...state().cards.map((item) => item.id),
-        ])
-      } else if (event.altKey && event.key === 'ArrowLeft') {
-        event.preventDefault()
-        previousView()
+        setMaximizedWindowId(null)
+        setSelectedIds(state().windows.map((item) => item.id))
       } else if (selectedIds().length && event.key.startsWith('Arrow')) {
         event.preventDefault()
         const distance = CANVAS_GRID_SIZE * (event.shiftKey ? 4 : 1)
@@ -2441,11 +1661,6 @@ export function CanvasPage() {
                         onClick={() => switchCanvas(canvas.id)}
                       >
                         <span class='block truncate'>{canvas.name}</span>
-                        <span class='block text-[10px] font-normal text-muted-foreground'>
-                          {(canvas.state?.cards.length ?? 0).toLocaleString()} notes ·{' '}
-                          {(canvas.state?.windows.length ?? 0).toLocaleString()} windows ·{' '}
-                          {new Date(canvas.updatedAt).toLocaleString()}
-                        </span>
                       </button>
                       <div
                         data-canvas-row-actions
@@ -2463,15 +1678,6 @@ export function CanvasPage() {
                           }}
                         >
                           <Pencil class='size-4' />
-                        </button>
-                        <button
-                          type='button'
-                          aria-label={`Duplicate ${canvas.name}`}
-                          title='Duplicate canvas'
-                          class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground'
-                          onClick={() => duplicateCanvas(canvas.id)}
-                        >
-                          <Copy class='size-4' />
                         </button>
                         <button
                           type='button'
@@ -2498,7 +1704,6 @@ export function CanvasPage() {
               <MenuButton
                 onClick={() => {
                   setDialogInput('')
-                  setCanvasTemplate('blank')
                   setDialog({ kind: 'new-canvas' })
                   setCanvasMenuOpen(false)
                 }}
@@ -2538,16 +1743,13 @@ export function CanvasPage() {
               <span class='hidden font-medium md:inline'>Retry</span>
             </button>
           </Show>
-          <div
-            data-testid='canvas-create-tools'
-            class='flex items-center rounded-lg border border-border/70 bg-background/50 p-0.5 shadow-sm'
-          >
+          <div data-testid='canvas-create-tools' class='flex items-center gap-2'>
             <Show when={!readOnlyMode()}>
               <div class='relative' data-canvas-add>
                 <button
                   type='button'
                   data-testid='canvas-add-trigger'
-                  class='inline-flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90'
+                  class='inline-flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
                   aria-label='Add to canvas'
                   title='Add to canvas'
                   aria-expanded={addMenuOpen()}
@@ -2557,14 +1759,6 @@ export function CanvasPage() {
                 </button>
                 <Show when={addMenuOpen()}>
                   <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
-                    <MenuButton
-                      onClick={() => {
-                        addQuickNote()
-                        setAddMenuOpen(false)
-                      }}
-                    >
-                      <FileText class='size-4' /> Quick note
-                    </MenuButton>
                     <MenuButton
                       onClick={() => {
                         openNoteComposer()
@@ -2600,7 +1794,7 @@ export function CanvasPage() {
                   data-testid='canvas-playing-audio-focus'
                   aria-label={`Focus audio player: ${item().definition.title}`}
                   title={`Focus audio player: ${item().definition.title}`}
-                  class='inline-flex size-8 items-center justify-center rounded-md text-primary hover:bg-primary/10'
+                  class='inline-flex size-9 items-center justify-center rounded-md text-primary hover:bg-primary/10'
                   onClick={() => focusWindow(item().id)}
                 >
                   <Volume2 class='size-4' />
@@ -2612,22 +1806,23 @@ export function CanvasPage() {
               data-testid='canvas-search-trigger'
               aria-label='Search canvas'
               title='Search canvas'
-              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
+              class='inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
               onClick={() => openSearch(null)}
             >
               <Search class='size-4' />
             </button>
           </div>
           <div
-            data-testid='canvas-history-tools'
-            class='hidden items-center rounded-lg border border-border/70 bg-background/50 p-0.5 shadow-sm md:flex'
-          >
+            data-testid='canvas-toolbar-divider'
+            class='hidden h-6 w-px shrink-0 bg-border md:block'
+          />
+          <div data-testid='canvas-history-tools' class='hidden items-center gap-2 md:flex'>
             <button
               type='button'
               title='Undo'
               aria-label='Undo'
               disabled={!undoStack().length}
-              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
+              class='inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
               onClick={undo}
             >
               <Undo2 class='size-4' />
@@ -2637,21 +1832,23 @@ export function CanvasPage() {
               title='Redo'
               aria-label='Redo'
               disabled={!redoStack().length}
-              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
+              class='inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35'
               onClick={redo}
             >
               <Redo2 class='size-4' />
             </button>
           </div>
+          <div data-testid='canvas-toolbar-divider' class='h-6 w-px shrink-0 bg-border' />
           <div
             data-testid='canvas-overflow-tools'
-            class='relative flex items-center rounded-lg border border-border/70 bg-background/50 p-0.5 shadow-sm'
+            data-canvas-overflow
+            class='relative flex items-center'
           >
             <button
               type='button'
               title='More'
               aria-label='More canvas actions'
-              class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
+              class='inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
               onClick={() => setOverflowOpen((open) => !open)}
             >
               <MoreHorizontal class='size-4' />
@@ -2678,34 +1875,7 @@ export function CanvasPage() {
                     <Redo2 class='size-4' /> Redo
                   </MenuButton>
                 </div>
-                <MenuButton
-                  disabled={!viewHistory().length}
-                  onClick={() => {
-                    previousView()
-                    setOverflowOpen(false)
-                  }}
-                >
-                  <ChevronRight class='size-4 rotate-180' /> Previous view
-                </MenuButton>
-                <div class='my-1 border-t border-border' />
-                <MenuButton
-                  onClick={() => {
-                    saveSnapshot()
-                    setOverflowOpen(false)
-                  }}
-                >
-                  <Save class='size-4' />
-                  Save snapshot
-                </MenuButton>
-                <MenuButton
-                  onClick={() => {
-                    setDialog({ kind: 'snapshots' })
-                    setOverflowOpen(false)
-                  }}
-                >
-                  <RotateCcw class='size-4' />
-                  Snapshot history
-                </MenuButton>
+                <div class='my-1 border-t border-border md:hidden' />
                 <MenuButton onClick={exportCanvas}>
                   <Download class='size-4' />
                   Export canvas
@@ -2720,19 +1890,6 @@ export function CanvasPage() {
                   Import canvas
                 </MenuButton>
                 <div class='my-1 border-t border-border' />
-                <MenuButton
-                  onClick={() => {
-                    setState((current) => ({ ...current, camera: { x: 0, y: 0, zoom: 1 } }))
-                    setOverflowOpen(false)
-                  }}
-                >
-                  <RotateCcw class='size-4' />
-                  Reset view
-                </MenuButton>
-                <MenuButton danger onClick={resetCanvas}>
-                  <X class='size-4' />
-                  Reset canvas
-                </MenuButton>
                 <MenuButton
                   onClick={() => {
                     setDialog({ kind: 'shortcuts' })
@@ -2762,15 +1919,6 @@ export function CanvasPage() {
       </header>
 
       <div class='fixed right-3 bottom-3 z-[104000] flex items-center gap-0.5 rounded-lg border border-border bg-popover/95 p-1 shadow-xl backdrop-blur'>
-        <button
-          type='button'
-          title='Fit all'
-          aria-label='Fit all canvas content'
-          class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
-          onClick={fitAll}
-        >
-          <Maximize class='size-4' />
-        </button>
         <button
           type='button'
           title='Zoom out'
@@ -2816,21 +1964,6 @@ export function CanvasPage() {
           </div>
           <div class='min-h-0 flex-1 overflow-auto p-2'>
             <p class='px-2 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase'>
-              Notes
-            </p>
-            <For each={state().cards}>
-              {(card) => (
-                <button
-                  type='button'
-                  class='flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted'
-                  onClick={() => focusCard(card.id)}
-                >
-                  <FileText class='size-4 shrink-0' />
-                  <span class='truncate'>{card.title || 'Untitled note'}</span>
-                </button>
-              )}
-            </For>
-            <p class='px-2 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase'>
               Windows
             </p>
             <For each={state().windows}>
@@ -2849,102 +1982,6 @@ export function CanvasPage() {
             </For>
           </div>
         </aside>
-      </Show>
-
-      <Show when={selectedIds().length > 0}>
-        <div class='fixed top-14 left-1/2 z-[105000] flex max-w-[calc(100vw-16px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-lg border border-border bg-popover p-1 shadow-xl'>
-          <span class='px-2 text-xs text-muted-foreground'>{selectedIds().length} selected</span>
-          <Show when={selectedIds().length > 1}>
-            <button
-              type='button'
-              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
-              onClick={() => alignSelected('left')}
-            >
-              Align left
-            </button>
-            <button
-              type='button'
-              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
-              onClick={() => alignSelected('top')}
-            >
-              Align top
-            </button>
-            <button
-              type='button'
-              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted disabled:opacity-40'
-              disabled={selectedIds().length < 3}
-              onClick={distributeSelected}
-            >
-              Distribute
-            </button>
-            <button
-              type='button'
-              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted disabled:opacity-40'
-              disabled={selectedIds().length !== 2}
-              onClick={connectSelected}
-            >
-              Connect
-            </button>
-          </Show>
-          <Show when={selectedIds().length === 1}>
-            <button
-              type='button'
-              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
-              onClick={() => toggleConnectorEndpoint(selectedIds()[0]!)}
-            >
-              {connectingFrom() ? 'Cancel connect' : 'Connect'}
-            </button>
-          </Show>
-          <button
-            type='button'
-            class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
-            onClick={toggleSelectedLock}
-          >
-            Lock/unlock
-          </button>
-          <button
-            type='button'
-            class='h-8 shrink-0 rounded bg-primary px-2 text-xs text-primary-foreground hover:bg-primary/90'
-            onClick={() =>
-              openAiCompose(
-                'Summarize this material. Preserve key decisions, facts, and open questions.',
-              )
-            }
-          >
-            Summarize
-          </button>
-          <button
-            type='button'
-            class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
-            onClick={() =>
-              openAiCompose(
-                'Extract concrete tasks. Return a prioritized checklist with owners or dependencies when stated.',
-              )
-            }
-          >
-            Tasks
-          </button>
-          <Show when={selectedIds().length > 1}>
-            <button
-              type='button'
-              class='h-8 shrink-0 rounded px-2 text-xs hover:bg-muted'
-              onClick={() =>
-                openAiCompose(
-                  'Compare selected material. Identify agreements, conflicts, gaps, and a recommended synthesis.',
-                )
-              }
-            >
-              Compare
-            </button>
-          </Show>
-          <button
-            type='button'
-            class='h-8 shrink-0 rounded px-2 text-xs text-destructive hover:bg-destructive/10'
-            onClick={deleteSelected}
-          >
-            Delete
-          </button>
-        </div>
       </Show>
 
       <div
@@ -2972,21 +2009,6 @@ export function CanvasPage() {
             event.currentTarget.focus()
           }
         }}
-        onDblClick={(event) => {
-          if (readOnlyMode() || event.target !== event.currentTarget) return
-          addQuickNote(screenToWorld(event.clientX, event.clientY))
-        }}
-        onPaste={(event) => {
-          if (readOnlyMode() || editableTarget(event.target)) return
-          const text = event.clipboardData?.getData('text/plain').trim()
-          if (!text) return
-          event.preventDefault()
-          addQuickNote(
-            viewportCenterWorld(),
-            text,
-            text.split(/\r?\n/, 1)[0]?.slice(0, 40) || 'Pasted note',
-          )
-        }}
         onWheel={(event) => {
           if (event.ctrlKey || event.metaKey) {
             event.preventDefault()
@@ -2997,12 +2019,7 @@ export function CanvasPage() {
             )
             return
           }
-          if (
-            (event.target as Element | null)?.closest(
-              '[data-testid="canvas-window"], [data-testid="canvas-card"]',
-            )
-          )
-            return
+          if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
           event.preventDefault()
           const horizontal = event.shiftKey && event.deltaX === 0 ? event.deltaY : event.deltaX
           const vertical = event.shiftKey && event.deltaX === 0 ? 0 : event.deltaY
@@ -3064,24 +2081,17 @@ export function CanvasPage() {
           })
         }}
       >
-        <Show when={!readOnlyMode() && !state().windows.length && !state().cards.length}>
+        <Show when={!readOnlyMode() && !state().windows.length}>
           <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-8'>
             <div class='pointer-events-auto max-w-lg rounded-2xl border border-border bg-card/90 p-7 text-center shadow-xl backdrop-blur'>
               <h1 class='text-lg font-semibold'>Build your knowledge canvas</h1>
               <p class='mt-2 text-sm leading-6 text-muted-foreground'>
-                Double-click anywhere for an instant note. Add documents, drop files, or ask AI.
+                Add documents, files, or AI chats.
               </p>
               <div class='mt-5 flex flex-wrap justify-center gap-2'>
                 <button
                   type='button'
                   class='rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground'
-                  onClick={() => addQuickNote()}
-                >
-                  Quick note
-                </button>
-                <button
-                  type='button'
-                  class='rounded-md border border-border px-3 py-2 text-sm hover:bg-muted'
                   onClick={() => openNoteComposer()}
                 >
                   New document
@@ -3120,107 +2130,120 @@ export function CanvasPage() {
             transform: `translate3d(${state().camera.x}px, ${state().camera.y}px, 0) scale(${state().camera.zoom})`,
           }}
         >
-          <CanvasCardsLayer
-            cards={state().cards}
-            connectors={state().connectors}
-            windows={state().windows}
-            selectedIds={selectedIds()}
-            connectingFrom={connectingFrom()}
-            readOnly={readOnlyMode()}
-            onSelect={selectCard}
-            onMoveStart={startCardMove}
-            onResizeStart={startCardResize}
-            onChange={updateCard}
-            onToggleLock={toggleCardLock}
-            onDelete={deleteCard}
-            onConnect={toggleConnectorEndpoint}
-            onPromote={promoteCard}
-            itemTitle={(id) => canvasItemTitle(state(), id)}
-            onChangeConnector={updateConnector}
-            onDeleteConnector={deleteConnector}
-          />
-
           <For each={state().windows.map((window) => window.id)}>
             {(windowId) => {
               const item = createMemo(() =>
                 state().windows.find((window) => window.id === windowId),
               )
               const worldBounds = createMemo(() => item()!.bounds)
-              const visualBounds = createMemo(() => canvasWindowVisualBounds(worldBounds()))
+              const maximized = () => maximizedWindowId() === windowId
+              const visualBounds = createMemo(() => {
+                if (!maximized()) return canvasWindowVisualBounds(worldBounds())
+                const zoom = state().camera.zoom
+                return {
+                  x: -state().camera.x / zoom,
+                  y: -state().camera.y / zoom,
+                  width: viewportSize().width,
+                  height: viewportSize().height,
+                }
+              })
               const selected = () => selectedIds().includes(windowId)
               return (
                 <div
                   data-testid='canvas-window'
                   data-window-id={windowId}
-                  class='absolute overflow-visible rounded-lg border border-border bg-background shadow-2xl outline outline-1 -outline-offset-1 outline-border'
+                  class='absolute overflow-visible border border-border bg-background shadow-2xl outline outline-1 -outline-offset-1 outline-border'
                   classList={{
+                    'rounded-lg': !maximized(),
                     'border-border shadow-black/20': selected(),
-                    'invisible pointer-events-none': state().camera.zoom < FAR_ZOOM,
+                    'invisible pointer-events-none': state().camera.zoom < FAR_ZOOM && !maximized(),
                   }}
                   style={{
                     left: `${visualBounds().x}px`,
                     top: `${visualBounds().y}px`,
                     width: `${visualBounds().width}px`,
                     height: `${visualBounds().height}px`,
-                    'z-index': selected() ? 1000000 + item()!.zIndex : item()!.zIndex,
+                    transform: maximized() ? `scale(${1 / state().camera.zoom})` : undefined,
+                    'transform-origin': 'top left',
+                    'z-index': maximized()
+                      ? 2000000
+                      : selected()
+                        ? 1000000 + item()!.zIndex
+                        : item()!.zIndex,
                   }}
                   onPointerDown={(event) => {
                     selectWindow(windowId, event.ctrlKey || event.metaKey || event.shiftKey)
-                    if (connectingFrom() && connectingFrom() !== windowId) finishConnector(windowId)
                   }}
-                  onDblClick={() => state().camera.zoom < LIVE_ZOOM && focusWindow(windowId)}
                   onContextMenu={(event) => {
-                    if ((event.target as HTMLElement).closest('[data-canvas-window-content]'))
-                      return
                     event.preventDefault()
                     event.stopPropagation()
-                    if (readOnlyMode()) return
-                    setMenu({
-                      kind: 'window',
-                      clientX: event.clientX,
-                      clientY: event.clientY,
-                      windowId,
-                    })
                   }}
                 >
                   <div
-                    class='flex h-8 cursor-grab items-center gap-2 rounded-t-lg border-b border-border px-2 text-xs font-medium select-none active:cursor-grabbing'
+                    class='flex h-8 cursor-grab items-center gap-2 border-b border-border px-2 text-xs font-medium select-none active:cursor-grabbing'
                     classList={{
+                      'rounded-t-lg': !maximized(),
                       'bg-muted text-foreground': selected(),
                       'bg-muted/50 text-muted-foreground': !selected(),
                     }}
-                    onPointerDown={(event) => startWindowMove(windowId, event)}
+                    onPointerDown={(event) => !maximized() && startWindowMove(windowId, event)}
                   >
                     <span class='shrink-0'>
                       {workspaceTabIcon(item()!.definition, fileIconContext(), 'sm')}
                     </span>
                     <span class='min-w-0 flex-1 truncate'>{item()!.definition.title}</span>
-                    <Show when={item()!.locked}>
-                      <Lock class='size-3.5 text-muted-foreground' />
-                    </Show>
-                    <Show when={!readOnlyMode()}>
-                      <button
-                        type='button'
-                        class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
-                        aria-label={`Close ${item()!.definition.title}`}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={() => closeWindow(windowId)}
+                    <div class='flex h-full shrink-0 items-center gap-0'>
+                      <Show
+                        when={maximized()}
+                        fallback={
+                          <button
+                            type='button'
+                            class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                            aria-label={`Maximize ${item()!.definition.title}`}
+                            title='Maximize'
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={() => maximizeWindow(windowId)}
+                          >
+                            <Maximize2 class='size-3.5' stroke-width={2} />
+                          </button>
+                        }
                       >
-                        <X class='size-3.5' stroke-width={2} />
-                      </button>
-                    </Show>
+                        <button
+                          type='button'
+                          class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                          aria-label={`Minimize ${item()!.definition.title}`}
+                          title='Minimize'
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={() => setMaximizedWindowId(null)}
+                        >
+                          <Minimize2 class='size-3.5' stroke-width={2} />
+                        </button>
+                      </Show>
+                      <Show when={!readOnlyMode()}>
+                        <button
+                          type='button'
+                          class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                          aria-label={`Close ${item()!.definition.title}`}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={() => closeWindow(windowId)}
+                        >
+                          <X class='size-3.5' stroke-width={2} />
+                        </button>
+                      </Show>
+                    </div>
                   </div>
                   <div
                     ref={(element) => bindReadingProgress(element, windowId)}
                     data-canvas-window-content
-                    class='absolute top-8 right-0 bottom-0 left-0 overflow-hidden rounded-b-lg text-sm text-muted-foreground'
+                    class='absolute top-8 right-0 bottom-0 left-0 overflow-hidden text-sm text-muted-foreground'
+                    classList={{ 'rounded-b-lg': !maximized() }}
                     onContextMenu={(event) => event.stopPropagation()}
-                    onPointerUp={(event) => detectReadingQuote(windowId, event)}
                   >
                     <div
                       class='h-full'
                       classList={{
-                        'invisible pointer-events-none': state().camera.zoom < LIVE_ZOOM,
+                        'invisible pointer-events-none':
+                          state().camera.zoom < LIVE_ZOOM && !maximized(),
                       }}
                     >
                       <Show when={item()!.definition.type === 'browser'}>
@@ -3290,11 +2313,10 @@ export function CanvasPage() {
                         <p class='max-w-[80%] truncate text-lg font-semibold'>
                           {item()!.definition.title}
                         </p>
-                        <p class='text-sm text-muted-foreground'>Double-click to focus</p>
                       </div>
                     </Show>
                   </div>
-                  <Show when={selected() && !readOnlyMode()}>
+                  <Show when={selected() && !readOnlyMode() && !maximized()}>
                     <ResizeHandles
                       onStart={(direction, event) => startWindowResize(windowId, direction, event)}
                     />
@@ -3321,7 +2343,6 @@ export function CanvasPage() {
                       'z-index': item.zIndex,
                     }}
                     onClick={() => selectWindow(item.id)}
-                    onDblClick={() => focusWindow(item.id)}
                   >
                     <span class='flex max-w-[80%] items-center gap-3 rounded-lg bg-background/75 px-4 py-3 shadow-sm'>
                       {workspaceTabIcon(item.definition, fileIconContext(), 'md')}
@@ -3354,33 +2375,6 @@ export function CanvasPage() {
         </div>
       </div>
 
-      <Show when={quoteCapture()}>
-        {(capture) => (
-          <div
-            class='fixed z-[115000] flex items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-xl'
-            style={{ left: `${capture().clientX}px`, top: `${capture().clientY}px` }}
-          >
-            <button
-              type='button'
-              class='inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-medium hover:bg-muted'
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={saveReadingQuote}
-            >
-              <FileText class='size-4' /> Save quote to note
-            </button>
-            <button
-              type='button'
-              aria-label='Dismiss quote capture'
-              class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => setQuoteCapture(null)}
-            >
-              <X class='size-4' />
-            </button>
-          </div>
-        )}
-      </Show>
-
       <Show when={menu()}>
         {(current) => (
           <div
@@ -3396,31 +2390,12 @@ export function CanvasPage() {
               <MenuButton
                 onClick={() => {
                   const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
-                  addQuickNote({ x: value.worldX, y: value.worldY })
-                  setMenu(null)
-                }}
-              >
-                <FileText class='size-4' />
-                Quick note
-              </MenuButton>
-              <MenuButton
-                onClick={() => {
-                  const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
                   openNoteComposer({ x: value.worldX, y: value.worldY })
                   setMenu(null)
                 }}
               >
                 <FileText class='size-4' />
                 New document
-              </MenuButton>
-              <MenuButton
-                onClick={() => {
-                  const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
-                  openSearch({ x: value.worldX, y: value.worldY })
-                }}
-              >
-                <Search class='size-4' />
-                Search library
               </MenuButton>
               <MenuButton
                 onClick={() => {
@@ -3442,89 +2417,6 @@ export function CanvasPage() {
                 <MessageSquare class='size-4' />
                 New AI chat
               </MenuButton>
-              <div class='my-1 border-t border-border' />
-              <MenuButton
-                onClick={() => {
-                  fitAll()
-                  setMenu(null)
-                }}
-              >
-                <Maximize class='size-4' />
-                Fit all
-              </MenuButton>
-              <MenuButton
-                onClick={() => {
-                  animateCamera({ x: 0, y: 0, zoom: 1 })
-                  setMenu(null)
-                }}
-              >
-                <RotateCcw class='size-4' />
-                Reset view
-              </MenuButton>
-            </Show>
-            <Show when={current().kind === 'window'}>
-              {(() => {
-                const windowId = (current() as Extract<ContextMenuState, { kind: 'window' }>)
-                  .windowId
-                return (
-                  <>
-                    <MenuButton
-                      onClick={() => {
-                        focusWindow(windowId)
-                        setMenu(null)
-                      }}
-                    >
-                      <Focus class='size-4' />
-                      Focus
-                    </MenuButton>
-                    <Show
-                      when={
-                        state().windows.find((window) => window.id === windowId)?.definition
-                          .type === 'hermes'
-                      }
-                    >
-                      <MenuButton
-                        onClick={() => {
-                          captureHermesAsNote(windowId)
-                          setMenu(null)
-                        }}
-                      >
-                        <FileText class='size-4' />
-                        Capture chat as note
-                      </MenuButton>
-                    </Show>
-                    <MenuButton
-                      onClick={() => {
-                        duplicateWindow(windowId)
-                        setMenu(null)
-                      }}
-                    >
-                      <Copy class='size-4' />
-                      Open another copy
-                    </MenuButton>
-                    <MenuButton
-                      onClick={() => {
-                        setSelectedIds([windowId])
-                        toggleSelectedLock()
-                        setMenu(null)
-                      }}
-                    >
-                      <Lock class='size-4' />
-                      Lock / unlock
-                    </MenuButton>
-                    <MenuButton
-                      danger
-                      onClick={() => {
-                        closeWindow(windowId)
-                        setMenu(null)
-                      }}
-                    >
-                      <X class='size-4' />
-                      Close
-                    </MenuButton>
-                  </>
-                )
-              })()}
             </Show>
           </div>
         )}
@@ -3533,11 +2425,9 @@ export function CanvasPage() {
       <Show when={searchOpen()}>
         <CanvasSearchPalette
           windows={state().windows}
-          cards={state().cards}
           fileIconContext={fileIconContext()}
           onClose={() => setSearchOpen(false)}
           onWindow={focusWindow}
-          onCard={focusCard}
           onFile={onLibrarySearchResult}
         />
       </Show>
@@ -3555,13 +2445,8 @@ export function CanvasPage() {
               aria-labelledby='canvas-dialog-title'
               class='w-full rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
               classList={{
-                'max-w-2xl': current().kind === 'ai-context' || current().kind === 'ai-compose',
                 'max-w-lg': current().kind === 'new-note' || current().kind === 'new-canvas',
-                'max-w-sm':
-                  current().kind !== 'ai-context' &&
-                  current().kind !== 'ai-compose' &&
-                  current().kind !== 'new-note' &&
-                  current().kind !== 'new-canvas',
+                'max-w-sm': current().kind !== 'new-note' && current().kind !== 'new-canvas',
               }}
             >
               <span id='canvas-dialog-title' class='sr-only'>
@@ -3591,30 +2476,6 @@ export function CanvasPage() {
                     value={dialogInput()}
                     onInput={(event) => setDialogInput(event.currentTarget.value)}
                   />
-                  <Show when={current().kind === 'new-canvas'}>
-                    <fieldset class='mt-4'>
-                      <legend class='text-sm text-muted-foreground'>Template</legend>
-                      <div class='mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3'>
-                        <For each={CANVAS_TEMPLATES}>
-                          {(template) => (
-                            <button
-                              type='button'
-                              class='rounded-lg border p-2.5 text-left hover:bg-muted'
-                              classList={{
-                                'border-primary bg-primary/10': canvasTemplate() === template.key,
-                              }}
-                              onClick={() => setCanvasTemplate(template.key)}
-                            >
-                              <span class='block text-sm font-medium'>{template.label}</span>
-                              <span class='mt-0.5 block text-[11px] leading-4 text-muted-foreground'>
-                                {template.description}
-                              </span>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </fieldset>
-                  </Show>
                   <div class='mt-5 flex justify-end gap-2'>
                     <button
                       type='button'
@@ -3647,13 +2508,9 @@ export function CanvasPage() {
                       createDocumentFromComposer(value())
                     }}
                   >
-                    <h2 class='text-base font-semibold'>
-                      {value().promoteCardId ? 'Promote note to document' : 'New document'}
-                    </h2>
+                    <h2 class='text-base font-semibold'>New document</h2>
                     <p class='mt-1 text-xs text-muted-foreground'>
-                      {value().promoteCardId
-                        ? 'Creates a Markdown file, opens it here, then removes the canvas card.'
-                        : 'Creates a Markdown file and opens it on this canvas.'}
+                      Creates a Markdown file and opens it on this canvas.
                     </p>
                     <label class='mt-4 block text-sm text-muted-foreground'>Title</label>
                     <input
@@ -3675,21 +2532,6 @@ export function CanvasPage() {
                         {(directory) => <option value={directory}>{directory}</option>}
                       </For>
                     </select>
-                    <Show when={!value().initialContent}>
-                      <label class='mt-4 block text-sm text-muted-foreground'>Starter</label>
-                      <select
-                        aria-label='Document starter'
-                        class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
-                        value={noteStarter()}
-                        onChange={(event) =>
-                          setNoteStarter(event.currentTarget.value as NoteStarterKey)
-                        }
-                      >
-                        <For each={NOTE_STARTERS}>
-                          {(starter) => <option value={starter.key}>{starter.label}</option>}
-                        </For>
-                      </select>
-                    </Show>
                     <div class='mt-5 flex justify-end gap-2'>
                       <button
                         type='button'
@@ -3703,320 +2545,15 @@ export function CanvasPage() {
                         class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
                         disabled={!dialogInput().trim() || !noteDirectory()}
                       >
-                        {value().promoteCardId ? 'Promote note' : 'Create document'}
+                        Create document
                       </button>
                     </div>
                   </form>
                 )}
               </Show>
-              <Show
-                when={
-                  current().kind === 'ai-compose'
-                    ? (current() as Extract<CanvasDialogState, { kind: 'ai-compose' }>)
-                    : undefined
-                }
-              >
-                {(value) => {
-                  const compose = value
-                  const allItems = () => [
-                    ...state().cards.map((item) => ({
-                      id: item.id,
-                      title: item.title || 'Untitled note',
-                      detail: 'Canvas note',
-                    })),
-                    ...state().windows.map((item) => ({
-                      id: item.id,
-                      title: item.definition.title,
-                      detail:
-                        item.definition.initialState.viewing ??
-                        item.definition.initialState.dir ??
-                        item.definition.type,
-                    })),
-                  ]
-                  const orderedItems = () => {
-                    const byId = new Map(allItems().map((item) => [item.id, item]))
-                    return [
-                      ...compose().ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
-                      ...allItems().filter((item) => !compose().ids.includes(item.id)),
-                    ]
-                  }
-                  const moveSource = (id: string, offset: number) => {
-                    const ids = [...compose().ids]
-                    const index = ids.indexOf(id)
-                    const target = index + offset
-                    if (index < 0 || target < 0 || target >= ids.length) return
-                    ;[ids[index], ids[target]] = [ids[target]!, ids[index]!]
-                    updateAiCompose({ ids })
-                  }
-                  return (
-                    <form
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        void prepareAiContext(compose().instruction.trim(), compose().ids)
-                      }}
-                    >
-                      <h2 class='text-base font-semibold'>Choose AI context</h2>
-                      <p class='mt-1 text-xs text-muted-foreground'>
-                        Scope:{' '}
-                        {compose().scope === 'selection' ? 'current selection' : 'entire canvas'}.
-                        AI receives only checked sources.
-                      </p>
-                      <label class='mt-4 block text-sm font-medium' for='canvas-ai-instruction'>
-                        Instruction
-                      </label>
-                      <textarea
-                        id='canvas-ai-instruction'
-                        class='mt-1 min-h-24 w-full resize-y rounded-md border border-input bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-ring'
-                        value={compose().instruction}
-                        onInput={(event) =>
-                          updateAiCompose({ instruction: event.currentTarget.value })
-                        }
-                      />
-                      <fieldset class='mt-4'>
-                        <div class='flex items-center justify-between'>
-                          <legend class='text-sm font-medium'>Sources</legend>
-                          <div class='flex gap-1'>
-                            <button
-                              type='button'
-                              class='h-10 rounded-md px-3 text-xs hover:bg-muted'
-                              onClick={() =>
-                                updateAiCompose({ ids: allItems().map((item) => item.id) })
-                              }
-                            >
-                              Select all
-                            </button>
-                            <button
-                              type='button'
-                              class='h-10 rounded-md px-3 text-xs hover:bg-muted'
-                              onClick={() => updateAiCompose({ ids: [] })}
-                            >
-                              Clear
-                            </button>
-                          </div>
-                        </div>
-                        <div class='mt-2 max-h-56 overflow-auto rounded-lg border border-border p-1'>
-                          <For each={orderedItems()}>
-                            {(item) => (
-                              <div class='flex min-h-12 items-center gap-3 rounded-md px-3 py-1 hover:bg-muted'>
-                                <input
-                                  type='checkbox'
-                                  aria-label={`Include ${item.title}`}
-                                  checked={compose().ids.includes(item.id)}
-                                  onChange={(event) =>
-                                    updateAiCompose({
-                                      ids: event.currentTarget.checked
-                                        ? [...compose().ids, item.id]
-                                        : compose().ids.filter((id) => id !== item.id),
-                                    })
-                                  }
-                                />
-                                <span class='min-w-0 flex-1'>
-                                  <span class='block truncate text-sm font-medium'>
-                                    {item.title}
-                                  </span>
-                                  <span class='block truncate text-xs text-muted-foreground'>
-                                    {item.detail}
-                                  </span>
-                                </span>
-                                <Show when={compose().ids.includes(item.id)}>
-                                  <button
-                                    type='button'
-                                    aria-label={`Move ${item.title} earlier`}
-                                    class='size-10 rounded-md text-xs hover:bg-background'
-                                    onClick={() => moveSource(item.id, -1)}
-                                  >
-                                    ↑
-                                  </button>
-                                  <button
-                                    type='button'
-                                    aria-label={`Move ${item.title} later`}
-                                    class='size-10 rounded-md text-xs hover:bg-background'
-                                    onClick={() => moveSource(item.id, 1)}
-                                  >
-                                    ↓
-                                  </button>
-                                </Show>
-                              </div>
-                            )}
-                          </For>
-                        </div>
-                      </fieldset>
-                      <div class='mt-5 flex items-center justify-between gap-3'>
-                        <span class='text-xs text-muted-foreground'>
-                          {compose().ids.length} sources selected
-                        </span>
-                        <div class='flex gap-2'>
-                          <button
-                            type='button'
-                            class='h-10 rounded-md px-3 text-sm hover:bg-muted'
-                            onClick={() => setDialog(null)}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type='submit'
-                            class='h-10 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
-                            disabled={!compose().instruction.trim() || !compose().ids.length}
-                          >
-                            Review context
-                          </button>
-                        </div>
-                      </div>
-                    </form>
-                  )
-                }}
-              </Show>
-              <Show
-                when={
-                  current().kind === 'ai-context'
-                    ? (current() as Extract<CanvasDialogState, { kind: 'ai-context' }>)
-                    : undefined
-                }
-              >
-                {(value) => {
-                  const context = value
-                  return (
-                    <>
-                      <h2 class='text-base font-semibold'>Review AI context</h2>
-                      <p class='mt-1 text-xs text-muted-foreground'>
-                        Confirm what AI receives. Text documents and chat transcripts include
-                        content; other media remain references.
-                      </p>
-                      <Show
-                        when={!context().loading}
-                        fallback={
-                          <p class='flex min-h-44 items-center justify-center text-sm text-muted-foreground'>
-                            Loading selected materialâ€¦
-                          </p>
-                        }
-                      >
-                        <div class='mt-4 max-h-48 space-y-1 overflow-auto rounded-lg border border-border p-2'>
-                          <For each={context().sources}>
-                            {(source) => (
-                              <div
-                                data-testid='canvas-ai-context-source'
-                                class='flex items-start gap-3 rounded-md px-2 py-2 text-sm'
-                              >
-                                <span
-                                  class='mt-1 size-2 shrink-0 rounded-full'
-                                  classList={{
-                                    'bg-emerald-500': source.status === 'included',
-                                    'bg-amber-500': source.status === 'reference',
-                                    'bg-destructive': source.status === 'failed',
-                                  }}
-                                />
-                                <span class='min-w-0 flex-1'>
-                                  <span class='block truncate font-medium'>{source.title}</span>
-                                  <span class='block truncate text-xs text-muted-foreground'>
-                                    {source.detail}
-                                  </span>
-                                </span>
-                                <Show when={source.characters > 0}>
-                                  <span class='shrink-0 text-[11px] tabular-nums text-muted-foreground'>
-                                    {source.characters.toLocaleString()} chars
-                                  </span>
-                                </Show>
-                              </div>
-                            )}
-                          </For>
-                        </div>
-                        <div class='mt-3 flex items-center justify-between text-xs text-muted-foreground'>
-                          <span>{context().sources.length} sources</span>
-                          <span>
-                            ~{Math.ceil(context().context.length / 4).toLocaleString()} tokens
-                          </span>
-                        </div>
-                        <details class='mt-3 rounded-lg border border-border'>
-                          <summary class='cursor-pointer px-3 py-2 text-sm'>
-                            Preview assembled context
-                          </summary>
-                          <pre class='max-h-48 overflow-auto whitespace-pre-wrap border-t border-border p-3 text-xs select-text'>
-                            {context().context}
-                          </pre>
-                        </details>
-                      </Show>
-                      <div class='mt-5 flex justify-end gap-2'>
-                        <button
-                          type='button'
-                          class='h-9 rounded-md px-3 text-sm hover:bg-muted'
-                          onClick={() => setDialog(null)}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type='button'
-                          class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
-                          disabled={context().loading || !context().context}
-                          onClick={() => sendAiContext(context())}
-                        >
-                          Open in AI chat
-                        </button>
-                      </div>
-                    </>
-                  )
-                }}
-              </Show>
-              <Show when={current().kind === 'snapshots'}>
-                <h2 class='text-base font-semibold'>Snapshot history</h2>
-                <p class='mt-1 text-xs text-muted-foreground'>
-                  Local snapshots for current canvas.
-                </p>
-                <div class='mt-4 max-h-80 space-y-1 overflow-auto'>
-                  <Show
-                    when={
-                      snapshots().filter((item) => item.canvasId === collection().activeId).length
-                    }
-                    fallback={
-                      <p class='py-8 text-center text-sm text-muted-foreground'>
-                        No snapshots yet.
-                      </p>
-                    }
-                  >
-                    <For
-                      each={snapshots().filter((item) => item.canvasId === collection().activeId)}
-                    >
-                      {(snapshot) => (
-                        <button
-                          type='button'
-                          class='flex w-full items-center rounded-md px-3 py-2 text-left hover:bg-muted'
-                          onClick={() => restoreSnapshot(snapshot)}
-                        >
-                          <span class='min-w-0 flex-1'>
-                            <span class='block truncate text-sm font-medium'>{snapshot.name}</span>
-                            <span class='block text-xs text-muted-foreground'>
-                              {new Date(snapshot.createdAt).toLocaleString()}
-                            </span>
-                          </span>
-                          <RotateCcw class='size-4' />
-                        </button>
-                      )}
-                    </For>
-                  </Show>
-                </div>
-                <div class='mt-5 flex justify-end gap-2'>
-                  <button
-                    type='button'
-                    class='h-9 rounded-md px-3 text-sm hover:bg-muted'
-                    onClick={() => setDialog(null)}
-                  >
-                    Close
-                  </button>
-                  <button
-                    type='button'
-                    class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground'
-                    onClick={() => saveSnapshot()}
-                  >
-                    Save snapshot
-                  </button>
-                </div>
-              </Show>
               <Show when={current().kind === 'shortcuts'}>
                 <h2 class='text-base font-semibold'>Canvas shortcuts</h2>
                 <dl class='mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-sm'>
-                  <dt>
-                    <kbd class='rounded border px-1.5 py-0.5'>Double-click</kbd>
-                  </dt>
-                  <dd>New instant note at pointer</dd>
                   <dt>
                     <kbd class='rounded border px-1.5 py-0.5'>Two-finger scroll</kbd>
                   </dt>
@@ -4045,10 +2582,6 @@ export function CanvasPage() {
                     <kbd class='rounded border px-1.5 py-0.5'>Ctrl/⌘ + arrows</kbd>
                   </dt>
                   <dd>Resize selection</dd>
-                  <dt>
-                    <kbd class='rounded border px-1.5 py-0.5'>Alt + Left</kbd>
-                  </dt>
-                  <dd>Previous view</dd>
                   <dt>
                     <kbd class='rounded border px-1.5 py-0.5'>Delete</kbd>
                   </dt>
@@ -4089,32 +2622,6 @@ export function CanvasPage() {
                     }
                   >
                     Delete canvas
-                  </button>
-                </div>
-              </Show>
-              <Show when={current().kind === 'reset-canvas'}>
-                <h2 class='text-base font-semibold'>Reset local canvas?</h2>
-                <p class='mt-2 text-sm text-muted-foreground'>
-                  Notes, relationships, and canvas windows will be removed. Underlying files remain
-                  untouched.
-                </p>
-                <div class='mt-5 flex justify-end gap-2'>
-                  <button
-                    type='button'
-                    class='h-9 rounded-md px-3 text-sm hover:bg-muted'
-                    onClick={() => setDialog(null)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type='button'
-                    class='h-9 rounded-md bg-destructive px-3 text-sm text-white'
-                    onClick={() => {
-                      resetCanvasNow()
-                      setDialog(null)
-                    }}
-                  >
-                    Reset canvas
                   </button>
                 </div>
               </Show>

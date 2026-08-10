@@ -72,7 +72,6 @@ test('creates a real Markdown editor at the default canvas position', async ({ p
   await page.getByRole('banner').getByRole('button', { name: 'New document', exact: true }).click()
   await expect(page.getByText('Creates a Markdown file and opens it on this canvas.')).toBeVisible()
   await page.getByLabel('Document title').fill(title)
-  await page.getByLabel('Document starter').selectOption('decision')
   await page.getByRole('button', { name: 'Create document' }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
   await expect(
@@ -80,172 +79,23 @@ test('creates a real Markdown editor at the default canvas position', async ({ p
   ).toBeVisible()
 })
 
-test('creates quick notes and frame-free canvas templates', async ({ page }) => {
-  await page.getByTestId('canvas-add-trigger').click()
-  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
-  await expect(page.getByTestId('canvas-card')).toHaveCount(1)
-  await expect(page.getByLabel('Untitled note body')).toBeFocused()
-
+test('creates blank canvases', async ({ page }) => {
   await page.getByTestId('canvas-name-trigger').click()
   await page.getByRole('button', { name: 'New canvas' }).click()
   await page.getByLabel('Name').fill('Hardware plan')
-  await page.getByRole('button', { name: /Hardware/ }).click()
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByTestId('canvas-card')).toHaveCount(5)
-  await expect(page.getByLabel('Requirements body')).toBeVisible()
-  const activeState = await page.evaluate(() => {
-    const raw = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
-      activeId?: string
-      canvases?: Array<{ id: string; state?: Record<string, unknown> }>
-    }
-    return raw.canvases?.find((canvas) => canvas.id === raw.activeId)?.state
-  })
-  expect(activeState).not.toHaveProperty('frames')
+  await expect(page.getByTestId('canvas-window')).toHaveCount(0)
 })
 
-test('previews grounded document content before opening AI chat', async ({ page }) => {
-  await page.route('**/api/files/download?*', async (route) => {
-    await route.fulfill({
-      contentType: 'text/markdown',
-      body: '# Grounded requirement\n\nUSB-C input must tolerate 20 V.',
-    })
-  })
-  const canvas = page.getByTestId('infinite-canvas')
-  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
-  await page.getByRole('button', { name: 'Open file browser' }).click()
-  const browserWindow = page.getByTestId('canvas-window')
-  await browserWindow.locator('[data-file-path="Documents"]').click()
-  await browserWindow.locator('[data-file-path="Documents/notes.md"]').click()
-  await page.getByRole('button', { name: 'Summarize' }).click()
-  await expect(page.getByRole('heading', { name: 'Choose AI context' })).toBeVisible()
-  await expect(page.getByText('Scope: current selection.')).toBeVisible()
-  await page.getByRole('button', { name: 'Review context' }).click()
-  await expect(page.getByRole('heading', { name: 'Review AI context' })).toBeVisible()
-  await expect(page.getByText(/Document included: Documents\/notes\.md/)).toBeVisible()
-  await page.getByText('Preview assembled context').click()
-  await expect(page.getByText('USB-C input must tolerate 20 V.')).toBeVisible()
-})
-
-test('extracts PDF text for AI context without opening the standalone PDF viewer', async ({
-  page,
-}) => {
-  const canvas = page.getByTestId('infinite-canvas')
-  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
-  await page.getByRole('button', { name: 'Open file browser' }).click()
-  const browserWindow = page.getByTestId('canvas-window')
-  await browserWindow.locator('[data-file-path="Documents"]').click()
-  await browserWindow.locator('[data-file-path="Documents/sample.pdf"]').click()
-
-  await page.getByRole('button', { name: 'Summarize' }).click()
-  await page.getByRole('button', { name: 'Review context' }).click()
-  await expect(page.getByText('PDF text included: Documents/sample.pdf')).toBeVisible()
-  await expect(page.getByText('Could not load: Documents/sample.pdf')).toHaveCount(0)
-})
-
-test('uses chosen AI source order when allocating the context budget', async ({ page }) => {
-  test.setTimeout(30_000)
-  const titles = ['First source', 'Second source', 'Priority source']
-  for (const [index, title] of titles.entries()) {
-    await page.getByTestId('canvas-add-trigger').click()
-    await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
-    const card = page.getByTestId('canvas-card').last()
-    await card.getByLabel('Card title').fill(title)
-    await card.locator('textarea').fill(String(index + 1).repeat(24_000))
-  }
-
-  const canvas = page.getByTestId('infinite-canvas')
-  await canvas.click({ position: { x: 1050, y: 500 } })
-  await page.keyboard.press('Control+a')
-  await page.getByRole('button', { name: 'Summarize' }).click()
-  await page.getByRole('button', { name: 'Move Priority source earlier' }).click()
-  await page.getByRole('button', { name: 'Move Priority source earlier' }).click()
-  await page.getByRole('button', { name: 'Review context' }).click()
-
-  const sources = page.getByTestId('canvas-ai-context-source')
-  await expect(sources.first()).toContainText('Priority source')
-  await expect(sources.first()).toContainText('24,000 chars')
-  await expect(sources.last()).toContainText('12,000 chars')
-})
-
-test('captures instant notes by double-click and paste', async ({ page }) => {
-  const canvas = page.getByTestId('infinite-canvas')
-  await canvas.dblclick({ position: { x: 100, y: 100 } })
-  await expect(page.getByTestId('canvas-card')).toHaveCount(1)
-  await expect(page.getByLabel('Untitled note body')).toBeFocused()
-
-  await canvas.click({ position: { x: 900, y: 500 } })
-  await canvas.evaluate((element) => {
-    const data = new DataTransfer()
-    data.setData('text/plain', 'Pasted project note')
-    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: data }))
-  })
-  await expect(page.getByTestId('canvas-card')).toHaveCount(2)
-  await expect(page.getByLabel('Pasted project note body')).toHaveValue('Pasted project note')
-})
-
-test('captures selected reading text as a cited note', async ({ page }) => {
-  const canvas = page.getByTestId('infinite-canvas')
-  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
-  await page.getByRole('button', { name: 'Open file browser' }).click()
-  const browserWindow = page.getByTestId('canvas-window')
-  await browserWindow.locator('[data-file-path="Documents"]').click()
-  await browserWindow.locator('[data-file-path="Documents/notes.md"]').click()
-
-  const viewer = page
-    .getByTestId('canvas-window')
-    .filter({ has: page.getByTestId('markdown-document') })
-  await expect(viewer).toBeVisible()
-  const content = viewer.locator('[data-canvas-window-content]')
-  await viewer.getByTestId('markdown-document').evaluate((element) => {
-    const selectable = element.querySelector('.cm-content')
-    if (!selectable) throw new Error('Markdown content not ready')
-    const range = document.createRange()
-    range.selectNodeContents(selectable)
-    const selection = document.getSelection()
-    selection?.removeAllRanges()
-    selection?.addRange(range)
-  })
-  await content.dispatchEvent('pointerup')
-  await page.getByRole('button', { name: 'Save quote to note' }).click()
-  const quoteBody = page.getByLabel('Quote · notes.md body')
-  await expect(quoteBody).toHaveValue(/Source: Documents\/notes\.md/)
-  const quote = quoteBody.locator('xpath=ancestor::article')
-  await expect(quote.getByLabel('Card tags')).toHaveValue('quote, reading')
-})
-
-test('edits and deletes accessible relationship labels', async ({ page }) => {
-  await page.getByTestId('canvas-add-trigger').click()
-  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
-  await page.getByLabel('Card title').fill('Requirement')
-  await page.getByTestId('canvas-add-trigger').click()
-  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
-  await page.getByLabel('Card title').last().fill('Architecture')
-
-  const cards = page.getByTestId('canvas-card')
-  await cards.first().click({ position: { x: 8, y: 18 } })
-  await cards.last().click({ position: { x: 8, y: 18 }, modifiers: ['Control'] })
-  await page.getByRole('button', { name: 'Connect', exact: true }).click()
-  const relationship = page.getByLabel('Relationship from Requirement to Architecture')
-  await relationship.fill('drives')
-  await expect(relationship).toHaveValue('drives')
-  await page.getByRole('button', { name: 'Delete relationship' }).click()
-  await expect(relationship).toHaveCount(0)
-})
-
-test('searches, summarizes, and duplicates canvases from picker', async ({ page }) => {
-  await page.getByTestId('canvas-add-trigger').click()
-  await page.getByRole('banner').getByRole('button', { name: 'Quick note' }).click()
-  await page.getByLabel('Card title').fill('Research board')
-  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Research board')
-
+test('searches canvases from picker', async ({ page }) => {
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await page.getByLabel('Name').fill('Research board')
+  await page.getByRole('button', { name: 'Save' }).click()
   await page.getByTestId('canvas-name-trigger').click()
   await page.getByLabel('Search canvases').fill('Research')
   const row = page.getByTestId('canvas-list-item').filter({ hasText: 'Research board' })
-  await expect(row).toContainText('1 notes')
-  await row.hover()
-  await page.getByLabel('Duplicate Research board').click()
-  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Research board copy')
-  await expect(page.getByTestId('canvas-card')).toHaveCount(1)
+  await expect(row).toBeVisible()
 })
 
 test('pans canvas background with an unmodified wheel', async ({ page }) => {
@@ -280,6 +130,13 @@ test('closes canvas dialogs with Escape and restores focus', async ({ page }) =>
   await expect(trigger).toBeFocused()
 })
 
+test('closes overflow actions when clicking outside', async ({ page }) => {
+  await page.getByTitle('More').click()
+  await expect(page.getByRole('button', { name: 'Export canvas' })).toBeVisible()
+  await page.getByTestId('infinite-canvas').click({ position: { x: 700, y: 500 } })
+  await expect(page.getByRole('button', { name: 'Export canvas' })).toHaveCount(0)
+})
+
 test('keeps primary and zoom controls reachable on narrow screens', async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 700 })
   await expect(page.getByText('Saved', { exact: true })).toHaveCount(0)
@@ -288,15 +145,14 @@ test('keeps primary and zoom controls reachable on narrow screens', async ({ pag
   expect((await outline.boundingBox())!.x).toBeLessThan((await title.boundingBox())!.x)
   await expect(page.getByTestId('canvas-add-trigger')).toHaveText('')
   await expect(page.getByTestId('canvas-search-trigger')).toHaveText('')
-  await expect(page.getByTestId('canvas-create-tools')).toHaveCSS('border-top-width', '1px')
-  await expect(page.getByTestId('canvas-overflow-tools')).toHaveCSS('border-top-width', '1px')
+  await expect(page.getByTestId('canvas-create-tools')).toHaveCSS('column-gap', '8px')
+  await expect(page.getByTestId('canvas-toolbar-divider')).toHaveCount(2)
   for (const locator of [
     outline,
     page.getByTestId('canvas-name-trigger'),
     page.getByTestId('canvas-add-trigger'),
     page.getByTestId('canvas-search-trigger'),
     page.getByTitle('More'),
-    page.getByTitle('Fit all'),
     page.getByTitle('Zoom in'),
   ]) {
     await expect(locator).toBeVisible()
@@ -535,7 +391,6 @@ test('preserves window shape across semantic zoom levels', async ({ page }) => {
   await page.mouse.wheel(0, 400)
   await page.keyboard.up('Control')
   await expect(page.getByTitle('Reset zoom')).not.toHaveText('100%')
-  await expect(window.getByText('Double-click to focus')).toBeVisible()
 
   const after = await window.boundingBox()
   if (!after) throw new Error('Far-zoom canvas window not laid out')

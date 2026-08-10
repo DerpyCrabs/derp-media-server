@@ -8,7 +8,7 @@ import {
   type FileSearchResponse,
   type FileSearchResult,
 } from '@/lib/file-search'
-import type { CanvasCard, CanvasWindow } from '@/lib/infinite-canvas'
+import type { CanvasWindow } from '@/lib/infinite-canvas'
 import { queryKeys } from '@/lib/query-keys'
 import { fileItemIcon, type FileIconContext } from '@/src/lib/use-file-icon'
 import { useQuery } from '@tanstack/solid-query'
@@ -20,18 +20,15 @@ import { Portal } from 'solid-js/web'
 
 type CanvasSearchItem =
   | { kind: 'window'; id: string; title: string; detail: string }
-  | { kind: 'card'; id: string; title: string; detail: string }
   | { kind: 'file'; result: FileSearchResult; title: string; detail: string }
 
-type SearchScope = 'all' | 'canvas' | 'notes' | 'library'
+type SearchScope = 'all' | 'canvas' | 'library'
 
 type Props = {
   windows: CanvasWindow[]
-  cards: CanvasCard[]
   fileIconContext: FileIconContext
   onClose: () => void
   onWindow: (id: string) => void
-  onCard: (id: string) => void
   onFile: (result: FileSearchResult) => void
 }
 
@@ -66,7 +63,7 @@ export function CanvasSearchPalette(props: Props) {
     const needle = normalized()
     if (!needle) return [] as CanvasSearchItem[]
     const windows: CanvasSearchItem[] =
-      scope() === 'notes' || scope() === 'library'
+      scope() === 'library'
         ? []
         : props.windows
             .filter((window) =>
@@ -80,28 +77,12 @@ export function CanvasSearchPalette(props: Props) {
               title: window.definition.title,
               detail: windowDetail(window),
             }))
-    const cards: CanvasSearchItem[] =
-      scope() === 'library'
-        ? []
-        : props.cards
-            .filter((card) =>
-              normalizeFileSearchText(
-                `${card.title} ${card.body} ${card.url ?? ''} ${card.tags.join(' ')}`,
-              ).includes(needle),
-            )
-            .map((card) => ({
-              kind: 'card',
-              id: card.id,
-              title: card.title || 'Untitled note',
-              detail: card.body.slice(0, 100) || 'Canvas note',
-            }))
-    return [...cards, ...windows]
+    return windows
   })
 
   const canSearchFiles = createMemo(
     () =>
       scope() !== 'canvas' &&
-      scope() !== 'notes' &&
       fileSearchCodePointLength(normalized()) >= FILE_SEARCH_MIN_QUERY_LENGTH,
   )
   const fileQuery = useQuery(() => ({
@@ -174,7 +155,6 @@ export function CanvasSearchPalette(props: Props) {
 
   function choose(item: CanvasSearchItem) {
     if (item.kind === 'window') props.onWindow(item.id)
-    else if (item.kind === 'card') props.onCard(item.id)
     else props.onFile(item.result)
     props.onClose()
   }
@@ -236,7 +216,6 @@ export function CanvasSearchPalette(props: Props) {
                 [
                   ['all', 'All'],
                   ['canvas', 'Canvas'],
-                  ['notes', 'Notes'],
                   ['library', 'Library'],
                 ] as Array<[SearchScope, string]>
               }
@@ -270,11 +249,7 @@ export function CanvasSearchPalette(props: Props) {
                 <>
                   <Show when={index() === 0 || items()[index() - 1]?.kind !== item.kind}>
                     <p class='px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase'>
-                      {item.kind === 'window'
-                        ? 'Open windows'
-                        : item.kind === 'card'
-                          ? 'Notes'
-                          : 'Library'}
+                      {item.kind === 'window' ? 'Open windows' : 'Library'}
                     </p>
                   </Show>
                   <button
@@ -290,9 +265,6 @@ export function CanvasSearchPalette(props: Props) {
                     onClick={() => choose(item)}
                   >
                     <Show when={item.kind === 'window'}>
-                      <SquareStack class='size-5 shrink-0' />
-                    </Show>
-                    <Show when={item.kind === 'card'}>
                       <SquareStack class='size-5 shrink-0' />
                     </Show>
                     <Show when={item.kind === 'file'}>

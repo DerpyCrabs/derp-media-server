@@ -6,6 +6,7 @@ import {
   findNearestFreeCanvasRect,
   parseInfiniteCanvasState,
   reconcileInfiniteCanvasState,
+  serializeInfiniteCanvasState,
   snapCanvasRect,
   type CanvasWindow,
 } from '@/lib/infinite-canvas'
@@ -98,6 +99,22 @@ describe('infinite canvas persistence', () => {
     })
   })
 
+  test('restores only a valid maximized window id', () => {
+    const window = canvasWindow('canvas-window-1', { x: 0, y: 0, width: 320, height: 224 })
+    const saved = {
+      ...createEmptyCanvasState(),
+      windows: [window],
+      maximizedWindowId: window.id,
+    }
+
+    expect(parseInfiniteCanvasState(JSON.parse(serializeInfiniteCanvasState(saved)))).toMatchObject(
+      { maximizedWindowId: window.id },
+    )
+    expect(parseInfiniteCanvasState({ ...saved, maximizedWindowId: 'missing' })).toMatchObject({
+      maximizedWindowId: null,
+    })
+  })
+
   test('deduplicates item ids and advances stale counters', () => {
     const first = canvasWindow('canvas-window-7', { x: 0, y: 0, width: 320, height: 224 })
     const duplicate = canvasWindow('canvas-window-7', {
@@ -137,37 +154,5 @@ describe('infinite canvas persistence', () => {
       initialState: { viewing: 'safe.md' },
       tabGroupId: null,
     })
-  })
-
-  test('restores native cards and drops invalid connectors', () => {
-    const parsed = parseInfiniteCanvasState({
-      ...createEmptyCanvasState(),
-      cards: [
-        {
-          id: 'canvas-card-1',
-          kind: 'note',
-          title: 'Decision',
-          body: 'Use USB-C',
-          url: null,
-          color: '#6366f1',
-          bounds: { x: 0, y: 0, width: 352, height: 224 },
-          zIndex: 1,
-          locked: false,
-          tags: ['hardware'],
-        },
-      ],
-      connectors: [
-        {
-          id: 'canvas-connector-2',
-          fromId: 'canvas-card-1',
-          toId: 'missing',
-          label: 'depends on',
-          color: '#64748b',
-        },
-      ],
-    })
-    expect(parsed?.cards[0]?.body).toBe('Use USB-C')
-    expect(parsed?.connectors).toEqual([])
-    expect(parsed?.nextItemId).toBe(2)
   })
 })
