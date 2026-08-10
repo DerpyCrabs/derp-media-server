@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Derp Desk">
+  <rect width="512" height="512" rx="112" fill="#09090b"/>
+  <path d="M108 164h116l34 42h146v184H108z" fill="#fafafa"/>
+  <path d="M152 250h208v34H152zm0 66h148v34H152z" fill="#09090b"/>
+</svg>

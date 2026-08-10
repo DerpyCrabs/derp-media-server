@@ -23,6 +23,7 @@ import { Portal } from 'solid-js/web'
 export type FileSearchButtonProps = {
   title: string
   onSelect: (result: FileSearchResult) => void
+  label?: string
   disabled?: boolean
   class?: string
   iconClass?: string
@@ -58,6 +59,7 @@ export function FileSearchButton(props: FileSearchButtonProps) {
         onClick={() => setOpen(true)}
       >
         <FileSearch class={props.iconClass ?? 'size-4'} aria-hidden='true' stroke-width={2} />
+        <Show when={props.label}>{(label) => <span>{label()}</span>}</Show>
       </button>
       <Show when={open()}>
         <FileSearchPalette

@@ -1,5 +1,6 @@
 export type AuthConfig = {
   enabled: boolean
+  newShell?: boolean
   shareLinkDomain?: string
   editableFolders: string[]
   mediaRoots?: {

@@ -1,7 +1,9 @@
 import type { Accessor } from 'solid-js'
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { navigate, parseRoute } from './lib/routes'
+import { captureSharePasscodeFromLocation } from './lib/share-url'
 
-export type BrowserLocation = { pathname: string; search: string }
+export type BrowserLocation = { pathname: string; search: string; hash: string }
 
 /**
  * Single reactive `URLSearchParams` per location update. Prefer this over repeating
@@ -18,6 +20,7 @@ export function createUrlSearchParamsMemo(history: Accessor<BrowserLocation>) {
 const subscribers = new Set<() => void>()
 
 function notify() {
+  captureSharePasscodeFromLocation()
   for (const cb of subscribers) cb()
 }
 
@@ -41,7 +44,8 @@ function patchHistory() {
 patchHistory()
 
 /**
- * Reactive snapshot of pathname + search; updates on popstate and patched history.
+ * Reactive snapshot of pathname + search + hash. Raw history mutation remains a
+ * compatibility bridge; owned navigation emits `derp:navigation` explicitly.
  */
 export function useBrowserHistory() {
   const [tick, setTick] = createSignal(0)
@@ -50,8 +54,12 @@ export function useBrowserHistory() {
     const bump = () => setTick((t) => t + 1)
     subscribers.add(bump)
     window.addEventListener('popstate', bump)
+    window.addEventListener('hashchange', bump)
+    window.addEventListener('derp:navigation', bump)
     onCleanup(() => {
       window.removeEventListener('popstate', bump)
+      window.removeEventListener('hashchange', bump)
+      window.removeEventListener('derp:navigation', bump)
       subscribers.delete(bump)
     })
   })
@@ -61,6 +69,7 @@ export function useBrowserHistory() {
     return {
       pathname: window.location.pathname,
       search: window.location.search,
+      hash: window.location.hash,
     }
   })
   return locationMemo
@@ -76,7 +85,12 @@ export function navigateSearchParams(
     else params.set(key, value)
   }
   const qs = params.toString()
-  const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname
-  if (mode === 'push') history.pushState(null, '', url)
-  else history.replaceState(null, '', url)
+  navigate(
+    parseRoute({
+      pathname: window.location.pathname,
+      search: qs ? `?${qs}` : '',
+      hash: window.location.hash,
+    }),
+    { replace: mode === 'replace' },
+  )
 }

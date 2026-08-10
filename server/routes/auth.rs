@@ -3,6 +3,7 @@ use crate::{
     auth,
     config::Config,
     error::{AppError, AppResult},
+    route_contract,
 };
 use axum::{
     Json, Router,
@@ -58,6 +59,20 @@ async fn rate_limit(attempts: &Mutex<HashMap<String, (u32, u128)>>, key: String)
     true
 }
 
+fn is_public_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/login"
+            | "/login/"
+            | "/share"
+            | "/share/"
+            | "/api/auth/config"
+            | "/api/auth/login"
+            | "/api/auth/logout"
+    ) || path.starts_with("/share/")
+        || path.starts_with("/api/share/")
+}
+
 pub async fn middleware(State(state): State<Shared>, request: Request, next: Next) -> Response {
     if !state.config.auth.enabled {
         return next.run(request).await;
@@ -70,10 +85,7 @@ pub async fn middleware(State(state): State<Shared>, request: Request, next: Nex
             .rsplit('/')
             .next()
             .is_some_and(|name| name.contains('.') && !path.starts_with("/api/"));
-    let public = asset
-        || ["/login", "/api/auth/", "/share", "/api/share/"]
-            .iter()
-            .any(|prefix| path == *prefix || path.starts_with(prefix));
+    let public = asset || is_public_path(path);
     if public {
         return next.run(request).await;
     }
@@ -139,7 +151,7 @@ async fn config(State(state): State<Shared>, headers: HeaderMap) -> AppResult<Js
         values
     };
     Ok(Json(
-        json!({"enabled":state.config.auth.enabled,"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":roots.iter().map(|root|json!({"id":root.id,"name":root.name,"editableFolders":root.editable_folders,"readOnly":root.read_only,"source":root.source})).collect::<Vec<_>>() }),
+        json!({"enabled":state.config.auth.enabled,"newShell":route_contract::new_shell_enabled(),"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":roots.iter().map(|root|json!({"id":root.id,"name":root.name,"editableFolders":root.editable_folders,"readOnly":root.read_only,"source":root.source})).collect::<Vec<_>>() }),
     ))
 }
 
@@ -210,4 +222,37 @@ pub fn router() -> Router<Shared> {
         .route("/api/auth/config", get(config))
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_public_path;
+
+    #[test]
+    fn public_routes_stop_at_namespace_boundaries() {
+        for path in [
+            "/login",
+            "/login/",
+            "/share",
+            "/share/",
+            "/share/token",
+            "/share/token/workspace",
+            "/api/auth/config",
+            "/api/auth/login",
+            "/api/auth/logout",
+            "/api/share/token/info",
+        ] {
+            assert!(is_public_path(path), "expected public: {path}");
+        }
+        for path in [
+            "/login/extra",
+            "/shareevil",
+            "/api/auth",
+            "/api/auth/extra",
+            "/api/share",
+            "/api/shareevil/token",
+        ] {
+            assert!(!is_public_path(path), "expected protected: {path}");
+        }
+    }
 }

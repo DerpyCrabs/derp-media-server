@@ -1,9 +1,24 @@
 {
-  "name": "Derp Media",
-  "short_name": "Derp Media",
+  "name": "Derp Desk",
+  "short_name": "Derp Desk",
+  "description": "Your private desk for media, documents, workspaces, and canvases",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#09090b",
   "theme_color": "#09090b",
-  "icons": []
+  "icons": [
+    {
+      "src": "/derp-desk-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/derp-desk-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
 }

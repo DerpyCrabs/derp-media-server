@@ -1,0 +1,47 @@
+[
+  { "url": "/", "kind": "library" },
+  { "url": "/library", "kind": "library" },
+  { "url": "/library/", "kind": "library" },
+  { "url": "/?dir=Music&playing=Music%2Ftrack.mp3", "kind": "library", "directory": "Music" },
+  {
+    "url": "/?path=Legacy%2FFolder&viewing=Legacy%2FFolder%2Fnote.txt",
+    "kind": "library",
+    "directory": "Legacy/Folder"
+  },
+  {
+    "url": "/?path=old&dir=current&reader=current%2Fbook.epub&readerKind=book",
+    "kind": "library",
+    "directory": "current"
+  },
+  { "url": "/?offline=1&dir=Saved", "kind": "library", "directory": "Saved" },
+  { "url": "/home", "kind": "home" },
+  { "url": "/spaces", "kind": "spaces" },
+  { "url": "/workspace?ws=legacy-session", "kind": "workspace" },
+  { "url": "/canvas", "kind": "canvas" },
+  { "url": "/assistant", "kind": "assistant" },
+  { "url": "/offline", "kind": "offline" },
+  { "url": "/settings", "kind": "settings" },
+  { "url": "/login", "kind": "login" },
+  { "url": "/login/", "kind": "login" },
+  { "url": "/share/public-token", "kind": "share", "token": "public-token" },
+  {
+    "url": "/share/public-token/?dir=Photos",
+    "kind": "share",
+    "token": "public-token",
+    "directory": "Photos"
+  },
+  { "url": "/share/public-token/workspace", "kind": "shareWorkspace", "token": "public-token" },
+  {
+    "url": "/share/public-token/workspace/?dir=Notes",
+    "kind": "shareWorkspace",
+    "token": "public-token",
+    "directory": "Notes"
+  },
+  { "url": "/share", "kind": "notFound" },
+  { "url": "/share/", "kind": "notFound" },
+  { "url": "/share/public-token/extra", "kind": "notFound" },
+  { "url": "/login/extra", "kind": "notFound" },
+  { "url": "/shareevil", "kind": "notFound" },
+  { "url": "/library-item", "kind": "notFound" },
+  { "url": "/missing/path?dir=must-not-route#reader", "kind": "notFound" }
+]

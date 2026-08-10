@@ -1,5 +1,7 @@
-const SHELL_CACHE = 'derp-shell-v1'
+const BUILD_ID = /* __BUILD_ID__ */ 'development'
+const SHELL_CACHE = `derp-shell-${BUILD_ID}`
 const PRECACHE = /* __PRECACHE__ */ []
+const OPTIONAL = /* __OPTIONAL__ */ []
 const DB_NAME = 'derp-offline-v1'
 const STORE = 'entries'
 
@@ -81,10 +83,10 @@ function offlineListing(all, dir) {
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE)))
-  self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {
+  // Waiting worker activates only after controlled old clients close.
   event.waitUntil(
     Promise.all([
       self.clients.claim(),
@@ -104,11 +106,6 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   if (url.origin !== self.location.origin || event.request.method !== 'GET') return
-  if (
-    event.request.mode === 'navigate' &&
-    (url.pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(url.pathname))
-  )
-    return
 
   if (url.pathname === '/__offline/files') {
     if (event.request.headers.get('x-derp-native-offline') === '1') {
@@ -205,32 +202,28 @@ self.addEventListener('fetch', (event) => {
       fetch(event.request)
         .then((response) => {
           if (!response.ok) throw new Error(`Navigation failed: ${response.status}`)
-          const copy = response.clone()
-          caches.open(SHELL_CACHE).then((cache) => cache.put('/index.html', copy))
           return response
         })
-        .catch(async () => (await shellMatch('/index.html')) || Response.error()),
+        .catch(async () => (await shellMatch('/offline-shell.html')) || Response.error()),
     )
     return
   }
 
   if (PRECACHE.includes(url.pathname)) {
-    event.respondWith(shellMatch(event.request).then((cached) => cached || fetch(event.request)))
+    event.respondWith(shellMatch(url.pathname).then((cached) => cached || fetch(event.request)))
     return
   }
 
-  if (!url.pathname.startsWith('/api/')) {
+  if (OPTIONAL.includes(url.pathname)) {
     event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (!response.ok) throw new Error(`Request failed: ${response.status}`)
-          if (response.ok) {
-            const copy = response.clone()
-            caches.open(SHELL_CACHE).then((cache) => cache.put(event.request, copy))
-          }
-          return response
-        })
-        .catch(() => shellMatch(event.request).then((cached) => cached || Response.error())),
+      shellMatch(url.pathname).then(async (cached) => {
+        if (cached) return cached
+        const response = await fetch(event.request)
+        if (response.ok) {
+          await (await caches.open(SHELL_CACHE)).put(url.pathname, response.clone())
+        }
+        return response
+      }),
     )
   }
 })

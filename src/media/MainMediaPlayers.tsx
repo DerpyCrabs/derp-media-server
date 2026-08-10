@@ -3,12 +3,21 @@ import { MediaType } from '@/lib/types'
 import { Show, lazy } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { AudioPlayer } from './AudioPlayer'
-import { ImageViewerDialog } from './ImageViewerDialog'
-import { TextViewerDialog, type TextViewerShareContext } from './TextViewerDialog'
-import { UnsupportedFileViewerDialog } from './UnsupportedFileViewerDialog'
+import type { TextViewerShareContext } from './TextViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
 import { closeViewer } from '../lib/url-state-actions'
 
+const TextViewerDialog = lazy(() =>
+  import('./TextViewerDialog').then((module) => ({ default: module.TextViewerDialog })),
+)
+const ImageViewerDialog = lazy(() =>
+  import('./ImageViewerDialog').then((module) => ({ default: module.ImageViewerDialog })),
+)
+const UnsupportedFileViewerDialog = lazy(() =>
+  import('./UnsupportedFileViewerDialog').then((module) => ({
+    default: module.UnsupportedFileViewerDialog,
+  })),
+)
 const ReaderDialog = lazy(() =>
   import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
 )
@@ -44,20 +53,31 @@ function LazyDocumentReader(props: Pick<Props, 'shareContext'>) {
 }
 
 export function MainMediaPlayers(props: Props) {
+  const history = useBrowserHistory()
+  const params = createUrlSearchParamsMemo(history)
+  const viewingPath = () => params().get('viewing') ?? props.shareContext?.sharePath ?? ''
+  const viewerType = () => (viewingPath() ? getMediaTypeFromPath(viewingPath()) : null)
+
   return (
     <>
-      <TextViewerDialog
-        shareContext={props.shareContext}
-        editableFolders={props.editableFolders}
-        knowledgeBases={props.knowledgeBases}
-        shareCanEdit={props.shareCanEdit}
-        shareCanUpload={props.shareCanUpload}
-      />
-      <ImageViewerDialog shareContext={props.shareContext} />
+      <Show when={viewerType() === MediaType.TEXT}>
+        <TextViewerDialog
+          shareContext={props.shareContext}
+          editableFolders={props.editableFolders}
+          knowledgeBases={props.knowledgeBases}
+          shareCanEdit={props.shareCanEdit}
+          shareCanUpload={props.shareCanUpload}
+        />
+      </Show>
+      <Show when={viewerType() === MediaType.IMAGE}>
+        <ImageViewerDialog shareContext={props.shareContext} />
+      </Show>
       <LazyDocumentReader shareContext={props.shareContext} />
       <VideoPlayer shareContext={props.shareContext} />
       <AudioPlayer shareContext={props.shareContext} />
-      <UnsupportedFileViewerDialog shareContext={props.shareContext} />
+      <Show when={viewerType() === MediaType.OTHER}>
+        <UnsupportedFileViewerDialog shareContext={props.shareContext} />
+      </Show>
     </>
   )
 }

@@ -1,5 +1,7 @@
 import type { FileItem } from '@/lib/types'
+import { shareOfflineJobScope } from './offline-job-observer'
 import { removeWebOffline, saveForWebOffline, webOfflineSupported } from './web-offline-storage'
+import { navigate } from './routes'
 
 type ShareContext = { token: string; sharePath: string } | null
 
@@ -33,8 +35,7 @@ export function isPathAvailableOffline(path: string): boolean {
 
 export function openOfflineFiles(): boolean {
   if (!webOfflineSupported()) return false
-  window.history.pushState(null, '', '/?offline=1')
-  window.dispatchEvent(new window.PopStateEvent('popstate'))
+  navigate({ kind: 'offline' })
   return true
 }
 
@@ -56,9 +57,10 @@ export async function makeAvailableOffline(
     mediaBaseUrl: share
       ? absoluteUrl(`/api/share/${encodeURIComponent(share.token)}/media/`)
       : absoluteUrl('/api/media/'),
+    scope: share ? shareOfflineJobScope(share.token) : 'owner',
   })
 }
 
-export function removeOfflineFile(file: FileItem): boolean {
-  return removeWebOffline(file.path, file.name)
+export function removeOfflineFile(file: FileItem, share: ShareContext = null): boolean {
+  return removeWebOffline(file.path, file.name, share ? shareOfflineJobScope(share.token) : 'owner')
 }

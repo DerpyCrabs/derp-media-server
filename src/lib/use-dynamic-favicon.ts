@@ -30,7 +30,7 @@ export function useDynamicFavicon(
   options?: Options,
 ) {
   const themeTick = useStoreSync(useThemeStore)
-  const originals = { title: 'Media Server', href: null as string | null }
+  const originals = { title: 'Derp Desk', href: null as string | null }
   let currentFavicon = 'default'
 
   onMount(() => {
@@ -71,7 +71,7 @@ export function useDynamicFavicon(
     const folderName = currentDir
       ? currentDir.split(/[/\\]/).filter(Boolean).at(-1)
       : (resolvedRootName ?? 'Home')
-    document.title = folderName ? `${folderName} - Media Server` : 'Media Server'
+    document.title = folderName ? `${folderName} - Derp Desk` : 'Derp Desk'
 
     if (shouldUpdateFavicon) {
       const customIconName = icons[targetPath]

@@ -6,6 +6,7 @@ import { ShareFileViewer } from './ShareFileViewer'
 import { ShareFolderBrowser, type ShareInfoPayload } from './ShareFolderBrowser'
 import { SharePasscodeGate } from './SharePasscodeGate'
 import { ThemeSwitcher } from './ThemeSwitcher'
+import { consumeCapturedSharePasscode } from './lib/share-url'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -35,6 +36,7 @@ type Props = {
 }
 
 export function ShareRoute(props: Props) {
+  const capturedPasscode = consumeCapturedSharePasscode(props.token)
   const shareQuery = useQuery(() => ({
     queryKey: queryKeys.shareInfo(props.token),
     queryFn: () => api<ShareInfo>(`/api/share/${props.token}/info`),
@@ -97,7 +99,11 @@ export function ShareRoute(props: Props) {
         </div>
       </Match>
       <Match when={shareQuery.data?.needsPasscode && !shareQuery.data?.authorized}>
-        <SharePasscodeGate token={props.token} shareName={shareQuery.data!.name} />
+        <SharePasscodeGate
+          token={props.token}
+          shareName={shareQuery.data!.name}
+          initialPasscode={capturedPasscode}
+        />
       </Match>
       <Match when={folderBrowserProps()} keyed>
         {(p) => <ShareFolderBrowser token={p.token} shareInfo={p.shareInfo} />}

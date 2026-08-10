@@ -2,24 +2,25 @@ import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import { post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import Lock from 'lucide-solid/icons/lock'
-import { Show, createEffect, createMemo, createSignal } from 'solid-js'
-import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
+import { Show, createEffect, createSignal } from 'solid-js'
+import { useBrowserHistory } from './browser-history'
+import { consumeCapturedSharePasscode } from './lib/share-url'
 import { ThemeSwitcher } from './ThemeSwitcher'
 
 type Props = {
   token: string
   shareName: string
+  initialPasscode?: string
 }
 
 export function SharePasscodeGate(props: Props) {
-  const history = useBrowserHistory()
-  const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
+  const history = useBrowserHistory()
   const [passcode, setPasscode] = createSignal('')
   const [error, setError] = createSignal('')
-  const [autoTried, setAutoTried] = createSignal(false)
-
-  const passcodeFromUrl = createMemo(() => urlSearchParams().get('p') ?? '')
+  const [lastAutoPasscode, setLastAutoPasscode] = createSignal('')
+  const capturedPasscode = props.initialPasscode ?? consumeCapturedSharePasscode(props.token)
+  let initialCapturePending = true
 
   const verifyMutation = useMutation(() => ({
     mutationFn: (code: string) => post(`/api/share/${props.token}/verify`, { passcode: code }),
@@ -33,9 +34,14 @@ export function SharePasscodeGate(props: Props) {
   }))
 
   createEffect(() => {
-    const code = passcodeFromUrl()
-    if (!code || autoTried()) return
-    setAutoTried(true)
+    const location = history()
+    void location.search
+    void location.hash
+    const code = initialCapturePending
+      ? ((initialCapturePending = false), capturedPasscode)
+      : consumeCapturedSharePasscode(props.token)
+    if (!code || code === lastAutoPasscode()) return
+    setLastAutoPasscode(code)
     setError('')
     void verifyMutation.mutateAsync(code).catch(() => {
       setError('Invalid passcode')

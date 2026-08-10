@@ -1,17 +1,50 @@
-import { useMutation } from '@tanstack/solid-query'
-import { Switch, Match, Show, createSignal, createMemo, lazy } from 'solid-js'
+import { api, post } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
+import { useMutation, useQuery } from '@tanstack/solid-query'
+import {
+  Match,
+  Show,
+  Suspense,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  lazy,
+  onMount,
+  type Accessor,
+} from 'solid-js'
 import { useBrowserHistory } from './browser-history'
+import { FileBrowser } from './FileBrowser'
+import { GlobalForbiddenToast } from './GlobalForbiddenToast'
+import { OfflineStatus } from './OfflineStatus'
 import { SolidThemeSync } from './SolidThemeSync'
 import { ThemeSwitcher } from './ThemeSwitcher'
-import { FileBrowser } from './FileBrowser'
-import { ShareRoute } from './ShareRoute'
-import { ShareWorkspacePage } from './ShareWorkspacePage'
-import { WorkspacePage } from './WorkspacePage'
-import { CanvasPage } from './CanvasPage'
-import { GlobalForbiddenToast } from './GlobalForbiddenToast'
-import { post } from '@/lib/api'
-import { OfflineStatus } from './OfflineStatus'
+import type { AuthConfig } from './file-browser/types'
+import { shareOfflineJobScope } from './lib/offline-job-observer'
+import { recentLocationFromUrl, recordRecentOwnerLocation } from './lib/recent-owner-locations'
+import { navigate, parseRoute, type AppRoute } from './lib/routes'
+import { captureSharePasscodeFromLocation } from './lib/share-url'
+import { OwnerShell, type OwnerSurface } from './owner/OwnerShell'
 
+const ShareRoute = lazy(() =>
+  import('./ShareRoute').then((module) => ({ default: module.ShareRoute })),
+)
+const ShareWorkspacePage = lazy(() =>
+  import('./ShareWorkspacePage').then((module) => ({ default: module.ShareWorkspacePage })),
+)
+const WorkspacePage = lazy(() =>
+  import('./WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
+)
+const CanvasPage = lazy(() =>
+  import('./CanvasPage').then((module) => ({ default: module.CanvasPage })),
+)
+const HomePage = lazy(() => import('./HomePage').then((module) => ({ default: module.HomePage })))
+const SpacesPage = lazy(() =>
+  import('./SpacesPage').then((module) => ({ default: module.SpacesPage })),
+)
+const SettingsPage = lazy(() =>
+  import('./SettingsPage').then((module) => ({ default: module.SettingsPage })),
+)
 const ReaderDialog = lazy(() =>
   import('./reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
 )
@@ -30,9 +63,7 @@ function LoginPage() {
     loginMutation.reset()
     try {
       await loginMutation.mutateAsync({ password: password() })
-    } catch {
-      // Error surface via loginMutation.isError / loginMutation.error
-    }
+    } catch {}
   }
 
   return (
@@ -40,7 +71,7 @@ function LoginPage() {
       <ThemeSwitcher variant='floating' />
       <div class='w-full max-w-sm rounded-xl border border-border bg-card text-card-foreground shadow-sm'>
         <div class='p-6 space-y-1'>
-          <h1 class='text-xl font-semibold'>Media Server</h1>
+          <h1 class='text-xl font-semibold'>Derp Desk</h1>
           <p class='text-sm text-muted-foreground'>Enter password to continue</p>
         </div>
         <div class='p-6 pt-0'>
@@ -74,73 +105,222 @@ function LoginPage() {
   )
 }
 
-function parseShareWorkspaceToken(pathname: string): string | null {
-  const m = pathname.match(/^\/share\/([^/]+)\/workspace\/?$/)
-  return m?.[1] ?? null
+function NotFoundPage() {
+  return (
+    <main
+      class='relative flex min-h-screen items-center justify-center p-4'
+      data-testid='not-found'
+    >
+      <ThemeSwitcher variant='floating' />
+      <div class='bg-card w-full max-w-md rounded-xl border border-border p-6 text-center shadow-sm'>
+        <p class='text-primary text-sm font-semibold'>404</p>
+        <h1 class='mt-1 text-2xl font-semibold'>Page not found</h1>
+        <p class='text-muted-foreground mt-2 text-sm'>This Derp Desk route does not exist.</p>
+        <a
+          href='/library'
+          class='bg-primary text-primary-foreground mt-5 inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium'
+        >
+          Open Library
+        </a>
+      </div>
+    </main>
+  )
 }
 
-/** `/share/:token` only when token is non-empty (excludes `/share/` and `/share`). */
-function parseShareFolderOrFileToken(pathname: string): string | null {
-  if (parseShareWorkspaceToken(pathname)) return null
-  const m = pathname.match(/^\/share\/([^/]+)/)
-  return m?.[1] ?? null
+function LoadingSurface() {
+  return (
+    <div class='flex min-h-40 items-center justify-center p-6'>
+      <p class='text-muted-foreground text-sm'>Loading…</p>
+    </div>
+  )
+}
+
+function AssistantRedirect() {
+  onMount(() => {
+    navigate({ kind: 'workspace' }, { replace: true, query: { dir: 'Hermes Sessions' } })
+  })
+  return <LoadingSurface />
+}
+
+function isOwnerRoute(route: AppRoute) {
+  return !['login', 'share', 'shareWorkspace', 'notFound'].includes(route.kind)
+}
+
+function ownerSurface(route: AppRoute): OwnerSurface {
+  if (route.kind === 'library') {
+    if (route.query.offline) return 'offline'
+    if (route.directory === 'Shares') return 'shared'
+    return 'library'
+  }
+  if (route.kind === 'home') return 'home'
+  if (route.kind === 'spaces') return 'spaces'
+  if (route.kind === 'workspace') return 'workspace'
+  if (route.kind === 'canvas') return 'canvas'
+  if (route.kind === 'assistant') return 'assistant'
+  if (route.kind === 'offline') return 'offline'
+  if (route.kind === 'settings') return 'settings'
+  return 'library'
+}
+
+function navigateHref(href: string) {
+  const url = new URL(href, window.location.origin)
+  navigate(parseRoute(url))
+}
+
+function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
+  return (
+    <Suspense fallback={<LoadingSurface />}>
+      <Switch fallback={<FileBrowser />}>
+        <Match when={props.route().kind === 'home'}>
+          <HomePage />
+        </Match>
+        <Match when={props.route().kind === 'library'}>
+          <FileBrowser forceOffline={props.route().query.offline} />
+        </Match>
+        <Match when={props.route().kind === 'spaces'}>
+          <SpacesPage />
+        </Match>
+        <Match when={props.route().kind === 'workspace'}>
+          <WorkspacePage />
+        </Match>
+        <Match when={props.route().kind === 'canvas'}>
+          <CanvasPage />
+        </Match>
+        <Match when={props.route().kind === 'assistant'}>
+          <AssistantRedirect />
+        </Match>
+        <Match when={props.route().kind === 'offline'}>
+          <FileBrowser forceOffline />
+        </Match>
+        <Match when={props.route().kind === 'settings'}>
+          <SettingsPage />
+        </Match>
+      </Switch>
+      <Show when={props.route().query.reader} keyed>
+        {(sourcePath) => (
+          <ReaderDialog sourcePath={sourcePath} sourceKind={props.route().query.readerKind} />
+        )}
+      </Show>
+    </Suspense>
+  )
+}
+
+function LegacyOwnerRoutes(props: { route: Accessor<AppRoute> }) {
+  return (
+    <>
+      <OfflineStatus />
+      <Suspense fallback={<LoadingSurface />}>
+        <Switch fallback={<FileBrowser forceOffline={props.route().query.offline} />}>
+          <Match when={props.route().kind === 'workspace'}>
+            <WorkspacePage />
+          </Match>
+          <Match when={props.route().kind === 'canvas'}>
+            <CanvasPage />
+          </Match>
+        </Switch>
+        <Show when={props.route().query.reader} keyed>
+          {(sourcePath) => (
+            <ReaderDialog sourcePath={sourcePath} sourceKind={props.route().query.readerKind} />
+          )}
+        </Show>
+      </Suspense>
+    </>
+  )
+}
+
+function OwnerApplication(props: { route: Accessor<AppRoute> }) {
+  const [cachedNewShell, setCachedNewShell] = createSignal(
+    localStorage.getItem('derp-desk-new-shell-v1') !== '0',
+  )
+  const authQuery = useQuery(() => ({
+    queryKey: queryKeys.authConfig(),
+    queryFn: () => api<AuthConfig>('/api/auth/config'),
+    staleTime: Infinity,
+  }))
+  const newShell = () => authQuery.data?.newShell ?? cachedNewShell()
+
+  createEffect(() => {
+    const value = authQuery.data?.newShell
+    if (typeof value !== 'boolean') return
+    setCachedNewShell(value)
+    try {
+      localStorage.setItem('derp-desk-new-shell-v1', value ? '1' : '0')
+    } catch {}
+  })
+
+  createEffect(() => {
+    const route = props.route()
+    if (!isOwnerRoute(route)) return
+    const recent = recentLocationFromUrl(
+      new URL(
+        `${route.location.pathname}${route.location.search}${route.location.hash}`,
+        window.location.origin,
+      ),
+    )
+    if (recent) recordRecentOwnerLocation(localStorage, recent)
+  })
+
+  return (
+    <Show when={newShell()} fallback={<LegacyOwnerRoutes route={props.route} />}>
+      <OwnerShell active={ownerSurface(props.route())} navigate={navigateHref}>
+        <OfflineStatus />
+        <OwnerRouteContent route={props.route} />
+      </OwnerShell>
+    </Show>
+  )
 }
 
 export function App() {
-  const loc = useBrowserHistory()
-  const path = createMemo(() => loc().pathname)
-  const shareWorkspaceToken = createMemo(() => parseShareWorkspaceToken(path()))
+  const location = useBrowserHistory()
+  const route = createMemo(() => parseRoute(location()))
+  const shareToken = createMemo(() => {
+    const current = route()
+    return current.kind === 'share' ? current.token : null
+  })
+  const shareWorkspaceToken = createMemo(() => {
+    const current = route()
+    return current.kind === 'shareWorkspace' ? current.token : null
+  })
+
+  createEffect(() => {
+    const current = location()
+    if (!current.pathname.startsWith('/share/')) return
+    void current.search
+    void current.hash
+    captureSharePasscodeFromLocation()
+  })
 
   return (
     <>
+      <SolidThemeSync />
       <GlobalForbiddenToast />
-      <OfflineStatus />
-      <Switch
-        fallback={
-          <>
-            <SolidThemeSync />
-            <FileBrowser />
-          </>
-        }
-      >
-        <Match when={path() === '/login'}>
-          <>
-            <SolidThemeSync />
-            <LoginPage />
-          </>
+      <Switch fallback={<NotFoundPage />}>
+        <Match when={route().kind === 'login'}>
+          <LoginPage />
         </Match>
         <Match when={shareWorkspaceToken()} keyed>
           {(token) => (
-            <>
-              <SolidThemeSync />
+            <Suspense fallback={<LoadingSurface />}>
+              <OfflineStatus scope={shareOfflineJobScope(token)} />
               <ShareWorkspacePage token={token} />
-            </>
+            </Suspense>
           )}
         </Match>
-        <Match when={parseShareFolderOrFileToken(path())} keyed>
+        <Match when={shareToken()} keyed>
           {(token) => (
-            <>
-              <SolidThemeSync />
+            <Suspense fallback={<LoadingSurface />}>
+              <OfflineStatus scope={shareOfflineJobScope(token)} />
               <ShareRoute token={token} />
-            </>
+            </Suspense>
           )}
         </Match>
-        <Match when={path() === '/workspace'}>
-          <>
-            <SolidThemeSync />
-            <WorkspacePage />
-          </>
+        <Match when={isOwnerRoute(route())}>
+          <OwnerApplication route={route} />
         </Match>
-        <Match when={path() === '/canvas'}>
-          <>
-            <SolidThemeSync />
-            <CanvasPage />
-          </>
+        <Match when={route().kind === 'notFound'}>
+          <NotFoundPage />
         </Match>
       </Switch>
-      <Show when={new URLSearchParams(loc().search).get('reader')} keyed>
-        {(sourcePath) => <ReaderDialog sourcePath={sourcePath} />}
-      </Show>
     </>
   )
 }

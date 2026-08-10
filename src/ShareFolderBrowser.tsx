@@ -491,8 +491,9 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function handleMakeAvailableOffline(file: FileItem) {
-    if (isPathAvailableOffline(file.path)) removeOfflineFile(file)
-    else makeAvailableOffline(file, { token: props.token, sharePath: props.shareInfo.path })
+    if (isPathAvailableOffline(file.path)) {
+      removeOfflineFile(file, { token: props.token, sharePath: props.shareInfo.path })
+    } else makeAvailableOffline(file, { token: props.token, sharePath: props.shareInfo.path })
   }
 
   function handleFileClick(file: FileItem) {

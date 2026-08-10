@@ -103,8 +103,8 @@ function Inner(props: {
               <div>
                 <h3 class='mb-2 text-lg font-medium'>Unsupported File Type</h3>
                 <p class='text-muted-foreground text-sm'>
-                  This file type is not supported for preview. The media server currently supports
-                  video, audio, and image files.
+                  This file type is not supported for preview. Derp Desk currently supports video,
+                  audio, image, document, and book files.
                 </p>
               </div>
               <div class='pt-2'>

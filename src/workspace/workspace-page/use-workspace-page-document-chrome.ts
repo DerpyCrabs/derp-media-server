@@ -12,7 +12,7 @@ export function useWorkspacePageDocumentChrome(
   workspace: Accessor<PersistedWorkspaceState | null>,
   themeTick: () => void,
 ) {
-  const tabChromeRestore = { title: 'Media Server', href: DEFAULT_FAVICON_DATA_URL }
+  const tabChromeRestore = { title: 'Derp Desk', href: DEFAULT_FAVICON_DATA_URL }
   let tabFaviconGen = 0
 
   onMount(() => {
@@ -27,7 +27,7 @@ export function useWorkspacePageDocumentChrome(
     if (typeof document === 'undefined') return
     if (!w) return
     const title = (w.browserTabTitle ?? '').trim()
-    document.title = title ? `${title} · Media Server` : 'Workspace · Media Server'
+    document.title = title ? `${title} · Derp Desk` : 'Workspace · Derp Desk'
     const iconName = (w.browserTabIcon ?? '').trim()
     const gen = ++tabFaviconGen
     if (!iconName) {

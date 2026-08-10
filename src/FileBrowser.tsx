@@ -106,18 +106,24 @@ import { playFile, viewFile } from './lib/url-state-actions'
 import { FileSearchButton } from './FileSearchPalette'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 
-export function FileBrowser() {
+type FileBrowserProps = {
+  forceOffline?: boolean
+}
+
+export function FileBrowser(props: FileBrowserProps = {}) {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
   useAdminEventsStream()
 
-  const currentPath = createMemo(() => urlSearchParams().get('dir') ?? '')
+  const currentPath = createMemo(
+    () => urlSearchParams().get('dir') ?? urlSearchParams().get('path') ?? '',
+  )
   const [offlineFallback, setOfflineFallback] = createSignal(
     !navigator.onLine && isOfflineFeatureAvailable(),
   )
   const isOfflineBrowser = createMemo(
-    () => urlSearchParams().get('offline') === '1' || offlineFallback(),
+    () => props.forceOffline || urlSearchParams().get('offline') === '1' || offlineFallback(),
   )
 
   const playingParam = createMemo(() => urlSearchParams().get('playing'))
@@ -1337,7 +1343,7 @@ export function FileBrowser() {
                       />
                     </Show>
                     <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
-                    <ThemeSwitcher />
+                    <ThemeSwitcher scope='owner' />
                   </div>
                 </div>
                 <Show when={inKb() && searchPopoverOpen()}>

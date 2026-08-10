@@ -1,4 +1,5 @@
 import type { FileItem } from '@/lib/types'
+import { publishOfflineJob, type OfflineJobScope } from './offline-job-observer'
 import { generateOfflineThumbnail } from './offline-thumbnail'
 
 const DATABASE = 'derp-offline-v1'
@@ -61,10 +62,6 @@ async function removePhysicalFile(entry: StoredOfflineEntry) {
   await root.removeEntry(entry.fileName).catch(() => undefined)
 }
 
-function announce(detail: Record<string, unknown>) {
-  window.dispatchEvent(new CustomEvent('derp-offline-status', { detail }))
-}
-
 async function refreshCatalog() {
   window.__DERP_WEB_OFFLINE_PATHS__ = (await allEntries()).map((entry) => entry.path)
   window.dispatchEvent(new Event('derp-offline-catalog'))
@@ -110,17 +107,24 @@ type DownloadSource = {
   displayPath: string
   listBaseUrl?: string
   mediaBaseUrl: string
+  scope?: OfflineJobScope
+  jobPath?: string
+  jobName?: string
 }
 
 const activeDownloads = new Map<string, AbortController>()
 const retrySources = new Map<string, DownloadSource>()
 
-export function cancelWebOffline(path: string) {
-  activeDownloads.get(path)?.abort()
+function downloadKey(scope: OfflineJobScope, path: string): string {
+  return `${scope}\0${path}`
 }
 
-export function retryWebOffline(path: string) {
-  const source = retrySources.get(path)
+export function cancelWebOffline(path: string, scope: OfflineJobScope = 'owner') {
+  activeDownloads.get(downloadKey(scope, path))?.abort()
+}
+
+export function retryWebOffline(path: string, scope: OfflineJobScope = 'owner') {
+  const source = retrySources.get(downloadKey(scope, path))
   return source ? saveForWebOffline(source) : false
 }
 
@@ -138,6 +142,9 @@ async function saveSource(
   signal: AbortSignal,
 ) {
   const { item, apiPath, displayPath } = source
+  const scope = source.scope ?? 'owner'
+  const jobPath = source.jobPath ?? displayPath
+  const jobName = source.jobName ?? item.name
   if (item.isDirectory) {
     await put({
       path: displayPath,
@@ -180,10 +187,11 @@ async function saveSource(
   if (!response.ok)
     throw Object.assign(new Error(`Could not download ${displayPath}`), { status: response.status })
   const totalBytes = Number(response.headers.get('content-length')) || item.size || 0
-  announce({
+  publishOfflineJob({
     state: 'running',
-    name: item.name,
-    path: displayPath,
+    scope,
+    name: jobName,
+    path: jobPath,
     completed: progress.completed,
     totalBytes,
     downloadedBytes: 0,
@@ -206,10 +214,11 @@ async function saveSource(
         if (chunk.done) break
         await writable.write(chunk.value)
         downloadedBytes += chunk.value.byteLength
-        announce({
+        publishOfflineJob({
           state: 'running',
-          name: item.name,
-          path: displayPath,
+          scope,
+          name: jobName,
+          path: jobPath,
           completed: progress.completed,
           totalBytes,
           downloadedBytes,
@@ -253,37 +262,55 @@ async function saveSource(
   })
   progress.written.push(displayPath)
   progress.completed += 1
-  announce({
+  publishOfflineJob({
     state: 'running',
-    name: source.item.name,
-    path: displayPath,
+    scope,
+    name: jobName,
+    path: jobPath,
     completed: progress.completed,
   })
 }
 
 export function saveForWebOffline(source: DownloadSource): boolean {
   if (!webOfflineSupported()) return false
-  announce({
+  const scope = source.scope ?? 'owner'
+  const trackedSource = {
+    ...source,
+    scope,
+    jobPath: source.jobPath ?? source.displayPath,
+    jobName: source.jobName ?? source.item.name,
+  }
+  const key = downloadKey(scope, trackedSource.jobPath)
+  publishOfflineJob({
     state: 'queued',
-    name: source.item.name,
-    path: source.displayPath,
+    scope,
+    name: trackedSource.jobName,
+    path: trackedSource.jobPath,
     totalBytes: source.item.size || 0,
   })
-  retrySources.set(source.displayPath, source)
+  retrySources.set(key, trackedSource)
   const controller = new AbortController()
-  activeDownloads.get(source.displayPath)?.abort()
-  activeDownloads.set(source.displayPath, controller)
+  activeDownloads.get(key)?.abort()
+  activeDownloads.set(key, controller)
   const progress = { completed: 0, written: [] as string[], physicalFiles: [] as string[] }
   void requireActiveServiceWorker()
-    .then(() => saveSource(source, progress, controller.signal))
+    .then(() => saveSource(trackedSource, progress, controller.signal))
     .then(async () => {
       const saved = await allEntries()
       if (!saved.some((entry) => entry.path === source.displayPath)) {
         throw new Error('Offline data could not be read back')
       }
       await refreshCatalog()
-      announce({ state: 'succeeded', name: source.item.name, path: source.displayPath })
-      activeDownloads.delete(source.displayPath)
+      if (activeDownloads.get(key) === controller) {
+        activeDownloads.delete(key)
+        retrySources.delete(key)
+        publishOfflineJob({
+          state: 'succeeded',
+          scope,
+          name: trackedSource.jobName,
+          path: trackedSource.jobPath,
+        })
+      }
     })
     .catch(async (error: unknown) => {
       const writtenEntries = (await allEntries()).filter((entry) =>
@@ -316,19 +343,26 @@ export function saveForWebOffline(source: DownloadSource): boolean {
               : error instanceof TypeError
                 ? 'network'
                 : 'unsupported-format'
-      activeDownloads.delete(source.displayPath)
-      announce({
-        state: errorKind === 'cancelled' ? 'cancelled' : 'failed',
-        name: source.item.name,
-        path: source.displayPath,
-        errorKind,
-        message: error instanceof Error ? error.message : 'Offline download failed',
-      })
+      if (activeDownloads.get(key) === controller) {
+        activeDownloads.delete(key)
+        publishOfflineJob({
+          state: errorKind === 'cancelled' ? 'cancelled' : 'failed',
+          scope,
+          name: trackedSource.jobName,
+          path: trackedSource.jobPath,
+          errorKind,
+          message: error instanceof Error ? error.message : 'Offline download failed',
+        })
+      }
     })
   return true
 }
 
-export function removeWebOffline(path: string, name: string): boolean {
+export function removeWebOffline(
+  path: string,
+  name: string,
+  scope: OfflineJobScope = 'owner',
+): boolean {
   if (!webOfflineSupported()) return false
   const normalized = path.replace(/^\/+|\/+$/g, '')
   void allEntries().then(async (entries) => {
@@ -344,7 +378,8 @@ export function removeWebOffline(path: string, name: string): boolean {
     })
     await Promise.all(removed.map(removePhysicalFile))
     await refreshCatalog()
-    announce({ state: 'removed', name, path: normalized })
+    retrySources.delete(downloadKey(scope, normalized))
+    publishOfflineJob({ state: 'removed', scope, name, path: normalized })
   })
   return true
 }

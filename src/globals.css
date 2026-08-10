@@ -857,3 +857,58 @@ body {
 .canvas-layout [data-slot='input'] {
   user-select: text;
 }
+
+.owner-shell-modern {
+  --owner-shell-rail-width: 0px;
+  --owner-shell-mobile-nav-height: calc(4rem + env(safe-area-inset-bottom, 0px));
+}
+
+.owner-shell-content {
+  min-height: 100vh;
+  padding-bottom: var(--owner-shell-mobile-nav-height);
+}
+
+.owner-shell-modern [data-testid='audio-player-chrome'] {
+  bottom: var(--owner-shell-mobile-nav-height) !important;
+}
+
+.owner-shell-modern [data-testid='media-chrome-pad-root'] {
+  padding-bottom: calc(2.875rem + var(--owner-shell-mobile-nav-height)) !important;
+}
+
+.owner-shell-modern .workspace-layout,
+.owner-shell-modern .canvas-layout {
+  bottom: var(--owner-shell-mobile-nav-height) !important;
+}
+
+.owner-shell-fullscreen {
+  --owner-shell-rail-width: 0px;
+  --owner-shell-mobile-nav-height: 0px;
+}
+
+@media (min-width: 650px) {
+  .owner-shell-modern [data-testid='media-chrome-pad-root'] {
+    padding-bottom: calc(3rem + var(--owner-shell-mobile-nav-height)) !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .owner-shell-modern {
+    --owner-shell-rail-width: 4.75rem;
+    --owner-shell-mobile-nav-height: 0px;
+  }
+
+  .owner-shell-content {
+    padding-bottom: 0;
+    padding-left: var(--owner-shell-rail-width);
+  }
+
+  .owner-shell-modern [data-testid='audio-player-chrome'] {
+    left: var(--owner-shell-rail-width) !important;
+  }
+
+  .owner-shell-modern .workspace-layout,
+  .owner-shell-modern .canvas-layout {
+    left: var(--owner-shell-rail-width) !important;
+  }
+}

@@ -11,6 +11,7 @@ import {
 import { render } from 'solid-js/web'
 import { App } from './App'
 import { initializeWebOfflineCatalog } from './lib/web-offline-storage'
+import { captureSharePasscodeFromLocation } from './lib/share-url'
 
 declare global {
   interface Window {
@@ -31,6 +32,8 @@ const dehydrated = window.__DEHYDRATED_STATE__
 if (dehydrated) {
   hydrate(queryClient, dehydrated)
 }
+
+captureSharePasscodeFromLocation()
 
 void initializeWebOfflineCatalog()
 

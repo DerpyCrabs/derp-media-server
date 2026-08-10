@@ -12,7 +12,7 @@ test.describe('Login & Auth', () => {
     await page.goto('/login')
     await expect(page.locator('input[type="password"]')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
-    await expect(page.getByText('Media Server')).toBeVisible()
+    await expect(page.getByText('Derp Desk')).toBeVisible()
   })
 
   test('login page exposes theme settings control', async ({ page }) => {
@@ -40,17 +40,22 @@ test.describe('Login & Auth', () => {
     await expect(page.getByText('Protected Share')).toBeVisible()
   })
 
-  test('/share/ without a token shows main file browser like home', async ({ page }) => {
+  test('/share/ without a token stays public and renders not found', async ({ page }) => {
     await page.goto('/share/')
     await expect(page).toHaveURL(/\/share\/$/)
-    await expect(page.getByTestId('file-browser')).toBeVisible()
+    await expect(page.getByTestId('not-found')).toBeVisible()
+    await expect(page.getByTestId('file-browser')).toHaveCount(0)
   })
 
-  test('/login/* paths are not treated as the login page', async ({ page }) => {
+  test('/login/* paths do not cross the public login boundary', async ({ page }) => {
     await page.goto('/login/extra')
-    await expect(page).toHaveURL(/\/login\/extra/)
-    await expect(page.getByTestId('file-browser')).toBeVisible()
-    await expect(page.locator('input[type="password"]')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/login$/)
+    await expect(page.locator('input[type="password"]')).toBeVisible()
+  })
+
+  test('lookalike share paths do not cross the public share boundary', async ({ page }) => {
+    await page.goto('/shareevil')
+    await expect(page).toHaveURL(/\/login$/)
   })
 
   test('invalid share token shows share not found', async ({ page }) => {

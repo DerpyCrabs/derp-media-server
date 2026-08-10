@@ -52,6 +52,7 @@ export const BATCHES = [
       'share-workspace',
       'share-browser-parity',
       'multiple-media-dirs',
+      'owner-shell',
     ],
   },
   {
@@ -82,6 +83,7 @@ export const BATCHES = [
       'share-viewers',
       'offline-mode',
       'mobile-media-management',
+      'stage1-pwa-offline',
     ],
   },
 ]

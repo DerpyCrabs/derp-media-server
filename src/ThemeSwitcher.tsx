@@ -1,15 +1,19 @@
 import { cn } from '@/lib/utils'
 import Settings from 'lucide-solid/icons/settings'
-import { Show, createEffect, createSignal, onCleanup } from 'solid-js'
+import { Show, createEffect, createSignal, lazy, onCleanup } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
-import { MountsDialog } from './MountsDialog'
 import FolderCog from 'lucide-solid/icons/folder-cog'
 
-type Props = { variant?: 'header' | 'floating' }
+const MountsDialog = lazy(() =>
+  import('./MountsDialog').then((module) => ({ default: module.MountsDialog })),
+)
+
+type Props = { variant?: 'header' | 'floating'; scope?: 'owner' | 'public' }
 
 export function ThemeSwitcher(props: Props) {
   const variant = () => props.variant ?? 'header'
+  const ownerActions = () => props.scope === 'owner'
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [mountsOpen, setMountsOpen] = createSignal(false)
   const [menuPosition, setMenuPosition] = createSignal({
@@ -105,23 +109,30 @@ export function ThemeSwitcher(props: Props) {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <ThemeSwitcherMenuContent onAfterPick={() => setMenuOpen(false)} />
-            <div class='bg-border my-1 h-px' />
-            <button
-              type='button'
-              class='hover:bg-accent hover:text-accent-foreground flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm'
-              onClick={() => {
-                setMenuOpen(false)
-                setMountsOpen(true)
-              }}
-            >
-              <FolderCog class='size-4' />
-              Media directories
-            </button>
+            <ThemeSwitcherMenuContent
+              ownerActions={ownerActions()}
+              onAfterPick={() => setMenuOpen(false)}
+            />
+            <Show when={ownerActions()}>
+              <div class='bg-border my-1 h-px' />
+              <button
+                type='button'
+                class='hover:bg-accent hover:text-accent-foreground flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm'
+                onClick={() => {
+                  setMenuOpen(false)
+                  setMountsOpen(true)
+                }}
+              >
+                <FolderCog class='size-4' />
+                Media directories
+              </button>
+            </Show>
           </div>
         </Portal>
       </Show>
-      <MountsDialog open={mountsOpen()} onClose={() => setMountsOpen(false)} />
+      <Show when={ownerActions() && mountsOpen()}>
+        <MountsDialog open={mountsOpen()} onClose={() => setMountsOpen(false)} />
+      </Show>
     </div>
   )
 }

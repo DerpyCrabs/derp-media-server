@@ -25,6 +25,7 @@ type Props = {
   onAfterPick?: () => void
   /** When false, do not call onAfterPick after a choice (menu stays open for more changes). */
   closeOnPick?: boolean
+  ownerActions?: boolean
 }
 
 export function ThemeSwitcherMenuContent(props: Props) {
@@ -98,7 +99,7 @@ export function ThemeSwitcherMenuContent(props: Props) {
           )
         }}
       </For>
-      <Show when={isOfflineFeatureAvailable()}>
+      <Show when={props.ownerActions && isOfflineFeatureAvailable()}>
         <div class='bg-border my-1 h-px' />
         <div class='text-muted-foreground px-2 py-1.5 text-xs font-medium'>Offline</div>
         <button

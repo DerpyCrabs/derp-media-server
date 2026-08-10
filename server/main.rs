@@ -12,6 +12,7 @@ mod markdown_images;
 mod media;
 mod path_metadata;
 mod reader_state;
+mod route_contract;
 mod routes;
 mod server;
 mod shares;

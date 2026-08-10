@@ -170,7 +170,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onOpenInNewTab={props.onWorkspaceBreadcrumbOpenInNewTab}
         showOpenInWorkspace={props.workspaceBreadcrumbMenuActions().showOpenInWorkspace}
         onOpenInWorkspace={props.onWorkspaceBreadcrumbOpenInWorkspace}
-        openInWorkspaceLabel='Open in Media Server'
+        openInWorkspaceLabel='Open in Derp Desk'
         showSetIcon={props.workspaceBreadcrumbMenuActions().showSetIcon}
         onSetIcon={props.onWorkspaceBreadcrumbSetIcon}
       />
@@ -195,7 +195,7 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
         onOpenInWorkspace={props.onOpenInMediaServer}
         onOpenWithBrowser={props.onOpenWithBrowser}
         onOpenWithReader={props.onOpenWithReader}
-        openInWorkspaceLabel='Open in Media Server'
+        openInWorkspaceLabel='Open in Derp Desk'
         onToggleKnowledgeBase={props.onContextToggleKnowledgeBase}
         isKnowledgeBase={props.isRowKnowledgeBase}
         onShare={props.onContextShare}

@@ -8,6 +8,8 @@ import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { SharePasscodeGate } from './SharePasscodeGate'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { WorkspacePage } from './WorkspacePage'
+import { navigate, parseRoute } from './lib/routes'
+import { consumeCapturedSharePasscode } from './lib/share-url'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -38,7 +40,7 @@ type Props = { token: string }
 function RedirectShareFileFromWorkspace(props: { token: string }) {
   onMount(() => {
     const qs = window.location.search
-    history.replaceState(null, '', `/share/${props.token}${qs}`)
+    navigate(parseRoute({ pathname: `/share/${props.token}`, search: qs }), { replace: true })
   })
   return (
     <div class='relative flex min-h-screen items-center justify-center'>
@@ -49,6 +51,7 @@ function RedirectShareFileFromWorkspace(props: { token: string }) {
 }
 
 export function ShareWorkspacePage(props: Props) {
+  const capturedPasscode = consumeCapturedSharePasscode(props.token)
   useShareFileWatcher(() => props.token)
 
   const shareQuery = useQuery(() => ({
@@ -97,7 +100,13 @@ export function ShareWorkspacePage(props: Props) {
       <Match
         when={shareQuery.data?.needsPasscode && !shareQuery.data?.authorized && shareQuery.data}
       >
-        {(info) => <SharePasscodeGate token={props.token} shareName={info().name} />}
+        {(info) => (
+          <SharePasscodeGate
+            token={props.token}
+            shareName={info().name}
+            initialPasscode={capturedPasscode}
+          />
+        )}
       </Match>
       <Match when={shareQuery.data && !shareQuery.data!.isDirectory}>
         <RedirectShareFileFromWorkspace token={props.token} />
