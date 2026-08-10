@@ -975,3 +975,35 @@ test('dismisses canvas context menu when interacting with a window', async ({ pa
   await expect(page.locator('[data-canvas-context-menu]')).toBeHidden()
   await page.mouse.up()
 })
+
+test('auto-pans canvas while dragging a window near viewport edge', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 240, y: 160 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+
+  const canvasBox = await canvas.boundingBox()
+  const window = page.getByTestId('canvas-window')
+  const windowBox = await window.boundingBox()
+  if (!canvasBox || !windowBox) throw new Error('Canvas window not laid out')
+
+  const grabX = windowBox.x + 120
+  const grabY = windowBox.y + 16
+  await page.mouse.move(grabX, grabY)
+  await page.mouse.down()
+  await page.mouse.move(canvasBox.x + canvasBox.width - 2, grabY)
+
+  const world = page.getByTestId('canvas-world')
+  const cameraBefore = await world.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform).e,
+  )
+  const draggedBefore = await window.boundingBox()
+  await page.waitForTimeout(300)
+  const cameraAfter = await world.evaluate(
+    (element) => new DOMMatrix(getComputedStyle(element).transform).e,
+  )
+  const draggedAfter = await window.boundingBox()
+  await page.mouse.up()
+
+  expect(cameraAfter).toBeLessThan(cameraBefore - 100)
+  expect(Math.abs((draggedAfter?.x ?? 0) - (draggedBefore?.x ?? 0))).toBeLessThan(20)
+})

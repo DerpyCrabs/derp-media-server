@@ -72,6 +72,7 @@ import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { CanvasSearchPalette } from './canvas/CanvasSearchPalette'
+import { canvasEdgeAutoPanVelocity } from './canvas/canvas-edge-auto-pan'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
 import { bindReadingProgress as bindReadingProgressEvents } from './canvas/reading-progress'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
@@ -1395,12 +1396,18 @@ export function CanvasPage() {
     )
     const startX = event.clientX
     const startY = event.clientY
+    const startCamera = before.camera
+    let latestX = startX
+    let latestY = startY
+    let frame: number | undefined
+    let previousFrameTime: number | undefined
     setGeometryActive(true)
-    const move = (next: PointerEvent) => {
-      const dx = (next.clientX - startX) / state().camera.zoom
-      const dy = (next.clientY - startY) / state().camera.zoom
+    const updateWindows = (camera: InfiniteCanvasState['camera']) => {
+      const dx = (latestX - startX - (camera.x - startCamera.x)) / camera.zoom
+      const dy = (latestY - startY - (camera.y - startCamera.y)) / camera.zoom
       setState((current) => ({
         ...current,
+        camera,
         windows: current.windows.map((window) => {
           const start = windowStarts.get(window.id)
           return start
@@ -1416,14 +1423,43 @@ export function CanvasPage() {
         }),
       }))
     }
+    const tick = (time: number) => {
+      const elapsed = previousFrameTime === undefined ? 0 : Math.min(32, time - previousFrameTime)
+      previousFrameTime = time
+      const rect = viewportEl?.getBoundingClientRect()
+      if (rect && elapsed > 0) {
+        const velocity = canvasEdgeAutoPanVelocity(latestX, latestY, rect)
+        if (velocity.x || velocity.y) {
+          const camera = state().camera
+          updateWindows({
+            ...camera,
+            x: camera.x + velocity.x * (elapsed / 1000),
+            y: camera.y + velocity.y * (elapsed / 1000),
+          })
+        }
+      }
+      frame = window.requestAnimationFrame(tick)
+    }
+    const move = (next: PointerEvent) => {
+      next.preventDefault()
+      latestX = next.clientX
+      latestY = next.clientY
+      updateWindows(state().camera)
+    }
     const end = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
+      window.removeEventListener('blur', end)
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
       setGeometryActive(false)
       pushGesture(before, state())
     }
+    frame = window.requestAnimationFrame(tick)
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end, { once: true })
+    window.addEventListener('pointercancel', end, { once: true })
+    window.addEventListener('blur', end, { once: true })
   }
 
   function startWindowResize(windowId: string, direction: ResizeDirection, event: PointerEvent) {
