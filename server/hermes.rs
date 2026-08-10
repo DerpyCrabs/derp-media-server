@@ -365,6 +365,8 @@ mod tests {
                 token: None,
                 profile: None,
                 filesystem_mode: HermesFilesystemMode::Upload,
+                auto_start: false,
+                home: None,
             },
             reqwest::Client::new(),
             events,

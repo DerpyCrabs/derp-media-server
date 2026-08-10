@@ -178,14 +178,29 @@ pub(crate) async fn run() {
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .unwrap();
-    let hermes: Option<Arc<dyn crate::hermes::HermesTransport>> =
-        config.hermes.clone().map(|value| {
-            Arc::new(crate::hermes::HermesHub::new(
-                value,
-                client.clone(),
-                hermes_events.clone(),
-            )) as Arc<dyn crate::hermes::HermesTransport>
-        });
+    let mut managed_hermes = match crate::hermes_process::start(config.hermes.as_ref()).await {
+        Ok(managed) => managed,
+        Err(error) => {
+            eprintln!("Failed to auto-start Hermes backend: {error}");
+            None
+        }
+    };
+    let mut hermes_config = config.hermes.clone();
+    if let (Some(config), Some(token)) = (
+        hermes_config.as_mut(),
+        managed_hermes
+            .as_ref()
+            .and_then(|managed| managed.token.clone()),
+    ) {
+        config.token = Some(token);
+    }
+    let hermes: Option<Arc<dyn crate::hermes::HermesTransport>> = hermes_config.map(|value| {
+        Arc::new(crate::hermes::HermesHub::new(
+            value,
+            client.clone(),
+            hermes_events.clone(),
+        )) as Arc<dyn crate::hermes::HermesTransport>
+    });
     let state = Arc::new(AppState {
         config: config.clone(),
         runtime_roots: RwLock::new(runtime_roots),
@@ -245,6 +260,12 @@ pub(crate) async fn run() {
             .unwrap();
     }
     if let Some(child) = vite.as_mut() {
+        let _ = child.kill().await;
+    }
+    if let Some(child) = managed_hermes
+        .as_mut()
+        .and_then(|managed| managed.child.as_mut())
+    {
         let _ = child.kill().await;
     }
 }

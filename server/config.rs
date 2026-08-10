@@ -157,6 +157,9 @@ struct RawHermesConfig {
     token_env: Option<String>,
     profile: Option<String>,
     filesystem_mode: Option<HermesFilesystemMode>,
+    #[serde(default)]
+    auto_start: bool,
+    home: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -173,6 +176,8 @@ pub struct HermesConfig {
     pub profile: Option<String>,
     #[allow(dead_code)]
     pub filesystem_mode: HermesFilesystemMode,
+    pub auto_start: bool,
+    pub home: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for HermesConfig {
@@ -183,6 +188,8 @@ impl std::fmt::Debug for HermesConfig {
             .field("token", &self.token.as_ref().map(|_| "[redacted]"))
             .field("profile", &self.profile)
             .field("filesystem_mode", &self.filesystem_mode)
+            .field("auto_start", &self.auto_start)
+            .field("home", &self.home)
             .finish()
     }
 }
@@ -258,6 +265,8 @@ fn hermes_config(raw: Option<RawHermesConfig>) -> Result<Option<HermesConfig>, S
         token,
         profile: raw.profile.filter(|value| !value.trim().is_empty()),
         filesystem_mode: raw.filesystem_mode.unwrap_or(HermesFilesystemMode::Upload),
+        auto_start: raw.auto_start,
+        home: raw.home,
     }))
 }
 
@@ -954,6 +963,7 @@ mod tests {
         let config = hermes_config(raw.hermes).unwrap().unwrap();
         assert_eq!(config.gateway_url.as_str(), "http://127.0.0.1:4000/");
         assert_eq!(config.filesystem_mode, HermesFilesystemMode::Upload);
+        assert!(!config.auto_start);
 
         let secret = HermesConfig {
             token: Some("never-print-this".into()),
