@@ -591,6 +591,8 @@ test('restores an image-folder reader after reload', async ({ page }) => {
     has: page.getByTestId('reader-dialog'),
   })
   await expect(readerWindow).toBeVisible()
+  await expect(readerWindow.locator('svg.lucide-book-open').first()).toBeVisible()
+  await expect(readerWindow.locator('svg.lucide-folder')).toHaveCount(0)
   await expect(readerWindow.getByTestId('reader-image-page')).toHaveCount(2)
   await expect(readerWindow.getByTestId('region-layer').first()).toHaveCSS('pointer-events', 'auto')
 
@@ -600,6 +602,8 @@ test('restores an image-folder reader after reload', async ({ page }) => {
     has: page.getByTestId('reader-dialog'),
   })
   await expect(restoredReader).toBeVisible()
+  await expect(restoredReader.locator('svg.lucide-book-open').first()).toBeVisible()
+  await expect(restoredReader.locator('svg.lucide-folder')).toHaveCount(0)
   await expect(restoredReader.getByTestId('reader-image-page')).toHaveCount(2)
   await expect(restoredReader.getByText('This file type cannot be previewed.')).toHaveCount(0)
 })

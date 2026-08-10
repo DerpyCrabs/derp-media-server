@@ -371,6 +371,10 @@ export function workspaceTabIcon(
   ctx: FileIconContext,
   size: IconSize = 'sm',
 ): JSX.Element {
+  if (tab.initialState.readerKind) {
+    const { cls, sz, sw } = sizeProps(size)
+    return <BookOpen class={`${cls} text-orange-500`} size={sz} stroke-width={sw} />
+  }
   const virtualAppearance = virtualAppearanceForPath(
     tab.iconPath ??
       (tab.type === 'hermes'
@@ -397,6 +401,10 @@ export function workspaceTaskbarRowIcon(
   playbackPath: string | null,
   size: IconSize = 'sm',
 ): JSX.Element {
+  if (tab.initialState.readerKind) {
+    const { cls, sz, sw } = sizeProps(size)
+    return <BookOpen class={`${cls} text-orange-500`} size={sz} stroke-width={sw} />
+  }
   const virtualAppearance = virtualAppearanceForPath(
     tab.iconPath ??
       (tab.type === 'hermes'

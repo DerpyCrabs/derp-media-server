@@ -360,6 +360,8 @@ test.describe('Workspace PDF Viewer', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
     const readerWindow = getWindowGroups(page).nth(1)
     await expect(readerWindow.getByTestId('reader-dialog')).toBeVisible()
+    await expect(readerWindow.locator('svg.lucide-book-open').first()).toBeVisible()
+    await expect(readerWindow.locator('svg.lucide-folder')).toHaveCount(0)
     await expect(readerWindow.getByTestId('reader-image-page')).toHaveCount(2)
     await expect(readerWindow.getByTestId('region-layer').first()).toHaveCSS(
       'pointer-events',
@@ -372,6 +374,8 @@ test.describe('Workspace PDF Viewer', () => {
     await expect(getWindowGroups(page)).toHaveCount(2)
     const restoredReaderWindow = getWindowGroups(page).nth(1)
     await expect(restoredReaderWindow.getByTestId('reader-dialog')).toBeVisible()
+    await expect(restoredReaderWindow.locator('svg.lucide-book-open').first()).toBeVisible()
+    await expect(restoredReaderWindow.locator('svg.lucide-folder')).toHaveCount(0)
     await expect(restoredReaderWindow.getByTestId('reader-image-page')).toHaveCount(2)
     await expect(restoredReaderWindow.getByText('This file type cannot be previewed.')).toHaveCount(
       0,
