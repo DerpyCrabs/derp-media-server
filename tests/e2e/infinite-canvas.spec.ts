@@ -153,7 +153,7 @@ test('keeps primary and zoom controls reachable on narrow screens', async ({ pag
     page.getByTestId('canvas-add-trigger'),
     page.getByTestId('canvas-search-trigger'),
     page.getByTitle('More'),
-    page.getByTitle('Zoom in'),
+    page.getByRole('slider', { name: 'Canvas zoom' }),
   ]) {
     await expect(locator).toBeVisible()
     const box = await locator.boundingBox()
@@ -363,19 +363,24 @@ test('keeps populated search compact on tall displays', async ({ page }) => {
   expect(box.height).toBeLessThanOrEqual(482)
 })
 
-test('zooms around cursor and resets zoom from toolbar', async ({ page }) => {
+test('zooms around cursor and controls zoom from toolbar slider', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
+  const slider = page.getByRole('slider', { name: 'Canvas zoom' })
   const before = await page.getByTitle('Reset zoom').textContent()
-  await expect(page.getByTitle('Zoom in')).toBeDisabled()
+  await expect(slider).toHaveValue('100')
   await canvas.hover({ position: { x: 400, y: 300 } })
   await page.keyboard.down('Control')
   await page.mouse.wheel(0, 300)
   await page.keyboard.up('Control')
   await expect.poll(() => page.getByTitle('Reset zoom').textContent()).not.toBe(before)
-  await expect(page.getByTitle('Zoom in')).toBeEnabled()
+  await slider.fill('60')
+  await expect(page.getByTitle('Reset zoom')).toHaveText('60%')
+  await page.getByTestId('canvas-zoom-control').hover({ position: { x: 4, y: 2 } })
+  await page.mouse.wheel(0, 100)
+  await expect(page.getByTitle('Reset zoom')).toHaveText('55%')
   await page.getByTitle('Reset zoom').click()
   await expect(page.getByTitle('Reset zoom')).toHaveText('100%')
-  await expect(page.getByTitle('Zoom in')).toBeDisabled()
+  await expect(slider).toHaveValue('100')
 })
 
 test('preserves window shape across semantic zoom levels', async ({ page }) => {

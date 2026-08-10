@@ -68,8 +68,6 @@ import Trash2 from 'lucide-solid/icons/trash-2'
 import Undo2 from 'lucide-solid/icons/undo-2'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import X from 'lucide-solid/icons/x'
-import ZoomIn from 'lucide-solid/icons/zoom-in'
-import ZoomOut from 'lucide-solid/icons/zoom-out'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { CanvasSearchPalette } from './canvas/CanvasSearchPalette'
 import { canvasEdgeAutoPanVelocity } from './canvas/canvas-edge-auto-pan'
@@ -1562,6 +1560,12 @@ export function CanvasPage() {
     zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, state().camera.zoom * factor)
   }
 
+  function setZoomFromControl(nextZoom: number) {
+    const rect = viewportEl?.getBoundingClientRect()
+    if (!rect) return
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, nextZoom)
+  }
+
   function onCanvasContextMenu(event: MouseEvent) {
     event.preventDefault()
     if (readOnlyMode()) return
@@ -1978,34 +1982,36 @@ export function CanvasPage() {
         </div>
       </header>
 
-      <div class='fixed right-3 bottom-3 z-[104000] flex items-center gap-0.5 rounded-lg border border-border bg-popover/95 p-1 shadow-xl backdrop-blur'>
-        <button
-          type='button'
-          title='Zoom out'
-          aria-label='Zoom out canvas'
-          class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
-          onClick={() => zoomBy(0.8)}
-        >
-          <ZoomOut class='size-4' />
-        </button>
+      <div
+        data-testid='canvas-zoom-control'
+        class='fixed right-3 bottom-3 z-[104000] flex h-11 items-center gap-2 rounded-lg border border-border bg-popover/95 px-2 shadow-xl backdrop-blur'
+        onWheel={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          const direction = Math.sign(event.deltaY || event.deltaX)
+          if (direction !== 0) setZoomFromControl(state().camera.zoom - direction * 0.05)
+        }}
+      >
+        <input
+          type='range'
+          title='Canvas zoom'
+          aria-label='Canvas zoom'
+          aria-valuetext={`${Math.round(state().camera.zoom * 100)} percent`}
+          min={Math.round(CANVAS_MIN_ZOOM * 100)}
+          max={Math.round(CANVAS_MAX_ZOOM * 100)}
+          step='1'
+          value={Math.round(state().camera.zoom * 100)}
+          class='[&::-webkit-slider-thumb]:bg-primary h-1.5 w-32 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
+          onInput={(event) => setZoomFromControl(event.currentTarget.valueAsNumber / 100)}
+        />
         <button
           type='button'
           title='Reset zoom'
           aria-label={`Reset canvas zoom, currently ${Math.round(state().camera.zoom * 100)} percent`}
-          class='h-10 min-w-14 rounded-md px-1.5 text-xs tabular-nums hover:bg-muted'
+          class='h-8 min-w-12 rounded-md px-1 text-xs tabular-nums hover:bg-muted'
           onClick={() => zoomBy(1 / state().camera.zoom)}
         >
           {Math.round(state().camera.zoom * 100)}%
-        </button>
-        <button
-          type='button'
-          title='Zoom in'
-          aria-label='Zoom in canvas'
-          disabled={state().camera.zoom >= CANVAS_MAX_ZOOM}
-          class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted disabled:opacity-35'
-          onClick={() => zoomBy(1.25)}
-        >
-          <ZoomIn class='size-4' />
         </button>
       </div>
 
