@@ -137,6 +137,44 @@ function fileName(path: string): string {
   return path.replace(/\\/g, '/').split('/').at(-1) || path
 }
 
+function canvasWindowDetails(definition: WorkspaceWindowDefinition): {
+  kind: string
+  path: string | null
+} {
+  if (definition.type === 'hermes') {
+    return {
+      kind: definition.hermes?.readOnly ? 'Hermes session · Read only' : 'Hermes session',
+      path: definition.hermes?.cwd ?? null,
+    }
+  }
+
+  const path = definition.initialState.viewing ?? definition.initialState.dir ?? null
+  if (definition.type === 'browser') {
+    return {
+      kind: definition.iconIsVirtual ? 'Collection' : path ? 'Folder' : 'File browser',
+      path,
+    }
+  }
+  if (definition.initialState.readerKind === 'folder') {
+    return { kind: 'Image folder reader', path }
+  }
+  if (definition.initialState.readerKind === 'pdf') {
+    return { kind: 'PDF reader', path }
+  }
+
+  const kind =
+    {
+      [MediaType.AUDIO]: 'Audio',
+      [MediaType.VIDEO]: 'Video',
+      [MediaType.IMAGE]: 'Image',
+      [MediaType.TEXT]: 'Document',
+      [MediaType.PDF]: 'PDF',
+      [MediaType.FOLDER]: 'Folder',
+      [MediaType.OTHER]: 'File',
+    }[definition.iconType ?? MediaType.OTHER] ?? 'File'
+  return { kind, path }
+}
+
 function fileItemFromDrag(path: string, isDirectory: boolean): FileItem {
   const extension = isDirectory ? '' : (path.split('.').at(-1) ?? '')
   return {
@@ -2214,14 +2252,61 @@ export function CanvasPage() {
                 }
               })
               const selected = () => selectedIds().includes(windowId)
+              const details = createMemo(() => canvasWindowDetails(item()!.definition))
+              const liveWindowChrome = () => state().camera.zoom >= LIVE_ZOOM || maximized()
+              const titlebarHeight = createMemo(() =>
+                liveWindowChrome() ? 32 : Math.min(72, Math.max(44, 32 / state().camera.zoom)),
+              )
+              const actionIconScale = createMemo(() =>
+                liveWindowChrome() ? 1 : Math.min(1.6, Math.max(1, 14 / 20 / state().camera.zoom)),
+              )
+              const summaryMetrics = createMemo(() => {
+                const zoom = state().camera.zoom
+                const screenWidth = visualBounds().width * zoom
+                const screenHeight = (visualBounds().height - titlebarHeight()) * zoom
+                const icon = Math.min(28, Math.max(14, screenHeight * 0.22))
+                const title = Math.min(20, Math.max(12, screenHeight * 0.17, screenWidth / 24))
+                const kind = Math.min(14, Math.max(10, screenHeight * 0.12))
+                const path = Math.min(12, Math.max(9, screenHeight * 0.1))
+                const gap = Math.min(8, Math.max(3, screenHeight * 0.045))
+                const padding = Math.min(
+                  16,
+                  Math.max(7, Math.min(screenWidth, screenHeight) * 0.07),
+                )
+                return {
+                  iconScale: icon / 20 / zoom,
+                  title: title / zoom,
+                  kind: kind / zoom,
+                  path: path / zoom,
+                  gap: gap / zoom,
+                  padding: padding / zoom,
+                  screenWidth,
+                  screenHeight,
+                }
+              })
+              const showSummaryPath = createMemo(
+                () =>
+                  Boolean(details().path && details().path !== item()!.definition.title) &&
+                  summaryMetrics().screenWidth >= 180 &&
+                  summaryMetrics().screenHeight >= 145,
+              )
+              const windowShadow = createMemo(() => {
+                const zoom = state().camera.zoom
+                const lift = 4 / zoom
+                const blur = 14 / zoom
+                const focusGlow = selected() ? `, 0 0 ${6 / zoom}px rgba(59, 130, 246, 0.42)` : ''
+                return `0 ${lift}px ${blur}px rgba(0, 0, 0, 0.55)${focusGlow}`
+              })
               return (
                 <div
                   data-testid='canvas-window'
                   data-window-id={windowId}
-                  class='absolute overflow-visible border border-border bg-background shadow-2xl outline outline-1 -outline-offset-1 outline-border'
+                  class='absolute overflow-visible bg-background'
                   classList={{
                     'rounded-lg': !maximized(),
-                    'border-border shadow-black/20': selected(),
+                    'border border-border shadow-2xl outline outline-1 -outline-offset-1 outline-border':
+                      liveWindowChrome(),
+                    'border-border shadow-black/20': liveWindowChrome() && selected(),
                     'invisible pointer-events-none': state().camera.zoom < FAR_ZOOM && !maximized(),
                   }}
                   style={{
@@ -2231,6 +2316,7 @@ export function CanvasPage() {
                     height: `${visualBounds().height}px`,
                     transform: maximized() ? `scale(${1 / state().camera.zoom})` : undefined,
                     'transform-origin': 'top left',
+                    'box-shadow': liveWindowChrome() ? undefined : windowShadow(),
                     'z-index': maximized()
                       ? 2000000
                       : selected()
@@ -2246,54 +2332,93 @@ export function CanvasPage() {
                   }}
                 >
                   <div
-                    class='flex h-8 cursor-grab items-center gap-2 border-b border-border px-2 text-xs font-medium select-none active:cursor-grabbing'
+                    data-testid='canvas-window-titlebar'
+                    class='flex cursor-grab items-center font-medium select-none active:cursor-grabbing'
                     classList={{
                       'rounded-t-lg': !maximized(),
+                      'gap-2 px-2 text-xs': liveWindowChrome(),
+                      'border-b border-border': liveWindowChrome(),
                       'bg-muted text-foreground': selected(),
-                      'bg-muted/50 text-muted-foreground': !selected(),
+                      'bg-muted/50 text-muted-foreground': liveWindowChrome() && !selected(),
+                      'bg-card text-muted-foreground': !liveWindowChrome() && !selected(),
                     }}
+                    style={{ height: `${titlebarHeight()}px` }}
                     onPointerDown={(event) => !maximized() && startWindowMove(windowId, event)}
                   >
-                    <span class='shrink-0'>
-                      {workspaceTabIcon(item()!.definition, fileIconContext(), 'sm')}
-                    </span>
-                    <span class='min-w-0 flex-1 truncate'>{item()!.definition.title}</span>
+                    <Show when={liveWindowChrome()} fallback={<span class='flex-1' />}>
+                      <span class='shrink-0'>
+                        {workspaceTabIcon(item()!.definition, fileIconContext(), 'sm')}
+                      </span>
+                      <span data-testid='canvas-window-title' class='min-w-0 flex-1 truncate'>
+                        {item()!.definition.title}
+                      </span>
+                    </Show>
                     <div class='flex h-full shrink-0 items-center gap-0'>
                       <Show
                         when={maximized()}
                         fallback={
                           <button
                             type='button'
-                            class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                            class='inline-flex h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                            style={{ width: `${titlebarHeight()}px` }}
                             aria-label={`Maximize ${item()!.definition.title}`}
                             title='Maximize'
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={() => maximizeWindow(windowId)}
                           >
-                            <Maximize2 class='size-3.5' stroke-width={2} />
+                            <Show
+                              when={liveWindowChrome()}
+                              fallback={
+                                <span style={{ transform: `scale(${actionIconScale()})` }}>
+                                  <Maximize2 class='size-5' stroke-width={2} />
+                                </span>
+                              }
+                            >
+                              <Maximize2 class='size-3.5' stroke-width={2} />
+                            </Show>
                           </button>
                         }
                       >
                         <button
                           type='button'
-                          class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                          class='inline-flex h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                          style={{ width: `${titlebarHeight()}px` }}
                           aria-label={`Minimize ${item()!.definition.title}`}
                           title='Minimize'
                           onPointerDown={(event) => event.stopPropagation()}
                           onClick={() => setMaximizedWindowId(null)}
                         >
-                          <Minimize2 class='size-3.5' stroke-width={2} />
+                          <Show
+                            when={liveWindowChrome()}
+                            fallback={
+                              <span style={{ transform: `scale(${actionIconScale()})` }}>
+                                <Minimize2 class='size-5' stroke-width={2} />
+                              </span>
+                            }
+                          >
+                            <Minimize2 class='size-3.5' stroke-width={2} />
+                          </Show>
                         </button>
                       </Show>
                       <Show when={!readOnlyMode()}>
                         <button
                           type='button'
-                          class='inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                          class='inline-flex h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                          style={{ width: `${titlebarHeight()}px` }}
                           aria-label={`Close ${item()!.definition.title}`}
                           onPointerDown={(event) => event.stopPropagation()}
                           onClick={() => closeWindow(windowId)}
                         >
-                          <X class='size-3.5' stroke-width={2} />
+                          <Show
+                            when={liveWindowChrome()}
+                            fallback={
+                              <span style={{ transform: `scale(${actionIconScale()})` }}>
+                                <X class='size-5' stroke-width={2} />
+                              </span>
+                            }
+                          >
+                            <X class='size-3.5' stroke-width={2} />
+                          </Show>
                         </button>
                       </Show>
                     </div>
@@ -2301,8 +2426,9 @@ export function CanvasPage() {
                   <div
                     ref={(element) => bindReadingProgress(element, windowId)}
                     data-canvas-window-content
-                    class='absolute top-8 right-0 bottom-0 left-0 overflow-hidden text-sm text-muted-foreground'
+                    class='absolute right-0 bottom-0 left-0 overflow-hidden text-sm text-muted-foreground'
                     classList={{ 'rounded-b-lg': !maximized() }}
+                    style={{ top: `${titlebarHeight()}px` }}
                     onContextMenu={(event) => event.stopPropagation()}
                   >
                     <div
@@ -2373,13 +2499,43 @@ export function CanvasPage() {
                       </Show>
                     </div>
                     <Show when={state().camera.zoom < LIVE_ZOOM}>
-                      <div class='absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted/40 p-8 text-center'>
-                        <span class='scale-150'>
+                      <div
+                        class='absolute inset-0 flex flex-col items-center justify-center overflow-hidden bg-muted/40 text-center'
+                        style={{
+                          gap: `${summaryMetrics().gap}px`,
+                          padding: `${summaryMetrics().padding}px`,
+                        }}
+                      >
+                        <span
+                          data-testid='canvas-window-zoom-icon'
+                          class='inline-flex items-center justify-center'
+                          style={{ transform: `scale(${summaryMetrics().iconScale})` }}
+                        >
                           {workspaceTabIcon(item()!.definition, fileIconContext(), 'md')}
                         </span>
-                        <p class='max-w-[80%] truncate text-lg font-semibold'>
+                        <p
+                          data-testid='canvas-window-zoom-title'
+                          class='max-w-full truncate font-semibold leading-[1.15]'
+                          style={{ 'font-size': `${summaryMetrics().title}px` }}
+                        >
                           {item()!.definition.title}
                         </p>
+                        <p
+                          data-testid='canvas-window-zoom-kind'
+                          class='max-w-full truncate font-semibold leading-[1.15] text-foreground/80'
+                          style={{ 'font-size': `${summaryMetrics().kind}px` }}
+                        >
+                          {details().kind}
+                        </p>
+                        <Show when={showSummaryPath()}>
+                          <p
+                            data-testid='canvas-window-zoom-path'
+                            class='max-w-full truncate leading-[1.15] text-muted-foreground'
+                            style={{ 'font-size': `${summaryMetrics().path}px` }}
+                          >
+                            {details().path}
+                          </p>
+                        </Show>
                       </div>
                     </Show>
                   </div>
@@ -2396,12 +2552,29 @@ export function CanvasPage() {
             <For each={state().windows}>
               {(item) => {
                 const bounds = canvasWindowVisualBounds(item.bounds)
+                const details = canvasWindowDetails(item.definition)
+                const metrics = createMemo(() => {
+                  const zoom = state().camera.zoom
+                  const screenWidth = bounds.width * zoom
+                  const screenHeight = bounds.height * zoom
+                  const shortSide = Math.min(screenWidth, screenHeight)
+                  return {
+                    horizontal: screenWidth >= screenHeight * 1.25,
+                    iconScale: Math.min(28, Math.max(12, shortSide * 0.2)) / 20 / zoom,
+                    title: Math.min(18, Math.max(10, shortSide * 0.14)) / zoom,
+                    kind: Math.min(13, Math.max(8, shortSide * 0.1)) / zoom,
+                    path: Math.min(11, Math.max(7, shortSide * 0.085)) / zoom,
+                    gap: Math.min(12, Math.max(5, shortSide * 0.08)) / zoom,
+                    padding: Math.min(16, Math.max(6, shortSide * 0.08)) / zoom,
+                    showPath: screenWidth >= 120 && screenHeight >= 70,
+                  }
+                })
                 return (
                   <button
                     type='button'
                     data-testid='canvas-window-summary'
                     data-window-id={item.id}
-                    class='absolute flex items-center justify-center overflow-hidden rounded-lg border border-border bg-card text-left shadow-lg'
+                    class='absolute overflow-hidden rounded-lg bg-card p-0 text-left shadow-lg'
                     style={{
                       left: `${bounds.x}px`,
                       top: `${bounds.y}px`,
@@ -2411,9 +2584,53 @@ export function CanvasPage() {
                     }}
                     onClick={() => selectWindow(item.id)}
                   >
-                    <span class='flex max-w-[80%] items-center gap-3 rounded-lg bg-background/75 px-4 py-3 shadow-sm'>
-                      {workspaceTabIcon(item.definition, fileIconContext(), 'md')}
-                      <span class='min-w-0 truncate font-semibold'>{item.definition.title}</span>
+                    <span
+                      data-testid='canvas-window-summary-content'
+                      class='absolute inset-0 flex items-center justify-center overflow-hidden text-center'
+                      classList={{ 'flex-col': !metrics().horizontal }}
+                      style={{
+                        width: `${bounds.width}px`,
+                        height: `${bounds.height}px`,
+                        'box-sizing': 'border-box',
+                        gap: `${metrics().gap}px`,
+                        padding: `${metrics().padding}px`,
+                      }}
+                    >
+                      <span
+                        class='inline-flex shrink-0 items-center justify-center'
+                        style={{ transform: `scale(${metrics().iconScale})` }}
+                      >
+                        {workspaceTabIcon(item.definition, fileIconContext(), 'md')}
+                      </span>
+                      <span class='min-w-0 max-w-full overflow-hidden'>
+                        <span
+                          data-testid='canvas-window-summary-title'
+                          class='block truncate font-semibold leading-[1.15]'
+                          style={{ 'font-size': `${metrics().title}px` }}
+                        >
+                          {item.definition.title}
+                        </span>
+                        <span
+                          class='mt-1 block truncate font-medium leading-[1.15] text-muted-foreground'
+                          style={{ 'font-size': `${metrics().kind}px` }}
+                        >
+                          {details.kind}
+                        </span>
+                        <Show
+                          when={
+                            metrics().showPath &&
+                            details.path &&
+                            details.path !== item.definition.title
+                          }
+                        >
+                          <span
+                            class='mt-1 block truncate leading-[1.15] text-muted-foreground'
+                            style={{ 'font-size': `${metrics().path}px` }}
+                          >
+                            {details.path}
+                          </span>
+                        </Show>
+                      </span>
                     </span>
                   </button>
                 )

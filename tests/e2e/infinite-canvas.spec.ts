@@ -388,18 +388,54 @@ test('preserves window shape across semantic zoom levels', async ({ page }) => {
   await canvas.click({ button: 'right', position: { x: 300, y: 240 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
   const window = page.getByTestId('canvas-window')
+  const titlebar = window.getByTestId('canvas-window-titlebar')
+  await expect(window.getByTestId('canvas-window-title')).toBeVisible()
+  await expect(window).toHaveCSS('border-top-width', '1px')
+  await expect(titlebar).toHaveCSS('border-bottom-width', '1px')
+  await expect(titlebar).toHaveCSS('height', '32px')
+  await expect(titlebar).toHaveCSS('padding-left', '8px')
+  await expect(titlebar).toHaveCSS('column-gap', '8px')
+  await expect(titlebar).toHaveCSS('font-size', '12px')
+  await expect(window.locator('[data-canvas-window-content]')).toHaveCSS('top', '32px')
+  const liveTitleIconBounds = await titlebar.locator('svg').first().boundingBox()
+  expect(liveTitleIconBounds?.width).toBe(14)
+  expect(liveTitleIconBounds?.height).toBe(14)
+  const maximizeButton = window.getByRole('button', { name: /Maximize/ })
+  const maximizeBounds = await maximizeButton.boundingBox()
+  const maximizeIconBounds = await maximizeButton.locator('svg').boundingBox()
+  expect(maximizeBounds?.width).toBe(32)
+  expect(maximizeBounds?.height).toBe(31)
+  expect(maximizeIconBounds?.width).toBe(14)
+  expect(maximizeIconBounds?.height).toBe(14)
   const before = await window.boundingBox()
   if (!before) throw new Error('Canvas window not laid out')
 
-  await canvas.hover({ position: { x: 300, y: 240 } })
-  await page.keyboard.down('Control')
-  await page.mouse.wheel(0, 400)
-  await page.keyboard.up('Control')
-  await expect(page.getByTitle('Reset zoom')).not.toHaveText('100%')
+  await page.getByRole('slider', { name: 'Canvas zoom' }).fill('45')
+  await expect(window.getByText('File browser', { exact: true })).toBeVisible()
+  await expect(window).toHaveCSS('border-top-width', '0px')
+  await expect(titlebar).toHaveCSS('border-bottom-width', '0px')
+  const zoomedTitlebarBounds = await titlebar.boundingBox()
+  const zoomedMaximizeBounds = await maximizeButton.boundingBox()
+  const zoomedSummaryTitleBounds = await window
+    .getByTestId('canvas-window-zoom-title')
+    .boundingBox()
+  const zoomedSummaryKindBounds = await window.getByTestId('canvas-window-zoom-kind').boundingBox()
+  expect(zoomedTitlebarBounds?.height).toBeGreaterThanOrEqual(31)
+  expect(zoomedMaximizeBounds?.width).toBeGreaterThanOrEqual(31)
+  await expect(window.getByTestId('canvas-window-title')).toHaveCount(0)
+  await expect(window).not.toHaveCSS('box-shadow', 'none')
+  expect(zoomedSummaryTitleBounds?.height).toBeGreaterThanOrEqual(20)
+  expect(zoomedSummaryKindBounds?.height).toBeGreaterThanOrEqual(14)
 
   const after = await window.boundingBox()
   if (!after) throw new Error('Far-zoom canvas window not laid out')
   expect(after.width / after.height).toBeCloseTo(before.width / before.height, 2)
+
+  await page.getByRole('slider', { name: 'Canvas zoom' }).fill('20')
+  const summary = page.getByTestId('canvas-window-summary')
+  await expect(summary).toBeVisible()
+  await expect(summary).toHaveCSS('border-top-width', '0px')
+  await expect(summary.getByText('File browser', { exact: true })).toBeVisible()
 })
 
 test('keeps browser panes mounted through every zoom level', async ({ page }) => {
@@ -423,6 +459,57 @@ test('keeps browser panes mounted through every zoom level', async ({ page }) =>
   await expect(page.getByTestId('canvas-window-summary')).toBeHidden()
   await expect(content).toHaveAttribute('data-zoom-mount-sentinel', 'stable')
   await expect(note).toBeVisible()
+})
+
+test('fits short semantic cards across every zoom level', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Music"]').click()
+  await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
+  const audioWindow = page.getByTestId('canvas-window').filter({ has: page.locator('audio') })
+  const slider = page.getByRole('slider', { name: 'Canvas zoom' })
+
+  const expectContained = async (
+    child: ReturnType<typeof page.getByTestId>,
+    parent: typeof audioWindow,
+  ) => {
+    const childBox = await child.boundingBox()
+    const parentBox = await parent.boundingBox()
+    if (!childBox || !parentBox) throw new Error('Semantic card element not laid out')
+    expect(childBox.x).toBeGreaterThanOrEqual(parentBox.x - 1)
+    expect(childBox.y).toBeGreaterThanOrEqual(parentBox.y - 1)
+    expect(childBox.x + childBox.width).toBeLessThanOrEqual(parentBox.x + parentBox.width + 1)
+    expect(childBox.y + childBox.height).toBeLessThanOrEqual(parentBox.y + parentBox.height + 1)
+  }
+
+  for (const zoom of ['60', '45', '35', '29']) {
+    await slider.fill(zoom)
+    await expect(audioWindow.getByTestId('canvas-window-title')).toHaveCount(0)
+    for (const testId of [
+      'canvas-window-zoom-icon',
+      'canvas-window-zoom-title',
+      'canvas-window-zoom-kind',
+    ]) {
+      const element = audioWindow.getByTestId(testId)
+      await expect(element).toBeVisible()
+      await expectContained(element, audioWindow)
+    }
+  }
+
+  await slider.fill('20')
+  const farSummaries = page.getByTestId('canvas-window-summary')
+  await expect(farSummaries).toHaveCount(2)
+  for (const summary of await farSummaries.all()) {
+    const content = summary.getByTestId('canvas-window-summary-content')
+    const summaryBox = await summary.boundingBox()
+    const contentBox = await content.boundingBox()
+    if (!summaryBox || !contentBox) throw new Error('Far summary not laid out')
+    expect(contentBox.width).toBeGreaterThanOrEqual(summaryBox.width - 1)
+    expect(contentBox.height).toBeGreaterThanOrEqual(summaryBox.height - 1)
+    await expectContained(summary.getByTestId('canvas-window-summary-title'), summary)
+  }
 })
 
 test('pans canvas without disturbing pane content', async ({ page }) => {
