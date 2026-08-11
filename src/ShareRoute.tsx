@@ -63,18 +63,6 @@ export function ShareRoute(props: Props) {
     }
   })
 
-  const folderBrowserProps = createMemo(() => {
-    const info = sharePayload()
-    if (!info?.isDirectory) return undefined
-    return { token: props.token, shareInfo: info }
-  })
-
-  const fileViewerProps = createMemo(() => {
-    const info = sharePayload()
-    if (!info || info.isDirectory) return undefined
-    return { token: props.token, shareInfo: info }
-  })
-
   const showNotFound = createMemo(
     () => !shareQuery.isPending && (shareQuery.isError || shareQuery.data == null),
   )
@@ -108,11 +96,11 @@ export function ShareRoute(props: Props) {
           initialPasscode={capturedPasscode}
         />
       </Match>
-      <Match when={folderBrowserProps()} keyed>
-        {(p) => <ShareFolderBrowser token={p.token} shareInfo={p.shareInfo} />}
+      <Match when={sharePayload()?.isDirectory === true}>
+        <ShareFolderBrowser token={props.token} shareInfo={sharePayload()!} />
       </Match>
-      <Match when={fileViewerProps()} keyed>
-        {(p) => <ShareFileViewer token={p.token} shareInfo={p.shareInfo} />}
+      <Match when={sharePayload()?.isDirectory === false}>
+        <ShareFileViewer token={props.token} shareInfo={sharePayload()!} />
       </Match>
       <Match when={true}>
         <div class='relative flex min-h-screen items-center justify-center p-4'>

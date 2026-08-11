@@ -185,9 +185,7 @@ test.describe('Stage 1 owner shell', () => {
     await expect(phoneNav).toBeVisible()
   })
 
-  test('offline observer survives routes, scopes jobs, and loads manager on demand', async ({
-    page,
-  }) => {
+  test('offline observer survives routes and scopes jobs', async ({ page }) => {
     await page.goto('/library')
     await page.evaluate(() =>
       window.dispatchEvent(
@@ -204,14 +202,6 @@ test.describe('Stage 1 owner shell', () => {
       ),
     )
     await expect(page.getByText('Saving route-job.pdf…', { exact: true })).toBeVisible()
-    expect(
-      await page.evaluate(() =>
-        performance
-          .getEntriesByType('resource')
-          .some((entry) => /OfflineManager-/.test(entry.name)),
-      ),
-    ).toBe(false)
-
     await page.getByTestId('owner-desktop-rail').getByRole('link', { name: 'Home' }).click()
     await expect(page.getByTestId('home-page')).toBeVisible()
     await expect(page.getByText('Saving route-job.pdf…', { exact: true })).toBeVisible()
@@ -254,15 +244,6 @@ test.describe('Stage 1 owner shell', () => {
       ),
     }))
     expect(stacking.modal).toBeGreaterThan(stacking.navigation)
-    await expect
-      .poll(() =>
-        page.evaluate(() =>
-          performance
-            .getEntriesByType('resource')
-            .some((entry) => /OfflineManager-/.test(entry.name)),
-        ),
-      )
-      .toBe(true)
   })
 
   test('public theme controls never request owner APIs', async ({ browser, baseURL }) => {

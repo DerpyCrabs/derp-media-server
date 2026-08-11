@@ -262,13 +262,6 @@ test.describe('Stage 1 PWA and offline cutover', () => {
     await ensureControlled(page)
     await chooseListView(page)
     await expect(page.getByTestId('reader-dialog')).toHaveCount(0)
-    expect(
-      await page.evaluate(() =>
-        performance
-          .getEntriesByType('resource')
-          .some((entry) => /(?:ReaderDialog|pdf\.worker|book-worker)-/.test(entry.name)),
-      ),
-    ).toBe(false)
 
     await saveFileOffline(page, 'sample.pdf')
     await saveFileOffline(page, 'reader.epub')

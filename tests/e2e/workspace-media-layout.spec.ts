@@ -102,6 +102,12 @@ test.describe('Workspace audio and video playback', () => {
 
     await popover.locator('button:has(.lucide-repeat)').click()
 
+    await expect
+      .poll(async () =>
+        audio.evaluate((el: HTMLAudioElement) => Number.isFinite(el.duration) && el.duration > 1),
+      )
+      .toBe(true)
+
     const duration = await audio.evaluate((el: HTMLAudioElement) => el.duration)
     if (!Number.isFinite(duration) || duration <= 1) {
       throw new Error('fixture MP3 should have finite duration (needs ffmpeg-generated test media)')

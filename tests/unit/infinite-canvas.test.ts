@@ -72,6 +72,32 @@ describe('infinite canvas persistence', () => {
     expect(reconcileInfiniteCanvasState(current, structuredClone(current))).toBe(current)
   })
 
+  test('preserves a live Hermes definition when a remote snapshot is stale', () => {
+    const current = createEmptyCanvasState()
+    const live = canvasWindow('canvas-window-1', { x: 0, y: 0, width: 640, height: 480 })
+    live.definition = {
+      id: live.id,
+      type: 'hermes',
+      title: 'Live chat',
+      iconPath: 'Hermes Sessions/session/live-session',
+      iconIsVirtual: true,
+      source: { kind: 'local' },
+      initialState: {},
+      tabGroupId: null,
+      hermes: { sessionId: 'live-session', readOnly: false },
+    }
+    current.windows = [live]
+    current.nextItemId = 2
+    current.nextZIndex = 2
+    const incoming = structuredClone(current)
+    incoming.windows[0]!.definition.title = 'Stale remote chat'
+
+    const reconciled = reconcileInfiniteCanvasState(current, incoming)
+
+    expect(reconciled.windows[0]!.definition).toBe(live.definition)
+    expect(reconciled.windows[0]!.definition.title).toBe('Live chat')
+  })
+
   test('rejects unknown versions and sanitizes camera zoom', () => {
     expect(parseInfiniteCanvasState({ version: 2, windows: [] })).toBeNull()
     const parsed = parseInfiniteCanvasState({

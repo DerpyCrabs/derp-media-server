@@ -25,12 +25,10 @@ export function IconEditorDialog(props: Props) {
 
   function handleSave() {
     props.onSave(selectedIcon())
-    props.onClose()
   }
 
   function handleRemove() {
     props.onSave(null)
-    props.onClose()
   }
 
   const previewEl = createMemo((): JSX.Element => {
@@ -49,7 +47,9 @@ export function IconEditorDialog(props: Props) {
       <div
         class={modalDialogBackdropClass(props.overlayScope)}
         role='presentation'
-        onClick={() => props.onClose()}
+        onClick={() => {
+          if (!props.isPending) props.onClose()
+        }}
       >
         <div
           data-slot='dialog-content'

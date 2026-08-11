@@ -201,8 +201,52 @@ test.describe('Knowledge Base', () => {
 
     // Pick an icon — scoped to dialog
     const iconButton = dialog.locator('button[title]').first()
+    const selectedIcon = await iconButton.getAttribute('title')
+    expect(selectedIcon).not.toBeNull()
     await iconButton.click()
 
-    await page.getByRole('button', { name: 'Save' }).click()
+    let markRequestStarted!: () => void
+    let releaseRequest!: () => void
+    const requestStarted = new Promise<void>((resolve) => {
+      markRequestStarted = resolve
+    })
+    const requestReleased = new Promise<void>((resolve) => {
+      releaseRequest = resolve
+    })
+    await page.route('**/api/settings/icon', async (route) => {
+      markRequestStarted()
+      await requestReleased
+      await route.continue()
+    })
+
+    const saveButton = dialog.getByRole('button', { name: 'Save' })
+    const saveResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/settings/icon' && response.status() === 200,
+    )
+    const saveClick = saveButton.click()
+    await requestStarted
+
+    let pendingStateError: unknown
+    try {
+      await expect(dialog).toBeVisible()
+      await expect(saveButton).toBeDisabled()
+    } catch (error) {
+      pendingStateError = error
+    } finally {
+      releaseRequest()
+    }
+
+    const [response] = await Promise.all([saveResponse, saveClick])
+    expect(response.ok()).toBeTruthy()
+    if (pendingStateError) throw pendingStateError
+    await expect(dialog).not.toBeVisible()
+
+    const settingsResponse = await page.request.get('/api/settings')
+    expect(settingsResponse.ok()).toBeTruthy()
+    const settings = (await settingsResponse.json()) as {
+      customIcons?: Record<string, string>
+    }
+    expect(settings.customIcons?.Notes).toBe(selectedIcon)
   })
 })

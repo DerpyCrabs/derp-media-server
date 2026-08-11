@@ -372,8 +372,9 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
     const onEnded = () => {
       if (useWorkspaceAudio.getState().isRepeat) {
-        useWorkspaceAudio.getState().setIsPlaying(true)
         audio.currentTime = 0
+        useWorkspaceAudio.getState().setCurrentTime(0)
+        useWorkspaceAudio.getState().setIsPlaying(true)
         void audio.play().catch(() => {})
       } else {
         playNextAudio()

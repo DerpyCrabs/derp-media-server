@@ -640,13 +640,47 @@ test.describe('Using Shares', () => {
     await expect(page.locator('table').getByText('share-created.txt')).toBeVisible()
   })
 
-  test('creates a folder in editable share', async ({ page }) => {
+  test('creates a folder in editable share', async ({ page }, testInfo) => {
+    const token = getShareToken(editableShareUrl)
+    const suffix = `${testInfo.workerIndex}-${Date.now()}`
+    const folderName = `share-folder-${suffix}`
+    const refreshFileName = `dialog-refresh-${suffix}.txt`
+    const consoleLines = watchConsole(page)
+
     await page.goto(editableShareUrl)
+    await expect.poll(() => sawShareSseConnect(consoleLines)).toBe(true)
     await page.locator('button[title="Create new folder"]').click()
     const dialog = page.getByRole('dialog', { name: /create.*folder/i })
-    await dialog.locator('input[placeholder="Folder name"]').fill('share-folder')
-    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
-    await expect(page.getByText('share-folder')).toBeVisible()
+    const nameInput = dialog.locator('input[placeholder="Folder name"]')
+    await nameInput.fill(folderName)
+
+    // Live share updates must not remount the browser and discard an open dialog.
+    const infoRefresh = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/api/share/${token}/info` &&
+        response.status() === 200,
+    )
+    const refreshResponse = await page.request.post(`/api/share/${token}/create`, {
+      data: { type: 'file', path: refreshFileName, content: 'refresh' },
+    })
+    expect(refreshResponse.ok()).toBeTruthy()
+    await infoRefresh
+    await expect(dialog).toBeVisible()
+    await expect(nameInput).toHaveValue(folderName)
+
+    const createResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/api/share/${token}/create` &&
+        response.request().postDataJSON().path === folderName &&
+        response.status() === 200,
+    )
+    await Promise.all([createResponse, nameInput.press('Enter')])
+    await expect(page.locator('table').getByText(folderName, { exact: true })).toBeVisible()
+
+    const deleteResponse = await page.request.post(`/api/share/${token}/delete`, {
+      data: { path: refreshFileName },
+    })
+    expect(deleteResponse.ok()).toBeTruthy()
   })
 
   test('deletes a file in editable share', async ({ page }) => {

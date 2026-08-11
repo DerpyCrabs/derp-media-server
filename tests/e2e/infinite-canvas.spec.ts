@@ -189,7 +189,60 @@ test('shows only actionable canvas sync errors', async ({ page }) => {
 })
 
 test('does not replace a live Hermes pane with stale sync content', async ({ page }) => {
-  let syncResponses = 0
+  let staleResponse: { canvasId: string; updatedAt: number } | null = null
+  await page.addInitScript(() => {
+    const collection = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
+      activeId?: string
+      lastTimestamp?: number
+      canvases?: Array<{
+        id: string
+        updatedAt: number
+        state?: {
+          windows?: unknown[]
+          nextItemId?: number
+          nextZIndex?: number
+        }
+      }>
+    }
+    const active = collection.canvases?.find((canvas) => canvas.id === collection.activeId)
+    if (!active?.state) throw new Error('Active canvas missing from local storage')
+    active.state.windows = [
+      {
+        id: 'canvas-window-1',
+        definition: {
+          id: 'canvas-window-1',
+          type: 'hermes',
+          title: 'Live chat',
+          iconPath: 'Hermes Sessions/session/live-session',
+          iconIsVirtual: true,
+          source: { kind: 'local' },
+          initialState: {},
+          tabGroupId: null,
+          hermes: { sessionId: 'live-session', readOnly: false },
+        },
+        bounds: { x: 0, y: 0, width: 640, height: 480 },
+        zIndex: 1,
+      },
+    ]
+    active.state.nextItemId = 2
+    active.state.nextZIndex = 2
+    active.updatedAt = Math.max(Date.now(), active.updatedAt + 1)
+    collection.lastTimestamp = active.updatedAt
+    localStorage.setItem('infinite-canvases-v1', JSON.stringify(collection))
+  })
+  await page.route('**/api/hermes/sessions/live-session**', async (route) => {
+    const isMessages = new URL(route.request().url()).pathname.endsWith('/messages')
+    await route.fulfill({
+      json: isMessages
+        ? { messages: [] }
+        : {
+            sessionId: 'live-session',
+            title: 'Live chat',
+            archived: false,
+            externallyActive: false,
+          },
+    })
+  })
   await page.unroute('**/api/canvases**')
   await page.route('**/api/canvases**', async (route) => {
     if (route.request().method() !== 'POST') {
@@ -197,7 +250,13 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
       return
     }
     const body = route.request().postDataJSON() as { canvases: any[] }
-    syncResponses += 1
+    const liveCanvas = body.canvases.find((canvas) =>
+      canvas.state?.windows?.some((window: any) => window.definition.type === 'hermes'),
+    )
+    if (!liveCanvas || staleResponse) {
+      await route.fulfill({ json: { canvases: body.canvases } })
+      return
+    }
     const stale = body.canvases.map((canvas) => ({
       ...canvas,
       updatedAt: canvas.updatedAt + 1,
@@ -212,17 +271,37 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
         })),
       },
     }))
+    staleResponse = { canvasId: liveCanvas.id, updatedAt: liveCanvas.updatedAt + 1 }
     await route.fulfill({ json: { canvases: stale } })
   })
 
-  await page.getByTestId('canvas-add-trigger').click()
-  await page.getByRole('button', { name: 'AI chat' }).click()
-  await expect.poll(() => syncResponses).toBeGreaterThan(0)
+  await page.reload()
+  await expect(page.getByTestId('canvas-window')).toContainText('Live chat')
+  await expect.poll(() => staleResponse).not.toBeNull()
+  await expect
+    .poll(() =>
+      page.evaluate((response) => {
+        const saved = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
+          canvases?: Array<{ id: string; updatedAt: number }>
+        }
+        return saved.canvases?.find((canvas) => canvas.id === response!.canvasId)?.updatedAt ?? -1
+      }, staleResponse),
+    )
+    .toBeGreaterThanOrEqual(staleResponse!.updatedAt)
   await expect(page.getByTestId('canvas-window')).not.toContainText('Stale remote chat')
 })
 
-test('keeps edits offline and syncs them after reconnect', async ({ page, context }) => {
+test('keeps edits offline and syncs them after reconnect', async ({ page }) => {
   let syncedNames: string[] = []
+  let markBlockedSyncStarted: () => void = () => undefined
+  let releaseBlockedSync: () => void = () => undefined
+  const blockedSyncStarted = new Promise<void>((resolve) => {
+    markBlockedSyncStarted = resolve
+  })
+  const blockedSyncReleased = new Promise<void>((resolve) => {
+    releaseBlockedSync = resolve
+  })
+  let blockNextSync = true
   await page.unroute('**/api/canvases**')
   await page.route('**/api/canvases**', async (route) => {
     const body =
@@ -235,11 +314,25 @@ test('keeps edits offline and syncs them after reconnect', async ({ page, contex
       syncedNames = body.canvases
         .filter((canvas) => !canvas.deleted)
         .map((canvas) => canvas.name ?? '')
+      if (blockNextSync) {
+        blockNextSync = false
+        markBlockedSyncStarted()
+        await blockedSyncReleased
+      }
     }
     await route.fulfill({ json: { canvases: body?.canvases ?? [] } })
   })
 
-  await context.setOffline(true)
+  await page.reload()
+  await blockedSyncStarted
+  await page.evaluate(() => {
+    ;(window as Window & { __canvasTestOnline?: boolean }).__canvasTestOnline = false
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      get: () => (window as Window & { __canvasTestOnline?: boolean }).__canvasTestOnline,
+    })
+    window.dispatchEvent(new Event('offline'))
+  })
   await page.getByTestId('canvas-name-trigger').click()
   await page.getByRole('button', { name: 'New canvas' }).click()
   await page.getByLabel('Name').fill('Offline plan')
@@ -255,7 +348,11 @@ test('keeps edits offline and syncs them after reconnect', async ({ page, contex
       }),
     )
     .toBe(true)
-  await context.setOffline(false)
+  await page.evaluate(() => {
+    ;(window as Window & { __canvasTestOnline?: boolean }).__canvasTestOnline = true
+    window.dispatchEvent(new Event('online'))
+  })
+  releaseBlockedSync()
   await expect.poll(() => syncedNames).toContain('Offline plan')
 })
 

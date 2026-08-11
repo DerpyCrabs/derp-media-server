@@ -168,7 +168,14 @@ test.describe('Share Viewers & Players', () => {
     await page.waitForURL(/playing=/)
     const audio = page.locator('audio').first()
     await expect
-      .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.readyState >= 2))
+      .poll(async () =>
+        audio.evaluate(
+          (el: HTMLAudioElement) =>
+            el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+            Number.isFinite(el.duration) &&
+            el.duration > 1,
+        ),
+      )
       .toBe(true)
     const duration = await audio.evaluate((el: HTMLAudioElement) => el.duration)
     if (!Number.isFinite(duration) || duration <= 1) {

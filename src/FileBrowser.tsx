@@ -1291,9 +1291,12 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     if (!t) return
     const p = t.path.replace(/\\/g, '/')
     if (iconName) {
-      void setCustomIconMutation.mutateAsync({ path: p, iconName })
+      setCustomIconMutation.mutate(
+        { path: p, iconName },
+        { onSuccess: () => setIconEditTarget(null) },
+      )
     } else {
-      void removeCustomIconMutation.mutateAsync(p)
+      removeCustomIconMutation.mutate(p, { onSuccess: () => setIconEditTarget(null) })
     }
   }
 

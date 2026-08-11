@@ -77,18 +77,40 @@ export function reconcileInfiniteCanvasState(
       const existing = currentWindows.get(window.id)
       if (!existing) return window
       if (sameValue(existing, window)) return existing
+      if (
+        existing.definition.type === 'hermes' &&
+        window.definition.type === 'hermes' &&
+        existing.definition.hermes?.sessionId &&
+        existing.definition.hermes.sessionId === window.definition.hermes?.sessionId
+      ) {
+        const reconciled = { ...window, definition: existing.definition }
+        return sameValue(existing, reconciled) ? existing : reconciled
+      }
       return sameValue(existing.definition, window.definition)
         ? { ...window, definition: existing.definition }
         : window
     }),
   )
+  const camera = sameValue(current.camera, incoming.camera) ? current.camera : incoming.camera
+  const windowSizeByType = sameValue(current.windowSizeByType, incoming.windowSizeByType)
+    ? current.windowSizeByType
+    : incoming.windowSizeByType
+  if (
+    windows === current.windows &&
+    camera === current.camera &&
+    windowSizeByType === current.windowSizeByType &&
+    incoming.version === current.version &&
+    incoming.maximizedWindowId === current.maximizedWindowId &&
+    incoming.nextItemId === current.nextItemId &&
+    incoming.nextZIndex === current.nextZIndex
+  ) {
+    return current
+  }
   return {
     ...incoming,
     windows,
-    camera: sameValue(current.camera, incoming.camera) ? current.camera : incoming.camera,
-    windowSizeByType: sameValue(current.windowSizeByType, incoming.windowSizeByType)
-      ? current.windowSizeByType
-      : incoming.windowSizeByType,
+    camera,
+    windowSizeByType,
   }
 }
 

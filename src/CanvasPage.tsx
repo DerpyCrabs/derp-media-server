@@ -441,6 +441,8 @@ export function CanvasPage() {
   let syncTimer: number | undefined
   let syncInterval: number | undefined
   let syncRunning = false
+  let syncPending = false
+  let syncPendingPullFirst = false
   const panController = createCanvasPanController({
     camera: () => state().camera,
     viewport: () => viewportEl,
@@ -650,7 +652,7 @@ export function CanvasPage() {
 
   function scheduleSync(delay = 700) {
     if (readOnlyMode()) return
-    setSyncStatus(navigator.onLine === false ? 'offline' : 'saving')
+    setSyncStatus(canvasIsOffline() ? 'offline' : 'saving')
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     syncTimer = window.setTimeout(() => {
       syncTimer = undefined
@@ -658,12 +660,18 @@ export function CanvasPage() {
     }, delay)
   }
 
+  function canvasIsOffline() {
+    return navigator.onLine === false
+  }
+
   async function syncCanvases(pullFirst = false) {
-    if (navigator.onLine === false) {
+    if (canvasIsOffline()) {
       setSyncStatus('offline')
       return
     }
     if (syncRunning) {
+      syncPending = true
+      syncPendingPullFirst ||= pullFirst
       return
     }
     syncRunning = true
@@ -744,6 +752,13 @@ export function CanvasPage() {
       setSyncStatus('error')
     } finally {
       syncRunning = false
+      if (syncPending) {
+        const pullFirstPending = syncPendingPullFirst
+        syncPending = false
+        syncPendingPullFirst = false
+        if (canvasIsOffline()) setSyncStatus('offline')
+        else void syncCanvases(pullFirstPending)
+      }
     }
   }
 

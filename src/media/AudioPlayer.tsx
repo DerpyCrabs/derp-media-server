@@ -381,8 +381,9 @@ export function AudioPlayer(props: Props) {
 
     const onEnded = () => {
       if (useMediaPlayer.getState().isRepeat) {
-        useMediaPlayer.getState().setIsPlaying(true)
         audio.currentTime = 0
+        useMediaPlayer.getState().setCurrentTime(0)
+        useMediaPlayer.getState().setIsPlaying(true)
         void audio.play().catch(() => {})
       } else {
         playNextRef.current()
