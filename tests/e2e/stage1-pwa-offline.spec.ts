@@ -112,7 +112,10 @@ test.describe('Stage 1 PWA and offline cutover', () => {
     await expect(page.getByTestId('not-found')).toBeVisible()
   })
 
-  test('uncached optional failure presents explicit update flow', async ({ page, context }) => {
+  test('ordinary offline optional miss does not present a false update', async ({
+    page,
+    context,
+  }) => {
     const optionalAsset = readAssetPlan().optional.find((asset) => asset.endsWith('.js'))
     expect(optionalAsset).toBeTruthy()
 
@@ -124,8 +127,9 @@ test.describe('Stage 1 PWA and offline cutover', () => {
     }, optionalAsset!)
 
     const notice = page.getByTestId('pwa-update-required')
-    await expect(notice).toBeVisible()
-    await expect(notice.getByRole('button', { name: 'Update and reload' })).toBeVisible()
+    await expect(notice).toBeHidden()
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+    await expect(page).toHaveURL(/\/library$/)
   })
 
   test('new routes and legacy aliases survive production history, refresh, and offline navigation', async ({

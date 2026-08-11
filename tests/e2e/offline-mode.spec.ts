@@ -550,9 +550,11 @@ test.describe('Offline mode', () => {
       }) as typeof window.fetch
 
       const liveGetAll = IDBObjectStore.prototype.getAll
+      let getAllCalls = 0
       let cleanupFailed = false
       IDBObjectStore.prototype.getAll = function (...args) {
-        if (!cleanupFailed) {
+        getAllCalls += 1
+        if (!cleanupFailed && getAllCalls === 2) {
           cleanupFailed = true
           throw new Error('Simulated IndexedDB cleanup failure')
         }
