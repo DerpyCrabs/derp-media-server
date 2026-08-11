@@ -347,15 +347,7 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
 }
 
 fn canonical_root_locator(path: &Path) -> Option<String> {
-    let resolved = fs::canonicalize(path)
-        .or_else(|_| std::path::absolute(path))
-        .ok()?;
-    let locator = resolved.to_string_lossy().replace('\\', "/");
-    Some(if cfg!(windows) {
-        locator.to_lowercase()
-    } else {
-        locator
-    })
+    crate::resources::canonical_filesystem_locator(path).ok()
 }
 fn raw(config: &Config) -> AppResult<Vec<Share>> {
     state_db::shares(&state_db::database(config), &config.library_key)
@@ -765,6 +757,34 @@ mod tests {
             rewritten_share_path("Other/child.md", "Media", "Cinema"),
             None
         );
+    }
+
+    #[test]
+    fn share_recovers_when_configured_root_appears_after_identity_startup() {
+        let base = std::env::temp_dir().join(format!(
+            "derp-share-root-reconnect-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media = base.join("media");
+        let data_path = base.join("data");
+        let mut config = config(
+            data_path,
+            vec![root("config:media", "Media", media.clone())],
+            "legacy",
+        );
+        state_db::initialize(&config).unwrap();
+        crate::resources::initialize_identity(&mut config).unwrap();
+
+        fs::create_dir_all(media.join("Shared")).unwrap();
+        let created = create(&config, &[], "Shared".into(), true, false, None).unwrap();
+        let loaded = read(&config, &[])
+            .into_iter()
+            .find(|share| share.token == created.token)
+            .unwrap();
+
+        assert_eq!(loaded.unavailable, Some(false));
+        assert!(loaded.source_id.is_some());
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

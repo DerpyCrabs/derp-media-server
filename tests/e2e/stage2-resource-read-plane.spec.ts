@@ -78,7 +78,7 @@ test.describe('Stage 2 Resource read plane', () => {
     const verified = await page.request.post('/api/share/test-passcode-share-token1/verify', {
       data: { passcode: 'secret123' },
     })
-    expect(verified.ok()).toBe(true)
+    expect(verified.ok(), await verified.text()).toBe(true)
     const grant = (await (
       await page.request.get('/api/share/test-passcode-share-token1/files?dir=')
     ).json()) as FileListing
@@ -169,7 +169,7 @@ test.describe('Stage 2 Resource read plane', () => {
         const verified = await page.request.post(`/api/share/${token}/verify`, {
           data: { passcode: share.passcode },
         })
-        expect(verified.ok()).toBe(true)
+        expect(verified.ok(), await verified.text()).toBe(true)
       }
 
       fs.rmSync(sharedPath)

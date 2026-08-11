@@ -7,7 +7,7 @@ pub(crate) mod types;
 mod provider_conformance;
 
 pub(crate) use catalog::*;
-pub(crate) use identity::{IdentityStore, initialize_identity};
+pub(crate) use identity::{IdentityStore, canonical_filesystem_locator, initialize_identity};
 pub(crate) use identity::{ObservedResourceIdentity, StoredResourceIdentity};
 pub(crate) use providers::*;
 pub(crate) use types::*;

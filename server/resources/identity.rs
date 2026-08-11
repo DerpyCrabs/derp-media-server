@@ -331,16 +331,21 @@ fn sql_error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-fn canonical_locator(path: &Path) -> Result<String, String> {
+pub(crate) fn canonical_filesystem_locator(path: &Path) -> Result<String, String> {
     let absolute = std::fs::canonicalize(path)
         .or_else(|_| std::path::absolute(path))
         .map_err(|error| error.to_string())?;
     let value = absolute.to_string_lossy().replace('\\', "/");
-    Ok(if cfg!(windows) {
-        value.to_lowercase()
-    } else {
-        value
-    })
+    #[cfg(windows)]
+    {
+        let value = value.to_lowercase();
+        if let Some(network) = value.strip_prefix("//?/unc/") {
+            return Ok(format!("//{network}"));
+        }
+        return Ok(value.strip_prefix("//?/").unwrap_or(&value).to_string());
+    }
+    #[cfg(not(windows))]
+    Ok(value)
 }
 
 fn explicit_configured_id(legacy_id: &str) -> Option<&str> {
@@ -715,7 +720,7 @@ fn reconcile_config_sources(
     let mut matches = Vec::new();
     let mut configured_paths = HashMap::<String, &str>::new();
     for root in &config.roots {
-        let locator = canonical_locator(&root.path)?;
+        let locator = canonical_filesystem_locator(&root.path)?;
         if let Some(existing_name) = configured_paths.insert(locator.clone(), &root.name) {
             return Err(format!(
                 "Resource identity recovery required: configured Sources \"{existing_name}\" and \"{}\" use the same canonical filesystem path",
@@ -981,7 +986,7 @@ impl IdentityStore {
         legacy_id: &str,
         path: &Path,
     ) -> Result<(SourceId, ResourceId), AppError> {
-        let locator = canonical_locator(path).map_err(AppError::internal)?;
+        let locator = canonical_filesystem_locator(path).map_err(AppError::internal)?;
         let connection = state_db::connection(&self.database)?;
         connection
             .query_row(
@@ -1044,7 +1049,7 @@ impl IdentityStore {
             .map_err(|error| AppError::internal(error.to_string()))?;
         let now = now_ms();
         for root in roots {
-            let locator = canonical_locator(&root.path).map_err(AppError::internal)?;
+            let locator = canonical_filesystem_locator(&root.path).map_err(AppError::internal)?;
             let source_id = format!("source-mount-{}", root.id);
             transaction
                 .execute(
