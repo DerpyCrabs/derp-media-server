@@ -46,6 +46,7 @@ struct SourceRow {
     id: String,
     configured_id: Option<String>,
     canonical_locator: String,
+    status: String,
     legacy_ids: HashSet<String>,
 }
 
@@ -373,7 +374,7 @@ fn select_initial_legacy_keys(current: &str, observed: &[String]) -> Result<Vec<
 fn load_sources(transaction: &Transaction<'_>, library_id: &str) -> Result<Vec<SourceRow>, String> {
     let mut statement = transaction
         .prepare(
-            "SELECT id,configured_id,canonical_locator
+            "SELECT id,configured_id,canonical_locator,status
              FROM sources
              WHERE library_id=?1 AND provider='filesystem' AND source_class='config'",
         )
@@ -384,6 +385,7 @@ fn load_sources(transaction: &Transaction<'_>, library_id: &str) -> Result<Vec<S
                 id: row.get(0)?,
                 configured_id: row.get(1)?,
                 canonical_locator: row.get(2)?,
+                status: row.get(3)?,
                 legacy_ids: HashSet::new(),
             })
         })
@@ -452,6 +454,7 @@ fn reconcile_config_sources(
     let unmatched_existing = existing
         .iter()
         .filter(|source| !used.contains(&source.id))
+        .filter(|source| source.status == "present")
         .count();
     let unmatched_roots = matches
         .iter()
@@ -1030,6 +1033,22 @@ impl IdentityStore {
             let legacy = format!("{new_legacy_locator}{suffix}");
             transaction
                 .execute(
+                    "UPDATE resources SET
+                       provider_locator='missing:' || id || ':' || ?4,
+                       status='missing',missing_since=COALESCE(missing_since,?5),
+                       last_seen_at=?5
+                     WHERE source_id=?1 AND provider_locator=?2 AND id<>?3",
+                    params![
+                        destination_source_id.as_str(),
+                        relocated,
+                        resource_id,
+                        uuid::Uuid::new_v4().to_string(),
+                        now
+                    ],
+                )
+                .map_err(|error| AppError::internal(error.to_string()))?;
+            transaction
+                .execute(
                     "UPDATE resources SET source_id=?2,provider_locator=?3,
                        current_legacy_locator=?4,last_seen_at=?5
                      WHERE id=?1",
@@ -1218,6 +1237,67 @@ mod tests {
                 .source_for_root("configured:stable-media", &replacement)
                 .unwrap(),
             source
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn removed_source_does_not_block_adding_a_different_source_after_restart() {
+        let base = fixture("remove-restart-add");
+        let retained = base.join("retained");
+        let removed = base.join("removed");
+        let added = base.join("added");
+        std::fs::create_dir_all(&retained).unwrap();
+        std::fs::create_dir_all(&removed).unwrap();
+        std::fs::create_dir_all(&added).unwrap();
+        let mut initial = config(
+            &base,
+            vec![
+                root("config:retained", "Retained", retained.clone()),
+                root("config:removed", "Removed", removed.clone()),
+            ],
+            &format!(
+                "Retained:{}|Removed:{}",
+                retained.display(),
+                removed.display()
+            ),
+        );
+        state_db::initialize(&initial).unwrap();
+        let first = initialize_identity(&mut initial).unwrap();
+        let retained_source = first
+            .source_for_root("config:retained", &retained)
+            .unwrap()
+            .0;
+
+        let mut after_removal = config(
+            &base,
+            vec![root("config:retained", "Retained", retained.clone())],
+            retained.to_str().unwrap(),
+        );
+        state_db::initialize(&after_removal).unwrap();
+        initialize_identity(&mut after_removal).unwrap();
+
+        let mut after_addition = config(
+            &base,
+            vec![
+                root("config:retained", "Retained", retained.clone()),
+                root("config:added", "Added", added.clone()),
+            ],
+            &format!("Retained:{}|Added:{}", retained.display(), added.display()),
+        );
+        state_db::initialize(&after_addition).unwrap();
+        let third = initialize_identity(&mut after_addition).unwrap();
+
+        assert_eq!(
+            third
+                .source_for_root("config:retained", &retained)
+                .unwrap()
+                .0,
+            retained_source
+        );
+        assert_ne!(
+            third.source_for_root("config:added", &added).unwrap().0,
+            retained_source
         );
         std::fs::remove_dir_all(base).unwrap();
     }
@@ -1445,6 +1525,71 @@ mod tests {
             identity.stored(&first).unwrap().unwrap().provider_locator,
             "external.txt"
         );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn app_move_displaces_stale_destination_and_preserves_source_identity() {
+        let base = fixture("resource-move-stale-destination");
+        let source_root = base.join("source");
+        let destination_root = base.join("destination");
+        std::fs::create_dir_all(&source_root).unwrap();
+        std::fs::create_dir_all(&destination_root).unwrap();
+        let mut config = config(
+            &base,
+            vec![
+                root("config:source", "Source", source_root.clone()),
+                root(
+                    "config:destination",
+                    "Destination",
+                    destination_root.clone(),
+                ),
+            ],
+            &format!(
+                "Source:{}|Destination:{}",
+                source_root.display(),
+                destination_root.display()
+            ),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:source", &source_root)
+            .unwrap()
+            .0;
+        let destination = identity
+            .source_for_root("config:destination", &destination_root)
+            .unwrap()
+            .0;
+        let observed = |locator: &str, platform_identity: &str| ObservedResourceIdentity {
+            provider_locator: locator.into(),
+            legacy_locator: locator.into(),
+            kind: "file".into(),
+            platform_identity: Some(platform_identity.into()),
+            fingerprint: None,
+        };
+        let moving = identity
+            .observe(&source, &[observed("from.txt", "platform:moving")])
+            .unwrap()[0]
+            .clone();
+        let stale = identity
+            .observe(&destination, &[observed("to.txt", "platform:stale")])
+            .unwrap()[0]
+            .clone();
+        identity.mark_missing(&stale).unwrap();
+
+        identity
+            .relocate_to(&source, "from.txt", &destination, "to.txt", "to.txt")
+            .unwrap();
+
+        let moved = identity.stored(&moving).unwrap().unwrap();
+        assert_eq!(moved.source_id, destination);
+        assert_eq!(moved.provider_locator, "to.txt");
+        assert_eq!(moved.status, "present");
+        let displaced = identity.stored(&stale).unwrap().unwrap();
+        assert_eq!(displaced.status, "missing");
+        assert!(displaced.provider_locator.starts_with("missing:"));
+        assert_ne!(displaced.provider_locator, "to.txt");
         std::fs::remove_dir_all(base).unwrap();
     }
 

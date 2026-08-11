@@ -110,15 +110,20 @@ impl CatalogError {
     }
 
     pub(crate) fn into_app_error(self) -> AppError {
+        AppError(self.status_code(), self.message)
+    }
+
+    pub(crate) fn status_code(&self) -> StatusCode {
         match self.code {
-            CatalogErrorCode::InvalidRequest => AppError::bad(self.message),
-            CatalogErrorCode::Forbidden => AppError::forbidden(self.message),
-            CatalogErrorCode::ResourceNotFound | CatalogErrorCode::ResourceMissing => {
-                AppError::not_found(self.message)
+            CatalogErrorCode::InvalidRequest | CatalogErrorCode::Unsupported => {
+                StatusCode::BAD_REQUEST
             }
-            CatalogErrorCode::SourceUnavailable => AppError::conflict(self.message),
-            CatalogErrorCode::Unsupported => AppError::bad(self.message),
-            CatalogErrorCode::Internal => AppError::internal(self.message),
+            CatalogErrorCode::Forbidden => StatusCode::FORBIDDEN,
+            CatalogErrorCode::ResourceNotFound | CatalogErrorCode::ResourceMissing => {
+                StatusCode::NOT_FOUND
+            }
+            CatalogErrorCode::SourceUnavailable => StatusCode::CONFLICT,
+            CatalogErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

@@ -96,6 +96,10 @@ test.describe('Stage 2 Resource read plane', () => {
         `&resourceId=${encodeURIComponent(reference.resourceId)}`,
     )
     expect(outsideGrant.status()).toBe(403)
+    expect(await outsideGrant.json()).toEqual({
+      code: 'forbidden',
+      message: 'Resource is outside Grant scope',
+    })
 
     const infoResponse = await page.request.get('/api/share/test-passcode-share-token1/info')
     expect(infoResponse.ok()).toBe(true)

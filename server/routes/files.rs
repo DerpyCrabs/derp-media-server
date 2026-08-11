@@ -8,7 +8,7 @@ use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Query, State},
     http::{HeaderValue, header},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Deserialize;
@@ -65,7 +65,7 @@ async fn virtual_action(
 async fn inspect_resource(
     State(state): State<Shared>,
     Query(query): Query<ResourceInspectQuery>,
-) -> AppResult<Json<Value>> {
+) -> Result<Json<crate::resources::ResourceDetail>, Response> {
     let detail = crate::application_queries::inspect_owner(
         &state,
         &crate::resources::ResourceRef {
@@ -74,10 +74,12 @@ async fn inspect_resource(
         },
         crate::application_queries::read_surface(query.surface.as_deref()),
     )
-    .await?;
-    Ok(Json(
-        serde_json::to_value(detail).map_err(|error| AppError::internal(error.to_string()))?,
-    ))
+    .await
+    .map_err(|error| {
+        let status = error.status_code();
+        (status, Json(error)).into_response()
+    })?;
+    Ok(Json(detail))
 }
 
 async fn virtual_open(

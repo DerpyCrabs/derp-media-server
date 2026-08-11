@@ -3,8 +3,8 @@ use crate::{
     error::{AppError, AppResult},
     media,
     resources::{
-        PageCursor, ReadContext, ReadSurface, ResourceDetail, ResourcePage, ResourceRef,
-        summary_to_legacy_file,
+        CatalogResult, PageCursor, ReadContext, ReadSurface, ResourceDetail, ResourcePage,
+        ResourceRef, summary_to_legacy_file,
     },
     shares, store, virtual_directory, workspace_persistence,
 };
@@ -96,24 +96,20 @@ pub(crate) async fn inspect_owner(
     state: &AppState,
     resource: &ResourceRef,
     surface: ReadSurface,
-) -> AppResult<ResourceDetail> {
+) -> CatalogResult<ResourceDetail> {
     state
         .resources
         .inspect(&ReadContext::owner(surface), resource)
         .await
-        .map_err(|error| error.into_app_error())
 }
 
 pub(crate) async fn inspect_grant(
     state: &AppState,
     grant_root: &str,
     resource: &ResourceRef,
-) -> AppResult<ResourceDetail> {
+) -> CatalogResult<ResourceDetail> {
     let adapter = state.resources.compatibility();
-    let root = adapter
-        .resolve(grant_root, ReadSurface::Share)
-        .await
-        .map_err(|error| error.into_app_error())?;
+    let root = adapter.resolve(grant_root, ReadSurface::Share).await?;
     state
         .resources
         .inspect(
@@ -121,7 +117,6 @@ pub(crate) async fn inspect_grant(
             resource,
         )
         .await
-        .map_err(|error| error.into_app_error())
 }
 
 pub(crate) async fn share_info(

@@ -232,8 +232,8 @@ async fn inspect_resource(
     Path(token): Path<String>,
     headers: HeaderMap,
     Query(query): Query<ResourceInspectQuery>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
+) -> Result<Json<crate::resources::ResourceDetail>, Response> {
+    let share = validate(&state, &token, &headers).map_err(IntoResponse::into_response)?;
     let detail = crate::application_queries::inspect_grant(
         &state,
         &share.path,
@@ -242,10 +242,12 @@ async fn inspect_resource(
             resource_id: crate::resources::ResourceId::new(query.resource_id),
         },
     )
-    .await?;
-    Ok(Json(
-        serde_json::to_value(detail).map_err(|error| AppError::internal(error.to_string()))?,
-    ))
+    .await
+    .map_err(|error| {
+        let status = error.status_code();
+        (status, Json(error)).into_response()
+    })?;
+    Ok(Json(detail))
 }
 async fn files(
     State(state): State<Shared>,
