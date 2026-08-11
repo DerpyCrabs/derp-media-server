@@ -44,7 +44,7 @@ export function OfflineManager(props: Props) {
 
   return (
     <div
-      class='fixed inset-0 z-10030 flex items-end bg-black/50 sm:items-center sm:justify-center'
+      class='fixed inset-0 z-[100060] flex items-end bg-black/50 sm:items-center sm:justify-center'
       role='dialog'
       aria-modal='true'
       aria-label='Offline manager'

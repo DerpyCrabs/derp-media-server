@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import routeCases from '../fixtures/route-cases.json'
 import {
   hrefFor,
+  hrefForLibraryFile,
   navigate,
   parseRoute,
   type NavigationAdapter,
@@ -43,6 +44,13 @@ describe('route Module Interface', () => {
     expect(hrefFor({ kind: 'shareWorkspace', token: 'public token' })).toBe(
       '/share/public%20token/workspace',
     )
+  })
+
+  test('generates media-aware Library file routes for Home projections', () => {
+    expect(hrefForLibraryFile('Videos/sample.mp4')).toBe('/?playing=Videos%2Fsample.mp4')
+    expect(hrefForLibraryFile('Music/track.MP3')).toBe('/?playing=Music%2Ftrack.MP3')
+    expect(hrefForLibraryFile('Images/photo.jpg')).toBe('/?viewing=Images%2Fphoto.jpg')
+    expect(hrefForLibraryFile('Documents/readme.txt')).toBe('/?viewing=Documents%2Freadme.txt')
   })
 
   test('preserves legacy path and unknown compatibility parameters', () => {

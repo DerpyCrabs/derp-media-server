@@ -4,25 +4,11 @@ const PASSCODE_TOKEN = 'test-passcode-share-token1'
 const CORRECT_PASSCODE = 'secret123'
 const WRONG_PASSCODE = 'wrong-passcode'
 const EMPTY_STORAGE = { cookies: [], origins: [] }
-const OWNER_API_PREFIXES = [
-  '/api/files',
-  '/api/settings',
-  '/api/stats',
-  '/api/shares',
-  '/api/admin',
-  '/api/media',
-  '/api/auth/config',
-  '/api/mounts',
-  '/api/offline',
-] as const
-
 test.use({ storageState: EMPTY_STORAGE })
 
 function isOwnerApi(request: Request): boolean {
   const pathname = new URL(request.url()).pathname
-  return OWNER_API_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  )
+  return pathname.startsWith('/api/') && !/^\/api\/share\/[^/]+(?:\/|$)/.test(pathname)
 }
 
 function collectOwnerApiRequests(page: Page): Request[] {

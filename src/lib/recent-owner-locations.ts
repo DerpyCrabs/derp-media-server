@@ -10,14 +10,24 @@ export type RecentOwnerLocation = {
 type StorageReader = Pick<Storage, 'getItem'>
 type StorageWriter = Pick<Storage, 'getItem' | 'setItem'>
 
+function isSafeOwnerHref(href: string): boolean {
+  if (!href.startsWith('/') || href.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(href)) {
+    return false
+  }
+  try {
+    return new URL(href, 'https://derp-desk.invalid').origin === 'https://derp-desk.invalid'
+  } catch {
+    return false
+  }
+}
+
 function parseLocation(value: unknown): RecentOwnerLocation | null {
   if (!value || typeof value !== 'object') return null
   const item = value as Partial<RecentOwnerLocation>
   if (
     (item.kind !== 'library' && item.kind !== 'workspace' && item.kind !== 'canvas') ||
     typeof item.href !== 'string' ||
-    !item.href.startsWith('/') ||
-    item.href.startsWith('//') ||
+    !isSafeOwnerHref(item.href) ||
     typeof item.label !== 'string' ||
     !item.label.trim() ||
     typeof item.visitedAt !== 'number' ||

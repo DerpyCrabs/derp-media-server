@@ -873,7 +873,13 @@ body {
 }
 
 .owner-shell-modern [data-testid='media-chrome-pad-root'] {
-  padding-bottom: calc(2.875rem + var(--owner-shell-mobile-nav-height)) !important;
+  padding-bottom: var(--owner-shell-mobile-nav-height) !important;
+}
+
+.owner-shell-modern [data-testid='media-chrome-pad-root'][data-audio-active='true'] {
+  padding-bottom: calc(
+    2.875rem + env(safe-area-inset-bottom, 0px) + var(--owner-shell-mobile-nav-height)
+  ) !important;
 }
 
 .owner-shell-modern .workspace-layout,
@@ -887,7 +893,7 @@ body {
 }
 
 @media (min-width: 650px) {
-  .owner-shell-modern [data-testid='media-chrome-pad-root'] {
+  .owner-shell-modern [data-testid='media-chrome-pad-root'][data-audio-active='true'] {
     padding-bottom: calc(3rem + var(--owner-shell-mobile-nav-height)) !important;
   }
 }
@@ -911,4 +917,18 @@ body {
   .owner-shell-modern .canvas-layout {
     left: var(--owner-shell-rail-width) !important;
   }
+}
+
+.owner-shell-modern .file-browser-page {
+  min-height: calc(100dvh - var(--owner-shell-mobile-nav-height));
+}
+
+.owner-shell-modern.owner-shell-immersive {
+  --owner-shell-rail-width: 0px;
+  --owner-shell-mobile-nav-height: 0px;
+}
+
+.owner-shell-modern.owner-shell-immersive .owner-shell-content {
+  padding-bottom: 0;
+  padding-left: 0;
 }

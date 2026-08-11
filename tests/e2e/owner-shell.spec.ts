@@ -32,7 +32,7 @@ test.describe('Stage 1 owner shell', () => {
     await expect(page.getByTestId('home-page')).toBeVisible()
 
     await rail.getByRole('link', { name: 'Library', exact: true }).click()
-    await expect(page).toHaveURL(/\/library$/)
+    await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('file-browser')).toBeVisible()
 
     await rail.getByRole('link', { name: 'Spaces', exact: true }).click()
@@ -42,18 +42,26 @@ test.describe('Stage 1 owner shell', () => {
     await rail.getByRole('link', { name: 'Workspace', exact: true }).click()
     await expect(page).toHaveURL(/\/workspace$/)
     await expect(page.locator('.workspace-layout')).toBeVisible()
+    await expect(rail).toBeHidden()
+    await page.goBack()
+    await expect(rail).toBeVisible()
 
     await rail.getByRole('link', { name: 'Canvas', exact: true }).click()
     await expect(page).toHaveURL(/\/canvas$/)
     await expect(page.getByTestId('infinite-canvas')).toBeVisible()
+    await expect(rail).toBeHidden()
+    await page.goBack()
+    await expect(rail).toBeVisible()
 
     await rail.getByRole('link', { name: 'Assistant', exact: true }).click()
     await expect(page).toHaveURL(/\/workspace\?[^#]*dir=Hermes(?:\+|%20)Sessions/)
     expect(new URL(page.url()).searchParams.get('dir')).toBe('Hermes Sessions')
     await expect(page.locator('.workspace-layout')).toBeVisible()
+    await page.goBack()
+    await expect(rail).toBeVisible()
 
     await rail.getByRole('link', { name: 'Shared', exact: true }).click()
-    await expect(page).toHaveURL(/\/library\?dir=Shares$/)
+    await expect(page).toHaveURL(/\/\?dir=Shares$/)
     await expect(page.getByTestId('file-browser')).toBeVisible()
 
     await rail.getByRole('link', { name: 'Offline', exact: true }).click()
@@ -112,7 +120,7 @@ test.describe('Stage 1 owner shell', () => {
       await expect(page.getByTestId('home-page')).toBeVisible()
 
       await openMoreDestination(page, 'Shared')
-      await expect(page).toHaveURL(/\/library\?dir=Shares$/)
+      await expect(page).toHaveURL(/\/\?dir=Shares$/)
 
       await openMoreDestination(page, 'Offline')
       await expect(page).toHaveURL(/\/offline$/)
@@ -122,7 +130,7 @@ test.describe('Stage 1 owner shell', () => {
       await expect(page.getByTestId('settings-page')).toBeVisible()
 
       await phoneNav.getByRole('link', { name: 'Library', exact: true }).click()
-      await expect(page).toHaveURL(/\/library$/)
+      await expect(page).toHaveURL(/\/$/)
       await page.locator('table').getByText('Music', { exact: true }).click()
       await page.locator('table').getByText('track.mp3', { exact: true }).click()
 
@@ -149,6 +157,7 @@ test.describe('Stage 1 owner shell', () => {
     await page.goto('/definitely-not-a-derp-desk-route')
     await expect(page.locator('[data-owner-shell]')).toHaveCount(0)
     await expect(page.getByTestId('not-found')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Open Library' })).toHaveAttribute('href', '/')
   })
 
   test('owner navigation disappears during video fullscreen', async ({ page }) => {
@@ -160,6 +169,20 @@ test.describe('Stage 1 owner shell', () => {
     await expect(page.getByTestId('owner-phone-nav')).toBeHidden()
     await page.evaluate(async () => document.exitFullscreen())
     await expect(page.getByTestId('owner-desktop-rail')).toBeVisible()
+  })
+
+  test('phone navigation disappears during video fullscreen', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/library?dir=Videos&playing=Videos%2Fsample.mp4')
+    const phoneNav = page.getByTestId('owner-phone-nav')
+    const video = page.locator('video').first()
+    await expect(phoneNav).toBeVisible()
+    await expect(video).toBeVisible()
+
+    await video.evaluate(async (element) => element.requestFullscreen())
+    await expect(phoneNav).toBeHidden()
+    await page.evaluate(async () => document.exitFullscreen())
+    await expect(phoneNav).toBeVisible()
   })
 
   test('new_shell rollback selects only legacy header and route behavior', async ({ page }) => {
@@ -251,6 +274,17 @@ test.describe('Stage 1 owner shell', () => {
     await expect(status).toBeVisible()
     await status.click()
     await expect(page.getByRole('dialog', { name: 'Offline manager' })).toBeVisible()
+    const stacking = await page.evaluate(() => ({
+      modal: Number(
+        getComputedStyle(document.querySelector<HTMLElement>('[aria-label="Offline manager"]')!)
+          .zIndex,
+      ),
+      navigation: Number(
+        getComputedStyle(document.querySelector<HTMLElement>('[data-testid="owner-desktop-rail"]')!)
+          .zIndex,
+      ),
+    }))
+    expect(stacking.modal).toBeGreaterThan(stacking.navigation)
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -268,19 +302,7 @@ test.describe('Stage 1 owner shell', () => {
     const ownerRequests: string[] = []
     const isOwnerApi = (url: string) => {
       const pathname = new URL(url).pathname
-      return (
-        pathname === '/api/auth/config' ||
-        pathname === '/api/files' ||
-        pathname.startsWith('/api/files/') ||
-        pathname.startsWith('/api/media/') ||
-        pathname.startsWith('/api/settings') ||
-        pathname.startsWith('/api/stats/') ||
-        pathname === '/api/shares' ||
-        pathname.startsWith('/api/shares/') ||
-        pathname.startsWith('/api/canvases') ||
-        pathname.startsWith('/api/hermes/') ||
-        pathname.startsWith('/api/events/')
-      )
+      return pathname.startsWith('/api/') && !/^\/api\/share\/[^/]+(?:\/|$)/.test(pathname)
     }
     page.on('request', (request) => {
       if (isOwnerApi(request.url())) ownerRequests.push(request.url())
@@ -312,6 +334,52 @@ test.describe('Stage 1 owner shell', () => {
 })
 
 test.describe('Stage 1 Home projection', () => {
+  test('quick actions and Most viewed generate canonical media-aware routes', async ({ page }) => {
+    const viewedFiles = [
+      ['Videos/sample.mp4', 9],
+      ['Music/track.mp3', 8],
+      ['Documents/readme.txt', 7],
+    ] as const
+    for (const [filePath, count] of viewedFiles) {
+      for (let view = 0; view < count; view += 1) {
+        const response = await page.request.post('/api/stats/views', { data: { filePath } })
+        expect(response.ok()).toBe(true)
+      }
+    }
+
+    await page.goto('/home')
+    const quickActions = page.locator('section[aria-labelledby="home-quick-heading"]')
+    await expect(quickActions.getByRole('link', { name: 'Library' })).toHaveAttribute('href', '/')
+    await expect(quickActions.getByRole('link', { name: 'Spaces' })).toHaveAttribute(
+      'href',
+      '/spaces',
+    )
+    await expect(quickActions.getByRole('link', { name: 'Workspace' })).toHaveAttribute(
+      'href',
+      '/workspace',
+    )
+    await expect(quickActions.getByRole('link', { name: 'Offline' })).toHaveAttribute(
+      'href',
+      '/offline',
+    )
+
+    const mostViewed = page.locator('section[aria-labelledby="home-popular-heading"]')
+    const videoLink = mostViewed.getByRole('link').filter({ hasText: 'sample.mp4' })
+    await expect(videoLink).toHaveAttribute('href', '/?playing=Videos%2Fsample.mp4')
+    await expect(mostViewed.getByRole('link').filter({ hasText: 'track.mp3' })).toHaveAttribute(
+      'href',
+      '/?playing=Music%2Ftrack.mp3',
+    )
+    await expect(mostViewed.getByRole('link').filter({ hasText: 'readme.txt' })).toHaveAttribute(
+      'href',
+      '/?viewing=Documents%2Freadme.txt',
+    )
+
+    await videoLink.click()
+    await expect(page).toHaveURL(/\?playing=Videos%2Fsample\.mp4$/)
+    await expect(page.locator('video').first()).toBeVisible()
+  })
+
   test('seeded Continue and recent locations survive reload and history navigation', async ({
     page,
   }) => {

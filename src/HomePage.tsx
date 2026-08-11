@@ -11,7 +11,7 @@ import TrendingUp from 'lucide-solid/icons/trending-up'
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { offlineJobObserver, type OfflineJob } from './lib/offline-job-observer'
 import { readRecentOwnerLocations, type RecentOwnerLocation } from './lib/recent-owner-locations'
-import { hrefFor } from './lib/routes'
+import { hrefFor, hrefForLibraryFile } from './lib/routes'
 
 function basename(path: string) {
   return path.split(/[/\\]/).filter(Boolean).at(-1) || path
@@ -30,9 +30,10 @@ export function HomePage() {
 
   const statsQuery = useQuery(() => ({
     queryKey: queryKeys.stats(),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api<{ views: Record<string, number>; shareViews: Record<string, number> }>(
         '/api/stats/views',
+        { signal },
       ),
   }))
 
@@ -80,28 +81,28 @@ export function HomePage() {
         </h2>
         <div class='mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4'>
           <a
-            href='/library'
+            href={hrefFor({ kind: 'library' })}
             class='bg-card hover:bg-muted flex min-h-24 flex-col justify-between rounded-xl border border-border p-4'
           >
             <FolderOpen class='size-5' aria-hidden='true' />
             <span class='font-medium'>Library</span>
           </a>
           <a
-            href='/spaces'
+            href={hrefFor({ kind: 'spaces' })}
             class='bg-card hover:bg-muted flex min-h-24 flex-col justify-between rounded-xl border border-border p-4'
           >
             <LayoutGrid class='size-5' aria-hidden='true' />
             <span class='font-medium'>Spaces</span>
           </a>
           <a
-            href='/workspace'
+            href={hrefFor({ kind: 'workspace' })}
             class='bg-card hover:bg-muted flex min-h-24 flex-col justify-between rounded-xl border border-border p-4'
           >
             <AppWindow class='size-5' aria-hidden='true' />
             <span class='font-medium'>Workspace</span>
           </a>
           <a
-            href='/offline'
+            href={hrefFor({ kind: 'offline' })}
             class='bg-card hover:bg-muted flex min-h-24 flex-col justify-between rounded-xl border border-border p-4'
           >
             <Download class='size-5' aria-hidden='true' />
@@ -165,7 +166,7 @@ export function HomePage() {
             <For each={popular()}>
               {([path, count]) => (
                 <a
-                  href={hrefFor({ kind: 'library' }, { viewing: path })}
+                  href={hrefForLibraryFile(path)}
                   class='hover:bg-muted flex min-h-11 items-center justify-between gap-3 px-3 text-sm'
                 >
                   <span class='min-w-0 truncate'>{basename(path)}</span>

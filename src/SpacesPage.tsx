@@ -1,5 +1,6 @@
 import AppWindow from 'lucide-solid/icons/app-window'
 import Map from 'lucide-solid/icons/map'
+import { hrefFor } from './lib/routes'
 
 export function SpacesPage() {
   return (
@@ -13,7 +14,7 @@ export function SpacesPage() {
       </div>
       <div class='grid gap-4 sm:grid-cols-2'>
         <a
-          href='/workspace'
+          href={hrefFor({ kind: 'workspace' })}
           class='bg-card hover:bg-muted/50 flex min-h-32 items-start gap-4 rounded-xl border border-border p-5 transition-colors'
         >
           <AppWindow class='text-primary size-7 shrink-0' aria-hidden='true' />
@@ -25,7 +26,7 @@ export function SpacesPage() {
           </span>
         </a>
         <a
-          href='/canvas'
+          href={hrefFor({ kind: 'canvas' })}
           class='bg-card hover:bg-muted/50 flex min-h-32 items-start gap-4 rounded-xl border border-border p-5 transition-colors'
         >
           <Map class='text-primary size-7 shrink-0' aria-hidden='true' />

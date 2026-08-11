@@ -2,20 +2,23 @@ import type { PasteData } from '@/lib/paste-data'
 import type { ShareLink } from '@/lib/shares'
 import type { FileItem } from '@/lib/types'
 import type { Accessor } from 'solid-js'
-import { Show } from 'solid-js'
+import { Show, lazy } from 'solid-js'
 import type { BreadcrumbMenuTarget } from './BreadcrumbContextMenu'
 import { BreadcrumbContextMenu } from './BreadcrumbContextMenu'
 import { CreateFileDialog } from './CreateFileDialog'
 import { CreateFolderDialog } from './CreateFolderDialog'
 import { DeleteFileDialog } from './DeleteFileDialog'
 import { FileRowContextMenu } from './FileRowContextMenu'
-import { IconEditorDialog } from './IconEditorDialog'
 import { MoveToDialog } from './MoveToDialog'
 import { PasteDialog } from './PasteDialog'
 import { RenameDialog } from './RenameDialog'
 import { ShareDialog } from './ShareDialog'
 import type { UploadToastState } from './types'
 import { UploadToastStack } from './UploadToastStack'
+
+const IconEditorDialog = lazy(() =>
+  import('./IconEditorDialog').then((module) => ({ default: module.IconEditorDialog })),
+)
 
 type BreadcrumbMenuActions = {
   showOpenInNewTab: boolean
@@ -127,20 +130,22 @@ export type FileBrowserModalLayerProps = {
 export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
   return (
     <>
-      <IconEditorDialog
-        isOpen={!!props.iconEditTarget()}
-        fileName={props.iconEditTarget()?.name ?? ''}
-        currentIcon={
-          props.iconEditTarget()
-            ? (props.customIcons()[props.iconEditTarget()!.path] ??
-              props.customIcons()[props.iconEditTarget()!.path.replace(/\\/g, '/')] ??
-              null)
-            : null
-        }
-        onClose={() => props.setIconEditTarget(null)}
-        onSave={props.onSaveCustomIcon}
-        isPending={props.setCustomIconPending || props.removeCustomIconPending}
-      />
+      <Show when={props.iconEditTarget()}>
+        <IconEditorDialog
+          isOpen
+          fileName={props.iconEditTarget()?.name ?? ''}
+          currentIcon={
+            props.iconEditTarget()
+              ? (props.customIcons()[props.iconEditTarget()!.path] ??
+                props.customIcons()[props.iconEditTarget()!.path.replace(/\\/g, '/')] ??
+                null)
+              : null
+          }
+          onClose={() => props.setIconEditTarget(null)}
+          onSave={props.onSaveCustomIcon}
+          isPending={props.setCustomIconPending || props.removeCustomIconPending}
+        />
+      </Show>
       <UploadToastStack state={props.uploadToast} onDismissError={props.setUploadToastHidden} />
       <BreadcrumbContextMenu
         target={props.breadcrumbMenu}

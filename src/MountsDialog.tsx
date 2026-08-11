@@ -72,7 +72,7 @@ export function MountsDialog(props: { open: boolean; onClose: () => void }) {
   return (
     <Show when={props.open}>
       <div
-        class='fixed inset-0 z-10010 flex items-center justify-center bg-black/50 p-4'
+        class='fixed inset-0 z-[100060] flex items-center justify-center bg-black/50 p-4'
         onClick={props.onClose}
       >
         <div

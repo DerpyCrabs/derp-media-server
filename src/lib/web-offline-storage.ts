@@ -1,6 +1,12 @@
 import type { FileItem } from '@/lib/types'
+import { buildOfflineRollbackPlan, executeOfflineDownload } from './offline-download-lifecycle'
 import { publishOfflineJob, type OfflineJobScope } from './offline-job-observer'
 import { generateOfflineThumbnail } from './offline-thumbnail'
+import { ensureOfflineRenderersForFile } from './offline-renderers'
+import {
+  createPhysicalOfflinePathCoordinator,
+  type PhysicalOfflinePathRun,
+} from './physical-offline-paths'
 
 const DATABASE = 'derp-offline-v1'
 const STORE = 'entries'
@@ -62,6 +68,10 @@ async function removePhysicalFile(entry: StoredOfflineEntry) {
   await root.removeEntry(entry.fileName).catch(() => undefined)
 }
 
+function isAtOrBelowPath(path: string, root: string): boolean {
+  return !root || path === root || path.startsWith(`${root}/`)
+}
+
 async function refreshCatalog() {
   window.__DERP_WEB_OFFLINE_PATHS__ = (await allEntries()).map((entry) => entry.path)
   window.dispatchEvent(new Event('derp-offline-catalog'))
@@ -112,7 +122,8 @@ type DownloadSource = {
   jobName?: string
 }
 
-const activeDownloads = new Map<string, AbortController>()
+const physicalOfflinePaths = createPhysicalOfflinePathCoordinator()
+const activeDownloads = new Map<string, PhysicalOfflinePathRun>()
 const retrySources = new Map<string, DownloadSource>()
 
 function downloadKey(scope: OfflineJobScope, path: string): string {
@@ -120,7 +131,7 @@ function downloadKey(scope: OfflineJobScope, path: string): string {
 }
 
 export function cancelWebOffline(path: string, scope: OfflineJobScope = 'owner') {
-  activeDownloads.get(downloadKey(scope, path))?.abort()
+  activeDownloads.get(downloadKey(scope, path))?.cancel()
 }
 
 export function retryWebOffline(path: string, scope: OfflineJobScope = 'owner') {
@@ -179,6 +190,7 @@ async function saveSource(
     return
   }
 
+  await ensureOfflineRenderersForFile(item)
   const mediaUrl = new URL(
     apiPath.split('/').map(encodeURIComponent).join('/'),
     source.mediaBaseUrl,
@@ -289,72 +301,104 @@ export function saveForWebOffline(source: DownloadSource): boolean {
     totalBytes: source.item.size || 0,
   })
   retrySources.set(key, trackedSource)
-  const controller = new AbortController()
-  activeDownloads.get(key)?.abort()
-  activeDownloads.set(key, controller)
-  const progress = { completed: 0, written: [] as string[], physicalFiles: [] as string[] }
-  void requireActiveServiceWorker()
-    .then(() => saveSource(trackedSource, progress, controller.signal))
-    .then(async () => {
-      const saved = await allEntries()
-      if (!saved.some((entry) => entry.path === source.displayPath)) {
-        throw new Error('Offline data could not be read back')
-      }
-      await refreshCatalog()
-      if (activeDownloads.get(key) === controller) {
-        activeDownloads.delete(key)
-        retrySources.delete(key)
-        publishOfflineJob({
-          state: 'succeeded',
-          scope,
-          name: trackedSource.jobName,
-          path: trackedSource.jobPath,
-        })
-      }
-    })
-    .catch(async (error: unknown) => {
-      const writtenEntries = (await allEntries()).filter((entry) =>
-        progress.written.includes(entry.path),
-      )
-      const db = await database()
-      const transaction = db.transaction(STORE, 'readwrite')
-      for (const entry of writtenEntries) {
-        transaction.objectStore(STORE).delete(entry.path)
-      }
-      await new Promise<void>((resolve) => {
-        transaction.oncomplete = () => resolve()
-      })
-      await Promise.all(writtenEntries.map(removePhysicalFile))
-      if (navigator.storage?.getDirectory) {
-        const root = await navigator.storage.getDirectory().catch(() => null)
-        await Promise.all(
-          progress.physicalFiles.map((name) => root?.removeEntry(name).catch(() => undefined)),
+  activeDownloads.get(key)?.cancel()
+  let run!: PhysicalOfflinePathRun
+  run = physicalOfflinePaths.schedule(trackedSource.displayPath, async (signal) => {
+    const progress = { completed: 0, written: [] as string[], physicalFiles: [] as string[] }
+    let previousEntries: StoredOfflineEntry[] = []
+    const outcome = await executeOfflineDownload(
+      async () => {
+        previousEntries = (await allEntries()).filter((entry) =>
+          isAtOrBelowPath(entry.path, trackedSource.displayPath),
         )
-      }
-      await refreshCatalog()
-      const status = (error as { status?: number }).status
-      const errorKind =
-        error instanceof DOMException && error.name === 'QuotaExceededError'
-          ? 'quota'
-          : status === 401 || status === 403
-            ? 'auth'
-            : error instanceof DOMException && error.name === 'AbortError'
-              ? 'cancelled'
-              : error instanceof TypeError
-                ? 'network'
-                : 'unsupported-format'
-      if (activeDownloads.get(key) === controller) {
-        activeDownloads.delete(key)
-        publishOfflineJob({
-          state: errorKind === 'cancelled' ? 'cancelled' : 'failed',
-          scope,
-          name: trackedSource.jobName,
-          path: trackedSource.jobPath,
-          errorKind,
-          message: error instanceof Error ? error.message : 'Offline download failed',
+        await requireActiveServiceWorker()
+        await saveSource(trackedSource, progress, signal)
+        const saved = await allEntries()
+        if (!saved.some((entry) => entry.path === source.displayPath)) {
+          throw new Error('Offline data could not be read back')
+        }
+        await refreshCatalog()
+      },
+      async () => {
+        const rollback = buildOfflineRollbackPlan(
+          previousEntries,
+          await allEntries(),
+          progress.written,
+        )
+        const db = await database()
+        const transaction = db.transaction(STORE, 'readwrite')
+        const store = transaction.objectStore(STORE)
+        for (const path of rollback.deletePaths) {
+          store.delete(path)
+        }
+        for (const entry of rollback.restore) {
+          store.put(entry)
+        }
+        await new Promise<void>((resolve, reject) => {
+          transaction.oncomplete = () => resolve()
+          transaction.onerror = () => reject(transaction.error)
+          transaction.onabort = () =>
+            reject(transaction.error ?? new Error('Offline cleanup transaction aborted'))
         })
-      }
+        await Promise.all(rollback.discardPhysical.map(removePhysicalFile))
+        if (navigator.storage?.getDirectory) {
+          const root = await navigator.storage.getDirectory().catch(() => null)
+          const discarded = new Set(
+            rollback.discardPhysical.flatMap((entry) => (entry.fileName ? [entry.fileName] : [])),
+          )
+          await Promise.all(
+            progress.physicalFiles
+              .filter((name) => !discarded.has(name))
+              .map((name) => root?.removeEntry(name).catch(() => undefined)),
+          )
+        }
+        await refreshCatalog()
+      },
+    )
+
+    if (activeDownloads.get(key) !== run) return
+    activeDownloads.delete(key)
+    if (outcome.kind === 'succeeded') {
+      retrySources.delete(key)
+      publishOfflineJob({
+        state: 'succeeded',
+        scope,
+        name: trackedSource.jobName,
+        path: trackedSource.jobPath,
+      })
+      return
+    }
+
+    const status = (outcome.error as { status?: number }).status
+    const errorKind =
+      outcome.error instanceof DOMException && outcome.error.name === 'QuotaExceededError'
+        ? 'quota'
+        : status === 401 || status === 403
+          ? 'auth'
+          : outcome.error instanceof DOMException && outcome.error.name === 'AbortError'
+            ? 'cancelled'
+            : outcome.error instanceof TypeError
+              ? 'network'
+              : 'unsupported-format'
+    const originalMessage =
+      outcome.error instanceof Error ? outcome.error.message : 'Offline download failed'
+    const cleanupMessage =
+      outcome.cleanupError instanceof Error
+        ? ` Cleanup failed: ${outcome.cleanupError.message}`
+        : outcome.cleanupError === undefined
+          ? ''
+          : ' Cleanup failed.'
+    publishOfflineJob({
+      state: errorKind === 'cancelled' ? 'cancelled' : 'failed',
+      scope,
+      name: trackedSource.jobName,
+      path: trackedSource.jobPath,
+      errorKind,
+      message: `${originalMessage}${cleanupMessage}`,
     })
+  })
+  activeDownloads.set(key, run)
+  void run.completion.catch(() => undefined)
   return true
 }
 
@@ -365,7 +409,8 @@ export function removeWebOffline(
 ): boolean {
   if (!webOfflineSupported()) return false
   const normalized = path.replace(/^\/+|\/+$/g, '')
-  void allEntries().then(async (entries) => {
+  const run = physicalOfflinePaths.schedule(normalized, async () => {
+    const entries = await allEntries()
     const db = await database()
     const transaction = db.transaction(STORE, 'readwrite')
     const removed = entries.filter(
@@ -375,11 +420,14 @@ export function removeWebOffline(
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Offline removal transaction aborted'))
     })
     await Promise.all(removed.map(removePhysicalFile))
     await refreshCatalog()
     retrySources.delete(downloadKey(scope, normalized))
     publishOfflineJob({ state: 'removed', scope, name, path: normalized })
   })
+  void run.completion.catch(() => undefined)
   return true
 }

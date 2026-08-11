@@ -13,6 +13,7 @@ import Settings from 'lucide-solid/icons/settings'
 import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 import { FileSearchButton } from '../FileSearchPalette'
+import { hrefFor, type RouteQuery, type RouteTarget } from '../lib/routes'
 
 export type OwnerSurface =
   | 'home'
@@ -28,19 +29,49 @@ export type OwnerSurface =
 type Props = {
   active: OwnerSurface
   children: JSX.Element
+  immersive?: boolean
   navigate: (href: string) => void
 }
 
+function ownerHref(target: RouteTarget, query?: RouteQuery) {
+  return hrefFor(target, query)
+}
+
 const desktopDestinations = [
-  { id: 'home' as const, href: '/home', label: 'Home', icon: Home },
-  { id: 'library' as const, href: '/library', label: 'Library', icon: Library },
-  { id: 'spaces' as const, href: '/spaces', label: 'Spaces', icon: LayoutGrid },
-  { id: 'workspace' as const, href: '/workspace', label: 'Workspace', icon: AppWindow },
-  { id: 'canvas' as const, href: '/canvas', label: 'Canvas', icon: Map },
-  { id: 'assistant' as const, href: '/assistant', label: 'Assistant', icon: Bot },
-  { id: 'shared' as const, href: '/library?dir=Shares', label: 'Shared', icon: FolderHeart },
-  { id: 'offline' as const, href: '/offline', label: 'Offline', icon: Download },
-  { id: 'settings' as const, href: '/settings', label: 'Settings', icon: Settings },
+  { id: 'home' as const, href: ownerHref({ kind: 'home' }), label: 'Home', icon: Home },
+  { id: 'library' as const, href: ownerHref({ kind: 'library' }), label: 'Library', icon: Library },
+  { id: 'spaces' as const, href: ownerHref({ kind: 'spaces' }), label: 'Spaces', icon: LayoutGrid },
+  {
+    id: 'workspace' as const,
+    href: ownerHref({ kind: 'workspace' }),
+    label: 'Workspace',
+    icon: AppWindow,
+  },
+  { id: 'canvas' as const, href: ownerHref({ kind: 'canvas' }), label: 'Canvas', icon: Map },
+  {
+    id: 'assistant' as const,
+    href: ownerHref({ kind: 'assistant' }),
+    label: 'Assistant',
+    icon: Bot,
+  },
+  {
+    id: 'shared' as const,
+    href: ownerHref({ kind: 'library' }, { dir: 'Shares' }),
+    label: 'Shared',
+    icon: FolderHeart,
+  },
+  {
+    id: 'offline' as const,
+    href: ownerHref({ kind: 'offline' }),
+    label: 'Offline',
+    icon: Download,
+  },
+  {
+    id: 'settings' as const,
+    href: ownerHref({ kind: 'settings' }),
+    label: 'Settings',
+    icon: Settings,
+  },
 ]
 
 function anchorClick(event: MouseEvent, href: string, navigate: (href: string) => void) {
@@ -82,34 +113,37 @@ export function OwnerShell(props: Props) {
   }
 
   function chooseSearchResult(result: FileSearchResult) {
-    const params = new URLSearchParams()
-    if (result.parentPath) params.set('dir', result.parentPath)
-    if (result.isDirectory) params.set('dir', result.path)
+    const query: RouteQuery = {}
+    if (result.parentPath) query.dir = result.parentPath
+    if (result.isDirectory) query.dir = result.path
     else if (result.type === MediaType.AUDIO || result.type === MediaType.VIDEO) {
-      params.set('playing', result.path)
+      query.playing = result.path
     } else {
-      params.set('viewing', result.path)
+      query.viewing = result.path
     }
-    navigate(`/library?${params.toString()}`)
+    navigate(ownerHref({ kind: 'library' }, query))
   }
 
   return (
     <div
       class='owner-shell-modern min-h-screen bg-background text-foreground'
-      classList={{ 'owner-shell-fullscreen': fullscreen() }}
+      classList={{
+        'owner-shell-fullscreen': fullscreen(),
+        'owner-shell-immersive': !!props.immersive,
+      }}
       data-owner-shell
     >
-      <Show when={!fullscreen()}>
+      <Show when={!fullscreen() && !props.immersive}>
         <aside
           class='fixed inset-y-0 left-0 z-[100010] hidden w-[4.75rem] flex-col items-center border-r border-border bg-card/95 py-2 backdrop-blur md:flex'
           aria-label='Owner navigation'
           data-testid='owner-desktop-rail'
         >
           <a
-            href='/library'
+            href={ownerHref({ kind: 'library' })}
             aria-label='Derp Desk Library'
             class='mb-2 flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground'
-            onClick={(event) => anchorClick(event, '/library', navigate)}
+            onClick={(event) => anchorClick(event, ownerHref({ kind: 'library' }), navigate)}
           >
             <span class='text-sm font-black'>DD</span>
           </a>
@@ -176,11 +210,11 @@ export function OwnerShell(props: Props) {
           data-testid='owner-phone-nav'
         >
           <a
-            href='/library'
+            href={ownerHref({ kind: 'library' })}
             data-owner-phone-target
             aria-current={props.active === 'library' ? 'page' : undefined}
             class='flex min-h-11 flex-col items-center justify-center gap-0.5 text-[11px] text-muted-foreground aria-[current=page]:text-primary'
-            onClick={(event) => anchorClick(event, '/library', navigate)}
+            onClick={(event) => anchorClick(event, ownerHref({ kind: 'library' }), navigate)}
           >
             <Library class='size-5' aria-hidden='true' />
             Library

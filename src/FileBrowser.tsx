@@ -138,7 +138,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   const authQuery = useQuery(() => ({
     queryKey: queryKeys.authConfig(),
-    queryFn: () => api<AuthConfig>('/api/auth/config'),
+    queryFn: ({ signal }) => api<AuthConfig>('/api/auth/config', { signal }),
     staleTime: Infinity,
   }))
 
@@ -150,7 +150,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   const sharesQuery = useQuery(() => ({
     queryKey: queryKeys.shares(),
-    queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
+    queryFn: ({ signal }) => api<{ shares: ShareLink[] }>('/api/shares', { signal }),
   }))
 
   const shares = createMemo(() => sharesQuery.data?.shares ?? [])
@@ -174,13 +174,15 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     queryKey: isOfflineBrowser()
       ? ['offline-files', currentPath()]
       : queryKeys.files(currentPath()),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (isOfflineBrowser()) return fetchOfflineFiles(currentPath())
       try {
         return await api<{ files: FileItem[] }>(
           `/api/files?dir=${encodeURIComponent(currentPath())}`,
+          { signal },
         )
       } catch (onlineError) {
+        if (signal.aborted) throw onlineError
         if (!isOfflineFeatureAvailable()) throw onlineError
         try {
           const offline = await fetchOfflineFiles(currentPath())
@@ -237,7 +239,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
+    queryFn: ({ signal }) => api<GlobalSettings>('/api/settings', { signal }),
     staleTime: Infinity,
   }))
 
@@ -341,9 +343,10 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   const kbSearchQuery = useQuery(() => ({
     queryKey: queryKeys.kbSearch(kbRootPath()!, debouncedSearch()),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api<{ results: { path: string; name: string; snippet: string }[] }>(
         `/api/kb/search?root=${encodeURIComponent(kbRootPath()!)}&q=${encodeURIComponent(debouncedSearch())}`,
+        { signal },
       ),
     enabled: !!kbRootPath() && searchPopoverOpen() && debouncedSearch().trim().length > 0,
   }))
@@ -1249,7 +1252,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
   )
 
   return (
-    <div class='min-h-screen bg-background'>
+    <div class='file-browser-page min-h-screen bg-background'>
       <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />
       <div
         class={cn(
@@ -1257,6 +1260,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
             'max-[649px]:pb-[calc(2.875rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-12',
         )}
         data-testid='media-chrome-pad-root'
+        data-audio-active={isAudioPlayingBar() ? 'true' : undefined}
       >
         <div
           data-testid='file-browser'

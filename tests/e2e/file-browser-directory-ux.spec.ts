@@ -2,6 +2,11 @@ import { test, expect } from '@playwright/test'
 
 test.describe('File browser directory UX', () => {
   test('shows deferred loading state for slow client navigation fetch', async ({ page }) => {
+    let notesRequestSeen = false
+    let releaseRequest: (() => void) | undefined
+    const requestBlocked = new Promise<void>((resolve) => {
+      releaseRequest = resolve
+    })
     await page.goto('/')
     await page.route('**/api/files**', async (route) => {
       const url = route.request().url()
@@ -9,12 +14,21 @@ test.describe('File browser directory UX', () => {
         await route.continue()
         return
       }
-      await new Promise((r) => setTimeout(r, 800))
+      notesRequestSeen = true
+      await requestBlocked
       await route.continue()
     })
-    await page.locator('table').getByText('Notes', { exact: true }).click()
-    await expect(page).toHaveURL(/dir=Notes/)
-    await expect(page.getByTestId('directory-loading')).toBeVisible()
+    try {
+      await page
+        .locator('table')
+        .getByText('Notes', { exact: true })
+        .evaluate((element) => (element as HTMLElement).click())
+      await expect(page).toHaveURL(/dir=Notes/)
+      await expect.poll(() => notesRequestSeen).toBe(true)
+      await expect(page.getByTestId('directory-loading')).toBeVisible()
+    } finally {
+      releaseRequest?.()
+    }
   })
 
   test('retry refetches listing after error on client navigation', async ({ page }) => {

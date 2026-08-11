@@ -222,6 +222,138 @@ test.describe('Offline mode', () => {
     await expect(page.getByText('This is a public document for share testing')).toBeVisible()
   })
 
+  test('owner and Grant downloads serialize writes to one legacy physical path', async ({
+    page,
+  }) => {
+    test.setTimeout(45_000)
+    await page.goto('/')
+    const setup = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready
+      const config = (await fetch('/api/auth/config').then((response) => response.json())) as {
+        mediaRoots?: Array<{ name: string }>
+      }
+      return { root: (config.mediaRoots?.length ?? 0) > 1 ? config.mediaRoots![0].name : '' }
+    })
+    if (!(await page.evaluate(() => navigator.serviceWorker.controller !== null))) {
+      await page.reload()
+    }
+
+    const sharePath = setup.root ? `${setup.root}/SharedContent` : 'SharedContent'
+    const created = await page.request.post('/api/shares', {
+      data: { path: sharePath, isDirectory: true },
+    })
+    const body = (await created.json()) as { share: { token: string; passcode?: string } }
+    const shareUrl = `/share/${body.share.token}${
+      body.share.passcode ? `?p=${encodeURIComponent(body.share.passcode)}` : ''
+    }`
+
+    try {
+      await page.goto(`/?dir=${encodeURIComponent(sharePath)}`)
+      await useListView(page)
+      await page.evaluate(() => {
+        const liveFetch = window.fetch
+        const audit = { active: 0, maximumActive: 0 }
+        ;(
+          window as unknown as { __stage1OfflineFetchAudit: typeof audit }
+        ).__stage1OfflineFetchAudit = audit
+        window.fetch = (async (input, init) => {
+          const raw = input instanceof Request ? input.url : String(input)
+          const url = new URL(raw, window.location.origin)
+          const tracksPhysicalPath =
+            url.pathname.includes('/media/') && url.pathname.endsWith('/public-doc.txt')
+          if (!tracksPhysicalPath) return liveFetch(input, init)
+
+          audit.active += 1
+          audit.maximumActive = Math.max(audit.maximumActive, audit.active)
+          try {
+            if (url.pathname.startsWith('/api/media/')) {
+              await new Promise<void>((resolve, reject) => {
+                const timeout = window.setTimeout(resolve, 1_500)
+                const signal = init?.signal ?? (input instanceof Request ? input.signal : null)
+                signal?.addEventListener(
+                  'abort',
+                  () => {
+                    window.clearTimeout(timeout)
+                    reject(new DOMException('Aborted', 'AbortError'))
+                  },
+                  { once: true },
+                )
+              })
+            }
+            return await liveFetch(input, init)
+          } finally {
+            audit.active -= 1
+          }
+        }) as typeof window.fetch
+      })
+
+      await page
+        .locator('table tr')
+        .filter({ hasText: 'public-doc.txt' })
+        .click({ button: 'right' })
+      await page.getByText('Make available offline', { exact: true }).click()
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __stage1OfflineFetchAudit: { active: number } })
+                .__stage1OfflineFetchAudit.active,
+          ),
+        )
+        .toBe(1)
+
+      await page.evaluate((url) => {
+        history.pushState(null, '', url)
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      }, shareUrl)
+      await expect(page.getByTestId('share-file-browser')).toBeVisible()
+      await page
+        .locator('table tr')
+        .filter({ hasText: 'public-doc.txt' })
+        .click({ button: 'right' })
+      await page.getByText('Make available offline', { exact: true }).click()
+      await expect(
+        page.getByText('public-doc.txt is available offline', { exact: true }),
+      ).toBeVisible()
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __stage1OfflineFetchAudit: { active: number } })
+                .__stage1OfflineFetchAudit.active,
+          ),
+        )
+        .toBe(0)
+
+      const audit = await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              __stage1OfflineFetchAudit: { active: number; maximumActive: number }
+            }
+          ).__stage1OfflineFetchAudit,
+      )
+      expect(audit.maximumActive).toBe(1)
+
+      const stored = await page.evaluate(async (offlinePath) => {
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open('derp-offline-v1', 1)
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = () => reject(request.error)
+        })
+        return new Promise<{ mediaUrl?: string; size: number } | undefined>((resolve, reject) => {
+          const request = db.transaction('entries').objectStore('entries').get(offlinePath)
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = () => reject(request.error)
+        })
+      }, `${sharePath}/public-doc.txt`)
+      expect(stored?.size).toBeGreaterThan(0)
+      expect(stored?.mediaUrl).toContain(`/api/share/${body.share.token}/media/`)
+    } finally {
+      await page.request.post('/api/shares/delete', { data: { token: body.share.token } })
+    }
+  })
+
   test('failed download is reported and leaves no partial offline entry', async ({ page }) => {
     await page.goto('/')
     const root = await page.evaluate(async () => {
@@ -251,6 +383,215 @@ test.describe('Offline mode', () => {
 
     await page.goto('/?offline=1')
     await expect(page.getByText('readme.txt', { exact: true })).not.toBeVisible()
+  })
+
+  test('failed directory refresh restores prior entries and removes replacement files', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+    await page.goto('/')
+    const root = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready
+      const config = (await fetch('/api/auth/config').then((response) => response.json())) as {
+        mediaRoots?: Array<{ name: string }>
+      }
+      return (config.mediaRoots?.length ?? 0) > 1 ? config.mediaRoots![0].name : ''
+    })
+    if (!(await page.evaluate(() => navigator.serviceWorker.controller !== null))) {
+      await page.reload()
+    }
+    const prefix = root ? `${root}/` : ''
+    await page.goto(root ? `/?dir=${encodeURIComponent(root)}` : '/')
+    await useListView(page)
+
+    const opfsBefore = await page.evaluate(async () => {
+      const directory = await navigator.storage.getDirectory()
+      const names: string[] = []
+      for await (const name of directory.keys()) names.push(name)
+      return names.sort()
+    })
+    await page.evaluate(async (logicalPrefix) => {
+      const listing = (await fetch(
+        `/api/files?dir=${encodeURIComponent(`${logicalPrefix}Documents`)}`,
+      ).then((response) => response.json())) as {
+        files: Array<{
+          name: string
+          extension: string
+          type: string
+          size: number
+          isDirectory: boolean
+        }>
+      }
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('derp-offline-v1', 1)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      const transaction = db.transaction('entries', 'readwrite')
+      const store = transaction.objectStore('entries')
+      for (const file of listing.files.filter((entry) => !entry.isDirectory)) {
+        store.put({
+          ...file,
+          path: `${logicalPrefix}Documents/${file.name}`,
+          blob: new Blob([`old:${file.name}`]),
+        })
+      }
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error)
+        transaction.onabort = () => reject(transaction.error)
+      })
+
+      const onlineFetch = window.fetch
+      const audit = { mediaRequests: 0, firstName: '' }
+      ;(
+        window as unknown as { __stage1DirectoryRollbackAudit: typeof audit }
+      ).__stage1DirectoryRollbackAudit = audit
+      window.fetch = (async (input, init) => {
+        const raw = input instanceof Request ? input.url : String(input)
+        const url = new URL(raw, window.location.origin)
+        if (url.pathname.includes('/api/media/') && url.pathname.includes('/Documents/')) {
+          audit.mediaRequests += 1
+          const name = decodeURIComponent(url.pathname.split('/').at(-1) ?? '')
+          if (audit.mediaRequests === 1) audit.firstName = name
+          if (audit.mediaRequests === 2) {
+            throw new TypeError('Simulated directory refresh failure')
+          }
+        }
+        return onlineFetch(input, init)
+      }) as typeof window.fetch
+    }, prefix)
+
+    await page.locator('table tr').filter({ hasText: 'Documents' }).click({ button: 'right' })
+    await page.getByText('Make available offline', { exact: true }).click()
+    await expect(
+      page.getByText('Network connection failed: Documents', { exact: true }),
+    ).toBeVisible()
+
+    const rollback = await page.evaluate(async (logicalPrefix) => {
+      const audit = (
+        window as unknown as {
+          __stage1DirectoryRollbackAudit: { firstName: string; mediaRequests: number }
+        }
+      ).__stage1DirectoryRollbackAudit
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('derp-offline-v1', 1)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      const read = (path: string) =>
+        new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
+          const request = db.transaction('entries').objectStore('entries').get(path)
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = () => reject(request.error)
+        })
+      const first = (await read(`${logicalPrefix}Documents/${audit.firstName}`)) as
+        | { blob?: Blob }
+        | undefined
+      return {
+        firstName: audit.firstName,
+        mediaRequests: audit.mediaRequests,
+        restored: first?.blob ? await first.blob.text() : null,
+        directoryMissing: (await read(`${logicalPrefix}Documents`)) === undefined,
+      }
+    }, prefix)
+    expect(rollback).toMatchObject({
+      mediaRequests: 2,
+      restored: `old:${rollback.firstName}`,
+      directoryMissing: true,
+    })
+    const opfsAfter = await page.evaluate(async () => {
+      const directory = await navigator.storage.getDirectory()
+      const names: string[] = []
+      for await (const name of directory.keys()) names.push(name)
+      return names.sort()
+    })
+    expect(opfsAfter).toEqual(opfsBefore)
+
+    await page.getByText('Network connection failed: Documents', { exact: true }).click()
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(page.getByRole('button', { name: /Documents is available offline/ })).toBeVisible({
+      timeout: 30_000,
+    })
+  })
+
+  test('cleanup failure releases the run, preserves the original error, and allows retry', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    const root = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready
+      const config = (await fetch('/api/auth/config').then((response) => response.json())) as {
+        mediaRoots?: Array<{ name: string }>
+      }
+      return (config.mediaRoots?.length ?? 0) > 1 ? config.mediaRoots![0].name : ''
+    })
+    await page.reload()
+    await page.goto(`/?dir=${encodeURIComponent(root ? `${root}/Documents` : 'Documents')}`)
+    await page.evaluate(() => {
+      const audit = { attempts: 0, updates: [] as Array<Record<string, unknown>> }
+      ;(
+        window as unknown as { __stage1CleanupFailureAudit: typeof audit }
+      ).__stage1CleanupFailureAudit = audit
+      window.addEventListener('derp-offline-status', (event) => {
+        audit.updates.push((event as CustomEvent<Record<string, unknown>>).detail)
+      })
+
+      const onlineFetch = window.fetch
+      window.fetch = ((input, init) => {
+        const raw = input instanceof Request ? input.url : String(input)
+        if (new URL(raw, window.location.origin).pathname.includes('/api/media/')) {
+          audit.attempts += 1
+          if (audit.attempts === 1) {
+            return Promise.reject(new TypeError('Simulated original network failure'))
+          }
+        }
+        return onlineFetch(input, init)
+      }) as typeof window.fetch
+
+      const liveGetAll = IDBObjectStore.prototype.getAll
+      let cleanupFailed = false
+      IDBObjectStore.prototype.getAll = function (...args) {
+        if (!cleanupFailed) {
+          cleanupFailed = true
+          throw new Error('Simulated IndexedDB cleanup failure')
+        }
+        return liveGetAll.apply(this, args)
+      }
+    })
+
+    await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
+    await page.getByText('Make available offline', { exact: true }).click()
+    await expect(
+      page.getByText('Network connection failed: readme.txt', { exact: true }),
+    ).toBeVisible()
+    const failure = await page.evaluate(() => {
+      const updates = (
+        window as unknown as {
+          __stage1CleanupFailureAudit: { updates: Array<Record<string, unknown>> }
+        }
+      ).__stage1CleanupFailureAudit.updates
+      return updates.findLast((update) => update.state === 'failed')
+    })
+    expect(failure).toMatchObject({
+      state: 'failed',
+      errorKind: 'network',
+      message:
+        'Simulated original network failure Cleanup failed: Simulated IndexedDB cleanup failure',
+    })
+
+    await page.getByText('Network connection failed: readme.txt', { exact: true }).click()
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(
+      page.getByRole('button', { name: /readme\.txt is available offline/ }),
+    ).toBeVisible()
+    expect(
+      await page.evaluate(
+        () =>
+          (window as unknown as { __stage1CleanupFailureAudit: { attempts: number } })
+            .__stage1CleanupFailureAudit.attempts,
+      ),
+    ).toBe(2)
   })
 
   test('storage quota failure is reported and leaves no catalog or OPFS residue', async ({

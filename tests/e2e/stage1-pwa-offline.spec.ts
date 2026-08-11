@@ -60,22 +60,9 @@ async function saveFileOffline(page: Page, name: string) {
 }
 
 function ownerApiLeaks(urls: string[]): string[] {
-  const exact = new Set([
-    '/api/auth/config',
-    '/api/settings',
-    '/api/stats',
-    '/api/stats/views',
-    '/api/shares',
-    '/api/files',
-    '/api/events/stream',
-    '/api/mounts',
-    '/api/canvases',
-  ])
   return urls.filter((raw) => {
     const pathname = new URL(raw).pathname
-    return (
-      exact.has(pathname) || /^\/api\/(?:media|thumbnail|audio|kb|hermes)(?:\/|$)/.test(pathname)
-    )
+    return pathname.startsWith('/api/') && !/^\/api\/share\/[^/]+(?:\/|$)/.test(pathname)
   })
 }
 
@@ -116,6 +103,82 @@ test.describe('Stage 1 PWA and offline cutover', () => {
     expect(audit.offlineShell).not.toContain('__DEHYDRATED_STATE__')
   })
 
+  test('controlled online navigation preserves typed-route HTTP errors', async ({ page }) => {
+    await page.goto('/library')
+    await ensureControlled(page)
+
+    const response = await page.goto('/definitely-not-a-derp-desk-route')
+    expect(response?.status()).toBe(404)
+    await expect(page.getByTestId('not-found')).toBeVisible()
+  })
+
+  test('uncached optional failure presents explicit update flow', async ({ page, context }) => {
+    const optionalAsset = readAssetPlan().optional.find((asset) => asset.endsWith('.js'))
+    expect(optionalAsset).toBeTruthy()
+
+    await page.goto('/library')
+    await ensureControlled(page)
+    await context.setOffline(true)
+    await page.evaluate(async (asset) => {
+      await fetch(asset).catch(() => undefined)
+    }, optionalAsset!)
+
+    const notice = page.getByTestId('pwa-update-required')
+    await expect(notice).toBeVisible()
+    await expect(notice.getByRole('button', { name: 'Update and reload' })).toBeVisible()
+  })
+
+  test('new routes and legacy aliases survive production history, refresh, and offline navigation', async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000)
+    const routes = [
+      { url: '/', marker: '[data-testid="file-browser"]' },
+      { url: '/library', marker: '[data-testid="file-browser"]' },
+      { url: '/home', marker: '[data-testid="home-page"]' },
+      { url: '/spaces', marker: '[data-testid="spaces-page"]' },
+      { url: '/workspace', marker: '.workspace-layout' },
+      { url: '/canvas', marker: '[data-testid="infinite-canvas"]' },
+      { url: '/assistant', marker: '.workspace-layout' },
+      { url: '/offline', marker: '[data-testid="file-browser"]' },
+      { url: '/settings', marker: '[data-testid="settings-page"]' },
+    ] as const
+    const aliases = [
+      { url: '/?path=Notes', marker: '[data-testid="file-browser"]' },
+      { url: '/?viewing=Notes%2Fwelcome.md', marker: '[role="dialog"]' },
+      {
+        url: '/?reader=Documents%2Freader.epub&readerKind=book',
+        marker: '[data-testid="reader-dialog"]',
+      },
+      { url: '/workspace?ws=stage1-legacy-session', marker: '.workspace-layout' },
+    ] as const
+
+    await page.goto('/library')
+    await ensureControlled(page)
+    for (const route of [...routes, ...aliases]) {
+      const response = await page.goto(route.url, { waitUntil: 'domcontentloaded' })
+      expect(response?.status(), route.url).toBe(200)
+      await expect(page.locator(route.marker).first(), route.url).toBeVisible()
+      expect(await hydratedKeys(page), `${route.url} should receive owner SSR state`).not.toBeNull()
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await expect(page.locator(route.marker).first(), `${route.url} after refresh`).toBeVisible()
+    }
+
+    await page.goto('/home')
+    await page.goto('/spaces')
+    await page.goBack()
+    await expect(page.getByTestId('home-page')).toBeVisible()
+    await page.goForward()
+    await expect(page.getByTestId('spaces-page')).toBeVisible()
+
+    await context.setOffline(true)
+    for (const route of routes) {
+      await page.goto(route.url, { waitUntil: 'domcontentloaded' })
+      await expect(page.locator(route.marker).first(), `${route.url} offline`).toBeVisible()
+    }
+  })
+
   test('owner and Grant navigation stay isolated in both online/offline orders', async ({
     page,
     context,
@@ -153,7 +216,11 @@ test.describe('Stage 1 PWA and offline cutover', () => {
     expect(await hydratedKeys(page)).toBeNull()
     expect(page.url()).toMatch(/\/library$/)
 
+    const ownerReconnect = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/files',
+    )
     await context.setOffline(false)
+    await ownerReconnect
     requests.length = 0
     await page.goto(shareUrl)
     await expect(page.getByText('public-doc.txt', { exact: true })).toBeVisible()

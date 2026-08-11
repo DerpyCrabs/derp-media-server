@@ -15,7 +15,7 @@ import { Match, Show, Switch, createEffect, createSignal, onCleanup } from 'soli
 import { Portal } from 'solid-js/web'
 
 const MENU_ROOT_CLASS =
-  'fixed min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
+  'fixed max-h-[calc(100dvh-1rem)] min-w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
 
 type Positioning =
   | { kind: 'pointer'; left: number; top: number }

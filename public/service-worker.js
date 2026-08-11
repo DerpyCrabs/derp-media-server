@@ -103,6 +103,16 @@ self.addEventListener('activate', (event) => {
   )
 })
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'derp-activate-update') self.skipWaiting()
+})
+
+async function notifyUpdateRequired(clientId) {
+  if (!clientId) return
+  const client = await self.clients.get(clientId)
+  client?.postMessage({ type: 'derp-update-required', buildId: BUILD_ID })
+}
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   if (url.origin !== self.location.origin || event.request.method !== 'GET') return
@@ -199,12 +209,9 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (!response.ok) throw new Error(`Navigation failed: ${response.status}`)
-          return response
-        })
-        .catch(async () => (await shellMatch('/offline-shell.html')) || Response.error()),
+      fetch(event.request).catch(
+        async () => (await shellMatch('/offline-shell.html')) || Response.error(),
+      ),
     )
     return
   }
@@ -221,6 +228,8 @@ self.addEventListener('fetch', (event) => {
         const response = await fetch(event.request)
         if (response.ok) {
           await (await caches.open(SHELL_CACHE)).put(url.pathname, response.clone())
+        } else if (response.status === 404 || response.status === 410) {
+          await notifyUpdateRequired(event.clientId)
         }
         return response
       }),

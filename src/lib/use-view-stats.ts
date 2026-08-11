@@ -21,9 +21,10 @@ export function useViewStats(
 
   const statsQuery = useQuery(() => ({
     queryKey: queryKeys.stats(),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api<{ views: Record<string, number>; shareViews: Record<string, number> }>(
         '/api/stats/views',
+        { signal },
       ),
     enabled: includeCounts && !shareToken(),
   }))

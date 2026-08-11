@@ -13,6 +13,7 @@ import X from 'lucide-solid/icons/x'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { closePlayer, setAudioOnly } from '../lib/url-state-actions'
 import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
+import { createOwnerPlaybackProgress } from '../lib/owner-playback-progress'
 
 type Props = {
   shareContext?: { token: string; sharePath: string } | null
@@ -23,6 +24,7 @@ const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 export function VideoPlayer(props: Props) {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
+  const playbackProgress = createOwnerPlaybackProgress(useVideoPlaybackTime.getState())
 
   const playingPath = createMemo(() => urlSearchParams().get('playing'))
 
@@ -60,16 +62,20 @@ export function VideoPlayer(props: Props) {
     const vid = videoEl()
     if (!path || !isVideoFile() || !vid || !url) return
 
-    useMediaPlayer.getState().setCurrentFile(path, 'video')
-
     const targetHref = new URL(url, window.location.origin).href
     const srcMismatch = vid.src !== targetHref
+    const current = useMediaPlayer.getState()
+    const storeTime =
+      current.currentFile === path && current.mediaType === 'video' ? current.currentTime : 0
+    if (srcMismatch) {
+      releasePlaybackTime(vid)
+      vid.pause()
+    }
+    useMediaPlayer.getState().setCurrentFile(path, 'video')
 
     const finish = () => {
-      const st = useMediaPlayer.getState()
-      const storeT = st.currentFile === path && st.mediaType === 'video' ? st.currentTime : 0
-      const savedT = useVideoPlaybackTime.getState().getSavedTime(path) ?? 0
-      const t = storeT > 0 ? storeT : savedT
+      const savedTime = playbackProgress.load(path, props.shareContext ? 'grant' : 'owner') ?? 0
+      const t = storeTime > 0 ? storeTime : savedTime
       if (t > 0) {
         try {
           vid.currentTime = t
@@ -90,7 +96,6 @@ export function VideoPlayer(props: Props) {
       }
       vid.addEventListener('canplay', onCanPlay)
       vid.addEventListener('error', onCanPlay)
-      vid.pause()
       vid.src = targetHref
       vid.load()
     } else {
@@ -108,6 +113,7 @@ export function VideoPlayer(props: Props) {
     const vid = videoEl()
     if (!path || !isVideoFile()) {
       if (vid) {
+        releasePlaybackTime(vid)
         vid.pause()
         vid.removeAttribute('src')
         vid.load()
@@ -138,6 +144,7 @@ export function VideoPlayer(props: Props) {
     const path = playingPath()
     if (!path) return
     if (vid) {
+      releasePlaybackTime(vid)
       vid.pause()
       useMediaPlayer.getState().setCurrentTime(vid.currentTime)
     }
@@ -149,6 +156,7 @@ export function VideoPlayer(props: Props) {
   function handleClose() {
     const vid = videoEl()
     if (vid) {
+      releasePlaybackTime(vid)
       vid.pause()
       vid.removeAttribute('src')
       vid.load()
@@ -158,15 +166,22 @@ export function VideoPlayer(props: Props) {
   }
 
   function persistPlaybackTime(video: HTMLVideoElement) {
-    const path = playingPath()
-    if (!path || !Number.isFinite(video.duration) || video.duration <= 0) return
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return
     useMediaPlayer.getState().setCurrentTime(video.currentTime)
-    useVideoPlaybackTime.getState().saveTime(path, video.currentTime, video.duration)
+    playbackProgress.save(video.currentTime, video.duration)
+  }
+
+  function releasePlaybackTime(video: HTMLVideoElement) {
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      useMediaPlayer.getState().setCurrentTime(video.currentTime)
+    }
+    playbackProgress.release(video.currentTime, video.duration)
   }
 
   onCleanup(() => {
     const vid = videoEl()
     if (vid) {
+      releasePlaybackTime(vid)
       vid.pause()
       vid.removeAttribute('src')
       vid.load()

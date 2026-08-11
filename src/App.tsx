@@ -2,14 +2,15 @@ import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { useMutation, useQuery } from '@tanstack/solid-query'
 import {
+  ErrorBoundary,
   Match,
   Show,
-  Suspense,
   Switch,
   createEffect,
   createMemo,
   createSignal,
   lazy,
+  onCleanup,
   onMount,
   type Accessor,
 } from 'solid-js'
@@ -22,7 +23,7 @@ import { ThemeSwitcher } from './ThemeSwitcher'
 import type { AuthConfig } from './file-browser/types'
 import { shareOfflineJobScope } from './lib/offline-job-observer'
 import { recentLocationFromUrl, recordRecentOwnerLocation } from './lib/recent-owner-locations'
-import { navigate, parseRoute, type AppRoute } from './lib/routes'
+import { hrefFor, navigate, parseRoute, type AppRoute } from './lib/routes'
 import { captureSharePasscodeFromLocation } from './lib/share-url'
 import { OwnerShell, type OwnerSurface } from './owner/OwnerShell'
 
@@ -117,7 +118,7 @@ function NotFoundPage() {
         <h1 class='mt-1 text-2xl font-semibold'>Page not found</h1>
         <p class='text-muted-foreground mt-2 text-sm'>This Derp Desk route does not exist.</p>
         <a
-          href='/library'
+          href={hrefFor({ kind: 'library' })}
           class='bg-primary text-primary-foreground mt-5 inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium'
         >
           Open Library
@@ -132,6 +133,188 @@ function LoadingSurface() {
     <div class='flex min-h-40 items-center justify-center p-6'>
       <p class='text-muted-foreground text-sm'>Loading…</p>
     </div>
+  )
+}
+
+async function activateWaitingWorkerAndReload() {
+  const registration = await navigator.serviceWorker?.getRegistration()
+  if (!registration?.waiting) return false
+  let fallback: number | undefined
+  const reload = () => {
+    if (fallback !== undefined) window.clearTimeout(fallback)
+    window.location.reload()
+  }
+  navigator.serviceWorker.addEventListener('controllerchange', reload, { once: true })
+  registration.waiting.postMessage({ type: 'derp-activate-update' })
+  fallback = window.setTimeout(reload, 2_000)
+  return true
+}
+
+function observeWaitingWorker(onChange: (available: boolean) => void) {
+  const serviceWorker = navigator.serviceWorker
+  if (!serviceWorker) {
+    onChange(false)
+    return () => {}
+  }
+
+  let disposed = false
+  let registration: ServiceWorkerRegistration | undefined
+  let installing: ServiceWorker | null = null
+  const readWaiting = () => {
+    if (!disposed) onChange(!!registration?.waiting)
+  }
+  const watchInstalling = () => {
+    installing?.removeEventListener('statechange', readWaiting)
+    installing = registration?.installing ?? null
+    installing?.addEventListener('statechange', readWaiting)
+    readWaiting()
+  }
+
+  void serviceWorker.getRegistration().then(
+    (current) => {
+      if (disposed) return
+      registration = current
+      registration?.addEventListener('updatefound', watchInstalling)
+      watchInstalling()
+    },
+    () => readWaiting(),
+  )
+  serviceWorker.addEventListener('controllerchange', readWaiting)
+
+  return () => {
+    disposed = true
+    installing?.removeEventListener('statechange', readWaiting)
+    registration?.removeEventListener('updatefound', watchInstalling)
+    serviceWorker.removeEventListener('controllerchange', readWaiting)
+  }
+}
+
+function UpdateRequiredNotice() {
+  const [required, setRequired] = createSignal(false)
+  const [waiting, setWaiting] = createSignal(false)
+
+  onMount(() => {
+    const receive = (event: MessageEvent) => {
+      if (event.data?.type !== 'derp-update-required') return
+      setRequired(true)
+      void navigator.serviceWorker
+        ?.getRegistration()
+        .then((registration) => registration?.update())
+        .catch(() => {})
+    }
+    const stopWaiting = observeWaitingWorker((available) => {
+      setWaiting(available)
+      if (available) setRequired(true)
+    })
+    navigator.serviceWorker?.addEventListener('message', receive)
+    onCleanup(() => {
+      stopWaiting()
+      navigator.serviceWorker?.removeEventListener('message', receive)
+    })
+  })
+
+  return (
+    <Show when={required()}>
+      <aside
+        class='bg-card fixed right-3 bottom-3 z-[100050] max-w-sm rounded-xl border border-border p-4 shadow-xl'
+        role='alert'
+        data-testid='pwa-update-required'
+      >
+        <p class='font-semibold'>
+          {waiting() ? 'Derp Desk update ready' : 'Feature update needed'}
+        </p>
+        <p class='text-muted-foreground mt-1 text-sm'>
+          {waiting()
+            ? 'Apply installed update before opening this feature.'
+            : 'Open Library while Derp Desk checks for updated feature files.'}
+        </p>
+        <Show
+          when={waiting()}
+          fallback={
+            <a
+              href={hrefFor({ kind: 'library' })}
+              class='bg-primary text-primary-foreground mt-3 inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium'
+            >
+              Open Library
+            </a>
+          }
+        >
+          <button
+            type='button'
+            class='bg-primary text-primary-foreground mt-3 min-h-11 rounded-md px-4 text-sm font-medium'
+            onClick={() => void activateWaitingWorkerAndReload()}
+          >
+            Update and reload
+          </button>
+        </Show>
+      </aside>
+    </Show>
+  )
+}
+
+function RouteLoadFailure() {
+  const [waiting, setWaiting] = createSignal(false)
+  const [online, setOnline] = createSignal(navigator.onLine)
+
+  onMount(() => {
+    const syncOnline = () => setOnline(navigator.onLine)
+    const stopWaiting = observeWaitingWorker(setWaiting)
+    window.addEventListener('online', syncOnline)
+    window.addEventListener('offline', syncOnline)
+    onCleanup(() => {
+      stopWaiting()
+      window.removeEventListener('online', syncOnline)
+      window.removeEventListener('offline', syncOnline)
+    })
+  })
+
+  return (
+    <main
+      class='flex min-h-screen items-center justify-center p-4'
+      data-testid='route-load-failure'
+    >
+      <div class='bg-card max-w-md rounded-xl border border-border p-6 text-center shadow-sm'>
+        <h1 class='text-xl font-semibold'>
+          {waiting() ? 'Derp Desk update ready' : 'Feature unavailable'}
+        </h1>
+        <p class='text-muted-foreground mt-2 text-sm'>
+          {waiting()
+            ? 'Apply installed update, then Derp Desk can load this feature safely.'
+            : online()
+              ? 'Open Library or retry this feature.'
+              : 'Open Library now. Reconnect before retrying this feature.'}
+        </p>
+        <Show
+          when={waiting()}
+          fallback={
+            <div class='mt-4 flex flex-wrap justify-center gap-2'>
+              <a
+                href={hrefFor({ kind: 'library' })}
+                class='bg-primary text-primary-foreground inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium'
+              >
+                Open Library
+              </a>
+              <button
+                type='button'
+                class='border-border bg-card min-h-11 rounded-md border px-4 text-sm font-medium disabled:opacity-50'
+                disabled={!online()}
+                onClick={() => window.location.reload()}
+              >
+                Retry after reconnect
+              </button>
+            </div>
+          }
+        >
+          <button
+            type='button'
+            class='bg-primary text-primary-foreground mt-4 min-h-11 rounded-md px-4 text-sm font-medium'
+            onClick={() => void activateWaitingWorkerAndReload()}
+          >
+            Update and reload
+          </button>
+        </Show>
+      </div>
+    </main>
   )
 }
 
@@ -169,7 +352,7 @@ function navigateHref(href: string) {
 
 function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
   return (
-    <Suspense fallback={<LoadingSurface />}>
+    <>
       <Switch fallback={<FileBrowser />}>
         <Match when={props.route().kind === 'home'}>
           <HomePage />
@@ -201,7 +384,7 @@ function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
           <ReaderDialog sourcePath={sourcePath} sourceKind={props.route().query.readerKind} />
         )}
       </Show>
-    </Suspense>
+    </>
   )
 }
 
@@ -209,21 +392,19 @@ function LegacyOwnerRoutes(props: { route: Accessor<AppRoute> }) {
   return (
     <>
       <OfflineStatus />
-      <Suspense fallback={<LoadingSurface />}>
-        <Switch fallback={<FileBrowser forceOffline={props.route().query.offline} />}>
-          <Match when={props.route().kind === 'workspace'}>
-            <WorkspacePage />
-          </Match>
-          <Match when={props.route().kind === 'canvas'}>
-            <CanvasPage />
-          </Match>
-        </Switch>
-        <Show when={props.route().query.reader} keyed>
-          {(sourcePath) => (
-            <ReaderDialog sourcePath={sourcePath} sourceKind={props.route().query.readerKind} />
-          )}
-        </Show>
-      </Suspense>
+      <Switch fallback={<FileBrowser forceOffline={props.route().query.offline} />}>
+        <Match when={props.route().kind === 'workspace'}>
+          <WorkspacePage />
+        </Match>
+        <Match when={props.route().kind === 'canvas'}>
+          <CanvasPage />
+        </Match>
+      </Switch>
+      <Show when={props.route().query.reader} keyed>
+        {(sourcePath) => (
+          <ReaderDialog sourcePath={sourcePath} sourceKind={props.route().query.readerKind} />
+        )}
+      </Show>
     </>
   )
 }
@@ -234,10 +415,19 @@ function OwnerApplication(props: { route: Accessor<AppRoute> }) {
   )
   const authQuery = useQuery(() => ({
     queryKey: queryKeys.authConfig(),
-    queryFn: () => api<AuthConfig>('/api/auth/config'),
+    queryFn: ({ signal }) => api<AuthConfig>('/api/auth/config', { signal }),
     staleTime: Infinity,
   }))
   const newShell = () => authQuery.data?.newShell ?? cachedNewShell()
+  const immersive = () => {
+    const route = props.route()
+    return (
+      route.kind === 'workspace' ||
+      route.kind === 'canvas' ||
+      !!route.query.viewing ||
+      !!route.query.reader
+    )
+  }
 
   createEffect(() => {
     const value = authQuery.data?.newShell
@@ -262,7 +452,11 @@ function OwnerApplication(props: { route: Accessor<AppRoute> }) {
 
   return (
     <Show when={newShell()} fallback={<LegacyOwnerRoutes route={props.route} />}>
-      <OwnerShell active={ownerSurface(props.route())} navigate={navigateHref}>
+      <OwnerShell
+        active={ownerSurface(props.route())}
+        immersive={immersive()}
+        navigate={navigateHref}
+      >
         <OfflineStatus />
         <OwnerRouteContent route={props.route} />
       </OwnerShell>
@@ -294,33 +488,36 @@ export function App() {
     <>
       <SolidThemeSync />
       <GlobalForbiddenToast />
-      <Switch fallback={<NotFoundPage />}>
-        <Match when={route().kind === 'login'}>
-          <LoginPage />
-        </Match>
-        <Match when={shareWorkspaceToken()} keyed>
-          {(token) => (
-            <Suspense fallback={<LoadingSurface />}>
-              <OfflineStatus scope={shareOfflineJobScope(token)} />
-              <ShareWorkspacePage token={token} />
-            </Suspense>
-          )}
-        </Match>
-        <Match when={shareToken()} keyed>
-          {(token) => (
-            <Suspense fallback={<LoadingSurface />}>
-              <OfflineStatus scope={shareOfflineJobScope(token)} />
-              <ShareRoute token={token} />
-            </Suspense>
-          )}
-        </Match>
-        <Match when={isOwnerRoute(route())}>
-          <OwnerApplication route={route} />
-        </Match>
-        <Match when={route().kind === 'notFound'}>
-          <NotFoundPage />
-        </Match>
-      </Switch>
+      <UpdateRequiredNotice />
+      <ErrorBoundary fallback={<RouteLoadFailure />}>
+        <Switch fallback={<NotFoundPage />}>
+          <Match when={route().kind === 'login'}>
+            <LoginPage />
+          </Match>
+          <Match when={shareWorkspaceToken()} keyed>
+            {(token) => (
+              <>
+                <OfflineStatus scope={shareOfflineJobScope(token)} />
+                <ShareWorkspacePage token={token} />
+              </>
+            )}
+          </Match>
+          <Match when={shareToken()} keyed>
+            {(token) => (
+              <>
+                <OfflineStatus scope={shareOfflineJobScope(token)} />
+                <ShareRoute token={token} />
+              </>
+            )}
+          </Match>
+          <Match when={isOwnerRoute(route())}>
+            <OwnerApplication route={route} />
+          </Match>
+          <Match when={route().kind === 'notFound'}>
+            <NotFoundPage />
+          </Match>
+        </Switch>
+      </ErrorBoundary>
     </>
   )
 }

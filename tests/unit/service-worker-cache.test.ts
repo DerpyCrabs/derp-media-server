@@ -171,7 +171,8 @@ test('service worker keeps old controlled clients on old build until normal acti
   expect(source).toContain("const BUILD_ID = /* __BUILD_ID__ */ 'development'")
   expect(source).toContain('const SHELL_CACHE = `derp-shell-${BUILD_ID}`')
   expect(install).not.toContain('skipWaiting')
-  expect(source).not.toContain('skipWaiting')
+  expect(source).toContain("event.data?.type === 'derp-activate-update'")
+  expect(source).toContain('self.skipWaiting()')
   expect(source).toContain('self.clients.claim()')
   expect(source).toContain("key.startsWith('derp-shell-') && key !== SHELL_CACHE")
 })
@@ -184,11 +185,47 @@ test('service worker never runtime-caches navigation HTML or arbitrary responses
   )
 
   expect(navigation).toContain("shellMatch('/offline-shell.html')")
+  expect(navigation).toContain('fetch(event.request).catch(')
+  expect(navigation).not.toContain('response.ok')
   expect(navigation).not.toContain('cache.put')
   expect(source).not.toContain("cache.put('/index.html'")
   expect(source).not.toContain("if (!url.pathname.startsWith('/api/'))")
   expect(source).toContain('if (OPTIONAL.includes(url.pathname))')
+  expect(source).toContain('notifyUpdateRequired(event.clientId)')
   expect(source).not.toContain('caches.match(')
+})
+
+test('ordinary offline optional misses do not masquerade as stale-build updates', () => {
+  const source = fs.readFileSync(path.resolve('public/service-worker.js'), 'utf8')
+  const optional = source.slice(source.indexOf('if (OPTIONAL.includes(url.pathname))'))
+
+  expect(optional).toContain('response.status === 404 || response.status === 410')
+  expect(optional).toContain('notifyUpdateRequired(event.clientId)')
+  expect(optional).not.toContain('catch (error)')
+})
+
+test('route-load recovery reloads only through an installed waiting worker', () => {
+  const source = fs.readFileSync(path.resolve('src/App.tsx'), 'utf8')
+  const activate = source.slice(
+    source.indexOf('async function activateWaitingWorkerAndReload'),
+    source.indexOf('function UpdateRequiredNotice'),
+  )
+  const fallback = source.slice(
+    source.indexOf('function RouteLoadFailure'),
+    source.indexOf('function AssistantRedirect'),
+  )
+  const notice = source.slice(
+    source.indexOf('function UpdateRequiredNotice'),
+    source.indexOf('function RouteLoadFailure'),
+  )
+
+  expect(activate).toContain('if (!registration?.waiting) return false')
+  expect(activate).not.toContain('window.location.reload()\n    return')
+  expect(notice).toContain('observeWaitingWorker')
+  expect(notice).toContain('if (available) setRequired(true)')
+  expect(fallback).toContain("href={hrefFor({ kind: 'library' })}")
+  expect(fallback).toContain('navigator.onLine')
+  expect(fallback).toContain('Update and reload')
 })
 
 test('service worker preserves offline database and Grant media compatibility identifiers', () => {

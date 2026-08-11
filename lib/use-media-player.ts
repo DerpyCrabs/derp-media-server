@@ -130,7 +130,15 @@ function toggleRepeat() {
 }
 
 function setShareContext(token: string, path: string) {
+  const scopeChanged = store.shareToken !== token || store.sharePath !== path
   batch(() => {
+    if (scopeChanged) {
+      setStore('currentFile', null)
+      setStore('mediaType', null)
+      setStore('isPlaying', false)
+      setStore('currentTime', 0)
+      setStore('duration', 0)
+    }
     setStore('shareToken', token)
     setStore('sharePath', path)
   })
@@ -139,6 +147,13 @@ function setShareContext(token: string, path: string) {
 
 function clearShareContext() {
   batch(() => {
+    if (store.shareToken !== null) {
+      setStore('currentFile', null)
+      setStore('mediaType', null)
+      setStore('isPlaying', false)
+      setStore('currentTime', 0)
+      setStore('duration', 0)
+    }
     setStore('shareToken', null)
     setStore('sharePath', null)
   })

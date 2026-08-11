@@ -1,3 +1,6 @@
+import { getMediaTypeFromPath } from '@/lib/media-utils'
+import { MediaType } from '@/lib/types'
+
 export type RouteKind =
   | 'login'
   | 'home'
@@ -196,6 +199,17 @@ export function hrefFor(target: RouteTarget | AppRoute, query?: RouteQuery): str
   if (query) appendQuery(params, query)
   const search = params.toString()
   return `${targetPath(target)}${search ? `?${search}` : ''}`
+}
+
+/** Generate a compatible Library destination that opens playable media in player chrome. */
+export function hrefForLibraryFile(path: string): string {
+  const mediaType = getMediaTypeFromPath(path)
+  return hrefFor(
+    { kind: 'library' },
+    mediaType === MediaType.AUDIO || mediaType === MediaType.VIDEO
+      ? { playing: path }
+      : { viewing: path },
+  )
 }
 
 function browserNavigation(): NavigationAdapter {

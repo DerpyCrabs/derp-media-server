@@ -225,7 +225,7 @@ test.describe('Workspace taskbar pins', () => {
     await createTempFile(page, contentA, tempFile)
 
     const fileRow = contentA.locator('tr').filter({ hasText: tempFile })
-    await fileRow.dispatchEvent('contextmenu')
+    await fileRow.click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Add to taskbar').click()
 
     const pinTitle = `File: SharedContent/${tempFile}`

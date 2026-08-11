@@ -30,6 +30,13 @@ export function ThemeSwitcher(props: Props) {
     const viewport = window.visualViewport
     const viewportTop = viewport?.offsetTop ?? 0
     const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight)
+    const ownerPhoneNav = ownerActions()
+      ? document.querySelector<HTMLElement>('[data-testid="owner-phone-nav"]')
+      : null
+    const availableBottom = Math.min(
+      viewportBottom,
+      ownerPhoneNav?.getBoundingClientRect().top ?? viewportBottom,
+    )
     const top = Math.max(viewportTop + 8, rect.bottom + 4)
     const bottom = Math.max(
       window.innerHeight - viewportBottom + 8,
@@ -42,7 +49,7 @@ export function ThemeSwitcher(props: Props) {
       maxHeight:
         variant() === 'floating'
           ? Math.max(1, rect.top - viewportTop - 12)
-          : Math.max(1, viewportBottom - top - 8),
+          : Math.max(1, availableBottom - top - 8),
     })
   }
 

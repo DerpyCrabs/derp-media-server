@@ -3,6 +3,7 @@ import path from 'node:path'
 import { gzipSync } from 'node:zlib'
 import budgets from '../stage1-performance-budgets.json'
 import type { BuildAssetPlan, ViteManifest } from './service-worker-assets'
+import { assertStage1RootModuleIsolation } from './stage1-module-graph'
 
 type ByteMetrics = {
   rootEntryRawBytes: number
@@ -40,19 +41,6 @@ function staticClosure(manifest: ViteManifest, entryKey: string): string[] {
   }
   visit(entryKey)
   return [...files]
-}
-
-function staticChunkKeys(manifest: ViteManifest, entryKey: string): string[] {
-  const visited = new Set<string>()
-  const visit = (key: string) => {
-    if (visited.has(key)) return
-    visited.add(key)
-    const chunk = manifest[key]
-    if (!chunk) throw new Error(`Vite manifest references missing chunk: ${key}`)
-    for (const imported of chunk.imports ?? []) visit(imported)
-  }
-  visit(entryKey)
-  return [...visited]
 }
 
 function generatedConstant<T>(source: string, name: string): T {
@@ -130,15 +118,19 @@ export function measureStage1Build(root = path.resolve('dist/client')): ByteMetr
   const entry = Object.entries(manifest).find(([, chunk]) => chunk.isEntry)
   if (!entry) throw new Error('Vite entry missing from manifest')
 
-  const forbiddenRootSource =
-    /(?:WorkspacePage|CanvasPage|Hermes|ReaderDialog|PdfViewer|BookViewer|MarkdownDocument|TextViewerDialog|Editor|SettingsPage|MountsDialog|OfflineManager)/i
-  const rootLeaks = staticChunkKeys(manifest, entry[0]).filter((key) => {
-    const chunk = manifest[key]
-    return forbiddenRootSource.test(normalizedSource(key, chunk?.src))
-  })
-  if (rootLeaks.length > 0) {
-    throw new Error(`Desktop or renderer implementation leaked into root closure: ${rootLeaks}`)
-  }
+  const forbiddenRootSource = new RegExp(
+    [
+      'src/(?:WorkspacePage|CanvasPage|SettingsPage|MountsDialog)\\.tsx',
+      'src/workspace/Hermes[^/]*\\.tsx',
+      'src/reader/(?:ReaderDialog|ReaderOutline|ReaderSelectionMenu|BookContent|MarkdownContent|book-[^/]+)\\.(?:ts|tsx)',
+      'src/media/(?:PdfViewerDialog|MarkdownDocument|TextViewerDialog|ImageViewerDialog|UnsupportedFileViewerDialog)\\.tsx',
+      'src/media/markdown/(?!types\\.ts)',
+      'src/file-browser/IconEditorDialog\\.tsx',
+      'src/offline/OfflineManager\\.tsx',
+    ].join('|'),
+    'i',
+  )
+  assertStage1RootModuleIsolation(root, manifest, entry[0], forbiddenRootSource)
 
   const entryMetrics = fileMetrics(root, [entry[1].file])
   const eagerMetrics = fileMetrics(root, staticClosure(manifest, entry[0]))

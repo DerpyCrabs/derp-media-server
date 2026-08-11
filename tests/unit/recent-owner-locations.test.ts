@@ -20,6 +20,8 @@ describe('recent owner locations', () => {
     const storage = memoryStorage(
       JSON.stringify([
         { kind: 'library', href: '//evil.test', label: 'bad', visitedAt: 3 },
+        { kind: 'library', href: '/\\evil.test', label: 'backslash', visitedAt: 4 },
+        { kind: 'library', href: '/library\u0000', label: 'control', visitedAt: 5 },
         { kind: 'canvas', href: '/canvas', label: 'Canvas', visitedAt: 2 },
         null,
       ]),

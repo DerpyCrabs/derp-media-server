@@ -4,19 +4,24 @@ import type { FileItem } from '@/lib/types'
 import type { Accessor } from 'solid-js'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import type { VirtualCapability, VirtualEntry } from '@/lib/virtual-directory'
-import { For, Show } from 'solid-js'
+import { For, Show, lazy } from 'solid-js'
 import type { BreadcrumbMenuTarget } from '../file-browser/BreadcrumbContextMenu'
 import { BreadcrumbContextMenu } from '../file-browser/BreadcrumbContextMenu'
 import { DeleteFileDialog } from '../file-browser/DeleteFileDialog'
 import { modalDialogBackdropClass } from '../file-browser/modal-overlay-scope'
 import { FileRowContextMenu } from '../file-browser/FileRowContextMenu'
-import { IconEditorDialog } from '../file-browser/IconEditorDialog'
 import { MoveToDialog } from '../file-browser/MoveToDialog'
 import { PasteDialog } from '../file-browser/PasteDialog'
 import { RenameDialog } from '../file-browser/RenameDialog'
 import { ShareDialog } from '../file-browser/ShareDialog'
 import type { UploadToastState } from '../file-browser/types'
 import { UploadToastStack } from '../file-browser/UploadToastStack'
+
+const IconEditorDialog = lazy(() =>
+  import('../file-browser/IconEditorDialog').then((module) => ({
+    default: module.IconEditorDialog,
+  })),
+)
 
 type BreadcrumbMenuActions = {
   showOpenInNewTab: boolean
@@ -148,21 +153,23 @@ export type WorkspaceBrowserModalLayerProps = {
 export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProps) {
   return (
     <>
-      <IconEditorDialog
-        overlayScope='window'
-        isOpen={!!props.iconEditTarget()}
-        fileName={props.iconEditTarget()?.name ?? ''}
-        currentIcon={
-          props.iconEditTarget()
-            ? (props.workspaceCustomIcons()[props.iconEditTarget()!.path] ??
-              props.workspaceCustomIcons()[props.iconEditTarget()!.path.replace(/\\/g, '/')] ??
-              null)
-            : null
-        }
-        onClose={() => props.setIconEditTarget(null)}
-        onSave={props.onSaveWorkspaceCustomIcon}
-        isPending={props.setCustomIconPending || props.removeCustomIconPending}
-      />
+      <Show when={props.iconEditTarget()}>
+        <IconEditorDialog
+          overlayScope='window'
+          isOpen
+          fileName={props.iconEditTarget()?.name ?? ''}
+          currentIcon={
+            props.iconEditTarget()
+              ? (props.workspaceCustomIcons()[props.iconEditTarget()!.path] ??
+                props.workspaceCustomIcons()[props.iconEditTarget()!.path.replace(/\\/g, '/')] ??
+                null)
+              : null
+          }
+          onClose={() => props.setIconEditTarget(null)}
+          onSave={props.onSaveWorkspaceCustomIcon}
+          isPending={props.setCustomIconPending || props.removeCustomIconPending}
+        />
+      </Show>
       <BreadcrumbContextMenu
         target={props.breadcrumbMenu}
         onDismiss={() => props.setBreadcrumbMenu(null)}

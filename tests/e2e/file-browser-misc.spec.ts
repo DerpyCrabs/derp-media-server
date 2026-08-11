@@ -68,7 +68,17 @@ test.describe('File browser misc', () => {
     await expect(menu).not.toBeVisible()
     await page.getByRole('button', { name: 'Open theme settings' }).click()
     await page.getByRole('button', { name: 'Media directories' }).click()
-    await expect(page.getByRole('dialog', { name: 'Media directories' })).toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Media directories' })
+    await expect(dialog).toBeVisible()
+    const stacking = {
+      modal: await dialog.evaluate((element) =>
+        Number(getComputedStyle(element.parentElement!).zIndex),
+      ),
+      navigation: await page
+        .getByTestId('owner-phone-nav')
+        .evaluate((element) => Number(getComputedStyle(element).zIndex)),
+    }
+    expect(stacking.modal).toBeGreaterThan(stacking.navigation)
   })
 
   test('dismisses share dialog with Escape', async ({ page }) => {

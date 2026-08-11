@@ -374,12 +374,13 @@ export function CanvasPage() {
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
+    queryFn: ({ signal }) => api<GlobalSettings>('/api/settings', { signal }),
     staleTime: Infinity,
   }))
   const authQuery = useQuery(() => ({
     queryKey: queryKeys.authConfig(),
-    queryFn: () => api<{ enabled: boolean; editableFolders: string[] }>('/api/auth/config'),
+    queryFn: ({ signal }) =>
+      api<{ enabled: boolean; editableFolders: string[] }>('/api/auth/config', { signal }),
     staleTime: Infinity,
   }))
   const editableFolders = createMemo(() => authQuery.data?.editableFolders ?? [])

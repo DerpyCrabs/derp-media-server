@@ -16,6 +16,7 @@ import VolumeX from 'lucide-solid/icons/volume-x'
 import { Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
+import { createOwnerPlaybackProgress } from '../lib/owner-playback-progress'
 import {
   buildAudioExtractUrl,
   buildAudioMetadataUrl,
@@ -48,6 +49,7 @@ async function fetchAudioMetadata(url: string): Promise<{
 export function AudioPlayer(props: Props) {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
+  const playbackProgress = createOwnerPlaybackProgress(useVideoPlaybackTime.getState())
 
   const shareCtx = createMemo((): MediaShareContext => {
     const c = props.shareContext
@@ -298,11 +300,8 @@ export function AudioPlayer(props: Props) {
 
     const onTimeUpdate = () => {
       useMediaPlayer.getState().setCurrentTime(audio.currentTime)
-      const path = playingPath()
       const dd = displayDuration()
-      if (path && dd > 0) {
-        useVideoPlaybackTime.getState().saveTime(path, audio.currentTime, dd)
-      }
+      if (dd > 0) playbackProgress.save(audio.currentTime, dd)
       if ('mediaSession' in navigator && Number.isFinite(audio.duration) && !audio.paused) {
         navigator.mediaSession.setPositionState?.({
           duration: audio.duration,
@@ -341,6 +340,7 @@ export function AudioPlayer(props: Props) {
     }
 
     const onPause = () => {
+      playbackProgress.save(audio.currentTime, displayDuration())
       if (audio.ended && useMediaPlayer.getState().isRepeat) {
         return
       }
@@ -415,6 +415,7 @@ export function AudioPlayer(props: Props) {
 
     if (shouldHandleAudio() && !videoVisual) return
     if (!audio.src) return
+    playbackProgress.release(audio.currentTime, audio.duration)
     audio.pause()
     audio.removeAttribute('src')
     audio.load()
@@ -440,22 +441,28 @@ export function AudioPlayer(props: Props) {
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     const mp = useMediaPlayer.getState()
-    const isSameFile = mp.currentFile === path
-    const storedTime = untrack(() => mp.currentTime)
-    const vidFile = isVideoFile()
-    const savedTime = untrack(() => useVideoPlaybackTime.getState().getSavedTime(path))
-    const timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
+    const isSameFile = mp.currentFile === path && mp.mediaType === 'audio'
+    const storedTime = isSameFile ? untrack(() => mp.currentTime) : 0
 
     if (mp.currentFile !== path || mp.mediaType !== 'audio') {
       useMediaPlayer.getState().setCurrentFile(path, 'audio')
     }
 
-    const restoreSeek = (isSameFile || savedTime !== null) && timeToRestore > 0
-
     const syncPlayPauseToStore = () => {
       const playing = useMediaPlayer.getState().isPlaying
       if (playing && el.paused) void el.play().catch(() => {})
       else if (!playing && !el.paused) el.pause()
+    }
+
+    let timeToRestore = 0
+    let restoreSeek = false
+
+    const selectLoadedSource = () => {
+      const savedTime = untrack(() =>
+        playbackProgress.load(path, props.shareContext ? 'grant' : 'owner'),
+      )
+      timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
+      restoreSeek = (isSameFile || savedTime !== null) && timeToRestore > 0
     }
 
     const applyInitialSeekAndPlayState = () => {
@@ -508,6 +515,7 @@ export function AudioPlayer(props: Props) {
       srcMatches && el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !el.error
 
     if (srcAlreadyUsable) {
+      selectLoadedSource()
       pendingSeek = false
       if (restoreSeek) {
         const drift = Math.abs(el.currentTime - timeToRestore)
@@ -524,7 +532,9 @@ export function AudioPlayer(props: Props) {
       return
     }
 
-    pendingSeek = restoreSeek
+    playbackProgress.release(el.currentTime, el.duration)
+    el.pause()
+    pendingSeek = true
     srcLoadGenRef.current += 1
     const token = srcLoadGenRef.current
 
@@ -532,13 +542,13 @@ export function AudioPlayer(props: Props) {
       el.removeEventListener('canplay', onCanPlay)
       el.removeEventListener('error', onCanPlay)
       if (token !== srcLoadGenRef.current) return
+      selectLoadedSource()
       pendingSeek = false
       applyInitialSeekAndPlayState()
     }
 
     el.addEventListener('canplay', onCanPlay)
     el.addEventListener('error', onCanPlay)
-    el.pause()
     el.src = mediaUrl
     el.load()
 
@@ -609,19 +619,22 @@ export function AudioPlayer(props: Props) {
     const path = playingPath()
     if (!path) return
     const t = audio ? audio.currentTime : useMediaPlayer.getState().currentTime
+    const d = audio ? audio.duration : useMediaPlayer.getState().duration
+    if (isVideoFile()) playbackProgress.release(t, d)
     if (audio) {
       audio.pause()
       audio.removeAttribute('src')
       audio.load()
     }
-    const d = useMediaPlayer.getState().duration
-    if (isVideoFile() && d > 0) {
-      useVideoPlaybackTime.getState().saveTime(path, t, d)
-    }
     useMediaPlayer.getState().setCurrentTime(t)
     setAudioOnly(false)
     useMediaPlayer.getState().setCurrentFile(path, 'video')
   }
+
+  onCleanup(() => {
+    const audio = audioEl()
+    if (audio) playbackProgress.release(audio.currentTime, audio.duration)
+  })
 
   function handleSeek(value: number) {
     const audio = audioEl()

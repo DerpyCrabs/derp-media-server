@@ -272,6 +272,7 @@ test.describe('Using Shares', () => {
       })
       expect(editableResponse.ok()).toBe(true)
       await page.goto(shareUrl)
+      await expect(page.locator('[data-testid="markdown-document"]')).toBeVisible()
 
       const uploadResponse = await page.request.post(`/api/share/${token}/upload-image`, {
         data: {
@@ -350,6 +351,7 @@ test.describe('Using Shares', () => {
       })
       token = getShareToken(shareUrl)
       await page.goto(shareUrl)
+      await expect(page.locator('table').getByText(fileName, { exact: true })).toBeVisible()
 
       const relativeCollision = await page.request.get(
         `/api/share/${token}/media/Notes/images/${imageName}`,
@@ -477,6 +479,103 @@ test.describe('Using Shares', () => {
     await page.goto(folderShareUrl)
     await page.getByText('public-video.mp4').click()
     await expect(page.locator('video')).toBeVisible()
+  })
+
+  test('Grant players ignore owner legacy resume positions', async ({ page }) => {
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('grant-resume-seeded')) {
+        localStorage.setItem(
+          'video-playback-times',
+          JSON.stringify({
+            state: {
+              playbackTimes: {
+                'SharedContent/public-video.mp4': 0.75,
+                'SharedContent/track.mp3': 0.65,
+              },
+            },
+            version: 0,
+          }),
+        )
+        sessionStorage.setItem('grant-resume-seeded', '1')
+      }
+      HTMLMediaElement.prototype.play = () => Promise.resolve()
+    })
+
+    await page.goto(folderShareUrl)
+    await page.getByText('public-video.mp4', { exact: true }).click()
+    const video = page.locator('video').first()
+    await expect
+      .poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState >= 2))
+      .toBe(true)
+    expect(await video.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeLessThan(
+      0.2,
+    )
+
+    await page.getByRole('button', { name: 'Close player' }).click()
+    await page.getByText('track.mp3', { exact: true }).click()
+    const audio = page.locator('audio').first()
+    await expect
+      .poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState >= 2))
+      .toBe(true)
+    expect(await audio.evaluate((element: HTMLAudioElement) => element.currentTime)).toBeLessThan(
+      0.2,
+    )
+  })
+
+  test('Grant progress never enters owner Continue history', async ({ page }) => {
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('owner-resume-seeded')) {
+        localStorage.setItem(
+          'video-playback-times',
+          JSON.stringify({
+            state: { playbackTimes: { 'Videos/sample.mp4': 0.5 } },
+            version: 0,
+          }),
+        )
+        sessionStorage.setItem('owner-resume-seeded', '1')
+      }
+      HTMLMediaElement.prototype.play = () => Promise.resolve()
+    })
+
+    await page.goto(folderShareUrl)
+    await page.getByText('public-video.mp4', { exact: true }).click()
+    const video = page.locator('video').first()
+    await expect
+      .poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState >= 2))
+      .toBe(true)
+    await video.evaluate((element: HTMLVideoElement) => {
+      element.currentTime = 0.8
+      element.dispatchEvent(new Event('timeupdate'))
+      element.dispatchEvent(new Event('pause'))
+    })
+
+    await page.getByRole('button', { name: 'Close player' }).click()
+    await page.getByText('track.mp3', { exact: true }).click()
+    const audio = page.locator('audio').first()
+    await expect
+      .poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState >= 2))
+      .toBe(true)
+    await audio.evaluate((element: HTMLAudioElement) => {
+      element.currentTime = 0.8
+      element.dispatchEvent(new Event('timeupdate'))
+      element.dispatchEvent(new Event('pause'))
+    })
+
+    const playbackTimes = await page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('video-playback-times') ?? '{}') as {
+        state?: { playbackTimes?: Record<string, number> }
+      }
+      return saved.state?.playbackTimes ?? {}
+    })
+    expect(playbackTimes).toEqual({ 'Videos/sample.mp4': 0.5 })
+
+    await page.goto('/home')
+    const continueSection = page.locator('section').filter({
+      has: page.getByRole('heading', { name: 'Continue', exact: true }),
+    })
+    await expect(continueSection.getByText('sample.mp4', { exact: true })).toBeVisible()
+    await expect(continueSection.getByText('public-video.mp4', { exact: true })).toHaveCount(0)
+    await expect(continueSection.getByText('track.mp3', { exact: true })).toHaveCount(0)
   })
 
   test('views text file in shared folder', async ({ page }) => {
