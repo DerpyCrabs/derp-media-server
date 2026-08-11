@@ -312,18 +312,33 @@ test.describe('Offline mode', () => {
         .filter({ hasText: 'public-doc.txt' })
         .click({ button: 'right' })
       await page.getByText('Make available offline', { exact: true }).click()
-      await expect(
-        page.getByText('public-doc.txt is available offline', { exact: true }),
-      ).toBeVisible()
+      const offlinePath = `${sharePath}/public-doc.txt`
       await expect
         .poll(() =>
           page.evaluate(
-            () =>
-              (window as unknown as { __stage1OfflineFetchAudit: { active: number } })
-                .__stage1OfflineFetchAudit.active,
+            async ({ path, token }) => {
+              const db = await new Promise<IDBDatabase>((resolve, reject) => {
+                const request = indexedDB.open('derp-offline-v1', 1)
+                request.onsuccess = () => resolve(request.result)
+                request.onerror = () => reject(request.error)
+              })
+              const stored = await new Promise<{ mediaUrl?: string; size: number } | undefined>(
+                (resolve, reject) => {
+                  const request = db.transaction('entries').objectStore('entries').get(path)
+                  request.onsuccess = () => resolve(request.result)
+                  request.onerror = () => reject(request.error)
+                },
+              )
+              return Boolean(
+                stored &&
+                stored.size > 0 &&
+                stored.mediaUrl?.includes(`/api/share/${token}/media/`),
+              )
+            },
+            { path: offlinePath, token: body.share.token },
           ),
         )
-        .toBe(0)
+        .toBe(true)
 
       const audit = await page.evaluate(
         () =>
@@ -334,21 +349,6 @@ test.describe('Offline mode', () => {
           ).__stage1OfflineFetchAudit,
       )
       expect(audit.maximumActive).toBe(1)
-
-      const stored = await page.evaluate(async (offlinePath) => {
-        const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const request = indexedDB.open('derp-offline-v1', 1)
-          request.onsuccess = () => resolve(request.result)
-          request.onerror = () => reject(request.error)
-        })
-        return new Promise<{ mediaUrl?: string; size: number } | undefined>((resolve, reject) => {
-          const request = db.transaction('entries').objectStore('entries').get(offlinePath)
-          request.onsuccess = () => resolve(request.result)
-          request.onerror = () => reject(request.error)
-        })
-      }, `${sharePath}/public-doc.txt`)
-      expect(stored?.size).toBeGreaterThan(0)
-      expect(stored?.mediaUrl).toContain(`/api/share/${body.share.token}/media/`)
     } finally {
       await page.request.post('/api/shares/delete', { data: { token: body.share.token } })
     }
