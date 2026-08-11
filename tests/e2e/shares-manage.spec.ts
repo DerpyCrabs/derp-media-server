@@ -92,7 +92,7 @@ test.describe('Managing Shares', () => {
     await page.getByRole('menuitem', { name: 'Copy share link' }).click()
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toBe(`${origin}/share/test-protected-file-share-token1?p=filepass`)
+      .toBe(`${origin}/share/test-protected-file-share-token1#p=filepass`)
 
     const unprotectedRow = page.locator('table tr').filter({ hasText: 'notes.md' })
     await unprotectedRow.click({ button: 'right' })

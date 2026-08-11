@@ -1075,6 +1075,50 @@ mod tests {
     }
 
     #[test]
+    fn explicit_source_id_allows_simultaneous_name_and_path_change() {
+        let base = fixture("explicit-id");
+        let original = base.join("original");
+        let replacement = base.join("replacement");
+        std::fs::create_dir_all(&original).unwrap();
+        std::fs::create_dir_all(&replacement).unwrap();
+        let mut initial = config(
+            &base,
+            vec![root(
+                "configured:stable-media",
+                "Original",
+                original.clone(),
+            )],
+            original.to_str().unwrap(),
+        );
+        state_db::initialize(&initial).unwrap();
+        let first = initialize_identity(&mut initial).unwrap();
+        let source = first
+            .source_for_root("configured:stable-media", &original)
+            .unwrap();
+
+        let mut changed = config(
+            &base,
+            vec![root(
+                "configured:stable-media",
+                "Replacement",
+                replacement.clone(),
+            )],
+            replacement.to_str().unwrap(),
+        );
+        state_db::initialize(&changed).unwrap();
+        let second = initialize_identity(&mut changed).unwrap();
+
+        assert_eq!(second.library_id(), first.library_id());
+        assert_eq!(
+            second
+                .source_for_root("configured:stable-media", &replacement)
+                .unwrap(),
+            source
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn migration_is_additive_and_restart_idempotent() {
         let base = fixture("restart");
         let media = base.join("media");
@@ -1110,6 +1154,54 @@ mod tests {
             .unwrap();
         assert_eq!(versions, 1);
         drop(connection);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn skipped_legacy_json_upgrade_imports_directly_through_resource_schema() {
+        let base = fixture("skipped-json");
+        let media = base.join("media");
+        let data = base.join("data");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        let legacy_key = media.to_string_lossy().to_string();
+        std::fs::write(
+            data.join("settings.json"),
+            serde_json::to_vec(&serde_json::json!({
+                legacy_key.clone(): {"favorites":["one.jpg"],"future":true}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media)],
+            &legacy_key,
+        );
+
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+
+        let settings = state_db::document(
+            identity.database(),
+            "settings",
+            identity.library_id().as_str(),
+            serde_json::Value::Null,
+        )
+        .unwrap();
+        assert_eq!(settings["favorites"], serde_json::json!(["one.jpg"]));
+        assert_eq!(settings["future"], true);
+        let connection = state_db::connection(identity.database()).unwrap();
+        let versions = connection
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .unwrap()
+            .query_map([], |row| row.get::<_, i64>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(versions, [1, 2]);
+        drop(connection);
+        assert!(data.join("legacy-json-backup").is_dir());
         std::fs::remove_dir_all(base).unwrap();
     }
 

@@ -504,4 +504,29 @@ mod tests {
 
         fs::remove_dir_all(base).unwrap();
     }
+
+    #[test]
+    fn resolution_rejects_symlink_escape_when_platform_can_create_link() {
+        let base = fixture("symlink-escape");
+        let media = base.join("media");
+        let outside = base.join("outside");
+        fs::create_dir_all(&media).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "secret").unwrap();
+        let link = media.join("escape");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&outside, &link).is_err() {
+            fs::remove_dir_all(base).unwrap();
+            return;
+        }
+        let config = config(&base, vec![root("legacy-primary", "Media", media)]);
+
+        let error = resolve(&config, &[], "escape/secret.txt").unwrap_err();
+        assert_eq!(error.0, axum::http::StatusCode::BAD_REQUEST);
+        assert!(error.1.contains("Symbolic link escapes media root"));
+
+        fs::remove_dir_all(base).unwrap();
+    }
 }

@@ -31,6 +31,7 @@ import type { ShareLink } from '@/lib/shares'
 import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
+import type { ResourceOpenTarget } from '@/lib/resource'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import {
@@ -93,6 +94,12 @@ import { useInlineModeInputFocus } from '../file-browser/use-inline-mode-input-f
 import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu'
 import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
 import { useDeferredLoading } from '../lib/use-deferred-loading'
+import {
+  OWNER_OPEN_SCOPE,
+  grantOpenScope,
+  resourceForFileItem,
+} from '../lib/legacy-resource-adapter'
+import { openResource, type OpenIntent, type OpenPlan } from '../lib/open-resource'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
@@ -103,6 +110,8 @@ import type {
 } from './workspace-browser-pane-types'
 
 export type { WorkspaceShareConfig } from './workspace-browser-pane-types'
+
+type ExecutableOpenPlan = Exclude<OpenPlan, { kind: 'blocked' | 'conversation' }>
 
 export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const queryClient = useQueryClient()
@@ -280,6 +289,80 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       >,
   )
   const virtualEntry = (file: FileItem) => virtualEntries()[file.path]
+  const openScope = createMemo(() => {
+    const currentShare = share()
+    return currentShare ? grantOpenScope(currentShare.sharePath) : OWNER_OPEN_SCOPE
+  })
+
+  function resourceOpenTarget(target?: VirtualOpenTarget): ResourceOpenTarget | undefined {
+    if (!target) return undefined
+    if (target.type === 'hermesSession') {
+      if (!target.sessionId) return undefined
+      return {
+        type: 'hermesSession',
+        sessionId: target.sessionId,
+        readOnly: target.readOnly,
+      }
+    }
+    return {
+      type: 'hermesDraft',
+      ...(typeof target.projectPath === 'string' ? { projectPath: target.projectPath } : {}),
+      readOnly: target.readOnly,
+    }
+  }
+
+  function planFileOpen(file: FileItem, intent: OpenIntent): OpenPlan {
+    const entry = virtualEntry(file)
+    const legacyTarget = resourceOpenTarget(entry?.openTarget)
+    const resource = file.resource
+      ? file.resource.openTarget || !legacyTarget
+        ? file.resource
+        : { ...file.resource, openTarget: legacyTarget }
+      : resourceForFileItem(file, {
+          ...(entry?.appearance ? { appearance: entry.appearance } : {}),
+          ...(legacyTarget
+            ? {
+                kind: legacyTarget.type === 'hermesSession' ? 'conversation' : 'draft',
+                presentation: 'conversation',
+                providerOperations: ['read'],
+                openTarget: legacyTarget,
+              }
+            : {}),
+        })
+    return openResource(resource, intent, { surface: 'workspace', scope: openScope() })
+  }
+
+  function openConversationPlan(file: FileItem, target: ResourceOpenTarget | VirtualOpenTarget) {
+    setUnsupportedFile(null)
+    if (props.onOpenVirtualTarget) {
+      props.onOpenVirtualTarget(props.windowId, file, target)
+      return
+    }
+    const entry = virtualEntry(file) ?? {
+      provider: 'hermes',
+      kind: target.type === 'hermesSession' ? 'session' : 'draft',
+      capabilities: [],
+      openTarget: target,
+    }
+    setVirtualDetail({ file, entry })
+  }
+
+  function executePlannedDisposition(
+    file: FileItem,
+    plan: OpenPlan,
+    execute: (plan: ExecutableOpenPlan) => void,
+  ) {
+    if (plan.kind === 'blocked') {
+      setUnsupportedFile(file)
+      return
+    }
+    if (plan.kind === 'conversation') {
+      openConversationPlan(file, plan.target)
+      return
+    }
+    execute(plan)
+  }
+
   const isFilesLoadingInitial = createMemo(
     () => filesQuery.isPending && filesQuery.data === undefined,
   )
@@ -1187,29 +1270,45 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   function openInNewTabFromRow(file: FileItem) {
     if (!props.onOpenInNewTab) return
-    props.onOpenInNewTab(
-      props.windowId,
-      { path: file.path, isDirectory: file.isDirectory, isVirtual: file.isVirtual },
-      currentPath(),
+    executePlannedDisposition(file, planFileOpen(file, 'default'), () =>
+      props.onOpenInNewTab?.(
+        props.windowId,
+        { path: file.path, isDirectory: file.isDirectory, isVirtual: file.isVirtual },
+        currentPath(),
+      ),
     )
   }
 
   function openFileInNewWindowFromRow(file: FileItem) {
     if (file.isDirectory || !props.onOpenFileInNewFloatingWindow) return
-    props.onOpenFileInNewFloatingWindow(props.windowId, file)
+    executePlannedDisposition(file, planFileOpen(file, 'default'), () =>
+      props.onOpenFileInNewFloatingWindow?.(props.windowId, file),
+    )
   }
 
   function openInSplitViewFromRow(file: FileItem) {
-    props.onOpenInSplitView?.(props.windowId, file)
+    if (!props.onOpenInSplitView) return
+    executePlannedDisposition(file, planFileOpen(file, 'default'), () =>
+      props.onOpenInSplitView?.(props.windowId, file),
+    )
   }
 
   function openWithBrowser(file: FileItem) {
-    if (file.isDirectory) props.onNavigateDir(props.windowId, file.path)
-    else props.onOpenViewer(props.windowId, file)
+    executePlannedDisposition(
+      file,
+      planFileOpen(file, file.isDirectory ? 'browse' : 'view'),
+      (plan) => {
+        if (plan.kind === 'browse') props.onNavigateDir(props.windowId, file.path)
+        else props.onOpenViewer(props.windowId, file)
+      },
+    )
   }
 
   function openWithReader(file: FileItem) {
-    props.onOpenReader(props.windowId, file)
+    executePlannedDisposition(file, planFileOpen(file, 'read'), (plan) => {
+      if (plan.kind === 'viewer') props.onOpenReader(props.windowId, file)
+      else setUnsupportedFile(file)
+    })
   }
 
   function openCreateFileDialog() {
@@ -1556,22 +1655,23 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   function handleFileClick(file: FileItem, sourceDir = currentPath()) {
-    if (file.isDirectory) {
+    const plan = planFileOpen(file, 'default')
+    if (plan.kind === 'browse') {
       setUnsupportedFile(null)
       props.onNavigateDir(props.windowId, file.path)
       return
     }
-    const entry = virtualEntry(file)
-    if (entry?.openTarget) {
-      setUnsupportedFile(null)
-      if (props.onOpenVirtualTarget)
-        props.onOpenVirtualTarget(props.windowId, file, entry.openTarget)
-      else setVirtualDetail({ file, entry })
+    if (plan.kind === 'conversation') {
+      openConversationPlan(file, plan.target)
       return
     }
-    viewStats.incrementView(file.path)
-    const mt = file.type
-    if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
+    if (plan.kind === 'blocked') {
+      if (!file.isDirectory && !virtualEntry(file)?.openTarget) viewStats.incrementView(file.path)
+      setUnsupportedFile(file)
+      return
+    }
+    if (!file.isDirectory) viewStats.incrementView(file.path)
+    if (plan.kind === 'playback') {
       const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)
       const sh = share()
       const src =
@@ -1582,7 +1682,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       props.onRequestPlay?.(src, file.path, sourceDir || undefined)
       return
     }
-    if (mt === MediaType.OTHER) {
+    if (plan.viewer.id === 'unsupported-file') {
       setUnsupportedFile(file)
       return
     }
