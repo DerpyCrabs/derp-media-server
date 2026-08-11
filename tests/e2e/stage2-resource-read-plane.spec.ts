@@ -27,6 +27,13 @@ type ShareInfo = {
   resource?: ResourceSummary
 }
 
+function withoutResourceVersion(value: ShareInfo): ShareInfo {
+  if (!value.resource) return value
+  const resource = { ...value.resource }
+  delete resource.version
+  return { ...value, resource }
+}
+
 test.describe('Stage 2 Resource read plane', () => {
   test('owner API, SSR, inspect, and Grant return durable semantic Resources', async ({ page }) => {
     const ownerResponse = await page.request.get('/api/files?dir=Documents')
@@ -143,7 +150,10 @@ test.describe('Stage 2 Resource read plane', () => {
         files: data(['share-files', token, '']),
       }
     }, 'test-passcode-share-token1')
-    expect(shareSsr.info).toEqual(info)
+    const shareSsrInfo = shareSsr.info as ShareInfo
+    expect(info.resource?.version).toMatch(/^fs:v1:/)
+    expect(shareSsrInfo.resource?.version).toMatch(/^fs:v1:/)
+    expect(withoutResourceVersion(shareSsrInfo)).toEqual(withoutResourceVersion(info))
     const shareSsrFiles = shareSsr.files as FileListing | undefined
     const shareSsrPhoto = shareSsrFiles?.files.find((file) => file.name === 'photo.jpg')
     expect(shareSsrPhoto).toEqual(grantPhoto)

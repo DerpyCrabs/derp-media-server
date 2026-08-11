@@ -115,6 +115,14 @@ function normalizedLocation(location: RouteLocation): Required<RouteLocation> {
   }
 }
 
+function decodePathSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return segment
+  }
+}
+
 function parseQuery(search: string): RouteQuery {
   const params = new URLSearchParams(search)
   const readerKind = params.get('readerKind')
@@ -156,11 +164,12 @@ export function parseRoute(input: RouteLocation): AppRoute {
 
   const segments = pathname.split('/').slice(1)
   if (segments[0] === 'share' && segments[1]) {
+    const token = decodePathSegment(segments[1])
     if (segments.length === 2) {
-      return located({ kind: 'share', token: segments[1] }, location)
+      return located({ kind: 'share', token }, location)
     }
     if (segments.length === 3 && segments[2] === 'workspace') {
-      return located({ kind: 'shareWorkspace', token: segments[1] }, location)
+      return located({ kind: 'shareWorkspace', token }, location)
     }
   }
 

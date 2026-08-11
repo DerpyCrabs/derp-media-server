@@ -36,7 +36,8 @@ test.describe('File browser directory UX', () => {
     await page.goto('/')
     await page.route('**/api/files**', async (route) => {
       const url = route.request().url()
-      if (!url.includes('dir=Notes')) {
+      const navigationStarted = new URL(page.url()).searchParams.get('dir') === 'Notes'
+      if (!url.includes('dir=Notes') || !navigationStarted) {
         await route.continue()
         return
       }

@@ -699,6 +699,8 @@ test.describe('Reader', () => {
     })
 
     await openSamplePdf(page)
+    await page.getByTestId('reader-settings-button').click()
+    await page.getByRole('button', { name: 'define', exact: true }).click()
     await selectPdfLines(page, 'Selectable reader text')
     await expect.poll(() => turnRequests).toBe(1)
     await selectPdfLines(page, 'Second selected line')

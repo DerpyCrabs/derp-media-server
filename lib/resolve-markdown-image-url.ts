@@ -151,7 +151,7 @@ export function buildResolveMarkdownImageUrl(
       const route = usesKnowledgeBaseImageRoute(viewingPath, share, knowledgeBases, requestPath)
         ? 'knowledge-base-image'
         : 'media'
-      return `/api/share/${share.token}/${route}/${encoded}`
+      return `/api/share/${encodeURIComponent(share.token)}/${route}/${encoded}`
     }
 
     if (/^https?:\/\//i.test(rawSrc)) return rawSrc

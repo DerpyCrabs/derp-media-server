@@ -14,6 +14,8 @@ import { closeViewer } from '../lib/url-state-actions'
 
 type Props = {
   shareContext?: { token: string; sharePath: string } | null
+  offline?: boolean
+  explorerFiles?: readonly FileItem[]
 }
 
 type ShareCtx = { token: string; sharePath: string }
@@ -135,6 +137,19 @@ function BodyAdmin(props: { viewingPath: string }): JSX.Element {
   return <Inner viewingPath={props.viewingPath} shareContext={null} allFiles={allFiles} />
 }
 
+function BodyOffline(props: {
+  viewingPath: string
+  explorerFiles: readonly FileItem[]
+}): JSX.Element {
+  return (
+    <Inner
+      viewingPath={props.viewingPath}
+      shareContext={null}
+      allFiles={() => [...props.explorerFiles]}
+    />
+  )
+}
+
 function BodyShare(props: { viewingPath: string; shareContext: ShareCtx }): JSX.Element {
   const dirFromUrl = useDirFromUrl()
   const dirToFetch = useDirToFetch(() => props.viewingPath, dirFromUrl)
@@ -144,7 +159,7 @@ function BodyShare(props: { viewingPath: string; shareContext: ShareCtx }): JSX.
       queryKey: queryKeys.shareFiles(props.shareContext.token, qDir),
       queryFn: () =>
         api<{ files: FileItem[] }>(
-          `/api/share/${props.shareContext.token}/files?dir=${encodeURIComponent(qDir)}`,
+          `/api/share/${encodeURIComponent(props.shareContext.token)}/files?dir=${encodeURIComponent(qDir)}`,
         ),
     }
   })
@@ -162,7 +177,14 @@ export function UnsupportedFileViewerDialog(props: Props): JSX.Element {
   return (
     <Show when={viewingPath()}>
       {(vp) => (
-        <Show when={props.shareContext} fallback={<BodyAdmin viewingPath={vp()} />}>
+        <Show
+          when={props.shareContext}
+          fallback={
+            <Show when={props.offline} fallback={<BodyAdmin viewingPath={vp()} />}>
+              <BodyOffline viewingPath={vp()} explorerFiles={props.explorerFiles ?? []} />
+            </Show>
+          }
+        >
           {(ctx) => <BodyShare viewingPath={vp()} shareContext={ctx()!} />}
         </Show>
       )}

@@ -1,21 +1,18 @@
-import { FLOATING_Z_ROW_MENU, FLOATING_Z_ROW_MENU_BACKDROP } from '@/lib/floating-z-index'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { FLOATING_Z_ROW_MENU } from '@/lib/floating-z-index'
+import type { ExplorerItem, ExplorerVisibleRange } from '@/lib/explorer-model'
+import { createExplorerModel, explorerItemKey } from '@/lib/explorer-model'
+import { queryKeys } from '@/lib/query-keys'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { stripSharePrefix } from '@/lib/source-context'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
-import { api, post } from '@/lib/api'
-import {
-  prefetchFolderContentsOnHover,
-  prefetchShareDirHover,
-  type PrefetchFolderHoverContext,
-} from '@/lib/prefetch-folder-hover'
-import { queryKeys } from '@/lib/query-keys'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import type { DirectoryListing } from '@/lib/virtual-directory'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
+import { useQueryClient } from '@tanstack/solid-query'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import AppWindow from 'lucide-solid/icons/app-window'
@@ -38,6 +35,7 @@ import {
   onMount,
 } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
+import { navigateSearchParams } from './browser-history'
 import {
   BreadcrumbContextMenu,
   type BreadcrumbMenuTarget,
@@ -55,16 +53,16 @@ import {
   DirectoryListingLoading,
 } from './file-browser/DirectoryListingFeedback'
 import { FloatingScrollActions } from './file-browser/FloatingScrollActions'
+import { FloatingContextMenu } from './file-browser/FloatingContextMenu'
 import { UploadToastStack } from './file-browser/UploadToastStack'
 import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
 import { VirtualDirectoryGrid } from './file-browser/VirtualDirectoryGrid'
 import { VirtualDirectoryList } from './file-browser/VirtualDirectoryList'
 import { ViewModeToggle } from './file-browser/ViewModeToggle'
+import { getVirtualFileScroller } from './file-browser/virtual-directory-scroll'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
-import { useStoreSync } from './lib/solid-store-sync'
-import { useShareFileWatcher } from './lib/use-share-file-watcher'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
-import { navigateToFolder, playFile, viewFile } from './lib/url-state-actions'
+import { playFile, viewFile } from './lib/url-state-actions'
 import type { FileIconContext } from './lib/use-file-icon'
 import { EMPTY_FILE_ICON_CONTEXT, fileIcon, gridHeroIcon } from './lib/use-file-icon'
 import { useDeferredLoading } from './lib/use-deferred-loading'
@@ -75,8 +73,9 @@ import {
   isPathAvailableOffline,
   isOfflineFeatureAvailable,
   makeAvailableOffline,
-  removeOfflineFile,
 } from './lib/offline-files'
+import { removeWebOfflineAndWait, subscribeWebOfflineCatalog } from './lib/web-offline-storage'
+import { shareOfflineJobScope } from './lib/offline-job-observer'
 import type { TextViewerShareContext } from './media/TextViewerDialog'
 import {
   grantOpenScope,
@@ -85,6 +84,16 @@ import {
 } from './lib/legacy-resource-adapter'
 import { executeOpenPlan, openResource } from './lib/open-resource'
 import type { ResourceSummary } from '@/lib/resource'
+import { createGrantExplorerAdapter } from './lib/resource-adapters/grant'
+import {
+  browserExplorerStorage,
+  createBrowserOnlineAdapter,
+  createUrlExplorerHistory,
+} from './explorer/browser-adapters'
+import { useExplorerModel } from './explorer/use-explorer-model'
+import { createExplorerMutation } from './explorer/create-explorer-mutation'
+import { explorerCapabilitiesForFile, explorerItemForFile } from './explorer/snapshot-items'
+import { subscribeSseShare } from './lib/sse-shared-worker-client'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -116,10 +125,80 @@ type Props = {
 }
 
 export function ShareFolderBrowser(props: Props) {
+  let browserRootEl: HTMLDivElement | undefined
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
-  useShareFileWatcher(() => props.token)
+  const initialSubDir = urlSearchParams().get('dir') ?? ''
+  const initialGrantListing = queryClient.getQueryData<DirectoryListing>(
+    queryKeys.shareFiles(props.token, initialSubDir),
+  )
+  const grantAdapter = createGrantExplorerAdapter({
+    token: props.token,
+    rootPath: props.shareInfo.path,
+    editable: props.shareInfo.editable,
+    restrictions: props.shareInfo.restrictions,
+    ...(initialGrantListing
+      ? { initialListing: { path: initialSubDir, listing: initialGrantListing } }
+      : {}),
+    subscribe: (listener) =>
+      subscribeSseShare(props.token, (event) => {
+        if (event.type === 'connected') {
+          console.log('[Share SSE] Connected to share stream')
+          return
+        }
+        if (event.type !== 'files-changed') return
+        listener()
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(props.token) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.shareContent(props.token) })
+      }),
+    ...(isOfflineFeatureAvailable()
+      ? {
+          offline: {
+            subscribe: subscribeWebOfflineCatalog,
+            isKept: (item: ExplorerItem) => isPathAvailableOffline(item.file.path),
+            keep: async (item: ExplorerItem) => {
+              const started = await makeAvailableOffline(item.file, {
+                token: props.token,
+                sharePath: props.shareInfo.path,
+              })
+              if (!started) throw new Error('Offline save is unavailable')
+            },
+            remove: (item: ExplorerItem, signal: AbortSignal) =>
+              removeWebOfflineAndWait(
+                item.file.path,
+                item.file.name,
+                shareOfflineJobScope(props.token),
+                signal,
+              ),
+          },
+        }
+      : {}),
+  })
+  const explorer = useExplorerModel(
+    createExplorerModel({
+      adapter: grantAdapter,
+      opener: openResource,
+      history: createUrlExplorerHistory({
+        currentPath: () => new URLSearchParams(window.location.search).get('dir') ?? '',
+        navigate: (path, replace) =>
+          navigateSearchParams({ dir: path || null }, replace ? 'replace' : 'push'),
+      }),
+      storage: browserExplorerStorage(),
+      clock: Date,
+      online: createBrowserOnlineAdapter(),
+      rootLabel: props.shareInfo.name,
+      initialViewMode: useBrowserViewModeStore
+        .getState()
+        .getViewMode(`share-viewmode-${props.token}`, props.shareInfo.adminViewMode),
+      storageKey: `explorer:grant:${grantAdapter.scope.id}`,
+    }),
+  )
+  const explorerSnapshot = explorer.snapshot
+  const reportVisibleRange = (range: ExplorerVisibleRange) => {
+    void explorer.dispatch({ type: 'visibleRange', range })
+  }
   useDynamicFavicon(() => ({}), {
     rootName: () => props.shareInfo.name,
     getSearch: () => history().search,
@@ -138,7 +217,6 @@ export function ShareFolderBrowser(props: Props) {
   const [renameNewName, setRenameNewName] = createSignal('')
   const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
-  const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
   const [shareSettingsOpen, setShareSettingsOpen] = createSignal(false)
   const [shareSettingsMenuPos, setShareSettingsMenuPos] = createSignal<{
@@ -155,7 +233,7 @@ export function ShareFolderBrowser(props: Props) {
     () => inlineFolderInputEl,
   )
 
-  const currentSubDir = createMemo(() => urlSearchParams().get('dir') ?? '')
+  const currentSubDir = createMemo(() => explorerSnapshot().path)
   const playingPath = createMemo(() => urlSearchParams().get('playing') ?? '')
   const shareBrowserScrollScope = () => `share-file-browser:${props.token}`
 
@@ -178,23 +256,35 @@ export function ShareFolderBrowser(props: Props) {
     () => props.shareInfo.editable && props.shareInfo.restrictions?.allowEdit !== false,
   )
 
-  const canUpload = createMemo(
-    () => props.shareInfo.editable && props.shareInfo.restrictions?.allowUpload !== false,
-  )
+  const canUpload = createMemo(() => explorerSnapshot().capabilities.includes('upload'))
 
-  const canDelete = createMemo(
-    () => props.shareInfo.editable && props.shareInfo.restrictions?.allowDelete !== false,
-  )
+  const capabilitiesForFile = (file: FileItem) =>
+    explorerCapabilitiesForFile(explorerSnapshot(), file)
+  const itemForFile = (file: FileItem) => explorerItemForFile(explorerSnapshot(), file)
 
-  const filesQuery = useQuery(() => ({
-    queryKey: queryKeys.shareFiles(props.token, currentSubDir()),
-    queryFn: () =>
-      api<{ files: FileItem[] }>(
-        `/api/share/${props.token}/files?dir=${encodeURIComponent(currentSubDir())}`,
-      ),
-  }))
+  const filesQuery = {
+    get data() {
+      const snapshot = explorerSnapshot()
+      return snapshot.status === 'idle' ||
+        (snapshot.status === 'loading' && snapshot.items.length === 0)
+        ? undefined
+        : { files: snapshot.items.map((item) => item.file) }
+    },
+    get isPending() {
+      const snapshot = explorerSnapshot()
+      return snapshot.status === 'idle' || snapshot.status === 'loading'
+    },
+    get isError() {
+      return explorerSnapshot().status === 'error'
+    },
+    get error() {
+      const error = explorerSnapshot().error
+      return error ? new Error(error.message) : null
+    },
+    refetch: () => explorer.dispatch({ type: 'refresh' }),
+  }
 
-  const files = createMemo(() => filesQuery.data?.files ?? [])
+  const files = createMemo(() => explorerSnapshot().items.map((item) => item.file))
   const isFilesLoadingInitial = createMemo(
     () => filesQuery.isPending && filesQuery.data === undefined,
   )
@@ -290,72 +380,94 @@ export function ShareFolderBrowser(props: Props) {
     createFolderMutation.reset()
   }
 
-  const viewMutation = useMutation(() => ({
-    mutationFn: (relativePath: string) =>
-      post(`/api/share/${props.token}/view`, { filePath: relativePath }),
-  }))
-
-  const createFolderMutation = useMutation(() => ({
-    mutationFn: (vars: { type: string; path: string }) =>
-      post(`/api/share/${props.token}/create`, vars),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
-      setShowCreateFolder(false)
-      setNewItemName('')
-    },
-  }))
-
-  const createFileMutation = useMutation(() => ({
-    mutationFn: (vars: { type: string; path: string; content?: string }) =>
-      post(`/api/share/${props.token}/create`, vars),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
-      setShowCreateFile(false)
-      setNewItemName('')
-    },
-  }))
-
-  const deleteItemMutation = useMutation(() => ({
-    mutationFn: (relativePath: string) =>
-      post(`/api/share/${props.token}/delete`, { path: relativePath }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
-      setDeleteTarget(null)
-    },
-  }))
-
-  const renameItemMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) =>
-      post(`/api/share/${props.token}/rename`, vars),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
-    },
-  }))
-
-  const moveItemMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) =>
-      post(`/api/share/${props.token}/rename`, vars),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
-    },
-  }))
-
-  const viewModeStorageKey = () => `share-viewmode-${props.token}`
-
-  const viewMode = createMemo(() => {
-    void shareViewModeTick()
-    return useBrowserViewModeStore
-      .getState()
-      .getViewMode(viewModeStorageKey(), props.shareInfo.adminViewMode)
-  })
-
-  function setViewMode(mode: 'list' | 'grid') {
-    useBrowserViewModeStore.getState().setViewMode(viewModeStorageKey(), mode)
+  function itemByRelativePath(path: string): ExplorerItem {
+    const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const item = explorerSnapshot().items.find(
+      (candidate) =>
+        stripSharePrefix(candidate.file.path, props.shareInfo.path).replace(/^\/+|\/+$/g, '') ===
+        normalized,
+    )
+    if (!item) throw new Error('Resource is not in current Explorer page')
+    return item
   }
 
-  const editableFoldersForMove = createMemo(() =>
-    props.shareInfo.path ? [props.shareInfo.path] : [],
+  const createFolderMutation = createExplorerMutation(
+    (vars: { type: string; path: string }) => {
+      const parts = vars.path.split('/').filter(Boolean)
+      return explorer.dispatch({
+        type: 'command',
+        command: {
+          kind: 'createFolder',
+          parentPath: parts.slice(0, -1).join('/'),
+          name: parts.at(-1) ?? '',
+        },
+      })
+    },
+    {
+      onSuccess: () => {
+        setShowCreateFolder(false)
+        setNewItemName('')
+      },
+    },
   )
+
+  const createFileMutation = createExplorerMutation(
+    (vars: { type: string; path: string; content?: string }) => {
+      const parts = vars.path.split('/').filter(Boolean)
+      return explorer.dispatch({
+        type: 'command',
+        command: {
+          kind: 'createFile',
+          parentPath: parts.slice(0, -1).join('/'),
+          name: parts.at(-1) ?? '',
+          content: vars.content ?? '',
+        },
+      })
+    },
+    {
+      onSuccess: () => {
+        setShowCreateFile(false)
+        setNewItemName('')
+      },
+    },
+  )
+
+  const deleteItemMutation = createExplorerMutation(
+    (relativePath: string) =>
+      explorer.dispatch({
+        type: 'command',
+        command: { kind: 'delete', item: itemByRelativePath(relativePath) },
+      }),
+    { onSuccess: () => setDeleteTarget(null) },
+  )
+
+  const renameItemMutation = createExplorerMutation((vars: { oldPath: string; newPath: string }) =>
+    explorer.dispatch({
+      type: 'command',
+      command: {
+        kind: 'rename',
+        item: itemByRelativePath(vars.oldPath),
+        name: vars.newPath.split('/').filter(Boolean).at(-1) ?? '',
+      },
+    }),
+  )
+
+  const moveItemMutation = createExplorerMutation((vars: { oldPath: string; newPath: string }) =>
+    explorer.dispatch({
+      type: 'command',
+      command: {
+        kind: 'move',
+        item: itemByRelativePath(vars.oldPath),
+        destinationPath: vars.newPath.split('/').filter(Boolean).slice(0, -1).join('/'),
+      },
+    }),
+  )
+
+  const viewMode = createMemo(() => explorerSnapshot().viewMode)
+
+  function setViewMode(mode: 'list' | 'grid') {
+    void explorer.dispatch({ type: 'viewMode', viewMode: mode })
+  }
 
   const renameTargetExists = createMemo(() => {
     const item = renamingItem()
@@ -365,14 +477,7 @@ export function ShareFolderBrowser(props: Props) {
   })
 
   const breadcrumbs = createMemo(() => {
-    const parts = currentSubDir() ? currentSubDir().split('/').filter(Boolean) : []
-    return [
-      { name: props.shareInfo.name, path: '' },
-      ...parts.map((part, i) => ({
-        name: part,
-        path: parts.slice(0, i + 1).join('/'),
-      })),
-    ]
+    return explorerSnapshot().breadcrumbs
   })
 
   onMount(() => {
@@ -390,12 +495,23 @@ export function ShareFolderBrowser(props: Props) {
   const shareBreadcrumbMenuActions = createMemo(() => {
     const m = breadcrumbMenu()
     if (!m) {
-      return { showOpenInNewTab: false, showOpenInWorkspace: false, showDownloadAsZip: false }
+      return {
+        showOpenInNewTab: false,
+        showOpenInWorkspace: false,
+        showDownloadAsZip: false,
+        offlineActionLabel: undefined,
+      }
     }
+    const capabilities = capabilitiesForPath(m.serverPath)
     return {
-      showOpenInNewTab: true,
-      showOpenInWorkspace: props.shareInfo.isDirectory,
-      showDownloadAsZip: true,
+      showOpenInNewTab: capabilities.includes('browse'),
+      showOpenInWorkspace: props.shareInfo.isDirectory && capabilities.includes('browse'),
+      showDownloadAsZip: capabilities.includes('download'),
+      offlineActionLabel: capabilities.includes('removeOffline')
+        ? 'Remove from offline'
+        : capabilities.includes('keepOffline')
+          ? 'Make available offline'
+          : undefined,
     }
   })
 
@@ -410,6 +526,29 @@ export function ShareFolderBrowser(props: Props) {
       extension: '',
       isDirectory: true,
       ...(path === root && props.shareInfo.resource ? { resource: props.shareInfo.resource } : {}),
+    }
+  }
+
+  function breadcrumbForPath(path: string) {
+    const relative = stripSharePrefix(path, props.shareInfo.path)
+      .replace(/\\/g, '/')
+      .replace(/^\/+|\/+$/g, '')
+    return explorerSnapshot().breadcrumbs.find((breadcrumb) => breadcrumb.path === relative)
+  }
+
+  function capabilitiesForPath(path: string) {
+    return breadcrumbForPath(path)?.capabilities ?? []
+  }
+
+  function externalShareItem(file: FileItem): ExplorerItem {
+    const breadcrumbItem = breadcrumbForPath(file.path)?.item
+    if (breadcrumbItem) return breadcrumbItem
+    const resource = file.resource ?? resourceForFileItem(file)
+    return {
+      key: explorerItemKey(resource.ref),
+      file: { ...file, resource },
+      resource,
+      capabilities: capabilitiesForPath(file.path),
     }
   }
 
@@ -435,7 +574,9 @@ export function ShareFolderBrowser(props: Props) {
       isDirectory: true,
       ...(!path && props.shareInfo.resource ? { resource: props.shareInfo.resource } : {}),
     }
-    if (canOpenShareFolder(file, 'share')) navigateToFolder(path || null)
+    if (canOpenShareFolder(file, 'share')) {
+      void explorer.dispatch({ type: 'navigate', path })
+    }
   }
 
   function handleShareBreadcrumbOpenInNewTab() {
@@ -447,7 +588,8 @@ export function ShareFolderBrowser(props: Props) {
     const params = new URLSearchParams()
     if (subPath) params.set('dir', subPath)
     const query = params.toString()
-    window.open(query ? `/share/${props.token}?${query}` : `/share/${props.token}`, '_blank')
+    const base = `/share/${encodeURIComponent(props.token)}`
+    window.open(query ? `${base}?${query}` : base, '_blank')
   }
 
   function handleShareBreadcrumbOpenInWorkspace() {
@@ -459,10 +601,8 @@ export function ShareFolderBrowser(props: Props) {
     const params = new URLSearchParams()
     if (subPath) params.set('dir', subPath)
     const query = params.toString()
-    window.open(
-      query ? `/share/${props.token}/workspace?${query}` : `/share/${props.token}/workspace`,
-      '_blank',
-    )
+    const base = `/share/${encodeURIComponent(props.token)}/workspace`
+    window.open(query ? `${base}?${query}` : base, '_blank')
   }
 
   function openShareWorkspaceSameTab() {
@@ -479,7 +619,7 @@ export function ShareFolderBrowser(props: Props) {
     }
     if (!canOpenShareFolder(file, 'workspace')) return
     const qs = urlSearchParams().toString()
-    window.location.href = `/share/${props.token}/workspace${qs ? `?${qs}` : ''}`
+    window.location.href = `/share/${encodeURIComponent(props.token)}/workspace${qs ? `?${qs}` : ''}`
   }
 
   function openShareFolderInWorkspace(file: FileItem) {
@@ -491,10 +631,8 @@ export function ShareFolderBrowser(props: Props) {
     const params = new URLSearchParams()
     if (subPath) params.set('dir', subPath)
     const query = params.toString()
-    window.open(
-      query ? `/share/${props.token}/workspace?${query}` : `/share/${props.token}/workspace`,
-      '_blank',
-    )
+    const base = `/share/${encodeURIComponent(props.token)}/workspace`
+    window.open(query ? `${base}?${query}` : base, '_blank')
   }
 
   function handleShareBreadcrumbDownloadZip() {
@@ -522,20 +660,12 @@ export function ShareFolderBrowser(props: Props) {
     setRowMenu({ x: rect.right, y: rect.bottom, file })
   }
 
-  function sharePrefetchCtx(): PrefetchFolderHoverContext {
-    return {
-      queryClient,
-      share: { token: props.token, sharePath: props.shareInfo.path },
-      shareIsKnowledgeBase: !!props.shareInfo.isKnowledgeBase,
-    }
-  }
-
   function prefetchShareParentDirectory() {
     const sub = currentSubDir()
     if (!sub) return
     const parts = sub.split('/').filter(Boolean)
     const parentSub = parts.length <= 1 ? '' : parts.slice(0, -1).join('/')
-    prefetchShareDirHover(sharePrefetchCtx(), parentSub)
+    void explorer.dispatch({ type: 'prefetch', path: parentSub })
   }
 
   function handleParentDirectory() {
@@ -550,17 +680,26 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function handleDownload(file: FileItem) {
-    const rel = stripSharePrefix(file.path, props.shareInfo.path)
-    const a = document.createElement('a')
-    a.href = `/api/share/${props.token}/download?path=${encodeURIComponent(rel)}`
-    a.download = file.name
-    a.click()
+    const item = itemForFile(file) ?? externalShareItem(file)
+    void explorer
+      .dispatch(
+        itemForFile(file)
+          ? { type: 'action', action: 'download', key: item.key }
+          : { type: 'actionExternal', action: 'download', item },
+      )
+      .then((outcome) => {
+        if (outcome.kind !== 'action' || outcome.plan.kind !== 'download') return
+        const anchor = document.createElement('a')
+        anchor.href = outcome.plan.href
+        anchor.download = outcome.plan.fileName
+        anchor.click()
+      })
   }
 
   function handleMakeAvailableOffline(file: FileItem) {
-    if (isPathAvailableOffline(file.path)) {
-      removeOfflineFile(file, { token: props.token, sharePath: props.shareInfo.path })
-    } else makeAvailableOffline(file, { token: props.token, sharePath: props.shareInfo.path })
+    const item = itemForFile(file) ?? externalShareItem(file)
+    const kind = item.capabilities.includes('removeOffline') ? 'removeOffline' : 'keepOffline'
+    void explorer.dispatch({ type: 'command', command: { kind, item } })
   }
 
   function fileItemFromPath(filePath: string): FileItem {
@@ -568,26 +707,33 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function handleFileClick(file: FileItem, countView = true) {
-    const strip = (p: string) => stripSharePrefix(p, props.shareInfo.path)
-    const plan = openResource(resourceForFileItem(file), 'default', {
-      surface: 'share',
-      scope: grantOpenScope(props.token),
-    })
+    const item = itemForFile(file)
+    if (!item) return
+    void explorer.dispatch({ type: 'open', key: item.key, surface: 'share' }).then((outcome) => {
+      if (outcome.kind !== 'open') return
+      executeOpenPlan(outcome.plan, (planned) => {
+        if (planned.kind === 'browse') {
+          void explorer.dispatch({
+            type: 'navigate',
+            path: stripSharePrefix(file.path, props.shareInfo.path),
+          })
+          return
+        }
+        if (planned.kind !== 'playback' && planned.kind !== 'viewer') return
 
-    executeOpenPlan(plan, (planned) => {
-      if (planned.kind === 'browse') {
-        navigateToFolder(strip(file.path))
-        return
-      }
-      if (planned.kind !== 'playback' && planned.kind !== 'viewer') return
-
-      if (countView) viewMutation.mutate(strip(file.path))
-      if (planned.kind === 'playback') {
-        useMediaPlayer.getState().playFile(file.path, planned.media)
-        playFile(file.path)
-      } else {
-        viewFile(file.path, undefined, planned.viewer.id)
-      }
+        if (countView) {
+          void explorer.dispatch({
+            type: 'command',
+            command: { kind: 'recordView', item },
+          })
+        }
+        if (planned.kind === 'playback') {
+          useMediaPlayer.getState().playFile(file.path, planned.media)
+          playFile(file.path)
+        } else {
+          viewFile(file.path, undefined, planned.viewer.id)
+        }
+      })
     })
   }
 
@@ -669,25 +815,13 @@ export function ShareFolderBrowser(props: Props) {
 
   async function uploadFilesToServer(files: File[]) {
     if (files.length === 0 || !canUpload()) return
-    const targetDir = currentSubDir()
     setUploadToast({ kind: 'uploading', fileCount: files.length })
     try {
-      const formData = new FormData()
-      formData.append('targetDir', targetDir)
-      for (const file of files) {
-        formData.append('files', file, file.name)
-      }
-      const res = await fetch(`/api/share/${props.token}/upload`, {
-        method: 'POST',
-        body: formData,
+      const outcome = await explorer.dispatch({
+        type: 'command',
+        command: { kind: 'upload', parentPath: currentSubDir(), files },
       })
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null
-        const message = data?.error || `Upload failed (${res.status})`
-        setUploadToast({ kind: 'error', message })
-        return
-      }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles(props.token) })
+      if (outcome.kind === 'unavailable') throw new Error(outcome.error.message)
       setUploadToast({ kind: 'success' })
       window.setTimeout(() => setUploadToast({ kind: 'hidden' }), 2000)
     } catch (err) {
@@ -738,6 +872,78 @@ export function ShareFolderBrowser(props: Props) {
     if (dropped.length > 0) void uploadFilesToServer(dropped)
   }
 
+  function focusExplorerItem(key: string | undefined) {
+    if (!key || !browserRootEl) return
+    const item = explorerSnapshot().items.find((candidate) => candidate.key === key)
+    if (!item) return
+    const findElement = () =>
+      [...browserRootEl!.querySelectorAll<HTMLElement>('[data-explorer-key]')].find(
+        (candidate) => candidate.dataset.explorerKey === key,
+      )
+    const mounted = findElement()
+    if (mounted) {
+      mounted.focus()
+      return
+    }
+    const scroller = getVirtualFileScroller(shareBrowserScrollScope())
+    if (!scroller?.hasPath(item.file.path)) return
+    scroller.scrollToPath(item.file.path)
+    let attempts = 0
+    const focusWhenMounted = () => {
+      const element = findElement()
+      if (element) {
+        element.focus()
+        return
+      }
+      attempts += 1
+      if (attempts < 4) window.requestAnimationFrame(focusWhenMounted)
+    }
+    window.requestAnimationFrame(focusWhenMounted)
+  }
+
+  async function handleExplorerKeyDown(event: KeyboardEvent) {
+    const target = event.target
+    if (
+      target instanceof Element &&
+      target.closest('input, textarea, select, button, a, [contenteditable="true"]')
+    ) {
+      return
+    }
+    if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault()
+      await explorer.dispatch({ type: event.key === 'ArrowLeft' ? 'back' : 'forward' })
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      await explorer.dispatch({
+        type: 'focusMove',
+        delta: event.key === 'ArrowDown' ? 1 : -1,
+      })
+      focusExplorerItem(explorerSnapshot().focusedKey)
+      return
+    }
+    const focusedKey = explorerSnapshot().focusedKey
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      void explorer.dispatch({ type: 'clearSelection' })
+    } else if ((event.key === ' ' || event.key === 'Spacebar') && focusedKey) {
+      event.preventDefault()
+      void explorer.dispatch({ type: 'select', key: focusedKey, mode: 'toggle' })
+    } else if (event.key === 'Enter' && focusedKey) {
+      event.preventDefault()
+      const item = explorerSnapshot().items.find((candidate) => candidate.key === focusedKey)
+      if (item) handleFileClick(item.file)
+    }
+  }
+
+  function handleParentKeyDown(event: KeyboardEvent) {
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return
+    event.preventDefault()
+    event.stopPropagation()
+    handleParentDirectory()
+  }
+
   return (
     <>
       <MainMediaPlayers
@@ -745,11 +951,17 @@ export function ShareFolderBrowser(props: Props) {
         shareCanEdit={shareCanEdit()}
         shareCanUpload={canUpload()}
         editableFolders={[]}
+        explorerFiles={files()}
         knowledgeBases={
           props.shareInfo.knowledgeBaseRoot ? [props.shareInfo.knowledgeBaseRoot] : []
         }
       />
-      <div class='min-h-screen' data-testid='share-file-browser'>
+      <div
+        ref={(element) => (browserRootEl = element)}
+        class='min-h-screen'
+        data-testid='share-file-browser'
+        onKeyDown={(event) => void handleExplorerKeyDown(event)}
+      >
         <BreadcrumbContextMenu
           target={breadcrumbMenu}
           onDismiss={() => setBreadcrumbMenu(null)}
@@ -759,115 +971,107 @@ export function ShareFolderBrowser(props: Props) {
           onOpenInWorkspace={handleShareBreadcrumbOpenInWorkspace}
           showDownloadAsZip={shareBreadcrumbMenuActions().showDownloadAsZip}
           onDownloadAsZip={handleShareBreadcrumbDownloadZip}
+          offlineActionLabel={shareBreadcrumbMenuActions().offlineActionLabel}
           onMakeAvailableOffline={handleShareBreadcrumbMakeAvailableOffline}
         />
-        <Show when={rowMenu()}>
-          {(getCtx) => {
-            const ctx = getCtx()
-            return (
-              <>
-                <div
-                  class='fixed inset-0'
-                  style={{ 'z-index': FLOATING_Z_ROW_MENU_BACKDROP }}
-                  role='presentation'
-                  onClick={() => dismissMenu()}
-                />
-                <div
-                  data-slot='share-row-context-menu'
-                  data-floating-surface
-                  class='fixed min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
-                  style={{
-                    left: `${ctx.x}px`,
-                    top: `${ctx.y}px`,
-                    'z-index': FLOATING_Z_ROW_MENU,
+        <FloatingContextMenu
+          state={rowMenu}
+          anchor={(ctx) => ({ x: ctx.x, y: ctx.y })}
+          onDismiss={dismissMenu}
+          zIndex={FLOATING_Z_ROW_MENU}
+          data-slot='share-row-context-menu'
+        >
+          {(ctx) => (
+            <>
+              <Show when={capabilitiesForFile(ctx.file).includes('download')}>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => {
+                    handleDownload(ctx.file)
+                    dismissMenu()
                   }}
-                  role='menu'
-                  onClick={(e) => e.stopPropagation()}
                 >
-                  <button
-                    type='button'
-                    data-slot='context-menu-item'
-                    class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                    role='menuitem'
-                    onClick={() => {
-                      handleDownload(ctx.file)
-                      dismissMenu()
-                    }}
-                  >
-                    {ctx.file.isDirectory ? 'Download as ZIP' : 'Download'}
-                  </button>
-                  <Show when={isOfflineFeatureAvailable()}>
-                    <button
-                      type='button'
-                      data-slot='context-menu-item'
-                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                      role='menuitem'
-                      onClick={() => {
-                        handleMakeAvailableOffline(ctx.file)
-                        dismissMenu()
-                      }}
-                    >
-                      {isPathAvailableOffline(ctx.file.path)
-                        ? 'Remove from offline'
-                        : 'Make available offline'}
-                    </button>
-                  </Show>
-                  <Show when={shareCanEdit() && !ctx.file.isVirtual}>
-                    <button
-                      type='button'
-                      data-slot='context-menu-item'
-                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                      role='menuitem'
-                      onClick={() => openContextRename(ctx.file)}
-                    >
-                      Rename
-                    </button>
-                  </Show>
-                  <Show when={shareCanEdit() && !ctx.file.isVirtual}>
-                    <button
-                      type='button'
-                      data-slot='context-menu-item'
-                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                      role='menuitem'
-                      onClick={() => openContextMove(ctx.file)}
-                    >
-                      Move to…
-                    </button>
-                  </Show>
-                  <Show when={ctx.file.isDirectory && !ctx.file.isVirtual}>
-                    <button
-                      type='button'
-                      data-slot='context-menu-item'
-                      class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                      role='menuitem'
-                      onClick={() => {
-                        openShareFolderInWorkspace(ctx.file)
-                        dismissMenu()
-                      }}
-                    >
-                      <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
-                      Open in Workspace
-                    </button>
-                  </Show>
-                  <Show when={canDelete()}>
-                    <button
-                      type='button'
-                      data-slot='context-menu-item'
-                      class='text-destructive flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                      role='menuitem'
-                      onClick={() => {
-                        setDeleteTarget(ctx.file)
-                        dismissMenu()
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </Show>
-                </div>
-              </>
-            )
-          }}
-        </Show>
+                  {ctx.file.isDirectory ? 'Download as ZIP' : 'Download'}
+                </button>
+              </Show>
+              <Show
+                when={
+                  capabilitiesForFile(ctx.file).includes('keepOffline') ||
+                  capabilitiesForFile(ctx.file).includes('removeOffline')
+                }
+              >
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => {
+                    handleMakeAvailableOffline(ctx.file)
+                    dismissMenu()
+                  }}
+                >
+                  {capabilitiesForFile(ctx.file).includes('removeOffline')
+                    ? 'Remove from offline'
+                    : 'Make available offline'}
+                </button>
+              </Show>
+              <Show when={capabilitiesForFile(ctx.file).includes('rename')}>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => openContextRename(ctx.file)}
+                >
+                  Rename
+                </button>
+              </Show>
+              <Show when={capabilitiesForFile(ctx.file).includes('move')}>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => openContextMove(ctx.file)}
+                >
+                  Move to…
+                </button>
+              </Show>
+              <Show when={capabilitiesForFile(ctx.file).includes('browse')}>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => {
+                    openShareFolderInWorkspace(ctx.file)
+                    dismissMenu()
+                  }}
+                >
+                  <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+                  Open in Workspace
+                </button>
+              </Show>
+              <Show when={capabilitiesForFile(ctx.file).includes('delete')}>
+                <button
+                  type='button'
+                  data-slot='context-menu-item'
+                  class='text-destructive flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
+                  role='menuitem'
+                  onClick={() => {
+                    setDeleteTarget(ctx.file)
+                    dismissMenu()
+                  }}
+                >
+                  Delete
+                </button>
+              </Show>
+            </>
+          )}
+        </FloatingContextMenu>
 
         <DeleteFileDialog
           item={deleteTarget}
@@ -902,9 +1106,13 @@ export function ShareFolderBrowser(props: Props) {
             onConfirm={confirmMoveTo}
             isPending={moveItemMutation.isPending}
             error={moveItemMutation.error as Error | undefined}
-            editableFolders={editableFoldersForMove()}
-            shareToken={props.token}
-            shareRootPath={props.shareInfo.path}
+            editableFolders={[]}
+            browseDirectories={(path, signal) =>
+              grantAdapter
+                .browse({ path, pageSize: 500 }, signal)
+                .then((page) => page.items.map((item) => item.file))
+            }
+            resolveDirectoryPath={(file) => stripSharePrefix(file.path, props.shareInfo.path)}
           />
         </Show>
 
@@ -1178,11 +1386,13 @@ export function ShareFolderBrowser(props: Props) {
                             includeParent={() => !!currentSubDir()}
                             scrollTarget={{ kind: 'window' }}
                             scrollScope={shareBrowserScrollScope}
+                            onVisibleRangeChange={reportVisibleRange}
                             class='gap-4'
                             renderParentCard={() => (
                               <div
                                 class='ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50'
                                 onClick={handleParentDirectory}
+                                onKeyDown={handleParentKeyDown}
                                 onPointerEnter={prefetchShareParentDirectory}
                                 role='button'
                                 tabindex={0}
@@ -1197,46 +1407,68 @@ export function ShareFolderBrowser(props: Props) {
                                 </div>
                               </div>
                             )}
-                            renderFileCard={(file) => (
-                              <div
-                                data-file-path={file.path}
-                                class={cn(
-                                  'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
-                                  playingPath() === file.path ? 'bg-primary/10' : '',
-                                )}
-                                onClick={() => handleFileClick(file)}
-                                onPointerEnter={() =>
-                                  prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
-                                }
-                                onContextMenu={(e) => openRowMenu(e, file)}
-                                {...createLongPressContextMenuHandlers()}
-                                role='button'
-                                tabindex={0}
-                              >
-                                <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-                                  <button
-                                    type='button'
-                                    aria-label={`More actions for ${file.name}`}
-                                    class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow-sm'
-                                    onClick={(e) => openRowMenuButton(e, file)}
-                                  >
-                                    <Ellipsis class='h-5 w-5' />
-                                  </button>
-                                  <div class='text-muted-foreground'>
-                                    {gridHeroIcon(file, shareFileIconContext())}
+                            renderFileCard={(file) => {
+                              const item = () => itemForFile(file)
+                              const selected = () =>
+                                !!item() && explorerSnapshot().selection.includes(item()!.key)
+                              return (
+                                <div
+                                  data-file-path={file.path}
+                                  data-explorer-key={item()?.key}
+                                  aria-selected={selected()}
+                                  class={cn(
+                                    'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
+                                    playingPath() === file.path ? 'bg-primary/10' : '',
+                                    selected() ? 'ring-2 ring-primary' : '',
+                                  )}
+                                  onClick={() => handleFileClick(file)}
+                                  onPointerEnter={() =>
+                                    void explorer.dispatch({
+                                      type: 'prefetch',
+                                      path: stripSharePrefix(file.path, props.shareInfo.path),
+                                    })
+                                  }
+                                  onContextMenu={(e) => openRowMenu(e, file)}
+                                  {...createLongPressContextMenuHandlers()}
+                                  role='button'
+                                  tabindex={
+                                    !explorerSnapshot().focusedKey ||
+                                    explorerSnapshot().focusedKey === item()?.key
+                                      ? 0
+                                      : -1
+                                  }
+                                  onFocus={() =>
+                                    item() &&
+                                    void explorer.dispatch({ type: 'focus', key: item()!.key })
+                                  }
+                                >
+                                  <div class='relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
+                                    <button
+                                      type='button'
+                                      aria-label={`More actions for ${file.name}`}
+                                      class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow-sm'
+                                      onClick={(e) => openRowMenuButton(e, file)}
+                                    >
+                                      <Ellipsis class='h-5 w-5' />
+                                    </button>
+                                    <div class='text-muted-foreground'>
+                                      {gridHeroIcon(file, shareFileIconContext())}
+                                    </div>
+                                  </div>
+                                  <div class='flex flex-col gap-1 p-3'>
+                                    <p class='truncate text-sm font-medium' title={file.name}>
+                                      {file.name}
+                                      <OfflineBadge path={file.path} />
+                                    </p>
+                                    <div class='flex items-center justify-end text-xs text-muted-foreground'>
+                                      <span>
+                                        {file.isDirectory ? '' : formatFileSize(file.size)}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
-                                <div class='flex flex-col gap-1 p-3'>
-                                  <p class='truncate text-sm font-medium' title={file.name}>
-                                    {file.name}
-                                    <OfflineBadge path={file.path} />
-                                  </p>
-                                  <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                    <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
+                              )
+                            }}
                           />
                           <DirectoryListingEmpty show={showEmptyFolder()} canUpload={canUpload()} />
                         </div>
@@ -1248,12 +1480,15 @@ export function ShareFolderBrowser(props: Props) {
                             includeParent={() => !!currentSubDir()}
                             scrollTarget={{ kind: 'window' }}
                             scrollScope={shareBrowserScrollScope}
+                            onVisibleRangeChange={reportVisibleRange}
                             class='relative w-full overflow-x-auto'
                             colSpan={4}
                             renderParentRow={() => (
                               <tr
                                 class='hover:bg-muted/50 cursor-pointer select-none border-b border-border transition-colors'
                                 onClick={handleParentDirectory}
+                                onKeyDown={handleParentKeyDown}
+                                tabindex={0}
                                 onPointerEnter={prefetchShareParentDirectory}
                               >
                                 <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
@@ -1270,48 +1505,69 @@ export function ShareFolderBrowser(props: Props) {
                                 <td />
                               </tr>
                             )}
-                            renderFileRow={(file) => (
-                              <tr
-                                data-file-path={file.path}
-                                class={cn(
-                                  'hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors',
-                                  playingPath() === file.path ? 'bg-primary/10' : '',
-                                )}
-                                onClick={() => handleFileClick(file)}
-                                onPointerEnter={() =>
-                                  prefetchFolderContentsOnHover(sharePrefetchCtx(), file)
-                                }
-                                onContextMenu={(e) => openRowMenu(e, file)}
-                                {...createLongPressContextMenuHandlers()}
-                              >
-                                <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
-                                  <div class='flex items-center justify-center'>
-                                    {fileIcon(file)}
-                                  </div>
-                                </td>
-                                <td class='min-w-0 p-2 align-middle font-medium'>
-                                  <span class='truncate'>
-                                    {file.name}
-                                    <OfflineBadge path={file.path} />
-                                  </span>
-                                </td>
-                                <td class='min-w-0 p-2 align-middle text-right text-muted-foreground tabular-nums'>
-                                  <span class='inline-block w-20'>
-                                    {file.isDirectory ? '' : formatFileSize(file.size)}
-                                  </span>
-                                </td>
-                                <td class='p-1 align-middle'>
-                                  <button
-                                    type='button'
-                                    aria-label={`More actions for ${file.name}`}
-                                    class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted'
-                                    onClick={(e) => openRowMenuButton(e, file)}
-                                  >
-                                    <Ellipsis class='h-5 w-5' />
-                                  </button>
-                                </td>
-                              </tr>
-                            )}
+                            renderFileRow={(file) => {
+                              const item = () => itemForFile(file)
+                              const selected = () =>
+                                !!item() && explorerSnapshot().selection.includes(item()!.key)
+                              return (
+                                <tr
+                                  data-file-path={file.path}
+                                  data-explorer-key={item()?.key}
+                                  aria-selected={selected()}
+                                  class={cn(
+                                    'hover:bg-muted/50 group cursor-pointer select-none border-b border-border transition-colors',
+                                    playingPath() === file.path ? 'bg-primary/10' : '',
+                                    selected() ? 'bg-primary/10' : '',
+                                  )}
+                                  onClick={() => handleFileClick(file)}
+                                  onPointerEnter={() =>
+                                    void explorer.dispatch({
+                                      type: 'prefetch',
+                                      path: stripSharePrefix(file.path, props.shareInfo.path),
+                                    })
+                                  }
+                                  onContextMenu={(e) => openRowMenu(e, file)}
+                                  {...createLongPressContextMenuHandlers()}
+                                  tabindex={
+                                    !explorerSnapshot().focusedKey ||
+                                    explorerSnapshot().focusedKey === item()?.key
+                                      ? 0
+                                      : -1
+                                  }
+                                  onFocus={() =>
+                                    item() &&
+                                    void explorer.dispatch({ type: 'focus', key: item()!.key })
+                                  }
+                                >
+                                  <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
+                                    <div class='flex items-center justify-center'>
+                                      {fileIcon(file)}
+                                    </div>
+                                  </td>
+                                  <td class='min-w-0 p-2 align-middle font-medium'>
+                                    <span class='truncate'>
+                                      {file.name}
+                                      <OfflineBadge path={file.path} />
+                                    </span>
+                                  </td>
+                                  <td class='min-w-0 p-2 align-middle text-right text-muted-foreground tabular-nums'>
+                                    <span class='inline-block w-20'>
+                                      {file.isDirectory ? '' : formatFileSize(file.size)}
+                                    </span>
+                                  </td>
+                                  <td class='p-1 align-middle'>
+                                    <button
+                                      type='button'
+                                      aria-label={`More actions for ${file.name}`}
+                                      class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted'
+                                      onClick={(e) => openRowMenuButton(e, file)}
+                                    >
+                                      <Ellipsis class='h-5 w-5' />
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            }}
                             renderEmptyRow={() => (
                               <DirectoryListingEmptyTableRow
                                 show={showEmptyFolder()}

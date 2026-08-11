@@ -1,6 +1,7 @@
 import type { PasteData } from '@/lib/paste-data'
 import type { ShareLink } from '@/lib/shares'
 import type { FileItem } from '@/lib/types'
+import type { ExplorerCapability } from '@/lib/explorer-model'
 import type { Accessor } from 'solid-js'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import type { VirtualCapability, VirtualEntry } from '@/lib/virtual-directory'
@@ -49,10 +50,10 @@ export type WorkspaceBrowserModalLayerProps = {
   onWorkspaceBreadcrumbOpenInWorkspace: () => void
   onWorkspaceBreadcrumbSetIcon: () => void
   fileRowMenu: FileRowMenuApi
+  getCapabilities: (file: FileItem) => readonly ExplorerCapability[]
   editableFoldersList: string[]
-  isContextDirEditable: Accessor<boolean>
-  shareDeleteGated: Accessor<boolean>
-  shareCanDelete: boolean
+  browseDirectories: (path: string, signal: AbortSignal) => Promise<readonly FileItem[]>
+  resolveDirectoryPath?: (file: FileItem) => string
   onAddToTaskbar?: (file: FileItem) => void
   onFileRowRename?: (file: FileItem) => void
   onFileRowMove?: (file: FileItem) => void
@@ -65,6 +66,7 @@ export type WorkspaceBrowserModalLayerProps = {
   onOpenWithBrowser?: (file: FileItem) => void
   onOpenWithReader?: (file: FileItem) => void
   onContextDownload: (file: FileItem) => void
+  onContextMakeAvailableOffline?: (file: FileItem) => void
   /** Admin workspace: create / manage share links (same as main file browser). */
   shareDialogTarget?: Accessor<FileItem | null>
   setShareDialogTarget?: (v: FileItem | null) => void
@@ -91,8 +93,6 @@ export type WorkspaceBrowserModalLayerProps = {
   confirmMoveTo: (dest: string) => void
   movePending: boolean
   moveError: Error | undefined
-  shareToken: Accessor<string | undefined>
-  shareRootPath: Accessor<string | undefined>
   deleteTarget: Accessor<FileItem | null>
   setDeleteTarget: (v: FileItem | null) => void
   deletePending: boolean
@@ -183,13 +183,10 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
       />
       <FileRowContextMenu
         menu={props.fileRowMenu.menu}
-        editableFolders={() => props.editableFoldersList}
-        isCurrentDirEditable={props.isContextDirEditable}
-        hasEditableFolders={() => props.editableFoldersList.length > 0}
-        shareDeleteGated={props.shareDeleteGated}
-        shareCanDelete={() => !!props.shareCanDelete}
+        getCapabilities={props.getCapabilities}
         onDismiss={props.fileRowMenu.dismiss}
         onDownload={props.onContextDownload}
+        onMakeAvailableOffline={props.onContextMakeAvailableOffline}
         onDelete={props.fileRowMenu.confirmDelete}
         onAddToTaskbar={props.onAddToTaskbar}
         onRename={props.onFileRowRename}
@@ -250,8 +247,8 @@ export function WorkspaceBrowserModalLayer(props: WorkspaceBrowserModalLayerProp
           isPending={props.movePending}
           error={props.moveError}
           editableFolders={props.editableFoldersList}
-          shareToken={props.shareToken()}
-          shareRootPath={props.shareRootPath()}
+          browseDirectories={props.browseDirectories}
+          resolveDirectoryPath={props.resolveDirectoryPath}
         />
       </Show>
       <DeleteFileDialog

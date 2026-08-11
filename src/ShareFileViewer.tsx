@@ -60,7 +60,7 @@ export function ShareFileViewer(props: Props) {
 
   onMount(() => {
     useMediaPlayer.getState().setShareContext(props.token, props.shareInfo.path)
-    void post(`/api/share/${props.token}/view`, {}).catch(() => {})
+    void post(`/api/share/${encodeURIComponent(props.token)}/view`, {}).catch(() => {})
 
     const plan = plannedOpen()
     executeOpenPlan(plan, (planned) => {
@@ -143,7 +143,7 @@ export function ShareFileViewer(props: Props) {
                   class='bg-primary text-primary-foreground hover:bg-primary/90 mx-auto inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium'
                   onClick={() => {
                     const a = document.createElement('a')
-                    a.href = `/api/share/${props.token}/download`
+                    a.href = `/api/share/${encodeURIComponent(props.token)}/download`
                     a.download = props.shareInfo.name
                     a.click()
                   }}

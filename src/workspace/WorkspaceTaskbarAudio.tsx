@@ -158,7 +158,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
       queryFn: () =>
         sh
           ? api<{ files: FileItem[] }>(
-              `/api/share/${sh.token}/files?dir=${encodeURIComponent(dir)}`,
+              `/api/share/${encodeURIComponent(sh.token)}/files?dir=${encodeURIComponent(dir)}`,
             )
           : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
       enabled: !!dirToFetch(),

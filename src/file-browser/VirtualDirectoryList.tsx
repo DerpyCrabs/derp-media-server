@@ -1,4 +1,5 @@
 import type { FileItem } from '@/lib/types'
+import type { ExplorerVisibleRange } from '@/lib/explorer-model'
 import {
   createVirtualizer,
   createWindowVirtualizer,
@@ -26,6 +27,7 @@ type VirtualDirectoryListProps = {
   renderParentRow: () => JSX.Element
   renderFileRow: (file: FileItem) => JSX.Element
   renderEmptyRow?: () => JSX.Element
+  onVisibleRangeChange?: (range: ExplorerVisibleRange) => void
   class?: string
 }
 
@@ -99,6 +101,23 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
   const [scrollMargin, setScrollMargin] = createSignal(0)
   const count = () => props.files().length + (props.includeParent() ? 1 : 0)
   const virtualizer = makeVirtualizer(props, count, scrollMargin)
+
+  createEffect(() => {
+    if (!props.onVisibleRangeChange) return
+    const fileCount = props.files().length
+    if (count() <= VIRTUALIZE_THRESHOLD) {
+      props.onVisibleRangeChange({ startIndex: 0, endIndex: fileCount - 1 })
+      return
+    }
+    const items = virtualizer.getVirtualItems()
+    const parentCount = props.includeParent() ? 1 : 0
+    const first = items[0]
+    const last = items.at(-1)
+    props.onVisibleRangeChange({
+      startIndex: first ? Math.max(0, first.index - parentCount) : 0,
+      endIndex: last ? Math.min(fileCount - 1, last.index - parentCount) : -1,
+    })
+  })
 
   createEffect(() => {
     const itemCount = count()

@@ -75,7 +75,7 @@ export function useWorkspacePageServerData(
     mutationFn: (items: PinnedTaskbarItem[]) => {
       const c = shareConfig()
       if (c) {
-        return post(`/api/share/${c.token}/workspaceTaskbarPins`, { items })
+        return post(`/api/share/${encodeURIComponent(c.token)}/workspaceTaskbarPins`, { items })
       }
       return post('/api/settings/workspaceTaskbarPins', { items })
     },

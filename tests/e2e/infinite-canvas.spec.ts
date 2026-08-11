@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
+import { CANVAS_GRID_SIZE } from '@/lib/infinite-canvas'
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
@@ -937,6 +938,10 @@ test('switches canvas audio layouts as its window is resized', async ({ page }) 
 
   const audioWindow = page.getByTestId('canvas-window').filter({ has: page.locator('audio') })
   const player = audioWindow.getByTestId('canvas-audio-player-ui')
+  await audioWindow.evaluate((element: HTMLElement) => {
+    element.style.width = '560px'
+    element.style.height = '320px'
+  })
   await expect(player).toHaveAttribute('data-audio-layout', 'standard')
   await audioWindow.evaluate((element: HTMLElement) => {
     element.style.width = '800px'
@@ -949,7 +954,7 @@ test('switches canvas audio layouts as its window is resized', async ({ page }) 
   await expect(audioWindow.locator('[data-audio-playlist-path="Music/track.flac"]')).toBeVisible()
 
   await audioWindow.evaluate((element: HTMLElement) => {
-    element.style.height = '288px'
+    element.style.height = '320px'
   })
   await expect(player).toHaveAttribute('data-audio-layout', 'expanded')
   await expect(audioWindow.getByTestId('canvas-audio-playlist')).toBeVisible()
@@ -1326,5 +1331,7 @@ test('auto-pans canvas while dragging a window near viewport edge', async ({ pag
   const draggedAfter = await window.boundingBox()
 
   expect(cameraAfter).toBeLessThan(cameraBefore - 100)
-  expect(Math.abs((draggedAfter?.x ?? 0) - (draggedBefore?.x ?? 0))).toBeLessThan(20)
+  expect(Math.abs((draggedAfter?.x ?? 0) - (draggedBefore?.x ?? 0))).toBeLessThan(
+    CANVAS_GRID_SIZE + 2,
+  )
 })

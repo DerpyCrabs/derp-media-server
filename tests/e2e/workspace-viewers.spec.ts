@@ -396,10 +396,7 @@ test.describe('Workspace PDF Viewer', () => {
     await browser.getByText('Documents', { exact: true }).click()
     await browser.locator('table').getByText('reader-workspace.pdf').click()
     await expect(getWindowGroups(page)).toHaveCount(2)
-    await browser
-      .locator('table')
-      .getByText('sample.pdf')
-      .evaluate((row) => (row as HTMLElement).click())
+    await browser.locator('table').getByText('sample.pdf').dispatchEvent('click')
     await expect(getWindowGroups(page)).toHaveCount(3)
 
     const readers = page.getByTestId('reader-dialog')

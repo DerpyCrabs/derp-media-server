@@ -38,7 +38,7 @@ export function PdfViewerDialog(props: Props) {
     if (!path) return ''
     const ctx = props.shareContext
     if (!ctx) return `/api/files/download?path=${encodeURIComponent(path)}`
-    return `/api/share/${ctx.token}/download?path=${encodeURIComponent(stripSharePrefix(path, ctx.sharePath) || '.')}`
+    return `/api/share/${encodeURIComponent(ctx.token)}/download?path=${encodeURIComponent(stripSharePrefix(path, ctx.sharePath) || '.')}`
   })
   const [document, setDocument] = createSignal<pdfjs.PDFDocumentProxy>()
   const [page, setPage] = createSignal(1)

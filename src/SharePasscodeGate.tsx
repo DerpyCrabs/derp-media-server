@@ -23,7 +23,8 @@ export function SharePasscodeGate(props: Props) {
   let initialCapturePending = true
 
   const verifyMutation = useMutation(() => ({
-    mutationFn: (code: string) => post(`/api/share/${props.token}/verify`, { passcode: code }),
+    mutationFn: (code: string) =>
+      post(`/api/share/${encodeURIComponent(props.token)}/verify`, { passcode: code }),
     onSuccess: () => {
       queryClient.setQueryData(queryKeys.shareInfo(props.token), (prev: unknown) => {
         if (!prev || typeof prev !== 'object') return prev

@@ -69,7 +69,32 @@ test.describe('Offline mode', () => {
     expect(stored.every((entry) => entry.thumbnailSize > 0)).toBe(true)
     expect(stored.every((entry) => entry.mediaSize > 0)).toBe(true)
 
+    const offlineImageConfigRequests: string[] = []
+    const offlineOwnerRequests: string[] = []
+    page.on('request', (request) => {
+      const url = new URL(request.url())
+      if (url.pathname === '/api/image-config') offlineImageConfigRequests.push(url.pathname)
+      if (url.pathname.startsWith('/api/files') || url.pathname.startsWith('/api/settings')) {
+        offlineOwnerRequests.push(url.pathname)
+      }
+    })
     await context.setOffline(true)
+    await page.goto('/?offline=1')
+    const offlineRoot = page.getByTestId('file-browser')
+    await offlineRoot.locator('[data-breadcrumb-segment="home"]').first().click({ button: 'right' })
+    await expect(page.getByTestId('breadcrumb-menu-open-workspace')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await offlineRoot.locator('tr').filter({ hasText: 'Images' }).click({ button: 'right' })
+    await expect(page.getByText('Open in Workspace', { exact: true })).toHaveCount(0)
+    await page.getByTestId('open-with-menu').click()
+    await page.getByTestId('open-with-reader').click()
+    await expect(page.getByTestId('reader-dialog')).toBeVisible()
+    await expect(page.getByRole('article', { name: 'Page 1' })).toBeVisible()
+    await expect(
+      page.getByTestId('reader-dialog').getByRole('img', { name: 'photo.jpg' }).first(),
+    ).toHaveAttribute('src', /\/api\/media\//)
+    expect(offlineOwnerRequests).toEqual([])
+    await page.getByLabel('Close reader').click()
     for (const directory of ['Images', 'Videos']) {
       await page.goto(`/?offline=1&dir=${encodeURIComponent(`${prefix}${directory}`)}`)
       await page.locator('button:has(.lucide-layout-grid)').click()
@@ -79,8 +104,16 @@ test.describe('Offline mode', () => {
         .poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth))
         .toBeGreaterThan(0)
       if (directory === 'Images') {
-        await thumbnail.locator('xpath=ancestor::*[@role="button"][1]').click({ button: 'right' })
+        const imageCard = thumbnail.locator('xpath=ancestor::*[@role="button"][1]')
+        await imageCard.click()
+        await expect(page.getByRole('dialog').getByRole('img', { name: 'photo.jpg' })).toBeVisible()
+        expect(offlineImageConfigRequests).toEqual([])
+        await page.getByRole('dialog').locator('button').last().click()
+        await imageCard.click({ button: 'right' })
         await page.getByText('Remove from offline', { exact: true }).click()
+        await expect(
+          page.getByText('photo.jpg was removed from offline files', { exact: true }),
+        ).toBeVisible()
         await expect(thumbnail).not.toBeVisible()
       }
     }
@@ -692,6 +725,10 @@ test.describe('Offline mode', () => {
     }).toPass({ timeout: 10_000 })
     await page.locator('table tr').filter({ hasText: 'sample.mp4' }).click()
     await expect(page.locator('video')).toBeVisible()
+    await page.getByLabel('Audio only mode').click()
+    const offlineVideoAudio = page.locator('audio').first()
+    await expect(offlineVideoAudio).toBeAttached()
+    await expect(offlineVideoAudio).toHaveAttribute('src', /\/api\/media\//)
 
     await page.goto(`/?offline=1&dir=${encodeURIComponent(`${prefix}Music`)}`)
     await page.locator('table tr').filter({ hasText: 'track.mp3' }).click()

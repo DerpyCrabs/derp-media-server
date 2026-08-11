@@ -49,4 +49,11 @@ describe('share media URLs', () => {
       '/api/share/token/image/nested/photo.jpg?width=901&height=601&dpr=2&scale=1.25&priority=next',
     )
   })
+
+  test('keeps crafted Grant tokens inside one encoded route segment', () => {
+    const token = 'x/../../../api/files?dir=Vault#'
+    expect(buildShareMediaUrl(token, 'Shared', 'Shared/track.mp3')).toBe(
+      `/api/share/${encodeURIComponent(token)}/media/track.mp3`,
+    )
+  })
 })

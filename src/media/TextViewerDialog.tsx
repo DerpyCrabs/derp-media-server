@@ -56,6 +56,7 @@ type TextSaveVariables = {
 
 type Props = {
   shareContext?: TextViewerShareContext | null
+  offline?: boolean
   /** When browsing as admin; ignored if shareContext is set. */
   editableFolders?: string[]
   /** For Obsidian-style image embeds in knowledge bases (admin). */
@@ -93,6 +94,7 @@ function shareDownloadHref(
 export function TextViewerBody(props: {
   viewingPath: string
   shareContext?: TextViewerShareContext | null
+  offline?: boolean
   editableFolders: string[]
   shareCanEdit: boolean
   shareCanUpload: boolean
@@ -126,7 +128,7 @@ export function TextViewerBody(props: {
     queryKey: queryKeys.settings(),
     queryFn: () => api<GlobalSettings>('/api/settings'),
     staleTime: Infinity,
-    enabled: !props.shareContext,
+    enabled: !props.shareContext && !props.offline,
   }))
 
   const autoSaveMutation = useMutation(() => ({
@@ -199,17 +201,20 @@ export function TextViewerBody(props: {
   }))
 
   const fileEditable = createMemo(() => {
+    if (props.offline) return false
     if (props.shareContext) return props.shareCanEdit
     return isPathEditable(props.viewingPath, props.editableFolders)
   })
 
   const autoSaveEnabled = createMemo(() => {
+    if (props.offline) return false
     if (props.shareContext) return sharePrefs().enabled
     const s = settingsQuery.data?.autoSave?.[props.viewingPath]
     return s?.enabled ?? true
   })
 
   const persistedReadOnly = createMemo(() => {
+    if (props.offline) return true
     if (props.shareContext) return sharePrefs().readOnly
     return settingsQuery.data?.autoSave?.[props.viewingPath]?.readOnly ?? false
   })
@@ -270,7 +275,7 @@ export function TextViewerBody(props: {
           const { content, target, shareContext: ctx } = variables
           if (ctx) {
             const rel = shareEditRelativePath(target.viewingPath, ctx)
-            await post(`/api/share/${ctx.token}/edit`, { path: rel, content })
+            await post(`/api/share/${encodeURIComponent(ctx.token)}/edit`, { path: rel, content })
           } else {
             await post('/api/files/edit', { path: target.viewingPath, content })
           }
@@ -723,6 +728,7 @@ export function TextViewerDialog(props: Props) {
       <TextViewerBody
         viewingPath={viewingPath()!}
         shareContext={props.shareContext ?? null}
+        offline={props.offline}
         editableFolders={folders()}
         knowledgeBases={kb()}
         shareCanEdit={shareEdit()}

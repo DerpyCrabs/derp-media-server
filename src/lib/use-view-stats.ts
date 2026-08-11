@@ -34,7 +34,7 @@ export function useViewStats(
       const st = shareToken()
       const sp = sharePath()
       if (st) {
-        return post(`/api/share/${st}/view`, {
+        return post(`/api/share/${encodeURIComponent(st)}/view`, {
           filePath: stripSharePrefix(vars.filePath, sp),
         })
       }

@@ -10,7 +10,7 @@ export function fileDownloadHref(
   if (share) {
     const shareNorm = share.sharePath.replace(/\\/g, '/')
     const rel = stripSharePrefix(norm, shareNorm)
-    return `/api/share/${share.token}/download?path=${encodeURIComponent(rel)}`
+    return `/api/share/${encodeURIComponent(share.token)}/download?path=${encodeURIComponent(rel)}`
   }
   return `/api/files/download?path=${encodeURIComponent(path)}`
 }

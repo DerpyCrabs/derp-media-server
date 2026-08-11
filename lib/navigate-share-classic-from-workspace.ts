@@ -5,5 +5,10 @@ export function navigateShareWorkspaceToClassicPage(shareToken: string) {
   sp.delete('ws')
   sp.delete('preset')
   const qs = sp.toString()
-  navigate(parseRoute({ pathname: `/share/${shareToken}`, search: qs ? `?${qs}` : '' }))
+  navigate(
+    parseRoute({
+      pathname: `/share/${encodeURIComponent(shareToken)}`,
+      search: qs ? `?${qs}` : '',
+    }),
+  )
 }

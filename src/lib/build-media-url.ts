@@ -49,7 +49,7 @@ export function buildShareImageUrl(
   filePath: string,
   request: ResponsiveImageRequest,
 ): string {
-  return `/api/share/${shareToken}/image/${encodeSegments(shareRequestPath(filePath, shareBasePath))}?${imageQuery(request)}`
+  return `/api/share/${encodeURIComponent(shareToken)}/image/${encodeSegments(shareRequestPath(filePath, shareBasePath))}?${imageQuery(request)}`
 }
 
 export function buildImageUrl(
@@ -63,7 +63,7 @@ export function buildImageUrl(
 }
 
 export function buildImageConfigUrl(ctx: MediaShareContext): string {
-  return ctx ? `/api/share/${ctx.token}/image-config` : '/api/image-config'
+  return ctx ? `/api/share/${encodeURIComponent(ctx.token)}/image-config` : '/api/image-config'
 }
 
 export function buildShareMediaUrl(
@@ -71,7 +71,7 @@ export function buildShareMediaUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  return `/api/share/${shareToken}/media/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
+  return `/api/share/${encodeURIComponent(shareToken)}/media/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 function buildAdminAudioExtractUrl(filePath: string): string {
@@ -83,7 +83,7 @@ function buildShareAudioExtractUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  return `/api/share/${shareToken}/audio/extract/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
+  return `/api/share/${encodeURIComponent(shareToken)}/audio/extract/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 export function buildAudioExtractUrl(filePath: string, ctx: MediaShareContext): string {
@@ -100,7 +100,7 @@ function buildShareAudioMetadataUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  return `/api/share/${shareToken}/audio/metadata/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
+  return `/api/share/${encodeURIComponent(shareToken)}/audio/metadata/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 export function buildAudioMetadataUrl(filePath: string, ctx: MediaShareContext): string {
@@ -117,7 +117,7 @@ function buildShareThumbnailUrl(
   shareBasePath: string,
   filePath: string,
 ): string {
-  return `/api/share/${shareToken}/thumbnail/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
+  return `/api/share/${encodeURIComponent(shareToken)}/thumbnail/${encodeSegments(shareRequestPath(filePath, shareBasePath))}`
 }
 
 export function buildThumbnailUrl(filePath: string, ctx: MediaShareContext): string {

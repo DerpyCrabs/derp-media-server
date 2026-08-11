@@ -1,8 +1,8 @@
 # Derp Desk Roadmap
 
-Status: active; Stage 3 complete
+Status: active; Stage 4 complete
 Initiative branch: `derp-desk`
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 This document guides evolution of Derp Media Server into Derp Desk through small releasable stages. Product serves two trusted users, so roadmap favors a clear system and fast delivery over enterprise-scale process.
 
@@ -400,14 +400,14 @@ Resource Adapter, pure opener, history, local storage, clock, and online state a
 
 ### Work packages
 
-- [ ] **4.1 Extract state machine.** Navigation, breadcrumbs, selection, sorting, view mode, pagination/virtualization, keyboard focus, refresh, and mutation reconciliation become explicit model state/actions.
-- [ ] **4.2 Add caller Adapters.** Owner online, Grant-token, and offline IndexedDB are real Adapters. Grant Adapter cannot construct owner route requests. Until Stage 9, offline Adapter is read-only except local vault save/remove and returns typed unavailable errors for server mutations.
-- [ ] **4.3 Make commands capability-driven.** Menus and shortcuts derive from Resource capabilities; remove `isShare`, provider-name, hard-coded virtual path, and scattered read-only branching.
-- [ ] **4.4 Move main Library.** Preserve mobile list/grid, media launch, drag/drop, KB affordances, URL state, and offline save.
-- [ ] **4.5 Move Workspace browser pane.** Preserve tabs, split/floating/map open intents, cross-window drag/drop, search, and pane-local history.
-- [ ] **4.6 Move shared browser.** Use same model and primitives with Grant Adapter and capability-specific menus.
-- [ ] **4.7 Move Offline view.** Offline catalog becomes another presenter/Adapter. Existing saved media keeps working through its current cache keys.
-- [ ] **4.8 Complete cutover.** Make ExplorerModel default after parity tests, then remove replaced orchestration.
+- [x] **4.1 Extract state machine.** Navigation, breadcrumbs, selection, sorting, view mode, pagination/virtualization, keyboard focus, refresh, and mutation reconciliation become explicit model state/actions.
+- [x] **4.2 Add caller Adapters.** Owner online, Grant-token, and offline IndexedDB are real Adapters. Grant Adapter cannot construct owner route requests. Until Stage 9, offline Adapter is read-only except local vault save/remove and returns typed unavailable errors for server mutations.
+- [x] **4.3 Make commands capability-driven.** Menus and shortcuts derive from Resource capabilities; remove `isShare`, provider-name, hard-coded virtual path, and scattered read-only branching.
+- [x] **4.4 Move main Library.** Preserve mobile list/grid, media launch, drag/drop, KB affordances, URL state, and offline save.
+- [x] **4.5 Move Workspace browser pane.** Preserve tabs, split/floating/map open intents, cross-window drag/drop, search, and pane-local history.
+- [x] **4.6 Move shared browser.** Use same model and primitives with Grant Adapter and capability-specific menus.
+- [x] **4.7 Move Offline view.** Offline catalog becomes another presenter/Adapter. Existing saved media keeps working through its current cache keys.
+- [x] **4.8 Complete cutover.** Make ExplorerModel default after parity tests, then remove replaced orchestration.
 
 ### Likely code areas
 
@@ -440,6 +440,18 @@ Resource Adapter, pure opener, history, local storage, clock, and online state a
 
 - No Space layout merge yet.
 - No unified full-text search yet.
+
+### Completion record
+
+- Completed: 2026-08-12; all work packages 4.1-4.8 and Stage 4 exit gates verified.
+- Commit/release: one Stage 4 implementation commit on `derp-desk`; release not pushed.
+- Data changes: offline IndexedDB remains `derp-offline-v1` with path keys and existing OPFS/cache names; optional Resource summaries are additive. Legacy entries receive deterministic ResourceRefs in memory without rewrite or redownload. User files and media byte routes are unchanged.
+- Transitional Adapters retained: current path-based URLs, per-path view-mode keys, direct media/Range routes, and offline service-worker cache keys remain compatibility inputs. Replaced presenter orchestration and hover/view-mode helpers were removed; no parallel Explorer implementation or feature flag remains.
+- Architecture: one headless ExplorerModel owns navigation, breadcrumbs, selection/focus, sorting, view mode, pagination/visible ranges, cancellation, stale state, and optimistic reconciliation. Owner, Grant, offline, and online-to-offline fallback behavior live behind Resource Adapters; presenters execute emitted OpenPlans and layout-specific dispositions.
+- Targeted tests: model transitions, cancellation, subscription/disposal, history, selection, pagination, capability denial, optimistic correction/rebase, Adapter transport and Grant isolation, legacy offline identity/removal, shared presenter parity, offline owner-route isolation, responsive images, mobile view mode, upload/paste, drag/drop, virtualization, and owner/Grant Workspace behavior.
+- Full validation: required TypeScript, lint, format, Rust/Bun unit, production build, six-batch E2E, and diff checks passed.
+- Automated desktop and phone smoke coverage includes owner and Grant browse/open/history, narrow-phone browse/play/seek/reload/resume/offline replay, and production dehydrated-state startup.
+- Remaining Stage 4 issues: none known. Playback-session unification remains Stage 5 scope.
 
 ---
 

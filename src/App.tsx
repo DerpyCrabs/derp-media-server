@@ -379,7 +379,14 @@ function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
       </Switch>
       <Show when={props.route().query.reader} keyed>
         {(sourcePath) => (
-          <ReaderDialog sourcePath={sourcePath} sourceKind={props.route().query.readerKind} />
+          <ReaderDialog
+            sourcePath={sourcePath}
+            sourceKind={props.route().query.readerKind}
+            offline={
+              props.route().kind === 'offline' ||
+              (props.route().kind === 'library' && props.route().query.offline)
+            }
+          />
         )}
       </Show>
     </>

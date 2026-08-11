@@ -16,6 +16,7 @@ type Options = {
   viewport: Accessor<HTMLElement | undefined>
   zoom: Accessor<number | 'fit'>
   prefetchPaths: Accessor<string[]>
+  forceOffline?: Accessor<boolean>
   onDisplayPath?: (path: string) => void
 }
 
@@ -42,7 +43,8 @@ function offlineNow(): boolean {
 
 export function createResponsiveImage(options: Options) {
   const [dimensions, setDimensions] = createSignal<Dimensions>({ width: 0, height: 0 })
-  const [offline, setOffline] = createSignal(offlineNow())
+  const [detectedOffline, setDetectedOffline] = createSignal(offlineNow())
+  const offline = createMemo(() => options.forceOffline?.() === true || detectedOffline())
   const [enabled, setEnabled] = createSignal(true)
   const [request, setRequest] = createSignal<ResponsiveImageRequest | null>(null)
   const [forcedOriginal, setForcedOriginal] = createSignal(false)
@@ -62,7 +64,7 @@ export function createResponsiveImage(options: Options) {
   let demandPath = ''
 
   onMount(() => {
-    const updateOffline = () => setOffline(offlineNow())
+    const updateOffline = () => setDetectedOffline(offlineNow())
     window.addEventListener('online', updateOffline)
     window.addEventListener('offline', updateOffline)
     window.addEventListener('popstate', updateOffline)
@@ -102,6 +104,10 @@ export function createResponsiveImage(options: Options) {
 
   createEffect(() => {
     const context = options.context()
+    if (offline()) {
+      setEnabled(false)
+      return
+    }
     let cancelled = false
     setEnabled(true)
     void imageOptimizationEnabled(context).then((value) => {

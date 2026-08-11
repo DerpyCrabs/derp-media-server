@@ -1,4 +1,5 @@
 import type { FileItem } from '@/lib/types'
+import type { ExplorerVisibleRange } from '@/lib/explorer-model'
 import { cn } from '@/lib/utils'
 import {
   createVirtualizer,
@@ -21,6 +22,7 @@ type VirtualDirectoryGridProps = {
   class?: string
   renderParentCard: () => JSX.Element
   renderFileCard: (file: FileItem) => JSX.Element
+  onVisibleRangeChange?: (range: ExplorerVisibleRange) => void
 }
 
 const VIRTUALIZE_THRESHOLD = 100
@@ -113,6 +115,23 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
     return Math.ceil(cardWidth * (9 / 16) + 76 + GRID_GAP_PX)
   })
   const virtualizer = makeVirtualizer(props, rowCount, rowHeight, scrollMargin)
+
+  createEffect(() => {
+    if (!props.onVisibleRangeChange) return
+    const fileCount = props.files().length
+    if (totalItems() <= VIRTUALIZE_THRESHOLD) {
+      props.onVisibleRangeChange({ startIndex: 0, endIndex: fileCount - 1 })
+      return
+    }
+    const rows = virtualizer.getVirtualItems()
+    const parentCount = props.includeParent() ? 1 : 0
+    const first = rows[0]
+    const last = rows.at(-1)
+    props.onVisibleRangeChange({
+      startIndex: first ? Math.max(0, first.index * columns() - parentCount) : 0,
+      endIndex: last ? Math.min(fileCount - 1, (last.index + 1) * columns() - 1 - parentCount) : -1,
+    })
+  })
 
   function updateMeasurements() {
     if (containerEl) {

@@ -84,7 +84,7 @@ export function buildShareUrl(
   baseOrigin: string,
 ): string {
   const base = baseOrigin.trim().replace(/\/$/, '')
-  const url = `${base}/share/${share.token}`
+  const url = `${base}/share/${encodeURIComponent(share.token)}`
   return share.passcode ? `${url}#p=${encodeURIComponent(share.passcode)}` : url
 }
 

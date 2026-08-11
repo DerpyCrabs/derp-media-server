@@ -33,6 +33,8 @@ import { executeOpenPlan, openResource } from '../lib/open-resource'
 
 type Props = {
   shareContext?: { token: string; sharePath: string } | null
+  offline?: boolean
+  explorerFiles?: readonly FileItem[]
 }
 
 type ShareCtx = { token: string; sharePath: string }
@@ -64,6 +66,7 @@ function ImageViewerInner(props: {
   viewingPath: string
   shareContext: ShareCtx | null
   allFiles: Accessor<FileItem[]>
+  offline?: boolean
 }): JSX.Element {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
@@ -81,6 +84,7 @@ function ImageViewerInner(props: {
 
   const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
   const [rotation, setRotation] = createSignal(0)
+  const [interactionReady, setInteractionReady] = createSignal(false)
   const [imageSurface, setImageSurface] = createSignal<HTMLDivElement>()
   let displayPath = props.viewingPath
   let activePointer: number | null = null
@@ -99,7 +103,11 @@ function ImageViewerInner(props: {
     const ctx = props.shareContext
     if (ctx) {
       const relative = stripSharePrefix(path, ctx.sharePath)
-      return `/api/share/${ctx.token}/download?path=${encodeURIComponent(relative || '.')}`
+      return `/api/share/${encodeURIComponent(ctx.token)}/download?path=${encodeURIComponent(relative || '.')}`
+    }
+    if (props.offline) {
+      const encodedPath = path.split(/[/\\]/).filter(Boolean).map(encodeURIComponent).join('/')
+      return `/api/media/${encodedPath}`
     }
     return `/api/files/download?path=${encodeURIComponent(path)}`
   })
@@ -121,6 +129,7 @@ function ImageViewerInner(props: {
     viewport: imageSurface,
     zoom,
     prefetchPaths,
+    forceOffline: () => props.offline === true,
     onDisplayPath: (path) => {
       if (path === displayPath) return
       displayPath = path
@@ -160,8 +169,7 @@ function ImageViewerInner(props: {
     moveImage(-1)
   }
 
-  createEffect(() => {
-    if (!props.viewingPath) return
+  onMount(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
@@ -172,6 +180,7 @@ function ImageViewerInner(props: {
       }
     }
     window.addEventListener('keydown', handler)
+    setInteractionReady(true)
     onCleanup(() => window.removeEventListener('keydown', handler))
   })
 
@@ -423,7 +432,7 @@ function ImageViewerInner(props: {
             </button>
           </div>
         </Show>
-        <Show when={responsiveImage.src() && !responsiveImage.error()}>
+        <Show when={interactionReady() && responsiveImage.src() && !responsiveImage.error()}>
           <img
             src={responsiveImage.src()}
             alt={fileName()}
@@ -450,7 +459,25 @@ function ImageViewerBodyAdmin(props: { viewingPath: string }): JSX.Element {
   )
 }
 
-function ImageViewerBodyShare(props: { viewingPath: string; shareContext: ShareCtx }): JSX.Element {
+function ImageViewerBodyOffline(props: {
+  viewingPath: string
+  explorerFiles: readonly FileItem[]
+}): JSX.Element {
+  return (
+    <ImageViewerInner
+      viewingPath={props.viewingPath}
+      shareContext={null}
+      allFiles={() => [...props.explorerFiles]}
+      offline
+    />
+  )
+}
+
+function ImageViewerBodyShare(props: {
+  viewingPath: string
+  shareContext: ShareCtx
+  explorerFiles?: readonly FileItem[]
+}): JSX.Element {
   const dirFromUrl = useDirFromUrl()
   const dirToFetch = useDirToFetch(() => props.viewingPath, dirFromUrl)
   const filesQuery = useQuery(() => {
@@ -459,11 +486,13 @@ function ImageViewerBodyShare(props: { viewingPath: string; shareContext: ShareC
       queryKey: queryKeys.shareFiles(props.shareContext.token, qDir),
       queryFn: () =>
         api<{ files: FileItem[] }>(
-          `/api/share/${props.shareContext.token}/files?dir=${encodeURIComponent(qDir)}`,
+          `/api/share/${encodeURIComponent(props.shareContext.token)}/files?dir=${encodeURIComponent(qDir)}`,
         ),
+      enabled: (props.explorerFiles?.length ?? 0) === 0,
     }
   })
-  const allFiles = () => filesQuery.data?.files ?? []
+  const allFiles = () =>
+    props.explorerFiles?.length ? [...props.explorerFiles] : (filesQuery.data?.files ?? [])
   return (
     <ImageViewerInner
       viewingPath={props.viewingPath}
@@ -486,9 +515,25 @@ export function ImageViewerDialog(props: Props) {
     <Show when={viewingPath() && isImage()}>
       <Show
         when={props.shareContext}
-        fallback={<ImageViewerBodyAdmin viewingPath={viewingPath()!} />}
+        fallback={
+          <Show
+            when={props.offline}
+            fallback={<ImageViewerBodyAdmin viewingPath={viewingPath()!} />}
+          >
+            <ImageViewerBodyOffline
+              viewingPath={viewingPath()!}
+              explorerFiles={props.explorerFiles ?? []}
+            />
+          </Show>
+        }
       >
-        {(ctx) => <ImageViewerBodyShare viewingPath={viewingPath()!} shareContext={ctx()!} />}
+        {(ctx) => (
+          <ImageViewerBodyShare
+            viewingPath={viewingPath()!}
+            shareContext={ctx()!}
+            explorerFiles={props.explorerFiles}
+          />
+        )}
       </Show>
     </Show>
   )

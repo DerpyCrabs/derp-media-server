@@ -35,6 +35,8 @@ import { executeOpenPlan, openResource } from '../lib/open-resource'
 
 type Props = {
   shareContext?: TextViewerShareContext | null
+  offline?: boolean
+  explorerFiles?: readonly FileItem[]
 }
 
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
@@ -98,13 +100,16 @@ export function AudioPlayer(props: Props) {
       queryFn: () =>
         ctx
           ? api<{ files: FileItem[] }>(
-              `/api/share/${ctx.token}/files?dir=${encodeURIComponent(dir)}`,
+              `/api/share/${encodeURIComponent(ctx.token)}/files?dir=${encodeURIComponent(dir)}`,
             )
           : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
+      enabled: !props.offline && props.explorerFiles === undefined,
     }
   })
 
-  const allFiles = createMemo(() => filesQuery.data?.files ?? [])
+  const allFiles = createMemo(() =>
+    props.explorerFiles === undefined ? (filesQuery.data?.files ?? []) : [...props.explorerFiles],
+  )
 
   const audioFiles = createMemo(() =>
     allFiles().filter((f) => f.type === MediaType.AUDIO || f.type === MediaType.VIDEO),
@@ -141,7 +146,7 @@ export function AudioPlayer(props: Props) {
   const metadataQuery = useQuery(() => ({
     queryKey: queryKeys.audioMetadata(playingPath()!),
     queryFn: () => fetchAudioMetadata(metadataUrl()!),
-    enabled: !!playingPath() && needMetadata() && !!metadataUrl(),
+    enabled: !props.offline && !!playingPath() && needMetadata() && !!metadataUrl(),
     refetchOnWindowFocus: false,
   }))
 
@@ -224,10 +229,13 @@ export function AudioPlayer(props: Props) {
   })
 
   function incrementView(filePath: string) {
+    if (props.offline) return
     const ctx = props.shareContext
     if (ctx) {
       const rel = stripSharePrefix(filePath, ctx.sharePath)
-      void post(`/api/share/${ctx.token}/view`, { filePath: rel || '.' }).catch(() => {})
+      void post(`/api/share/${encodeURIComponent(ctx.token)}/view`, {
+        filePath: rel || '.',
+      }).catch(() => {})
     } else {
       void post('/api/stats/views', { filePath }).catch(() => {})
     }
@@ -458,9 +466,10 @@ export function AudioPlayer(props: Props) {
     if (!el || !path || !shouldHandleAudio()) return
     if (useMediaPlayer.getState().mediaType === 'video') return
 
-    const mediaUrl = isVideoFile()
-      ? buildAudioExtractUrl(path, shareCtx())
-      : buildMediaUrl(path, shareCtx())
+    const mediaUrl =
+      isVideoFile() && !props.offline
+        ? buildAudioExtractUrl(path, shareCtx())
+        : buildMediaUrl(path, shareCtx())
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     const mp = useMediaPlayer.getState()

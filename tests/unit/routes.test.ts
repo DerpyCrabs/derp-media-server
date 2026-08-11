@@ -46,6 +46,14 @@ describe('route Module Interface', () => {
     )
   })
 
+  test('decodes share route segments once before canonical re-encoding', () => {
+    const route = parseRoute({ pathname: '/share/public%20token' })
+    expect(route).toMatchObject({ kind: 'share', token: 'public token' })
+    expect(hrefFor(route)).toBe('/share/public%20token')
+    if (route.kind !== 'share') throw new Error('Expected share route')
+    expect(hrefFor({ kind: 'share', token: route.token })).toBe('/share/public%20token')
+  })
+
   test('generates media-aware Library file routes for Home projections', () => {
     expect(hrefForLibraryFile('Videos/sample.mp4')).toBe('/?playing=Videos%2Fsample.mp4')
     expect(hrefForLibraryFile('Music/track.MP3')).toBe('/?playing=Music%2Ftrack.MP3')

@@ -35,6 +35,7 @@ import { ReaderSelectionMenu, type ReaderSelection } from './ReaderSelectionMenu
 import { menuPositionForRect, visibleRectForRange } from './reader-geometry'
 import { closeReader } from './reader-url'
 import { buildMediaUrl, type MediaShareContext } from '../lib/build-media-url'
+import { fetchOfflineFiles } from '../lib/offline-files'
 import { parseBook } from './book-parser'
 import { renderBook, type RenderedBook } from './book-sanitize'
 import { BookContent } from './BookContent'
@@ -370,6 +371,7 @@ type ReaderDialogProps = {
   sourcePath?: string
   sourceKind?: 'pdf' | 'folder' | 'book'
   shareContext?: MediaShareContext
+  offline?: boolean
   embedded?: boolean
   showClose?: boolean
   onClose?: () => void
@@ -472,6 +474,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     viewMode() === 'page' ? pages().slice(currentPage(), currentPage() + 1) : pages(),
   )
   const persistPreferences = () => {
+    if (props.offline) return Promise.resolve()
     const preferences = {
       bookAppearance: bookAppearance(),
       selectionMode: preferredSelectionMode(),
@@ -598,8 +601,14 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     let cancelled = false
     let pdfTask: ReturnType<typeof pdfjs.getDocument> | undefined
     void Promise.all([
-      loadSyncedReaderState(activePath, props.shareContext).catch(() => null),
-      loadReaderPreferences(props.shareContext).catch(() => ({ ...DEFAULT_READER_PREFERENCES })),
+      props.offline
+        ? Promise.resolve(null)
+        : loadSyncedReaderState(activePath, props.shareContext).catch(() => null),
+      props.offline
+        ? Promise.resolve({ ...DEFAULT_READER_PREFERENCES })
+        : loadReaderPreferences(props.shareContext).catch(() => ({
+            ...DEFAULT_READER_PREFERENCES,
+          })),
     ])
       .then(async ([saved, preferences]) => {
         if (cancelled) return
@@ -634,12 +643,19 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
               : normalized.startsWith(`${base}/`)
                 ? normalized.slice(base.length + 1)
                 : normalized
-          const listUrl = share
-            ? `/api/share/${encodeURIComponent(share.token)}/files?dir=${encodeURIComponent(relative)}`
-            : `/api/files?dir=${encodeURIComponent(activePath)}`
-          const response = await fetch(listUrl)
-          const payload = await response.json()
-          if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
+          const payload = props.offline
+            ? await fetchOfflineFiles(activePath)
+            : await (async () => {
+                const listUrl = share
+                  ? `/api/share/${encodeURIComponent(share.token)}/files?dir=${encodeURIComponent(relative)}`
+                  : `/api/files?dir=${encodeURIComponent(activePath)}`
+                const response = await fetch(listUrl)
+                const body = await response.json()
+                if (!response.ok) {
+                  throw new Error(body?.error ?? 'Could not open image folder')
+                }
+                return body as { files?: FileItem[] }
+              })()
           const files = ((payload.files ?? []) as FileItem[])
             .filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
             .sort(naturalCompare)
@@ -752,7 +768,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
 
   const capturePersistedState = () => {
     const activePath = path()
-    if (!activePath || !stateFingerprint() || syncBlocked()) return null
+    if (props.offline || !activePath || !stateFingerprint() || syncBlocked()) return null
     const currentBookChapter = viewport?.querySelector<HTMLElement>(
       `[data-book-chapter="${CSS.escape(currentChapterId())}"]`,
     )

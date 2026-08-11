@@ -1,5 +1,5 @@
 import { MediaType, type FileItem } from '@/lib/types'
-import { isPathEditable } from '@/lib/utils'
+import type { ExplorerCapability } from '@/lib/explorer-model'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from 'lucide-solid/icons/app-window'
 import BookOpen from 'lucide-solid/icons/book-open'
@@ -16,18 +16,12 @@ import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createSignal } from 'solid-js'
 import type { VirtualCapability, VirtualEntry } from '@/lib/virtual-directory'
-import { isOfflineFeatureAvailable, isPathAvailableOffline } from '../lib/offline-files'
 
 type MenuState = { x: number; y: number; file: FileItem }
 
 type FileRowContextMenuProps = {
   menu: Accessor<MenuState | null>
-  editableFolders: Accessor<string[]>
-  isCurrentDirEditable: Accessor<boolean>
-  hasEditableFolders: Accessor<boolean>
-  /** When true, Delete is only shown if shareCanDelete is true (share workspace restrictions). */
-  shareDeleteGated?: Accessor<boolean>
-  shareCanDelete?: Accessor<boolean>
+  getCapabilities: (file: FileItem) => readonly ExplorerCapability[]
   onDismiss: () => void
   onDownload: (file: FileItem) => void
   onMakeAvailableOffline?: (file: FileItem) => void
@@ -80,30 +74,17 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
       {(ctx) => {
         const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
         const virtualEntry = () => props.getVirtualEntry?.(ctx.file)
+        const can = (capability: ExplorerCapability) =>
+          props.getCapabilities(ctx.file).includes(capability)
         const canVirtual = (capability: VirtualCapability) =>
-          virtualEntry()?.capabilities.includes(capability) ?? false
-        const showRevokeShare = () => !!ctx.file.shareToken
-        const showDeleteFile = () => {
-          if (ctx.file.isVirtual || ctx.file.shareToken) return false
-          if (!isPathEditable(ctx.file.path, props.editableFolders())) return false
-          if (props.shareDeleteGated?.()) {
-            return !!(props.shareCanDelete?.() ?? false)
-          }
-          return true
-        }
-        const showShare = () => !ctx.file.isVirtual && !ctx.file.shareToken && !!props.onShare
-        const showCopyShareLink = () => !!ctx.file.shareToken && !!props.onCopyShareLink
-        const showCopyTo = () => props.hasEditableFolders() && !ctx.file.isVirtual && !!props.onCopy
-        const showMove = () =>
-          props.isCurrentDirEditable() &&
-          !ctx.file.isVirtual &&
-          !ctx.file.shareToken &&
-          !!props.onMove
-        const showRename = () =>
-          props.isCurrentDirEditable() &&
-          !ctx.file.isVirtual &&
-          !ctx.file.shareToken &&
-          !!props.onRename
+          !!props.onVirtualAction && (virtualEntry()?.capabilities.includes(capability) ?? false)
+        const showRevokeShare = () => can('revokeShare')
+        const showDeleteFile = () => !virtualEntry() && can('delete')
+        const showShare = () => !virtualEntry() && can('share') && !!props.onShare
+        const showCopyShareLink = () => can('copyShareLink') && !!props.onCopyShareLink
+        const showCopyTo = () => !virtualEntry() && can('copy') && !!props.onCopy
+        const showMove = () => !virtualEntry() && can('move') && !!props.onMove
+        const showRename = () => !virtualEntry() && can('rename') && !!props.onRename
         const showEditSeparator = () =>
           showRevokeShare() || showDeleteFile() || showMove() || showRename()
         const manageLabel = () => (props.getPathHasShare?.(ctx.file) ? 'Manage Share' : 'Share')
@@ -115,7 +96,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
           !!props.onOpenFileInNewWindow
 
         const showWorkspaceOpenRow = () => {
-          if (ctx.file.isVirtual) return false
+          if (!can('open') || virtualEntry()) return false
           if (ctx.file.isDirectory) return !!props.onOpenInNewTab
           if (props.showOpenInNewTabForFiles !== true) return false
           if (fileContextIsNewWindow()) return true
@@ -294,7 +275,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Delete Permanently
               </button>
             </Show>
-            <Show when={props.onSetIcon && !ctx.file.isVirtual}>
+            <Show when={props.onSetIcon && !virtualEntry() && can('setAppearance')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -345,7 +326,10 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             </Show>
             <Show
               when={
-                props.onOpenInSplitView && !ctx.file.isVirtual && ctx.file.type !== MediaType.AUDIO
+                props.onOpenInSplitView &&
+                !virtualEntry() &&
+                can('open') &&
+                ctx.file.type !== MediaType.AUDIO
               }
             >
               <button
@@ -367,7 +351,8 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
               when={
                 props.onOpenWithBrowser &&
                 props.onOpenWithReader &&
-                !ctx.file.isVirtual &&
+                !virtualEntry() &&
+                can('browse') &&
                 ctx.file.isDirectory
               }
             >
@@ -432,7 +417,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 </Show>
               </div>
             </Show>
-            <Show when={props.onOpenInWorkspace && ctx.file.isDirectory && !ctx.file.isVirtual}>
+            <Show when={props.onOpenInWorkspace && !virtualEntry() && can('browse')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -450,7 +435,8 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             <Show
               when={
                 props.onAddToTaskbar &&
-                (!ctx.file.isVirtual || virtualEntry()?.openTarget?.type === 'hermesSession')
+                can('open') &&
+                (!virtualEntry() || virtualEntry()?.openTarget?.type === 'hermesSession')
               }
             >
               <button
@@ -467,7 +453,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Add to taskbar
               </button>
             </Show>
-            <Show when={ctx.file.isDirectory && !ctx.file.isVirtual && !!props.onToggleFavorite}>
+            <Show when={!virtualEntry() && can('favorite') && !!props.onToggleFavorite}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -503,7 +489,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 {manageLabel()}
               </button>
             </Show>
-            <Show when={ctx.file.isDirectory && props.onToggleKnowledgeBase}>
+            <Show when={!virtualEntry() && can('setKnowledgeBase') && props.onToggleKnowledgeBase}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -523,7 +509,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                   : 'Set as Knowledge Base'}
               </button>
             </Show>
-            <Show when={!ctx.file.isVirtual || canVirtual('download')}>
+            <Show when={can('download')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -537,7 +523,9 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 {downloadLabel()}
               </button>
             </Show>
-            <Show when={isOfflineFeatureAvailable() && props.onMakeAvailableOffline}>
+            <Show
+              when={(can('keepOffline') || can('removeOffline')) && props.onMakeAvailableOffline}
+            >
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -548,9 +536,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                   props.onDismiss()
                 }}
               >
-                {isPathAvailableOffline(ctx.file.path)
-                  ? 'Remove from offline'
-                  : 'Make available offline'}
+                {can('removeOffline') ? 'Remove from offline' : 'Make available offline'}
               </button>
             </Show>
             <Show when={showCopyTo()}>

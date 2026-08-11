@@ -40,7 +40,9 @@ type Props = { token: string }
 function RedirectShareFileFromWorkspace(props: { token: string }) {
   onMount(() => {
     const qs = window.location.search
-    navigate(parseRoute({ pathname: `/share/${props.token}`, search: qs }), { replace: true })
+    navigate(parseRoute({ pathname: `/share/${encodeURIComponent(props.token)}`, search: qs }), {
+      replace: true,
+    })
   })
   return (
     <div class='relative flex min-h-screen items-center justify-center'>
@@ -56,7 +58,7 @@ export function ShareWorkspacePage(props: Props) {
 
   const shareQuery = useQuery(() => ({
     queryKey: queryKeys.shareInfo(props.token),
-    queryFn: () => api<ShareInfo>(`/api/share/${props.token}/info`),
+    queryFn: () => api<ShareInfo>(`/api/share/${encodeURIComponent(props.token)}/info`),
   }))
 
   const sharePath = createMemo(() => shareQuery.data?.path ?? '')

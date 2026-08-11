@@ -17,6 +17,7 @@ type PathMenuEntry = { name: string; path: string; originIndex: number }
 
 type BreadcrumbsProps = {
   currentPath: string
+  breadcrumbs?: readonly { name: string; path: string }[]
   homeLabel?: string
   onNavigate: (path: string) => void
   mode?: 'MediaServer' | 'Workspace'
@@ -35,6 +36,11 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
   const isWorkspace = () => (props.mode ?? 'MediaServer') === 'Workspace'
 
   const crumbs = createMemo(() => {
+    if (props.breadcrumbs) {
+      return props.breadcrumbs.map((crumb, index) =>
+        index === 0 ? { ...crumb, name: props.homeLabel ?? 'Home' } : crumb,
+      )
+    }
     const parts = props.currentPath ? props.currentPath.split(/[/\\]/).filter(Boolean) : []
     return [
       { name: props.homeLabel ?? 'Home', path: '' },

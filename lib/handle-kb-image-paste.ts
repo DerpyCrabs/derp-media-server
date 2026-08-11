@@ -20,7 +20,7 @@ async function rollbackUploadedImage(
 ): Promise<void> {
   if (ctx.shareContext) {
     if (!rollbackId) throw new Error('Share image upload did not return a rollback capability')
-    await post(`/api/share/${ctx.shareContext.token}/cancel-image-upload`, {
+    await post(`/api/share/${encodeURIComponent(ctx.shareContext.token)}/cancel-image-upload`, {
       rollbackId,
     })
   } else {
@@ -32,7 +32,9 @@ async function finalizeShareImageUpload(
   ctx: KbImagePasteContext,
   rollbackId: string,
 ): Promise<void> {
-  await post(`/api/share/${ctx.shareContext!.token}/finalize-image-upload`, { rollbackId })
+  await post(`/api/share/${encodeURIComponent(ctx.shareContext!.token)}/finalize-image-upload`, {
+    rollbackId,
+  })
 }
 
 async function createKbImageWithUniqueName(
@@ -106,7 +108,7 @@ export async function tryPasteKnowledgeBaseImage(
         fileName: string
         path: string
         rollbackId: string
-      }>(`/api/share/${ctx.shareContext.token}/upload-image`, {
+      }>(`/api/share/${encodeURIComponent(ctx.shareContext.token)}/upload-image`, {
         base64Content: base64,
         mimeType,
         fileName: preferredName,

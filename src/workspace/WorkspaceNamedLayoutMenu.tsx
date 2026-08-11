@@ -69,7 +69,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     mutationFn: async (next: WorkspaceLayoutPreset[]) => {
       if (props.shareToken) {
         return post<{ workspaceLayoutPresets: WorkspaceLayoutPreset[] }>(
-          `/api/share/${props.shareToken}/workspaceLayoutPresets`,
+          `/api/share/${encodeURIComponent(props.shareToken)}/workspaceLayoutPresets`,
           { presets: next },
         )
       }

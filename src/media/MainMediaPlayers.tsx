@@ -1,6 +1,7 @@
 import { getMediaTypeFromPath } from '@/lib/media-utils'
 import { isViewerId } from '@/lib/resource'
 import { MediaType } from '@/lib/types'
+import type { FileItem } from '@/lib/types'
 import { Show, lazy } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { AudioPlayer } from './AudioPlayer'
@@ -30,9 +31,11 @@ type Props = {
   knowledgeBases?: string[]
   shareCanEdit?: boolean
   shareCanUpload?: boolean
+  offline?: boolean
+  explorerFiles?: readonly FileItem[]
 }
 
-function LazyDocumentReader(props: Pick<Props, 'shareContext'>) {
+function LazyDocumentReader(props: Pick<Props, 'shareContext' | 'offline'>) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
   const viewingPath = () => params().get('viewing') ?? props.shareContext?.sharePath ?? ''
@@ -62,6 +65,7 @@ function LazyDocumentReader(props: Pick<Props, 'shareContext'>) {
           sourcePath={sourcePath}
           sourceKind={readerKind()!}
           shareContext={props.shareContext}
+          offline={props.offline}
           onClose={closeViewer}
         />
       )}
@@ -89,20 +93,33 @@ export function MainMediaPlayers(props: Props) {
       <Show when={viewerType() === MediaType.TEXT}>
         <TextViewerDialog
           shareContext={props.shareContext}
-          editableFolders={props.editableFolders}
+          offline={props.offline}
+          editableFolders={props.offline ? [] : props.editableFolders}
           knowledgeBases={props.knowledgeBases}
-          shareCanEdit={props.shareCanEdit}
-          shareCanUpload={props.shareCanUpload}
+          shareCanEdit={props.offline ? false : props.shareCanEdit}
+          shareCanUpload={props.offline ? false : props.shareCanUpload}
         />
       </Show>
       <Show when={viewerType() === MediaType.IMAGE}>
-        <ImageViewerDialog shareContext={props.shareContext} />
+        <ImageViewerDialog
+          shareContext={props.shareContext}
+          offline={props.offline}
+          explorerFiles={props.explorerFiles}
+        />
       </Show>
-      <LazyDocumentReader shareContext={props.shareContext} />
+      <LazyDocumentReader shareContext={props.shareContext} offline={props.offline} />
       <VideoPlayer shareContext={props.shareContext} />
-      <AudioPlayer shareContext={props.shareContext} />
+      <AudioPlayer
+        shareContext={props.shareContext}
+        offline={props.offline}
+        explorerFiles={props.explorerFiles}
+      />
       <Show when={viewerType() === MediaType.OTHER}>
-        <UnsupportedFileViewerDialog shareContext={props.shareContext} />
+        <UnsupportedFileViewerDialog
+          shareContext={props.shareContext}
+          offline={props.offline}
+          explorerFiles={props.explorerFiles}
+        />
       </Show>
     </>
   )

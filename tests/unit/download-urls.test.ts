@@ -16,4 +16,11 @@ describe('fileDownloadHref', () => {
       }),
     ).toBe('/api/share/tok/download?path=' + encodeURIComponent('sub/file.png'))
   })
+
+  test('keeps crafted Grant tokens inside one encoded route segment', () => {
+    const token = 'x/../../../api/files?dir=Vault#'
+    expect(fileDownloadHref('/share/root/file.png', { token, sharePath: '/share/root' })).toBe(
+      `/api/share/${encodeURIComponent(token)}/download?path=file.png`,
+    )
+  })
 })

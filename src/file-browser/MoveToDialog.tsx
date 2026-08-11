@@ -1,12 +1,10 @@
-import { api } from '@/lib/api'
-import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import Folder from 'lucide-solid/icons/folder'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
-import { createMemo, createResource, createSignal, For, Show, untrack } from 'solid-js'
+import { createMemo, createResource, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 
 type MoveOrCopyMode = 'move' | 'copy'
 
@@ -21,9 +19,8 @@ type MoveToDialogProps = {
   error: Error | null | undefined
   editableFolders: string[]
   mode?: MoveOrCopyMode
-  shareToken?: string
-  /** Full server path of share root (for stripping API paths). */
-  shareRootPath?: string
+  browseDirectories: (path: string, signal: AbortSignal) => Promise<readonly FileItem[]>
+  resolveDirectoryPath?: (file: FileItem) => string
 }
 
 function computeSourceRoot(filePath: string, editableFolders: string[]) {
@@ -51,44 +48,30 @@ function sourceDirRelative(relFilePath: string) {
 
 export function MoveToDialog(props: MoveToDialogProps) {
   const isCopy = () => (props.mode ?? 'move') === 'copy'
-  const isShare = () => !!props.shareToken
+  const hasRoots = () => props.editableFolders.length > 0
 
   const [selectedRoot, setSelectedRoot] = createSignal(
-    untrack(() => (isShare() ? '' : computeSourceRoot(props.filePath, props.editableFolders))),
+    untrack(() => (hasRoots() ? computeSourceRoot(props.filePath, props.editableFolders) : '')),
   )
   const [browsePath, setBrowsePath] = createSignal(
     untrack(() =>
-      isShare()
-        ? sourceDirRelative(props.filePath.replace(/\\/g, '/'))
-        : computeInitialBrowse(props.filePath, props.editableFolders),
+      hasRoots()
+        ? computeInitialBrowse(props.filePath, props.editableFolders)
+        : sourceDirRelative(props.filePath.replace(/\\/g, '/')),
     ),
   )
 
-  const listSource = createMemo(() => {
-    if (isShare()) {
-      return { kind: 'share' as const, token: props.shareToken!, dir: browsePath() }
-    }
-    return { kind: 'admin' as const, dir: browsePath() }
+  let browseController: AbortController | undefined
+  const [dirFiles] = createResource(browsePath, (path) => {
+    browseController?.abort()
+    browseController = new AbortController()
+    return props.browseDirectories(path, browseController.signal)
   })
-
-  const [dirFiles] = createResource(listSource, async (src) => {
-    if (src.kind === 'share') {
-      const { files } = await api<{ files: FileItem[] }>(
-        `/api/share/${src.token}/files?dir=${encodeURIComponent(src.dir)}`,
-      )
-      return files
-    }
-    const { files } = await api<{ files: FileItem[] }>(
-      `/api/files?dir=${encodeURIComponent(src.dir)}`,
-    )
-    return files
-  })
+  onCleanup(() => browseController?.abort())
 
   const sourceDir = createMemo(() => {
     const fp = props.filePath.replace(/\\/g, '/')
-    if (isShare()) {
-      return sourceDirRelative(fp)
-    }
+    if (!hasRoots()) return sourceDirRelative(fp)
     const parts = fp.split(/[/\\]/).filter(Boolean)
     return parts.slice(0, -1).join('/')
   })
@@ -97,13 +80,12 @@ export function MoveToDialog(props: MoveToDialogProps) {
   const normalizedRoot = createMemo(() => selectedRoot().replace(/\\/g, '/'))
 
   const folders = createMemo(() => {
-    const rawFiles: FileItem[] = dirFiles() ?? []
-    const root = props.shareRootPath?.replace(/\\/g, '/') ?? ''
+    const rawFiles: readonly FileItem[] = dirFiles() ?? []
     const normalizedFilePath = props.filePath.replace(/\\/g, '/')
     return rawFiles
       .filter((f) => f.isDirectory)
       .map((f) => {
-        const navPath = isShare() ? stripSharePrefix(f.path, root) : f.path.replace(/\\/g, '/')
+        const navPath = (props.resolveDirectoryPath?.(f) ?? f.path).replace(/\\/g, '/')
         return { name: f.name, navPath }
       })
       .filter((f) => {
@@ -114,7 +96,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
   })
 
   const canGoUp = createMemo(() =>
-    isShare() ? normalizedBrowse() !== '' : normalizedBrowse() !== normalizedRoot(),
+    hasRoots() ? normalizedBrowse() !== normalizedRoot() : normalizedBrowse() !== '',
   )
 
   function goUp() {
@@ -131,7 +113,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
   const isSameAsSource = createMemo(() => normalizedBrowse() === sourceDir())
 
   const displayPath = createMemo(() => {
-    if (isShare()) {
+    if (!hasRoots()) {
       return browsePath() ? `/${browsePath()}` : '/'
     }
     if (normalizedBrowse() === normalizedRoot()) return '/'
@@ -157,7 +139,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
           {isCopy() ? 'Choose an editable destination folder' : 'Choose a destination folder'}
         </p>
 
-        <Show when={!isShare() && props.editableFolders.length > 1}>
+        <Show when={hasRoots() && props.editableFolders.length > 1}>
           <div class='flex gap-1.5 flex-wrap mt-3'>
             <For each={props.editableFolders}>
               {(folder) => {

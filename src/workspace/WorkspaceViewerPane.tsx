@@ -375,7 +375,7 @@ export function WorkspaceViewerPane(props: Props) {
       queryFn: () =>
         sh
           ? api<{ files: FileItem[] }>(
-              `/api/share/${sh.token}/files?dir=${encodeURIComponent(listDirForFiles())}`,
+              `/api/share/${encodeURIComponent(sh.token)}/files?dir=${encodeURIComponent(listDirForFiles())}`,
             )
           : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(listDirForFiles())}`),
       enabled:
@@ -674,7 +674,10 @@ export function WorkspaceViewerPane(props: Props) {
         const { content, target } = variables
         if (target.kind === 'share') {
           const rel = shareEditRelativePath(target.viewingPath, target.sharePath)
-          await post(`/api/share/${target.token}/edit`, { path: rel, content })
+          await post(`/api/share/${encodeURIComponent(target.token)}/edit`, {
+            path: rel,
+            content,
+          })
         } else {
           await post('/api/files/edit', { path: target.viewingPath, content })
         }

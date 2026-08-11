@@ -41,7 +41,7 @@ export function ShareRoute(props: Props) {
   const capturedPasscode = consumeCapturedSharePasscode(props.token)
   const shareQuery = useQuery(() => ({
     queryKey: queryKeys.shareInfo(props.token),
-    queryFn: () => api<ShareInfo>(`/api/share/${props.token}/info`),
+    queryFn: () => api<ShareInfo>(`/api/share/${encodeURIComponent(props.token)}/info`),
   }))
 
   const sharePayload = createMemo((): ShareInfoPayload | undefined => {

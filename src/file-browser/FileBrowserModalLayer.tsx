@@ -1,6 +1,8 @@
 import type { PasteData } from '@/lib/paste-data'
 import type { ShareLink } from '@/lib/shares'
 import type { FileItem } from '@/lib/types'
+import type { ExplorerCapability } from '@/lib/explorer-model'
+import type { VirtualEntry } from '@/lib/virtual-directory'
 import type { Accessor } from 'solid-js'
 import { Show, lazy } from 'solid-js'
 import type { BreadcrumbMenuTarget } from './BreadcrumbContextMenu'
@@ -48,16 +50,15 @@ export type FileBrowserModalLayerProps = {
   onBreadcrumbOpenInWorkspace: () => void
   onBreadcrumbSetIcon: () => void
   fileRowMenu: FileRowMenuApi
-  editableFolders: Accessor<string[]>
-  isEditable: Accessor<boolean>
-  hasEditableFolders: Accessor<boolean>
+  getCapabilities: (file: FileItem) => readonly ExplorerCapability[]
+  getVirtualEntry?: (file: FileItem) => VirtualEntry | undefined
   onContextDownload: (file: FileItem) => void
   onContextMakeAvailableOffline: (file: FileItem) => void
   onContextShare: (file: FileItem) => void
   onCopyShareLink: (file: FileItem) => void
   getPathHasShare: (file: FileItem) => boolean
   onContextOpenInNewTab: (file: FileItem) => void
-  onContextOpenInWorkspace: (file: FileItem) => void
+  onContextOpenInWorkspace?: (file: FileItem) => void
   onContextOpenWithBrowser: (file: FileItem) => void
   onContextOpenWithReader: (file: FileItem) => void
   onContextToggleFavorite: (file: FileItem) => void
@@ -114,6 +115,7 @@ export type FileBrowserModalLayerProps = {
   copyPending: boolean
   copyError: Error | null
   editableFoldersList: Accessor<string[]>
+  browseDirectories: (path: string, signal: AbortSignal) => Promise<readonly FileItem[]>
   showPasteDialog: Accessor<boolean>
   pasteData: Accessor<PasteData | null>
   pastePending: boolean
@@ -159,9 +161,8 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
       />
       <FileRowContextMenu
         menu={props.fileRowMenu.menu}
-        editableFolders={props.editableFolders}
-        isCurrentDirEditable={props.isEditable}
-        hasEditableFolders={props.hasEditableFolders}
+        getCapabilities={props.getCapabilities}
+        getVirtualEntry={props.getVirtualEntry}
         onDismiss={props.fileRowMenu.dismiss}
         onDownload={props.onContextDownload}
         onMakeAvailableOffline={props.onContextMakeAvailableOffline}
@@ -241,6 +242,7 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
             isPending={props.movePending}
             error={props.moveError}
             editableFolders={props.editableFoldersList()}
+            browseDirectories={props.browseDirectories}
           />
         )}
       </Show>
@@ -255,6 +257,7 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
             isPending={props.copyPending}
             error={props.copyError}
             editableFolders={props.editableFoldersList()}
+            browseDirectories={props.browseDirectories}
           />
         )}
       </Show>

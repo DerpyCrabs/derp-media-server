@@ -58,7 +58,9 @@ export function KbDashboard(props: Props) {
     queryFn: () => {
       const params = new URLSearchParams()
       if (props.dir) params.set('dir', props.dir)
-      return api<{ results: RecentFile[] }>(`/api/share/${props.shareToken}/kb/recent?${params}`)
+      return api<{ results: RecentFile[] }>(
+        `/api/share/${encodeURIComponent(props.shareToken!)}/kb/recent?${params}`,
+      )
     },
     enabled: !!props.shareToken,
   }))

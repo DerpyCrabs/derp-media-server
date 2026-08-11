@@ -65,13 +65,36 @@ type Props = {
 export function PasteDialog(props: Props) {
   const [fileName, setFileName] = createSignal('')
   const [existingText, setExistingText] = createSignal<string | null>(null)
+  const [preparedExisting, setPreparedExisting] = createSignal<{
+    name: string
+    item?: FileItem
+    locked: boolean
+  } | null>(null)
 
   const displayName = createMemo(() => fileName() || props.pasteData?.suggestedName || '')
+
+  createEffect(() => {
+    if (!props.isOpen) {
+      if (preparedExisting()) setPreparedExisting(null)
+      return
+    }
+    const name = displayName().trim().toLowerCase()
+    const prepared = preparedExisting()
+    if (prepared?.name === name && prepared.locked) return
+    const match = props.existingFiles.find((file) => file.name.toLowerCase() === name)
+    if (prepared?.name === name && !match) return
+    setPreparedExisting({
+      name,
+      ...(match ? { item: { ...match } } : {}),
+      locked: !!match,
+    })
+  })
 
   const existingItem = createMemo(() => {
     const n = displayName().trim().toLowerCase()
     if (!n) return undefined
-    return props.existingFiles.find((file) => file.name.toLowerCase() === n)
+    const prepared = preparedExisting()
+    return prepared?.name === n ? prepared.item : undefined
   })
   const fileExists = createMemo(() => !!existingItem())
   const canReplace = createMemo(() => !!existingItem() && !existingItem()!.isDirectory)

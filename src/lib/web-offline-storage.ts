@@ -1,4 +1,5 @@
 import type { FileItem } from '@/lib/types'
+import type { ResourceSummary } from '@/lib/resource'
 import { buildOfflineRollbackPlan, executeOfflineDownload } from './offline-download-lifecycle'
 import { publishOfflineJob, type OfflineJobScope } from './offline-job-observer'
 import { generateOfflineThumbnail } from './offline-thumbnail'
@@ -11,7 +12,7 @@ import {
 const DATABASE = 'derp-offline-v1'
 const STORE = 'entries'
 
-type StoredOfflineEntry = {
+export type StoredOfflineEntry = {
   path: string
   name: string
   type: string
@@ -23,7 +24,10 @@ type StoredOfflineEntry = {
   fileName?: string
   thumbnailUrl?: string
   thumbnailBlob?: Blob
+  resource?: ResourceSummary
 }
+
+const WEB_OFFLINE_CATALOG_EVENT = 'derp-offline-catalog'
 
 declare global {
   interface Window {
@@ -53,6 +57,16 @@ async function allEntries(): Promise<StoredOfflineEntry[]> {
   })
 }
 
+export async function readWebOfflineEntries(): Promise<readonly StoredOfflineEntry[]> {
+  return allEntries()
+}
+
+export function subscribeWebOfflineCatalog(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined
+  window.addEventListener(WEB_OFFLINE_CATALOG_EVENT, listener)
+  return () => window.removeEventListener(WEB_OFFLINE_CATALOG_EVENT, listener)
+}
+
 async function put(entry: StoredOfflineEntry): Promise<void> {
   const db = await database()
   await new Promise<void>((resolve, reject) => {
@@ -74,7 +88,7 @@ function isAtOrBelowPath(path: string, root: string): boolean {
 
 async function refreshCatalog() {
   window.__DERP_WEB_OFFLINE_PATHS__ = (await allEntries()).map((entry) => entry.path)
-  window.dispatchEvent(new Event('derp-offline-catalog'))
+  window.dispatchEvent(new Event(WEB_OFFLINE_CATALOG_EVENT))
 }
 
 export async function initializeWebOfflineCatalog(): Promise<void> {
@@ -164,6 +178,7 @@ async function saveSource(
       size: 0,
       extension: '',
       isDirectory: true,
+      ...(item.resource ? { resource: item.resource } : {}),
     })
     progress.written.push(displayPath)
     if (!source.listBaseUrl) return
@@ -271,6 +286,7 @@ async function saveSource(
     mediaUrl: mediaUrl.pathname,
     thumbnailUrl,
     thumbnailBlob,
+    ...(item.resource ? { resource: item.resource } : {}),
   })
   progress.written.push(displayPath)
   progress.completed += 1
@@ -402,15 +418,17 @@ export function saveForWebOffline(source: DownloadSource): boolean {
   return true
 }
 
-export function removeWebOffline(
+function scheduleWebOfflineRemoval(
   path: string,
   name: string,
   scope: OfflineJobScope = 'owner',
-): boolean {
-  if (!webOfflineSupported()) return false
+): PhysicalOfflinePathRun | null {
+  if (!webOfflineSupported()) return null
   const normalized = path.replace(/^\/+|\/+$/g, '')
-  const run = physicalOfflinePaths.schedule(normalized, async () => {
+  return physicalOfflinePaths.schedule(normalized, async (signal) => {
+    signal.throwIfAborted()
     const entries = await allEntries()
+    signal.throwIfAborted()
     const db = await database()
     const transaction = db.transaction(STORE, 'readwrite')
     const removed = entries.filter(
@@ -428,6 +446,33 @@ export function removeWebOffline(
     retrySources.delete(downloadKey(scope, normalized))
     publishOfflineJob({ state: 'removed', scope, name, path: normalized })
   })
+}
+
+export async function removeWebOfflineAndWait(
+  path: string,
+  name: string,
+  scope: OfflineJobScope = 'owner',
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted()
+  const run = scheduleWebOfflineRemoval(path, name, scope)
+  if (!run) throw new Error('Offline mode requires HTTPS or localhost')
+  const cancel = () => run.cancel()
+  signal?.addEventListener('abort', cancel, { once: true })
+  try {
+    await run.completion
+  } finally {
+    signal?.removeEventListener('abort', cancel)
+  }
+}
+
+export function removeWebOffline(
+  path: string,
+  name: string,
+  scope: OfflineJobScope = 'owner',
+): boolean {
+  const run = scheduleWebOfflineRemoval(path, name, scope)
+  if (!run) return false
   void run.completion.catch(() => undefined)
   return true
 }
