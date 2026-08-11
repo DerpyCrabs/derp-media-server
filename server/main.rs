@@ -1,4 +1,5 @@
 mod app;
+mod application_queries;
 mod auth;
 mod canvas_persistence;
 mod config;
@@ -12,6 +13,7 @@ mod markdown_images;
 mod media;
 mod path_metadata;
 mod reader_state;
+mod resources;
 mod route_contract;
 mod routes;
 mod server;

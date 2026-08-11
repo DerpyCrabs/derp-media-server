@@ -1,3 +1,5 @@
+import type { ResourceSummary } from './resource'
+
 export enum MediaType {
   VIDEO = 'video',
   AUDIO = 'audio',
@@ -21,6 +23,7 @@ export interface FileItem {
   shareToken?: string
   thumbnailGenerated?: boolean
   version?: number
+  resource?: ResourceSummary
 }
 
 export interface AutoSaveSettings {

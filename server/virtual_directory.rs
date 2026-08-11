@@ -19,7 +19,7 @@ pub(crate) fn list_builtin(
     state: &AppState,
     path: &str,
 ) -> Option<AppResult<Vec<media::FileItem>>> {
-    crate::routes::files::legacy_virtual_items(state, path)
+    crate::application_queries::legacy_virtual_items(state, path)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -45,6 +45,7 @@ fn item(name: String, path: String, folder: bool) -> media::FileItem {
         share_token: None,
         thumbnail_generated: None,
         version: None,
+        resource: None,
     }
 }
 
@@ -282,7 +283,7 @@ pub(crate) async fn list_hermes(
     list_hermes_with(hub.as_ref(), path, offset).await
 }
 
-async fn list_hermes_with(
+pub(crate) async fn list_hermes_with(
     hub: &dyn HermesTransport,
     path: &str,
     offset: usize,

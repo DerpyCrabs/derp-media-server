@@ -28,6 +28,69 @@ fn error(error: impl std::fmt::Display) -> AppError {
     AppError::internal(error.to_string())
 }
 
+fn table_exists(connection: &Connection, table: &str) -> AppResult<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+            [table],
+            |row| row.get(0),
+        )
+        .map_err(error)
+}
+
+fn namespace_keys(connection: &Connection, key: &str) -> AppResult<Vec<String>> {
+    if !table_exists(connection, "legacy_library_keys")? {
+        return Ok(vec![key.to_string()]);
+    }
+    let library_id: Option<String> = connection
+        .query_row(
+            "SELECT id FROM libraries WHERE id=?1
+             UNION
+             SELECT library_id FROM legacy_library_keys WHERE legacy_key=?1
+             LIMIT 1",
+            [key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(error)?;
+    let Some(library_id) = library_id else {
+        return Ok(vec![key.to_string()]);
+    };
+    let mut keys = vec![library_id.clone()];
+    let mut statement = connection
+        .prepare(
+            "SELECT legacy_key FROM legacy_library_keys
+             WHERE library_id=?1 ORDER BY first_seen_at,legacy_key",
+        )
+        .map_err(error)?;
+    for row in statement
+        .query_map([library_id], |row| row.get::<_, String>(0))
+        .map_err(error)?
+    {
+        let key = row.map_err(error)?;
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    Ok(keys)
+}
+
+fn namespace_revision(connection: &Connection, kind: &str, key: &str) -> AppResult<i64> {
+    if !table_exists(connection, "legacy_namespace_revisions")? {
+        return Ok(0);
+    }
+    connection
+        .query_row(
+            "SELECT revision FROM legacy_namespace_revisions
+             WHERE object_kind=?1 AND legacy_key=?2",
+            params![kind, key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map(|value| value.unwrap_or(0))
+        .map_err(error)
+}
+
 pub fn connection(path: &Path) -> AppResult<Connection> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(AppError::io)?;
@@ -390,15 +453,30 @@ pub fn document(
     default: Value,
 ) -> AppResult<Value> {
     let connection = connection(database)?;
-    let raw: Option<String> = connection
-        .query_row(
-            "SELECT value_json FROM state_documents WHERE kind=?1 AND library_key=?2",
-            params![kind, library_key],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(error)?;
-    raw.map(|raw| serde_json::from_str(&raw).map_err(error))
+    let mut selected: Option<(i64, i64, String)> = None;
+    for key in namespace_keys(&connection, library_key)? {
+        let row: Option<(String, i64)> = connection
+            .query_row(
+                "SELECT value_json,updated_at FROM state_documents
+                 WHERE kind=?1 AND library_key=?2",
+                params![kind, key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(error)?;
+        let Some((raw, updated_at)) = row else {
+            continue;
+        };
+        let revision = namespace_revision(&connection, &format!("document:{kind}"), &key)?;
+        if selected
+            .as_ref()
+            .is_none_or(|current| (revision, updated_at) > (current.0, current.1))
+        {
+            selected = Some((revision, updated_at, raw));
+        }
+    }
+    selected
+        .map(|(_, _, raw)| serde_json::from_str(&raw).map_err(error))
         .transpose()
         .map(|value| value.unwrap_or(default))
 }
@@ -414,29 +492,47 @@ pub fn update_document<T>(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(error)?;
-    let raw: Option<String> = transaction
-        .query_row(
-            "SELECT value_json FROM state_documents WHERE kind=?1 AND library_key=?2",
-            params![kind, library_key],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(error)?;
-    let mut value = raw
-        .map(|raw| serde_json::from_str(&raw).map_err(error))
+    let keys = namespace_keys(&transaction, library_key)?;
+    let mut selected: Option<(i64, i64, String)> = None;
+    for key in &keys {
+        let row: Option<(String, i64)> = transaction
+            .query_row(
+                "SELECT value_json,updated_at FROM state_documents
+                 WHERE kind=?1 AND library_key=?2",
+                params![kind, key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(error)?;
+        let Some((raw, updated_at)) = row else {
+            continue;
+        };
+        let revision = namespace_revision(&transaction, &format!("document:{kind}"), key)?;
+        if selected
+            .as_ref()
+            .is_none_or(|current| (revision, updated_at) > (current.0, current.1))
+        {
+            selected = Some((revision, updated_at, raw));
+        }
+    }
+    let mut value = selected
+        .map(|(_, _, raw)| serde_json::from_str(&raw).map_err(error))
         .transpose()?
         .unwrap_or(default);
     let result = update(&mut value)?;
     let serialized = serde_json::to_string(&value).map_err(error)?;
-    transaction
-        .execute(
-            "INSERT INTO state_documents(kind, library_key, value_json, updated_at)
-             VALUES(?1, ?2, ?3, ?4)
-             ON CONFLICT(kind, library_key) DO UPDATE SET
-               value_json=excluded.value_json, updated_at=excluded.updated_at",
-            params![kind, library_key, serialized, now_ms()],
-        )
-        .map_err(error)?;
+    let updated_at = now_ms();
+    for key in keys {
+        transaction
+            .execute(
+                "INSERT INTO state_documents(kind, library_key, value_json, updated_at)
+                 VALUES(?1, ?2, ?3, ?4)
+                 ON CONFLICT(kind, library_key) DO UPDATE SET
+                   value_json=excluded.value_json, updated_at=excluded.updated_at",
+                params![kind, key, serialized, updated_at],
+            )
+            .map_err(error)?;
+    }
     transaction.commit().map_err(error)?;
     Ok(result)
 }
@@ -551,7 +647,20 @@ fn shares_in(transaction: &Transaction<'_>, library_key: &str) -> AppResult<Vec<
 pub fn shares(database: &Path, library_key: &str) -> AppResult<Vec<Share>> {
     let mut connection = connection(database)?;
     let transaction = connection.transaction().map_err(error)?;
-    shares_in(&transaction, library_key)
+    let keys = namespace_keys(&transaction, library_key)?;
+    let mut selected: Option<(i64, bool, Vec<Share>)> = None;
+    for key in keys {
+        let list = shares_in(&transaction, &key)?;
+        let revision = namespace_revision(&transaction, "shares", &key)?;
+        let score = (revision, !list.is_empty());
+        if selected
+            .as_ref()
+            .is_none_or(|current| score > (current.0, current.1))
+        {
+            selected = Some((revision, !list.is_empty(), list));
+        }
+    }
+    Ok(selected.map(|(_, _, list)| list).unwrap_or_default())
 }
 
 pub fn mutate_shares<T>(
@@ -563,13 +672,28 @@ pub fn mutate_shares<T>(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(error)?;
-    let mut list = shares_in(&transaction, library_key)?;
+    let keys = namespace_keys(&transaction, library_key)?;
+    let mut selected: Option<(i64, bool, Vec<Share>)> = None;
+    for key in &keys {
+        let list = shares_in(&transaction, key)?;
+        let revision = namespace_revision(&transaction, "shares", key)?;
+        let score = (revision, !list.is_empty());
+        if selected
+            .as_ref()
+            .is_none_or(|current| score > (current.0, current.1))
+        {
+            selected = Some((revision, !list.is_empty(), list));
+        }
+    }
+    let mut list = selected.map(|(_, _, list)| list).unwrap_or_default();
     let result = update(&mut list)?;
-    transaction
-        .execute("DELETE FROM shares WHERE library_key=?1", [library_key])
-        .map_err(error)?;
-    for share in &list {
-        insert_share(&transaction, library_key, share)?;
+    for key in keys {
+        transaction
+            .execute("DELETE FROM shares WHERE library_key=?1", [&key])
+            .map_err(error)?;
+        for share in &list {
+            insert_share(&transaction, &key, share)?;
+        }
     }
     transaction.commit().map_err(error)?;
     Ok(result)

@@ -1,10 +1,7 @@
 use crate::{
-    app::{
-        AppState, Shared, emit, list_directory, parent_logical, roots, safe_upload_name,
-        settings_path, stats_path,
-    },
+    app::{Shared, emit, parent_logical, roots, safe_upload_name},
     error::{AppError, AppResult},
-    media, shares, store,
+    media,
 };
 use axum::{
     Json, Router,
@@ -34,57 +31,27 @@ struct VirtualPathQuery {
     path: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceInspectQuery {
+    library_id: String,
+    resource_id: String,
+    surface: Option<String>,
+}
+
 async fn list(
     State(state): State<Shared>,
     Query(query): Query<DirQuery>,
 ) -> AppResult<Json<Value>> {
-    if query.dir == crate::virtual_directory::HERMES_ROOT
-        || query
-            .dir
-            .starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
-    {
-        if query.surface.as_deref() != Some("workspace") {
-            return Err(AppError::not_found("Directory not found"));
-        }
-        return Ok(Json(
-            serde_json::to_value(
-                crate::virtual_directory::list_hermes(&state, &query.dir, query.offset).await?,
-            )
-            .map_err(|error| AppError::internal(error.to_string()))?,
-        ));
-    }
-    let mut files = list_items(&state, &query.dir)?;
-    let mut entries = serde_json::Map::new();
-    if query.dir.is_empty()
-        && query.surface.as_deref() == Some("workspace")
-        && state.hermes.is_some()
-    {
-        let path = crate::virtual_directory::HERMES_ROOT.to_string();
-        files.push(media::FileItem {
-            name: path.clone(),
-            path: path.clone(),
-            media_type: "folder".into(),
-            size: 0,
-            extension: String::new(),
-            is_directory: true,
-            is_virtual: Some(true),
-            view_count: None,
-            share_token: None,
-            thumbnail_generated: None,
-            version: None,
-        });
-        entries.insert(
-            path,
-            json!({"provider":"hermes","kind":"root","capabilities":["open"],
-                "appearance":{"icon":"agent-directory","tone":"violet"}}),
-        );
-    }
-    let directory = crate::virtual_directory::is_builtin_path(&query.dir).then(|| {
-        json!({"provider":"builtin","kind":"collection","path":query.dir,"capabilities":[],
-            "offset":0,"pageSize":files.len(),"total":files.len()})
-    });
+    let listing = crate::application_queries::browse_owner(
+        &state,
+        &query.dir,
+        crate::application_queries::read_surface(query.surface.as_deref()),
+        query.offset,
+    )
+    .await?;
     Ok(Json(
-        json!({"files":files,"virtualEntries":entries,"virtualDirectory":directory}),
+        serde_json::to_value(listing).map_err(|error| AppError::internal(error.to_string()))?,
     ))
 }
 
@@ -93,6 +60,24 @@ async fn virtual_action(
     Json(body): Json<crate::virtual_directory::ActionBody>,
 ) -> AppResult<Json<Value>> {
     Ok(Json(crate::virtual_directory::action(&state, body).await?))
+}
+
+async fn inspect_resource(
+    State(state): State<Shared>,
+    Query(query): Query<ResourceInspectQuery>,
+) -> AppResult<Json<Value>> {
+    let detail = crate::application_queries::inspect_owner(
+        &state,
+        &crate::resources::ResourceRef {
+            library_id: crate::resources::LibraryId::new(query.library_id),
+            resource_id: crate::resources::ResourceId::new(query.resource_id),
+        },
+        crate::application_queries::read_surface(query.surface.as_deref()),
+    )
+    .await?;
+    Ok(Json(
+        serde_json::to_value(detail).map_err(|error| AppError::internal(error.to_string()))?,
+    ))
 }
 
 async fn virtual_open(
@@ -132,142 +117,6 @@ async fn virtual_fs(
         .as_ref()
         .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))?;
     Ok(Json(hub.get("api/fs/list", &[("path", query.path)]).await?))
-}
-
-pub(crate) fn list_items(state: &AppState, dir: &str) -> AppResult<Vec<media::FileItem>> {
-    if let Some(result) = crate::virtual_directory::list_builtin(state, dir) {
-        return result;
-    }
-    list_directory(state, dir)
-}
-
-pub(crate) fn legacy_virtual_items(
-    state: &AppState,
-    dir: &str,
-) -> Option<AppResult<Vec<media::FileItem>>> {
-    if dir == "Shares" {
-        let runtime = roots(state);
-        let mut items = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        let mut all = shares::read(&state.config, &runtime);
-        all.sort_by_key(|item| std::cmp::Reverse(item.created_at));
-        for share in all {
-            if !seen.insert(share.path.replace('\\', "/")) {
-                continue;
-            }
-            let Ok(resolved) = media::resolve(&state.config, &runtime, &share.path) else {
-                continue;
-            };
-            let Ok(metadata) = std::fs::metadata(&resolved.full) else {
-                continue;
-            };
-            let name = shares::name(&share.path);
-            let extension = Path::new(&name)
-                .extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_ascii_lowercase();
-            items.push(media::FileItem {
-                name,
-                path: share.path,
-                media_type: if metadata.is_dir() {
-                    "folder".into()
-                } else {
-                    media::media_type(&extension).into()
-                },
-                size: if metadata.is_dir() { 0 } else { metadata.len() },
-                extension,
-                is_directory: share.is_directory,
-                is_virtual: None,
-                view_count: None,
-                share_token: Some(share.token),
-                thumbnail_generated: None,
-                version: None,
-            });
-        }
-        return Some(Ok(items));
-    }
-    if dir == "Favorites" || dir == "Most Played" {
-        let section = if dir == "Favorites" {
-            store::section(
-                &settings_path(state),
-                &state.config.library_key,
-                crate::app::default_settings(),
-            )
-        } else {
-            store::section(
-                &stats_path(state),
-                &state.config.library_key,
-                json!({"views":{}}),
-            )
-        };
-        let paths: Vec<(String, Option<u64>)> = if dir == "Favorites" {
-            section["favorites"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|value| value.as_str().map(|path| (path.into(), None)))
-                .collect()
-        } else {
-            let mut values = section["views"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .map(|(path, value)| (path.clone(), value.as_u64()))
-                .collect::<Vec<_>>();
-            values.sort_by_key(|item| std::cmp::Reverse(item.1));
-            values.truncate(50);
-            values
-        };
-        let runtime = roots(state);
-        let mut items = Vec::new();
-        for (path, view_count) in paths {
-            let Ok(resolved) = media::resolve(&state.config, &runtime, &path) else {
-                continue;
-            };
-            let Ok(metadata) = std::fs::metadata(&resolved.full) else {
-                continue;
-            };
-            if dir == "Most Played" && metadata.is_dir() {
-                continue;
-            }
-            let name = shares::name(&path);
-            let extension = Path::new(&name)
-                .extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_ascii_lowercase();
-            let thumbnail_generated = if !metadata.is_dir()
-                && matches!(media::media_type(&extension), "image" | "video")
-            {
-                metadata
-                    .modified()
-                    .ok()
-                    .map(|modified| state.thumbnails.cached(&resolved.full, modified))
-            } else {
-                None
-            };
-            items.push(media::FileItem {
-                name,
-                path,
-                media_type: if metadata.is_dir() {
-                    "folder".into()
-                } else {
-                    media::media_type(&extension).into()
-                },
-                size: if metadata.is_dir() { 0 } else { metadata.len() },
-                extension,
-                is_directory: metadata.is_dir(),
-                is_virtual: None,
-                view_count,
-                share_token: None,
-                thumbnail_generated,
-                version: None,
-            });
-        }
-        return Some(Ok(items));
-    }
-    None
 }
 
 #[derive(Deserialize)]
@@ -445,6 +294,11 @@ async fn rename(
         ));
     }
     fs::rename(old, new).await.map_err(AppError::io)?;
+    state
+        .resources
+        .record_move(&body.old_path, &body.new_path)
+        .await
+        .map_err(|error| error.into_app_error())?;
     crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await?;
     emit(&state, &body.old_path);
     if parent_logical(&body.old_path) != parent_logical(&body.new_path) {
@@ -700,6 +554,7 @@ fn zip_body(source: std::path::PathBuf) -> Body {
 pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/files", get(list))
+        .route("/api/resources/inspect", get(inspect_resource))
         .route("/api/files/create", post(create))
         .route("/api/files/edit", post(edit))
         .route("/api/files/delete", post(delete))

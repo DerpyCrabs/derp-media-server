@@ -36,6 +36,8 @@ pub struct FileItem {
     pub thumbnail_generated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<crate::resources::ResourceSummary>,
 }
 
 pub fn media_type(ext: &str) -> &'static str {
@@ -248,6 +250,7 @@ fn virtual_item(name: &str) -> FileItem {
         share_token: None,
         thumbnail_generated: None,
         version: None,
+        resource: None,
     }
 }
 pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Vec<FileItem>> {
@@ -277,6 +280,7 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
                 share_token: None,
                 thumbnail_generated: None,
                 version: None,
+                resource: None,
             });
         }
         sort(&mut items);
@@ -333,6 +337,7 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
                 None
             },
             version,
+            resource: None,
         });
     }
     sort(&mut items);
@@ -406,6 +411,7 @@ mod tests {
             share_token: None,
             thumbnail_generated: Some(false),
             version: Some(1234.0),
+            resource: None,
         })
         .unwrap();
 

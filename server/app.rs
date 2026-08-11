@@ -2,7 +2,9 @@ use crate::{
     config::{Config, MediaRoot},
     error::AppResult,
     file_search::FileSearch,
-    image_variants, media, shares, store, thumbnails,
+    image_variants, media,
+    resources::ResourceCatalog,
+    shares, store, thumbnails,
 };
 use axum::http::{HeaderMap, header};
 use base64::Engine;
@@ -18,7 +20,7 @@ use tokio::sync::{Mutex, RwLock};
 
 pub(crate) struct AppState {
     pub config: Config,
-    pub runtime_roots: RwLock<Vec<MediaRoot>>,
+    pub runtime_roots: Arc<RwLock<Vec<MediaRoot>>>,
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
@@ -33,10 +35,11 @@ pub(crate) struct AppState {
     pub share_verify_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub reader_state_writes: Mutex<HashMap<String, (u32, u128)>>,
     pub reader_state_db: Mutex<()>,
-    pub thumbnails: thumbnails::Thumbnailer,
+    pub thumbnails: Arc<thumbnails::Thumbnailer>,
     pub image_variants: image_variants::ImageVariants,
     pub file_search: Arc<FileSearch>,
     pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
+    pub resources: Arc<ResourceCatalog>,
     pub hermes_project_operations: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
 }

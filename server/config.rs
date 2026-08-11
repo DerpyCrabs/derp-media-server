@@ -105,6 +105,7 @@ pub struct TlsConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaDirConfig {
+    pub id: Option<String>,
     pub path: PathBuf,
     pub name: Option<serde_json::Value>,
     #[serde(default)]
@@ -131,6 +132,8 @@ pub struct MediaRoot {
 struct RawConfig {
     port: Option<serde_json::Value>,
     media_dir: Option<PathBuf>,
+    #[serde(default, deserialize_with = "deserialize_optional_string")]
+    media_source_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_value_array")]
     editable_folders: Vec<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_media_dirs")]
@@ -457,12 +460,19 @@ where
                 .map(str::trim)
                 .filter(|name| !name.is_empty())
                 .map(|name| serde_json::Value::String(name.to_string()));
+            let id = object
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string);
             let editable_folders = object
                 .get("editableFolders")
                 .and_then(serde_json::Value::as_array)
                 .cloned()
                 .unwrap_or_default();
             Ok(MediaDirConfig {
+                id,
                 path: PathBuf::from(path),
                 name,
                 editable_folders,
@@ -747,8 +757,20 @@ impl Config {
         if let Some(entries) = entries.filter(|e| !e.is_empty()) {
             for entry in entries {
                 let name = root_name(&entry.path, entry.name)?;
+                if entry
+                    .id
+                    .as_deref()
+                    .is_some_and(|id| id.contains(['/', '\\']) || id.len() > 200)
+                {
+                    return Err(format!(
+                        "mediaDirs id for \"{name}\" must be at most 200 characters and contain no path separators"
+                    ));
+                }
                 roots.push(MediaRoot {
-                    id: format!("config:{}", name.to_lowercase()),
+                    id: entry
+                        .id
+                        .map(|id| format!("configured:{id}"))
+                        .unwrap_or_else(|| format!("config:{}", name.to_lowercase())),
                     name,
                     path: entry.path,
                     editable_folders: editable_folders(entry.editable_folders),
@@ -759,8 +781,23 @@ impl Config {
             }
         } else {
             let name = root_name(&primary, None).unwrap_or_else(|_| "Media".into());
+            let explicit_id = env::var("MEDIA_SOURCE_ID")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .or(raw.media_source_id);
+            if explicit_id
+                .as_deref()
+                .is_some_and(|id| id.contains(['/', '\\']) || id.len() > 200)
+            {
+                return Err(
+                    "mediaSourceId must be at most 200 characters and contain no path separators"
+                        .into(),
+                );
+            }
             roots.push(MediaRoot {
-                id: "config:primary".into(),
+                id: explicit_id
+                    .map(|id| format!("configured:{id}"))
+                    .unwrap_or_else(|| "config:primary".into()),
                 name,
                 path: primary.clone(),
                 editable_folders: editable,
@@ -770,11 +807,18 @@ impl Config {
             });
         }
         let mut names = std::collections::HashSet::new();
+        let mut configured_ids = std::collections::HashSet::new();
         for root in &roots {
             if !names.insert(root.name.to_lowercase()) {
                 return Err(format!(
                     "Duplicate mediaDirs name \"{}\". Add explicit unique names.",
                     root.name
+                ));
+            }
+            if root.id.starts_with("configured:") && !configured_ids.insert(root.id.clone()) {
+                return Err(format!(
+                    "Duplicate mediaDirs id \"{}\". Configure unique stable ids.",
+                    root.id.trim_start_matches("configured:")
                 ));
             }
         }
@@ -1025,6 +1069,17 @@ mod tests {
 
         let array: RawConfig = json5::from_str(r#"{ fileSearch: [] }"#).unwrap();
         assert!(array.file_search.is_some());
+    }
+
+    #[test]
+    fn media_dirs_accept_explicit_stable_source_ids() {
+        let raw: RawConfig = json5::from_str(
+            r#"{ mediaDirs: [{ id: "movies", name: "Cinema", path: "C:/media" }] }"#,
+        )
+        .unwrap();
+        let entry = raw.media_dirs.unwrap().remove(0);
+        assert_eq!(entry.id.as_deref(), Some("movies"));
+        assert_eq!(entry.name, Some(serde_json::json!("Cinema")));
     }
 
     #[test]

@@ -44,9 +44,9 @@ describe('share passcode URL compatibility', () => {
     })
   })
 
-  test('first compatibility release still generates legacy query links', () => {
+  test('generates protected links with fragment secrets', () => {
     expect(buildShareUrl({ token: 'abc', passcode: 'a b' }, 'https://desk.test/')).toBe(
-      'https://desk.test/share/abc?p=a%20b',
+      'https://desk.test/share/abc#p=a%20b',
     )
   })
 })

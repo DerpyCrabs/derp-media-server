@@ -1,7 +1,6 @@
 use crate::{
     app::{
-        AppState, Shared, cookies, find_share, knowledge_base_root, list_directory, roots,
-        stats_path, timestamp_ms,
+        AppState, Shared, cookies, find_share, knowledge_base_root, roots, stats_path, timestamp_ms,
     },
     media,
     route_contract::{self, OwnerRoute, RouteKind},
@@ -142,14 +141,12 @@ fn share_listing_dir(share: &shares::Share, dir: Option<&String>, path: &str) ->
     parent(relative)
 }
 
-fn shared_files(state: &AppState, share: &shares::Share, dir: &str) -> Option<Value> {
+async fn shared_files(state: &AppState, share: &shares::Share, dir: &str) -> Option<Value> {
     let logical = shares::resolve_subpath(share, dir).ok()?;
-    let files = list_directory(state, &logical)
-        .ok()?
-        .into_iter()
-        .filter(|item| item.is_virtual != Some(true))
-        .collect::<Vec<_>>();
-    Some(json!({"files":files}))
+    let listing = crate::application_queries::browse_grant(state, &share.path, &logical)
+        .await
+        .ok()?;
+    Some(json!({"files":listing.files}))
 }
 
 fn share_info(state: &AppState, token: &str, headers: &axum::http::HeaderMap) -> Option<Value> {
@@ -207,9 +204,18 @@ async fn dehydrated(
             && dir != "Favorites"
             && dir != "Most Played"
             && dir != "Shares"
-            && let Ok(files) = crate::routes::files::list_items(state, &dir)
+            && let Ok(files) = crate::application_queries::browse_owner(
+                state,
+                &dir,
+                crate::resources::ReadSurface::Ssr,
+                0,
+            )
+            .await
         {
-            queries.push(query(json!(["files", dir]), json!({"files":files})));
+            queries.push(query(
+                json!(["files", dir]),
+                serde_json::to_value(files).unwrap_or(Value::Null),
+            ));
         }
         queries.push(query(json!(["settings"]), settings::sanitized(state)));
         queries.push(query(
@@ -255,8 +261,18 @@ async fn dehydrated(
                     .or_else(|| params.get("path"))
                     .cloned()
                     .unwrap_or_else(|| parent(viewing));
-                if let Ok(files) = crate::routes::files::list_items(state, &listing) {
-                    queries.push(query(json!(["files", listing]), json!({"files":files})));
+                if let Ok(files) = crate::application_queries::browse_owner(
+                    state,
+                    &listing,
+                    crate::resources::ReadSurface::Ssr,
+                    0,
+                )
+                .await
+                {
+                    queries.push(query(
+                        json!(["files", listing]),
+                        serde_json::to_value(files).unwrap_or(Value::Null),
+                    ));
                 }
             }
         }
@@ -278,8 +294,18 @@ async fn dehydrated(
                     .or_else(|| params.get("path"))
                     .cloned()
                     .unwrap_or_else(|| parent(playing));
-                if let Ok(files) = crate::routes::files::list_items(state, &listing) {
-                    queries.push(query(json!(["files", listing]), json!({"files":files})));
+                if let Ok(files) = crate::application_queries::browse_owner(
+                    state,
+                    &listing,
+                    crate::resources::ReadSurface::Ssr,
+                    0,
+                )
+                .await
+                {
+                    queries.push(query(
+                        json!(["files", listing]),
+                        serde_json::to_value(files).unwrap_or(Value::Null),
+                    ));
                 }
             }
         }
@@ -298,7 +324,7 @@ async fn dehydrated(
                 .or_else(|| params.get("path"))
                 .cloned()
                 .unwrap_or_default();
-            if let Some(files) = shared_files(state, &share, &dir) {
+            if let Some(files) = shared_files(state, &share, &dir).await {
                 queries.push(query(json!(["share-files", token, dir]), files));
             }
             if knowledge_base_root(state, &share.path).is_some()
@@ -338,7 +364,7 @@ async fn dehydrated(
                         params.get("dir").or_else(|| params.get("path")),
                         viewing_path,
                     );
-                    if let Some(files) = shared_files(state, &share, &dir) {
+                    if let Some(files) = shared_files(state, &share, &dir).await {
                         queries.push(query(json!(["share-files", token, dir]), files));
                     }
                 }
@@ -362,7 +388,7 @@ async fn dehydrated(
                         params.get("dir").or_else(|| params.get("path")),
                         playing,
                     );
-                    if let Some(files) = shared_files(state, &share, &dir) {
+                    if let Some(files) = shared_files(state, &share, &dir).await {
                         queries.push(query(json!(["share-files", token, dir]), files));
                     }
                 }

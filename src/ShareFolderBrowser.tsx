@@ -78,6 +78,8 @@ import {
   removeOfflineFile,
 } from './lib/offline-files'
 import type { TextViewerShareContext } from './media/TextViewerDialog'
+import { grantOpenScope, resourceForFileItem } from './lib/legacy-resource-adapter'
+import { openResource } from './lib/open-resource'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -498,17 +500,20 @@ export function ShareFolderBrowser(props: Props) {
 
   function handleFileClick(file: FileItem) {
     const strip = (p: string) => stripSharePrefix(p, props.shareInfo.path)
-    if (file.isDirectory) {
+    const plan = openResource(resourceForFileItem(file), 'default', {
+      surface: 'share',
+      scope: grantOpenScope(props.shareInfo.path),
+    })
+
+    if (plan.kind === 'browse') {
       navigateToFolder(strip(file.path))
       return
     }
+    if (plan.kind !== 'playback' && plan.kind !== 'viewer') return
 
     viewMutation.mutate(strip(file.path))
-    const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
-    if (isMediaFile) {
-      useMediaPlayer
-        .getState()
-        .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')
+    if (plan.kind === 'playback') {
+      useMediaPlayer.getState().playFile(file.path, plan.media)
       playFile(file.path)
     } else {
       viewFile(file.path)

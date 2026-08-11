@@ -138,9 +138,12 @@ fn router(state: Shared) -> Router {
 }
 
 pub(crate) async fn run() {
-    let config = Config::load().unwrap_or_else(|error| panic!("Failed to load config: {error}"));
+    let mut config =
+        Config::load().unwrap_or_else(|error| panic!("Failed to load config: {error}"));
     state_db::initialize(&config)
         .unwrap_or_else(|error| panic!("Failed to initialize app database: {error}"));
+    let resource_identity = crate::resources::initialize_identity(&mut config)
+        .unwrap_or_else(|error| panic!("Failed to initialize Resource identity: {error}"));
     let dev = std::env::var("NODE_ENV").unwrap_or_default() != "production"
         && !std::env::args().any(|argument| argument == "--production");
     let vite_port = vite_port(config.port);
@@ -151,6 +154,11 @@ pub(crate) async fn run() {
             .unwrap_or_else(|error| panic!("Failed to start Vite: {error}"));
     }
     let runtime_roots = routes::mounts::load(&config);
+    resource_identity
+        .sync_runtime_sources(&runtime_roots)
+        .unwrap_or_else(|error| {
+            panic!("Failed to initialize mounted Source identity: {}", error.1)
+        });
     let mut search_roots = config.roots.clone();
     search_roots.extend(runtime_roots.clone());
     let (events, _) = tokio::sync::broadcast::channel(256);
@@ -183,9 +191,20 @@ pub(crate) async fn run() {
             hermes_events.clone(),
         )) as Arc<dyn crate::hermes::HermesTransport>
     });
+    let runtime_roots = Arc::new(RwLock::new(runtime_roots));
+    let thumbnails = Arc::new(thumbnails::Thumbnailer::new(
+        config.data_path.join("thumbnails"),
+    ));
+    let resources = Arc::new(crate::resources::ResourceCatalog::new(
+        config.clone(),
+        runtime_roots.clone(),
+        resource_identity,
+        thumbnails.clone(),
+        hermes.clone(),
+    ));
     let state = Arc::new(AppState {
         config: config.clone(),
-        runtime_roots: RwLock::new(runtime_roots),
+        runtime_roots,
         dev,
         vite_port,
         client,
@@ -200,13 +219,14 @@ pub(crate) async fn run() {
         share_verify_attempts: Mutex::new(HashMap::new()),
         reader_state_writes: Mutex::new(HashMap::new()),
         reader_state_db: Mutex::new(()),
-        thumbnails: thumbnails::Thumbnailer::new(config.data_path.join("thumbnails")),
+        thumbnails,
         image_variants: image_variants::ImageVariants::new(
             config.data_path.join("image-variants"),
             config.image_optimization.clone(),
         ),
         file_search: FileSearch::new(config.file_search.clone(), search_roots),
         hermes,
+        resources,
         hermes_project_operations: Mutex::new(()),
         hermes_runtime_ids: Mutex::new(HashMap::new()),
     });

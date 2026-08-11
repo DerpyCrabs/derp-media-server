@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "parent": {
+    "ref": {
+      "libraryId": "library-installation",
+      "resourceId": "resource-library-root"
+    },
+    "locator": {
+      "sourceId": "source-catalog",
+      "providerLocator": ""
+    },
+    "legacyLocator": "",
+    "version": "catalog:v1",
+    "name": "Library",
+    "kind": "library",
+    "presentation": "browse",
+    "providerOperations": ["browse"],
+    "availability": "present"
+  },
+  "items": [
+    {
+      "ref": {
+        "libraryId": "library-installation",
+        "resourceId": "resource-video"
+      },
+      "locator": {
+        "sourceId": "source-filesystem",
+        "providerLocator": "Videos/clip.mp4"
+      },
+      "legacyLocator": "Videos/clip.mp4",
+      "version": "fs:v1:opaque",
+      "name": "clip.mp4",
+      "kind": "file",
+      "presentation": "video",
+      "mimeType": "video/mp4",
+      "size": 42,
+      "providerOperations": ["read", "stream", "download"],
+      "availability": "present"
+    }
+  ],
+  "nextCursor": "cursor:opaque",
+  "total": 2
+}

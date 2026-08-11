@@ -85,7 +85,7 @@ export function buildShareUrl(
 ): string {
   const base = baseOrigin.trim().replace(/\/$/, '')
   const url = `${base}/share/${share.token}`
-  return share.passcode ? `${url}?p=${encodeURIComponent(share.passcode)}` : url
+  return share.passcode ? `${url}#p=${encodeURIComponent(share.passcode)}` : url
 }
 
 export function getShareUrlWarning(url: string): string | null {

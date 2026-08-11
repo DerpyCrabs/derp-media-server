@@ -70,6 +70,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 walkdir = "2"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1"
+
 [profile.release]
 lto = "thin"
 strip = true

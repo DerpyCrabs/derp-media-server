@@ -105,6 +105,8 @@ import { useDeferredLoading } from './lib/use-deferred-loading'
 import { playFile, viewFile } from './lib/url-state-actions'
 import { FileSearchButton } from './FileSearchPalette'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
+import { OWNER_OPEN_SCOPE, resourceForFileItem } from './lib/legacy-resource-adapter'
+import { openResource } from './lib/open-resource'
 
 type FileBrowserProps = {
   forceOffline?: boolean
@@ -1186,17 +1188,20 @@ export function FileBrowser(props: FileBrowserProps = {}) {
   }
 
   function handleFileClick(file: FileItem, sourceDir = currentPath()) {
-    if (file.isDirectory) {
+    const plan = openResource(resourceForFileItem(file), 'default', {
+      surface: 'library',
+      scope: OWNER_OPEN_SCOPE,
+    })
+
+    if (plan.kind === 'browse') {
       navigateToFolder(file.path)
       return
     }
+    if (plan.kind !== 'playback' && plan.kind !== 'viewer') return
 
     viewStats.incrementView(file.path)
-    const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
-    if (isMediaFile) {
-      useMediaPlayer
-        .getState()
-        .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')
+    if (plan.kind === 'playback') {
+      useMediaPlayer.getState().playFile(file.path, plan.media)
       playFile(file.path, sourceDir)
     } else {
       viewFile(file.path, sourceDir)

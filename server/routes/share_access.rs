@@ -1,7 +1,7 @@
 use crate::{
     app::{
-        AppState, Shared, cookies, emit, find_share, knowledge_base_root, list_directory,
-        rate_limit, roots, stats_path,
+        AppState, Shared, cookies, emit, find_share, knowledge_base_root, rate_limit, roots,
+        stats_path,
     },
     error::{AppError, AppResult},
     markdown_images, media,
@@ -273,11 +273,8 @@ async fn files(
         return Err(AppError::bad("Share is not a directory"));
     }
     let logical = shares::resolve_subpath(&share, &query.dir)?;
-    let files = list_directory(&state, &logical)?
-        .into_iter()
-        .filter(|item| item.is_virtual != Some(true))
-        .collect::<Vec<_>>();
-    Ok(Json(json!({"files":files})))
+    let listing = crate::application_queries::browse_grant(&state, &share.path, &logical).await?;
+    Ok(Json(json!({"files":listing.files})))
 }
 
 fn decoded_content(body: &Value, required: &str) -> AppResult<(Vec<u8>, u64, Option<String>)> {
@@ -498,6 +495,11 @@ async fn rename(
         ));
     }
     fs::rename(old, new).await.map_err(AppError::io)?;
+    state
+        .resources
+        .record_move(&old_logical, &new_logical)
+        .await
+        .map_err(|error| error.into_app_error())?;
     crate::path_metadata::moved(&state, &old_logical, &new_logical).await?;
     emit(&state, &old_logical);
     if crate::app::parent_logical(&old_logical) != crate::app::parent_logical(&new_logical) {

@@ -624,6 +624,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "webp",
+ "winapi-util",
  "zip",
 ]
 

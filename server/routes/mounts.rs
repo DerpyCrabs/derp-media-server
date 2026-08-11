@@ -163,6 +163,11 @@ async fn add(
     persist(&state, &next).map_err(|error| AppError::bad(error.1))?;
     *runtime = next;
     drop(runtime);
+    state
+        .resources
+        .sync_runtime_sources()
+        .await
+        .map_err(|error| error.into_app_error())?;
     state.file_search.sync_roots(all_roots(&state));
     emit_admin(&state, "mounts-changed");
     Ok((
@@ -197,6 +202,11 @@ async fn update(
     persist(&state, &next).map_err(|error| AppError::bad(error.1))?;
     *runtime = next;
     drop(runtime);
+    state
+        .resources
+        .sync_runtime_sources()
+        .await
+        .map_err(|error| error.into_app_error())?;
     state.file_search.sync_roots(all_roots(&state));
     emit_admin(&state, "mounts-changed");
     Ok(Json(
@@ -215,6 +225,11 @@ async fn remove(State(state): State<Shared>, AxPath(id): AxPath<String>) -> AppR
     persist(&state, &next)?;
     *runtime = next;
     drop(runtime);
+    state
+        .resources
+        .sync_runtime_sources()
+        .await
+        .map_err(|error| error.into_app_error())?;
     state.file_search.sync_roots(all_roots(&state));
     emit_admin(&state, "mounts-changed");
     Ok(Json(json!({"success":true})))
