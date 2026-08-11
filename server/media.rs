@@ -347,3 +347,155 @@ fn sort(v: &mut [FileItem]) {
             .then_with(|| natord::compare_ignore_case(&a.name, &b.name))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AuthConfig, FileSearchConfig, ImageOptimizationConfig, MediaRoot};
+    use serde_json::json;
+
+    fn root(id: &str, name: &str, path: PathBuf) -> MediaRoot {
+        MediaRoot {
+            id: id.into(),
+            name: name.into(),
+            path,
+            editable_folders: Vec::new(),
+            read_only: false,
+            source: "config".into(),
+            created_at: None,
+        }
+    }
+
+    fn config(base: &Path, roots: Vec<MediaRoot>) -> Config {
+        Config {
+            port: 3000,
+            roots,
+            library_key: "legacy-library-key".into(),
+            share_link_domain: None,
+            auth: AuthConfig::default(),
+            data_path: base.join("data"),
+            file_search: FileSearchConfig {
+                enabled: false,
+                index_path: base.join("search.sqlite"),
+                watch_mode: "off".into(),
+                max_recursive_watchers: 0,
+                max_fs_concurrency: 1,
+                reconcile_directories_per_second: 1,
+            },
+            image_optimization: ImageOptimizationConfig::default(),
+            tls: None,
+            hermes: None,
+        }
+    }
+
+    fn fixture(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("derp-media-{name}-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn file_item_legacy_json_shape_is_stable() {
+        let value = serde_json::to_value(FileItem {
+            name: "clip.mp4".into(),
+            path: "Videos/clip.mp4".into(),
+            media_type: "video".into(),
+            size: 42,
+            extension: "mp4".into(),
+            is_directory: false,
+            is_virtual: None,
+            view_count: Some(7),
+            share_token: None,
+            thumbnail_generated: Some(false),
+            version: Some(1234.0),
+        })
+        .unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "name":"clip.mp4",
+                "path":"Videos/clip.mp4",
+                "type":"video",
+                "size":42,
+                "extension":"mp4",
+                "isDirectory":false,
+                "viewCount":7,
+                "thumbnailGenerated":false,
+                "version":1234.0
+            })
+        );
+    }
+
+    #[test]
+    fn legacy_listing_keeps_virtual_roots_prefixes_exclusions_and_versions() {
+        let base = fixture("listing");
+        let alpha = base.join("alpha");
+        let beta = base.join("beta");
+        fs::create_dir_all(alpha.join("Folder")).unwrap();
+        fs::create_dir_all(alpha.join("node_modules")).unwrap();
+        fs::create_dir_all(&beta).unwrap();
+        fs::write(alpha.join("z.txt"), "z").unwrap();
+        fs::write(alpha.join("Unicode-日本語.md"), "unicode").unwrap();
+        fs::write(alpha.join(".hidden.txt"), "hidden").unwrap();
+        fs::write(alpha.join("node_modules").join("hidden.js"), "hidden").unwrap();
+        let config = config(
+            &base,
+            vec![
+                root("legacy-alpha", "Alpha", alpha.clone()),
+                root("legacy-beta", "Beta", beta),
+            ],
+        );
+
+        let top = list(&config, &[], "").unwrap();
+        assert_eq!(
+            top.iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Favorites", "Most Played", "Shares", "Alpha", "Beta"]
+        );
+        let files = list(&config, &[], "Alpha").unwrap();
+        assert_eq!(
+            files
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Folder", ".hidden.txt", "Unicode-日本語.md", "z.txt"]
+        );
+        assert_eq!(files[0].path, "Alpha/Folder");
+        assert!(files[1..].iter().all(|item| item.version.is_some()));
+        assert!(files.iter().all(|item| !item.path.contains("node_modules")));
+        assert!(files.iter().any(|item| item.name == ".hidden.txt"));
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn legacy_single_root_paths_remain_unprefixed() {
+        let base = fixture("single-root");
+        let media = base.join("media");
+        fs::create_dir_all(&media).unwrap();
+        fs::write(media.join("clip.mp4"), "bytes").unwrap();
+        let config = config(&base, vec![root("legacy-primary", "Media", media)]);
+
+        let files = list(&config, &[], "").unwrap();
+        let clip = files.iter().find(|item| item.name == "clip.mp4").unwrap();
+        assert_eq!(clip.path, "clip.mp4");
+        assert_eq!(clip.media_type, "video");
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn legacy_resolution_rejects_traversal_and_missing_directories() {
+        let base = fixture("errors");
+        let media = base.join("media");
+        fs::create_dir_all(&media).unwrap();
+        let config = config(&base, vec![root("legacy-primary", "Media", media)]);
+
+        let traversal = resolve(&config, &[], "../outside").unwrap_err();
+        assert!(traversal.1.contains("Path traversal detected"));
+        let missing = list(&config, &[], "missing").unwrap_err();
+        assert_eq!(missing.0, axum::http::StatusCode::NOT_FOUND);
+
+        fs::remove_dir_all(base).unwrap();
+    }
+}
