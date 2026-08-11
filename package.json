@@ -16,6 +16,7 @@
     "test:unit": "cargo test && bun test tests/unit/",
     "test:batch": "bun run build && bun tests/run-batches.ts",
     "test:stage1-rollback": "node scripts/verify-stage1-shell-rollback.mts",
+    "test:stage2-rollback": "node scripts/verify-stage2-catalog-rollback.mts",
     "test:generate-media": "bun tests/fixtures/generate-media-cache.ts",
     "test:ui": "bun run build && playwright test --ui",
     "test:headed": "bun run build && playwright test --headed",

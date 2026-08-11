@@ -104,6 +104,7 @@ impl FilesystemProvider {
         &self,
         source: &ProviderSource,
         file: media::FileItem,
+        observation: Option<(std::path::PathBuf, std::fs::Metadata)>,
     ) -> AppResult<ProviderResource> {
         let ProviderSource::Filesystem {
             root,
@@ -125,9 +126,15 @@ impl FilesystemProvider {
         } else {
             provider_locator.clone()
         };
-        let source_config = self.source_config(root);
-        let resolved = media::resolve(&source_config, &[], &provider_locator)?;
-        let metadata = std::fs::metadata(&resolved.full).map_err(AppError::io)?;
+        let (full_path, metadata) = if let Some(observation) = observation {
+            observation
+        } else {
+            let source_config = self.source_config(root);
+            let resolved = media::resolve(&source_config, &[], &provider_locator)?;
+            let metadata = std::fs::metadata(&resolved.full).map_err(AppError::io)?;
+            (resolved.full, metadata)
+        };
+        let platform_identity = platform_identity(&full_path, &metadata);
         let presentation = presentation(file.is_directory, &file.media_type);
         let mime_type = (!file.is_directory).then(|| media::mime_type(&file.extension).to_string());
         let thumbnail_generated = if !file.is_directory
@@ -138,7 +145,7 @@ impl FilesystemProvider {
             metadata
                 .modified()
                 .ok()
-                .map(|modified| self.thumbnails.cached(&resolved.full, modified))
+                .map(|modified| self.thumbnails.cached(&full_path, modified))
         } else {
             file.thumbnail_generated
         };
@@ -162,7 +169,7 @@ impl FilesystemProvider {
                 kind: ResourcePreviewKind::Thumbnail,
                 available: thumbnail_generated.unwrap_or(false),
             }),
-            version: Some(filesystem_version(&resolved.full, &metadata)),
+            version: Some(filesystem_version(&metadata, platform_identity.as_deref())),
             operations: if file.is_directory {
                 vec![ProviderOperation::Browse, ProviderOperation::Download]
             } else if matches!(
@@ -177,7 +184,7 @@ impl FilesystemProvider {
             } else {
                 vec![ProviderOperation::Read, ProviderOperation::Download]
             },
-            platform_identity: platform_identity(&resolved.full, &metadata),
+            platform_identity,
             fingerprint: Some(metadata_fingerprint(&metadata, file.is_directory)),
             appearance: None,
             open_target: None,
@@ -202,8 +209,8 @@ impl ReadProvider for FilesystemProvider {
                 ));
             };
             let config = self.source_config(root);
-            let mut files = media::list(&config, &[], &query.locator)?;
-            files.retain(|file| file.is_virtual != Some(true));
+            let mut files = media::list_observed(&config, &[], &query.locator)?;
+            files.retain(|file| file.item.is_virtual != Some(true));
             let total = files.len();
             let end = query.offset.saturating_add(query.limit).min(total);
             let page = if query.offset >= total {
@@ -213,7 +220,9 @@ impl ReadProvider for FilesystemProvider {
             };
             let items = page
                 .into_iter()
-                .map(|file| self.resource(&query.source, file))
+                .map(|file| {
+                    self.resource(&query.source, file.item, file.full_path.zip(file.metadata))
+                })
                 .collect::<AppResult<Vec<_>>>()?;
             Ok(ProviderPage {
                 items,
@@ -265,6 +274,7 @@ impl ReadProvider for FilesystemProvider {
                     version: legacy_numeric_version(&metadata),
                     resource: None,
                 },
+                Some((resolved.full, metadata)),
             )
         })
     }
@@ -279,6 +289,16 @@ impl HermesProvider {
         Self { transport }
     }
 
+    pub(crate) fn compatibility(&self) -> HermesCompatibilityAdapter<'_> {
+        HermesCompatibilityAdapter { provider: self }
+    }
+}
+
+pub(crate) struct HermesCompatibilityAdapter<'a> {
+    provider: &'a HermesProvider,
+}
+
+impl HermesCompatibilityAdapter<'_> {
     fn legacy_resource(
         &self,
         file: media::FileItem,
@@ -370,42 +390,14 @@ impl HermesProvider {
         })
     }
 
-    async fn browse_typed(&self, query: ProviderBrowse) -> AppResult<ProviderPage> {
-        let mut resources = match query.locator.as_str() {
-            "" => self.root_resources().await?,
-            "archived" => self.session_resources(true).await?,
-            locator => {
-                let Some(id) = typed_id(locator, "project/")? else {
-                    return Err(AppError::not_found("Hermes Resource not found"));
-                };
-                self.project(id).await?;
-                self.project_session_resources(id).await?
-            }
-        };
-        let total = resources.len();
-        let limit = query.limit.max(1);
-        let end = query.offset.saturating_add(limit).min(total);
-        let items = if query.offset >= total {
-            Vec::new()
-        } else {
-            resources.drain(query.offset..end).collect()
-        };
-        Ok(ProviderPage {
-            items,
-            total,
-            next_offset: (end < total).then_some(end),
-            legacy: LegacyPageFields::default(),
-        })
-    }
-
-    async fn browse_legacy(&self, query: ProviderBrowse) -> AppResult<ProviderPage> {
-        let path = if query.locator.is_empty() {
+    pub(crate) async fn browse(&self, locator: String, offset: usize) -> AppResult<ProviderPage> {
+        let path = if locator.is_empty() {
             virtual_directory::HERMES_ROOT.to_string()
         } else {
-            format!("{}/{}", virtual_directory::HERMES_ROOT, query.locator)
+            format!("{}/{}", virtual_directory::HERMES_ROOT, locator)
         };
         let listing =
-            virtual_directory::list_hermes_with(self.transport.as_ref(), &path, query.offset)
+            virtual_directory::list_hermes_with(self.provider.transport.as_ref(), &path, offset)
                 .await?;
         let items = listing
             .files
@@ -434,6 +426,36 @@ impl HermesProvider {
                 virtual_directory: directory,
                 virtual_entries: listing.virtual_entries,
             },
+        })
+    }
+}
+
+impl HermesProvider {
+    async fn browse_typed(&self, query: ProviderBrowse) -> AppResult<ProviderPage> {
+        let mut resources = match query.locator.as_str() {
+            "" => self.root_resources().await?,
+            "archived" => self.session_resources(true).await?,
+            locator => {
+                let Some(id) = typed_id(locator, "project/")? else {
+                    return Err(AppError::not_found("Hermes Resource not found"));
+                };
+                self.project(id).await?;
+                self.project_session_resources(id).await?
+            }
+        };
+        let total = resources.len();
+        let limit = query.limit.max(1);
+        let end = query.offset.saturating_add(limit).min(total);
+        let items = if query.offset >= total {
+            Vec::new()
+        } else {
+            resources.drain(query.offset..end).collect()
+        };
+        Ok(ProviderPage {
+            items,
+            total,
+            next_offset: (end < total).then_some(end),
+            legacy: LegacyPageFields::default(),
         })
     }
 
@@ -704,11 +726,7 @@ impl ReadProvider for HermesProvider {
                     "Hermes provider received filesystem Source",
                 ));
             }
-            if query.limit == usize::MAX {
-                self.browse_legacy(query).await
-            } else {
-                self.browse_typed(query).await
-            }
+            self.browse_typed(query).await
         })
     }
 
@@ -841,7 +859,10 @@ fn legacy_numeric_version(metadata: &std::fs::Metadata) -> Option<f64> {
         .map(|duration| duration.as_secs_f64() * 1000.0)
 }
 
-fn filesystem_version(path: &Path, metadata: &std::fs::Metadata) -> ResourceVersion {
+fn filesystem_version(
+    metadata: &std::fs::Metadata,
+    platform_identity: Option<&str>,
+) -> ResourceVersion {
     let modified = metadata
         .modified()
         .ok()
@@ -852,7 +873,7 @@ fn filesystem_version(path: &Path, metadata: &std::fs::Metadata) -> ResourceVers
     hash.update(modified.to_le_bytes());
     hash.update(metadata.len().to_le_bytes());
     hash.update([metadata.is_dir() as u8]);
-    if let Some(identity) = platform_identity(path, metadata) {
+    if let Some(identity) = platform_identity {
         hash.update(identity.as_bytes());
     }
     ResourceVersion::new(format!("fs:v1:{}", digest_hex(hash.finalize())))
@@ -1003,7 +1024,7 @@ mod tests {
                 source: source(),
                 locator: String::new(),
                 offset: 0,
-                limit: 200,
+                limit: usize::MAX,
             })
             .await
             .unwrap();
@@ -1178,12 +1199,8 @@ mod tests {
         )));
 
         let page = provider
-            .browse(ProviderBrowse {
-                source: source(),
-                locator: String::new(),
-                offset: 0,
-                limit: usize::MAX,
-            })
+            .compatibility()
+            .browse(String::new(), 0)
             .await
             .unwrap();
 

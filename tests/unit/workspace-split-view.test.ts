@@ -157,6 +157,16 @@ describe('workspace split view', () => {
     expect(normalizePersistedWorkspaceState(invalid)?.windows[0]?.viewerId).toBeUndefined()
   })
 
+  test('normalization keeps unavailable stable target for caller render gating', () => {
+    const target = {
+      ref: { libraryId: 'library', resourceId: 'resource' },
+      legacyLocator: 'Documents/missing.md',
+      availability: 'missing' as const,
+    }
+    const state = baseState([{ ...viewerTab('v1'), resourceTarget: target }])
+    expect(normalizePersistedWorkspaceState(state)?.windows[0]?.resourceTarget).toEqual(target)
+  })
+
   test('normalizePersistedWorkspaceState drops invalid split metadata', () => {
     const raw = {
       windows: [

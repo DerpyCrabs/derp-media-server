@@ -4,6 +4,8 @@ import {
   reconcileResourceTargetPin,
   reconcileResourceTargetWindow,
   resourceInspectUrl,
+  resourceTargetAttemptKey,
+  resourceTargetIsPending,
 } from '@/lib/resource-target-resolution'
 import { MediaType } from '@/lib/types'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
@@ -40,6 +42,18 @@ function viewer(): WorkspaceWindowDefinition {
 }
 
 describe('persisted ResourceRef resolution', () => {
+  test('keeps restored targets pending until current session attempts inspect', () => {
+    const target = viewer().resourceTarget!
+    const attempted = new Set([resourceTargetAttemptKey(target, 'previous-session')])
+    expect(resourceTargetIsPending(target, attempted, 'current-session')).toBe(true)
+    attempted.add(resourceTargetAttemptKey(target, 'current-session'))
+    expect(resourceTargetIsPending(target, attempted, 'current-session')).toBe(false)
+    expect(
+      resourceTargetIsPending({ ...target, availability: 'missing' }, new Set(), 'current-session'),
+    ).toBe(false)
+    expect(resourceTargetIsPending(undefined, new Set(), 'current-session')).toBe(false)
+  })
+
   test('updates compatibility locator after an external move without replacing identity', () => {
     expect(reconcileResourceTargetWindow(viewer(), moved)).toMatchObject({
       title: 'song.mp3',
@@ -78,19 +92,48 @@ describe('persisted ResourceRef resolution', () => {
     })
   })
 
-  test('ignores mismatched, unavailable, or locator-free inspect responses', () => {
+  test('ignores mismatched or locator-free inspect responses', () => {
     expect(
       reconcileResourceTargetWindow(viewer(), {
         ...moved,
         ref: { ...moved.ref, resourceId: 'different' },
       }),
     ).toEqual(viewer())
-    expect(reconcileResourceTargetWindow(viewer(), { ...moved, availability: 'missing' })).toEqual(
-      viewer(),
-    )
     expect(reconcileResourceTargetWindow(viewer(), { ...moved, legacyLocator: undefined })).toEqual(
       viewer(),
     )
+  })
+
+  test('marks unavailable restored targets without replacing rollback locator', () => {
+    const missing = reconcileResourceTargetWindow(viewer(), {
+      ...moved,
+      availability: 'missing',
+      legacyLocator: 'Library/reused/song.mp3',
+    })
+    expect(missing).toMatchObject({
+      iconPath: 'Library/old.mp3',
+      initialState: { viewing: 'Library/old.mp3' },
+      resourceTarget: {
+        ref: { libraryId: 'library-1', resourceId: 'resource-1' },
+        legacyLocator: 'Library/old.mp3',
+        availability: 'missing',
+      },
+    })
+
+    const pin: WorkspaceTaskbarPin = {
+      id: 'pin-1',
+      path: 'Library/old.mp3',
+      title: 'old.mp3',
+      isDirectory: false,
+      source: { kind: 'local' },
+      resourceTarget: viewer().resourceTarget,
+    }
+    expect(
+      reconcileResourceTargetPin(pin, { ...moved, availability: 'sourceUnavailable' }),
+    ).toEqual({
+      ...pin,
+      resourceTarget: { ...pin.resourceTarget!, availability: 'sourceUnavailable' },
+    })
   })
 
   test('keeps Grant token in access URL and out of ResourceRef', () => {

@@ -221,6 +221,9 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
       ? {
           ref: { ...definition.resourceTarget.ref },
           legacyLocator: definition.resourceTarget.legacyLocator,
+          ...(definition.resourceTarget.availability
+            ? { availability: definition.resourceTarget.availability }
+            : {}),
         }
       : undefined
     windows.push({

@@ -848,6 +848,8 @@ pub(crate) fn repair_share_source(
     root_id: &str,
     root_relative_path: &str,
     path: &str,
+    workspace_taskbar_pins: &Option<Value>,
+    workspace_layout_presets: &Option<Value>,
 ) -> AppResult<()> {
     let mut connection = connection(database)?;
     let transaction = connection
@@ -856,9 +858,19 @@ pub(crate) fn repair_share_source(
     for key in namespace_keys(&transaction, library_key)? {
         transaction
             .execute(
-                "UPDATE shares SET source_id=?1,root_id=?2,root_relative_path=?3,path=?4
-                 WHERE library_key=?5 AND token=?6",
-                params![source_id, root_id, root_relative_path, path, key, token],
+                "UPDATE shares SET source_id=?1,root_id=?2,root_relative_path=?3,path=?4,
+                   workspace_taskbar_pins_json=?5,workspace_layout_presets_json=?6
+                 WHERE library_key=?7 AND token=?8",
+                params![
+                    source_id,
+                    root_id,
+                    root_relative_path,
+                    path,
+                    json_column(workspace_taskbar_pins)?,
+                    json_column(workspace_layout_presets)?,
+                    key,
+                    token
+                ],
             )
             .map_err(error)?;
     }

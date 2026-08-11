@@ -414,6 +414,9 @@ export function normalizePersistedWorkspaceState(
         ? {
             ref: { ...w.resourceTarget.ref },
             legacyLocator: w.resourceTarget.legacyLocator,
+            ...(w.resourceTarget.availability
+              ? { availability: w.resourceTarget.availability }
+              : {}),
           }
         : undefined
       const b = w.layout?.bounds

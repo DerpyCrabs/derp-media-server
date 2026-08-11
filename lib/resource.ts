@@ -12,6 +12,18 @@ export type ResourceRef = {
 export type PersistedResourceTarget = {
   ref: ResourceRef
   legacyLocator: string
+  /** Last catalog resolution failure; optional so Stage 1 and rollback readers stay compatible. */
+  availability?: Exclude<ResourceAvailability, 'present'>
+}
+
+export type UnavailablePersistedResourceTarget = PersistedResourceTarget & {
+  availability: NonNullable<PersistedResourceTarget['availability']>
+}
+
+export function unavailablePersistedResourceTarget(
+  target: PersistedResourceTarget | null | undefined,
+): UnavailablePersistedResourceTarget | null {
+  return target?.availability ? (target as UnavailablePersistedResourceTarget) : null
 }
 
 export type ResourceLocator = {
@@ -171,6 +183,7 @@ export function persistedResourceTarget(
   return {
     ref: { ...resource.ref },
     legacyLocator: resource.legacyLocator,
+    ...(resource.availability === 'present' ? {} : { availability: resource.availability }),
   }
 }
 
@@ -185,7 +198,10 @@ export function isPersistedResourceTarget(value: unknown): value is PersistedRes
     typeof reference.resourceId === 'string' &&
     reference.resourceId.length > 0 &&
     typeof target.legacyLocator === 'string' &&
-    target.legacyLocator.length > 0
+    target.legacyLocator.length > 0 &&
+    (target.availability === undefined ||
+      target.availability === 'missing' ||
+      target.availability === 'sourceUnavailable')
   )
 }
 

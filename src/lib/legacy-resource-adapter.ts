@@ -1,4 +1,4 @@
-import { getMimeType } from '@/lib/media-utils'
+import { getMediaType, getMimeType } from '@/lib/media-utils'
 import type {
   ProviderOperation,
   ResourceAppearance,
@@ -19,6 +19,13 @@ export type LegacyResourceHints = Readonly<{
   providerOperations?: readonly ProviderOperation[]
   appearance?: ResourceAppearance
   openTarget?: ResourceOpenTarget
+}>
+
+export type LegacyFileItemHints = Readonly<{
+  displayName?: string
+  isDirectory?: boolean
+  isVirtual?: boolean
+  resource?: ResourceSummary
 }>
 
 function normalizedLegacyPath(path: string): string {
@@ -71,6 +78,27 @@ function operationsFor(presentation: ResourcePresentation): ProviderOperation[] 
     return ['read', 'stream', 'download']
   }
   return ['read', 'download']
+}
+
+/** Compatibility seam for path-only persisted state and legacy responses. */
+export function legacyFileItemFromPath(path: string, hints: LegacyFileItemHints = {}): FileItem {
+  const name = hints.displayName ?? path.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
+  const isDirectory = hints.isDirectory ?? false
+  const extension = isDirectory
+    ? ''
+    : name.includes('.')
+      ? (name.split('.').pop()?.toLowerCase() ?? '')
+      : ''
+  return {
+    path,
+    name,
+    isDirectory,
+    isVirtual: hints.isVirtual ?? false,
+    size: hints.resource?.size ?? 0,
+    type: isDirectory ? MediaType.FOLDER : getMediaType(extension),
+    extension,
+    ...(hints.resource ? { resource: hints.resource } : {}),
+  }
 }
 
 export function resourceForFileItem(

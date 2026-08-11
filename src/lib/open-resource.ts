@@ -69,6 +69,18 @@ export type ResourceOpener = (
   context: OpenContext,
 ) => OpenPlan
 
+export type OpenPlanExecutor<Result> = (plan: OpenPlan) => Result
+
+/** Executes caller effects synchronously, then starts descriptor import without delaying gesture work. */
+export function executeOpenPlan<Result>(
+  plan: OpenPlan,
+  executor: OpenPlanExecutor<Result>,
+): Result {
+  const result = executor(plan)
+  if ('viewer' in plan) void plan.viewer.load().catch(() => undefined)
+  return result
+}
+
 function target(resource: ResourceSummary): OpenTarget {
   return {
     resource: { ...resource.ref },

@@ -47,8 +47,9 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | Config                    | Env                         | Purpose                                                                     |
 | ------------------------- | --------------------------- | --------------------------------------------------------------------------- |
 | `mediaDir`                | `MEDIA_DIR`                 | Media root for legacy/single-root configs                                   |
+| `mediaSourceId`           | `MEDIA_SOURCE_ID`           | Stable identity for a configured single media root                          |
 | `port`                    | `PORT`                      | App port; Workspace is served at `/workspace` (default `3000`)              |
-| `mediaDirs`               |                             | Multiple named media roots, each with optional editable folders             |
+| `mediaDirs`               |                             | Multiple named media roots; each supports stable `id` and optional edits    |
 | `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under single-root `mediaDir` where writes are allowed |
 | `fileSearch`              |                             | Persistent filename/path search index settings                              |
 | `imageOptimization`       |                             | Responsive viewer variants and disk-cache settings                          |
@@ -59,6 +60,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `auth.secureCookies`      | `AUTH_SECURE_COOKIES`       | Require HTTPS for login cookies; defaults to production only                |
 |                           | `TLS_CERT_PATH`             | PEM certificate used to serve HTTPS                                         |
 |                           | `TLS_KEY_PATH`              | PEM private key used to serve HTTPS                                         |
+|                           | `CATALOG_READS`             | Set `0`, `false`, `off`, or `no` to roll reads back to legacy listings      |
 
 `dataPath` is config-file only and contains app-created settings, stats, shares, mounts, search
 index, thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
@@ -106,8 +108,13 @@ Use `mediaDirs` when serving multiple media roots:
 ```jsonc
 {
   "mediaDirs": [
-    { "path": "D:/Media/Movies", "name": "Movies", "editableFolders": ["Incoming"] },
-    { "path": "E:/Shows", "editableFolders": ["Downloads", "Notes"] },
+    {
+      "id": "movies",
+      "path": "D:/Media/Movies",
+      "name": "Movies",
+      "editableFolders": ["Incoming"],
+    },
+    { "id": "shows", "path": "E:/Shows", "editableFolders": ["Downloads", "Notes"] },
   ],
 }
 ```
@@ -117,6 +124,22 @@ as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 `name` is derived from the directory basename when possible, but must be set explicitly
 if the basename is empty, duplicates another media root, or conflicts with a virtual
 folder such as `Favorites`, `Most Played`, or `Shares`.
+
+Assign every configured root a stable `id` before changing its display name and path. For a
+single-root `mediaDir`, use `mediaSourceId` or `MEDIA_SOURCE_ID`. IDs remain unchanged across path,
+name, and root-order edits; do not reuse an ID for different content.
+
+If startup reports **Resource identity recovery required** after an ID-less root changed both name
+and path, restore either its prior name or prior path and start once. Then add a stable ID, restart,
+and only then apply the remaining name/path change. If several retained Sources match, restore the
+last known configuration and assign unique IDs one root at a time. Do not delete `state.sqlite3`:
+it contains Resource IDs and legacy namespace mappings needed for downgrade/re-upgrade safety.
+
+Emergency read rollback: stop the server, set `CATALOG_READS=0`, and restart. Library, SSR, share,
+and Hermes listings then use legacy projections; Resource inspect endpoints return typed
+`unsupported` errors so persisted clients keep their retained legacy locators. Leave new additive
+tables/fields in place. Remove the variable and restart to cut back over; rollback-binary writes are
+reconciled through `legacy_library_keys` on re-upgrade.
 
 Additional media roots can be added without restarting from **Settings → Media directories**.
 They are persisted in `mounts.json` under `dataPath` and are always read only. Runtime roots

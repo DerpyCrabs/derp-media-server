@@ -3,8 +3,8 @@ use crate::{
     error::{AppError, AppResult},
     media,
     resources::{
-        CatalogResult, PageCursor, ReadContext, ReadSurface, ResourceDetail, ResourcePage,
-        ResourceRef, summary_to_legacy_file,
+        CatalogError, CatalogErrorCode, CatalogResult, PageCursor, ReadContext, ReadSurface,
+        ResourceDetail, ResourcePage, ResourceRef, summary_to_legacy_file,
     },
     shares, store, virtual_directory, workspace_persistence,
 };
@@ -97,6 +97,12 @@ pub(crate) async fn inspect_owner(
     resource: &ResourceRef,
     surface: ReadSurface,
 ) -> CatalogResult<ResourceDetail> {
+    if !catalog_reads_enabled() {
+        return Err(CatalogError::new(
+            CatalogErrorCode::Unsupported,
+            "Resource inspection is disabled by catalog_reads rollback",
+        ));
+    }
     state
         .resources
         .inspect(&ReadContext::owner(surface), resource)
@@ -108,6 +114,12 @@ pub(crate) async fn inspect_grant(
     grant_root: &str,
     resource: &ResourceRef,
 ) -> CatalogResult<ResourceDetail> {
+    if !catalog_reads_enabled() {
+        return Err(CatalogError::new(
+            CatalogErrorCode::Unsupported,
+            "Resource inspection is disabled by catalog_reads rollback",
+        ));
+    }
     let adapter = state.resources.compatibility();
     let root = adapter.resolve(grant_root, ReadSurface::Share).await?;
     state

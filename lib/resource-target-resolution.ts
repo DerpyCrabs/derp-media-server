@@ -16,6 +16,25 @@ export function resourceTargetKey(target: PersistedResourceTarget): string {
   return `${target.ref.libraryId}\u0000${target.ref.resourceId}`
 }
 
+export function resourceTargetAttemptKey(
+  target: PersistedResourceTarget,
+  sessionKey: string,
+): string {
+  return `${sessionKey}\u0000${resourceTargetKey(target)}`
+}
+
+export function resourceTargetIsPending(
+  target: PersistedResourceTarget | null | undefined,
+  attemptedKeys: ReadonlySet<string>,
+  sessionKey: string,
+): boolean {
+  return !!(
+    target &&
+    !target.availability &&
+    !attemptedKeys.has(resourceTargetAttemptKey(target, sessionKey))
+  )
+}
+
 export function resourceInspectUrl(
   target: PersistedResourceTarget,
   access: ResourceInspectAccess,
@@ -47,19 +66,24 @@ function sameReference(target: PersistedResourceTarget, summary: ResourceSummary
   )
 }
 
+function unavailableTarget(
+  target: PersistedResourceTarget | undefined,
+  summary: ResourceSummary,
+): PersistedResourceTarget | null {
+  if (!target || !sameReference(target, summary) || summary.availability === 'present') return null
+  return {
+    ref: { ...target.ref },
+    legacyLocator: target.legacyLocator,
+    availability: summary.availability,
+  }
+}
+
 function usableLocator(
   target: PersistedResourceTarget | undefined,
   summary: ResourceSummary,
 ): string | null {
-  if (
-    !target ||
-    !sameReference(target, summary) ||
-    summary.availability !== 'present' ||
-    !summary.legacyLocator
-  ) {
-    return null
-  }
-  return summary.legacyLocator
+  if (!target || !sameReference(target, summary) || !summary.legacyLocator) return null
+  return summary.availability === 'present' ? summary.legacyLocator : null
 }
 
 function parentLocator(locator: string): string {
@@ -72,6 +96,8 @@ export function reconcileResourceTargetWindow(
   window: WorkspaceWindowDefinition,
   summary: ResourceSummary,
 ): WorkspaceWindowDefinition {
+  const unavailable = unavailableTarget(window.resourceTarget, summary)
+  if (unavailable) return { ...window, resourceTarget: unavailable }
   const locator = usableLocator(window.resourceTarget, summary)
   if (!locator) return window
   const resourceTarget = { ref: { ...summary.ref }, legacyLocator: locator }
@@ -104,6 +130,8 @@ export function reconcileResourceTargetPin(
   pin: WorkspaceTaskbarPin,
   summary: ResourceSummary,
 ): WorkspaceTaskbarPin {
+  const unavailable = unavailableTarget(pin.resourceTarget, summary)
+  if (unavailable) return { ...pin, resourceTarget: unavailable }
   const locator = usableLocator(pin.resourceTarget, summary)
   if (!locator) return pin
   return {

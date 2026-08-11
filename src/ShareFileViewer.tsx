@@ -12,7 +12,7 @@ import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { TextViewerBody, type TextViewerShareContext } from './media/TextViewerDialog'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { grantOpenScope, resourceForFileItem } from './lib/legacy-resource-adapter'
-import { openResource } from './lib/open-resource'
+import { executeOpenPlan, openResource } from './lib/open-resource'
 
 type Props = {
   token: string
@@ -63,17 +63,19 @@ export function ShareFileViewer(props: Props) {
     void post(`/api/share/${props.token}/view`, {}).catch(() => {})
 
     const plan = plannedOpen()
-    if (plan.kind === 'playback') {
-      useMediaPlayer.getState().playFile(props.shareInfo.path, plan.media)
-      playFile(props.shareInfo.path)
-    } else if (
-      plan.kind === 'viewer' &&
-      (plan.viewer.id === 'image-viewer' ||
-        plan.viewer.id === 'pdf-reader' ||
-        plan.viewer.id === 'book-reader')
-    ) {
-      viewFile(props.shareInfo.path, undefined, plan.viewer.id)
-    }
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'playback') {
+        useMediaPlayer.getState().playFile(props.shareInfo.path, planned.media)
+        playFile(props.shareInfo.path)
+      } else if (
+        planned.kind === 'viewer' &&
+        (planned.viewer.id === 'image-viewer' ||
+          planned.viewer.id === 'pdf-reader' ||
+          planned.viewer.id === 'book-reader')
+      ) {
+        viewFile(props.shareInfo.path, undefined, planned.viewer.id)
+      }
+    })
   })
 
   onCleanup(() => {

@@ -37,6 +37,7 @@ import {
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
 import {
   persistedResourceTarget,
+  unavailablePersistedResourceTarget,
   type PersistedResourceTarget,
   type ResourceOpenTarget,
   type ResourceSummary,
@@ -45,6 +46,8 @@ import {
 import {
   inspectResourceTarget,
   reconcileResourceTargetWindow,
+  resourceTargetAttemptKey,
+  resourceTargetIsPending,
   resourceTargetKey,
 } from '@/lib/resource-target-resolution'
 import { queryKeys } from '@/lib/query-keys'
@@ -80,18 +83,28 @@ import Trash2 from 'lucide-solid/icons/trash-2'
 import Undo2 from 'lucide-solid/icons/undo-2'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import {
+  For,
+  Show,
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from 'solid-js'
 import { CanvasSearchPalette } from './canvas/CanvasSearchPalette'
 import { canvasEdgeAutoPanVelocity } from './canvas/canvas-edge-auto-pan'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
 import { bindReadingProgress as bindReadingProgressEvents } from './canvas/reading-progress'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { OWNER_OPEN_SCOPE, resourceForFileItem } from './lib/legacy-resource-adapter'
-import { openResource } from './lib/open-resource'
+import { executeOpenPlan, openResource } from './lib/open-resource'
 import { viewerMediaType, viewerReaderKind } from './lib/viewer-registry'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
+import { ResourceResolvingPane, ResourceUnavailablePane } from './workspace/ResourceUnavailablePane'
 
 const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
@@ -394,7 +407,12 @@ export function CanvasPage() {
   const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'offline' | 'error'>(
     'saved',
   )
-  const resolvedResourceTargets = new Set<string>()
+  const [resourceResolutionAttempts, setResourceResolutionAttempts] = createSignal<
+    ReadonlySet<string>
+  >(new Set())
+  const canvasResourceTargetIsPending = (
+    target: PersistedResourceTarget | null | undefined,
+  ): boolean => resourceTargetIsPending(target, resourceResolutionAttempts(), collection().activeId)
   const resolvingResourceTargets = new Set<string>()
   const resourceResolutionAbort = new AbortController()
   const readOnlyMode = () => false
@@ -444,35 +462,55 @@ export function CanvasPage() {
   })
 
   createEffect(() => {
+    const canvasSessionKey = collection().activeId
+    const attempted = resourceResolutionAttempts()
     for (const window of state().windows) {
       const target = window.definition.resourceTarget
       if (!target) continue
       const key = resourceTargetKey(target)
-      if (resolvedResourceTargets.has(key) || resolvingResourceTargets.has(key)) continue
-      resolvingResourceTargets.add(key)
+      const attemptKey = resourceTargetAttemptKey(target, canvasSessionKey)
+      if (attempted.has(attemptKey) || resolvingResourceTargets.has(attemptKey)) continue
+      resolvingResourceTargets.add(attemptKey)
       void inspectResourceTarget(
         target,
         { kind: 'owner', surface: 'canvas' },
         resourceResolutionAbort.signal,
       )
         .then((summary) => {
-          resolvedResourceTargets.add(key)
-          if (!summary) return
-          setState((current) => ({
-            ...current,
-            windows: current.windows.map((item) =>
-              item.definition.resourceTarget &&
-              resourceTargetKey(item.definition.resourceTarget) === key
-                ? {
-                    ...item,
-                    definition: reconcileResourceTargetWindow(item.definition, summary),
-                  }
-                : item,
-            ),
-          }))
+          if (collection().activeId !== canvasSessionKey) return
+          batch(() => {
+            if (summary) {
+              setState((current) => ({
+                ...current,
+                windows: current.windows.map((item) =>
+                  item.definition.resourceTarget &&
+                  resourceTargetKey(item.definition.resourceTarget) === key
+                    ? {
+                        ...item,
+                        definition: reconcileResourceTargetWindow(item.definition, summary),
+                      }
+                    : item,
+                ),
+              }))
+            }
+            setResourceResolutionAttempts((previous) => {
+              if (previous.has(attemptKey)) return previous
+              const next = new Set(previous)
+              next.add(attemptKey)
+              return next
+            })
+          })
         })
-        .catch(() => undefined)
-        .finally(() => resolvingResourceTargets.delete(key))
+        .catch(() => {
+          if (collection().activeId !== canvasSessionKey) return
+          setResourceResolutionAttempts((previous) => {
+            if (previous.has(attemptKey)) return previous
+            const next = new Set(previous)
+            next.add(attemptKey)
+            return next
+          })
+        })
+        .finally(() => resolvingResourceTargets.delete(attemptKey))
     }
   })
 
@@ -1192,15 +1230,26 @@ export function CanvasPage() {
       surface: 'canvas',
       scope: OWNER_OPEN_SCOPE,
     })
-    if (plan.kind === 'conversation') {
-      return addHermesWindow(file, plan.target, point, options.worldBounds, options.resourceTarget)
-    }
-    if (plan.kind === 'blocked') return undefined
-    return addFileWindow(file, point, {
-      ...options,
-      viewerId: plan.kind === 'viewer' || plan.kind === 'playback' ? plan.viewer.id : undefined,
-      readerKind:
-        plan.kind === 'viewer' ? (viewerReaderKind(plan.viewer.id) ?? undefined) : undefined,
+    return executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'conversation') {
+        return addHermesWindow(
+          file,
+          planned.target,
+          point,
+          options.worldBounds,
+          options.resourceTarget,
+        )
+      }
+      if (planned.kind === 'blocked') return undefined
+      return addFileWindow(file, point, {
+        ...options,
+        viewerId:
+          planned.kind === 'viewer' || planned.kind === 'playback' ? planned.viewer.id : undefined,
+        readerKind:
+          planned.kind === 'viewer'
+            ? (viewerReaderKind(planned.viewer.id) ?? undefined)
+            : undefined,
+      })
     })
   }
 
@@ -2579,7 +2628,21 @@ export function CanvasPage() {
                           state().camera.zoom < LIVE_ZOOM && !maximized(),
                       }}
                     >
-                      <Show when={item()!.definition.type === 'browser'}>
+                      <Show when={canvasResourceTargetIsPending(item()!.definition.resourceTarget)}>
+                        <ResourceResolvingPane />
+                      </Show>
+                      <Show
+                        when={unavailablePersistedResourceTarget(item()!.definition.resourceTarget)}
+                      >
+                        {(target) => <ResourceUnavailablePane target={target()} />}
+                      </Show>
+                      <Show
+                        when={
+                          !canvasResourceTargetIsPending(item()!.definition.resourceTarget) &&
+                          !item()!.definition.resourceTarget?.availability &&
+                          item()!.definition.type === 'browser'
+                        }
+                      >
                         <WorkspaceBrowserPane
                           windowId={windowId}
                           surface='canvas'
@@ -2603,7 +2666,13 @@ export function CanvasPage() {
                           }
                         />
                       </Show>
-                      <Show when={item()!.definition.type === 'viewer'}>
+                      <Show
+                        when={
+                          !canvasResourceTargetIsPending(item()!.definition.resourceTarget) &&
+                          !item()!.definition.resourceTarget?.availability &&
+                          item()!.definition.type === 'viewer'
+                        }
+                      >
                         <WorkspaceViewerPane
                           windowId={windowId}
                           storageKey={CANVAS_STORAGE_KEY}
@@ -2623,7 +2692,13 @@ export function CanvasPage() {
                           showListenOnly={false}
                         />
                       </Show>
-                      <Show when={item()!.definition.type === 'hermes'}>
+                      <Show
+                        when={
+                          !canvasResourceTargetIsPending(item()!.definition.resourceTarget) &&
+                          !item()!.definition.resourceTarget?.availability &&
+                          item()!.definition.type === 'hermes'
+                        }
+                      >
                         <HermesChatPane
                           window={() => item()!.definition}
                           onSessionCreated={(id) => bindHermesSession(windowId, id)}

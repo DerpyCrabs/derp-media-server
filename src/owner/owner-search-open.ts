@@ -1,9 +1,9 @@
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 import { OWNER_OPEN_SCOPE, resourceForFileItem } from '../lib/legacy-resource-adapter'
-import { openResource } from '../lib/open-resource'
+import { executeOpenPlan, openResource } from '../lib/open-resource'
 import { hrefFor, type RouteQuery } from '../lib/routes'
 
-export function ownerSearchResultHref(result: FileSearchResult): string {
+function planOwnerSearchResult(result: FileSearchResult) {
   const file = fileSearchResultToFileItem(result)
   const plan = openResource(resourceForFileItem(file), 'default', {
     surface: 'library',
@@ -16,5 +16,17 @@ export function ownerSearchResultHref(result: FileSearchResult): string {
     query.viewing = result.path
     query.extra = [['viewer', plan.viewer.id]]
   }
-  return hrefFor({ kind: 'library' }, query)
+  return { href: hrefFor({ kind: 'library' }, query), plan }
+}
+
+export function ownerSearchResultHref(result: FileSearchResult): string {
+  return planOwnerSearchResult(result).href
+}
+
+export function executeOwnerSearchResult(
+  result: FileSearchResult,
+  navigate: (href: string) => void,
+): void {
+  const { href, plan } = planOwnerSearchResult(result)
+  executeOpenPlan(plan, () => navigate(href))
 }

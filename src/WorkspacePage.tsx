@@ -11,9 +11,10 @@ import {
   inspectResourceTarget,
   reconcileResourceTargetPin,
   reconcileResourceTargetWindow,
+  resourceTargetAttemptKey,
+  resourceTargetIsPending,
   resourceTargetKey,
 } from '@/lib/resource-target-resolution'
-import { getMediaType } from '@/lib/media-utils'
 import type { AssistGridSpan } from '@/lib/workspace-assist-grid'
 import {
   createDefaultBounds,
@@ -57,7 +58,16 @@ import {
   pickWorkspaceWindowAtClientPoint,
 } from '@/lib/workspace-file-open-target-picker'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
+import {
+  For,
+  Show,
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  untrack,
+} from 'solid-js'
 import { useThemeStore } from '@/lib/theme-store'
 import { useStoreSync } from './lib/solid-store-sync'
 import type { FileIconContext } from './lib/use-file-icon'
@@ -105,11 +115,12 @@ import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-se
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
 import { canCloseHermesWindow } from '@/lib/hermes-session-store'
 import {
+  legacyFileItemFromPath,
   OWNER_OPEN_SCOPE,
   grantOpenScope,
   resourceForFileItem,
 } from './lib/legacy-resource-adapter'
-import { openResource } from './lib/open-resource'
+import { executeOpenPlan, openResource } from './lib/open-resource'
 import { viewerMediaType } from './lib/viewer-registry'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
@@ -139,6 +150,17 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const [workspace, setWorkspace] = createSignal<PersistedWorkspaceState | null>(null)
   let resolvedResourceSummaries = new Map<string, ResourceSummary>()
+  const [resourceResolutionAttempts, setResourceResolutionAttempts] = createSignal<
+    ReadonlySet<string>
+  >(new Set())
+
+  function isResourceTargetPending(target: PersistedResourceTarget | null | undefined): boolean {
+    return resourceTargetIsPending(
+      target,
+      resourceResolutionAttempts(),
+      storageSessionKeyFull().key,
+    )
+  }
 
   function openScopeForSource(source: WorkspaceSource) {
     return source.kind === 'share'
@@ -161,6 +183,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       ref: { ...resourceTarget.ref },
       locator: { ...resource.locator, providerLocator: resourceTarget.legacyLocator },
       legacyLocator: resourceTarget.legacyLocator,
+      ...(resourceTarget.availability ? { availability: resourceTarget.availability } : {}),
     }
   }
 
@@ -351,20 +374,28 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         try {
           return [
             targetKey,
+            target,
             await inspectResourceTarget(target, access, controller.signal),
           ] as const
         } catch {
-          return [targetKey, null] as const
+          return [targetKey, target, null] as const
         }
       }),
     ).then((resolved) => {
       if (controller.signal.aborted || resourceResolutionSnapshot !== snapshot) return
-      const summaries = new Map(resolved)
+      const summaries = new Map(
+        resolved.map(([targetKey, _target, summary]) => [targetKey, summary] as const),
+      )
       resolvedResourceSummaries = new Map(
-        resolved.flatMap(([targetKey, summary]) => (summary ? [[targetKey, summary]] : [])),
+        resolved.flatMap(([targetKey, _target, summary]) =>
+          summary ? [[targetKey, summary]] : [],
+        ),
       )
       const latest = workspace()
-      if (!latest || storageSessionKeyFull().key !== key) return
+      if (!latest || storageSessionKeyFull().key !== key) {
+        if (resourceResolutionSnapshot === snapshot) resourceResolutionSnapshot = ''
+        return
+      }
 
       const windows = latest.windows.map((window) => {
         const target = window.resourceTarget
@@ -384,10 +415,18 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           (pin.path !== before.path ||
             pin.title !== before.title ||
             pin.isDirectory !== before.isDirectory ||
-            pin.resourceTarget?.legacyLocator !== before.resourceTarget?.legacyLocator)
+            pin.resourceTarget?.legacyLocator !== before.resourceTarget?.legacyLocator ||
+            pin.resourceTarget?.availability !== before.resourceTarget?.availability)
         )
       })
-      setWorkspace({ ...latest, windows, pinnedTaskbarItems: pins })
+      batch(() => {
+        setWorkspace({ ...latest, windows, pinnedTaskbarItems: pins })
+        setResourceResolutionAttempts((previous) => {
+          const next = new Set(previous)
+          for (const [, target] of resolved) next.add(resourceTargetAttemptKey(target, key))
+          return next
+        })
+      })
       if (pinsChanged) void server.persistPinsMutation.mutateAsync(pins)
     })
   })
@@ -944,17 +983,12 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
             sharePath: sc?.sharePath ?? '',
           }
         : { kind: 'local', rootPath: null }
-    const extension = data.path.split('.').pop()?.toLowerCase() ?? ''
-    const file: FileItem = {
-      path: data.path,
-      name: data.path.split(/[/\\]/).filter(Boolean).at(-1) ?? 'File',
+    const file = legacyFileItemFromPath(data.path, {
+      displayName: data.path.split(/[/\\]/).filter(Boolean).at(-1) ?? 'File',
       isDirectory: data.isDirectory,
       isVirtual: !!data.virtualOpenTarget,
-      size: data.resource?.size ?? 0,
-      type: data.isDirectory ? MediaType.FOLDER : getMediaType(extension),
-      extension,
       resource: data.resource,
-    }
+    })
     if (data.virtualOpenTarget) {
       const target = data.virtualOpenTarget
       const openTarget =
@@ -986,34 +1020,39 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         surface: 'workspace',
         scope: openScopeForSource(source),
       })
-      if (plan.kind === 'conversation') {
-        openHermesFromBrowser(targetLeaderWindowId, file, plan.target, true)
-      }
+      executeOpenPlan(plan, (planned) => {
+        if (planned.kind === 'conversation') {
+          openHermesFromBrowser(targetLeaderWindowId, file, planned.target, true)
+        }
+      })
       return
     }
     const plan = openResource(resourceForWorkspaceTarget(file, data.resourceTarget), 'default', {
       surface: 'workspace',
       scope: openScopeForSource(source),
     })
-    if (plan.kind === 'blocked' || plan.kind === 'conversation') return
-    const viewerId = plan.kind === 'viewer' || plan.kind === 'playback' ? plan.viewer.id : undefined
-    const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
-    setWorkspace((prev) =>
-      prev
-        ? openInNewTabInGroupState(
-            prev,
-            targetLeaderWindowId,
-            {
-              ...file,
-              resourceTarget: data.resourceTarget,
-              viewerId,
-            },
-            dir,
-            insertIndex,
-            source,
-          )
-        : prev,
-    )
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'blocked' || planned.kind === 'conversation') return
+      const viewerId =
+        planned.kind === 'viewer' || planned.kind === 'playback' ? planned.viewer.id : undefined
+      const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
+      setWorkspace((prev) =>
+        prev
+          ? openInNewTabInGroupState(
+              prev,
+              targetLeaderWindowId,
+              {
+                ...file,
+                resourceTarget: data.resourceTarget,
+                viewerId,
+              },
+              dir,
+              insertIndex,
+              source,
+            )
+          : prev,
+      )
+    })
   }
 
   function openBrowser(options?: {
@@ -1333,28 +1372,30 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       surface: 'workspace',
       scope: openScopeForSource(source),
     })
-    if (plan.kind === 'browse') {
-      openBrowser({
-        source,
-        initialState: { dir: file.path },
-        resourceTarget: persistedResourceTarget(file.resource),
-      })
-      return
-    }
-    if (plan.kind === 'playback') {
-      requestPlay(
-        source,
-        file.path,
-        result.parentPath || undefined,
-        persistedResourceTarget(file.resource),
-        plan.media,
-        plan.viewer.id,
-      )
-      return
-    }
-    if (plan.kind === 'viewer') {
-      openViewer(workspace()?.activeWindowId ?? '', file, source, undefined, plan.viewer.id)
-    }
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'browse') {
+        openBrowser({
+          source,
+          initialState: { dir: file.path },
+          resourceTarget: persistedResourceTarget(file.resource),
+        })
+        return
+      }
+      if (planned.kind === 'playback') {
+        requestPlay(
+          source,
+          file.path,
+          result.parentPath || undefined,
+          persistedResourceTarget(file.resource),
+          planned.media,
+          planned.viewer.id,
+        )
+        return
+      }
+      if (planned.kind === 'viewer') {
+        openViewer(workspace()?.activeWindowId ?? '', file, source, undefined, planned.viewer.id)
+      }
+    })
   }
 
   function addPinnedItem(file: FileItem) {
@@ -1389,6 +1430,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   }
 
   async function selectPinned(pin: PinnedTaskbarItem) {
+    if (pin.resourceTarget?.availability || isResourceTargetPending(pin.resourceTarget)) return
     if (pin.isVirtual) {
       if (props.shareConfig) return
       const response = await fetch(
@@ -1432,22 +1474,18 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           'default',
           { surface: 'workspace', scope: openScopeForSource(pin.source) },
         )
-        if (plan.kind === 'conversation') {
-          openHermesFromBrowser(workspace()?.activeWindowId ?? '', synthetic, plan.target)
-        }
+        executeOpenPlan(plan, (planned) => {
+          if (planned.kind === 'conversation') {
+            openHermesFromBrowser(workspace()?.activeWindowId ?? '', synthetic, planned.target)
+          }
+        })
       }
       return
     }
-    const ext = pin.path.split('.').pop()?.toLowerCase() ?? ''
-    const synthetic: FileItem = {
-      path: pin.path,
-      name: pin.title,
+    const synthetic = legacyFileItemFromPath(pin.path, {
+      displayName: pin.title,
       isDirectory: pin.isDirectory,
-      isVirtual: false,
-      size: 0,
-      type: pin.isDirectory ? MediaType.FOLDER : getMediaType(ext),
-      extension: ext,
-    }
+    })
     const plan = openResource(
       resourceForWorkspaceTarget(synthetic, pin.resourceTarget),
       'default',
@@ -1456,28 +1494,30 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         scope: openScopeForSource(pin.source),
       },
     )
-    if (plan.kind === 'browse') {
-      openBrowser({
-        source: pin.source,
-        initialState: { dir: pin.path },
-        resourceTarget: pin.resourceTarget,
-      })
-      return
-    }
-    if (plan.kind === 'playback') {
-      requestPlay(
-        pin.source,
-        pin.path,
-        pin.path.split(/[/\\]/).slice(0, -1).join('/') || undefined,
-        pin.resourceTarget,
-        plan.media,
-        plan.viewer.id,
-      )
-      return
-    }
-    if (plan.kind === 'viewer') {
-      openViewer('', synthetic, pin.source, pin.resourceTarget, plan.viewer.id)
-    }
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'browse') {
+        openBrowser({
+          source: pin.source,
+          initialState: { dir: pin.path },
+          resourceTarget: pin.resourceTarget,
+        })
+        return
+      }
+      if (planned.kind === 'playback') {
+        requestPlay(
+          pin.source,
+          pin.path,
+          pin.path.split(/[/\\]/).slice(0, -1).join('/') || undefined,
+          pin.resourceTarget,
+          planned.media,
+          planned.viewer.id,
+        )
+        return
+      }
+      if (planned.kind === 'viewer') {
+        openViewer('', synthetic, pin.source, pin.resourceTarget, planned.viewer.id)
+      }
+    })
   }
 
   const [pinMenu, setPinMenu] = createSignal<{
@@ -1685,6 +1725,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           editableFolders={server.editableFolders}
           knowledgeBases={() => server.settingsQuery.data?.knowledgeBases ?? []}
           storageKey={() => storageSessionKeyFull().key}
+          resourceResolutionAttempts={resourceResolutionAttempts}
           workspaceFileIconContext={workspaceFileIconContext}
           focusWindow={focusWindow}
           closeWindow={closeWindow}
@@ -1756,6 +1797,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         taskbarGroupIds={orderedWindowGroupIds}
         taskbarWindowRows={taskbarWindowRows}
         storageSessionKey={() => storageSessionKeyFull().key}
+        resourceTargetIsPending={isResourceTargetPending}
         browserSource={browserSource}
         workspace={workspace}
         setWorkspace={setWorkspace}

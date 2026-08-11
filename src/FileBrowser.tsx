@@ -31,7 +31,7 @@ import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
-import { formatFileSize, getMediaType } from '@/lib/media-utils'
+import { formatFileSize } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -105,8 +105,12 @@ import { useDeferredLoading } from './lib/use-deferred-loading'
 import { playFile, viewFile } from './lib/url-state-actions'
 import { FileSearchButton } from './FileSearchPalette'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
-import { OWNER_OPEN_SCOPE, resourceForFileItem } from './lib/legacy-resource-adapter'
-import { openResource } from './lib/open-resource'
+import {
+  legacyFileItemFromPath,
+  OWNER_OPEN_SCOPE,
+  resourceForFileItem,
+} from './lib/legacy-resource-adapter'
+import { executeOpenPlan, openResource } from './lib/open-resource'
 
 type FileBrowserProps = {
   forceOffline?: boolean
@@ -1083,7 +1087,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
   function handleContextOpenInWorkspace(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
     const plan = openResource(resourceForFileItem(file), 'browse', {
-      surface: 'library',
+      surface: 'workspace',
       scope: OWNER_OPEN_SCOPE,
     })
     if (plan.kind !== 'browse') return
@@ -1222,16 +1226,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
   }
 
   function fileItemFromPath(filePath: string): FileItem {
-    const name = filePath.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
-    const extension = name.includes('.') ? (name.split('.').pop()?.toLowerCase() ?? '') : ''
-    return {
-      name,
-      path: filePath,
-      type: getMediaType(extension),
-      size: 0,
-      extension,
-      isDirectory: false,
-    }
+    return legacyFileItemFromPath(filePath)
   }
 
   function handleFileClick(file: FileItem, sourceDir = currentPath(), countView = true) {
@@ -1240,19 +1235,21 @@ export function FileBrowser(props: FileBrowserProps = {}) {
       scope: OWNER_OPEN_SCOPE,
     })
 
-    if (plan.kind === 'browse') {
-      navigateToFolder(file.path)
-      return
-    }
-    if (plan.kind !== 'playback' && plan.kind !== 'viewer') return
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'browse') {
+        navigateToFolder(file.path)
+        return
+      }
+      if (planned.kind !== 'playback' && planned.kind !== 'viewer') return
 
-    if (countView) viewStats.incrementView(file.path)
-    if (plan.kind === 'playback') {
-      useMediaPlayer.getState().playFile(file.path, plan.media)
-      playFile(file.path, sourceDir)
-    } else {
-      viewFile(file.path, sourceDir, plan.viewer.id)
-    }
+      if (countView) viewStats.incrementView(file.path)
+      if (planned.kind === 'playback') {
+        useMediaPlayer.getState().playFile(file.path, planned.media)
+        playFile(file.path, sourceDir)
+      } else {
+        viewFile(file.path, sourceDir, planned.viewer.id)
+      }
+    })
   }
 
   function handleLibrarySearchResult(result: FileSearchResult) {
@@ -1276,7 +1273,9 @@ export function FileBrowser(props: FileBrowserProps = {}) {
       surface: 'library',
       scope: OWNER_OPEN_SCOPE,
     })
-    if (plan.kind === 'viewer') openInReader(file, plan.viewer.id)
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'viewer') openInReader(file, planned.viewer.id)
+    })
   }
 
   function handleContextToggleKnowledgeBase(file: FileItem) {

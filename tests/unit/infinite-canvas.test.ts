@@ -187,6 +187,7 @@ describe('infinite canvas persistence', () => {
     persisted.definition.resourceTarget = {
       ref: { libraryId: 'library', resourceId: 'resource' },
       legacyLocator: 'Documents/file.md',
+      availability: 'sourceUnavailable',
     }
     const parsed = parseInfiniteCanvasState({
       ...createEmptyCanvasState(),

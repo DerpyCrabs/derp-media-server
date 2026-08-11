@@ -3,6 +3,7 @@ import type { ResourceSummary } from '@/lib/resource'
 import { MediaType, type FileItem } from '@/lib/types'
 import {
   grantOpenScope,
+  legacyFileItemFromPath,
   OWNER_OPEN_SCOPE,
   resourceForFileItem,
 } from '@/src/lib/legacy-resource-adapter'
@@ -21,6 +22,28 @@ function file(overrides: Partial<FileItem> = {}): FileItem {
 }
 
 describe('legacy resource adapter', () => {
+  test('contains path-only FileItem synthesis inside compatibility seam', () => {
+    expect(legacyFileItemFromPath('Library/Notes/README.MD')).toMatchObject({
+      path: 'Library/Notes/README.MD',
+      name: 'README.MD',
+      extension: 'md',
+      type: MediaType.TEXT,
+      isDirectory: false,
+    })
+    expect(
+      legacyFileItemFromPath('Library/Renamed', {
+        displayName: 'Pinned folder',
+        isDirectory: true,
+      }),
+    ).toMatchObject({
+      path: 'Library/Renamed',
+      name: 'Pinned folder',
+      extension: '',
+      type: MediaType.FOLDER,
+      isDirectory: true,
+    })
+  })
+
   test('prefers server-owned resource metadata without rewriting it', () => {
     const resource: ResourceSummary = {
       ref: { libraryId: 'library-1', resourceId: 'resource-1' },

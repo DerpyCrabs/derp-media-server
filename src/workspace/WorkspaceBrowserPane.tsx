@@ -45,7 +45,7 @@ import {
 } from '@/lib/virtual-directory'
 import { MediaType } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
-import { formatFileSize, getMediaType } from '@/lib/media-utils'
+import { formatFileSize } from '@/lib/media-utils'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { persistViewMode } from '@/lib/view-mode-persistence'
 import { useWorkspaceFileOpenTargetStore } from '@/lib/workspace-file-open-target'
@@ -95,11 +95,12 @@ import { useFileRowContextMenu } from '../file-browser/use-file-row-context-menu
 import { createLongPressContextMenuHandlers } from '../lib/long-press-context-menu'
 import { useDeferredLoading } from '../lib/use-deferred-loading'
 import {
+  legacyFileItemFromPath,
   OWNER_OPEN_SCOPE,
   grantOpenScope,
   resourceForFileItem,
 } from '../lib/legacy-resource-adapter'
-import { openResource, type OpenIntent, type OpenPlan } from '../lib/open-resource'
+import { executeOpenPlan, openResource, type OpenIntent, type OpenPlan } from '../lib/open-resource'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
@@ -370,8 +371,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       surface: props.surface ?? 'workspace',
       scope: openScope(),
     })
-    if (plan.kind === 'conversation') openConversationPlan(file, plan.target)
-    else setUnsupportedFile(file)
+    executePlannedDisposition(file, plan, () => setUnsupportedFile(file))
   }
 
   function executePlannedDisposition(
@@ -379,15 +379,17 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     plan: OpenPlan,
     execute: (plan: ExecutableOpenPlan) => void,
   ) {
-    if (plan.kind === 'blocked') {
-      setUnsupportedFile(file)
-      return
-    }
-    if (plan.kind === 'conversation') {
-      openConversationPlan(file, plan.target)
-      return
-    }
-    execute(plan)
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'blocked') {
+        setUnsupportedFile(file)
+        return
+      }
+      if (planned.kind === 'conversation') {
+        openConversationPlan(file, planned.target)
+        return
+      }
+      execute(planned)
+    })
   }
 
   const isFilesLoadingInitial = createMemo(
@@ -668,21 +670,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setShowPasteDialog(false)
       setPasteData(null)
       const pathToOpen = share() ? mediaPathForShareChild(variables.path) : variables.path
-      const popName = pathToOpen.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
-      const lower = popName.toLowerCase()
-      const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
-      handleFileClick(
-        {
-          path: pathToOpen,
-          name: popName,
-          isDirectory: false,
-          size: 0,
-          extension: ext,
-          type: getMediaType(ext),
-        },
-        currentPath(),
-        false,
-      )
+      handleFileClick(legacyFileItemFromPath(pathToOpen), currentPath(), false)
     },
   }))
 
@@ -1562,17 +1550,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   })
 
   function fileItemFromPath(filePath: string, displayName?: string): FileItem {
-    const name = displayName ?? filePath.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
-    const lower = name.toLowerCase()
-    const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
-    return {
-      path: filePath,
-      name,
-      isDirectory: false,
-      size: 0,
-      extension: ext,
-      type: getMediaType(ext),
-    }
+    return legacyFileItemFromPath(filePath, { displayName })
   }
 
   function handleKbResultClick(filePath: string, displayName?: string) {
@@ -1715,37 +1693,31 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   function handleFileClick(file: FileItem, sourceDir = currentPath(), countView = true) {
     const plan = planFileOpen(file, 'default')
-    if (plan.kind === 'browse') {
+    executePlannedDisposition(file, plan, (planned) => {
+      if (planned.kind === 'browse') {
+        setUnsupportedFile(null)
+        props.onNavigateDir(props.windowId, file.path, file.resource)
+        return
+      }
+      if (countView && !file.isDirectory) viewStats.incrementView(file.path)
+      if (planned.kind === 'playback') {
+        const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)
+        const sh = share()
+        const src =
+          wdef?.source ??
+          (sh
+            ? { kind: 'share', token: sh.token, sharePath: sh.sharePath }
+            : DEFAULT_WORKSPACE_SOURCE)
+        props.onRequestPlay?.(src, file, sourceDir || undefined, planned.media, planned.viewer.id)
+        return
+      }
+      if (planned.viewer.id === 'unsupported-file') {
+        setUnsupportedFile(file)
+        return
+      }
       setUnsupportedFile(null)
-      props.onNavigateDir(props.windowId, file.path, file.resource)
-      return
-    }
-    if (plan.kind === 'conversation') {
-      openConversationPlan(file, plan.target)
-      return
-    }
-    if (plan.kind === 'blocked') {
-      setUnsupportedFile(file)
-      return
-    }
-    if (countView && !file.isDirectory) viewStats.incrementView(file.path)
-    if (plan.kind === 'playback') {
-      const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)
-      const sh = share()
-      const src =
-        wdef?.source ??
-        (sh
-          ? { kind: 'share', token: sh.token, sharePath: sh.sharePath }
-          : DEFAULT_WORKSPACE_SOURCE)
-      props.onRequestPlay?.(src, file, sourceDir || undefined, plan.media, plan.viewer.id)
-      return
-    }
-    if (plan.viewer.id === 'unsupported-file') {
-      setUnsupportedFile(file)
-      return
-    }
-    setUnsupportedFile(null)
-    props.onOpenViewer(props.windowId, file, plan.viewer.id)
+      props.onOpenViewer(props.windowId, file, planned.viewer.id)
+    })
   }
 
   createEffect(() => {

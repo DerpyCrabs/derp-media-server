@@ -75,4 +75,50 @@ describe('built-in ViewerRegistry', () => {
     expect(viewerReaderKind('pdf-reader')).toBe('pdf')
     expect(viewerReaderKind('folder-reader')).toBe('folder')
   })
+
+  test('covers every ResourceKind before MIME fallbacks', () => {
+    const browsable = ['library', 'source', 'folder', 'collection', 'conversationProject'] as const
+    for (const kind of browsable) {
+      expect(
+        builtInViewerRegistry.lookup(
+          resource({ kind, mimeType: 'image/png', presentation: 'image' }),
+        ),
+      ).toBeNull()
+    }
+    for (const kind of ['conversation', 'draft'] as const) {
+      expect(
+        builtInViewerRegistry.lookup(
+          resource({ kind, mimeType: 'image/png', presentation: 'image' }),
+        )?.id,
+      ).toBe('conversation')
+    }
+    expect(
+      builtInViewerRegistry.lookup(
+        resource({ kind: 'file', mimeType: 'image/png', presentation: 'unsupported' }),
+      )?.id,
+    ).toBe('image-viewer')
+  })
+
+  test('covers every supported MIME family and read intent', () => {
+    const cases = [
+      ['video/mp4', 'video-player', null],
+      ['video/ogg', 'video-player', null],
+      ['application/ogg', 'video-player', null],
+      ['audio/mpeg', 'audio-player', null],
+      ['audio/ogg', 'audio-player', null],
+      ['image/png', 'image-viewer', null],
+      ['text/plain', 'text-viewer', null],
+      ['application/json', 'text-viewer', null],
+      ['application/xml', 'text-viewer', null],
+      ['application/javascript', 'text-viewer', null],
+      ['application/pdf', 'pdf-reader', 'pdf-reader'],
+      ['application/epub+zip', 'book-reader', 'book-reader'],
+      ['application/x-fictionbook+xml', 'book-reader', 'book-reader'],
+    ] as const
+    for (const [mimeType, defaultViewer, reader] of cases) {
+      const input = resource({ mimeType, presentation: 'unsupported' })
+      expect(builtInViewerRegistry.lookup(input)?.id).toBe(defaultViewer)
+      expect(builtInViewerRegistry.lookup(input, 'read')?.id ?? null).toBe(reader)
+    }
+  })
 })

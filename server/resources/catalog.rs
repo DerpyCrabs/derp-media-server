@@ -102,7 +102,7 @@ pub(crate) struct CatalogError {
 }
 
 impl CatalogError {
-    fn new(code: CatalogErrorCode, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: CatalogErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -537,6 +537,37 @@ impl ResourceCatalog {
             }
         }
         .map_err(Into::into)
+    }
+
+    async fn browse_hermes_compatibility(
+        &self,
+        context: &ReadContext,
+        parent: ResourceSummary,
+        locator: String,
+        page_cursor: Option<PageCursor>,
+    ) -> CatalogResult<ResourcePage> {
+        self.require_scope(context, &parent.reference).await?;
+        let offset = cursor_offset(page_cursor.as_ref())?;
+        let source = ProviderSource::Hermes {
+            source_id: SourceId::new(HERMES_SOURCE_ID),
+        };
+        let page = self
+            .hermes
+            .as_ref()
+            .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))?
+            .compatibility()
+            .browse(locator, offset)
+            .await
+            .map_err(CatalogError::from)?;
+        let items = self.observe(&source, page.items)?;
+        Ok(ResourcePage {
+            schema_version: 1,
+            parent,
+            items,
+            next_cursor: page.next_offset.map(cursor),
+            total: page.total as u64,
+            legacy: page.legacy,
+        })
     }
 
     async fn provider_inspect(&self, query: ProviderInspect) -> CatalogResult<ProviderResource> {
@@ -1171,6 +1202,21 @@ impl LegacyCatalogAdapter<'_> {
         cursor: Option<PageCursor>,
         limit: usize,
     ) -> CatalogResult<ResourcePage> {
+        let normalized = path.replace('\\', "/").trim_matches('/').to_string();
+        if normalized == crate::virtual_directory::HERMES_ROOT
+            || normalized.starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
+        {
+            let parent = self.resolve(&normalized, context.surface).await?;
+            let locator = normalized
+                .strip_prefix(crate::virtual_directory::HERMES_ROOT)
+                .unwrap_or_default()
+                .trim_start_matches('/')
+                .to_string();
+            return self
+                .catalog
+                .browse_hermes_compatibility(context, parent, locator, cursor)
+                .await;
+        }
         let parent = self.resolve(path, context.surface).await?;
         self.catalog
             .browse_internal(
@@ -1535,6 +1581,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn multiple_root_unicode_browse_and_inspect_keep_one_typed_identity() {
+        let (base, mut config, _) = fixture("multiple-root-unicode");
+        let second = base.join("second");
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::write(second.join("日本語-🎵.md"), "unicode").unwrap();
+        config
+            .roots
+            .push(root("configured:second", "Second", second));
+        let identity = super::super::initialize_identity(&mut config).unwrap();
+        let catalog = catalog(config, identity, None);
+        let context = ReadContext::owner(ReadSurface::Library);
+
+        let root = catalog
+            .browse(&context, BrowseQuery::first(catalog.library_ref()))
+            .await
+            .unwrap();
+        let second_source = root
+            .items
+            .iter()
+            .find(|item| item.name == "Second")
+            .unwrap();
+        let files = catalog
+            .browse(
+                &context,
+                BrowseQuery::first(second_source.reference.clone()),
+            )
+            .await
+            .unwrap();
+        let unicode = files
+            .items
+            .iter()
+            .find(|item| item.name == "日本語-🎵.md")
+            .unwrap();
+        assert_eq!(unicode.presentation, ResourcePresentation::Text);
+        assert_eq!(
+            unicode.legacy_locator.as_deref(),
+            Some("Second/日本語-🎵.md")
+        );
+        let detail = catalog.inspect(&context, &unicode.reference).await.unwrap();
+        assert_eq!(detail.summary.reference, unicode.reference);
+        assert_eq!(detail.summary.locator, unicode.locator);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
     async fn cold_large_upgrade_pages_identity_backfill_within_stage1_browse_budget() {
         const FIXTURE_ENTRIES: usize = 1_000;
         const FIRST_PAGE_SIZE: usize = 32;
@@ -1598,6 +1689,29 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM resources", [], |row| row.get(0))
             .unwrap();
         assert_eq!(observed_after_open, observed_after_page);
+
+        let adapter = catalog.compatibility();
+        let first_compatibility_started = Instant::now();
+        adapter
+            .browse_compatibility(&context, "", None, usize::MAX)
+            .await
+            .unwrap();
+        let first_compatibility_elapsed = first_compatibility_started.elapsed();
+        assert!(
+            first_compatibility_elapsed <= STAGE1_BROWSE_BUDGET,
+            "cold compatibility listing took {first_compatibility_elapsed:?}, budget {STAGE1_BROWSE_BUDGET:?}"
+        );
+        let compatibility_started = Instant::now();
+        let compatibility = adapter
+            .browse_compatibility(&context, "", None, usize::MAX)
+            .await
+            .unwrap();
+        let compatibility_elapsed = compatibility_started.elapsed();
+        assert_eq!(compatibility.items.len(), FIXTURE_ENTRIES + 3);
+        assert!(
+            compatibility_elapsed <= STAGE1_BROWSE_BUDGET,
+            "warm compatibility listing took {compatibility_elapsed:?}, budget {STAGE1_BROWSE_BUDGET:?}"
+        );
         std::fs::remove_dir_all(base).unwrap();
     }
 

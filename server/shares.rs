@@ -123,6 +123,103 @@ fn logical_path(root_count: usize, root: &MediaRoot, relative: &str) -> String {
     }
 }
 
+fn rewritten_share_path(path: &str, old_root: &str, new_root: &str) -> Option<String> {
+    let path = path.replace('\\', "/").trim_matches('/').to_string();
+    let old_root = old_root.replace('\\', "/").trim_matches('/').to_string();
+    let new_root = new_root.replace('\\', "/").trim_matches('/').to_string();
+    if old_root.is_empty() {
+        return Some(if new_root.is_empty() || path.is_empty() {
+            format!("{new_root}{path}")
+        } else {
+            format!("{new_root}/{path}")
+        });
+    }
+    if path == old_root {
+        return Some(new_root);
+    }
+    path.strip_prefix(&(old_root + "/")).map(|suffix| {
+        if new_root.is_empty() {
+            suffix.to_string()
+        } else {
+            format!("{new_root}/{suffix}")
+        }
+    })
+}
+
+fn rewrite_path_field(value: &mut Value, key: &str, old_root: &str, new_root: &str) {
+    let Some(path) = value.get(key).and_then(Value::as_str) else {
+        return;
+    };
+    if let Some(rewritten) = rewritten_share_path(path, old_root, new_root) {
+        value[key] = Value::String(rewritten);
+    }
+}
+
+fn rewrite_resource_target(value: &mut Value, old_root: &str, new_root: &str) {
+    if let Some(target) = value.get_mut("resourceTarget") {
+        rewrite_path_field(target, "legacyLocator", old_root, new_root);
+    }
+}
+
+fn rewrite_source(value: &mut Value, old_root: &str, new_root: &str) {
+    if let Some(source) = value.get_mut("source") {
+        rewrite_path_field(source, "sharePath", old_root, new_root);
+        rewrite_path_field(source, "rootPath", old_root, new_root);
+    }
+}
+
+fn rewrite_pin(value: &mut Value, old_root: &str, new_root: &str) {
+    rewrite_path_field(value, "path", old_root, new_root);
+    rewrite_resource_target(value, old_root, new_root);
+    rewrite_source(value, old_root, new_root);
+}
+
+fn rewrite_workspace_paths(share: &mut Share, old_root: &str, new_root: &str) {
+    if old_root == new_root {
+        return;
+    }
+    if let Some(pins) = share
+        .workspace_taskbar_pins
+        .as_mut()
+        .and_then(Value::as_array_mut)
+    {
+        for pin in pins {
+            rewrite_pin(pin, old_root, new_root);
+        }
+    }
+    let Some(presets) = share
+        .workspace_layout_presets
+        .as_mut()
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for preset in presets {
+        let Some(snapshot) = preset.get_mut("snapshot") else {
+            continue;
+        };
+        if let Some(windows) = snapshot.get_mut("windows").and_then(Value::as_array_mut) {
+            for window in windows {
+                rewrite_path_field(window, "iconPath", old_root, new_root);
+                rewrite_resource_target(window, old_root, new_root);
+                rewrite_source(window, old_root, new_root);
+                if let Some(initial) = window.get_mut("initialState") {
+                    rewrite_path_field(initial, "dir", old_root, new_root);
+                    rewrite_path_field(initial, "viewing", old_root, new_root);
+                }
+            }
+        }
+        if let Some(pins) = snapshot
+            .get_mut("pinnedTaskbarItems")
+            .and_then(Value::as_array_mut)
+        {
+            for pin in pins {
+                rewrite_pin(pin, old_root, new_root);
+            }
+        }
+    }
+}
+
 fn persisted_root(
     config: &Config,
     all: &[MediaRoot],
@@ -182,6 +279,8 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
         };
         if let Some((source_id, root, relative)) = resolved {
             let path = logical_path(all.len(), &root, &relative);
+            let old_path = share.path.clone();
+            rewrite_workspace_paths(share, &old_path, &path);
             if !source_id.is_empty()
                 && (share.source_id.as_deref() != Some(&source_id)
                     || share.root_id.as_deref() != Some(&root.id)
@@ -194,6 +293,8 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
                     root.id.clone(),
                     relative.clone(),
                     path.clone(),
+                    share.workspace_taskbar_pins.clone(),
+                    share.workspace_layout_presets.clone(),
                 ));
             }
             share.source_id = (!source_id.is_empty()).then_some(source_id);
@@ -212,7 +313,7 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
             share.passcode = Some(plain)
         }
     }
-    for (token, source_id, root_id, relative, path) in repairs {
+    for (token, source_id, root_id, relative, path, pins, presets) in repairs {
         let _ = state_db::repair_share_source(
             &state_db::database(config),
             &config.library_key,
@@ -221,6 +322,8 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
             &root_id,
             &relative,
             &path,
+            &pins,
+            &presets,
         );
     }
     list
@@ -479,6 +582,22 @@ mod tests {
     }
 
     #[test]
+    fn workspace_path_rewrite_handles_root_count_changes_without_leading_slashes() {
+        assert_eq!(
+            rewritten_share_path("child.md", "", "Media"),
+            Some("Media/child.md".into())
+        );
+        assert_eq!(
+            rewritten_share_path("Media/child.md", "Media", ""),
+            Some("child.md".into())
+        );
+        assert_eq!(
+            rewritten_share_path("Other/child.md", "Media", "Cinema"),
+            None
+        );
+    }
+
+    #[test]
     fn configured_source_edits_keep_persisted_share_available() {
         let base =
             std::env::temp_dir().join(format!("derp-share-source-compat-{}", uuid::Uuid::new_v4()));
@@ -500,6 +619,49 @@ mod tests {
         crate::resources::initialize_identity(&mut initial).unwrap();
         let created = create(&initial, &[], "Movies/nested".into(), true, false, None).unwrap();
         let stable_source_id = created.source_id.clone().unwrap();
+        let pin = serde_json::json!({
+            "id":"pin", "path":"Movies/nested/child.md", "isDirectory":false,
+            "title":"Child", "source":{
+                "kind":"share", "token":created.token, "sharePath":"Movies/nested"
+            },
+            "resourceTarget":{
+                "ref":{"libraryId":"library","resourceId":"child"},
+                "legacyLocator":"Movies/nested/child.md"
+            }
+        });
+        state_db::mutate_shares(
+            &state_db::database(&initial),
+            &initial.library_key,
+            |shares| {
+                let share = shares
+                    .iter_mut()
+                    .find(|share| share.token == created.token)
+                    .unwrap();
+                share.workspace_taskbar_pins = Some(serde_json::json!([pin.clone()]));
+                share.workspace_layout_presets = Some(serde_json::json!([{
+                    "id":"preset", "name":"Saved", "scope":format!("share:{}", created.token),
+                    "snapshot":{
+                        "windows":[{
+                            "source":{
+                                "kind":"share", "token":created.token,
+                                "sharePath":"Movies/nested"
+                            },
+                            "iconPath":"Movies/nested/child.md",
+                            "initialState":{
+                                "dir":"Movies/nested", "viewing":"Movies/nested/child.md"
+                            },
+                            "resourceTarget":{
+                                "ref":{"libraryId":"library","resourceId":"child"},
+                                "legacyLocator":"Movies/nested/child.md"
+                            }
+                        }],
+                        "pinnedTaskbarItems":[pin]
+                    }
+                }]));
+                Ok(())
+            },
+        )
+        .unwrap();
 
         let mut renamed = config(
             data_path.clone(),
@@ -522,6 +684,40 @@ mod tests {
             Some(stable_source_id.as_str())
         );
         assert_eq!(after_rename.unavailable, Some(false));
+        assert_eq!(
+            after_rename.workspace_taskbar_pins.as_ref().unwrap()[0]["path"],
+            "Cinema/nested/child.md"
+        );
+        assert_eq!(
+            after_rename.workspace_taskbar_pins.as_ref().unwrap()[0]["source"]["sharePath"],
+            "Cinema/nested"
+        );
+        assert_eq!(
+            after_rename.workspace_layout_presets.as_ref().unwrap()[0]["snapshot"]["windows"][0]["resourceTarget"]
+                ["legacyLocator"],
+            "Cinema/nested/child.md"
+        );
+        assert_eq!(
+            crate::workspace_persistence::share_pins(
+                after_rename.workspace_taskbar_pins.as_ref().unwrap(),
+                &after_rename.path,
+                &after_rename.token,
+            )
+            .as_array()
+            .unwrap()
+            .len(),
+            1
+        );
+        assert_eq!(
+            crate::workspace_persistence::presets(
+                after_rename.workspace_layout_presets.as_ref().unwrap(),
+                Some((&after_rename.path, &after_rename.token)),
+            )
+            .as_array()
+            .unwrap()
+            .len(),
+            1
+        );
         let persisted = state_db::shares(&state_db::database(&renamed), &renamed.library_key)
             .unwrap()
             .into_iter()
@@ -532,6 +728,10 @@ mod tests {
         assert_eq!(
             persisted.source_id.as_deref(),
             Some(stable_source_id.as_str())
+        );
+        assert_eq!(
+            persisted.workspace_taskbar_pins.as_ref().unwrap()[0]["path"],
+            "Cinema/nested/child.md"
         );
 
         state_db::mutate_shares(

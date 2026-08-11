@@ -13,7 +13,7 @@ import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'soli
 import { Dynamic } from 'solid-js/web'
 import { FileSearchButton } from '../FileSearchPalette'
 import { hrefFor, type RouteQuery, type RouteTarget } from '../lib/routes'
-import { ownerSearchResultHref } from './owner-search-open'
+import { executeOwnerSearchResult } from './owner-search-open'
 
 export type OwnerSurface =
   | 'home'
@@ -113,7 +113,7 @@ export function OwnerShell(props: Props) {
   }
 
   function chooseSearchResult(result: FileSearchResult) {
-    navigate(ownerSearchResultHref(result))
+    executeOwnerSearchResult(result, navigate)
   }
 
   return (

@@ -53,6 +53,17 @@ describe('parseWorkspaceTaskbarPins', () => {
       parseWorkspaceTaskbarPins([{ ...validLocal, resourceTarget: { ref: target.ref } }]),
     ).toEqual([])
   })
+
+  test('preserves explicit unavailable state for restored pin callers', () => {
+    const target = {
+      ref: { libraryId: 'library', resourceId: 'resource' },
+      legacyLocator: '/Docs/missing.mp3',
+      availability: 'missing' as const,
+    }
+    expect(parseWorkspaceTaskbarPins([{ ...validLocal, resourceTarget: target }])).toEqual([
+      { ...validLocal, resourceTarget: target },
+    ])
+  })
 })
 
 describe('filterAdminWorkspaceTaskbarPins', () => {

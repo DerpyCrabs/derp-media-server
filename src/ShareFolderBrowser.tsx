@@ -13,7 +13,7 @@ import { queryKeys } from '@/lib/query-keys'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
-import { formatFileSize, getMediaType } from '@/lib/media-utils'
+import { formatFileSize } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -78,8 +78,12 @@ import {
   removeOfflineFile,
 } from './lib/offline-files'
 import type { TextViewerShareContext } from './media/TextViewerDialog'
-import { grantOpenScope, resourceForFileItem } from './lib/legacy-resource-adapter'
-import { openResource } from './lib/open-resource'
+import {
+  grantOpenScope,
+  legacyFileItemFromPath,
+  resourceForFileItem,
+} from './lib/legacy-resource-adapter'
+import { executeOpenPlan, openResource } from './lib/open-resource'
 import type { ResourceSummary } from '@/lib/resource'
 
 type ShareRestrictions = {
@@ -560,16 +564,7 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function fileItemFromPath(filePath: string): FileItem {
-    const name = filePath.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
-    const extension = name.includes('.') ? (name.split('.').pop()?.toLowerCase() ?? '') : ''
-    return {
-      name,
-      path: filePath,
-      type: getMediaType(extension),
-      size: 0,
-      extension,
-      isDirectory: false,
-    }
+    return legacyFileItemFromPath(filePath)
   }
 
   function handleFileClick(file: FileItem, countView = true) {
@@ -579,19 +574,21 @@ export function ShareFolderBrowser(props: Props) {
       scope: grantOpenScope(props.token),
     })
 
-    if (plan.kind === 'browse') {
-      navigateToFolder(strip(file.path))
-      return
-    }
-    if (plan.kind !== 'playback' && plan.kind !== 'viewer') return
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'browse') {
+        navigateToFolder(strip(file.path))
+        return
+      }
+      if (planned.kind !== 'playback' && planned.kind !== 'viewer') return
 
-    if (countView) viewMutation.mutate(strip(file.path))
-    if (plan.kind === 'playback') {
-      useMediaPlayer.getState().playFile(file.path, plan.media)
-      playFile(file.path)
-    } else {
-      viewFile(file.path, undefined, plan.viewer.id)
-    }
+      if (countView) viewMutation.mutate(strip(file.path))
+      if (planned.kind === 'playback') {
+        useMediaPlayer.getState().playFile(file.path, planned.media)
+        playFile(file.path)
+      } else {
+        viewFile(file.path, undefined, planned.viewer.id)
+      }
+    })
   }
 
   function submitCreateFolder(e: Event) {

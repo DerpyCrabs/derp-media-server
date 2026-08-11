@@ -7,7 +7,13 @@ import type {
   WorkspaceSource,
 } from '@/lib/use-workspace'
 import type { FileItem } from '@/lib/types'
-import type { ResourceSummary, ViewerId } from '@/lib/resource'
+import {
+  unavailablePersistedResourceTarget,
+  type PersistedResourceTarget,
+  type ResourceSummary,
+  type ViewerId,
+} from '@/lib/resource'
+import { resourceTargetIsPending } from '@/lib/resource-target-resolution'
 import {
   getTabGroupSplit,
   resolveGroupVisibleTabId,
@@ -30,6 +36,10 @@ import type { WorkspacePageProps } from './workspace-page-types'
 import type { FileIconContext } from '@/src/lib/use-file-icon'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
+import {
+  ResourceResolvingPane,
+  ResourceUnavailablePane,
+} from '@/src/workspace/ResourceUnavailablePane'
 
 export type WorkspacePageCanvasProps = {
   hasWorkspaceWindows: () => boolean
@@ -57,6 +67,7 @@ export type WorkspacePageCanvasProps = {
   editableFolders: () => string[]
   knowledgeBases: () => string[]
   storageKey: () => string
+  resourceResolutionAttempts: () => ReadonlySet<string>
   workspaceFileIconContext: () => FileIconContext
   focusWindow: (windowId: string) => void
   closeWindow: (windowId: string) => void
@@ -124,6 +135,9 @@ export type WorkspacePageCanvasProps = {
 }
 
 export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
+  const targetIsPending = (target: PersistedResourceTarget | null | undefined) =>
+    resourceTargetIsPending(target, props.resourceResolutionAttempts(), props.storageKey())
+
   return (
     <Show
       when={props.hasWorkspaceWindows()}
@@ -241,7 +255,21 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             }`}
                             aria-hidden={tabId !== visibleTabId()}
                           >
-                            <Show when={windowDef()?.type === 'browser'}>
+                            <Show when={targetIsPending(windowDef()?.resourceTarget)}>
+                              <ResourceResolvingPane />
+                            </Show>
+                            <Show
+                              when={unavailablePersistedResourceTarget(windowDef()?.resourceTarget)}
+                            >
+                              {(target) => <ResourceUnavailablePane target={target()} />}
+                            </Show>
+                            <Show
+                              when={
+                                !targetIsPending(windowDef()?.resourceTarget) &&
+                                !windowDef()?.resourceTarget?.availability &&
+                                windowDef()?.type === 'browser'
+                              }
+                            >
                               <WorkspaceBrowserPane
                                 windowId={tabId}
                                 workspace={props.workspace}
@@ -283,7 +311,13 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
                               />
                             </Show>
-                            <Show when={windowDef()?.type === 'viewer'}>
+                            <Show
+                              when={
+                                !targetIsPending(windowDef()?.resourceTarget) &&
+                                !windowDef()?.resourceTarget?.availability &&
+                                windowDef()?.type === 'viewer'
+                              }
+                            >
                               <WorkspaceViewerPane
                                 windowId={tabId}
                                 storageKey={props.storageKey()}
@@ -312,7 +346,13 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 }
                               />
                             </Show>
-                            <Show when={windowDef()?.type === 'hermes'}>
+                            <Show
+                              when={
+                                !targetIsPending(windowDef()?.resourceTarget) &&
+                                !windowDef()?.resourceTarget?.availability &&
+                                windowDef()?.type === 'hermes'
+                              }
+                            >
                               <HermesChatPane
                                 window={windowDef}
                                 contentVisible={() => tabId === visibleTabId()}
@@ -346,7 +386,23 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             width: `${(splitSnap()?.leftPaneFraction ?? 0.5) * 100}%`,
                           }}
                         >
-                          <Show when={leftWindowDef()?.type === 'browser'}>
+                          <Show when={targetIsPending(leftWindowDef()?.resourceTarget)}>
+                            <ResourceResolvingPane />
+                          </Show>
+                          <Show
+                            when={unavailablePersistedResourceTarget(
+                              leftWindowDef()?.resourceTarget,
+                            )}
+                          >
+                            {(target) => <ResourceUnavailablePane target={target()} />}
+                          </Show>
+                          <Show
+                            when={
+                              !targetIsPending(leftWindowDef()?.resourceTarget) &&
+                              !leftWindowDef()?.resourceTarget?.availability &&
+                              leftWindowDef()?.type === 'browser'
+                            }
+                          >
                             <WorkspaceBrowserPane
                               windowId={leftTabId()}
                               workspace={props.workspace}
@@ -388,7 +444,13 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
                             />
                           </Show>
-                          <Show when={leftWindowDef()?.type === 'viewer'}>
+                          <Show
+                            when={
+                              !targetIsPending(leftWindowDef()?.resourceTarget) &&
+                              !leftWindowDef()?.resourceTarget?.availability &&
+                              leftWindowDef()?.type === 'viewer'
+                            }
+                          >
                             <WorkspaceViewerPane
                               windowId={leftTabId()}
                               storageKey={props.storageKey()}
@@ -419,7 +481,13 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               }
                             />
                           </Show>
-                          <Show when={leftWindowDef()?.type === 'hermes'}>
+                          <Show
+                            when={
+                              !targetIsPending(leftWindowDef()?.resourceTarget) &&
+                              !leftWindowDef()?.resourceTarget?.availability &&
+                              leftWindowDef()?.type === 'hermes'
+                            }
+                          >
                             <HermesChatPane
                               window={leftWindowDef}
                               contentVisible={() => true}
@@ -448,7 +516,23 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             data-testid='workspace-window-visible-content'
                             class='h-full min-h-0'
                           >
-                            <Show when={rightWindowDef()?.type === 'browser'}>
+                            <Show when={targetIsPending(rightWindowDef()?.resourceTarget)}>
+                              <ResourceResolvingPane />
+                            </Show>
+                            <Show
+                              when={unavailablePersistedResourceTarget(
+                                rightWindowDef()?.resourceTarget,
+                              )}
+                            >
+                              {(target) => <ResourceUnavailablePane target={target()} />}
+                            </Show>
+                            <Show
+                              when={
+                                !targetIsPending(rightWindowDef()?.resourceTarget) &&
+                                !rightWindowDef()?.resourceTarget?.availability &&
+                                rightWindowDef()?.type === 'browser'
+                              }
+                            >
                               <WorkspaceBrowserPane
                                 windowId={visibleTabId()}
                                 workspace={props.workspace}
@@ -490,7 +574,13 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
                               />
                             </Show>
-                            <Show when={rightWindowDef()?.type === 'viewer'}>
+                            <Show
+                              when={
+                                !targetIsPending(rightWindowDef()?.resourceTarget) &&
+                                !rightWindowDef()?.resourceTarget?.availability &&
+                                rightWindowDef()?.type === 'viewer'
+                              }
+                            >
                               <WorkspaceViewerPane
                                 windowId={visibleTabId()}
                                 storageKey={props.storageKey()}
@@ -523,7 +613,13 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 }
                               />
                             </Show>
-                            <Show when={rightWindowDef()?.type === 'hermes'}>
+                            <Show
+                              when={
+                                !targetIsPending(rightWindowDef()?.resourceTarget) &&
+                                !rightWindowDef()?.resourceTarget?.availability &&
+                                rightWindowDef()?.type === 'hermes'
+                              }
+                            >
                               <HermesChatPane
                                 window={rightWindowDef}
                                 contentVisible={() => true}

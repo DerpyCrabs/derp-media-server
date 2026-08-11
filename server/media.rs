@@ -253,13 +253,36 @@ fn virtual_item(name: &str) -> FileItem {
         resource: None,
     }
 }
-pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Vec<FileItem>> {
+
+pub(crate) struct ObservedFileItem {
+    pub(crate) item: FileItem,
+    pub(crate) full_path: Option<PathBuf>,
+    pub(crate) metadata: Option<std::fs::Metadata>,
+}
+
+pub(crate) fn list_observed(
+    config: &Config,
+    runtime: &[MediaRoot],
+    input: &str,
+) -> AppResult<Vec<ObservedFileItem>> {
     let logical = clean_logical(input)?;
     let mut items = if logical.is_empty() {
         vec![
-            virtual_item("Favorites"),
-            virtual_item("Most Played"),
-            virtual_item("Shares"),
+            ObservedFileItem {
+                item: virtual_item("Favorites"),
+                full_path: None,
+                metadata: None,
+            },
+            ObservedFileItem {
+                item: virtual_item("Most Played"),
+                full_path: None,
+                metadata: None,
+            },
+            ObservedFileItem {
+                item: virtual_item("Shares"),
+                full_path: None,
+                metadata: None,
+            },
         ]
     } else {
         vec![]
@@ -268,22 +291,26 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
     roots.extend_from_slice(runtime);
     if roots.len() > 1 && logical.is_empty() {
         for r in roots {
-            items.push(FileItem {
-                name: r.name.clone(),
-                path: r.name,
-                media_type: "folder".into(),
-                size: 0,
-                extension: String::new(),
-                is_directory: true,
-                is_virtual: None,
-                view_count: None,
-                share_token: None,
-                thumbnail_generated: None,
-                version: None,
-                resource: None,
+            items.push(ObservedFileItem {
+                item: FileItem {
+                    name: r.name.clone(),
+                    path: r.name,
+                    media_type: "folder".into(),
+                    size: 0,
+                    extension: String::new(),
+                    is_directory: true,
+                    is_virtual: None,
+                    view_count: None,
+                    share_token: None,
+                    thumbnail_generated: None,
+                    version: None,
+                    resource: None,
+                },
+                full_path: None,
+                metadata: None,
             });
         }
-        sort(&mut items);
+        sort_observed(&mut items);
         return Ok(items);
     }
     let resolved = resolve(config, runtime, input)?;
@@ -310,47 +337,61 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
             .ok()
             .and_then(|x| x.duration_since(UNIX_EPOCH).ok())
             .map(|x| x.as_secs_f64() * 1000.0);
-        items.push(FileItem {
-            name,
-            path,
-            media_type: if meta.is_dir() {
-                "folder".into()
-            } else {
-                media_type(&ext).into()
+        items.push(ObservedFileItem {
+            item: FileItem {
+                name,
+                path,
+                media_type: if meta.is_dir() {
+                    "folder".into()
+                } else {
+                    media_type(&ext).into()
+                },
+                size: if meta.is_dir() { 0 } else { meta.len() },
+                extension: ext,
+                is_directory: meta.is_dir(),
+                is_virtual: None,
+                view_count: None,
+                share_token: None,
+                thumbnail_generated: if meta.is_file()
+                    && ["image", "video"].contains(&media_type(
+                        Path::new(&entry.path())
+                            .extension()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .as_ref(),
+                    )) {
+                    Some(false)
+                } else {
+                    None
+                },
+                version,
+                resource: None,
             },
-            size: if meta.is_dir() { 0 } else { meta.len() },
-            extension: ext,
-            is_directory: meta.is_dir(),
-            is_virtual: None,
-            view_count: None,
-            share_token: None,
-            thumbnail_generated: if meta.is_file()
-                && ["image", "video"].contains(&media_type(
-                    Path::new(&entry.path())
-                        .extension()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .as_ref(),
-                )) {
-                Some(false)
-            } else {
-                None
-            },
-            version,
-            resource: None,
+            full_path: Some(entry.path()),
+            metadata: Some(meta),
         });
     }
-    sort(&mut items);
+    sort_observed(&mut items);
     Ok(items)
 }
-fn sort(v: &mut [FileItem]) {
-    v.sort_by(|a, b| {
-        b.is_virtual
-            .unwrap_or(false)
-            .cmp(&a.is_virtual.unwrap_or(false))
-            .then_with(|| b.is_directory.cmp(&a.is_directory))
-            .then_with(|| natord::compare_ignore_case(&a.name, &b.name))
-    })
+
+pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Vec<FileItem>> {
+    Ok(list_observed(config, runtime, input)?
+        .into_iter()
+        .map(|observed| observed.item)
+        .collect())
+}
+
+fn sort_observed(v: &mut [ObservedFileItem]) {
+    v.sort_by(|a, b| compare_items(&a.item, &b.item));
+}
+
+fn compare_items(a: &FileItem, b: &FileItem) -> std::cmp::Ordering {
+    b.is_virtual
+        .unwrap_or(false)
+        .cmp(&a.is_virtual.unwrap_or(false))
+        .then_with(|| b.is_directory.cmp(&a.is_directory))
+        .then_with(|| natord::compare_ignore_case(&a.name, &b.name))
 }
 
 #[cfg(test)]

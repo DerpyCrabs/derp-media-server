@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import type { ResourceSummary } from '@/lib/resource'
-import { createResourceOpener, openResource, type OpenContext } from '@/src/lib/open-resource'
+import {
+  createResourceOpener,
+  executeOpenPlan,
+  openResource,
+  type OpenContext,
+  type OpenIntent,
+} from '@/src/lib/open-resource'
 import type { ViewerDescriptor, ViewerRegistry } from '@/src/lib/viewer-registry'
+import { grantOpenScope } from '@/src/lib/legacy-resource-adapter'
 
 const context: OpenContext = { surface: 'library', scope: { kind: 'owner' } }
 
@@ -164,12 +171,14 @@ describe('openResource', () => {
     for (const plan of plans.slice(1)) expect(plan).toEqual(plans[0])
   })
 
-  test('does not invoke lazy viewer factory while planning', async () => {
+  test('keeps planning pure and executor imports after synchronous gesture effect', async () => {
     let loads = 0
+    const order: string[] = []
     const viewer: ViewerDescriptor = {
       id: 'image-viewer',
       role: 'viewer',
       load: async () => {
+        order.push('load')
         loads += 1
         return { ImageViewerDialog: true }
       },
@@ -180,8 +189,112 @@ describe('openResource', () => {
     const plan = opener(resource(), 'default', context)
     expect(plan.kind).toBe('viewer')
     expect(loads).toBe(0)
-    if (plan.kind === 'viewer') await plan.viewer.load()
+    const result = executeOpenPlan(plan, () => {
+      order.push('effect')
+      return 'executed'
+    })
+    expect(result).toBe('executed')
     expect(loads).toBe(1)
+    expect(order).toEqual(['effect', 'load'])
+    await Promise.resolve()
+  })
+
+  test('covers every intent and surface with owner/Grant plan parity', () => {
+    const surfaces = ['library', 'workspace', 'canvas', 'share'] as const
+    const intents: OpenIntent[] = ['default', 'browse', 'view', 'read', 'play']
+    const scopes = [{ kind: 'owner' } as const, grantOpenScope('matrix-secret')]
+    const inputs = [
+      resource({ kind: 'folder', presentation: 'browse', providerOperations: ['browse'] }),
+      resource({ mimeType: 'video/mp4', presentation: 'video', providerOperations: ['stream'] }),
+      resource({ mimeType: 'audio/mpeg', presentation: 'audio', providerOperations: ['read'] }),
+      resource({ mimeType: 'image/png', presentation: 'image' }),
+      resource({ mimeType: 'text/plain', presentation: 'text' }),
+      resource({ mimeType: 'application/pdf', presentation: 'pdf' }),
+      resource({ mimeType: 'application/epub+zip', presentation: 'book' }),
+      resource({ mimeType: 'application/octet-stream', presentation: 'unsupported' }),
+      resource({
+        kind: 'conversation',
+        presentation: 'conversation',
+        mimeType: undefined,
+        openTarget: { type: 'hermesSession', sessionId: 'session-1', readOnly: true },
+      }),
+    ]
+    const expectedKinds = [
+      ['browse', 'browse', 'browse', 'viewer', 'blocked'],
+      ['playback', 'blocked', 'playback', 'blocked', 'playback'],
+      ['playback', 'blocked', 'playback', 'blocked', 'playback'],
+      ['viewer', 'blocked', 'viewer', 'blocked', 'blocked'],
+      ['viewer', 'blocked', 'viewer', 'blocked', 'blocked'],
+      ['viewer', 'blocked', 'viewer', 'viewer', 'blocked'],
+      ['viewer', 'blocked', 'viewer', 'viewer', 'blocked'],
+      ['viewer', 'blocked', 'viewer', 'blocked', 'blocked'],
+      ['conversation', 'blocked', 'conversation', 'blocked', 'blocked'],
+    ] as const
+
+    for (const [inputIndex, input] of inputs.entries()) {
+      for (const [intentIndex, intent] of intents.entries()) {
+        const baseline = openResource(input, intent, {
+          surface: 'library',
+          scope: scopes[0],
+          effectiveOperations: input.providerOperations,
+        })
+        expect(baseline.kind).toBe(expectedKinds[inputIndex]![intentIndex])
+        for (const surface of surfaces) {
+          for (const scope of scopes) {
+            expect(
+              openResource(input, intent, {
+                surface,
+                scope,
+                effectiveOperations: input.providerOperations,
+              }),
+            ).toEqual(baseline)
+          }
+        }
+      }
+    }
+  })
+
+  test('intersects real Grant effective operations for every executable plan family', () => {
+    const grant = grantOpenScope('grant-operations-secret')
+    const cases = [
+      [
+        resource({ kind: 'folder', presentation: 'browse', providerOperations: ['browse'] }),
+        'browse',
+      ],
+      [
+        resource({
+          presentation: 'video',
+          mimeType: 'video/mp4',
+          providerOperations: ['stream'],
+        }),
+        'stream',
+      ],
+      [resource({ presentation: 'image', mimeType: 'image/png' }), 'read'],
+      [
+        resource({
+          kind: 'conversation',
+          presentation: 'conversation',
+          openTarget: { type: 'hermesSession', sessionId: 'session-1', readOnly: true },
+        }),
+        'read',
+      ],
+    ] as const
+
+    for (const [input, operation] of cases) {
+      const allowed = openResource(input, 'default', {
+        surface: 'share',
+        scope: grant,
+        effectiveOperations: [operation],
+      })
+      expect(allowed.kind).not.toBe('blocked')
+      expect(
+        openResource(input, 'default', {
+          surface: 'share',
+          scope: grant,
+          effectiveOperations: ['download'],
+        }),
+      ).toMatchObject({ kind: 'blocked', reason: 'operation-unavailable' })
+    }
   })
 
   test('never infers presentation from locator or name', () => {

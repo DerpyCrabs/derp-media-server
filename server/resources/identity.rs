@@ -3,7 +3,7 @@ use crate::{config::Config, error::AppError, state_db};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -32,6 +32,27 @@ pub(crate) struct StoredResourceIdentity {
     pub(crate) kind: String,
     pub(crate) status: String,
     pub(crate) legacy_locator: Option<String>,
+}
+
+type IdentityMatch = (String, String, String, String, String);
+
+fn prior_locator_is_absent(candidate: &IdentityMatch) -> bool {
+    let (_, locator, status, provider, canonical_locator) = candidate;
+    if status == "missing" {
+        return true;
+    }
+    if provider != "filesystem" {
+        return false;
+    }
+    let relative = Path::new(locator);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_) | Component::CurDir))
+    {
+        return false;
+    }
+    !Path::new(canonical_locator).join(relative).exists()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -350,7 +371,7 @@ fn select_initial_legacy_keys(current: &str, observed: &[String]) -> Result<Vec<
         .collect::<Vec<_>>();
     if candidates.is_empty() {
         return Err(format!(
-            "Resource identity recovery required: configured root names and paths do not match retained application state. Restore prior root name or path, or add explicit mediaDirs ids. Current legacy key: {current}"
+            "Resource identity recovery required: configured root names and paths do not match retained application state. Restore a prior root name or path and start once; then assign a stable mediaDirs id before changing the remaining value. Current legacy key: {current}"
         ));
     }
     let exact = candidates.iter().any(|candidate| candidate == current);
@@ -462,7 +483,7 @@ fn reconcile_config_sources(
         .count();
     if unmatched_existing > 0 && unmatched_roots > 0 {
         return Err(
-            "Resource identity recovery required: a configured Source changed both display name and path without a matching explicit id. Restore one prior value or configure its retained id."
+            "Resource identity recovery required: a configured Source changed both display name and path without a retained explicit id. Restore either the old display name or old path and start once; then assign a stable id before changing the remaining value."
                 .into(),
         );
     }
@@ -769,16 +790,52 @@ impl IdentityStore {
             }
         }
         for item in observed {
-            let exact: Option<(String, Option<String>)> = transaction
+            let exact: Option<(
+                String,
+                Option<String>,
+                String,
+                Option<String>,
+                Option<String>,
+                String,
+                bool,
+            )> = transaction
                 .query_row(
-                    "SELECT id,platform_identity FROM resources
+                    "SELECT id,platform_identity,kind,fingerprint,current_legacy_locator,status,
+                       EXISTS(
+                         SELECT 1 FROM resource_legacy_locators l
+                         WHERE l.resource_id=resources.id AND l.legacy_locator=?3
+                       )
+                     FROM resources
                      WHERE source_id=?1 AND provider_locator=?2",
-                    params![source_id.as_str(), item.provider_locator],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    params![
+                        source_id.as_str(),
+                        item.provider_locator,
+                        item.legacy_locator
+                    ],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                        ))
+                    },
                 )
                 .optional()
                 .map_err(|error| AppError::internal(error.to_string()))?;
-            let exact = if let Some((resource_id, stored_platform)) = exact {
+            let exact = if let Some((
+                resource_id,
+                stored_platform,
+                stored_kind,
+                stored_fingerprint,
+                stored_legacy_locator,
+                stored_status,
+                has_legacy_locator,
+            )) = exact
+            {
                 let strong_conflict = item.platform_identity.as_ref().is_some_and(|observed| {
                     stored_platform
                         .as_ref()
@@ -799,6 +856,20 @@ impl IdentityStore {
                         .map_err(|error| AppError::internal(error.to_string()))?;
                     None
                 } else {
+                    let platform_unchanged = item
+                        .platform_identity
+                        .as_ref()
+                        .is_none_or(|observed| stored_platform.as_ref() == Some(observed));
+                    if stored_status == "present"
+                        && stored_kind == item.kind
+                        && platform_unchanged
+                        && stored_fingerprint == item.fingerprint
+                        && stored_legacy_locator.as_deref() == Some(&item.legacy_locator)
+                        && has_legacy_locator
+                    {
+                        result.push(ResourceId::new(resource_id));
+                        continue;
+                    }
                     Some(resource_id)
                 }
             } else {
@@ -812,13 +883,22 @@ impl IdentityStore {
                 {
                     let mut statement = transaction
                         .prepare(
-                            "SELECT id FROM resources
-                             WHERE source_id=?1 AND platform_identity=?2",
+                            "SELECT r.id,r.provider_locator,r.status,s.provider,
+                               s.canonical_locator
+                             FROM resources r
+                             JOIN sources s ON s.id=r.source_id
+                             WHERE r.source_id=?1 AND r.platform_identity=?2",
                         )
                         .map_err(|error| AppError::internal(error.to_string()))?;
                     statement
                         .query_map(params![source_id.as_str(), platform_identity], |row| {
-                            row.get::<_, String>(0)
+                            Ok((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get(3)?,
+                                row.get(4)?,
+                            ))
                         })
                         .map_err(|error| AppError::internal(error.to_string()))?
                         .collect::<Result<Vec<_>, _>>()
@@ -833,19 +913,28 @@ impl IdentityStore {
                 {
                     let mut statement = transaction
                         .prepare(
-                            "SELECT id FROM resources
-                             WHERE source_id=?1 AND fingerprint=?2",
+                            "SELECT r.id,r.provider_locator,r.status,s.provider,
+                               s.canonical_locator
+                             FROM resources r
+                             JOIN sources s ON s.id=r.source_id
+                             WHERE r.source_id=?1 AND r.fingerprint=?2",
                         )
                         .map_err(|error| AppError::internal(error.to_string()))?;
                     matches = statement
                         .query_map(params![source_id.as_str(), fingerprint], |row| {
-                            row.get::<_, String>(0)
+                            Ok((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get(3)?,
+                                row.get(4)?,
+                            ))
                         })
                         .map_err(|error| AppError::internal(error.to_string()))?
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|error| AppError::internal(error.to_string()))?;
                 }
-                if matches.len() == 1 {
+                if matches.len() == 1 && prior_locator_is_absent(&matches[0]) {
                     transaction
                         .execute(
                             "UPDATE resources SET provider_locator=?2,status='present',
@@ -853,7 +942,7 @@ impl IdentityStore {
                                current_legacy_locator=?6
                              WHERE id=?1",
                             params![
-                                matches[0],
+                                matches[0].0,
                                 item.provider_locator,
                                 now,
                                 item.kind,
@@ -862,7 +951,7 @@ impl IdentityStore {
                             ],
                         )
                         .map_err(|error| AppError::internal(error.to_string()))?;
-                    matches[0].clone()
+                    matches[0].0.clone()
                 } else {
                     format!("resource-{}", uuid::Uuid::new_v4())
                 }
@@ -1525,6 +1614,114 @@ mod tests {
             identity.stored(&first).unwrap().unwrap().provider_locator,
             "external.txt"
         );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn sequential_platform_collision_keeps_present_resource_at_its_locator() {
+        let base = fixture("resource-sequential-collision");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("first.txt"), "first").unwrap();
+        std::fs::write(media.join("second.txt"), "second").unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = |locator: &str| ObservedResourceIdentity {
+            provider_locator: locator.into(),
+            legacy_locator: locator.into(),
+            kind: "file".into(),
+            platform_identity: Some("platform:shared".into()),
+            fingerprint: None,
+        };
+
+        let first = identity.observe(&source, &[observed("first.txt")]).unwrap()[0].clone();
+        let second = identity
+            .observe(&source, &[observed("second.txt")])
+            .unwrap()[0]
+            .clone();
+
+        assert_ne!(second, first);
+        assert_eq!(
+            identity.stored(&first).unwrap().unwrap().provider_locator,
+            "first.txt"
+        );
+        assert_eq!(
+            identity.stored(&second).unwrap().unwrap().provider_locator,
+            "second.txt"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn stable_observation_reuses_identity_without_rewriting_rows() {
+        let base = fixture("resource-stable-observation");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = ObservedResourceIdentity {
+            provider_locator: "stable.txt".into(),
+            legacy_locator: "stable.txt".into(),
+            kind: "file".into(),
+            platform_identity: Some("platform:stable".into()),
+            fingerprint: Some("fingerprint:stable".into()),
+        };
+        let first = identity
+            .observe(&source, std::slice::from_ref(&observed))
+            .unwrap()[0]
+            .clone();
+        let connection = state_db::connection(identity.database()).unwrap();
+        connection
+            .execute(
+                "UPDATE resources SET last_seen_at=1 WHERE id=?1",
+                [first.as_str()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE resource_legacy_locators SET last_seen_at=1 WHERE resource_id=?1",
+                [first.as_str()],
+            )
+            .unwrap();
+        drop(connection);
+
+        let second = identity.observe(&source, &[observed]).unwrap()[0].clone();
+        assert_eq!(second, first);
+        let connection = state_db::connection(identity.database()).unwrap();
+        let resource_seen = connection
+            .query_row(
+                "SELECT last_seen_at FROM resources WHERE id=?1",
+                [first.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        let legacy_seen = connection
+            .query_row(
+                "SELECT last_seen_at FROM resource_legacy_locators WHERE resource_id=?1",
+                [first.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!((resource_seen, legacy_seen), (1, 1));
+        drop(connection);
         std::fs::remove_dir_all(base).unwrap();
     }
 
