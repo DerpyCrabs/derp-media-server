@@ -33,7 +33,7 @@ fn valid_resource_target(target: &Value) -> bool {
     }) && target
         .get("legacyLocator")
         .and_then(Value::as_str)
-        .is_some_and(|path| !path.is_empty() && path.len() <= 4096 && !has_dot_dot(path))
+        .is_some_and(|path| path.len() <= 4096 && !has_dot_dot(path))
 }
 
 fn valid_state(state: &Value) -> bool {
@@ -216,6 +216,21 @@ mod tests {
             "legacyLocator":"Documents/file.md"
         }));
         assert_eq!(merge(&json!([]), &json!([valid]))[0]["id"], "canvas-1");
+
+        let mut root = with_target(json!({
+            "ref":{"libraryId":"library","resourceId":"root"},
+            "legacyLocator":""
+        }));
+        root["state"]["windows"][0]["definition"]["type"] = json!("browser");
+        root["state"]["windows"][0]["definition"]["iconPath"] = json!("");
+        root["state"]["windows"][0]["definition"]["initialState"] = json!({"dir":""});
+        assert_eq!(merge(&json!([]), &json!([root]))[0]["id"], "canvas-1");
+
+        let traversal = with_target(json!({
+            "ref":{"libraryId":"library","resourceId":"escape"},
+            "legacyLocator":"../escape"
+        }));
+        assert_eq!(merge(&json!([]), &json!([traversal])), json!([]));
 
         let invalid = with_target(json!({
             "ref":{"libraryId":"library","resourceId":"resource"}

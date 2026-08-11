@@ -44,8 +44,13 @@ import {
   type ViewerId,
 } from '@/lib/resource'
 import {
+  backfillLegacyResourceWindow,
   inspectResourceTarget,
+  legacyResourceAttemptKey,
+  legacyResourceIsPending,
+  legacyResourceLocatorForWindow,
   reconcileResourceTargetWindow,
+  resolveLegacyResourceTarget,
   resourceTargetAttemptKey,
   resourceTargetIsPending,
   resourceTargetKey,
@@ -100,6 +105,7 @@ import { bindReadingProgress as bindReadingProgressEvents } from './canvas/readi
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { OWNER_OPEN_SCOPE, resourceForFileItem } from './lib/legacy-resource-adapter'
 import { executeOpenPlan, openResource } from './lib/open-resource'
+import { reconcileResolvedWindowPresentation } from './lib/resource-window-resolution'
 import { viewerMediaType, viewerReaderKind } from './lib/viewer-registry'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
@@ -107,6 +113,7 @@ import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
 import { ResourceResolvingPane, ResourceUnavailablePane } from './workspace/ResourceUnavailablePane'
 
 const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
+const CANVAS_OPEN_CONTEXT = { surface: 'canvas', scope: OWNER_OPEN_SCOPE } as const
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
   browser: { width: 640, height: 480 },
   viewer: { width: 640, height: 480 },
@@ -410,9 +417,17 @@ export function CanvasPage() {
   const [resourceResolutionAttempts, setResourceResolutionAttempts] = createSignal<
     ReadonlySet<string>
   >(new Set())
-  const canvasResourceTargetIsPending = (
-    target: PersistedResourceTarget | null | undefined,
-  ): boolean => resourceTargetIsPending(target, resourceResolutionAttempts(), collection().activeId)
+  const canvasResourceWindowIsPending = (definition: WorkspaceWindowDefinition): boolean =>
+    resourceTargetIsPending(
+      definition.resourceTarget,
+      resourceResolutionAttempts(),
+      collection().activeId,
+    ) ||
+    legacyResourceIsPending(
+      legacyResourceLocatorForWindow(definition),
+      resourceResolutionAttempts(),
+      collection().activeId,
+    )
   const resolvingResourceTargets = new Set<string>()
   const resourceResolutionAbort = new AbortController()
   const readOnlyMode = () => false
@@ -466,15 +481,19 @@ export function CanvasPage() {
     const attempted = resourceResolutionAttempts()
     for (const window of state().windows) {
       const target = window.definition.resourceTarget
-      if (!target) continue
-      const key = resourceTargetKey(target)
-      const attemptKey = resourceTargetAttemptKey(target, canvasSessionKey)
+      const legacyLocator = legacyResourceLocatorForWindow(window.definition)
+      if (!target && legacyLocator === null) continue
+      const key = target ? resourceTargetKey(target) : null
+      const attemptKey = target
+        ? resourceTargetAttemptKey(target, canvasSessionKey)
+        : legacyResourceAttemptKey(legacyLocator!, canvasSessionKey)
       if (attempted.has(attemptKey) || resolvingResourceTargets.has(attemptKey)) continue
       resolvingResourceTargets.add(attemptKey)
-      void inspectResourceTarget(
-        target,
-        { kind: 'owner', surface: 'canvas' },
-        resourceResolutionAbort.signal,
+      const access = { kind: 'owner', surface: 'canvas' } as const
+      void (
+        target
+          ? inspectResourceTarget(target, access, resourceResolutionAbort.signal)
+          : resolveLegacyResourceTarget(legacyLocator!, access, resourceResolutionAbort.signal)
       )
         .then((summary) => {
           if (collection().activeId !== canvasSessionKey) return
@@ -483,13 +502,28 @@ export function CanvasPage() {
               setState((current) => ({
                 ...current,
                 windows: current.windows.map((item) =>
-                  item.definition.resourceTarget &&
-                  resourceTargetKey(item.definition.resourceTarget) === key
-                    ? {
-                        ...item,
-                        definition: reconcileResourceTargetWindow(item.definition, summary),
-                      }
-                    : item,
+                  target
+                    ? item.definition.resourceTarget &&
+                      resourceTargetKey(item.definition.resourceTarget) === key
+                      ? {
+                          ...item,
+                          definition: reconcileResolvedWindowPresentation(
+                            reconcileResourceTargetWindow(item.definition, summary),
+                            summary,
+                            CANVAS_OPEN_CONTEXT,
+                          ),
+                        }
+                      : item
+                    : legacyResourceLocatorForWindow(item.definition) === legacyLocator
+                      ? {
+                          ...item,
+                          definition: reconcileResolvedWindowPresentation(
+                            backfillLegacyResourceWindow(item.definition, legacyLocator!, summary),
+                            summary,
+                            CANVAS_OPEN_CONTEXT,
+                          ),
+                        }
+                      : item,
                 ),
               }))
             }
@@ -2628,7 +2662,7 @@ export function CanvasPage() {
                           state().camera.zoom < LIVE_ZOOM && !maximized(),
                       }}
                     >
-                      <Show when={canvasResourceTargetIsPending(item()!.definition.resourceTarget)}>
+                      <Show when={canvasResourceWindowIsPending(item()!.definition)}>
                         <ResourceResolvingPane />
                       </Show>
                       <Show
@@ -2638,7 +2672,7 @@ export function CanvasPage() {
                       </Show>
                       <Show
                         when={
-                          !canvasResourceTargetIsPending(item()!.definition.resourceTarget) &&
+                          !canvasResourceWindowIsPending(item()!.definition) &&
                           !item()!.definition.resourceTarget?.availability &&
                           item()!.definition.type === 'browser'
                         }
@@ -2668,7 +2702,7 @@ export function CanvasPage() {
                       </Show>
                       <Show
                         when={
-                          !canvasResourceTargetIsPending(item()!.definition.resourceTarget) &&
+                          !canvasResourceWindowIsPending(item()!.definition) &&
                           !item()!.definition.resourceTarget?.availability &&
                           item()!.definition.type === 'viewer'
                         }
@@ -2694,7 +2728,7 @@ export function CanvasPage() {
                       </Show>
                       <Show
                         when={
-                          !canvasResourceTargetIsPending(item()!.definition.resourceTarget) &&
+                          !canvasResourceWindowIsPending(item()!.definition) &&
                           !item()!.definition.resourceTarget?.availability &&
                           item()!.definition.type === 'hermes'
                         }

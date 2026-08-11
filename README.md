@@ -132,12 +132,12 @@ name, and root-order edits; do not reuse an ID for different content.
 If startup reports **Resource identity recovery required** after an ID-less root changed both name
 and path, restore either its prior name or prior path and start once. Then add a stable ID, restart,
 and only then apply the remaining name/path change. If several retained Sources match, restore the
-last known configuration and assign unique IDs one root at a time. Do not delete `state.sqlite3`:
+last known configuration and assign unique IDs one root at a time. Do not delete `app.sqlite3`:
 it contains Resource IDs and legacy namespace mappings needed for downgrade/re-upgrade safety.
 
 Emergency read rollback: stop the server, set `CATALOG_READS=0`, and restart. Library, SSR, share,
-and Hermes listings then use legacy projections; Resource inspect endpoints return typed
-`unsupported` errors so persisted clients keep their retained legacy locators. Leave new additive
+and Hermes listings then use legacy projections; Resource inspect and legacy-resolution endpoints
+return typed `unsupported` errors so persisted clients keep their retained legacy locators. Leave new additive
 tables/fields in place. Remove the variable and restart to cut back over; rollback-binary writes are
 reconciled through `legacy_library_keys` on re-upgrade.
 

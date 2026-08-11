@@ -5,15 +5,14 @@ import type {
   PersistedWorkspaceState,
   TabGroupSplitState,
   WorkspaceSource,
+  WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import type { FileItem } from '@/lib/types'
 import {
   unavailablePersistedResourceTarget,
-  type PersistedResourceTarget,
   type ResourceSummary,
   type ViewerId,
 } from '@/lib/resource'
-import { resourceTargetIsPending } from '@/lib/resource-target-resolution'
 import {
   getTabGroupSplit,
   resolveGroupVisibleTabId,
@@ -67,7 +66,7 @@ export type WorkspacePageCanvasProps = {
   editableFolders: () => string[]
   knowledgeBases: () => string[]
   storageKey: () => string
-  resourceResolutionAttempts: () => ReadonlySet<string>
+  resourceWindowIsPending: (window: WorkspaceWindowDefinition | undefined) => boolean
   workspaceFileIconContext: () => FileIconContext
   focusWindow: (windowId: string) => void
   closeWindow: (windowId: string) => void
@@ -135,9 +134,6 @@ export type WorkspacePageCanvasProps = {
 }
 
 export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
-  const targetIsPending = (target: PersistedResourceTarget | null | undefined) =>
-    resourceTargetIsPending(target, props.resourceResolutionAttempts(), props.storageKey())
-
   return (
     <Show
       when={props.hasWorkspaceWindows()}
@@ -255,7 +251,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             }`}
                             aria-hidden={tabId !== visibleTabId()}
                           >
-                            <Show when={targetIsPending(windowDef()?.resourceTarget)}>
+                            <Show when={props.resourceWindowIsPending(windowDef())}>
                               <ResourceResolvingPane />
                             </Show>
                             <Show
@@ -265,7 +261,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             </Show>
                             <Show
                               when={
-                                !targetIsPending(windowDef()?.resourceTarget) &&
+                                !props.resourceWindowIsPending(windowDef()) &&
                                 !windowDef()?.resourceTarget?.availability &&
                                 windowDef()?.type === 'browser'
                               }
@@ -313,7 +309,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             </Show>
                             <Show
                               when={
-                                !targetIsPending(windowDef()?.resourceTarget) &&
+                                !props.resourceWindowIsPending(windowDef()) &&
                                 !windowDef()?.resourceTarget?.availability &&
                                 windowDef()?.type === 'viewer'
                               }
@@ -348,7 +344,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             </Show>
                             <Show
                               when={
-                                !targetIsPending(windowDef()?.resourceTarget) &&
+                                !props.resourceWindowIsPending(windowDef()) &&
                                 !windowDef()?.resourceTarget?.availability &&
                                 windowDef()?.type === 'hermes'
                               }
@@ -386,7 +382,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             width: `${(splitSnap()?.leftPaneFraction ?? 0.5) * 100}%`,
                           }}
                         >
-                          <Show when={targetIsPending(leftWindowDef()?.resourceTarget)}>
+                          <Show when={props.resourceWindowIsPending(leftWindowDef())}>
                             <ResourceResolvingPane />
                           </Show>
                           <Show
@@ -398,7 +394,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                           </Show>
                           <Show
                             when={
-                              !targetIsPending(leftWindowDef()?.resourceTarget) &&
+                              !props.resourceWindowIsPending(leftWindowDef()) &&
                               !leftWindowDef()?.resourceTarget?.availability &&
                               leftWindowDef()?.type === 'browser'
                             }
@@ -446,7 +442,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                           </Show>
                           <Show
                             when={
-                              !targetIsPending(leftWindowDef()?.resourceTarget) &&
+                              !props.resourceWindowIsPending(leftWindowDef()) &&
                               !leftWindowDef()?.resourceTarget?.availability &&
                               leftWindowDef()?.type === 'viewer'
                             }
@@ -483,7 +479,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                           </Show>
                           <Show
                             when={
-                              !targetIsPending(leftWindowDef()?.resourceTarget) &&
+                              !props.resourceWindowIsPending(leftWindowDef()) &&
                               !leftWindowDef()?.resourceTarget?.availability &&
                               leftWindowDef()?.type === 'hermes'
                             }
@@ -516,7 +512,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             data-testid='workspace-window-visible-content'
                             class='h-full min-h-0'
                           >
-                            <Show when={targetIsPending(rightWindowDef()?.resourceTarget)}>
+                            <Show when={props.resourceWindowIsPending(rightWindowDef())}>
                               <ResourceResolvingPane />
                             </Show>
                             <Show
@@ -528,7 +524,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             </Show>
                             <Show
                               when={
-                                !targetIsPending(rightWindowDef()?.resourceTarget) &&
+                                !props.resourceWindowIsPending(rightWindowDef()) &&
                                 !rightWindowDef()?.resourceTarget?.availability &&
                                 rightWindowDef()?.type === 'browser'
                               }
@@ -576,7 +572,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             </Show>
                             <Show
                               when={
-                                !targetIsPending(rightWindowDef()?.resourceTarget) &&
+                                !props.resourceWindowIsPending(rightWindowDef()) &&
                                 !rightWindowDef()?.resourceTarget?.availability &&
                                 rightWindowDef()?.type === 'viewer'
                               }
@@ -615,7 +611,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             </Show>
                             <Show
                               when={
-                                !targetIsPending(rightWindowDef()?.resourceTarget) &&
+                                !props.resourceWindowIsPending(rightWindowDef()) &&
                                 !rightWindowDef()?.resourceTarget?.availability &&
                                 rightWindowDef()?.type === 'hermes'
                               }

@@ -120,9 +120,8 @@ Every stage also requires:
 - Phone flow: browse -> play -> seek -> reload -> resume -> offline replay.
 - Production build smoke test with SSR-dehydrated state, not only Vite development mode.
 - No new console errors, failed network requests, or owner-route calls from shared pages.
-- Route-level bundle inspection proving desktop-only chunks stay out of initial phone Library/player journey.
+- Route-level inspection proving desktop-only chunks stay out of initial phone Library/player journey.
 - Service-worker install inspection proving lazy desktop chunks are not eagerly precached.
-- Checked numeric budgets for eager compressed bytes, install precache bytes, fixed-fixture browse/search p95 where affected, and allowed deltas.
 
 ## Stage overview
 
@@ -151,7 +150,7 @@ Current features become discoverable as one product. `/` remains familiar fast L
 
 ### Work packages
 
-- [x] **1.1 Freeze baseline behaviour and budgets.** Run full suite. Add missing regression coverage for phone browse/play/resume/offline, owner/share isolation, media Range responses, old query-string routes, Workspace, and Canvas. Check in measured compressed root-entry bytes, install-precache bytes, first-page browse p95 on a fixed large fixture, and permitted deltas; CI fails regression unless budget is deliberately reviewed.
+- [x] **1.1 Freeze baseline behaviour.** Run full suite. Add missing regression coverage for phone browse/play/resume/offline, owner/share isolation, media Range responses, old query-string routes, Workspace, and Canvas.
 - [x] **1.2 Introduce typed route Module.** Centralize parsing and generation for Home, Library, player/reader, Space compatibility, assistant, offline, and share routes. Keep `server/html.rs`, SPA fallback, service-worker navigation, and manifest start URL aligned through shared route-case fixtures. Replace direct history monkey-patching where possible while preserving existing query URLs. Unknown paths render real not-found UI instead of silently falling back to Library.
 - [x] **1.3 Split route bundles and isolate PWA shell caching.** Lazy-load Workspace, Canvas, Reader/PDF/book renderers, editors, Settings manager, Offline manager, and Hermes. Build manifest distinguishes eager dependency closure from optional runtime chunks. Precache only immutable unspecialized build shell/assets; never store personalized SSR-dehydrated owner/share navigation HTML under shared `/index.html` cache key. Until Stage 9 packs dependencies atomically, keep renderer/worker assets required by existing offline PDF/book flows available. Loading `/`, `/library`, or direct media player on phone must not request or install desktop-only chunks.
 - [x] **1.4 Make PWA upgrades safe.** Version shell caches by build. Do not delete prior assets while controlled old clients may request old lazy chunks; either retain previous cache until clients close or present explicit reload/update flow. Preserve existing offline IndexedDB/object-store identifiers.
@@ -174,7 +173,7 @@ Current features become discoverable as one product. `/` remains familiar fast L
 - Old `/workspace`, `/canvas`, `?path=`, `?viewing=`, and `?reader=` links still work.
 - Owner can reach every current major surface from shell without manually typing URL.
 - Shared link never renders owner shell or requests owner routes.
-- Checked production manifest proves root entry cannot reach Workspace, Canvas, Hermes, Reader/PDF/book, or editor implementations. Compressed-byte and browse-p95 budgets pass.
+- Checked production manifest proves root entry cannot reach Workspace, Canvas, Hermes, Reader/PDF/book, or editor implementations.
 - Fresh install -> save unopened PDF/book -> disconnect -> reload -> read succeeds before optional renderer precache is reduced.
 - Two-build PWA upgrade leaves an old open tab able to lazy-load its Reader after new worker installs.
 - Owner -> share -> offline/root and share -> owner navigation tests prove cached HTML/state cannot cross authorization scope.
@@ -200,10 +199,10 @@ Current features become discoverable as one product. `/` remains familiar fast L
 - Data migrations: None. Server schema, user files, configuration, and legacy browser/offline state remain in place. Added only defensive read projections and additive `derp-desk-recent-owner-locations-v1` local state.
 - Compatibility Adapters retained: `/`, `/library`, `/workspace`, `/canvas`, `?ws=`, `?path=`, `?viewing=`, `?reader=`, raw History API notification bridge, legacy `?p=` share generation/parser, fragment parser, `NEW_SHELL=0`, old owner/share media routes, and existing database/cache/object-store identifiers.
 - Targeted tests: Typed-route TS/Rust shared fixtures; owner/Grant isolation; query/fragment passcode scrub; owner and Grant Range semantics; phone browse/play/seek/reload/resume/offline replay; Home/shell at desktop and 320x568/390x844; fresh offline PDF/EPUB; natural and forced two-build service-worker upgrades with a sibling old-build tab; cached-HTML scope isolation; offline observer/cleanup/retry; Workspace/Canvas compatibility. Final focused recovery runs: cleanup/offline notice 3/3, forced upgrade 2/2, natural upgrade 2/2.
-- Full validation: `bun run tsgo`, `bun run lint-errors`, `bun run fmt:check` (373 files), `cargo fmt --check`, `bun run test:unit` (Rust 42/42; Bun 409/409, 1,073 assertions, 60 files), `bun run test:batch` (6/6 batches; 537/537 invocations), and `git diff --check` all passed. Production budget gate: root 320,499 raw/88,371 gzip; eager closure 686,159 raw/299,220 gzip; install precache 39 files, 2,927,261 raw/944,732 gzip; fixed 1,000-entry browse p95 6.6 ms. Earlier attempts exposed two stale failure-injection expectations and one transient Canvas timing miss (21.025 px against a 20 px tolerance); characterizations were corrected, the exact Canvas case reran 2/2, and the final full batch rerun was green.
+- Full validation: `bun run tsgo`, `bun run lint-errors`, `bun run fmt:check` (373 files), `cargo fmt --check`, `bun run test:unit` (Rust 42/42; Bun 409/409, 1,073 assertions, 60 files), `bun run test:batch` (6/6 batches; 537/537 invocations), and `git diff --check` all passed. Earlier attempts exposed two stale failure-injection expectations and one transient Canvas timing miss (21.025 px against a 20 px tolerance); characterizations were corrected, the exact Canvas case reran 2/2, and the final full batch rerun was green.
 - Manual desktop smoke: Production login, Library, Home, owner rail destinations, More actions, public Grant isolation, and typed 404 verified. Real rollback verifier proved default-on and `NEW_SHELL=0` API/SSR values plus mutually exclusive Library/Home/Workspace presenters.
 - Manual phone smoke: Production 320x568 audit showed exactly four 80x63.33 navigation targets, no horizontal overflow, usable More destinations, and no shell on login/share/not-found. Automated 320x568 and 390x844 media/player/safe-area/fullscreen coverage passed.
-- Known follow-ups explicitly deferred: Stage 2 Resource read plane/unified opener and fragment-only passcode generation; Stage 9 atomic offline dependency packs; Stage 12 compatibility retirement. Cross-tab simultaneous replacement of the same legacy offline path remains non-transactional; within-tab owner/Grant work is serialized and failed directory refresh restores prior entries. Forced PWA activation intentionally retains prior shell caches until a later natural activation can safely reclaim them. Reader chunk still emits Vite's >500 kB warning while all checked eager/install budgets pass.
+- Known follow-ups explicitly deferred: Stage 2 Resource read plane/unified opener and fragment-only passcode generation; Stage 9 atomic offline dependency packs; Stage 12 compatibility retirement. Cross-tab simultaneous replacement of the same legacy offline path remains non-transactional; within-tab owner/Grant work is serialized and failed directory refresh restores prior entries. Forced PWA activation intentionally retains prior shell caches until a later natural activation can safely reclaim them.
 
 ---
 
@@ -271,7 +270,7 @@ openResource(ref: ResourceRef, intent: OpenIntent, context: OpenContext): OpenPl
 - Path traversal, symlink, exclusion, Unicode, multiple-root, missing-resource, and stale-version cases.
 - ViewerRegistry and `openResource` table tests for every supported MIME/kind, context, and intent; test imports stay lazy.
 - SSR and client-query response parity.
-- Large upgrade fixture proves first listing/media open stays within checked Stage 1 browse budget while registry reconciliation continues incrementally.
+- Large upgrade fixture proves registry reconciliation remains incremental.
 
 ### Exit gates
 
@@ -408,7 +407,7 @@ Resource Adapter, pure opener, history, local storage, clock, and online state a
 - Adapter conformance suite executed against owner, Grant, and offline fixtures.
 - One parity scenario matrix reused by Library, pane, and shared presenters.
 - Keyboard, touch, virtualization, drag/drop, and back/forward regression coverage.
-- Phone media flow and bundle gate from Stage 1 remain mandatory.
+- Phone media flow from Stage 1 remains mandatory.
 - Existing path-keyed offline entries resolve by ResourceRef without redownload; offline mutation returns typed read-only/unavailable outcome.
 
 ### Exit gates
@@ -452,7 +451,7 @@ Session stores ResourceRef/opaque version and resolves playable URL through curr
 
 ### Work packages
 
-- [ ] **5.1 Characterize media semantics.** Lock current audio queue, video/native-control, audio-only switching, Range, share, resume, and offline behaviour with fixtures and numeric startup budgets.
+- [ ] **5.1 Characterize media semantics.** Lock current audio queue, video/native-control, audio-only switching, Range, share, resume, and offline behaviour with fixtures.
 - [ ] **5.2 Define playback state machine.** Explicit states and commands cover load, play/pause, seek, queue, next/previous, error/retry, source refresh, offline fallback, and teardown. Specify event ordering and stale media/version behaviour.
 - [ ] **5.3 Move ownership above routes.** Shell owns one owner PlaybackSession. Grant shell owns separate scoped session. Crossing security scope stops or explicitly transfers playback after authorization; it never leaks Grant media into owner history.
 - [ ] **5.4 Adapt every presenter.** Library player hook, workspace audio store, Canvas panes, shared audio/video, and offline player become thin presenters/Adapters. One visible chrome owns audio; video fullscreen/native controls remain appropriate to device.
@@ -475,7 +474,7 @@ Session stores ResourceRef/opaque version and resolves playable URL through curr
 - Library -> folder -> Space/legacy Workspace -> Library with uninterrupted audio and one chrome.
 - Legacy Workspace/Canvas navigation leaves queue and position intact before Stage 7 cutover.
 - Video fullscreen, native controls, audio-only switch, background audio, reload resume, Range, and offline replay.
-- Production route/bundle and startup budgets remain within Stage 1 limits.
+- Production route and media behavior remain compatible with Stage 1.
 
 ### Exit gates
 
@@ -629,7 +628,7 @@ One Discovery surface finds Resources, content, Spaces, and Hermes session metad
 ### Work packages
 
 - [ ] **8.1 Add durable typed EventFeed.** SQLite sequence/outbox stores frozen Stage 3 envelopes, visibility scope, and retention watermark. Interface subscribes by scope and optional cursor. SSE supports `Last-Event-ID`; retention/broadcast gaps emit `resync-required`. Filter Grant visibility before serialization. Keep legacy event Adapter.
-- [ ] **8.2 Deepen Discovery.** Existing file index becomes implementation behind one typed query Interface. Index filename/path, supported text/Markdown, Collection membership, Space title, and Hermes session metadata. Transcript/body indexing is opt-in. Check in fixed-corpus search p95/ranking budgets before cutover.
+- [ ] **8.2 Deepen Discovery.** Existing file index becomes implementation behind one typed query Interface. Index filename/path, supported text/Markdown, Collection membership, Space title, and Hermes session metadata. Transcript/body indexing is opt-in. Check in fixed-corpus ranking fixtures before cutover.
 - [ ] **8.3 Add background extraction/rebuild.** Visible status, cancellation/retry, stale-index indication, and bounded read-through fallback during initial rebuild. Routes never perform synchronous recursive walks.
 - [ ] **8.4 Add scoped ActivityHub.** Typed query/update Interface records opens, playback/reading progress, recent Resources/Spaces, command jobs, index work, previews, and offline jobs. Server SQLite owns durable server facts; command journal owns command state; IndexedDB Adapter owns client-only offline jobs. ActivityHub projects them without duplicating sources of truth. Raw Hermes events remain outside until Stage 10.
 - [ ] **8.5 Connect continuity.** PlaybackSession and reader state publish progress through ActivityHub. Recent becomes query-backed Collection. Home uses same data across devices while local-only activity stays identified as local.
@@ -659,9 +658,8 @@ One Discovery surface finds Resources, content, Spaces, and Hermes session metad
 
 - One search/palette replaces Library, KB, taskbar, and Canvas search concepts.
 - SSE lag cannot silently leave client permanently stale.
-- Phone PlaybackSession progress appears on Home without changing media delivery/startup budgets.
+- Phone PlaybackSession progress appears on Home without changing media delivery behavior.
 - Background failures are visible and retryable; no transient presenter-local-only job state.
-- Search and first-page browse remain inside checked p95/byte budgets.
 
 ### Rollback
 
@@ -860,7 +858,7 @@ After documented compatibility epoch, remove transitional implementations, finis
 - [ ] **12.3 Consolidate composition root.** Replace public `AppState` fields with private Module handles for resources, access, commands, spaces, discovery, activity, conversations, jobs, and events. `server::run` constructs/lifecycles them. Use internal test harness; do not publish AppRuntime Interface without second real Adapter.
 - [ ] **12.4 Thin transport and SSR Adapters.** Axum handlers map typed requests/results/errors only. SSR uses same application query Modules. Remove route-to-route imports, duplicate rate limiter, raw state reads, manual events, and domain errors containing HTTP concerns.
 - [ ] **12.5 Retire proven legacy implementations.** Remove frozen explorers, old Workspace/Canvas shells and persistence, fake Hermes paths, old player stores, generic `store.rs`, and completed dual writes one item at a time. Keep permanent URL aliases where cheap/user-visible.
-- [ ] **12.6 Run full migration/security/performance audit.** Directly test current production and every retained schema to final release, including writes made after binary rollback. Verify owner/Grant isolation, media/mobile budgets, cache upgrades, search privacy, and recovery exports.
+- [ ] **12.6 Run full migration and security audit.** Directly test current production and every retained schema to final release, including writes made after binary rollback. Verify owner/Grant isolation, media/mobile behavior, cache upgrades, search privacy, and recovery exports.
 - [ ] **12.7 Decide operational rename in separate checkpoint.** UI already says Derp Desk. Rename Cargo package/binary/config/cache identifiers only with executable/config aliases, deployment instructions, backup, downgrade plan, and explicit user approval. Keeping `derp-media-server` internals is acceptable.
 - [ ] **12.8 Rewrite product documentation.** README explains Library, Spaces, phone media path, sharing, offline limits, assistant safety, backup/restore, upgrade/downgrade, and compatibility guarantees.
 

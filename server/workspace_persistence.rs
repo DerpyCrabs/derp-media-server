@@ -29,7 +29,7 @@ fn valid_resource_target(target: &Value) -> bool {
     }) && target
         .get("legacyLocator")
         .and_then(Value::as_str)
-        .is_some_and(|value| !value.is_empty() && value.len() <= 4096)
+        .is_some_and(|value| value.len() <= 4096)
 }
 
 fn optional_resource_target(value: &Value) -> bool {
@@ -61,9 +61,7 @@ pub fn admin_pins(raw: &Value) -> Value {
             .filter(|pin| {
                 valid_pin(pin)
                     && valid_source(&pin["source"], "local", None)
-                    && pin["path"]
-                        .as_str()
-                        .is_some_and(|path| !path.is_empty() && !has_dot_dot(path))
+                    && pin["path"].as_str().is_some_and(|path| !has_dot_dot(path))
                     && pin
                         .get("resourceTarget")
                         .and_then(|target| target.get("legacyLocator"))
@@ -162,9 +160,9 @@ fn valid_snapshot(snapshot: &Value, share: Option<(&str, &str)>) -> bool {
             let path = path.replace('\\', "/");
             if has_dot_dot(&path)
                 || (share.is_some() && is_private_virtual_path(&path))
-                || root.as_ref().is_some_and(|root| {
-                    !path.is_empty() && path != *root && !path.starts_with(&(root.clone() + "/"))
-                })
+                || root
+                    .as_ref()
+                    .is_some_and(|root| path != *root && !path.starts_with(&(root.clone() + "/")))
             {
                 return false;
             }
@@ -290,5 +288,50 @@ mod tests {
             presets(&snapshot(None), Some(("Shared", "token"))),
             json!([])
         );
+        assert_eq!(
+            presets(&snapshot(Some("")), Some(("Shared", "token"))),
+            json!([])
+        );
+        assert_eq!(
+            presets(
+                &snapshot(Some("Shared/../Private/file.md")),
+                Some(("Shared", "token"))
+            ),
+            json!([])
+        );
+    }
+
+    #[test]
+    fn admin_workspace_accepts_library_root_resource_targets() {
+        let raw = json!([{
+            "id":"preset", "name":"Root", "scope":"admin",
+            "snapshot":{
+                "windows":[{
+                    "type":"browser",
+                    "source":{"kind":"local"},
+                    "iconPath":"",
+                    "initialState":{"dir":""},
+                    "resourceTarget":{
+                        "ref":{"libraryId":"library","resourceId":"root"},
+                        "legacyLocator":""
+                    }
+                }],
+                "pinnedTaskbarItems":[{
+                    "id":"root", "path":"", "title":"Library", "isDirectory":true,
+                    "source":{"kind":"local"},
+                    "resourceTarget":{
+                        "ref":{"libraryId":"library","resourceId":"root"},
+                        "legacyLocator":""
+                    }
+                }]
+            }
+        }]);
+
+        let filtered = presets(&raw, None);
+        assert_eq!(
+            filtered[0]["snapshot"]["windows"][0]["resourceTarget"]["legacyLocator"],
+            ""
+        );
+        assert_eq!(filtered[0]["snapshot"]["pinnedTaskbarItems"][0]["path"], "");
     }
 }

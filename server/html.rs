@@ -117,23 +117,37 @@ fn kb_recent(state: &AppState, scope: &str) -> Value {
     })).collect::<Vec<_>>()})
 }
 
-fn share_file_path(share: &shares::Share, requested: &str) -> Option<String> {
+fn share_file_path(state: &AppState, share: &shares::Share, requested: &str) -> Option<String> {
     let share_path = share.path.replace('\\', "/");
     let requested = requested.replace('\\', "/");
     if !share.is_directory {
         return (requested == share_path).then_some(share_path);
     }
     if requested == share_path || requested.starts_with(&(share_path.clone() + "/")) {
-        return Some(requested);
+        return shares::authorize_grant_logical_path(
+            &state.config,
+            &roots(state),
+            &share_path,
+            &requested,
+        )
+        .ok()
+        .map(|_| requested);
     }
-    shares::resolve_subpath(share, &requested).ok()
+    shares::resolve_authorized_subpath(&state.config, &roots(state), share, &requested)
+        .ok()
+        .map(|authorized| authorized.logical)
 }
 
-fn share_listing_dir(share: &shares::Share, dir: Option<&String>, path: &str) -> String {
+fn share_listing_dir(
+    state: &AppState,
+    share: &shares::Share,
+    dir: Option<&String>,
+    path: &str,
+) -> String {
     if let Some(dir) = dir {
         return dir.replace('\\', "/");
     }
-    let Some(resolved) = share_file_path(share, path) else {
+    let Some(resolved) = share_file_path(state, share, path) else {
         return String::new();
     };
     let root = share.path.replace('\\', "/");
@@ -142,7 +156,9 @@ fn share_listing_dir(share: &shares::Share, dir: Option<&String>, path: &str) ->
 }
 
 async fn shared_files(state: &AppState, share: &shares::Share, dir: &str) -> Option<Value> {
-    let logical = shares::resolve_subpath(share, dir).ok()?;
+    let logical = shares::resolve_authorized_subpath(&state.config, &roots(state), share, dir)
+        .ok()?
+        .logical;
     let listing = crate::application_queries::browse_grant(state, &share.path, &logical)
         .await
         .ok()?;
@@ -307,11 +323,12 @@ async fn dehydrated(
                 queries.push(query(json!(["share-files", token, dir]), files));
             }
             if knowledge_base_root(state, &share.path).is_some()
-                && let Ok(scope) = shares::resolve_subpath(&share, &dir)
+                && let Ok(scope) =
+                    shares::resolve_authorized_subpath(&state.config, &roots(state), &share, &dir)
             {
                 queries.push(query(
                     json!(["content", "share", token, "kb-recent", params.get("dir")]),
-                    kb_recent(state, &scope),
+                    kb_recent(state, &scope.logical),
                 ));
             }
         }
@@ -322,7 +339,7 @@ async fn dehydrated(
                     .unwrap_or_default()
                     .to_string_lossy();
                 if media::media_type(&viewing_kind) == "text"
-                    && let Some(logical) = share_file_path(&share, viewing_path)
+                    && let Some(logical) = share_file_path(state, &share, viewing_path)
                     && let Ok(resolved) = media::resolve(&state.config, &roots(state), &logical)
                     && let Ok(content) = std::fs::read_to_string(resolved.full)
                 {
@@ -339,6 +356,7 @@ async fn dehydrated(
                     ));
                 } else if share.is_directory && media::media_type(&viewing_kind) != "pdf" {
                     let dir = share_listing_dir(
+                        state,
                         &share,
                         params.get("dir").or_else(|| params.get("path")),
                         viewing_path,
@@ -355,7 +373,7 @@ async fn dehydrated(
                     .to_string_lossy();
                 let kind = media::media_type(&playing_kind);
                 if kind == "audio"
-                    && let Some(logical) = share_file_path(&share, playing)
+                    && let Some(logical) = share_file_path(state, &share, playing)
                     && let Ok(resolved) = media::resolve(&state.config, &roots(state), &logical)
                     && let Ok(metadata) = media_routes::audio_metadata_path(&resolved.full).await
                 {
@@ -363,6 +381,7 @@ async fn dehydrated(
                 }
                 if share.is_directory && matches!(kind, "audio" | "video") {
                     let dir = share_listing_dir(
+                        state,
                         &share,
                         params.get("dir").or_else(|| params.get("path")),
                         playing,

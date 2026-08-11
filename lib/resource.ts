@@ -179,7 +179,7 @@ function record(value: unknown): Record<string, unknown> | null {
 export function persistedResourceTarget(
   resource: ResourceSummary | null | undefined,
 ): PersistedResourceTarget | undefined {
-  if (!resource?.legacyLocator) return undefined
+  if (resource?.legacyLocator === undefined) return undefined
   return {
     ref: { ...resource.ref },
     legacyLocator: resource.legacyLocator,
@@ -198,7 +198,6 @@ export function isPersistedResourceTarget(value: unknown): value is PersistedRes
     typeof reference.resourceId === 'string' &&
     reference.resourceId.length > 0 &&
     typeof target.legacyLocator === 'string' &&
-    target.legacyLocator.length > 0 &&
     (target.availability === undefined ||
       target.availability === 'missing' ||
       target.availability === 'sourceUnavailable')

@@ -199,6 +199,37 @@ describe('openResource', () => {
     await Promise.resolve()
   })
 
+  test('imports playback descriptor after synchronous track transition effects', async () => {
+    const order: string[] = []
+    const viewer: ViewerDescriptor = {
+      id: 'audio-player',
+      role: 'playback',
+      media: 'audio',
+      load: async () => {
+        order.push('load')
+        return { AudioPlayer: true }
+      },
+    }
+    const opener = createResourceOpener({ lookup: () => viewer })
+    const plan = opener(
+      resource({
+        presentation: 'audio',
+        mimeType: 'audio/mpeg',
+        providerOperations: ['read'],
+      }),
+      'play',
+      context,
+    )
+
+    expect(order).toEqual([])
+    executeOpenPlan(plan, (planned) => {
+      expect(planned).toMatchObject({ kind: 'playback', media: 'audio' })
+      order.push('url', 'play')
+    })
+    expect(order).toEqual(['url', 'play', 'load'])
+    await Promise.resolve()
+  })
+
   test('covers every intent and surface with owner/Grant plan parity', () => {
     const surfaces = ['library', 'workspace', 'canvas', 'share'] as const
     const intents: OpenIntent[] = ['default', 'browse', 'view', 'read', 'play']

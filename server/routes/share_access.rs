@@ -197,7 +197,13 @@ async fn view(
 ) -> AppResult<Json<Value>> {
     let share = validate(&state, &token, &headers)?;
     let logical = if share.is_directory {
-        shares::resolve_subpath(&share, body["filePath"].as_str().unwrap_or(""))?
+        shares::resolve_authorized_subpath(
+            &state.config,
+            &roots(&state),
+            &share,
+            body["filePath"].as_str().unwrap_or(""),
+        )?
+        .logical
     } else {
         share.path
     };
@@ -227,6 +233,12 @@ struct ResourceInspectQuery {
     resource_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyResourceResolveQuery {
+    legacy_locator: String,
+}
+
 async fn inspect_resource(
     State(state): State<Shared>,
     Path(token): Path<String>,
@@ -237,10 +249,32 @@ async fn inspect_resource(
     let detail = crate::application_queries::inspect_grant(
         &state,
         &share.path,
+        share.is_directory,
         &crate::resources::ResourceRef {
             library_id: crate::resources::LibraryId::new(query.library_id),
             resource_id: crate::resources::ResourceId::new(query.resource_id),
         },
+    )
+    .await
+    .map_err(|error| {
+        let status = error.status_code();
+        (status, Json(error)).into_response()
+    })?;
+    Ok(Json(detail))
+}
+
+async fn resolve_resource(
+    State(state): State<Shared>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<LegacyResourceResolveQuery>,
+) -> Result<Json<crate::resources::ResourceDetail>, Response> {
+    let share = validate(&state, &token, &headers).map_err(IntoResponse::into_response)?;
+    let detail = crate::application_queries::resolve_grant(
+        &state,
+        &share.path,
+        share.is_directory,
+        &query.legacy_locator,
     )
     .await
     .map_err(|error| {
@@ -259,7 +293,9 @@ async fn files(
     if !share.is_directory {
         return Err(AppError::bad("Share is not a directory"));
     }
-    let logical = shares::resolve_subpath(&share, &query.dir)?;
+    let logical =
+        shares::resolve_authorized_subpath(&state.config, &roots(&state), &share, &query.dir)?
+            .logical;
     let listing = crate::application_queries::browse_grant(&state, &share.path, &logical).await?;
     Ok(Json(json!({"files":listing.files})))
 }
@@ -301,8 +337,14 @@ async fn create(
             "Creating files/folders is not allowed for this share",
         ));
     }
-    let logical = shares::resolve_subpath(&share, body["path"].as_str().unwrap_or(""))?;
-    let full = media::resolve(&state.config, &roots(&state), &logical)?.full;
+    let authorized = shares::resolve_authorized_subpath(
+        &state.config,
+        &roots(&state),
+        &share,
+        body["path"].as_str().unwrap_or(""),
+    )?;
+    let logical = authorized.logical;
+    let full = authorized.resolved.full;
     if full.exists() {
         return Err(AppError::conflict(format!(
             "A {} with this name already exists",
@@ -355,8 +397,14 @@ async fn edit(
             "Editing files is not allowed for this share",
         ));
     }
-    let logical = shares::resolve_subpath(&share, body["path"].as_str().unwrap_or(""))?;
-    let full = media::resolve(&state.config, &roots(&state), &logical)?.full;
+    let authorized = shares::resolve_authorized_subpath(
+        &state.config,
+        &roots(&state),
+        &share,
+        body["path"].as_str().unwrap_or(""),
+    )?;
+    let logical = authorized.logical;
+    let full = authorized.resolved.full;
     let metadata = fs::metadata(&full).await.map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             AppError::not_found("File not found")
@@ -437,12 +485,18 @@ async fn delete(
             "Deletion is not allowed for this share",
         ));
     }
-    let logical = shares::resolve_subpath(&share, body["path"].as_str().unwrap_or(""))?;
+    let authorized = shares::resolve_authorized_subpath(
+        &state.config,
+        &roots(&state),
+        &share,
+        body["path"].as_str().unwrap_or(""),
+    )?;
+    let logical = authorized.logical;
     if logical == share.path {
         return Err(AppError::forbidden("Cannot delete share root"));
     }
     require_editable_path(&state, &logical, "delete")?;
-    let full = media::resolve(&state.config, &roots(&state), &logical)?.full;
+    let full = authorized.resolved.full;
     let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
     if metadata.is_dir() {
         fs::remove_dir_all(full).await.map_err(AppError::io)?
@@ -469,13 +523,25 @@ async fn rename(
     if !restriction(&share, "edit") {
         return Err(AppError::forbidden("Editing is not allowed for this share"));
     }
-    let old_logical = shares::resolve_subpath(&share, body["oldPath"].as_str().unwrap_or(""))?;
-    let new_logical = shares::resolve_subpath(&share, body["newPath"].as_str().unwrap_or(""))?;
+    let runtime = roots(&state);
+    let old_authorized = shares::resolve_authorized_subpath(
+        &state.config,
+        &runtime,
+        &share,
+        body["oldPath"].as_str().unwrap_or(""),
+    )?;
+    let new_authorized = shares::resolve_authorized_subpath(
+        &state.config,
+        &runtime,
+        &share,
+        body["newPath"].as_str().unwrap_or(""),
+    )?;
+    let old_logical = old_authorized.logical;
+    let new_logical = new_authorized.logical;
     require_editable_path(&state, &old_logical, "rename source")?;
     require_editable_path(&state, &new_logical, "rename destination")?;
-    let runtime = roots(&state);
-    let old = media::resolve(&state.config, &runtime, &old_logical)?.full;
-    let new = media::resolve(&state.config, &runtime, &new_logical)?.full;
+    let old = old_authorized.resolved.full;
+    let new = new_authorized.resolved.full;
     if new.exists() {
         return Err(AppError::conflict(
             "Destination file or directory already exists",
@@ -512,6 +578,10 @@ pub fn router() -> Router<Shared> {
         .route(
             "/api/share/{token}/resources/inspect",
             get(inspect_resource),
+        )
+        .route(
+            "/api/share/{token}/resources/resolve",
+            get(resolve_resource),
         )
         .route("/api/share/{token}/view", post(view))
         .route("/api/share/{token}/create", post(create))

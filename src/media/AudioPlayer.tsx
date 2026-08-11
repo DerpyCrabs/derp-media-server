@@ -31,7 +31,7 @@ import {
   grantOpenScope,
   resourceForFileItem,
 } from '../lib/legacy-resource-adapter'
-import { openResource } from '../lib/open-resource'
+import { executeOpenPlan, openResource } from '../lib/open-resource'
 
 type Props = {
   shareContext?: TextViewerShareContext | null
@@ -110,13 +110,12 @@ export function AudioPlayer(props: Props) {
     allFiles().filter((f) => f.type === MediaType.AUDIO || f.type === MediaType.VIDEO),
   )
 
-  function canOpenAudio(file: FileItem): boolean {
+  function planAudioOpen(file: FileItem) {
     const share = props.shareContext
-    const plan = openResource(resourceForFileItem(file), 'play', {
+    return openResource(resourceForFileItem(file), 'play', {
       surface: share ? 'share' : 'library',
       scope: share ? grantOpenScope(share.token) : OWNER_OPEN_SCOPE,
     })
-    return plan.kind === 'playback' && plan.media === 'audio'
   }
 
   const getMediaUrl = (filePath: string) => buildMediaUrl(filePath, shareCtx())
@@ -275,10 +274,13 @@ export function AudioPlayer(props: Props) {
         useMediaPlayer.getState().setIsPlaying(false)
         return
       }
-      if (!canOpenAudio(nextFile)) return
-      incrementView(nextFile.path)
-      urlPlayFile(nextFile.path, dir)
-      useMediaPlayer.getState().playFile(nextFile.path, 'audio')
+      const plan = planAudioOpen(nextFile)
+      executeOpenPlan(plan, (planned) => {
+        if (planned.kind !== 'playback' || planned.media !== 'audio') return
+        incrementView(nextFile.path)
+        urlPlayFile(nextFile.path, dir)
+        useMediaPlayer.getState().playFile(nextFile.path, 'audio')
+      })
     }
 
     const runPrev = () => {
@@ -300,10 +302,14 @@ export function AudioPlayer(props: Props) {
           break
         }
       }
-      if (!previousFile || !canOpenAudio(previousFile)) return
-      incrementView(previousFile.path)
-      urlPlayFile(previousFile.path, dir)
-      useMediaPlayer.getState().playFile(previousFile.path, 'audio')
+      if (!previousFile) return
+      const plan = planAudioOpen(previousFile)
+      executeOpenPlan(plan, (planned) => {
+        if (planned.kind !== 'playback' || planned.media !== 'audio') return
+        incrementView(previousFile.path)
+        urlPlayFile(previousFile.path, dir)
+        useMediaPlayer.getState().playFile(previousFile.path, 'audio')
+      })
     }
 
     playNextRef.current = runNext

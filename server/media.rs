@@ -237,6 +237,27 @@ fn excluded_file(n: &str) -> bool {
     ]
     .contains(&n)
 }
+
+pub(crate) fn excluded_locator(locator: &str, directory: bool) -> bool {
+    let normalized = locator.replace('\\', "/");
+    let parts = normalized
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts
+        .iter()
+        .take(parts.len().saturating_sub(1))
+        .any(|part| excluded_dir(part))
+    {
+        return true;
+    }
+    let name = parts.last().copied().unwrap_or("");
+    if directory {
+        excluded_dir(name)
+    } else {
+        excluded_file(name)
+    }
+}
 fn virtual_item(name: &str) -> FileItem {
     FileItem {
         name: name.into(),
@@ -318,7 +339,7 @@ pub(crate) fn list_observed(
         let Ok(entry) = entry else { continue };
         let Ok(meta) = entry.metadata() else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
-        if (meta.is_dir() && excluded_dir(&name)) || (!meta.is_dir() && excluded_file(&name)) {
+        if excluded_locator(&name, meta.is_dir()) {
             continue;
         }
         let rel = if resolved.relative.is_empty() {

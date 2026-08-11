@@ -113,7 +113,9 @@ async fn share_get(
     Query(query): Query<StateQuery>,
 ) -> AppResult<Json<Value>> {
     let share = validate(&state, &token, &headers)?;
-    let logical = shares::resolve_subpath(&share, &query.path)?;
+    let logical =
+        shares::resolve_authorized_subpath(&state.config, &roots(&state), &share, &query.path)?
+            .logical;
     let _database = state.reader_state_db.lock().await;
     response(&state, &format!("share:{token}"), &logical)
 }
@@ -139,7 +141,9 @@ async fn share_save(
     }
     entry.0 += 1;
     drop(writes);
-    let logical = shares::resolve_subpath(&share, &body.path)?;
+    let logical =
+        shares::resolve_authorized_subpath(&state.config, &roots(&state), &share, &body.path)?
+            .logical;
     let _database = state.reader_state_db.lock().await;
     save(&state, &format!("share:{token}"), &logical, body)
 }

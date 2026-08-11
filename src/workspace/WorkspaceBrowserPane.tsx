@@ -105,6 +105,7 @@ import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
 import { workspaceBrowserPaneParentDir } from './workspace-browser-pane-paths'
+import { ownerResourceBrowserQuery } from './resource-browser-query'
 import type {
   WorkspaceBrowserPaneProps,
   WorkspaceShareConfig,
@@ -243,18 +244,15 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   const filesQuery = useQuery(() => {
     const sh = share()
+    const ownerQuery = ownerResourceBrowserQuery(listDir(), virtualOffset(), props.surface)
     return {
-      queryKey: sh
-        ? queryKeys.shareFiles(sh.token, listDir())
-        : [...queryKeys.files(listDir()), virtualOffset()],
+      queryKey: sh ? queryKeys.shareFiles(sh.token, listDir()) : ownerQuery.queryKey,
       queryFn: () =>
         sh
           ? api<DirectoryListing>(
               `/api/share/${sh.token}/files?dir=${encodeURIComponent(listDir())}`,
             )
-          : api<DirectoryListing>(
-              `/api/files?surface=workspace&dir=${encodeURIComponent(listDir())}&offset=${virtualOffset()}`,
-            ),
+          : api<DirectoryListing>(ownerQuery.url),
       refetchInterval: virtualRefreshEnabled() ? 5_000 : false,
     }
   })
@@ -910,9 +908,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setVirtualProjectChoicesLoading(true)
       virtualActionMutation.reset()
       const virtualRoot = currentPath().split(/[/\\]/).filter(Boolean)[0] ?? ''
-      void api<DirectoryListing>(
-        `/api/files?surface=workspace&dir=${encodeURIComponent(virtualRoot)}&offset=0`,
-      )
+      void api<DirectoryListing>(ownerResourceBrowserQuery(virtualRoot, 0, props.surface).url)
         .then((result) => {
           const choices = result.files
             .filter((candidate) => result.virtualEntries?.[candidate.path]?.kind === 'project')

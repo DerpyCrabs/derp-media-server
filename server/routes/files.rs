@@ -39,6 +39,13 @@ struct ResourceInspectQuery {
     surface: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyResourceResolveQuery {
+    legacy_locator: String,
+    surface: Option<String>,
+}
+
 async fn list(
     State(state): State<Shared>,
     Query(query): Query<DirQuery>,
@@ -72,6 +79,23 @@ async fn inspect_resource(
             library_id: crate::resources::LibraryId::new(query.library_id),
             resource_id: crate::resources::ResourceId::new(query.resource_id),
         },
+        crate::application_queries::read_surface(query.surface.as_deref()),
+    )
+    .await
+    .map_err(|error| {
+        let status = error.status_code();
+        (status, Json(error)).into_response()
+    })?;
+    Ok(Json(detail))
+}
+
+async fn resolve_resource(
+    State(state): State<Shared>,
+    Query(query): Query<LegacyResourceResolveQuery>,
+) -> Result<Json<crate::resources::ResourceDetail>, Response> {
+    let detail = crate::application_queries::resolve_owner(
+        &state,
+        &query.legacy_locator,
         crate::application_queries::read_surface(query.surface.as_deref()),
     )
     .await
@@ -562,6 +586,7 @@ pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/files", get(list))
         .route("/api/resources/inspect", get(inspect_resource))
+        .route("/api/resources/resolve", get(resolve_resource))
         .route("/api/files/create", post(create))
         .route("/api/files/edit", post(edit))
         .route("/api/files/delete", post(delete))

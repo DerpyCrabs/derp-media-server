@@ -51,7 +51,7 @@ export type WorkspacePageTaskbarProps = {
   isLayoutDirty: () => boolean
   layoutBaselinePresetId: () => string | null
   workspaceFileIconContext: () => import('@/src/lib/use-file-icon').FileIconContext
-  resourceTargetIsPending: (target: PinnedTaskbarItem['resourceTarget']) => boolean
+  resourcePinIsPending: (pin: PinnedTaskbarItem) => boolean
   selectPinned: (pin: PinnedTaskbarItem) => void
   removePinnedItem: (id: string) => void
   pinMenu: () => { x: number; y: number; pinId: string } | null
@@ -83,22 +83,23 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                 <div class='flex shrink-0 items-center gap-2'>
                   <For each={props.pinnedItems()}>
                     {(pin) => {
-                      const pending = props.resourceTargetIsPending(pin.resourceTarget)
-                      const unavailable = pending || !!pin.resourceTarget?.availability
-                      const tooltip = pending
-                        ? `Resolving saved resource: ${pin.path}`
-                        : unavailable
-                          ? pin.resourceTarget?.availability === 'sourceUnavailable'
-                            ? `Source unavailable: ${pin.path}`
-                            : `Resource unavailable: ${pin.path}`
-                          : `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
+                      const pending = () => props.resourcePinIsPending(pin)
+                      const unavailable = () => pending() || !!pin.resourceTarget?.availability
+                      const tooltip = () =>
+                        pending()
+                          ? `Resolving saved resource: ${pin.path}`
+                          : unavailable()
+                            ? pin.resourceTarget?.availability === 'sourceUnavailable'
+                              ? `Source unavailable: ${pin.path}`
+                              : `Resource unavailable: ${pin.path}`
+                            : `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
                       return (
                         <div
                           class='flex shrink-0 items-center justify-center py-1 px-0.5'
                           data-taskbar-pin
-                          draggable={!unavailable}
+                          draggable={!unavailable()}
                           on:dragstart={(e: DragEvent) => {
-                            if (unavailable) {
+                            if (unavailable()) {
                               e.preventDefault()
                               return
                             }
@@ -117,18 +118,18 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                         >
                           <div
                             role='button'
-                            tabindex={unavailable ? -1 : 0}
-                            title={tooltip}
-                            aria-label={tooltip}
-                            aria-disabled={unavailable}
+                            tabindex={unavailable() ? -1 : 0}
+                            title={tooltip()}
+                            aria-label={tooltip()}
+                            aria-disabled={unavailable()}
                             class='flex h-7 w-7 shrink-0 cursor-default items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:pointer-events-none'
                             onClick={() => {
-                              if (!unavailable) props.selectPinned(pin)
+                              if (!unavailable()) props.selectPinned(pin)
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
-                                if (!unavailable) props.selectPinned(pin)
+                                if (!unavailable()) props.selectPinned(pin)
                               }
                             }}
                             onContextMenu={(e) => {

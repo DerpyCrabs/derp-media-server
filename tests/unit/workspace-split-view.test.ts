@@ -167,6 +167,22 @@ describe('workspace split view', () => {
     expect(normalizePersistedWorkspaceState(state)?.windows[0]?.resourceTarget).toEqual(target)
   })
 
+  test('normalization keeps Library root target with empty compatibility locator', () => {
+    const target = {
+      ref: { libraryId: 'library', resourceId: 'root' },
+      legacyLocator: '',
+    }
+    const state = baseState([
+      {
+        ...browserTab('root'),
+        iconPath: '',
+        initialState: { dir: '' },
+        resourceTarget: target,
+      },
+    ])
+    expect(normalizePersistedWorkspaceState(state)?.windows[0]?.resourceTarget).toEqual(target)
+  })
+
   test('normalizePersistedWorkspaceState drops invalid split metadata', () => {
     const raw = {
       windows: [

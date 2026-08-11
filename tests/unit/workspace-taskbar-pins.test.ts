@@ -54,6 +54,21 @@ describe('parseWorkspaceTaskbarPins', () => {
     ).toEqual([])
   })
 
+  test('keeps Library root pin with empty durable compatibility locator', () => {
+    const root: WorkspaceTaskbarPin = {
+      ...validLocal,
+      id: 'root',
+      path: '',
+      title: 'Library',
+      resourceTarget: {
+        ref: { libraryId: 'library', resourceId: 'root' },
+        legacyLocator: '',
+      },
+    }
+    expect(parseWorkspaceTaskbarPins([root])).toEqual([root])
+    expect(filterAdminWorkspaceTaskbarPins([root])).toEqual([root])
+  })
+
   test('preserves explicit unavailable state for restored pin callers', () => {
     const target = {
       ref: { libraryId: 'library', resourceId: 'resource' },
@@ -78,12 +93,20 @@ describe('filterAdminWorkspaceTaskbarPins', () => {
       id: 'b',
       path: '/foo/../secret',
     }
-    expect(filterAdminWorkspaceTaskbarPins([validLocal, bad])).toEqual([validLocal])
+    const badTarget: WorkspaceTaskbarPin = {
+      ...validLocal,
+      id: 'target',
+      resourceTarget: {
+        ref: { libraryId: 'library', resourceId: 'escape' },
+        legacyLocator: '../secret',
+      },
+    }
+    expect(filterAdminWorkspaceTaskbarPins([validLocal, bad, badTarget])).toEqual([validLocal])
   })
 
-  test('drops empty path', () => {
+  test('keeps empty Library root path', () => {
     const empty: WorkspaceTaskbarPin = { ...validLocal, id: 'e', path: '' }
-    expect(filterAdminWorkspaceTaskbarPins([empty])).toEqual([])
+    expect(filterAdminWorkspaceTaskbarPins([empty])).toEqual([empty])
   })
 })
 
@@ -137,6 +160,21 @@ describe('filterShareWorkspaceTaskbarPins', () => {
       isDirectory: false,
       title: 'bad',
       source: { kind: 'share', token: 'abc' },
+    }
+    expect(filterShareWorkspaceTaskbarPins(shareRoot, 'abc', [pin])).toEqual([])
+  })
+
+  test('does not treat empty target locator as absent from non-empty share root', () => {
+    const pin: WorkspaceTaskbarPin = {
+      id: 'root-target',
+      path: shareRoot,
+      isDirectory: true,
+      title: 'Root',
+      source: { kind: 'share', token: 'abc' },
+      resourceTarget: {
+        ref: { libraryId: 'share', resourceId: 'root' },
+        legacyLocator: '',
+      },
     }
     expect(filterShareWorkspaceTaskbarPins(shareRoot, 'abc', [pin])).toEqual([])
   })

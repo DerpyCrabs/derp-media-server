@@ -31,8 +31,10 @@ fn scope(
     if knowledge_base_root(state, &share.path).is_none() {
         return Err(AppError::bad("Share is not a knowledge base"));
     }
-    let logical = shares::resolve_subpath(share, dir.unwrap_or(""))?;
-    media::resolve(&state.config, &roots(state), &logical)
+    Ok(
+        shares::resolve_authorized_subpath(&state.config, &roots(state), share, dir.unwrap_or(""))?
+            .resolved,
+    )
 }
 
 fn logical(

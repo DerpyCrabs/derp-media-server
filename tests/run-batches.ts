@@ -176,7 +176,7 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<{
     ? ['--project=auth-setup', '--project=login', '--project=chromium']
     : ['--project=auth-setup', '--project=chromium']
 
-  const testFiles = batch.tests.map((t) => `tests/e2e/${t}.spec.ts`)
+  const testFiles = batch.tests.map((test) => `tests/e2e/${test}.spec.ts`)
 
   const jsonOutputPath = path.join(FIXTURES_DIR, `batch-${batch.id}-results.json`)
   const args = [

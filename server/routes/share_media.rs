@@ -25,6 +25,16 @@ use std::path::Path as FsPath;
 use std::sync::atomic::Ordering;
 use tokio::fs;
 
+fn image_scope_root(state: &crate::app::AppState, share: &shares::Share) -> String {
+    knowledge_base_root(state, &share.path).unwrap_or_else(|| {
+        if share.is_directory {
+            share.path.clone()
+        } else {
+            parent_logical(&share.path)
+        }
+    })
+}
+
 async fn shared_media_logical(
     state: &Shared,
     token: &str,
@@ -66,7 +76,7 @@ async fn shared_media_logical(
         }
     };
     let logical = if share.is_directory {
-        shares::resolve_subpath(&share, &path)?
+        shares::resolve_authorized_subpath(&state.config, &roots(state), &share, path)?.logical
     } else if path == share.path || path == "." {
         share.path.clone()
     } else if authorized_reference || preview_authorized {
@@ -74,6 +84,14 @@ async fn shared_media_logical(
     } else {
         return Err(AppError::forbidden("Path outside share boundary"));
     };
+    if !share.is_directory && logical != share.path {
+        shares::authorize_grant_logical_path(
+            &state.config,
+            &roots(state),
+            &image_scope_root(state, &share),
+            &logical,
+        )?;
+    }
     Ok(logical)
 }
 
@@ -133,7 +151,7 @@ async fn thumbnail(
 ) -> AppResult<Response> {
     let share = validate(&state, &token, &headers)?;
     let logical = if share.is_directory {
-        shares::resolve_subpath(&share, &path)?
+        shares::resolve_authorized_subpath(&state.config, &roots(&state), &share, &path)?.logical
     } else if path == "." || path == share.path {
         share.path
     } else {
@@ -151,12 +169,8 @@ async fn audio_metadata(
     headers: HeaderMap,
 ) -> AppResult<Json<Value>> {
     let share = validate(&state, &token, &headers)?;
-    let logical = shared_file_path(&share, &path)?;
-    let result = async {
-        let full = media::resolve(&state.config, &roots(&state), &logical)?.full;
-        media_routes::audio_metadata_path(&full).await
-    }
-    .await;
+    let authorized = shared_file_path(&state, &share, &path)?;
+    let result = media_routes::audio_metadata_path(&authorized.resolved.full).await;
     result.map_err(|_| AppError::internal("Failed to read audio metadata"))
 }
 async fn extract_audio(
@@ -165,8 +179,7 @@ async fn extract_audio(
     headers: HeaderMap,
 ) -> AppResult<Response> {
     let share = validate(&state, &token, &headers)?;
-    let logical = shared_file_path(&share, &path)?;
-    let full = media::resolve(&state.config, &roots(&state), &logical)?.full;
+    let full = shared_file_path(&state, &share, &path)?.resolved.full;
     if !full.exists() {
         return Err(AppError::not_found("File not found"));
     }
@@ -238,14 +251,16 @@ async fn upload(
     }
     let mut count = 0;
     let mut broadcasts = std::collections::HashMap::new();
+    let runtime = roots(&state);
     for (name, data) in uploads {
         let sub = if target.is_empty() {
             name
         } else {
             format!("{target}/{name}")
         };
-        let logical = shares::resolve_subpath(&share, &sub)?;
-        let full = media::resolve(&state.config, &roots(&state), &logical)?.full;
+        let authorized = shares::resolve_authorized_subpath(&state.config, &runtime, &share, &sub)?;
+        let logical = authorized.logical;
+        let full = authorized.resolved.full;
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent).await.map_err(AppError::io)?
         }
@@ -273,11 +288,22 @@ fn format_size(bytes: f64) -> String {
     format!("{rounded} {}", sizes[index])
 }
 
-fn shared_file_path(share: &shares::Share, path: &str) -> AppResult<String> {
+fn shared_file_path(
+    state: &crate::app::AppState,
+    share: &shares::Share,
+    path: &str,
+) -> AppResult<shares::AuthorizedSharePath> {
     if share.is_directory {
-        shares::resolve_subpath(share, path)
+        shares::resolve_authorized_subpath(&state.config, &roots(state), share, path)
     } else if path == "." || path == share.path {
-        Ok(share.path.clone())
+        let logical = share.path.clone();
+        let resolved = shares::authorize_grant_logical_path(
+            &state.config,
+            &roots(state),
+            &share.path,
+            &logical,
+        )?;
+        Ok(shares::AuthorizedSharePath { logical, resolved })
     } else {
         Err(AppError::forbidden("Invalid path"))
     }
@@ -331,7 +357,7 @@ async fn upload_image(
     ensure_quota(&share, accounted)?;
     let share_path = share.path.replace('\\', "/");
     let kb_root = knowledge_base_root(&state, &share_path);
-    let images_dir = if let Some(root) = kb_root {
+    let images_dir = if let Some(root) = &kb_root {
         format!("{root}/images")
     } else if share.is_directory {
         format!("{share_path}/images")
@@ -390,12 +416,17 @@ async fn upload_image(
             }
         )
     };
+    let runtime = roots(&state);
+    let authorization_root = image_scope_root(&state, &share);
     let mut logical = format!("{images_dir}/{name}");
     let mut index = 1;
-    while media::resolve(&state.config, &roots(&state), &logical)?
-        .full
-        .exists()
-    {
+    let mut authorized = shares::authorize_grant_logical_path(
+        &state.config,
+        &runtime,
+        &authorization_root,
+        &logical,
+    )?;
+    while authorized.full.exists() {
         let stem = FsPath::new(&name)
             .file_stem()
             .unwrap_or_default()
@@ -407,8 +438,14 @@ async fn upload_image(
         name = format!("{stem}_{index}.{suffix}");
         logical = format!("{images_dir}/{name}");
         index += 1;
+        authorized = shares::authorize_grant_logical_path(
+            &state.config,
+            &runtime,
+            &authorization_root,
+            &logical,
+        )?;
     }
-    let full = media::resolve(&state.config, &roots(&state), &logical)?.full;
+    let full = authorized.full;
     if let Some(parent) = full.parent() {
         fs::create_dir_all(parent).await.map_err(AppError::io)?
     }
@@ -565,7 +602,12 @@ async fn cancel_image(
             "Cannot delete file: Path is not in an editable folder",
         ));
     }
-    let full = match media::resolve(&state.config, &roots(&state), &grant.image_path) {
+    let full = match shares::authorize_grant_logical_path(
+        &state.config,
+        &roots(&state),
+        &image_scope_root(&state, &share),
+        &grant.image_path,
+    ) {
         Ok(resolved) => resolved.full,
         Err(error) => {
             restore_image_grant(&state, id, grant).await;
@@ -598,7 +640,7 @@ async fn kb_image(
     let target = path.replace('\\', "/");
     let root = knowledge_base_root(&state, &share.path);
     let allowed = share.is_directory
-        && root.is_some_and(|root| {
+        && root.as_ref().is_some_and(|root| {
             let image_dir = format!("{root}/images");
             let extension = FsPath::new(&target)
                 .extension()
@@ -624,6 +666,12 @@ async fn kb_image(
     if !allowed {
         return Err(AppError::forbidden("Invalid path"));
     }
+    shares::authorize_grant_logical_path(
+        &state.config,
+        &roots(&state),
+        root.as_deref().unwrap_or(&share.path),
+        &target,
+    )?;
     let mut response = media_routes::media_path(&state, &target, &headers).await?;
     response.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
@@ -644,7 +692,13 @@ async fn download(
 ) -> AppResult<Response> {
     let share = validate(&state, &token, &headers)?;
     let logical = if share.is_directory {
-        shares::resolve_subpath(&share, query.path.as_deref().unwrap_or(""))?
+        shares::resolve_authorized_subpath(
+            &state.config,
+            &roots(&state),
+            &share,
+            query.path.as_deref().unwrap_or(""),
+        )?
+        .logical
     } else {
         share.path
     };

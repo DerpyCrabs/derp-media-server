@@ -585,6 +585,19 @@ async function captureMode(
         ownerRef,
         `${mode.label}: owner inspect changed Resource identity`,
       )
+      const ownerResolve = object(
+        await jsonRequest(
+          `${server.baseUrl}/api/resources/resolve?legacyLocator=${encodeURIComponent('Documents/readme.txt')}` +
+            '&surface=workspace',
+          { headers: ownerHeaders },
+        ),
+        `${mode.label}: owner resolve returned invalid JSON`,
+      )
+      assertDeep(
+        object(object(ownerResolve.summary, 'owner resolve omitted summary').ref, 'resolve ref'),
+        ownerRef,
+        `${mode.label}: owner legacy resolution changed Resource identity`,
+      )
       const grantRef = resourceRef(grantPublic, 'directory share public-doc')
       const grantInspect = object(
         await jsonRequest(
@@ -599,6 +612,19 @@ async function captureMode(
         object(object(grantInspect.summary, 'Grant inspect omitted summary').ref, 'inspect ref'),
         grantRef,
         `${mode.label}: Grant inspect changed Resource identity`,
+      )
+      const grantResolve = object(
+        await jsonRequest(
+          `${server.baseUrl}/api/share/${directoryToken}/resources/resolve?` +
+            `legacyLocator=${encodeURIComponent('SharedContent/public-doc.txt')}`,
+          { headers: directoryHeaders },
+        ),
+        `${mode.label}: Grant resolve returned invalid JSON`,
+      )
+      assertDeep(
+        object(object(grantResolve.summary, 'Grant resolve omitted summary').ref, 'resolve ref'),
+        grantRef,
+        `${mode.label}: Grant legacy resolution changed Resource identity`,
       )
     } else {
       assert(resourceCount === 0, `${mode.label}: rollback leaked ${resourceCount} Resource fields`)
@@ -627,10 +653,36 @@ async function captureMode(
         expectedUnsupported,
         `${mode.label}: Grant inspect rollback error was not typed`,
       )
+      const expectedResolveUnsupported = {
+        code: 'unsupported',
+        message: 'Resource legacy resolution is disabled by catalog_reads rollback',
+      }
+      const ownerResolve = await fetch(
+        `${server.baseUrl}/api/resources/resolve?legacyLocator=${encodeURIComponent('Documents/readme.txt')}` +
+          '&surface=workspace',
+        { headers: ownerHeaders },
+      )
+      assert(ownerResolve.status === 400, `${mode.label}: owner resolve was not disabled`)
+      assertDeep(
+        await ownerResolve.json(),
+        expectedResolveUnsupported,
+        `${mode.label}: owner resolve rollback error was not typed`,
+      )
+      const grantResolve = await fetch(
+        `${server.baseUrl}/api/share/${directoryToken}/resources/resolve?` +
+          `legacyLocator=${encodeURIComponent('SharedContent/public-doc.txt')}`,
+        { headers: directoryHeaders },
+      )
+      assert(grantResolve.status === 400, `${mode.label}: Grant resolve was not disabled`)
+      assertDeep(
+        await grantResolve.json(),
+        expectedResolveUnsupported,
+        `${mode.label}: Grant resolve rollback error was not typed`,
+      )
     }
 
     console.log(
-      `${mode.label}: owner API/SSR, directory Grant API/SSR, single-file read, Hermes root/archive passed (${resourceCount} Resource fields)`,
+      `${mode.label}: owner API/SSR, inspect/resolve, directory Grant API/SSR/inspect/resolve, single-file read, Hermes root/archive passed (${resourceCount} Resource fields)`,
     )
     return {
       label: mode.label,

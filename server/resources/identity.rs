@@ -1,6 +1,9 @@
 use super::{LibraryId, ResourceId, SourceId};
 use crate::{config::Config, error::AppError, state_db};
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{
+    Connection, OptionalExtension, ToSql, Transaction, TransactionBehavior, params,
+    params_from_iter,
+};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     path::{Component, Path, PathBuf},
@@ -34,17 +37,253 @@ pub(crate) struct StoredResourceIdentity {
     pub(crate) legacy_locator: Option<String>,
 }
 
-type IdentityMatch = (String, String, String, String, String);
+struct IdentityMatch {
+    resource_id: String,
+    provider_locator: String,
+    status: String,
+    provider: String,
+    canonical_locator: String,
+    kind: String,
+    fingerprint: Option<String>,
+}
+
+const EXACT_OBSERVATION_LOOKUP_CHUNK: usize = 400;
+const OBSERVATION_WRITE_CHUNK: usize = 100;
+
+struct ExactObservedIdentity {
+    resource_id: String,
+    platform_identity: Option<String>,
+    kind: String,
+    fingerprint: Option<String>,
+    current_legacy_locator: Option<String>,
+    status: String,
+    has_current_legacy_locator: bool,
+}
+
+struct PendingIdentityWrite<'a> {
+    resource_id: String,
+    observed: &'a ObservedResourceIdentity,
+}
+
+fn exact_observed_identities(
+    transaction: &Transaction<'_>,
+    source_id: &SourceId,
+    observed: &[ObservedResourceIdentity],
+) -> Result<HashMap<String, ExactObservedIdentity>, AppError> {
+    let mut exact = HashMap::with_capacity(observed.len());
+    for chunk in observed.chunks(EXACT_OBSERVATION_LOOKUP_CHUNK) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!(
+            "SELECT r.provider_locator,r.id,r.platform_identity,r.kind,r.fingerprint,
+               r.current_legacy_locator,r.status,
+               EXISTS(
+                 SELECT 1 FROM resource_legacy_locators l
+                 WHERE l.resource_id=r.id AND l.legacy_locator=r.current_legacy_locator
+               )
+             FROM resources r
+             WHERE r.source_id=? AND r.provider_locator IN ({placeholders})"
+        );
+        let mut statement = transaction
+            .prepare(&query)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        let rows = statement
+            .query_map(
+                params_from_iter(
+                    std::iter::once(source_id.as_str())
+                        .chain(chunk.iter().map(|item| item.provider_locator.as_str())),
+                ),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        ExactObservedIdentity {
+                            resource_id: row.get(1)?,
+                            platform_identity: row.get(2)?,
+                            kind: row.get(3)?,
+                            fingerprint: row.get(4)?,
+                            current_legacy_locator: row.get(5)?,
+                            status: row.get(6)?,
+                            has_current_legacy_locator: row.get(7)?,
+                        },
+                    ))
+                },
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        for row in rows {
+            let (provider_locator, identity) =
+                row.map_err(|error| AppError::internal(error.to_string()))?;
+            exact.insert(provider_locator, identity);
+        }
+    }
+    Ok(exact)
+}
+
+fn identity_matches_by_key(
+    transaction: &Transaction<'_>,
+    source_id: &SourceId,
+    column: &'static str,
+    keys: &[&str],
+) -> Result<HashMap<String, Vec<IdentityMatch>>, AppError> {
+    debug_assert!(matches!(column, "platform_identity" | "fingerprint"));
+    let mut matches = HashMap::<String, Vec<IdentityMatch>>::new();
+    for chunk in keys.chunks(EXACT_OBSERVATION_LOOKUP_CHUNK) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!(
+            "SELECT r.{column},r.id,r.provider_locator,r.status,s.provider,
+               s.canonical_locator,r.kind,r.fingerprint
+             FROM resources r
+             JOIN sources s ON s.id=r.source_id
+             WHERE r.source_id=? AND r.{column} IN ({placeholders})"
+        );
+        let mut statement = transaction
+            .prepare(&query)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        let rows = statement
+            .query_map(
+                params_from_iter(std::iter::once(source_id.as_str()).chain(chunk.iter().copied())),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        IdentityMatch {
+                            resource_id: row.get(1)?,
+                            provider_locator: row.get(2)?,
+                            status: row.get(3)?,
+                            provider: row.get(4)?,
+                            canonical_locator: row.get(5)?,
+                            kind: row.get(6)?,
+                            fingerprint: row.get(7)?,
+                        },
+                    ))
+                },
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        for row in rows {
+            let (key, identity) = row.map_err(|error| AppError::internal(error.to_string()))?;
+            matches.entry(key).or_default().push(identity);
+        }
+    }
+    Ok(matches)
+}
+
+fn write_observed_identities(
+    transaction: &Transaction<'_>,
+    library_id: &LibraryId,
+    source_id: &SourceId,
+    writes: &[PendingIdentityWrite<'_>],
+    now: i64,
+) -> Result<(), AppError> {
+    let library_id = library_id.as_str().to_string();
+    let source_id = source_id.as_str().to_string();
+    for chunk in writes.chunks(OBSERVATION_WRITE_CHUNK) {
+        let rows = std::iter::repeat_n("(?,?,?,?,?,?,?,?,'present',?,?,NULL)", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!(
+            "INSERT INTO resources(
+               id,library_id,source_id,provider_locator,kind,platform_identity,
+               fingerprint,current_legacy_locator,status,first_seen_at,last_seen_at,
+               missing_since
+             ) VALUES {rows}
+             ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,
+               platform_identity=COALESCE(excluded.platform_identity,resources.platform_identity),
+               fingerprint=excluded.fingerprint,
+               current_legacy_locator=excluded.current_legacy_locator,
+               status='present',missing_since=NULL,last_seen_at=excluded.last_seen_at"
+        );
+        let mut values = Vec::<&dyn ToSql>::with_capacity(chunk.len() * 10);
+        for write in chunk {
+            values.extend([
+                &write.resource_id as &dyn ToSql,
+                &library_id,
+                &source_id,
+                &write.observed.provider_locator,
+                &write.observed.kind,
+                &write.observed.platform_identity,
+                &write.observed.fingerprint,
+                &write.observed.legacy_locator,
+                &now,
+                &now,
+            ]);
+        }
+        transaction
+            .execute(&query, params_from_iter(values))
+            .map_err(|error| AppError::internal(error.to_string()))?;
+    }
+    for chunk in writes.chunks(OBSERVATION_WRITE_CHUNK) {
+        let rows = std::iter::repeat_n("(?,?,?,?)", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!(
+            "INSERT INTO resource_legacy_locators(
+               resource_id,legacy_locator,first_seen_at,last_seen_at
+             ) VALUES {rows}
+             ON CONFLICT(resource_id,legacy_locator) DO UPDATE
+               SET last_seen_at=excluded.last_seen_at"
+        );
+        let mut values = Vec::<&dyn ToSql>::with_capacity(chunk.len() * 4);
+        for write in chunk {
+            values.extend([
+                &write.resource_id as &dyn ToSql,
+                &write.observed.legacy_locator,
+                &now,
+                &now,
+            ]);
+        }
+        transaction
+            .execute(&query, params_from_iter(values))
+            .map_err(|error| AppError::internal(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn stable_exact_identity<'a>(
+    exact: &'a ExactObservedIdentity,
+    observed: &ObservedResourceIdentity,
+) -> Option<&'a str> {
+    let platform_unchanged = observed
+        .platform_identity
+        .as_ref()
+        .is_none_or(|identity| exact.platform_identity.as_ref() == Some(identity));
+    (exact.status == "present"
+        && exact.kind == observed.kind
+        && platform_unchanged
+        && exact.fingerprint == observed.fingerprint
+        && exact.current_legacy_locator.as_deref() == Some(&observed.legacy_locator)
+        && exact.has_current_legacy_locator)
+        .then_some(exact.resource_id.as_str())
+}
+
+fn exact_identity_conflicts(
+    exact: &ExactObservedIdentity,
+    observed: &ObservedResourceIdentity,
+) -> bool {
+    let platform_conflict = observed.platform_identity.as_ref().is_some_and(|identity| {
+        exact
+            .platform_identity
+            .as_ref()
+            .is_some_and(|stored| stored != identity)
+    });
+    let weak_fingerprint_conflict = exact.platform_identity.is_none()
+        && observed.platform_identity.is_none()
+        && exact
+            .fingerprint
+            .as_ref()
+            .zip(observed.fingerprint.as_ref())
+            .is_some_and(|(stored, identity)| stored != identity);
+    exact.kind != observed.kind || platform_conflict || weak_fingerprint_conflict
+}
 
 fn prior_locator_is_absent(candidate: &IdentityMatch) -> bool {
-    let (_, locator, status, provider, canonical_locator) = candidate;
-    if status == "missing" {
+    if candidate.status == "missing" {
         return true;
     }
-    if provider != "filesystem" {
+    if candidate.provider != "filesystem" {
         return false;
     }
-    let relative = Path::new(locator);
+    let relative = Path::new(&candidate.provider_locator);
     if relative.is_absolute()
         || relative
             .components()
@@ -52,7 +291,17 @@ fn prior_locator_is_absent(candidate: &IdentityMatch) -> bool {
     {
         return false;
     }
-    !Path::new(canonical_locator).join(relative).exists()
+    !Path::new(&candidate.canonical_locator)
+        .join(relative)
+        .exists()
+}
+
+fn can_relocate_identity(candidate: &IdentityMatch, observed: &ObservedResourceIdentity) -> bool {
+    let fingerprints_compatible = match (&candidate.fingerprint, &observed.fingerprint) {
+        (Some(stored), Some(observed)) => stored == observed,
+        _ => true,
+    };
+    candidate.kind == observed.kind && fingerprints_compatible && prior_locator_is_absent(candidate)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -330,8 +579,25 @@ fn comparable_legacy_key(current: &str, candidate: &str) -> bool {
     }
     let current = legacy_key_parts(current);
     let candidate = legacy_key_parts(candidate);
-    if current.len() != candidate.len() || current.is_empty() {
+    if current.is_empty() || candidate.is_empty() {
         return false;
+    }
+    if current.len() != candidate.len() {
+        let (smaller, larger) = if current.len() < candidate.len() {
+            (&current, &candidate)
+        } else {
+            (&candidate, &current)
+        };
+        let unique_smaller_paths = smaller
+            .iter()
+            .map(|(_, path)| path)
+            .collect::<BTreeSet<_>>();
+        let unique_larger_paths = larger.iter().map(|(_, path)| path).collect::<BTreeSet<_>>();
+        if unique_smaller_paths.len() != smaller.len() || unique_larger_paths.len() != larger.len()
+        {
+            return false;
+        }
+        return unique_smaller_paths.is_subset(&unique_larger_paths);
     }
     let current_pairs = current.iter().cloned().collect::<BTreeSet<_>>();
     let candidate_pairs = candidate.iter().cloned().collect::<BTreeSet<_>>();
@@ -446,18 +712,30 @@ fn reconcile_config_sources(
     library_id: &str,
 ) -> Result<(), String> {
     let existing = load_sources(transaction, library_id)?;
-    let mut used = HashSet::new();
     let mut matches = Vec::new();
+    let mut configured_paths = HashMap::<String, &str>::new();
     for root in &config.roots {
         let locator = canonical_locator(&root.path)?;
+        if let Some(existing_name) = configured_paths.insert(locator.clone(), &root.name) {
+            return Err(format!(
+                "Resource identity recovery required: configured Sources \"{existing_name}\" and \"{}\" use the same canonical filesystem path",
+                root.name
+            ));
+        }
         let explicit = explicit_configured_id(&root.id);
+        matches.push((root, locator, explicit.map(str::to_string), None));
+    }
+
+    let mut strong_claims = HashMap::<String, usize>::new();
+    let mut strong_proposals = Vec::new();
+    for (index, (root, locator, explicit, _)) in matches.iter().enumerate() {
         let candidates = existing
             .iter()
-            .filter(|source| !used.contains(&source.id))
             .filter(|source| {
-                explicit.is_some_and(|id| source.configured_id.as_deref() == Some(id))
-                    || source.legacy_ids.contains(&root.id)
-                    || source.canonical_locator == locator
+                explicit
+                    .as_deref()
+                    .is_some_and(|id| source.configured_id.as_deref() == Some(id))
+                    || source.canonical_locator == *locator
             })
             .collect::<Vec<_>>();
         if candidates.len() > 1 {
@@ -466,11 +744,51 @@ fn reconcile_config_sources(
                 root.name
             ));
         }
-        let matched = candidates.first().map(|source| source.id.clone());
-        if let Some(source_id) = &matched {
-            used.insert(source_id.clone());
+        if let Some(source) = candidates.first() {
+            if let Some(other_index) = strong_claims.insert(source.id.clone(), index) {
+                return Err(format!(
+                    "Resource identity recovery required: configured Sources \"{}\" and \"{}\" match the same retained Source",
+                    matches[other_index].0.name, root.name
+                ));
+            }
+            strong_proposals.push((index, source.id.clone()));
         }
-        matches.push((root, locator, explicit.map(str::to_string), matched));
+    }
+    for (index, source_id) in strong_proposals {
+        matches[index].3 = Some(source_id);
+    }
+
+    let mut used = strong_claims.into_keys().collect::<HashSet<_>>();
+    let mut legacy_claims = HashMap::<String, usize>::new();
+    let mut legacy_proposals = Vec::new();
+    for (index, (root, _, _, matched)) in matches.iter().enumerate() {
+        if matched.is_some() {
+            continue;
+        }
+        let candidates = existing
+            .iter()
+            .filter(|source| !used.contains(&source.id))
+            .filter(|source| source.legacy_ids.contains(&root.id))
+            .collect::<Vec<_>>();
+        if candidates.len() > 1 {
+            return Err(format!(
+                "Resource identity recovery required: configured Source \"{}\" matches multiple retained Sources",
+                root.name
+            ));
+        }
+        if let Some(source) = candidates.first() {
+            if let Some(other_index) = legacy_claims.insert(source.id.clone(), index) {
+                return Err(format!(
+                    "Resource identity recovery required: configured Sources \"{}\" and \"{}\" match the same retained Source only through historical aliases",
+                    matches[other_index].0.name, root.name
+                ));
+            }
+            legacy_proposals.push((index, source.id.clone()));
+        }
+    }
+    for (index, source_id) in legacy_proposals {
+        used.insert(source_id.clone());
+        matches[index].3 = Some(source_id);
     }
     let unmatched_existing = existing
         .iter()
@@ -672,7 +990,7 @@ impl IdentityStore {
                  LEFT JOIN source_legacy_keys k ON k.source_id=s.id
                  WHERE s.library_id=?1 AND s.provider='filesystem'
                    AND (k.legacy_id=?2 OR s.canonical_locator=?3)
-                 ORDER BY CASE WHEN k.legacy_id=?2 THEN 0 ELSE 1 END
+                 ORDER BY CASE WHEN s.canonical_locator=?3 THEN 0 ELSE 1 END,s.id
                  LIMIT 1",
                 params![self.library_id.as_str(), legacy_id, locator],
                 |row| {
@@ -779,6 +1097,7 @@ impl IdentityStore {
             .map_err(|error| AppError::internal(error.to_string()))?;
         let mut result = Vec::with_capacity(observed.len());
         let now = now_ms();
+        let exact_observed = exact_observed_identities(&transaction, source_id, observed)?;
         let mut platform_counts = HashMap::<String, usize>::new();
         let mut fingerprint_counts = HashMap::<String, usize>::new();
         for item in observed {
@@ -789,210 +1108,125 @@ impl IdentityStore {
                 *fingerprint_counts.entry(fingerprint.clone()).or_default() += 1;
             }
         }
-        for item in observed {
-            let exact: Option<(
-                String,
-                Option<String>,
-                String,
-                Option<String>,
-                Option<String>,
-                String,
-                bool,
-            )> = transaction
-                .query_row(
-                    "SELECT id,platform_identity,kind,fingerprint,current_legacy_locator,status,
-                       EXISTS(
-                         SELECT 1 FROM resource_legacy_locators l
-                         WHERE l.resource_id=resources.id AND l.legacy_locator=?3
-                       )
-                     FROM resources
-                     WHERE source_id=?1 AND provider_locator=?2",
-                    params![
-                        source_id.as_str(),
-                        item.provider_locator,
-                        item.legacy_locator
-                    ],
-                    |row| {
-                        Ok((
-                            row.get(0)?,
-                            row.get(1)?,
-                            row.get(2)?,
-                            row.get(3)?,
-                            row.get(4)?,
-                            row.get(5)?,
-                            row.get(6)?,
-                        ))
-                    },
+        let needs_identity_match = |item: &ObservedResourceIdentity| {
+            exact_observed
+                .get(&item.provider_locator)
+                .is_none_or(|exact| exact_identity_conflicts(exact, item))
+        };
+        let platform_keys = observed
+            .iter()
+            .filter(|item| needs_identity_match(item))
+            .filter_map(|item| item.platform_identity.as_deref())
+            .filter(|identity| platform_counts.get(*identity) == Some(&1))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let fingerprint_keys = observed
+            .iter()
+            .filter(|item| needs_identity_match(item))
+            .filter(|item| item.platform_identity.is_none())
+            .filter_map(|item| item.fingerprint.as_deref())
+            .filter(|fingerprint| fingerprint_counts.get(*fingerprint) == Some(&1))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let platform_matches =
+            identity_matches_by_key(&transaction, source_id, "platform_identity", &platform_keys)?;
+        let fingerprint_matches =
+            identity_matches_by_key(&transaction, source_id, "fingerprint", &fingerprint_keys)?;
+        let mut pending_writes = Vec::with_capacity(observed.len());
+        {
+            let mut mark_missing = transaction
+                .prepare(
+                    "UPDATE resources SET provider_locator=?2,status='missing',
+                       missing_since=COALESCE(missing_since,?3),last_seen_at=?3
+                     WHERE id=?1",
                 )
-                .optional()
                 .map_err(|error| AppError::internal(error.to_string()))?;
-            let exact = if let Some((
-                resource_id,
-                stored_platform,
-                stored_kind,
-                stored_fingerprint,
-                stored_legacy_locator,
-                stored_status,
-                has_legacy_locator,
-            )) = exact
-            {
-                let strong_conflict = item.platform_identity.as_ref().is_some_and(|observed| {
-                    stored_platform
-                        .as_ref()
-                        .is_some_and(|stored| stored != observed)
-                });
-                if strong_conflict {
-                    transaction
-                        .execute(
-                            "UPDATE resources SET provider_locator=?2,status='missing',
-                               missing_since=COALESCE(missing_since,?3),last_seen_at=?3
-                             WHERE id=?1",
-                            params![
-                                resource_id,
-                                format!("missing:{resource_id}:{}", uuid::Uuid::new_v4()),
+            let mut relocate = transaction
+                .prepare(
+                    "UPDATE resources SET provider_locator=?2,status='present',
+                       missing_since=NULL,last_seen_at=?3,kind=?4,fingerprint=?5,
+                       current_legacy_locator=?6
+                     WHERE id=?1",
+                )
+                .map_err(|error| AppError::internal(error.to_string()))?;
+
+            for item in observed {
+                if let Some(resource_id) = exact_observed
+                    .get(&item.provider_locator)
+                    .and_then(|exact| stable_exact_identity(exact, item))
+                {
+                    result.push(ResourceId::new(resource_id));
+                    continue;
+                }
+                let exact = if let Some(exact) = exact_observed.get(&item.provider_locator) {
+                    if exact_identity_conflicts(exact, item) {
+                        mark_missing
+                            .execute(params![
+                                exact.resource_id,
+                                format!("missing:{}:{}", exact.resource_id, uuid::Uuid::new_v4()),
                                 now
-                            ],
-                        )
-                        .map_err(|error| AppError::internal(error.to_string()))?;
-                    None
+                            ])
+                            .map_err(|error| AppError::internal(error.to_string()))?;
+                        None
+                    } else {
+                        Some(exact.resource_id.clone())
+                    }
                 } else {
-                    let platform_unchanged = item
+                    None
+                };
+                let resource_id = if let Some(resource_id) = exact {
+                    resource_id
+                } else {
+                    let no_matches: &[IdentityMatch] = &[];
+                    let matches = item
                         .platform_identity
                         .as_ref()
-                        .is_none_or(|observed| stored_platform.as_ref() == Some(observed));
-                    if stored_status == "present"
-                        && stored_kind == item.kind
-                        && platform_unchanged
-                        && stored_fingerprint == item.fingerprint
-                        && stored_legacy_locator.as_deref() == Some(&item.legacy_locator)
-                        && has_legacy_locator
-                    {
-                        result.push(ResourceId::new(resource_id));
-                        continue;
-                    }
-                    Some(resource_id)
-                }
-            } else {
-                None
-            };
-            let resource_id = if let Some(resource_id) = exact {
-                resource_id
-            } else {
-                let mut matches = if let Some(platform_identity) = &item.platform_identity
-                    && platform_counts.get(platform_identity) == Some(&1)
-                {
-                    let mut statement = transaction
-                        .prepare(
-                            "SELECT r.id,r.provider_locator,r.status,s.provider,
-                               s.canonical_locator
-                             FROM resources r
-                             JOIN sources s ON s.id=r.source_id
-                             WHERE r.source_id=?1 AND r.platform_identity=?2",
-                        )
-                        .map_err(|error| AppError::internal(error.to_string()))?;
-                    statement
-                        .query_map(params![source_id.as_str(), platform_identity], |row| {
-                            Ok((
-                                row.get(0)?,
-                                row.get(1)?,
-                                row.get(2)?,
-                                row.get(3)?,
-                                row.get(4)?,
-                            ))
-                        })
-                        .map_err(|error| AppError::internal(error.to_string()))?
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|error| AppError::internal(error.to_string()))?
-                } else {
-                    Vec::new()
-                };
-                if item.platform_identity.is_none()
-                    && matches.is_empty()
-                    && let Some(fingerprint) = &item.fingerprint
-                    && fingerprint_counts.get(fingerprint) == Some(&1)
-                {
-                    let mut statement = transaction
-                        .prepare(
-                            "SELECT r.id,r.provider_locator,r.status,s.provider,
-                               s.canonical_locator
-                             FROM resources r
-                             JOIN sources s ON s.id=r.source_id
-                             WHERE r.source_id=?1 AND r.fingerprint=?2",
-                        )
-                        .map_err(|error| AppError::internal(error.to_string()))?;
-                    matches = statement
-                        .query_map(params![source_id.as_str(), fingerprint], |row| {
-                            Ok((
-                                row.get(0)?,
-                                row.get(1)?,
-                                row.get(2)?,
-                                row.get(3)?,
-                                row.get(4)?,
-                            ))
-                        })
-                        .map_err(|error| AppError::internal(error.to_string()))?
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|error| AppError::internal(error.to_string()))?;
-                }
-                if matches.len() == 1 && prior_locator_is_absent(&matches[0]) {
-                    transaction
-                        .execute(
-                            "UPDATE resources SET provider_locator=?2,status='present',
-                               missing_since=NULL,last_seen_at=?3,kind=?4,fingerprint=?5,
-                               current_legacy_locator=?6
-                             WHERE id=?1",
-                            params![
-                                matches[0].0,
+                        .filter(|identity| platform_counts.get(*identity) == Some(&1))
+                        .and_then(|identity| platform_matches.get(identity))
+                        .map(Vec::as_slice)
+                        .unwrap_or(no_matches);
+                    let matches = if item.platform_identity.is_none() && matches.is_empty() {
+                        item.fingerprint
+                            .as_ref()
+                            .filter(|fingerprint| fingerprint_counts.get(*fingerprint) == Some(&1))
+                            .and_then(|fingerprint| fingerprint_matches.get(fingerprint))
+                            .map(Vec::as_slice)
+                            .unwrap_or(matches)
+                    } else {
+                        matches
+                    };
+                    if matches.len() == 1 && can_relocate_identity(&matches[0], item) {
+                        relocate
+                            .execute(params![
+                                matches[0].resource_id,
                                 item.provider_locator,
                                 now,
                                 item.kind,
                                 item.fingerprint,
                                 item.legacy_locator
-                            ],
-                        )
-                        .map_err(|error| AppError::internal(error.to_string()))?;
-                    matches[0].0.clone()
-                } else {
-                    format!("resource-{}", uuid::Uuid::new_v4())
-                }
-            };
-            transaction
-                .execute(
-                    "INSERT INTO resources(
-                       id,library_id,source_id,provider_locator,kind,platform_identity,
-                       fingerprint,current_legacy_locator,status,first_seen_at,last_seen_at,
-                       missing_since
-                     ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'present',?9,?9,NULL)
-                     ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,
-                       platform_identity=COALESCE(excluded.platform_identity,resources.platform_identity),
-                       fingerprint=excluded.fingerprint,
-                       current_legacy_locator=excluded.current_legacy_locator,
-                       status='present',missing_since=NULL,last_seen_at=excluded.last_seen_at",
-                    params![
-                        resource_id,
-                        self.library_id.as_str(),
-                        source_id.as_str(),
-                        item.provider_locator,
-                        item.kind,
-                        item.platform_identity,
-                        item.fingerprint,
-                        item.legacy_locator,
-                        now
-                    ],
-                )
-                .map_err(|error| AppError::internal(error.to_string()))?;
-            transaction
-                .execute(
-                    "INSERT INTO resource_legacy_locators(
-                       resource_id,legacy_locator,first_seen_at,last_seen_at
-                     ) VALUES(?1,?2,?3,?3)
-                     ON CONFLICT(resource_id,legacy_locator) DO UPDATE
-                       SET last_seen_at=excluded.last_seen_at",
-                    params![resource_id, item.legacy_locator, now],
-                )
-                .map_err(|error| AppError::internal(error.to_string()))?;
-            result.push(ResourceId::new(resource_id));
+                            ])
+                            .map_err(|error| AppError::internal(error.to_string()))?;
+                        matches[0].resource_id.clone()
+                    } else {
+                        format!("resource-{}", uuid::Uuid::new_v4())
+                    }
+                };
+                result.push(ResourceId::new(resource_id.clone()));
+                pending_writes.push(PendingIdentityWrite {
+                    resource_id,
+                    observed: item,
+                });
+            }
         }
+        write_observed_identities(
+            &transaction,
+            &self.library_id,
+            source_id,
+            &pending_writes,
+            now,
+        )?;
         transaction
             .commit()
             .map_err(|error| AppError::internal(error.to_string()))?;
@@ -1040,29 +1274,31 @@ impl IdentityStore {
     pub(crate) fn by_legacy_locator(
         &self,
         legacy_locator: &str,
-    ) -> Result<Option<StoredResourceIdentity>, AppError> {
+    ) -> Result<Vec<StoredResourceIdentity>, AppError> {
         let connection = state_db::connection(&self.database)?;
-        connection
-            .query_row(
+        let mut statement = connection
+            .prepare(
                 "SELECT r.id,r.source_id,r.provider_locator,r.kind,r.status,
                    r.current_legacy_locator
                  FROM resource_legacy_locators l
                  JOIN resources r ON r.id=l.resource_id
                  WHERE r.library_id=?1 AND l.legacy_locator=?2
-                 ORDER BY l.last_seen_at DESC LIMIT 1",
-                params![self.library_id.as_str(), legacy_locator],
-                |row| {
-                    Ok(StoredResourceIdentity {
-                        resource_id: ResourceId::new(row.get::<_, String>(0)?),
-                        source_id: SourceId::new(row.get::<_, String>(1)?),
-                        provider_locator: row.get(2)?,
-                        kind: row.get(3)?,
-                        status: row.get(4)?,
-                        legacy_locator: row.get(5)?,
-                    })
-                },
+                 ORDER BY l.last_seen_at DESC,r.id",
             )
-            .optional()
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        statement
+            .query_map(params![self.library_id.as_str(), legacy_locator], |row| {
+                Ok(StoredResourceIdentity {
+                    resource_id: ResourceId::new(row.get::<_, String>(0)?),
+                    source_id: SourceId::new(row.get::<_, String>(1)?),
+                    provider_locator: row.get(2)?,
+                    kind: row.get(3)?,
+                    status: row.get(4)?,
+                    legacy_locator: row.get(5)?,
+                })
+            })
+            .map_err(|error| AppError::internal(error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|error| AppError::internal(error.to_string()))
     }
 
@@ -1257,6 +1493,122 @@ mod tests {
     }
 
     #[test]
+    fn historical_display_alias_cannot_steal_path_claim_across_root_reorder() {
+        let base = fixture("source-old-name-reuse");
+        let original = base.join("original");
+        let added = base.join("added");
+        std::fs::create_dir_all(&original).unwrap();
+        std::fs::create_dir_all(&added).unwrap();
+        let mut initial = config(
+            &base,
+            vec![root("config:foo", "Foo", original.clone())],
+            original.to_str().unwrap(),
+        );
+        state_db::initialize(&initial).unwrap();
+        let first = initialize_identity(&mut initial).unwrap();
+        let original_source = first.source_for_root("config:foo", &original).unwrap().0;
+
+        let mut reused_name_first = config(
+            &base,
+            vec![
+                root("config:foo", "Foo", added.clone()),
+                root("configured:a", "Bar", original.clone()),
+            ],
+            &format!("Foo:{}|Bar:{}", added.display(), original.display()),
+        );
+        state_db::initialize(&reused_name_first).unwrap();
+        let second = initialize_identity(&mut reused_name_first).unwrap();
+        let retained = second.source_for_root("configured:a", &original).unwrap().0;
+        let added_source = second.source_for_root("config:foo", &added).unwrap().0;
+
+        assert_eq!(retained, original_source);
+        assert_ne!(added_source, original_source);
+
+        let mut reordered = config(
+            &base,
+            vec![
+                root("configured:a", "Bar", original.clone()),
+                root("config:foo", "Foo", added.clone()),
+            ],
+            &format!("Bar:{}|Foo:{}", original.display(), added.display()),
+        );
+        state_db::initialize(&reordered).unwrap();
+        let third = initialize_identity(&mut reordered).unwrap();
+        assert_eq!(
+            third.source_for_root("configured:a", &original).unwrap().0,
+            original_source
+        );
+        assert_eq!(
+            third.source_for_root("config:foo", &added).unwrap().0,
+            added_source
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn duplicate_canonical_configured_root_paths_require_recovery() {
+        let base = fixture("source-duplicate-canonical-path");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![
+                root("configured:one", "One", media.clone()),
+                root("configured:two", "Two", media.clone()),
+            ],
+            &format!("One:{}|Two:{}", media.display(), media.display()),
+        );
+        state_db::initialize(&config).unwrap();
+
+        let error = initialize_identity(&mut config).unwrap_err();
+
+        assert!(error.contains("same canonical filesystem path"));
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn duplicate_historical_source_alias_without_path_match_requires_recovery() {
+        let base = fixture("source-duplicate-historical-alias");
+        let one = base.join("one");
+        let two = base.join("two");
+        let replacement = base.join("replacement");
+        std::fs::create_dir_all(&one).unwrap();
+        std::fs::create_dir_all(&two).unwrap();
+        std::fs::create_dir_all(&replacement).unwrap();
+        let mut initial = config(
+            &base,
+            vec![
+                root("config:foo", "Foo", one.clone()),
+                root("config:bar", "Bar", two.clone()),
+            ],
+            &format!("Foo:{}|Bar:{}", one.display(), two.display()),
+        );
+        state_db::initialize(&initial).unwrap();
+        let identity = initialize_identity(&mut initial).unwrap();
+        let second_source = identity.source_for_root("config:bar", &two).unwrap().0;
+        let connection = state_db::connection(identity.database()).unwrap();
+        connection
+            .execute(
+                "INSERT INTO source_legacy_keys(source_id,legacy_id,first_seen_at,last_seen_at)
+                 VALUES(?1,'config:foo',1,1)",
+                [second_source.as_str()],
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut ambiguous = config(
+            &base,
+            vec![root("config:foo", "Foo", replacement.clone())],
+            replacement.to_str().unwrap(),
+        );
+        state_db::initialize(&ambiguous).unwrap();
+        let error = initialize_identity(&mut ambiguous).unwrap_err();
+
+        assert!(error.contains("matches multiple retained Sources"));
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn simultaneous_name_and_path_change_without_id_requires_recovery() {
         let base = fixture("ambiguous");
         let original = base.join("original");
@@ -1428,6 +1780,170 @@ mod tests {
         assert_eq!(versions, 1);
         drop(connection);
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn first_stage2_upgrade_accepts_one_to_two_root_namespace_change() {
+        let base = fixture("first-upgrade-one-to-two-roots");
+        let retained = base.join("retained");
+        let added = base.join("added");
+        std::fs::create_dir_all(&retained).unwrap();
+        std::fs::create_dir_all(&added).unwrap();
+        let old_key = retained.to_string_lossy().to_string();
+        let current_key = format!("Cinema:{}|Added:{}", retained.display(), added.display());
+        let mut config = config(
+            &base,
+            vec![
+                root("config:retained", "Cinema", retained.clone()),
+                root("config:added", "Added", added.clone()),
+            ],
+            &current_key,
+        );
+        state_db::initialize(&config).unwrap();
+        state_db::update_document(
+            &state_db::database(&config),
+            "settings",
+            &old_key,
+            serde_json::json!({}),
+            |value| {
+                value["marker"] = serde_json::json!("production-one-root");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let identity = initialize_identity(&mut config).unwrap();
+
+        assert_eq!(
+            state_db::document(
+                identity.database(),
+                "settings",
+                identity.library_id().as_str(),
+                serde_json::Value::Null,
+            )
+            .unwrap()["marker"],
+            "production-one-root"
+        );
+        let connection = state_db::connection(identity.database()).unwrap();
+        let retained_keys: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM legacy_library_keys
+                 WHERE library_id=?1 AND legacy_key IN (?2,?3)",
+                params![identity.library_id().as_str(), old_key, current_key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(retained_keys, 2);
+        drop(connection);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn first_stage2_upgrade_accepts_two_to_one_root_namespace_change() {
+        let base = fixture("first-upgrade-two-to-one-roots");
+        let retained = base.join("retained");
+        let removed = base.join("removed");
+        std::fs::create_dir_all(&retained).unwrap();
+        std::fs::create_dir_all(&removed).unwrap();
+        let old_key = format!(
+            "Movies:{}|Removed:{}",
+            retained.display(),
+            removed.display()
+        );
+        let current_key = retained.to_string_lossy().to_string();
+        let mut config = config(
+            &base,
+            vec![root("config:retained", "Cinema", retained.clone())],
+            &current_key,
+        );
+        state_db::initialize(&config).unwrap();
+        state_db::update_document(
+            &state_db::database(&config),
+            "settings",
+            &old_key,
+            serde_json::json!({}),
+            |value| {
+                value["marker"] = serde_json::json!("production-two-roots");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let identity = initialize_identity(&mut config).unwrap();
+
+        assert_eq!(
+            state_db::document(
+                identity.database(),
+                "settings",
+                identity.library_id().as_str(),
+                serde_json::Value::Null,
+            )
+            .unwrap()["marker"],
+            "production-two-roots"
+        );
+        let connection = state_db::connection(identity.database()).unwrap();
+        let retained_keys: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM legacy_library_keys
+                 WHERE library_id=?1 AND legacy_key IN (?2,?3)",
+                params![identity.library_id().as_str(), old_key, current_key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(retained_keys, 2);
+        drop(connection);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn first_stage2_upgrade_halts_for_ambiguous_root_count_namespaces() {
+        let base = fixture("first-upgrade-ambiguous-root-count");
+        let one = base.join("one");
+        let two = base.join("two");
+        std::fs::create_dir_all(&one).unwrap();
+        std::fs::create_dir_all(&two).unwrap();
+        let current_key = format!("One:{}|Two:{}", one.display(), two.display());
+        let mut config = config(
+            &base,
+            vec![
+                root("config:one", "One", one.clone()),
+                root("config:two", "Two", two.clone()),
+            ],
+            &current_key,
+        );
+        state_db::initialize(&config).unwrap();
+        for legacy_key in [one.to_string_lossy(), two.to_string_lossy()] {
+            state_db::update_document(
+                &state_db::database(&config),
+                "settings",
+                &legacy_key,
+                serde_json::json!({}),
+                |value| {
+                    value["marker"] = serde_json::json!(legacy_key);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        }
+
+        let error = initialize_identity(&mut config).unwrap_err();
+
+        assert!(error.contains("multiple retained application-state namespaces"));
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn unequal_root_count_namespace_comparison_ignores_display_renames() {
+        let retained_one = normalize_key_path("/library/one");
+        let retained_two = normalize_key_path("/library/two");
+        let added = normalize_key_path("/library/added");
+        let old_key = format!("Movies:{retained_one}|Books:{retained_two}");
+        let current_key = format!("Cinema:{retained_one}|Reading:{retained_two}|Added:{added}");
+
+        assert_eq!(
+            select_initial_legacy_keys(&current_key, std::slice::from_ref(&old_key)).unwrap(),
+            [old_key, current_key]
+        );
     }
 
     #[test]
@@ -1662,6 +2178,341 @@ mod tests {
     }
 
     #[test]
+    fn reused_platform_identity_never_rebinds_across_resource_kinds() {
+        let base = fixture("resource-platform-kind-collision");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let project = ObservedResourceIdentity {
+            provider_locator: "projects/shared".into(),
+            legacy_locator: "projects/shared".into(),
+            kind: "folder".into(),
+            platform_identity: Some("hermes:shared".into()),
+            fingerprint: Some("project".into()),
+        };
+        let session = ObservedResourceIdentity {
+            provider_locator: "sessions/shared".into(),
+            legacy_locator: "sessions/shared".into(),
+            kind: "file".into(),
+            platform_identity: Some("hermes:shared".into()),
+            fingerprint: Some("session".into()),
+        };
+
+        let project_id = identity.observe(&source, &[project]).unwrap()[0].clone();
+        let session_id = identity.observe(&source, &[session]).unwrap()[0].clone();
+
+        assert_ne!(session_id, project_id);
+        assert_eq!(
+            identity
+                .stored(&project_id)
+                .unwrap()
+                .unwrap()
+                .provider_locator,
+            "projects/shared"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn same_locator_folder_to_file_replacement_gets_new_identity() {
+        let base = fixture("resource-same-locator-kind-replacement");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let folder = ObservedResourceIdentity {
+            provider_locator: "entry".into(),
+            legacy_locator: "entry".into(),
+            kind: "folder".into(),
+            platform_identity: Some("platform:reused".into()),
+            fingerprint: Some("folder-metadata".into()),
+        };
+        let file = ObservedResourceIdentity {
+            provider_locator: "entry".into(),
+            legacy_locator: "entry".into(),
+            kind: "file".into(),
+            platform_identity: Some("platform:reused".into()),
+            fingerprint: Some("file-metadata".into()),
+        };
+
+        let folder_id = identity.observe(&source, &[folder]).unwrap()[0].clone();
+        let file_id = identity.observe(&source, &[file]).unwrap()[0].clone();
+
+        assert_ne!(file_id, folder_id);
+        assert_eq!(
+            identity.stored(&folder_id).unwrap().unwrap().status,
+            "missing"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn same_locator_directory_fingerprint_conflict_without_platform_identity_gets_new_identity() {
+        let base = fixture("resource-same-locator-directory-replacement");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = |fingerprint: &str| ObservedResourceIdentity {
+            provider_locator: "folder".into(),
+            legacy_locator: "folder".into(),
+            kind: "folder".into(),
+            platform_identity: None,
+            fingerprint: Some(fingerprint.into()),
+        };
+
+        let original = identity
+            .observe(&source, &[observed("folder-metadata:old")])
+            .unwrap()[0]
+            .clone();
+        let replacement = identity
+            .observe(&source, &[observed("folder-metadata:new")])
+            .unwrap()[0]
+            .clone();
+
+        assert_ne!(replacement, original);
+        assert_eq!(
+            identity.stored(&original).unwrap().unwrap().status,
+            "missing"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn same_locator_file_edit_with_stable_weak_identity_preserves_identity() {
+        let base = fixture("resource-same-locator-file-edit");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = ObservedResourceIdentity {
+            provider_locator: "note.txt".into(),
+            legacy_locator: "note.txt".into(),
+            kind: "file".into(),
+            platform_identity: None,
+            fingerprint: Some("created:stable:file".into()),
+        };
+
+        let original = identity
+            .observe(&source, std::slice::from_ref(&observed))
+            .unwrap()[0]
+            .clone();
+        let edited = identity.observe(&source, &[observed]).unwrap()[0].clone();
+
+        assert_eq!(edited, original);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn same_locator_file_replacement_with_changed_weak_identity_gets_new_identity() {
+        let base = fixture("resource-same-locator-file-weak-replacement");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = |fingerprint: &str| ObservedResourceIdentity {
+            provider_locator: "note.txt".into(),
+            legacy_locator: "note.txt".into(),
+            kind: "file".into(),
+            platform_identity: None,
+            fingerprint: Some(fingerprint.into()),
+        };
+
+        let original = identity
+            .observe(&source, &[observed("created:old:file")])
+            .unwrap()[0]
+            .clone();
+        let replacement = identity
+            .observe(&source, &[observed("created:new:file")])
+            .unwrap()[0]
+            .clone();
+
+        assert_ne!(replacement, original);
+        assert_eq!(
+            identity.stored(&original).unwrap().unwrap().status,
+            "missing"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn missing_identity_requires_matching_fingerprint_before_rebinding() {
+        let base = fixture("resource-missing-platform-reuse");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let old = ObservedResourceIdentity {
+            provider_locator: "old.txt".into(),
+            legacy_locator: "old.txt".into(),
+            kind: "file".into(),
+            platform_identity: Some("platform:reused".into()),
+            fingerprint: Some("fingerprint:old".into()),
+        };
+        let replacement = ObservedResourceIdentity {
+            provider_locator: "replacement.txt".into(),
+            legacy_locator: "replacement.txt".into(),
+            kind: "file".into(),
+            platform_identity: Some("platform:reused".into()),
+            fingerprint: Some("fingerprint:new".into()),
+        };
+
+        let old_id = identity.observe(&source, &[old]).unwrap()[0].clone();
+        identity.mark_missing(&old_id).unwrap();
+        let replacement_id = identity.observe(&source, &[replacement]).unwrap()[0].clone();
+
+        assert_ne!(replacement_id, old_id);
+        assert_eq!(
+            identity.stored(&old_id).unwrap().unwrap().provider_locator,
+            "old.txt"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn present_external_move_with_unchanged_fingerprint_preserves_identity() {
+        let base = fixture("resource-present-external-move-stable-fingerprint");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("old.txt"), "old").unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = |locator: &str| ObservedResourceIdentity {
+            provider_locator: locator.into(),
+            legacy_locator: locator.into(),
+            kind: "file".into(),
+            platform_identity: Some("platform:moved".into()),
+            fingerprint: Some("fingerprint:stable".into()),
+        };
+
+        let old_id = identity.observe(&source, &[observed("old.txt")]).unwrap()[0].clone();
+        std::fs::rename(media.join("old.txt"), media.join("new.txt")).unwrap();
+        let moved_id = identity.observe(&source, &[observed("new.txt")]).unwrap()[0].clone();
+
+        assert_eq!(moved_id, old_id);
+        assert_eq!(
+            identity.stored(&old_id).unwrap().unwrap().provider_locator,
+            "new.txt"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn present_external_move_with_changed_fingerprint_gets_new_identity() {
+        let base = fixture("resource-present-external-move-fingerprint");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("old.txt"), "old").unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = |locator: &str, fingerprint: &str| ObservedResourceIdentity {
+            provider_locator: locator.into(),
+            legacy_locator: locator.into(),
+            kind: "file".into(),
+            platform_identity: Some("platform:moved".into()),
+            fingerprint: Some(fingerprint.into()),
+        };
+
+        let old_id = identity
+            .observe(&source, &[observed("old.txt", "fingerprint:old")])
+            .unwrap()[0]
+            .clone();
+        std::fs::rename(media.join("old.txt"), media.join("new.txt")).unwrap();
+        let moved_id = identity
+            .observe(&source, &[observed("new.txt", "fingerprint:new")])
+            .unwrap()[0]
+            .clone();
+
+        assert_ne!(moved_id, old_id);
+        assert_eq!(
+            identity.stored(&old_id).unwrap().unwrap().provider_locator,
+            "old.txt"
+        );
+        assert_eq!(
+            identity
+                .stored(&moved_id)
+                .unwrap()
+                .unwrap()
+                .provider_locator,
+            "new.txt"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn stable_observation_reuses_identity_without_rewriting_rows() {
         let base = fixture("resource-stable-observation");
         let media = base.join("media");
@@ -1721,6 +2572,141 @@ mod tests {
             )
             .unwrap();
         assert_eq!((resource_seen, legacy_seen), (1, 1));
+        drop(connection);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn stable_observation_batch_reuses_identities_without_rewriting_rows() {
+        const OBSERVATION_COUNT: usize = 1_000;
+
+        let base = fixture("resource-stable-observation-batch");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let observed = (0..OBSERVATION_COUNT)
+            .map(|index| ObservedResourceIdentity {
+                provider_locator: format!("item-{index:04}.txt"),
+                legacy_locator: format!("item-{index:04}.txt"),
+                kind: "file".into(),
+                platform_identity: Some(format!("platform:{index}")),
+                fingerprint: Some(format!("fingerprint:{index}")),
+            })
+            .collect::<Vec<_>>();
+        let first = identity.observe(&source, &observed).unwrap();
+        let connection = state_db::connection(identity.database()).unwrap();
+        connection
+            .execute("UPDATE resources SET last_seen_at=1", [])
+            .unwrap();
+        connection
+            .execute("UPDATE resource_legacy_locators SET last_seen_at=1", [])
+            .unwrap();
+        drop(connection);
+
+        let second = identity.observe(&source, &observed).unwrap();
+        assert_eq!(second, first);
+        let connection = state_db::connection(identity.database()).unwrap();
+        let rewritten_resources: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM resources WHERE last_seen_at<>1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let rewritten_locators: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM resource_legacy_locators WHERE last_seen_at<>1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!((rewritten_resources, rewritten_locators), (0, 0));
+        drop(connection);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn cold_observation_batch_writes_each_identity_and_legacy_locator_once() {
+        const OBSERVATION_COUNT: usize = 1_000;
+
+        let base = fixture("resource-cold-observation-batch-writes");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let connection = state_db::connection(identity.database()).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE observation_write_audit(
+                   table_name TEXT NOT NULL,
+                   operation TEXT NOT NULL
+                 );
+                 CREATE TRIGGER audit_resources_insert AFTER INSERT ON resources BEGIN
+                   INSERT INTO observation_write_audit VALUES('resources','insert');
+                 END;
+                 CREATE TRIGGER audit_resources_update AFTER UPDATE ON resources BEGIN
+                   INSERT INTO observation_write_audit VALUES('resources','update');
+                 END;
+                 CREATE TRIGGER audit_legacy_insert AFTER INSERT ON resource_legacy_locators BEGIN
+                   INSERT INTO observation_write_audit VALUES('resource_legacy_locators','insert');
+                 END;
+                 CREATE TRIGGER audit_legacy_update AFTER UPDATE ON resource_legacy_locators BEGIN
+                   INSERT INTO observation_write_audit VALUES('resource_legacy_locators','update');
+                 END;",
+            )
+            .unwrap();
+        drop(connection);
+        let observed = (0..OBSERVATION_COUNT)
+            .map(|index| ObservedResourceIdentity {
+                provider_locator: format!("item-{index:04}.txt"),
+                legacy_locator: format!("item-{index:04}.txt"),
+                kind: "file".into(),
+                platform_identity: Some(format!("platform:{index}")),
+                fingerprint: Some(format!("fingerprint:{index}")),
+            })
+            .collect::<Vec<_>>();
+
+        let ids = identity.observe(&source, &observed).unwrap();
+
+        assert_eq!(ids.len(), OBSERVATION_COUNT);
+        assert_eq!(ids.iter().collect::<HashSet<_>>().len(), OBSERVATION_COUNT);
+        let connection = state_db::connection(identity.database()).unwrap();
+        let writes = |table_name: &str, operation: &str| -> i64 {
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM observation_write_audit
+                     WHERE table_name=?1 AND operation=?2",
+                    params![table_name, operation],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(writes("resources", "insert"), OBSERVATION_COUNT as i64);
+        assert_eq!(writes("resources", "update"), 0);
+        assert_eq!(
+            writes("resource_legacy_locators", "insert"),
+            OBSERVATION_COUNT as i64
+        );
+        assert_eq!(writes("resource_legacy_locators", "update"), 0);
         drop(connection);
         std::fs::remove_dir_all(base).unwrap();
     }

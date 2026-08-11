@@ -89,9 +89,19 @@ pub(crate) struct FilesystemProvider {
     thumbnails: Arc<Thumbnailer>,
 }
 
+#[derive(Clone, Copy)]
+enum FilesystemIdentityObservation {
+    Strong,
+    Compatibility,
+}
+
 impl FilesystemProvider {
     pub(crate) fn new(config: Config, thumbnails: Arc<Thumbnailer>) -> Self {
         Self { config, thumbnails }
+    }
+
+    pub(crate) fn compatibility(&self) -> FilesystemCompatibilityAdapter<'_> {
+        FilesystemCompatibilityAdapter { provider: self }
     }
 
     fn source_config(&self, root: &MediaRoot) -> Config {
@@ -105,6 +115,7 @@ impl FilesystemProvider {
         source: &ProviderSource,
         file: media::FileItem,
         observation: Option<(std::path::PathBuf, std::fs::Metadata)>,
+        identity_observation: FilesystemIdentityObservation,
     ) -> AppResult<ProviderResource> {
         let ProviderSource::Filesystem {
             root,
@@ -134,7 +145,12 @@ impl FilesystemProvider {
             let metadata = std::fs::metadata(&resolved.full).map_err(AppError::io)?;
             (resolved.full, metadata)
         };
-        let platform_identity = platform_identity(&full_path, &metadata);
+        let platform_identity = match identity_observation {
+            FilesystemIdentityObservation::Strong => platform_identity(&full_path, &metadata),
+            FilesystemIdentityObservation::Compatibility => {
+                compatibility_platform_identity(&full_path, &metadata, file.is_directory)
+            }
+        };
         let presentation = presentation(file.is_directory, &file.media_type);
         let mime_type = (!file.is_directory).then(|| media::mime_type(&file.extension).to_string());
         let thumbnail_generated = if !file.is_directory
@@ -169,7 +185,7 @@ impl FilesystemProvider {
                 kind: ResourcePreviewKind::Thumbnail,
                 available: thumbnail_generated.unwrap_or(false),
             }),
-            version: Some(filesystem_version(&metadata, platform_identity.as_deref())),
+            version: Some(filesystem_version(&metadata)),
             operations: if file.is_directory {
                 vec![ProviderOperation::Browse, ProviderOperation::Download]
             } else if matches!(
@@ -198,39 +214,127 @@ impl FilesystemProvider {
             virtual_entry: None,
         })
     }
+
+    async fn browse_with_identity(
+        &self,
+        query: ProviderBrowse,
+        identity_observation: FilesystemIdentityObservation,
+    ) -> AppResult<ProviderPage> {
+        let ProviderSource::Filesystem { root, .. } = &query.source else {
+            return Err(AppError::internal(
+                "Filesystem provider received non-filesystem Source",
+            ));
+        };
+        if media::excluded_locator(&query.locator, true) {
+            return Err(AppError::not_found("Filesystem Resource not found"));
+        }
+        let config = self.source_config(root);
+        let mut files = media::list_observed(&config, &[], &query.locator)?;
+        files.retain(|file| file.item.is_virtual != Some(true));
+        let total = files.len();
+        let end = query.offset.saturating_add(query.limit).min(total);
+        let page = if query.offset >= total {
+            Vec::new()
+        } else {
+            files.drain(query.offset..end).collect::<Vec<_>>()
+        };
+        let items = {
+            #[cfg(windows)]
+            {
+                if matches!(
+                    identity_observation,
+                    FilesystemIdentityObservation::Compatibility
+                ) && page.len() >= 128
+                {
+                    let worker_count = std::thread::available_parallelism()
+                        .map(|count| count.get())
+                        .unwrap_or(1)
+                        .min(16)
+                        .min(page.len());
+                    let mut work = (0..worker_count).map(|_| Vec::new()).collect::<Vec<_>>();
+                    for (index, file) in page.into_iter().enumerate() {
+                        work[index % worker_count].push((index, file));
+                    }
+                    std::thread::scope(|scope| -> AppResult<Vec<ProviderResource>> {
+                        let handles = work
+                            .into_iter()
+                            .map(|group| {
+                                scope.spawn(|| {
+                                    group
+                                        .into_iter()
+                                        .map(|(index, file)| {
+                                            self.resource(
+                                                &query.source,
+                                                file.item,
+                                                file.full_path.zip(file.metadata),
+                                                identity_observation,
+                                            )
+                                            .map(|resource| (index, resource))
+                                        })
+                                        .collect::<AppResult<Vec<_>>>()
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        let mut indexed = Vec::with_capacity(total);
+                        for handle in handles {
+                            indexed.extend(handle.join().map_err(|_| {
+                                AppError::internal("Filesystem identity worker panicked")
+                            })??);
+                        }
+                        indexed.sort_unstable_by_key(|(index, _)| *index);
+                        Ok(indexed.into_iter().map(|(_, resource)| resource).collect())
+                    })?
+                } else {
+                    page.into_iter()
+                        .map(|file| {
+                            self.resource(
+                                &query.source,
+                                file.item,
+                                file.full_path.zip(file.metadata),
+                                identity_observation,
+                            )
+                        })
+                        .collect::<AppResult<Vec<_>>>()?
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                page.into_iter()
+                    .map(|file| {
+                        self.resource(
+                            &query.source,
+                            file.item,
+                            file.full_path.zip(file.metadata),
+                            identity_observation,
+                        )
+                    })
+                    .collect::<AppResult<Vec<_>>>()?
+            }
+        };
+        Ok(ProviderPage {
+            items,
+            total,
+            next_offset: (end < total).then_some(end),
+            legacy: LegacyPageFields::default(),
+        })
+    }
+}
+
+pub(crate) struct FilesystemCompatibilityAdapter<'a> {
+    provider: &'a FilesystemProvider,
+}
+
+impl FilesystemCompatibilityAdapter<'_> {
+    pub(crate) async fn browse(&self, query: ProviderBrowse) -> AppResult<ProviderPage> {
+        self.provider
+            .browse_with_identity(query, FilesystemIdentityObservation::Compatibility)
+            .await
+    }
 }
 
 impl ReadProvider for FilesystemProvider {
     fn browse<'a>(&'a self, query: ProviderBrowse) -> BoxFuture<'a, AppResult<ProviderPage>> {
-        Box::pin(async move {
-            let ProviderSource::Filesystem { root, .. } = &query.source else {
-                return Err(AppError::internal(
-                    "Filesystem provider received non-filesystem Source",
-                ));
-            };
-            let config = self.source_config(root);
-            let mut files = media::list_observed(&config, &[], &query.locator)?;
-            files.retain(|file| file.item.is_virtual != Some(true));
-            let total = files.len();
-            let end = query.offset.saturating_add(query.limit).min(total);
-            let page = if query.offset >= total {
-                Vec::new()
-            } else {
-                files.drain(query.offset..end).collect::<Vec<_>>()
-            };
-            let items = page
-                .into_iter()
-                .map(|file| {
-                    self.resource(&query.source, file.item, file.full_path.zip(file.metadata))
-                })
-                .collect::<AppResult<Vec<_>>>()?;
-            Ok(ProviderPage {
-                items,
-                total,
-                next_offset: (end < total).then_some(end),
-                legacy: LegacyPageFields::default(),
-            })
-        })
+        Box::pin(self.browse_with_identity(query, FilesystemIdentityObservation::Strong))
     }
 
     fn inspect<'a>(&'a self, query: ProviderInspect) -> BoxFuture<'a, AppResult<ProviderResource>> {
@@ -243,6 +347,9 @@ impl ReadProvider for FilesystemProvider {
             let config = self.source_config(root);
             let resolved = media::resolve(&config, &[], &query.locator)?;
             let metadata = std::fs::metadata(&resolved.full).map_err(AppError::io)?;
+            if media::excluded_locator(&query.locator, metadata.is_dir()) {
+                return Err(AppError::not_found("Filesystem Resource not found"));
+            }
             let name = resolved
                 .full
                 .file_name()
@@ -275,6 +382,7 @@ impl ReadProvider for FilesystemProvider {
                     resource: None,
                 },
                 Some((resolved.full, metadata)),
+                FilesystemIdentityObservation::Strong,
             )
         })
     }
@@ -361,9 +469,39 @@ impl HermesCompatibilityAdapter<'_> {
                     vec![ProviderOperation::Read]
                 }
             });
-        let version = entry_ref
-            .and_then(|entry| entry.get("metadata"))
-            .map(opaque_json_version);
+        let metadata = entry_ref.and_then(|entry| entry.get("metadata"));
+        let version = if kind == ResourceKind::Conversation {
+            entry_ref
+                .and_then(|entry| {
+                    entry
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .or_else(|| {
+                            entry
+                                .get("openTarget")
+                                .and_then(|target| target.get("sessionId"))
+                                .and_then(Value::as_str)
+                        })
+                        .or_else(|| metadata.and_then(hermes_session_id))
+                        .zip(metadata)
+                        .map(|(id, metadata)| {
+                            let archived = entry
+                                .get("archived")
+                                .and_then(Value::as_bool)
+                                .or_else(|| {
+                                    entry
+                                        .get("openTarget")
+                                        .and_then(|target| target.get("readOnly"))
+                                        .and_then(Value::as_bool)
+                                })
+                                .unwrap_or_else(|| hermes_session_archived(metadata));
+                            hermes_session_version(id, &file.name, metadata, archived)
+                        })
+                })
+                .or_else(|| metadata.map(opaque_json_version))
+        } else {
+            metadata.map(opaque_json_version)
+        };
         Ok(ProviderResource {
             name: file.name,
             provider_locator,
@@ -685,6 +823,7 @@ impl HermesProvider {
             .filter(|title| !title.is_empty())
             .unwrap_or("Untitled session")
             .to_string();
+        let version = hermes_session_version(id, &name, &session, archived);
         let provider_locator = format!("session/{id}");
         let legacy_locator = hermes_legacy_locator(&provider_locator);
         Ok(Some(ProviderResource {
@@ -696,7 +835,7 @@ impl HermesProvider {
             mime_type: None,
             size: None,
             preview: None,
-            version: Some(opaque_json_version(&session)),
+            version: Some(version),
             operations: vec![ProviderOperation::Read, ProviderOperation::Export],
             platform_identity: Some(format!("hermes:{id}")),
             fingerprint: None,
@@ -819,6 +958,20 @@ fn hermes_session_archived(value: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn hermes_session_version(
+    id: &str,
+    title: &str,
+    session: &Value,
+    archived: bool,
+) -> ResourceVersion {
+    opaque_json_version(&json!({
+        "id": id,
+        "title": title,
+        "lastActive": hermes_session_time(session),
+        "archived": archived,
+    }))
+}
+
 fn collect_hermes_sessions(value: &Value, output: &mut Vec<Value>) {
     if let Some(sessions) = value.get("sessions").and_then(Value::as_array) {
         output.extend(sessions.iter().cloned());
@@ -859,23 +1012,24 @@ fn legacy_numeric_version(metadata: &std::fs::Metadata) -> Option<f64> {
         .map(|duration| duration.as_secs_f64() * 1000.0)
 }
 
-fn filesystem_version(
-    metadata: &std::fs::Metadata,
-    platform_identity: Option<&str>,
-) -> ResourceVersion {
+fn filesystem_version(metadata: &std::fs::Metadata) -> ResourceVersion {
     let modified = metadata
         .modified()
         .ok()
         .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
         .map(|value| value.as_nanos())
         .unwrap_or_default();
+    let created = metadata
+        .created()
+        .ok()
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos())
+        .unwrap_or_default();
     let mut hash = Sha256::new();
     hash.update(modified.to_le_bytes());
+    hash.update(created.to_le_bytes());
     hash.update(metadata.len().to_le_bytes());
     hash.update([metadata.is_dir() as u8]);
-    if let Some(identity) = platform_identity {
-        hash.update(identity.as_bytes());
-    }
     ResourceVersion::new(format!("fs:v1:{}", digest_hex(hash.finalize())))
 }
 
@@ -886,17 +1040,21 @@ fn metadata_fingerprint(metadata: &std::fs::Metadata, is_directory: bool) -> Str
         .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
         .map(|value| value.as_nanos())
         .unwrap_or_default();
-    format!(
-        "fs-meta:v1:{created}:{}:{}",
-        metadata.len(),
-        is_directory as u8
-    )
+    format!("fs-meta:v1:{created}:{}", is_directory as u8)
+}
+
+fn compatibility_platform_identity(
+    path: &Path,
+    metadata: &std::fs::Metadata,
+    _is_directory: bool,
+) -> Option<String> {
+    platform_identity(path, metadata)
 }
 
 #[cfg(windows)]
 fn platform_identity(path: &Path, _metadata: &std::fs::Metadata) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
-    let information = winapi_util::file::information(&file).ok()?;
+    let handle = winapi_util::Handle::from_path_any(path).ok()?;
+    let information = winapi_util::file::information(&handle).ok()?;
     Some(format!(
         "windows:{}:{}",
         information.volume_serial_number(),
@@ -932,7 +1090,110 @@ fn digest_hex(bytes: impl AsRef<[u8]>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{AuthConfig, FileSearchConfig, ImageOptimizationConfig};
     use std::{collections::VecDeque, sync::Mutex};
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_directory_platform_identity_detects_recreation() {
+        let base = std::env::temp_dir().join(format!(
+            "derp-provider-directory-identity-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let original = platform_identity(&base, &std::fs::metadata(&base).unwrap());
+
+        std::fs::remove_dir(&base).unwrap();
+        std::fs::create_dir(&base).unwrap();
+        let recreated = platform_identity(&base, &std::fs::metadata(&base).unwrap());
+
+        assert!(original.is_some());
+        assert!(recreated.is_some());
+        assert_ne!(recreated, original);
+        std::fs::remove_dir(&base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn filesystem_inspect_rejects_excluded_locator_components() {
+        let base = std::env::temp_dir().join(format!(
+            "derp-provider-excluded-inspect-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media = base.join("media");
+        for directory in [".git", "node_modules", "$RECYCLE.BIN"] {
+            std::fs::create_dir_all(media.join(directory)).unwrap();
+        }
+        std::fs::write(media.join(".git").join("config"), b"hidden").unwrap();
+        std::fs::write(media.join("node_modules").join("package.json"), b"hidden").unwrap();
+        std::fs::write(media.join("$RECYCLE.BIN").join("trash.txt"), b"hidden").unwrap();
+        std::fs::write(media.join("visible.txt"), b"visible").unwrap();
+        let root = MediaRoot {
+            id: "source-filesystem".into(),
+            name: "Media".into(),
+            path: media.clone(),
+            editable_folders: Vec::new(),
+            read_only: false,
+            source: "config".into(),
+            created_at: None,
+        };
+        let config = Config {
+            port: 3000,
+            roots: vec![root.clone()],
+            library_key: media.to_string_lossy().into_owned(),
+            share_link_domain: None,
+            auth: AuthConfig::default(),
+            data_path: base.join("data"),
+            file_search: FileSearchConfig {
+                enabled: false,
+                index_path: base.join("search.sqlite"),
+                watch_mode: "off".into(),
+                max_recursive_watchers: 0,
+                max_fs_concurrency: 1,
+                reconcile_directories_per_second: 1,
+            },
+            image_optimization: ImageOptimizationConfig::default(),
+            tls: None,
+            hermes: None,
+        };
+        let provider = FilesystemProvider::new(
+            config.clone(),
+            Arc::new(Thumbnailer::new(config.data_path.join("thumbnails"))),
+        );
+        let source = ProviderSource::Filesystem {
+            source_id: SourceId::new("source-filesystem"),
+            root,
+            legacy_root_prefix: false,
+        };
+
+        for locator in [
+            ".git/config",
+            "node_modules/package.json",
+            "$RECYCLE.BIN/trash.txt",
+        ] {
+            assert!(
+                provider
+                    .inspect(ProviderInspect {
+                        source: source.clone(),
+                        locator: locator.into(),
+                    })
+                    .await
+                    .is_err(),
+                "excluded locator was inspectable: {locator}"
+            );
+        }
+        assert_eq!(
+            provider
+                .inspect(ProviderInspect {
+                    source,
+                    locator: "visible.txt".into(),
+                })
+                .await
+                .unwrap()
+                .name,
+            "visible.txt"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
 
     struct FakeHermes {
         gets: Mutex<VecDeque<Value>>,
@@ -1186,6 +1447,143 @@ mod tests {
             session.operations,
             [ProviderOperation::Read, ProviderOperation::Export]
         );
+    }
+
+    #[tokio::test]
+    async fn hermes_session_version_normalizes_list_and_detail_payloads() {
+        let provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [
+                serde_json::json!({
+                    "sessions":[{
+                        "id":"same",
+                        "title":"Stable",
+                        "last_active":3,
+                        "list_only":"ignored"
+                    }],
+                    "total":1
+                }),
+                serde_json::json!({
+                    "id":"same",
+                    "title":"Stable",
+                    "lastActive":3.0,
+                    "archived":false,
+                    "detail_only":{"ignored":true}
+                }),
+                serde_json::json!({
+                    "id":"same",
+                    "title":"Changed",
+                    "last_active":3,
+                    "archived":false
+                }),
+                serde_json::json!({
+                    "id":"same",
+                    "title":"Stable",
+                    "last_active":3,
+                    "archived":true
+                }),
+                serde_json::json!({
+                    "id":"same",
+                    "title":"Stable",
+                    "last_active":4,
+                    "archived":false
+                }),
+            ],
+            [serde_json::json!({"projects":[]})],
+        )));
+
+        let page = provider
+            .browse(ProviderBrowse {
+                source: source(),
+                locator: String::new(),
+                offset: 0,
+                limit: usize::MAX,
+            })
+            .await
+            .unwrap();
+        let listed = page
+            .items
+            .iter()
+            .find(|resource| resource.provider_locator == "session/same")
+            .unwrap();
+        let detailed = provider
+            .inspect(ProviderInspect {
+                source: source(),
+                locator: "session/same".into(),
+            })
+            .await
+            .unwrap();
+        let renamed = provider
+            .inspect(ProviderInspect {
+                source: source(),
+                locator: "session/same".into(),
+            })
+            .await
+            .unwrap();
+        let archived = provider
+            .inspect(ProviderInspect {
+                source: source(),
+                locator: "session/same".into(),
+            })
+            .await
+            .unwrap();
+        let recently_active = provider
+            .inspect(ProviderInspect {
+                source: source(),
+                locator: "session/same".into(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(listed.version, detailed.version);
+        assert_ne!(detailed.version, renamed.version);
+        assert_ne!(detailed.version, archived.version);
+        assert_ne!(detailed.version, recently_active.version);
+    }
+
+    #[tokio::test]
+    async fn legacy_hermes_session_version_matches_typed_provider() {
+        let list_payload = serde_json::json!({
+            "sessions":[{
+                "id":"same",
+                "title":"Stable",
+                "last_active":3,
+                "transport_only":"ignored"
+            }],
+            "total":1
+        });
+        let typed_provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [list_payload.clone()],
+            [serde_json::json!({"projects":[]})],
+        )));
+        let legacy_provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [list_payload],
+            [serde_json::json!({"projects":[]})],
+        )));
+
+        let typed = typed_provider
+            .browse(ProviderBrowse {
+                source: source(),
+                locator: String::new(),
+                offset: 0,
+                limit: usize::MAX,
+            })
+            .await
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|resource| resource.provider_locator == "session/same")
+            .unwrap();
+        let legacy = legacy_provider
+            .compatibility()
+            .browse(String::new(), 0)
+            .await
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|resource| resource.provider_locator == "session/same")
+            .unwrap();
+
+        assert_eq!(legacy.version, typed.version);
     }
 
     #[tokio::test]

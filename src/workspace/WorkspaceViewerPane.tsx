@@ -66,7 +66,7 @@ import {
   grantOpenScope,
   resourceForFileItem,
 } from '../lib/legacy-resource-adapter'
-import { openResource } from '../lib/open-resource'
+import { executeOpenPlan, openResource } from '../lib/open-resource'
 import { viewerMediaType, viewerReaderKind } from '../lib/viewer-registry'
 import type { ResourceSummary, ViewerId } from '@/lib/resource'
 
@@ -484,9 +484,11 @@ export function WorkspaceViewerPane(props: Props) {
     if (target === i) return
     const file = list[target]
     const plan = planPlaylistOpen(file)
-    if (plan.kind === 'viewer' && plan.viewer.id === 'image-viewer') {
-      props.onUpdateViewing(props.windowId, file.path, file.resource, plan.viewer.id)
-    }
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind === 'viewer' && planned.viewer.id === 'image-viewer') {
+        props.onUpdateViewing(props.windowId, file.path, file.resource, planned.viewer.id)
+      }
+    })
   }
 
   function goNextImage() {
@@ -943,14 +945,16 @@ export function WorkspaceViewerPane(props: Props) {
                   classList={{ 'bg-primary/10 text-primary': active() }}
                   onClick={() => {
                     const plan = planPlaylistOpen(file)
-                    if (plan.kind === 'playback' && plan.media === 'audio') {
-                      props.onUpdateViewing(
-                        props.windowId,
-                        file.path,
-                        file.resource,
-                        plan.viewer.id,
-                      )
-                    }
+                    executeOpenPlan(plan, (planned) => {
+                      if (planned.kind === 'playback' && planned.media === 'audio') {
+                        props.onUpdateViewing(
+                          props.windowId,
+                          file.path,
+                          file.resource,
+                          planned.viewer.id,
+                        )
+                      }
+                    })
                   }}
                 >
                   <Music2 class='size-3.5 shrink-0' />

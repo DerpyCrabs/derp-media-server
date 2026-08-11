@@ -777,12 +777,19 @@ pub fn shares(database: &Path, library_key: &str) -> AppResult<Vec<Share>> {
     Ok(selected.map(|(_, _, list)| list).unwrap_or_default())
 }
 
+pub(crate) struct ShareSourceBinding {
+    pub(crate) source_id: String,
+    pub(crate) configured_id: Option<String>,
+    pub(crate) canonical_locator: String,
+    pub(crate) legacy_ids: Vec<String>,
+}
+
 pub(crate) fn share_source_aliases(
     database: &Path,
     library_id: &str,
     source_id: Option<&str>,
     legacy_root_id: Option<&str>,
-) -> AppResult<Option<(String, Vec<String>)>> {
+) -> AppResult<Option<ShareSourceBinding>> {
     let connection = connection(database)?;
     if !table_exists(&connection, "sources")? || !table_exists(&connection, "source_legacy_keys")? {
         return Ok(None);
@@ -826,18 +833,30 @@ pub(crate) fn share_source_aliases(
         return Ok(None);
     }
     let source_id = source_ids.into_iter().next().unwrap();
+    let (configured_id, canonical_locator) = connection
+        .query_row(
+            "SELECT configured_id,canonical_locator FROM sources WHERE id=?1",
+            [&source_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(error)?;
     let mut statement = connection
         .prepare(
             "SELECT legacy_id FROM source_legacy_keys
              WHERE source_id=?1 ORDER BY first_seen_at,legacy_id",
         )
         .map_err(error)?;
-    let aliases = statement
+    let legacy_ids = statement
         .query_map([&source_id], |row| row.get::<_, String>(0))
         .map_err(error)?
         .map(|row| row.map_err(error))
         .collect::<AppResult<Vec<_>>>()?;
-    Ok(Some((source_id, aliases)))
+    Ok(Some(ShareSourceBinding {
+        source_id,
+        configured_id,
+        canonical_locator,
+        legacy_ids,
+    }))
 }
 
 pub(crate) fn repair_share_source(

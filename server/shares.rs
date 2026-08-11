@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
 use std::{
-    path::Path,
+    fs,
+    path::{Path, PathBuf},
     sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -232,15 +233,31 @@ fn persisted_root(
         share.root_id.as_deref(),
     );
     match binding {
-        Ok(Some((source_id, aliases))) => {
+        Ok(Some(binding)) => {
+            let mut current = all.iter().filter(|root| {
+                binding.configured_id.as_deref().is_some_and(|configured| {
+                    root.id.strip_prefix("configured:") == Some(configured)
+                }) || canonical_root_locator(&root.path)
+                    .is_some_and(|locator| locator == binding.canonical_locator)
+            });
+            let direct = current.next().cloned();
+            if current.next().is_some() {
+                return None;
+            }
+            if let Some(root) = direct {
+                return Some((binding.source_id, root));
+            }
+            if share.source_id.is_some() {
+                return None;
+            }
             let mut matches = all
                 .iter()
-                .filter(|root| aliases.iter().any(|alias| alias == &root.id));
+                .filter(|root| binding.legacy_ids.iter().any(|alias| alias == &root.id));
             let root = matches.next()?.clone();
             if matches.next().is_some() {
                 return None;
             }
-            Some((source_id, root))
+            Some((binding.source_id, root))
         }
         Ok(None) if share.source_id.is_none() => {
             let root_id = share.root_id.as_deref()?;
@@ -274,7 +291,7 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
                     )
                     .ok()
                     .flatten()
-                    .map(|(source_id, _)| (source_id, resolved.root, resolved.relative))
+                    .map(|binding| (binding.source_id, resolved.root, resolved.relative))
                 })
         };
         if let Some((source_id, root, relative)) = resolved {
@@ -328,6 +345,18 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
     }
     list
 }
+
+fn canonical_root_locator(path: &Path) -> Option<String> {
+    let resolved = fs::canonicalize(path)
+        .or_else(|_| std::path::absolute(path))
+        .ok()?;
+    let locator = resolved.to_string_lossy().replace('\\', "/");
+    Some(if cfg!(windows) {
+        locator.to_lowercase()
+    } else {
+        locator
+    })
+}
 fn raw(config: &Config) -> AppResult<Vec<Share>> {
     state_db::shares(&state_db::database(config), &config.library_key)
 }
@@ -346,7 +375,7 @@ pub fn create(
         None,
         Some(&resolved.root.id),
     )?
-    .map(|(source_id, _)| source_id);
+    .map(|binding| binding.source_id);
     let plain = if config.auth.enabled {
         Some(passcode())
     } else {
@@ -493,6 +522,67 @@ pub fn resolve_subpath(s: &Share, sub: &str) -> AppResult<String> {
         format!("{}/{}", s.path.trim_end_matches('/'), clean)
     })
 }
+
+#[derive(Debug)]
+pub(crate) struct AuthorizedSharePath {
+    pub(crate) logical: String,
+    pub(crate) resolved: media::ResolvedPath,
+}
+
+fn canonical_existing_ancestor(path: &Path) -> AppResult<PathBuf> {
+    let mut candidate = path;
+    loop {
+        match fs::canonicalize(candidate) {
+            Ok(canonical) => return Ok(canonical),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                candidate = candidate
+                    .parent()
+                    .ok_or_else(|| AppError::forbidden("Path outside share boundary"))?;
+            }
+            Err(_) => return Err(AppError::forbidden("Path outside share boundary")),
+        }
+    }
+}
+
+pub(crate) fn authorize_resolved_grant_path(
+    root: &media::ResolvedPath,
+    candidate: &media::ResolvedPath,
+) -> AppResult<()> {
+    if root.root.id != candidate.root.id || root.root.path != candidate.root.path {
+        return Err(AppError::forbidden("Path outside share boundary"));
+    }
+    let canonical_root = fs::canonicalize(&root.full)
+        .map_err(|_| AppError::forbidden("Path outside share boundary"))?;
+    let canonical_candidate = canonical_existing_ancestor(&candidate.full)?;
+    if !canonical_candidate.starts_with(&canonical_root) {
+        return Err(AppError::forbidden("Path outside share boundary"));
+    }
+    Ok(())
+}
+
+pub(crate) fn authorize_grant_logical_path(
+    config: &Config,
+    runtime_roots: &[MediaRoot],
+    grant_root: &str,
+    candidate: &str,
+) -> AppResult<media::ResolvedPath> {
+    let root = media::resolve(config, runtime_roots, grant_root)?;
+    let resolved = media::resolve(config, runtime_roots, candidate)?;
+    authorize_resolved_grant_path(&root, &resolved)?;
+    Ok(resolved)
+}
+
+pub(crate) fn resolve_authorized_subpath(
+    config: &Config,
+    runtime_roots: &[MediaRoot],
+    share: &Share,
+    subpath: &str,
+) -> AppResult<AuthorizedSharePath> {
+    let logical = resolve_subpath(share, subpath)?;
+    let resolved = authorize_grant_logical_path(config, runtime_roots, &share.path, &logical)?;
+    Ok(AuthorizedSharePath { logical, resolved })
+}
+
 type HmacSha = Hmac<Sha256>;
 fn session_sign(config: &Config, token: &str, payload: &str) -> String {
     let secret = format!(
@@ -579,6 +669,86 @@ mod tests {
             tls: None,
             hermes: None,
         }
+    }
+
+    fn directory_share(path: impl Into<String>) -> Share {
+        Share {
+            token: "grant".into(),
+            path: path.into(),
+            is_directory: true,
+            editable: true,
+            passcode: None,
+            created_at: 0,
+            root_id: None,
+            source_id: None,
+            root_relative_path: None,
+            unavailable: None,
+            restrictions: None,
+            used_bytes: None,
+            workspace_taskbar_pins: None,
+            workspace_layout_presets: None,
+        }
+    }
+
+    fn symlink_directory(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).unwrap();
+            true
+        }
+        #[cfg(windows)]
+        {
+            match std::os::windows::fs::symlink_dir(target, link) {
+                Ok(()) => true,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied
+                        || error.raw_os_error() == Some(1314) =>
+                {
+                    eprintln!("skipping symlink characterization: {error}");
+                    false
+                }
+                Err(error) => panic!("failed to create directory symlink: {error}"),
+            }
+        }
+    }
+
+    #[test]
+    fn grant_path_authorization_blocks_physical_escape_and_allows_missing_descendants() {
+        let base = std::env::temp_dir().join(format!(
+            "derp-share-physical-scope-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media = base.join("media");
+        let grant = media.join("Grant");
+        let private = media.join("Private");
+        fs::create_dir_all(&grant).unwrap();
+        fs::create_dir_all(&private).unwrap();
+        fs::write(private.join("secret.txt"), b"secret").unwrap();
+        if !symlink_directory(&private, &grant.join("link")) {
+            fs::remove_dir_all(base).unwrap();
+            return;
+        }
+        let config = config(
+            base.join("data"),
+            vec![root("config:media", "Media", media)],
+            "legacy",
+        );
+        let share = directory_share("Grant");
+
+        assert_eq!(
+            resolve_subpath(&share, "link/secret.txt").unwrap(),
+            "Grant/link/secret.txt"
+        );
+        for escaped in ["link/secret.txt", "link/new.txt"] {
+            let error = resolve_authorized_subpath(&config, &[], &share, escaped).unwrap_err();
+            assert_eq!(error.0, axum::http::StatusCode::FORBIDDEN);
+            assert!(error.1.contains("share boundary"));
+        }
+        let missing = resolve_authorized_subpath(&config, &[], &share, "new/child.txt").unwrap();
+        assert_eq!(missing.logical, "Grant/new/child.txt");
+        assert_eq!(missing.resolved.full, grant.join("new").join("child.txt"));
+
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -785,6 +955,72 @@ mod tests {
             .find(|share| share.token == created.token)
             .unwrap();
         assert_eq!(missing_binding.unavailable, Some(true));
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn stable_source_share_prefers_current_binding_over_reused_historical_root_id() {
+        let base = std::env::temp_dir().join(format!(
+            "derp-share-reused-source-alias-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let original = base.join("original");
+        let added = base.join("added");
+        fs::create_dir_all(original.join("Shared")).unwrap();
+        fs::create_dir_all(&added).unwrap();
+
+        let mut initial = config(
+            base.join("data"),
+            vec![root("config:foo", "Foo", original.clone())],
+            original.to_str().unwrap(),
+        );
+        state_db::initialize(&initial).unwrap();
+        crate::resources::initialize_identity(&mut initial).unwrap();
+        let created = create(&initial, &[], "Shared".into(), true, false, None).unwrap();
+        let stable_source_id = created.source_id.clone().unwrap();
+
+        let mut changed = config(
+            base.join("data"),
+            vec![
+                root("config:foo", "Foo", added.clone()),
+                root("configured:a", "Bar", original.clone()),
+            ],
+            "changed",
+        );
+        state_db::initialize(&changed).unwrap();
+        crate::resources::initialize_identity(&mut changed).unwrap();
+
+        let restored = read(&changed, &[])
+            .into_iter()
+            .find(|share| share.token == created.token)
+            .unwrap();
+        assert_eq!(
+            restored.source_id.as_deref(),
+            Some(stable_source_id.as_str())
+        );
+        assert_eq!(restored.root_id.as_deref(), Some("configured:a"));
+        assert_eq!(restored.path, "Bar/Shared");
+        assert_eq!(restored.unavailable, Some(false));
+
+        let mut reused_only = config(
+            base.join("data"),
+            vec![root("config:foo", "Foo", added)],
+            "reused-only",
+        );
+        state_db::initialize(&reused_only).unwrap();
+        crate::resources::initialize_identity(&mut reused_only).unwrap();
+        let unavailable = read(&reused_only, &[])
+            .into_iter()
+            .find(|share| share.token == created.token)
+            .unwrap();
+        assert_eq!(
+            unavailable.source_id.as_deref(),
+            Some(stable_source_id.as_str())
+        );
+        assert_eq!(unavailable.root_id.as_deref(), Some("configured:a"));
+        assert_eq!(unavailable.path, "Bar/Shared");
+        assert_eq!(unavailable.unavailable, Some(true));
 
         fs::remove_dir_all(base).unwrap();
     }

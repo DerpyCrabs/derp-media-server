@@ -30,7 +30,7 @@ import {
   grantOpenScope,
   resourceForFileItem,
 } from '../lib/legacy-resource-adapter'
-import { openResource } from '../lib/open-resource'
+import { executeOpenPlan, openResource } from '../lib/open-resource'
 
 const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
 const VIDEO_EXT = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
@@ -170,13 +170,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
     allFiles().filter((f) => f.type === MediaType.AUDIO || f.type === MediaType.VIDEO),
   )
 
-  function canOpenAudio(file: FileItem): boolean {
+  function planAudioOpen(file: FileItem) {
     const share = props.shareCtx()
-    const plan = openResource(resourceForFileItem(file), 'play', {
+    return openResource(resourceForFileItem(file), 'play', {
       surface: 'workspace',
       scope: share ? grantOpenScope(share.token) : OWNER_OPEN_SCOPE,
     })
-    return plan.kind === 'playback' && plan.media === 'audio'
   }
 
   const mediaShare = () => props.shareCtx()
@@ -264,11 +263,13 @@ export function WorkspaceTaskbarAudio(props: Props) {
       useWorkspaceAudio.getState().setIsPlaying(false)
       return
     }
-    if (!canOpenAudio(nextFile)) return
-
-    useWorkspaceAudio.getState().armUserGestureTransport(nextFile.path)
-    st.playFile(props.storageKey() || undefined, nextFile.path, dir ?? undefined)
-    st.startOrResumePlayback(nextFile.path)
+    const plan = planAudioOpen(nextFile)
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind !== 'playback' || planned.media !== 'audio') return
+      useWorkspaceAudio.getState().armUserGestureTransport(nextFile.path)
+      st.playFile(props.storageKey() || undefined, nextFile.path, dir ?? undefined)
+      st.startOrResumePlayback(nextFile.path)
+    })
   }
 
   function playPreviousAudio() {
@@ -295,11 +296,14 @@ export function WorkspaceTaskbarAudio(props: Props) {
       }
     }
 
-    if (!previousFile || !canOpenAudio(previousFile)) return
-
-    useWorkspaceAudio.getState().armUserGestureTransport(previousFile.path)
-    st.playFile(props.storageKey() || undefined, previousFile.path, dir ?? undefined)
-    st.startOrResumePlayback(previousFile.path)
+    if (!previousFile) return
+    const plan = planAudioOpen(previousFile)
+    executeOpenPlan(plan, (planned) => {
+      if (planned.kind !== 'playback' || planned.media !== 'audio') return
+      useWorkspaceAudio.getState().armUserGestureTransport(previousFile.path)
+      st.playFile(props.storageKey() || undefined, previousFile.path, dir ?? undefined)
+      st.startOrResumePlayback(previousFile.path)
+    })
   }
 
   createEffect(() => {

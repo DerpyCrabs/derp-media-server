@@ -56,7 +56,6 @@ export function filterAdminWorkspaceTaskbarPins(
     (p) =>
       p.source.kind === 'local' &&
       typeof p.path === 'string' &&
-      p.path.length > 0 &&
       !pathHasDotDot(p.path) &&
       (!p.resourceTarget || !pathHasDotDot(p.resourceTarget.legacyLocator)),
   )
@@ -74,10 +73,10 @@ export function filterShareWorkspaceTaskbarPins(
     const pathNorm = p.path.replace(/\\/g, '/')
     const targetPath = p.resourceTarget?.legacyLocator.replace(/\\/g, '/')
     if (pathHasDotDot(pathNorm)) return false
-    if (targetPath && pathHasDotDot(targetPath)) return false
+    if (targetPath !== undefined && pathHasDotDot(targetPath)) return false
     return (
       (pathNorm === root || pathNorm.startsWith(`${root}/`)) &&
-      (!targetPath || targetPath === root || targetPath.startsWith(`${root}/`))
+      (targetPath === undefined || targetPath === root || targetPath.startsWith(`${root}/`))
     )
   })
 }

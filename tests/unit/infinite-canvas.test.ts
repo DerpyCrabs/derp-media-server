@@ -197,6 +197,23 @@ describe('infinite canvas persistence', () => {
       persisted.definition.resourceTarget,
     )
 
+    persisted.definition.resourceTarget = {
+      ref: { libraryId: 'library', resourceId: 'root' },
+      legacyLocator: '',
+    }
+    persisted.definition.type = 'browser'
+    persisted.definition.iconPath = ''
+    persisted.definition.initialState = { dir: '' }
+    const root = parseInfiniteCanvasState({
+      ...createEmptyCanvasState(),
+      windows: [persisted],
+    })
+    expect(root?.windows[0]?.definition).toMatchObject({
+      type: 'browser',
+      initialState: { dir: '' },
+      resourceTarget: persisted.definition.resourceTarget,
+    })
+
     ;(persisted.definition as unknown as { resourceTarget: unknown }).resourceTarget = {
       ref: { libraryId: 'library', resourceId: 'resource' },
     }

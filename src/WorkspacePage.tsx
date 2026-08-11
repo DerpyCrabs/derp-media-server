@@ -8,9 +8,16 @@ import {
   type ViewerId,
 } from '@/lib/resource'
 import {
+  backfillLegacyResourcePin,
+  backfillLegacyResourceWindow,
   inspectResourceTarget,
+  legacyResourceAttemptKey,
+  legacyResourceIsPending,
+  legacyResourceLocatorForPin,
+  legacyResourceLocatorForWindow,
   reconcileResourceTargetPin,
   reconcileResourceTargetWindow,
+  resolveLegacyResourceTarget,
   resourceTargetAttemptKey,
   resourceTargetIsPending,
   resourceTargetKey,
@@ -121,6 +128,7 @@ import {
   resourceForFileItem,
 } from './lib/legacy-resource-adapter'
 import { executeOpenPlan, openResource } from './lib/open-resource'
+import { reconcileResolvedWindowPresentation } from './lib/resource-window-resolution'
 import { viewerMediaType } from './lib/viewer-registry'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
@@ -159,6 +167,29 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       target,
       resourceResolutionAttempts(),
       storageSessionKeyFull().key,
+    )
+  }
+
+  function isResourceWindowPending(window: WorkspaceWindowDefinition | undefined): boolean {
+    if (!window) return false
+    return (
+      isResourceTargetPending(window.resourceTarget) ||
+      legacyResourceIsPending(
+        legacyResourceLocatorForWindow(window),
+        resourceResolutionAttempts(),
+        storageSessionKeyFull().key,
+      )
+    )
+  }
+
+  function isResourcePinPending(pin: PinnedTaskbarItem): boolean {
+    return (
+      isResourceTargetPending(pin.resourceTarget) ||
+      legacyResourceIsPending(
+        legacyResourceLocatorForPin(pin),
+        resourceResolutionAttempts(),
+        storageSessionKeyFull().key,
+      )
     )
   }
 
@@ -344,21 +375,35 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     if (!key || !current || !server.serverPinsReady() || pinsHydratedFor() !== key) return
 
     const targets = new Map<string, PersistedResourceTarget>()
+    const legacyLocators = new Set<string>()
     for (const window of current.windows) {
       if (window.resourceTarget) {
         targets.set(resourceTargetKey(window.resourceTarget), window.resourceTarget)
+      } else {
+        const locator = legacyResourceLocatorForWindow(window)
+        if (locator !== null) legacyLocators.add(locator)
       }
     }
     for (const pin of current.pinnedTaskbarItems ?? []) {
-      if (pin.resourceTarget) targets.set(resourceTargetKey(pin.resourceTarget), pin.resourceTarget)
+      if (pin.resourceTarget) {
+        targets.set(resourceTargetKey(pin.resourceTarget), pin.resourceTarget)
+      } else {
+        const locator = legacyResourceLocatorForPin(pin)
+        if (locator !== null) legacyLocators.add(locator)
+      }
     }
 
     const share = shareConfig()
     const access = share
       ? ({ kind: 'grant', token: share.token } as const)
       : ({ kind: 'owner', surface: 'workspace' } as const)
+    const presentationContext = {
+      surface: 'workspace',
+      scope: share ? grantOpenScope(share.token) : OWNER_OPEN_SCOPE,
+    } as const
     const snapshot = `${key}\u0000${access.kind === 'grant' ? access.token : 'owner'}\u0000${[
-      ...targets.keys(),
+      ...[...targets.keys()].map((target) => `ref:${target}`),
+      ...[...legacyLocators].map((locator) => `legacy:${locator.replace(/\\/g, '/')}`),
     ]
       .sort()
       .join('\u0001')}`
@@ -369,28 +414,48 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const controller = new AbortController()
     resourceResolutionController = controller
 
-    void Promise.all(
-      [...targets].map(async ([targetKey, target]) => {
-        try {
-          return [
-            targetKey,
-            target,
-            await inspectResourceTarget(target, access, controller.signal),
-          ] as const
-        } catch {
-          return [targetKey, target, null] as const
-        }
-      }),
-    ).then((resolved) => {
+    void Promise.all([
+      Promise.all(
+        [...targets].map(async ([targetKey, target]) => {
+          try {
+            return [
+              targetKey,
+              target,
+              await inspectResourceTarget(target, access, controller.signal),
+            ] as const
+          } catch {
+            return [targetKey, target, null] as const
+          }
+        }),
+      ),
+      Promise.all(
+        [...legacyLocators].map(async (locator) => {
+          try {
+            return [
+              locator,
+              await resolveLegacyResourceTarget(locator, access, controller.signal),
+            ] as const
+          } catch {
+            return [locator, null] as const
+          }
+        }),
+      ),
+    ]).then(([resolved, legacyResolved]) => {
       if (controller.signal.aborted || resourceResolutionSnapshot !== snapshot) return
       const summaries = new Map(
         resolved.map(([targetKey, _target, summary]) => [targetKey, summary] as const),
       )
-      resolvedResourceSummaries = new Map(
-        resolved.flatMap(([targetKey, _target, summary]) =>
-          summary ? [[targetKey, summary]] : [],
+      const legacySummaries = new Map(legacyResolved)
+      resolvedResourceSummaries = new Map([
+        ...resolved.flatMap(([targetKey, _target, summary]) =>
+          summary ? ([[targetKey, summary]] as const) : [],
         ),
-      )
+        ...legacyResolved.flatMap(([_, summary]) =>
+          summary
+            ? ([[`${summary.ref.libraryId}\u0000${summary.ref.resourceId}`, summary]] as const)
+            : [],
+        ),
+      ])
       const latest = workspace()
       if (!latest || storageSessionKeyFull().key !== key) {
         if (resourceResolutionSnapshot === snapshot) resourceResolutionSnapshot = ''
@@ -399,14 +464,34 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
       const windows = latest.windows.map((window) => {
         const target = window.resourceTarget
-        const summary = target ? summaries.get(resourceTargetKey(target)) : null
-        return summary ? reconcileResourceTargetWindow(window, summary) : window
+        if (target) {
+          const summary = summaries.get(resourceTargetKey(target))
+          if (!summary) return window
+          return reconcileResolvedWindowPresentation(
+            reconcileResourceTargetWindow(window, summary),
+            summary,
+            presentationContext,
+          )
+        }
+        const locator = legacyResourceLocatorForWindow(window)
+        const summary = locator === null ? null : legacySummaries.get(locator)
+        if (locator === null || !summary) return window
+        return reconcileResolvedWindowPresentation(
+          backfillLegacyResourceWindow(window, locator, summary),
+          summary,
+          presentationContext,
+        )
       })
       const currentPins = latest.pinnedTaskbarItems ?? []
       const pins = currentPins.map((pin) => {
         const target = pin.resourceTarget
-        const summary = target ? summaries.get(resourceTargetKey(target)) : null
-        return summary ? reconcileResourceTargetPin(pin, summary) : pin
+        if (target) {
+          const summary = summaries.get(resourceTargetKey(target))
+          return summary ? reconcileResourceTargetPin(pin, summary) : pin
+        }
+        const locator = legacyResourceLocatorForPin(pin)
+        const summary = locator === null ? null : legacySummaries.get(locator)
+        return locator !== null && summary ? backfillLegacyResourcePin(pin, locator, summary) : pin
       })
       const pinsChanged = pins.some((pin, index) => {
         const before = currentPins[index]
@@ -416,6 +501,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
             pin.title !== before.title ||
             pin.isDirectory !== before.isDirectory ||
             pin.resourceTarget?.legacyLocator !== before.resourceTarget?.legacyLocator ||
+            pin.resourceTarget?.ref.libraryId !== before.resourceTarget?.ref.libraryId ||
+            pin.resourceTarget?.ref.resourceId !== before.resourceTarget?.ref.resourceId ||
             pin.resourceTarget?.availability !== before.resourceTarget?.availability)
         )
       })
@@ -424,6 +511,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         setResourceResolutionAttempts((previous) => {
           const next = new Set(previous)
           for (const [, target] of resolved) next.add(resourceTargetAttemptKey(target, key))
+          for (const [locator] of legacyResolved) {
+            next.add(legacyResourceAttemptKey(locator, key))
+          }
           return next
         })
       })
@@ -1430,7 +1520,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   }
 
   async function selectPinned(pin: PinnedTaskbarItem) {
-    if (pin.resourceTarget?.availability || isResourceTargetPending(pin.resourceTarget)) return
+    if (pin.resourceTarget?.availability || isResourcePinPending(pin)) return
     if (pin.isVirtual) {
       if (props.shareConfig) return
       const response = await fetch(
@@ -1725,7 +1815,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           editableFolders={server.editableFolders}
           knowledgeBases={() => server.settingsQuery.data?.knowledgeBases ?? []}
           storageKey={() => storageSessionKeyFull().key}
-          resourceResolutionAttempts={resourceResolutionAttempts}
+          resourceWindowIsPending={isResourceWindowPending}
           workspaceFileIconContext={workspaceFileIconContext}
           focusWindow={focusWindow}
           closeWindow={closeWindow}
@@ -1797,7 +1887,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         taskbarGroupIds={orderedWindowGroupIds}
         taskbarWindowRows={taskbarWindowRows}
         storageSessionKey={() => storageSessionKeyFull().key}
-        resourceTargetIsPending={isResourceTargetPending}
+        resourcePinIsPending={isResourcePinPending}
         browserSource={browserSource}
         workspace={workspace}
         setWorkspace={setWorkspace}

@@ -59,10 +59,11 @@ pub(crate) async fn browse_grant(
     grant_root: &str,
     logical: &str,
 ) -> AppResult<FileListing> {
+    shares::authorize_grant_logical_path(&state.config, &roots(state), grant_root, logical)?;
     if catalog_reads_enabled() {
         let adapter = state.resources.compatibility();
         let root = adapter
-            .resolve(grant_root, ReadSurface::Share)
+            .resolve_filesystem(grant_root, ReadSurface::Share)
             .await
             .map_err(|error| error.into_app_error())?;
         let context = ReadContext::grant(ReadSurface::Share, root.reference);
@@ -81,10 +82,20 @@ pub(crate) async fn browse_grant(
         }
         Ok(project(page))
     } else {
+        let runtime = roots(state);
         Ok(FileListing {
             files: list_directory(state, logical)?
                 .into_iter()
                 .filter(|item| item.is_virtual != Some(true))
+                .filter(|item| {
+                    shares::authorize_grant_logical_path(
+                        &state.config,
+                        &runtime,
+                        grant_root,
+                        &item.path,
+                    )
+                    .is_ok()
+                })
                 .collect(),
             virtual_entries: Map::new(),
             virtual_directory: None,
@@ -112,6 +123,7 @@ pub(crate) async fn inspect_owner(
 pub(crate) async fn inspect_grant(
     state: &AppState,
     grant_root: &str,
+    grant_is_directory: bool,
     resource: &ResourceRef,
 ) -> CatalogResult<ResourceDetail> {
     if !catalog_reads_enabled() {
@@ -121,14 +133,57 @@ pub(crate) async fn inspect_grant(
         ));
     }
     let adapter = state.resources.compatibility();
-    let root = adapter.resolve(grant_root, ReadSurface::Share).await?;
+    let root = adapter
+        .resolve_filesystem(grant_root, ReadSurface::Share)
+        .await?;
+    let context = if grant_is_directory {
+        ReadContext::grant(ReadSurface::Share, root.reference)
+    } else {
+        ReadContext::grant_exact(ReadSurface::Share, root.reference)
+    };
+    state.resources.inspect(&context, resource).await
+}
+
+pub(crate) async fn resolve_owner(
+    state: &AppState,
+    legacy_locator: &str,
+    surface: ReadSurface,
+) -> CatalogResult<ResourceDetail> {
+    if !catalog_reads_enabled() {
+        return Err(CatalogError::new(
+            CatalogErrorCode::Unsupported,
+            "Resource legacy resolution is disabled by catalog_reads rollback",
+        ));
+    }
     state
         .resources
-        .inspect(
-            &ReadContext::grant(ReadSurface::Share, root.reference),
-            resource,
-        )
+        .compatibility()
+        .resolve_persisted(&ReadContext::owner(surface), legacy_locator)
         .await
+}
+
+pub(crate) async fn resolve_grant(
+    state: &AppState,
+    grant_root: &str,
+    grant_is_directory: bool,
+    legacy_locator: &str,
+) -> CatalogResult<ResourceDetail> {
+    if !catalog_reads_enabled() {
+        return Err(CatalogError::new(
+            CatalogErrorCode::Unsupported,
+            "Resource legacy resolution is disabled by catalog_reads rollback",
+        ));
+    }
+    let adapter = state.resources.compatibility();
+    let root = adapter
+        .resolve_filesystem(grant_root, ReadSurface::Share)
+        .await?;
+    let context = if grant_is_directory {
+        ReadContext::grant(ReadSurface::Share, root.reference)
+    } else {
+        ReadContext::grant_exact(ReadSurface::Share, root.reference)
+    };
+    adapter.resolve_persisted(&context, legacy_locator).await
 }
 
 pub(crate) async fn share_info(
@@ -186,8 +241,15 @@ pub(crate) async fn share_info(
         }
         if catalog_reads_enabled() {
             let adapter = state.resources.compatibility();
-            if let Ok(root) = adapter.resolve(&share.path, ReadSurface::Share).await {
-                let context = ReadContext::grant(ReadSurface::Share, root.reference);
+            if let Ok(root) = adapter
+                .resolve_filesystem(&share.path, ReadSurface::Share)
+                .await
+            {
+                let context = if share.is_directory {
+                    ReadContext::grant(ReadSurface::Share, root.reference)
+                } else {
+                    ReadContext::grant_exact(ReadSurface::Share, root.reference)
+                };
                 if let Ok(detail) = adapter.inspect(&context, &share.path).await {
                     result["resource"] =
                         serde_json::to_value(detail.summary).unwrap_or(Value::Null);
