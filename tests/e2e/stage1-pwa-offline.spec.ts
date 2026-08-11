@@ -300,6 +300,89 @@ test.describe('Stage 1 PWA and offline cutover', () => {
     await expect(page.getByTestId('reader-book')).toContainText('Selectable EPUB text begins here.')
   })
 
+  test('forced update keeps prior Reader assets available to a sibling old-build tab', async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000)
+    const plan = readAssetPlan()
+    const readerEntry = plan.offlineRenderers.find((asset) => /ReaderDialog-[^/]+\.js$/.test(asset))
+    expect(readerEntry).toBeTruthy()
+    const source = fs.readFileSync(path.join(clientRoot, 'service-worker.js'), 'utf8')
+    const suffix = Date.now()
+    const nextBuildId = `stage1-forced-${suffix}`
+    const nextReaderEntry = `/assets/ReaderDialog-forced-${suffix}.js`
+    const nextReaderPath = path.join(clientRoot, nextReaderEntry.slice(1))
+    const workerPath = path.join(clientRoot, 'stage1-forced-worker.js')
+    const nextSource = source
+      .replace(/^const BUILD_ID = [^\n]+/, `const BUILD_ID = ${JSON.stringify(nextBuildId)}`)
+      .split(readerEntry!)
+      .join(nextReaderEntry)
+    fs.copyFileSync(path.join(clientRoot, readerEntry!.slice(1)), nextReaderPath)
+    fs.writeFileSync(workerPath, nextSource)
+    const sibling = await context.newPage()
+
+    try {
+      await page.goto('/library')
+      await ensureControlled(page)
+      await sibling.goto('/library')
+      await ensureControlled(sibling)
+
+      await page.evaluate(async () => {
+        const registration = await navigator.serviceWorker.register('/stage1-forced-worker.js', {
+          scope: '/',
+          updateViaCache: 'none',
+        })
+        await new Promise<void>((resolve, reject) => {
+          const started = Date.now()
+          const poll = () => {
+            if (registration.waiting) return resolve()
+            if (Date.now() - started > 15_000) {
+              return reject(new Error('Forced upgrade worker did not reach waiting state'))
+            }
+            setTimeout(poll, 50)
+          }
+          poll()
+        })
+        const changed = new Promise<void>((resolve) =>
+          navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), {
+            once: true,
+          }),
+        )
+        registration.waiting!.postMessage({ type: 'derp-activate-update' })
+        await changed
+      })
+
+      for (const oldBuildPage of [page, sibling]) {
+        await expect
+          .poll(() =>
+            oldBuildPage.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''),
+          )
+          .toMatch(/\/stage1-forced-worker\.js$/)
+      }
+      await expect
+        .poll(() =>
+          page.evaluate(async () =>
+            (await caches.keys()).filter((name) => name.startsWith('derp-shell-')).sort(),
+          ),
+        )
+        .toEqual([`derp-shell-${plan.buildId}`, `derp-shell-${nextBuildId}`].sort())
+
+      await context.setOffline(true)
+      expect(
+        await sibling.evaluate(async (entry) => {
+          await import(entry)
+          return true
+        }, readerEntry!),
+      ).toBe(true)
+    } finally {
+      await context.setOffline(false).catch(() => undefined)
+      await sibling.close().catch(() => undefined)
+      fs.rmSync(workerPath, { force: true })
+      fs.rmSync(nextReaderPath, { force: true })
+    }
+  })
+
   test('waiting build preserves old lazy chunks, then activation removes old shell', async ({
     page,
     context,

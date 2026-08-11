@@ -1,5 +1,6 @@
 const BUILD_ID = /* __BUILD_ID__ */ 'development'
 const SHELL_CACHE = `derp-shell-${BUILD_ID}`
+const FORCED_ACTIVATION_MARKER = '/__derp-forced-activation'
 const PRECACHE = /* __PRECACHE__ */ []
 const OPTIONAL = /* __OPTIONAL__ */ []
 const DB_NAME = 'derp-offline-v1'
@@ -7,6 +8,16 @@ const STORE = 'entries'
 
 async function shellMatch(request) {
   return (await caches.open(SHELL_CACHE)).match(request)
+}
+
+async function priorShellMatch(request) {
+  const keys = (await caches.keys())
+    .filter((key) => key.startsWith('derp-shell-') && key !== SHELL_CACHE)
+    .reverse()
+  for (const key of keys) {
+    const cached = await (await caches.open(key)).match(request)
+    if (cached) return cached
+  }
 }
 
 function openDatabase() {
@@ -86,25 +97,32 @@ self.addEventListener('install', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
-  // Waiting worker activates only after controlled old clients close.
   event.waitUntil(
-    Promise.all([
-      self.clients.claim(),
-      caches
-        .keys()
-        .then((keys) =>
-          Promise.all(
-            keys
-              .filter((key) => key.startsWith('derp-shell-') && key !== SHELL_CACHE)
-              .map((key) => caches.delete(key)),
-          ),
-        ),
-    ]),
+    (async () => {
+      const shell = await caches.open(SHELL_CACHE)
+      const forcedActivation = await shell.match(FORCED_ACTIVATION_MARKER)
+      await shell.delete(FORCED_ACTIVATION_MARKER)
+      await self.clients.claim()
+      if (!forcedActivation) {
+        const keys = await caches.keys()
+        await Promise.all(
+          keys
+            .filter((key) => key.startsWith('derp-shell-') && key !== SHELL_CACHE)
+            .map((key) => caches.delete(key)),
+        )
+      }
+    })(),
   )
 })
 
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'derp-activate-update') self.skipWaiting()
+  if (event.data?.type !== 'derp-activate-update') return
+  event.waitUntil(
+    caches.open(SHELL_CACHE).then(async (cache) => {
+      await cache.put(FORCED_ACTIVATION_MARKER, new Response(BUILD_ID))
+      await self.skipWaiting()
+    }),
+  )
 })
 
 async function notifyUpdateRequired(clientId) {
@@ -229,6 +247,20 @@ self.addEventListener('fetch', (event) => {
         if (response.ok) {
           await (await caches.open(SHELL_CACHE)).put(url.pathname, response.clone())
         } else if (response.status === 404 || response.status === 410) {
+          await notifyUpdateRequired(event.clientId)
+        }
+        return response
+      }),
+    )
+    return
+  }
+
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      priorShellMatch(event.request).then(async (cached) => {
+        if (cached) return cached
+        const response = await fetch(event.request)
+        if (response.status === 404 || response.status === 410) {
           await notifyUpdateRequired(event.clientId)
         }
         return response

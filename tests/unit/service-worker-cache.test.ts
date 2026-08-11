@@ -171,10 +171,22 @@ test('service worker keeps old controlled clients on old build until normal acti
   expect(source).toContain("const BUILD_ID = /* __BUILD_ID__ */ 'development'")
   expect(source).toContain('const SHELL_CACHE = `derp-shell-${BUILD_ID}`')
   expect(install).not.toContain('skipWaiting')
-  expect(source).toContain("event.data?.type === 'derp-activate-update'")
+  expect(source).toContain("event.data?.type !== 'derp-activate-update'")
   expect(source).toContain('self.skipWaiting()')
   expect(source).toContain('self.clients.claim()')
   expect(source).toContain("key.startsWith('derp-shell-') && key !== SHELL_CACHE")
+})
+
+test('forced activation retains cached lazy assets for sibling old-build clients', () => {
+  const source = fs.readFileSync(path.resolve('public/service-worker.js'), 'utf8')
+
+  expect(source).toContain("const FORCED_ACTIVATION_MARKER = '/__derp-forced-activation'")
+  expect(source).toContain('async function priorShellMatch(request)')
+  expect(source).toContain('const forcedActivation = await shell.match(FORCED_ACTIVATION_MARKER)')
+  expect(source).toContain('if (!forcedActivation)')
+  expect(source).toContain('cache.put(FORCED_ACTIVATION_MARKER')
+  expect(source).toContain("if (url.pathname.startsWith('/assets/'))")
+  expect(source).toContain('priorShellMatch(event.request)')
 })
 
 test('service worker never runtime-caches navigation HTML or arbitrary responses', () => {
