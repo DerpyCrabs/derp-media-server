@@ -7,6 +7,7 @@ import { ShareFolderBrowser, type ShareInfoPayload } from './ShareFolderBrowser'
 import { SharePasscodeGate } from './SharePasscodeGate'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { consumeCapturedSharePasscode } from './lib/share-url'
+import type { ResourceSummary } from '@/lib/resource'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -29,6 +30,7 @@ type ShareInfo = {
   isKnowledgeBase?: boolean
   knowledgeBaseRoot?: string
   adminViewMode?: 'list' | 'grid'
+  resource?: ResourceSummary
 }
 
 type Props = {
@@ -57,6 +59,7 @@ export function ShareRoute(props: Props) {
       isKnowledgeBase: data.isKnowledgeBase,
       ...(data.knowledgeBaseRoot !== undefined && { knowledgeBaseRoot: data.knowledgeBaseRoot }),
       adminViewMode: data.adminViewMode || 'list',
+      resource: data.resource,
     }
   })
 

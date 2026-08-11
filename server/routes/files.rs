@@ -294,11 +294,16 @@ async fn rename(
         ));
     }
     fs::rename(old, new).await.map_err(AppError::io)?;
-    state
+    if let Err(error) = state
         .resources
         .record_move(&body.old_path, &body.new_path)
         .await
-        .map_err(|error| error.into_app_error())?;
+    {
+        eprintln!(
+            "Warning: file rename completed but Resource identity reconciliation will retry from observation: {}",
+            error.message
+        );
+    }
     crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await?;
     emit(&state, &body.old_path);
     if parent_logical(&body.old_path) != parent_logical(&body.new_path) {

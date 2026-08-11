@@ -1,6 +1,7 @@
 import { navigateSearchParams } from '../browser-history'
+import type { ViewerId } from '@/lib/resource'
 
-type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly'
+type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly' | 'viewer'
 
 type ParamUpdates = Partial<Record<UrlParamKey, string | null>>
 
@@ -17,20 +18,20 @@ export function navigateToFolder(path: string | null) {
   applyUpdates({ dir: path }, 'push')
 }
 
-export function viewFile(path: string, dir?: string) {
-  const updates: ParamUpdates = { viewing: path }
+export function viewFile(path: string, dir?: string, viewerId?: ViewerId) {
+  const updates: ParamUpdates = { viewing: path, viewer: viewerId ?? null }
   if (dir !== undefined) updates.dir = dir
   applyUpdates(updates, 'replace')
 }
 
 export function playFile(path: string, dir?: string) {
-  const updates: ParamUpdates = { playing: path, viewing: null }
+  const updates: ParamUpdates = { playing: path, viewing: null, viewer: null }
   if (dir !== undefined) updates.dir = dir
   applyUpdates(updates, 'replace')
 }
 
 export function closeViewer() {
-  applyUpdates({ viewing: null }, 'replace')
+  applyUpdates({ viewing: null, viewer: null }, 'replace')
 }
 
 export function closePlayer() {

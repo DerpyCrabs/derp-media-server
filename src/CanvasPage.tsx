@@ -35,6 +35,18 @@ import {
   type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
+import {
+  persistedResourceTarget,
+  type PersistedResourceTarget,
+  type ResourceOpenTarget,
+  type ResourceSummary,
+  type ViewerId,
+} from '@/lib/resource'
+import {
+  inspectResourceTarget,
+  reconcileResourceTargetWindow,
+  resourceTargetKey,
+} from '@/lib/resource-target-resolution'
 import { queryKeys } from '@/lib/query-keys'
 import { MediaType, type FileItem } from '@/lib/types'
 import type { GlobalSettings } from '@/lib/use-settings'
@@ -74,6 +86,9 @@ import { canvasEdgeAutoPanVelocity } from './canvas/canvas-edge-auto-pan'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
 import { bindReadingProgress as bindReadingProgressEvents } from './canvas/reading-progress'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
+import { OWNER_OPEN_SCOPE, resourceForFileItem } from './lib/legacy-resource-adapter'
+import { openResource } from './lib/open-resource'
+import { viewerMediaType, viewerReaderKind } from './lib/viewer-registry'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
@@ -179,7 +194,11 @@ function canvasWindowDetails(definition: WorkspaceWindowDefinition): {
   return { kind, path }
 }
 
-function fileItemFromDrag(path: string, isDirectory: boolean): FileItem {
+function fileItemFromDrag(
+  path: string,
+  isDirectory: boolean,
+  resource?: ResourceSummary,
+): FileItem {
   const extension = isDirectory ? '' : (path.split('.').at(-1) ?? '')
   return {
     path,
@@ -188,6 +207,23 @@ function fileItemFromDrag(path: string, isDirectory: boolean): FileItem {
     extension,
     size: 0,
     type: isDirectory ? MediaType.FOLDER : getMediaTypeFromPath(path),
+    resource,
+  }
+}
+
+function resourceOpenTarget(target: VirtualOpenTarget): ResourceOpenTarget | undefined {
+  if (target.type === 'hermesSession') {
+    if (!target.sessionId) return undefined
+    return {
+      type: 'hermesSession',
+      sessionId: target.sessionId,
+      readOnly: target.readOnly,
+    }
+  }
+  return {
+    type: 'hermesDraft',
+    ...(typeof target.projectPath === 'string' ? { projectPath: target.projectPath } : {}),
+    readOnly: target.readOnly,
   }
 }
 
@@ -211,6 +247,10 @@ function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
 
 function windowSizeKey(definition: WorkspaceWindowDefinition): CanvasWindowSizeKey {
   if (definition.type !== 'viewer') return definition.type
+  if (definition.viewerId) {
+    const mediaType = viewerMediaType(definition.viewerId)
+    if (mediaType) return mediaWindowSizeKey(mediaType)
+  }
   const path = definition.initialState.viewing ?? ''
   return mediaWindowSizeKey(getMediaTypeFromPath(path))
 }
@@ -354,6 +394,9 @@ export function CanvasPage() {
   const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'offline' | 'error'>(
     'saved',
   )
+  const resolvedResourceTargets = new Set<string>()
+  const resolvingResourceTargets = new Set<string>()
+  const resourceResolutionAbort = new AbortController()
   const readOnlyMode = () => false
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let importInputEl: HTMLInputElement | undefined
@@ -399,6 +442,41 @@ export function CanvasPage() {
     const preview = fileDropPreview()
     return preview ? canvasWindowVisualBounds(preview.bounds) : null
   })
+
+  createEffect(() => {
+    for (const window of state().windows) {
+      const target = window.definition.resourceTarget
+      if (!target) continue
+      const key = resourceTargetKey(target)
+      if (resolvedResourceTargets.has(key) || resolvingResourceTargets.has(key)) continue
+      resolvingResourceTargets.add(key)
+      void inspectResourceTarget(
+        target,
+        { kind: 'owner', surface: 'canvas' },
+        resourceResolutionAbort.signal,
+      )
+        .then((summary) => {
+          resolvedResourceTargets.add(key)
+          if (!summary) return
+          setState((current) => ({
+            ...current,
+            windows: current.windows.map((item) =>
+              item.definition.resourceTarget &&
+              resourceTargetKey(item.definition.resourceTarget) === key
+                ? {
+                    ...item,
+                    definition: reconcileResourceTargetWindow(item.definition, summary),
+                  }
+                : item,
+            ),
+          }))
+        })
+        .catch(() => undefined)
+        .finally(() => resolvingResourceTargets.delete(key))
+    }
+  })
+
+  onCleanup(() => resourceResolutionAbort.abort())
 
   const workspace = createMemo<PersistedWorkspaceState>(() => ({
     windows: state().windows.map((window) => ({
@@ -983,6 +1061,8 @@ export function CanvasPage() {
     file?: FileItem,
     dir = '',
     readerKind?: 'pdf' | 'folder' | 'book',
+    resourceTargetOverride?: PersistedResourceTarget,
+    viewerId?: ViewerId,
   ): WorkspaceWindowDefinition {
     if (!file || (file.isDirectory && !readerKind)) {
       const path = file?.path ?? dir
@@ -994,6 +1074,7 @@ export function CanvasPage() {
         iconType: MediaType.FOLDER,
         source: LOCAL_SOURCE,
         initialState: path ? { dir: path } : {},
+        resourceTarget: persistedResourceTarget(file?.resource) ?? resourceTargetOverride,
         tabGroupId: null,
       }
     }
@@ -1002,13 +1083,15 @@ export function CanvasPage() {
       type: 'viewer',
       title: file.name || fileName(file.path),
       iconPath: file.path,
-      iconType: file.type,
+      iconType: (viewerId && viewerMediaType(viewerId)) || file.type,
       source: LOCAL_SOURCE,
       initialState: {
         viewing: file.path,
         dir: parentPath(file.path),
-        readerKind: readerKind ?? null,
+        readerKind: readerKind ?? (viewerId ? viewerReaderKind(viewerId) : null),
       },
+      resourceTarget: persistedResourceTarget(file.resource) ?? resourceTargetOverride,
+      viewerId,
       tabGroupId: null,
     }
   }
@@ -1029,6 +1112,8 @@ export function CanvasPage() {
       duplicate?: boolean
       worldBounds?: CanvasRect
       readerKind?: 'pdf' | 'folder' | 'book'
+      resourceTarget?: PersistedResourceTarget
+      viewerId?: ViewerId
     } = {},
   ) {
     if (file && !options.duplicate) {
@@ -1042,7 +1127,14 @@ export function CanvasPage() {
     commit((current) => {
       const id = `canvas-window-${current.nextItemId}`
       createdId = id
-      const definition = makeDefinition(id, file ?? undefined, '', options.readerKind)
+      const definition = makeDefinition(
+        id,
+        file ?? undefined,
+        '',
+        options.readerKind,
+        options.resourceTarget,
+        options.viewerId,
+      )
       const sizeKey = windowSizeKey(definition)
       const worldBounds =
         options.worldBounds ??
@@ -1072,6 +1164,46 @@ export function CanvasPage() {
     return createdId
   }
 
+  function executeCanvasOpen(
+    file: FileItem,
+    point: { x: number; y: number },
+    options: {
+      duplicate?: boolean
+      worldBounds?: CanvasRect
+      resourceTarget?: PersistedResourceTarget
+      virtualTarget?: VirtualOpenTarget
+      intent?: 'default' | 'read'
+    } = {},
+  ) {
+    const virtualTarget = options.virtualTarget
+      ? resourceOpenTarget(options.virtualTarget)
+      : undefined
+    const resource = resourceForFileItem(
+      file,
+      virtualTarget
+        ? {
+            kind: virtualTarget.type === 'hermesDraft' ? 'draft' : 'conversation',
+            presentation: 'conversation',
+            openTarget: virtualTarget,
+          }
+        : undefined,
+    )
+    const plan = openResource(resource, options.intent ?? 'default', {
+      surface: 'canvas',
+      scope: OWNER_OPEN_SCOPE,
+    })
+    if (plan.kind === 'conversation') {
+      return addHermesWindow(file, plan.target, point, options.worldBounds, options.resourceTarget)
+    }
+    if (plan.kind === 'blocked') return undefined
+    return addFileWindow(file, point, {
+      ...options,
+      viewerId: plan.kind === 'viewer' || plan.kind === 'playback' ? plan.viewer.id : undefined,
+      readerKind:
+        plan.kind === 'viewer' ? (viewerReaderKind(plan.viewer.id) ?? undefined) : undefined,
+    })
+  }
+
   async function addTextEditor(
     point = viewportCenterWorld(),
     content = '',
@@ -1098,7 +1230,7 @@ export function CanvasPage() {
         method: 'POST',
         body: JSON.stringify({ type: 'file', path, content }),
       })
-      addFileWindow(
+      executeCanvasOpen(
         {
           name,
           path,
@@ -1238,7 +1370,7 @@ export function CanvasPage() {
       }
     }
     const bounds = source.bounds
-    const createdId = addFileWindow(
+    const createdId = executeCanvasOpen(
       file,
       { x: bounds.x + bounds.width + CANVAS_GRID_SIZE, y: bounds.y },
       { duplicate },
@@ -1249,10 +1381,10 @@ export function CanvasPage() {
   function openReaderFromBrowser(sourceWindowId: string, file: FileItem) {
     const source = state().windows.find((window) => window.id === sourceWindowId)
     if (!source || !file.isDirectory) return
-    const createdId = addFileWindow(
+    const createdId = executeCanvasOpen(
       file,
       { x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE, y: source.bounds.y },
-      { duplicate: true, readerKind: 'folder' },
+      { duplicate: true, intent: 'read' },
     )
     if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
   }
@@ -1287,6 +1419,7 @@ export function CanvasPage() {
     target: VirtualOpenTarget,
     point: { x: number; y: number },
     requestedBounds?: CanvasRect,
+    resourceTargetOverride?: PersistedResourceTarget,
   ) {
     if (target.sessionId) {
       const existing = state().windows.find(
@@ -1312,6 +1445,7 @@ export function CanvasPage() {
         iconIsVirtual: true,
         source: LOCAL_SOURCE,
         initialState: {},
+        resourceTarget: persistedResourceTarget(file.resource) ?? resourceTargetOverride,
         tabGroupId: null,
         hermes: {
           sessionId: target.sessionId,
@@ -1382,23 +1516,34 @@ export function CanvasPage() {
     })
   }
 
-  function navigateDir(windowId: string, dir: string) {
+  function navigateDir(windowId: string, dir: string, resource?: ResourceSummary) {
     updateDefinition(windowId, (definition) => ({
       ...definition,
       title: workspaceBrowserDirTitle(dir),
       iconPath: dir,
       iconType: MediaType.FOLDER,
       initialState: { ...definition.initialState, dir },
+      resourceTarget: persistedResourceTarget(resource),
     }))
   }
 
-  function updateViewing(windowId: string, path: string) {
+  function updateViewing(
+    windowId: string,
+    path: string,
+    resource?: ResourceSummary,
+    viewerId?: ViewerId,
+  ) {
     updateDefinition(windowId, (definition) => ({
       ...definition,
       title: fileName(path),
       iconPath: path,
-      iconType: getMediaTypeFromPath(path),
+      iconType:
+        (viewerId ? viewerMediaType(viewerId) : null) ??
+        definition.iconType ??
+        getMediaTypeFromPath(path),
       initialState: { ...definition.initialState, viewing: path, dir: parentPath(path) },
+      resourceTarget: persistedResourceTarget(resource),
+      viewerId: viewerId ?? definition.viewerId,
     }))
   }
 
@@ -1636,7 +1781,7 @@ export function CanvasPage() {
   }
 
   function onLibrarySearchResult(result: FileSearchResult) {
-    addFileWindow(fileSearchResultToFileItem(result), searchPlacement())
+    executeCanvasOpen(fileSearchResultToFileItem(result), searchPlacement())
   }
 
   createEffect(() => {
@@ -2166,17 +2311,18 @@ export function CanvasPage() {
             )
           setFileDropPreview(null)
           if (data.virtualOpenTarget) {
-            addHermesWindow(
-              fileItemFromDrag(data.path, false),
-              data.virtualOpenTarget,
-              point,
-              placement.bounds,
-            )
+            executeCanvasOpen(fileItemFromDrag(data.path, false, data.resource), point, {
+              duplicate: true,
+              worldBounds: placement.bounds,
+              resourceTarget: data.resourceTarget,
+              virtualTarget: data.virtualOpenTarget,
+            })
             return
           }
-          addFileWindow(fileItemFromDrag(data.path, data.isDirectory), point, {
+          executeCanvasOpen(fileItemFromDrag(data.path, data.isDirectory, data.resource), point, {
             duplicate: true,
             worldBounds: placement.bounds,
+            resourceTarget: data.resourceTarget,
           })
         }}
       >
@@ -2436,6 +2582,7 @@ export function CanvasPage() {
                       <Show when={item()!.definition.type === 'browser'}>
                         <WorkspaceBrowserPane
                           windowId={windowId}
+                          surface='canvas'
                           workspace={workspace}
                           sharePanel={() => null}
                           fileIconContext={fileIconContext}
@@ -2448,17 +2595,9 @@ export function CanvasPage() {
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
                           onOpenReader={openReaderFromBrowser}
                           onOpenVirtualTarget={openHermesFromBrowser}
-                          onOpenInNewTab={(windowId, file) =>
-                            openFromBrowser(
-                              windowId,
-                              fileItemFromDrag(file.path, file.isDirectory),
-                              true,
-                            )
-                          }
+                          onOpenInNewTab={(windowId, file) => openFromBrowser(windowId, file, true)}
                           openInNewTabLabel='Open in new canvas window'
-                          onRequestPlay={(_source, path) =>
-                            openFromBrowser(windowId, fileItemFromDrag(path, false))
-                          }
+                          onRequestPlay={(_source, file) => openFromBrowser(windowId, file)}
                           onOpenFileInNewFloatingWindow={(windowId, file) =>
                             openFromBrowser(windowId, file, true)
                           }

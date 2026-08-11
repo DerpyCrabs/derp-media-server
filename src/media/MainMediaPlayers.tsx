@@ -1,4 +1,5 @@
 import { getMediaTypeFromPath } from '@/lib/media-utils'
+import { isViewerId } from '@/lib/resource'
 import { MediaType } from '@/lib/types'
 import { Show, lazy } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
@@ -6,6 +7,7 @@ import { AudioPlayer } from './AudioPlayer'
 import type { TextViewerShareContext } from './TextViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
 import { closeViewer } from '../lib/url-state-actions'
+import { viewerMediaType, viewerReaderKind } from '../lib/viewer-registry'
 
 const TextViewerDialog = lazy(() =>
   import('./TextViewerDialog').then((module) => ({ default: module.TextViewerDialog })),
@@ -34,16 +36,31 @@ function LazyDocumentReader(props: Pick<Props, 'shareContext'>) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
   const viewingPath = () => params().get('viewing') ?? props.shareContext?.sharePath ?? ''
-  const mediaType = () => getMediaTypeFromPath(viewingPath())
+  const viewerId = () => {
+    const value = params().get('viewer')
+    return isViewerId(value) ? value : null
+  }
+  const mediaType = () =>
+    viewerId() ? viewerMediaType(viewerId()!) : getMediaTypeFromPath(viewingPath())
   const readerKind = (): 'pdf' | 'book' | null =>
-    mediaType() === MediaType.PDF ? 'pdf' : mediaType() === MediaType.BOOK ? 'book' : null
+    viewerId()
+      ? viewerReaderKind(viewerId()!) === 'pdf'
+        ? 'pdf'
+        : viewerReaderKind(viewerId()!) === 'book'
+          ? 'book'
+          : null
+      : mediaType() === MediaType.PDF
+        ? 'pdf'
+        : mediaType() === MediaType.BOOK
+          ? 'book'
+          : null
 
   return (
     <Show when={readerKind() && viewingPath()} keyed>
       {(sourcePath) => (
         <ReaderDialog
           sourcePath={sourcePath}
-          sourceKind={getMediaTypeFromPath(sourcePath) === MediaType.PDF ? 'pdf' : 'book'}
+          sourceKind={readerKind()!}
           shareContext={props.shareContext}
           onClose={closeViewer}
         />
@@ -56,7 +73,16 @@ export function MainMediaPlayers(props: Props) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
   const viewingPath = () => params().get('viewing') ?? props.shareContext?.sharePath ?? ''
-  const viewerType = () => (viewingPath() ? getMediaTypeFromPath(viewingPath()) : null)
+  const viewerId = () => {
+    const value = params().get('viewer')
+    return isViewerId(value) ? value : null
+  }
+  const viewerType = () =>
+    viewingPath()
+      ? viewerId()
+        ? viewerMediaType(viewerId()!)
+        : getMediaTypeFromPath(viewingPath())
+      : null
 
   return (
     <>

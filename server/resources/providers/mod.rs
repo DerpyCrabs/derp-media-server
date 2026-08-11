@@ -1,6 +1,7 @@
 use super::types::{
     LegacyPageFields, LegacyResourceFields, ProviderOperation, ResourceAppearance, ResourceKind,
-    ResourceOpenTarget, ResourcePresentation, ResourceVersion, SourceId,
+    ResourceOpenTarget, ResourcePresentation, ResourcePreview, ResourcePreviewKind,
+    ResourceVersion, SourceId,
 };
 use crate::{
     config::{Config, MediaRoot},
@@ -11,9 +12,9 @@ use crate::{
     virtual_directory,
 };
 use futures_util::future::BoxFuture;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{path::Path, sync::Arc, time::UNIX_EPOCH};
+use std::{collections::HashSet, path::Path, sync::Arc, time::UNIX_EPOCH};
 
 #[derive(Clone)]
 pub(crate) enum ProviderSource {
@@ -58,6 +59,7 @@ pub(crate) struct ProviderResource {
     pub(crate) presentation: ResourcePresentation,
     pub(crate) mime_type: Option<String>,
     pub(crate) size: Option<u64>,
+    pub(crate) preview: Option<ResourcePreview>,
     pub(crate) version: Option<ResourceVersion>,
     pub(crate) operations: Vec<ProviderOperation>,
     pub(crate) platform_identity: Option<String>,
@@ -152,6 +154,14 @@ impl FilesystemProvider {
             presentation,
             mime_type,
             size: (!file.is_directory).then_some(file.size),
+            preview: matches!(
+                presentation,
+                ResourcePresentation::Image | ResourcePresentation::Video
+            )
+            .then_some(ResourcePreview {
+                kind: ResourcePreviewKind::Thumbnail,
+                available: thumbnail_generated.unwrap_or(false),
+            }),
             version: Some(filesystem_version(&resolved.full, &metadata)),
             operations: if file.is_directory {
                 vec![ProviderOperation::Browse, ProviderOperation::Download]
@@ -269,7 +279,11 @@ impl HermesProvider {
         Self { transport }
     }
 
-    fn resource(&self, file: media::FileItem, entry: Option<Value>) -> AppResult<ProviderResource> {
+    fn legacy_resource(
+        &self,
+        file: media::FileItem,
+        entry: Option<Value>,
+    ) -> AppResult<ProviderResource> {
         let legacy_locator = file.path.replace('\\', "/");
         let provider_locator = legacy_locator
             .strip_prefix(&format!("{}/", virtual_directory::HERMES_ROOT))
@@ -338,6 +352,7 @@ impl HermesProvider {
             presentation,
             mime_type: None,
             size: None,
+            preview: None,
             version,
             operations,
             platform_identity: entry_ref
@@ -354,6 +369,331 @@ impl HermesProvider {
             virtual_entry: entry,
         })
     }
+
+    async fn browse_typed(&self, query: ProviderBrowse) -> AppResult<ProviderPage> {
+        let mut resources = match query.locator.as_str() {
+            "" => self.root_resources().await?,
+            "archived" => self.session_resources(true).await?,
+            locator => {
+                let Some(id) = typed_id(locator, "project/")? else {
+                    return Err(AppError::not_found("Hermes Resource not found"));
+                };
+                self.project(id).await?;
+                self.project_session_resources(id).await?
+            }
+        };
+        let total = resources.len();
+        let limit = query.limit.max(1);
+        let end = query.offset.saturating_add(limit).min(total);
+        let items = if query.offset >= total {
+            Vec::new()
+        } else {
+            resources.drain(query.offset..end).collect()
+        };
+        Ok(ProviderPage {
+            items,
+            total,
+            next_offset: (end < total).then_some(end),
+            legacy: LegacyPageFields::default(),
+        })
+    }
+
+    async fn browse_legacy(&self, query: ProviderBrowse) -> AppResult<ProviderPage> {
+        let path = if query.locator.is_empty() {
+            virtual_directory::HERMES_ROOT.to_string()
+        } else {
+            format!("{}/{}", virtual_directory::HERMES_ROOT, query.locator)
+        };
+        let listing =
+            virtual_directory::list_hermes_with(self.transport.as_ref(), &path, query.offset)
+                .await?;
+        let items = listing
+            .files
+            .into_iter()
+            .map(|file| {
+                let entry = listing.virtual_entries.get(&file.path).cloned();
+                self.legacy_resource(file, entry)
+            })
+            .collect::<AppResult<Vec<_>>>()?;
+        let directory = listing.virtual_directory;
+        let total = directory
+            .as_ref()
+            .and_then(|value| value.get("total"))
+            .and_then(Value::as_u64)
+            .unwrap_or(items.len() as u64) as usize;
+        let next_offset = directory
+            .as_ref()
+            .and_then(|value| value.get("nextOffset"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize);
+        Ok(ProviderPage {
+            items,
+            total,
+            next_offset,
+            legacy: LegacyPageFields {
+                virtual_directory: directory,
+                virtual_entries: listing.virtual_entries,
+            },
+        })
+    }
+
+    async fn root_resources(&self) -> AppResult<Vec<ProviderResource>> {
+        let mut projects = self.projects().await?;
+        projects.sort_by(|left, right| {
+            hermes_project_name(left)
+                .to_lowercase()
+                .cmp(&hermes_project_name(right).to_lowercase())
+        });
+        let mut assigned = HashSet::new();
+        for project in &projects {
+            let Some(id) = project.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            for session in self.project_sessions(id).await? {
+                if let Some(id) = hermes_session_id(&session) {
+                    assigned.insert(id.to_string());
+                }
+            }
+        }
+        let mut resources = projects
+            .into_iter()
+            .filter_map(|project| self.project_resource(project).transpose())
+            .collect::<AppResult<Vec<_>>>()?;
+        resources.push(self.archived_resource());
+        resources.extend(
+            self.sessions(false)
+                .await?
+                .into_iter()
+                .filter(|session| {
+                    hermes_session_id(session).is_some_and(|id| !assigned.contains(id))
+                })
+                .filter_map(|session| self.session_resource(session, false, None).transpose())
+                .collect::<AppResult<Vec<_>>>()?,
+        );
+        Ok(resources)
+    }
+
+    async fn session_resources(&self, archived: bool) -> AppResult<Vec<ProviderResource>> {
+        self.sessions(archived)
+            .await?
+            .into_iter()
+            .filter_map(|session| self.session_resource(session, archived, None).transpose())
+            .collect()
+    }
+
+    async fn project_session_resources(&self, id: &str) -> AppResult<Vec<ProviderResource>> {
+        self.project_sessions(id)
+            .await?
+            .into_iter()
+            .filter_map(|session| self.session_resource(session, false, None).transpose())
+            .collect()
+    }
+
+    async fn projects(&self) -> AppResult<Vec<Value>> {
+        let value = self.transport.rpc("projects.list", json!({})).await?;
+        Ok(value
+            .get("projects")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|project| {
+                !project
+                    .get("archived")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    && !project
+                        .get("is_auto")
+                        .or_else(|| project.get("isAuto"))
+                        .or_else(|| project.get("auto"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+            })
+            .collect())
+    }
+
+    async fn project(&self, id: &str) -> AppResult<Value> {
+        self.projects()
+            .await?
+            .into_iter()
+            .find(|project| project.get("id").and_then(Value::as_str) == Some(id))
+            .ok_or_else(|| AppError::not_found("Hermes project not found"))
+    }
+
+    async fn project_sessions(&self, id: &str) -> AppResult<Vec<Value>> {
+        let value = self
+            .transport
+            .rpc(
+                "projects.project_sessions",
+                json!({"project_id":id,"session_limit":i32::MAX}),
+            )
+            .await?;
+        let mut sessions = Vec::new();
+        if let Some(project) = value.get("project") {
+            collect_hermes_sessions(project, &mut sessions);
+        }
+        sessions.sort_by(|a, b| hermes_session_time(b).total_cmp(&hermes_session_time(a)));
+        let mut seen = HashSet::new();
+        sessions.retain(|session| {
+            hermes_session_id(session).is_some_and(|id| seen.insert(id.to_string()))
+        });
+        Ok(sessions)
+    }
+
+    async fn sessions(&self, archived: bool) -> AppResult<Vec<Value>> {
+        let mut sessions = Vec::new();
+        let mut offset = 0usize;
+        loop {
+            let mut query = vec![
+                ("limit", "100".into()),
+                ("offset", offset.to_string()),
+                ("min_messages", "1".into()),
+                ("order", "recent".into()),
+                ("archived", if archived { "only" } else { "exclude" }.into()),
+                ("exclude_sources", "tool,kanban".into()),
+            ];
+            if let Some(profile) = self.transport.profile() {
+                query.push(("profile", profile.into()));
+            }
+            let page = self.transport.get("api/sessions", &query).await?;
+            let rows = page
+                .get("sessions")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let count = rows.len();
+            sessions.extend(rows);
+            offset += count;
+            let total = page
+                .get("total")
+                .and_then(Value::as_u64)
+                .unwrap_or(offset as u64) as usize;
+            if count == 0 || offset >= total {
+                break;
+            }
+        }
+        sessions.sort_by(|a, b| hermes_session_time(b).total_cmp(&hermes_session_time(a)));
+        Ok(sessions)
+    }
+
+    fn project_resource(&self, project: Value) -> AppResult<Option<ProviderResource>> {
+        let Some(id) = project.get("id").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        validate_hermes_id(id)?;
+        let name = hermes_project_name(&project).to_string();
+        let color = project
+            .get("color")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let provider_locator = format!("project/{id}");
+        let legacy_locator = hermes_legacy_locator(&provider_locator);
+        Ok(Some(ProviderResource {
+            name,
+            provider_locator,
+            legacy_locator,
+            kind: ResourceKind::ConversationProject,
+            presentation: ResourcePresentation::Browse,
+            mime_type: None,
+            size: None,
+            preview: None,
+            version: Some(opaque_json_version(&project)),
+            operations: vec![ProviderOperation::Browse],
+            platform_identity: Some(format!("hermes:{id}")),
+            fingerprint: None,
+            appearance: Some(ResourceAppearance {
+                icon: project
+                    .get("icon")
+                    .and_then(Value::as_str)
+                    .unwrap_or("project")
+                    .into(),
+                tone: "indigo".into(),
+                color,
+            }),
+            open_target: None,
+            legacy: LegacyResourceFields {
+                is_virtual: Some(true),
+                ..LegacyResourceFields::default()
+            },
+            virtual_entry: None,
+        }))
+    }
+
+    fn archived_resource(&self) -> ProviderResource {
+        ProviderResource {
+            name: "Archived".into(),
+            provider_locator: "archived".into(),
+            legacy_locator: hermes_legacy_locator("archived"),
+            kind: ResourceKind::Folder,
+            presentation: ResourcePresentation::Browse,
+            mime_type: None,
+            size: None,
+            preview: None,
+            version: None,
+            operations: vec![ProviderOperation::Browse],
+            platform_identity: Some("hermes:archived".into()),
+            fingerprint: None,
+            appearance: Some(ResourceAppearance {
+                icon: "archive".into(),
+                tone: "muted".into(),
+                color: None,
+            }),
+            open_target: None,
+            legacy: LegacyResourceFields {
+                is_virtual: Some(true),
+                ..LegacyResourceFields::default()
+            },
+            virtual_entry: None,
+        }
+    }
+
+    fn session_resource(
+        &self,
+        session: Value,
+        archived: bool,
+        locator_id: Option<&str>,
+    ) -> AppResult<Option<ProviderResource>> {
+        let Some(id) = locator_id.or_else(|| hermes_session_id(&session)) else {
+            return Ok(None);
+        };
+        validate_hermes_id(id)?;
+        let name = session
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|title| !title.is_empty())
+            .unwrap_or("Untitled session")
+            .to_string();
+        let provider_locator = format!("session/{id}");
+        let legacy_locator = hermes_legacy_locator(&provider_locator);
+        Ok(Some(ProviderResource {
+            name,
+            provider_locator,
+            legacy_locator,
+            kind: ResourceKind::Conversation,
+            presentation: ResourcePresentation::Conversation,
+            mime_type: None,
+            size: None,
+            preview: None,
+            version: Some(opaque_json_version(&session)),
+            operations: vec![ProviderOperation::Read, ProviderOperation::Export],
+            platform_identity: Some(format!("hermes:{id}")),
+            fingerprint: None,
+            appearance: Some(ResourceAppearance {
+                icon: "agent-session".into(),
+                tone: "violet".into(),
+                color: None,
+            }),
+            open_target: Some(ResourceOpenTarget::HermesSession {
+                session_id: id.into(),
+                read_only: archived,
+            }),
+            legacy: LegacyResourceFields {
+                is_virtual: Some(true),
+                ..LegacyResourceFields::default()
+            },
+            virtual_entry: None,
+        }))
+    }
 }
 
 impl ReadProvider for HermesProvider {
@@ -364,53 +704,32 @@ impl ReadProvider for HermesProvider {
                     "Hermes provider received filesystem Source",
                 ));
             }
-            let path = if query.locator.is_empty() {
-                virtual_directory::HERMES_ROOT.to_string()
+            if query.limit == usize::MAX {
+                self.browse_legacy(query).await
             } else {
-                format!("{}/{}", virtual_directory::HERMES_ROOT, query.locator)
-            };
-            let listing =
-                virtual_directory::list_hermes_with(self.transport.as_ref(), &path, query.offset)
-                    .await?;
-            let items = listing
-                .files
-                .into_iter()
-                .map(|file| {
-                    let entry = listing.virtual_entries.get(&file.path).cloned();
-                    self.resource(file, entry)
-                })
-                .collect::<AppResult<Vec<_>>>()?;
-            let directory = listing.virtual_directory;
-            let total = directory
-                .as_ref()
-                .and_then(|value| value.get("total"))
-                .and_then(Value::as_u64)
-                .unwrap_or(items.len() as u64) as usize;
-            let next_offset = directory
-                .as_ref()
-                .and_then(|value| value.get("nextOffset"))
-                .and_then(Value::as_u64)
-                .map(|value| value as usize);
-            Ok(ProviderPage {
-                items,
-                total,
-                next_offset,
-                legacy: LegacyPageFields {
-                    virtual_directory: directory,
-                    virtual_entries: listing.virtual_entries,
-                },
-            })
+                self.browse_typed(query).await
+            }
         })
     }
 
     fn inspect<'a>(&'a self, query: ProviderInspect) -> BoxFuture<'a, AppResult<ProviderResource>> {
         Box::pin(async move {
-            let Some(id) = query.locator.strip_prefix("session/") else {
+            if !matches!(query.source, ProviderSource::Hermes { .. }) {
+                return Err(AppError::internal(
+                    "Hermes provider received filesystem Source",
+                ));
+            }
+            if query.locator == "archived" {
+                return Ok(self.archived_resource());
+            }
+            if let Some(id) = typed_id(&query.locator, "project/")? {
+                return self
+                    .project_resource(self.project(id).await?)?
+                    .ok_or_else(|| AppError::not_found("Hermes project not found"));
+            }
+            let Some(id) = typed_id(&query.locator, "session/")? else {
                 return Err(AppError::not_found("Hermes Resource not found"));
             };
-            if id.is_empty() || id.contains(['/', '\\']) {
-                return Err(AppError::bad("Hermes Resource locator is invalid"));
-            }
             let mut profile_query = Vec::new();
             if let Some(profile) = self.transport.profile() {
                 profile_query.push(("profile", profile.into()));
@@ -419,37 +738,83 @@ impl ReadProvider for HermesProvider {
                 .transport
                 .get(&format!("api/sessions/{id}"), &profile_query)
                 .await?;
-            let title = session
-                .get("title")
-                .and_then(Value::as_str)
-                .unwrap_or("Untitled session")
-                .to_string();
-            self.resource(
-                media::FileItem {
-                    name: title,
-                    path: format!("{}/session/{id}", virtual_directory::HERMES_ROOT),
-                    media_type: "other".into(),
-                    size: 0,
-                    extension: String::new(),
-                    is_directory: false,
-                    is_virtual: Some(true),
-                    view_count: None,
-                    share_token: None,
-                    thumbnail_generated: None,
-                    version: None,
-                    resource: None,
-                },
-                Some(serde_json::json!({
-                    "provider":"hermes",
-                    "kind":"session",
-                    "id":id,
-                    "capabilities":["open","download"],
-                    "openTarget":{"type":"hermesSession","sessionId":id,"readOnly":false},
-                    "metadata":session,
-                    "appearance":{"icon":"agent-session","tone":"violet"}
-                })),
-            )
+            let archived = hermes_session_archived(&session);
+            self.session_resource(session, archived, Some(id))?
+                .ok_or_else(|| AppError::not_found("Hermes Resource not found"))
         })
+    }
+}
+
+fn validate_hermes_id(id: &str) -> AppResult<()> {
+    if id.is_empty() || id.contains(['/', '\\']) {
+        return Err(AppError::bad("Hermes Resource locator is invalid"));
+    }
+    Ok(())
+}
+
+fn typed_id<'a>(locator: &'a str, prefix: &str) -> AppResult<Option<&'a str>> {
+    let Some(id) = locator.strip_prefix(prefix) else {
+        return Ok(None);
+    };
+    validate_hermes_id(id)?;
+    Ok(Some(id))
+}
+
+fn hermes_legacy_locator(provider_locator: &str) -> String {
+    format!("{}/{}", virtual_directory::HERMES_ROOT, provider_locator)
+}
+
+fn hermes_session_id(value: &Value) -> Option<&str> {
+    value
+        .get("_lineage_root_id")
+        .or_else(|| value.get("lineage_root_id"))
+        .or_else(|| value.get("lineageRootId"))
+        .or_else(|| value.get("root_session_id"))
+        .or_else(|| value.get("id"))
+        .or_else(|| value.get("session_id"))
+        .and_then(Value::as_str)
+}
+
+fn hermes_project_name(value: &Value) -> &str {
+    value
+        .get("name")
+        .or_else(|| value.get("label"))
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Untitled project")
+}
+
+fn hermes_session_time(value: &Value) -> f64 {
+    value
+        .get("last_active")
+        .or_else(|| value.get("lastActive"))
+        .and_then(Value::as_f64)
+        .unwrap_or_default()
+}
+
+fn hermes_session_archived(value: &Value) -> bool {
+    value
+        .get("archived")
+        .or_else(|| value.get("is_archived"))
+        .or_else(|| value.get("isArchived"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn collect_hermes_sessions(value: &Value, output: &mut Vec<Value>) {
+    if let Some(sessions) = value.get("sessions").and_then(Value::as_array) {
+        output.extend(sessions.iter().cloned());
+    }
+    if let Some(object) = value.as_object() {
+        for (key, child) in object {
+            if key != "sessions" {
+                collect_hermes_sessions(child, output);
+            }
+        }
+    } else if let Some(array) = value.as_array() {
+        for child in array {
+            collect_hermes_sessions(child, output);
+        }
     }
 }
 
@@ -541,4 +906,296 @@ fn digest_hex(bytes: impl AsRef<[u8]>) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{collections::VecDeque, sync::Mutex};
+
+    struct FakeHermes {
+        gets: Mutex<VecDeque<Value>>,
+        rpcs: Mutex<VecDeque<Value>>,
+    }
+
+    impl FakeHermes {
+        fn new(
+            gets: impl IntoIterator<Item = Value>,
+            rpcs: impl IntoIterator<Item = Value>,
+        ) -> Self {
+            Self {
+                gets: Mutex::new(gets.into_iter().collect()),
+                rpcs: Mutex::new(rpcs.into_iter().collect()),
+            }
+        }
+    }
+
+    impl HermesTransport for FakeHermes {
+        fn profile(&self) -> Option<&str> {
+            Some("test")
+        }
+
+        fn get<'a>(
+            &'a self,
+            _path: &'a str,
+            _query: &'a [(&'a str, String)],
+        ) -> BoxFuture<'a, AppResult<Value>> {
+            Box::pin(async move {
+                self.gets
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .ok_or_else(|| AppError::internal("unexpected Hermes get"))
+            })
+        }
+
+        fn patch<'a>(&'a self, _path: &'a str, _body: Value) -> BoxFuture<'a, AppResult<Value>> {
+            Box::pin(async { Err(AppError::internal("unexpected Hermes patch")) })
+        }
+
+        fn post<'a>(&'a self, _path: &'a str, _body: Value) -> BoxFuture<'a, AppResult<Value>> {
+            Box::pin(async { Err(AppError::internal("unexpected Hermes post")) })
+        }
+
+        fn delete<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, AppResult<()>> {
+            Box::pin(async { Err(AppError::internal("unexpected Hermes delete")) })
+        }
+
+        fn ensure_events<'a>(&'a self) -> BoxFuture<'a, AppResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn rpc<'a>(&'a self, _method: &'a str, _params: Value) -> BoxFuture<'a, AppResult<Value>> {
+            Box::pin(async move {
+                self.rpcs
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .ok_or_else(|| AppError::internal("unexpected Hermes rpc"))
+            })
+        }
+    }
+
+    fn source() -> ProviderSource {
+        ProviderSource::Hermes {
+            source_id: SourceId::new("source-hermes"),
+        }
+    }
+
+    #[tokio::test]
+    async fn hermes_root_browse_keeps_typed_locators_and_legacy_paths() {
+        let provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [serde_json::json!({
+                "sessions":[
+                    {"id":"inside","title":"Inside","last_active":2},
+                    {"id":"loose","title":"Loose","last_active":1}
+                ],
+                "total":2
+            })],
+            [
+                serde_json::json!({"projects":[{"id":"project-a","name":"Alpha"}]}),
+                serde_json::json!({"project":{"sessions":[{"id":"inside"}]}}),
+            ],
+        )));
+
+        let page = provider
+            .browse(ProviderBrowse {
+                source: source(),
+                locator: String::new(),
+                offset: 0,
+                limit: 200,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|resource| resource.provider_locator.as_str())
+                .collect::<Vec<_>>(),
+            ["project/project-a", "archived", "session/loose"]
+        );
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|resource| resource.legacy_locator.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Hermes Sessions/project/project-a",
+                "Hermes Sessions/archived",
+                "Hermes Sessions/session/loose"
+            ]
+        );
+        assert_eq!(page.total, 3);
+        assert_eq!(page.next_offset, None);
+    }
+
+    #[tokio::test]
+    async fn hermes_archived_browse_marks_sessions_read_only() {
+        let provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [serde_json::json!({
+                "sessions":[{"id":"old","title":"Old","archived":true}],
+                "total":1
+            })],
+            [],
+        )));
+
+        let page = provider
+            .browse(ProviderBrowse {
+                source: source(),
+                locator: "archived".into(),
+                offset: 0,
+                limit: 200,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            page.items[0].open_target,
+            Some(ResourceOpenTarget::HermesSession {
+                session_id: "old".into(),
+                read_only: true,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn hermes_project_and_archive_inspect_as_browsable_resources() {
+        let provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [],
+            [serde_json::json!({
+                "projects":[{"id":"project-a","name":"Alpha","color":"#123456"}]
+            })],
+        )));
+
+        let project = provider
+            .inspect(ProviderInspect {
+                source: source(),
+                locator: "project/project-a".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(project.kind, ResourceKind::ConversationProject);
+        assert_eq!(project.presentation, ResourcePresentation::Browse);
+        assert_eq!(project.operations, [ProviderOperation::Browse]);
+        assert_eq!(project.provider_locator, "project/project-a");
+        assert_eq!(project.legacy_locator, "Hermes Sessions/project/project-a");
+        assert!(project.version.is_some());
+
+        let archived = provider
+            .inspect(ProviderInspect {
+                source: source(),
+                locator: "archived".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(archived.kind, ResourceKind::Folder);
+        assert_eq!(archived.presentation, ResourcePresentation::Browse);
+        assert_eq!(archived.operations, [ProviderOperation::Browse]);
+        assert_eq!(archived.provider_locator, "archived");
+        assert_eq!(archived.legacy_locator, "Hermes Sessions/archived");
+    }
+
+    #[tokio::test]
+    async fn hermes_project_browse_pages_typed_sessions() {
+        let provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [],
+            [
+                serde_json::json!({
+                    "projects":[{"id":"project-a","name":"Alpha"}]
+                }),
+                serde_json::json!({
+                    "project":{"groups":[{"sessions":[
+                        {"id":"older","title":"Older","last_active":1},
+                        {"id":"newer","title":"Newer","last_active":2}
+                    ]}]}
+                }),
+            ],
+        )));
+
+        let page = provider
+            .browse(ProviderBrowse {
+                source: source(),
+                locator: "project/project-a".into(),
+                offset: 1,
+                limit: 1,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(page.total, 2);
+        assert_eq!(page.next_offset, None);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].provider_locator, "session/older");
+        assert_eq!(page.items[0].kind, ResourceKind::Conversation);
+        assert_eq!(
+            page.items[0].operations,
+            [ProviderOperation::Read, ProviderOperation::Export]
+        );
+    }
+
+    #[tokio::test]
+    async fn hermes_session_inspect_uses_remote_archive_state_and_locator_id() {
+        let provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [serde_json::json!({
+                "title":"Archived detail",
+                "is_archived":true,
+                "last_active":3
+            })],
+            [],
+        )));
+
+        let session = provider
+            .inspect(ProviderInspect {
+                source: source(),
+                locator: "session/old".into(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(session.provider_locator, "session/old");
+        assert_eq!(
+            session.open_target,
+            Some(ResourceOpenTarget::HermesSession {
+                session_id: "old".into(),
+                read_only: true,
+            })
+        );
+        assert_eq!(
+            session.operations,
+            [ProviderOperation::Read, ProviderOperation::Export]
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_hermes_browse_keeps_virtual_directory_fields() {
+        let provider = HermesProvider::new(Arc::new(FakeHermes::new(
+            [serde_json::json!({
+                "sessions":[{"id":"loose","title":"Loose"}],
+                "total":1
+            })],
+            [serde_json::json!({"projects":[]})],
+        )));
+
+        let page = provider
+            .browse(ProviderBrowse {
+                source: source(),
+                locator: String::new(),
+                offset: 0,
+                limit: usize::MAX,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            page.legacy.virtual_directory.as_ref().unwrap()["kind"],
+            "root"
+        );
+        assert!(
+            page.legacy
+                .virtual_entries
+                .contains_key("Hermes Sessions/session/loose")
+        );
+        assert_eq!(page.items[0].legacy_locator, "Hermes Sessions/archived");
+    }
 }

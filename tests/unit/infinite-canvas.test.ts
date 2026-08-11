@@ -176,4 +176,55 @@ describe('infinite canvas persistence', () => {
       readerKind: 'folder',
     })
   })
+
+  test('preserves complete resource targets and drops incomplete ones', () => {
+    const persisted = canvasWindow('canvas-window-1', {
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 224,
+    })
+    persisted.definition.resourceTarget = {
+      ref: { libraryId: 'library', resourceId: 'resource' },
+      legacyLocator: 'Documents/file.md',
+    }
+    const parsed = parseInfiniteCanvasState({
+      ...createEmptyCanvasState(),
+      windows: [persisted],
+    })
+    expect(parsed?.windows[0]?.definition.resourceTarget).toEqual(
+      persisted.definition.resourceTarget,
+    )
+
+    ;(persisted.definition as unknown as { resourceTarget: unknown }).resourceTarget = {
+      ref: { libraryId: 'library', resourceId: 'resource' },
+    }
+    const invalid = parseInfiniteCanvasState({
+      ...createEmptyCanvasState(),
+      windows: [persisted],
+    })
+    expect(invalid?.windows[0]?.definition.resourceTarget).toBeUndefined()
+  })
+
+  test('preserves registered viewer descriptors and drops unknown ones', () => {
+    const persisted = canvasWindow('canvas-window-1', {
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 224,
+    })
+    persisted.definition.viewerId = 'text-viewer'
+    const parsed = parseInfiniteCanvasState({
+      ...createEmptyCanvasState(),
+      windows: [persisted],
+    })
+    expect(parsed?.windows[0]?.definition.viewerId).toBe('text-viewer')
+
+    ;(persisted.definition as unknown as { viewerId: unknown }).viewerId = 'path-guessed-viewer'
+    const invalid = parseInfiniteCanvasState({
+      ...createEmptyCanvasState(),
+      windows: [persisted],
+    })
+    expect(invalid?.windows[0]?.definition.viewerId).toBeUndefined()
+  })
 })

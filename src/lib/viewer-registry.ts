@@ -1,15 +1,7 @@
-import type { ResourceSummary } from '@/lib/resource'
+import type { ResourceSummary, ViewerId } from '@/lib/resource'
+import { MediaType } from '@/lib/types'
 
-export type ViewerId =
-  | 'audio-player'
-  | 'video-player'
-  | 'image-viewer'
-  | 'text-viewer'
-  | 'pdf-reader'
-  | 'book-reader'
-  | 'folder-reader'
-  | 'conversation'
-  | 'unsupported-file'
+export type { ViewerId } from '@/lib/resource'
 
 export type ViewerLoadFactory = () => Promise<unknown>
 
@@ -24,6 +16,35 @@ export type ViewerDescriptor =
   | (ViewerDescriptorBase & { role: 'conversation' })
 
 export type ViewerLookupIntent = 'default' | 'read'
+
+export function viewerMediaType(viewerId: ViewerId): MediaType | null {
+  switch (viewerId) {
+    case 'audio-player':
+      return MediaType.AUDIO
+    case 'video-player':
+      return MediaType.VIDEO
+    case 'image-viewer':
+      return MediaType.IMAGE
+    case 'text-viewer':
+      return MediaType.TEXT
+    case 'pdf-reader':
+      return MediaType.PDF
+    case 'book-reader':
+      return MediaType.BOOK
+    case 'unsupported-file':
+      return MediaType.OTHER
+    case 'folder-reader':
+    case 'conversation':
+      return null
+  }
+}
+
+export function viewerReaderKind(viewerId: ViewerId): 'pdf' | 'book' | 'folder' | null {
+  if (viewerId === 'pdf-reader') return 'pdf'
+  if (viewerId === 'book-reader') return 'book'
+  if (viewerId === 'folder-reader') return 'folder'
+  return null
+}
 
 export type ViewerRegistry = Readonly<{
   lookup(

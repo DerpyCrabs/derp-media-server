@@ -100,6 +100,36 @@ describe('workspace split view', () => {
     expect(next.activeWindowId).toBe('workspace-window-10')
   })
 
+  test('new resource tabs retain durable ref with legacy locator', () => {
+    const state = baseState([browserTab('b1')])
+    const next = openInNewTabInGroupState(
+      state,
+      'b1',
+      {
+        path: 'Documents/new.txt',
+        isDirectory: false,
+        viewerId: 'text-viewer',
+        resource: {
+          ref: { libraryId: 'library', resourceId: 'resource' },
+          locator: { sourceId: 'source', providerLocator: 'Documents/new.txt' },
+          legacyLocator: 'Documents/new.txt',
+          name: 'new.txt',
+          kind: 'file',
+          presentation: 'text',
+          providerOperations: ['read'],
+          availability: 'present',
+        },
+      },
+      'Documents',
+    )
+    expect(next.windows.at(-1)?.resourceTarget).toEqual({
+      ref: { libraryId: 'library', resourceId: 'resource' },
+      legacyLocator: 'Documents/new.txt',
+    })
+    expect(next.windows.at(-1)?.initialState.viewing).toBe('Documents/new.txt')
+    expect(next.windows.at(-1)?.viewerId).toBe('text-viewer')
+  })
+
   test('openInSplitViewFromBrowserState opens on right then sets split', () => {
     const state = baseState([browserTab('only')])
     const next = openInSplitViewFromBrowserState(
@@ -113,6 +143,18 @@ describe('workspace split view', () => {
     expect(order).toContain('only')
     expect(order.length).toBe(2)
     expect(next.activeWindowId).not.toBe('only')
+  })
+
+  test('normalization keeps registered viewer IDs and removes unknown IDs', () => {
+    const valid = baseState([{ ...viewerTab('v1'), viewerId: 'text-viewer' }])
+    expect(normalizePersistedWorkspaceState(valid)?.windows[0]?.viewerId).toBe('text-viewer')
+    const invalid = baseState([
+      {
+        ...viewerTab('v1'),
+        viewerId: 'path-guessed-viewer' as WorkspaceWindowDefinition['viewerId'],
+      },
+    ])
+    expect(normalizePersistedWorkspaceState(invalid)?.windows[0]?.viewerId).toBeUndefined()
   })
 
   test('normalizePersistedWorkspaceState drops invalid split metadata', () => {

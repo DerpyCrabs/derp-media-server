@@ -83,6 +83,7 @@ test.describe('Managing Shares', () => {
 
   test('quick copy includes the complete protected and unprotected share URLs', async ({
     page,
+    browser,
   }) => {
     await page.goto('/?dir=Shares')
     const origin = new URL(page.url()).origin
@@ -90,9 +91,22 @@ test.describe('Managing Shares', () => {
     const protectedRow = page.locator('table tr').filter({ hasText: 'sample.pdf' })
     await protectedRow.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Copy share link' }).click()
+    const protectedUrl = `${origin}/share/test-protected-file-share-token1#p=filepass`
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(protectedUrl)
+
+    const independent = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+    const recipient = await independent.newPage()
+    await recipient.goto(protectedUrl)
+    await expect.poll(() => recipient.evaluate(() => window.location.hash)).toBe('')
     await expect
-      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toBe(`${origin}/share/test-protected-file-share-token1#p=filepass`)
+      .poll(async () => {
+        const response = await independent.request.get(
+          '/api/share/test-protected-file-share-token1/info',
+        )
+        return ((await response.json()) as { authorized?: boolean }).authorized
+      })
+      .toBe(true)
+    await independent.close()
 
     const unprotectedRow = page.locator('table tr').filter({ hasText: 'notes.md' })
     await unprotectedRow.click({ button: 'right' })

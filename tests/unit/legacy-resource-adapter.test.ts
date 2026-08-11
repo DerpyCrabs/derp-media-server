@@ -79,14 +79,16 @@ describe('legacy resource adapter', () => {
     expect(resource.version).toBeUndefined()
   })
 
-  test('derives stable public Grant scope from path without retaining path or token', () => {
-    const first = grantOpenScope('Shared\\Family')
-    const second = grantOpenScope('/Shared/Family/')
+  test('derives stable distinct Grant scopes without retaining token secrets', () => {
+    const first = grantOpenScope('secret-token-one')
+    const second = grantOpenScope('secret-token-one')
+    const other = grantOpenScope('secret-token-two')
 
     expect(first).toEqual(second)
+    expect(first).not.toEqual(other)
     expect(first.kind).toBe('grant')
-    expect(first.id).not.toContain('Shared')
-    expect(first.id).not.toContain('token')
+    expect(first.id).not.toContain('secret-token-one')
+    expect(first.id).toMatch(/^grant-[0-9a-f]{32}$/)
   })
 
   test('accepts semantic hints only for legacy provider projections', () => {

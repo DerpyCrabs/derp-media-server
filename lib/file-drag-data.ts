@@ -1,3 +1,10 @@
+import {
+  isPersistedResourceTarget,
+  isResourceSummary,
+  type PersistedResourceTarget,
+  type ResourceSummary,
+} from './resource'
+
 const MIME = 'application/x-derp-file-drag'
 const DIRECTORY_MIME = 'application/x-derp-file-drag-directory'
 
@@ -7,6 +14,8 @@ export interface FileDragData {
   sourceKind: 'local' | 'share'
   sourceToken?: string
   virtualOpenTarget?: import('./virtual-directory').VirtualOpenTarget
+  resource?: ResourceSummary
+  resourceTarget?: PersistedResourceTarget
 }
 
 export function setFileDragData(dt: DataTransfer, data: FileDragData): void {
@@ -21,6 +30,8 @@ export function getFileDragData(dt: DataTransfer): FileDragData | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as FileDragData
     if (typeof parsed.path !== 'string' || typeof parsed.isDirectory !== 'boolean') return null
+    if (parsed.resource && !isResourceSummary(parsed.resource)) return null
+    if (parsed.resourceTarget && !isPersistedResourceTarget(parsed.resourceTarget)) return null
     if (
       parsed.virtualOpenTarget &&
       parsed.virtualOpenTarget.type !== 'hermesSession' &&

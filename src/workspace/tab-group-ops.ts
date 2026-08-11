@@ -1,5 +1,11 @@
 import { getMediaType } from '@/lib/media-utils'
 import {
+  persistedResourceTarget,
+  type PersistedResourceTarget,
+  type ResourceSummary,
+  type ViewerId,
+} from '@/lib/resource'
+import {
   createDefaultBounds,
   insertWindowAtGroupIndex,
   maxWorkspaceWindowZ,
@@ -12,6 +18,16 @@ import {
   type TabGroupSplitState,
 } from '@/lib/use-workspace'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
+import { viewerMediaType } from '../lib/viewer-registry'
+
+type WorkspaceOpenFile = {
+  path: string
+  isDirectory: boolean
+  isVirtual?: boolean
+  resource?: ResourceSummary
+  resourceTarget?: PersistedResourceTarget
+  viewerId?: ViewerId
+}
 
 export function groupIdForWindow(w: WorkspaceWindowDefinition): string {
   return w.tabGroupId ?? w.id
@@ -274,7 +290,7 @@ export function setSplitLeftTabFromContextState(
 export function openInSplitViewFromBrowserState(
   state: PersistedWorkspaceState,
   browserWindowId: string,
-  file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+  file: WorkspaceOpenFile,
   currentPath: string,
   sourceOverride?: WorkspaceWindowDefinition['source'],
 ): PersistedWorkspaceState {
@@ -412,7 +428,7 @@ export function mergeWindowIntoGroupState(
 export function openInNewTabInGroupState(
   state: PersistedWorkspaceState,
   sourceWindowId: string,
-  file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+  file: WorkspaceOpenFile,
   currentPath: string,
   insertIndex?: number,
   sourceOverride?: WorkspaceWindowDefinition['source'],
@@ -422,6 +438,7 @@ export function openInNewTabInGroupState(
   if (!sourceWindow) return state
   const groupId = sourceWindow.tabGroupId || sourceWindowId
   const source = sourceOverride ?? sourceWindow.source
+  const resourceTarget = persistedResourceTarget(file.resource) ?? file.resourceTarget
   const n = state.nextWindowId
   const id = `workspace-window-${n}`
   const zIndex = sourceWindow.layout?.zIndex ?? 1
@@ -451,6 +468,7 @@ export function openInNewTabInGroupState(
       iconIsVirtual: false,
       source,
       initialState: { dir: file.path },
+      resourceTarget,
       tabGroupId: groupId,
       layout: sharedLayout ?? {
         minimized: false,
@@ -466,10 +484,14 @@ export function openInNewTabInGroupState(
       title,
       iconName: null,
       iconPath: file.path,
-      iconType: getMediaType(file.path.split('.').pop() ?? ''),
+      iconType:
+        (file.viewerId ? viewerMediaType(file.viewerId) : null) ??
+        getMediaType(file.path.split('.').pop() ?? ''),
       iconIsVirtual: false,
       source,
       initialState: { dir, viewing: file.path },
+      resourceTarget,
+      viewerId: file.viewerId,
       tabGroupId: groupId,
       layout: sharedLayout ?? {
         minimized: false,

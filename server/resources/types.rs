@@ -93,6 +93,19 @@ pub(crate) struct ResourceAppearance {
     pub(crate) color: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ResourcePreviewKind {
+    Thumbnail,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ResourcePreview {
+    pub(crate) kind: ResourcePreviewKind,
+    pub(crate) available: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(crate) enum ResourceOpenTarget {
@@ -127,6 +140,8 @@ pub(crate) struct ResourceSummary {
     pub(crate) mime_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) preview: Option<ResourcePreview>,
     pub(crate) provider_operations: Vec<ProviderOperation>,
     pub(crate) availability: ResourceAvailability,
     #[serde(skip_serializing_if = "Option::is_none")]

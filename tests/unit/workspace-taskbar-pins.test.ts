@@ -40,6 +40,19 @@ describe('parseWorkspaceTaskbarPins', () => {
   test('accepts valid share pin with token', () => {
     expect(parseWorkspaceTaskbarPins([validShare])).toEqual([validShare])
   })
+
+  test('keeps only complete durable resource targets', () => {
+    const target = {
+      ref: { libraryId: 'library', resourceId: 'resource' },
+      legacyLocator: '/Docs',
+    }
+    expect(parseWorkspaceTaskbarPins([{ ...validLocal, resourceTarget: target }])).toEqual([
+      { ...validLocal, resourceTarget: target },
+    ])
+    expect(
+      parseWorkspaceTaskbarPins([{ ...validLocal, resourceTarget: { ref: target.ref } }]),
+    ).toEqual([])
+  })
 })
 
 describe('filterAdminWorkspaceTaskbarPins', () => {

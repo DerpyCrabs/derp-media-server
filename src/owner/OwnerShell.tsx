@@ -1,5 +1,4 @@
 import type { FileSearchResult } from '@/lib/file-search'
-import { MediaType } from '@/lib/types'
 import AppWindow from 'lucide-solid/icons/app-window'
 import Bot from 'lucide-solid/icons/bot'
 import Download from 'lucide-solid/icons/download'
@@ -14,6 +13,7 @@ import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'soli
 import { Dynamic } from 'solid-js/web'
 import { FileSearchButton } from '../FileSearchPalette'
 import { hrefFor, type RouteQuery, type RouteTarget } from '../lib/routes'
+import { ownerSearchResultHref } from './owner-search-open'
 
 export type OwnerSurface =
   | 'home'
@@ -113,15 +113,7 @@ export function OwnerShell(props: Props) {
   }
 
   function chooseSearchResult(result: FileSearchResult) {
-    const query: RouteQuery = {}
-    if (result.parentPath) query.dir = result.parentPath
-    if (result.isDirectory) query.dir = result.path
-    else if (result.type === MediaType.AUDIO || result.type === MediaType.VIDEO) {
-      query.playing = result.path
-    } else {
-      query.viewing = result.path
-    }
-    navigate(ownerHref({ kind: 'library' }, query))
+    navigate(ownerSearchResultHref(result))
   }
 
   return (

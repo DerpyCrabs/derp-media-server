@@ -1,12 +1,7 @@
 use crate::{
-    app::{
-        AppState, Shared, cookies, emit, find_share, knowledge_base_root, rate_limit, roots,
-        stats_path,
-    },
+    app::{AppState, Shared, cookies, emit, find_share, rate_limit, roots, stats_path},
     error::{AppError, AppResult},
-    markdown_images, media,
-    routes::settings,
-    shares, store, workspace_persistence,
+    markdown_images, media, shares, store, workspace_persistence,
 };
 use axum::{
     Json, Router,
@@ -17,7 +12,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{path::Path as FsPath, sync::atomic::Ordering, time::UNIX_EPOCH};
+use std::{sync::atomic::Ordering, time::UNIX_EPOCH};
 use tokio::fs;
 
 pub(crate) fn validate(
@@ -96,45 +91,7 @@ async fn info(
         ));
     }
     let authorized = shares::authorized(&state.config, &share, &cookies(&headers));
-    let extension = if share.is_directory {
-        String::new()
-    } else {
-        media::extension(FsPath::new(&share.path))
-    };
-    let mut result = json!({"name":shares::name(&share.path),"isDirectory":share.is_directory,"editable":share.editable,"mediaType":if share.is_directory{"folder"}else{media::media_type(&extension)},"extension":extension,"needsPasscode":share.passcode.is_some(),"authorized":authorized});
-    if authorized {
-        result["path"] = json!(share.path);
-        let kb_root = knowledge_base_root(&state, &share.path);
-        result["isKnowledgeBase"] = json!(share.is_directory && kb_root.is_some());
-        if let Some(root) = kb_root {
-            result["knowledgeBaseRoot"] = json!(root);
-        }
-        if share.is_directory {
-            result["adminViewMode"] = settings::sanitized(&state)["viewModes"]
-                .get(&share.path)
-                .cloned()
-                .unwrap_or_else(|| json!("list"));
-            result["workspaceTaskbarPins"] = workspace_persistence::share_pins(
-                share
-                    .workspace_taskbar_pins
-                    .as_ref()
-                    .unwrap_or(&Value::Null),
-                &share.path,
-                &token,
-            );
-            result["workspaceLayoutPresets"] = workspace_persistence::presets(
-                share
-                    .workspace_layout_presets
-                    .as_ref()
-                    .unwrap_or(&Value::Null),
-                Some((&share.path, &token)),
-            );
-        }
-    }
-    if share.editable {
-        result["restrictions"] = serde_json::to_value(shares::effective(&share)).unwrap();
-        result["usedBytes"] = json!(share.used_bytes.unwrap_or(0));
-    }
+    let result = crate::application_queries::share_info(&state, &share, &token, authorized).await;
     Ok(Json(result))
 }
 
@@ -261,6 +218,34 @@ async fn view(
 struct DirQuery {
     #[serde(default)]
     dir: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceInspectQuery {
+    library_id: String,
+    resource_id: String,
+}
+
+async fn inspect_resource(
+    State(state): State<Shared>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<ResourceInspectQuery>,
+) -> AppResult<Json<Value>> {
+    let share = validate(&state, &token, &headers)?;
+    let detail = crate::application_queries::inspect_grant(
+        &state,
+        &share.path,
+        &crate::resources::ResourceRef {
+            library_id: crate::resources::LibraryId::new(query.library_id),
+            resource_id: crate::resources::ResourceId::new(query.resource_id),
+        },
+    )
+    .await?;
+    Ok(Json(
+        serde_json::to_value(detail).map_err(|error| AppError::internal(error.to_string()))?,
+    ))
 }
 async fn files(
     State(state): State<Shared>,
@@ -495,11 +480,16 @@ async fn rename(
         ));
     }
     fs::rename(old, new).await.map_err(AppError::io)?;
-    state
+    if let Err(error) = state
         .resources
         .record_move(&old_logical, &new_logical)
         .await
-        .map_err(|error| error.into_app_error())?;
+    {
+        eprintln!(
+            "Warning: shared rename completed but Resource identity reconciliation will retry from observation: {}",
+            error.message
+        );
+    }
     crate::path_metadata::moved(&state, &old_logical, &new_logical).await?;
     emit(&state, &old_logical);
     if crate::app::parent_logical(&old_logical) != crate::app::parent_logical(&new_logical) {
@@ -517,6 +507,10 @@ pub fn router() -> Router<Shared> {
         .route("/api/share/{token}/workspaceTaskbarPins", post(pins))
         .route("/api/share/{token}/workspaceLayoutPresets", post(presets))
         .route("/api/share/{token}/files", get(files))
+        .route(
+            "/api/share/{token}/resources/inspect",
+            get(inspect_resource),
+        )
         .route("/api/share/{token}/view", post(view))
         .route("/api/share/{token}/create", post(create))
         .route("/api/share/{token}/edit", post(edit))

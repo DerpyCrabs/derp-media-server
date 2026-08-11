@@ -14,6 +14,7 @@ export interface WorkspaceTaskbarPin {
   customIconName?: string | null
   isVirtual?: boolean
   source: WorkspaceTaskbarPinSource
+  resourceTarget?: PersistedResourceTarget
 }
 
 function isValidSource(s: unknown): s is WorkspaceTaskbarPinSource {
@@ -32,7 +33,9 @@ function isValidPin(p: unknown): p is WorkspaceTaskbarPin {
     typeof (p as WorkspaceTaskbarPin).path === 'string' &&
     typeof (p as WorkspaceTaskbarPin).isDirectory === 'boolean' &&
     typeof (p as WorkspaceTaskbarPin).title === 'string' &&
-    isValidSource((p as WorkspaceTaskbarPin).source)
+    isValidSource((p as WorkspaceTaskbarPin).source) &&
+    ((p as WorkspaceTaskbarPin).resourceTarget === undefined ||
+      isPersistedResourceTarget((p as WorkspaceTaskbarPin).resourceTarget))
   )
 }
 
@@ -54,7 +57,8 @@ export function filterAdminWorkspaceTaskbarPins(
       p.source.kind === 'local' &&
       typeof p.path === 'string' &&
       p.path.length > 0 &&
-      !pathHasDotDot(p.path),
+      !pathHasDotDot(p.path) &&
+      (!p.resourceTarget || !pathHasDotDot(p.resourceTarget.legacyLocator)),
   )
 }
 
@@ -68,7 +72,13 @@ export function filterShareWorkspaceTaskbarPins(
   return items.filter((p) => {
     if (p.isVirtual || p.source.kind !== 'share' || p.source.token !== token) return false
     const pathNorm = p.path.replace(/\\/g, '/')
+    const targetPath = p.resourceTarget?.legacyLocator.replace(/\\/g, '/')
     if (pathHasDotDot(pathNorm)) return false
-    return pathNorm === root || pathNorm.startsWith(`${root}/`)
+    if (targetPath && pathHasDotDot(targetPath)) return false
+    return (
+      (pathNorm === root || pathNorm.startsWith(`${root}/`)) &&
+      (!targetPath || targetPath === root || targetPath.startsWith(`${root}/`))
+    )
   })
 }
+import { isPersistedResourceTarget, type PersistedResourceTarget } from './resource'

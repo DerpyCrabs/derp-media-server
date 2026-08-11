@@ -64,6 +64,31 @@ describe('setFileDragData / getFileDragData', () => {
     expect(getFileDragData(dt)).toEqual(data)
   })
 
+  test('round-trips catalog metadata and durable fallback target', () => {
+    const dt = createMockDataTransfer()
+    const data: FileDragData = {
+      path: 'Documents/readme.txt',
+      isDirectory: false,
+      sourceKind: 'local',
+      resource: {
+        ref: { libraryId: 'library', resourceId: 'resource' },
+        locator: { sourceId: 'source', providerLocator: 'Documents/readme.txt' },
+        legacyLocator: 'Documents/readme.txt',
+        name: 'readme.txt',
+        kind: 'file',
+        presentation: 'text',
+        providerOperations: ['read'],
+        availability: 'present',
+      },
+      resourceTarget: {
+        ref: { libraryId: 'library', resourceId: 'resource' },
+        legacyLocator: 'Documents/readme.txt',
+      },
+    }
+    setFileDragData(dt, data)
+    expect(getFileDragData(dt)).toEqual(data)
+  })
+
   test('sets text/plain with the file path', () => {
     const dt = createMockDataTransfer()
     setFileDragData(dt, {
@@ -122,6 +147,20 @@ describe('getFileDragData', () => {
     dt.setData(
       'application/x-derp-file-drag',
       JSON.stringify({ path: 'test', sourceKind: 'local' }),
+    )
+    expect(getFileDragData(dt)).toBeNull()
+  })
+
+  test('rejects incomplete persisted resource targets', () => {
+    const dt = createMockDataTransfer()
+    dt.setData(
+      'application/x-derp-file-drag',
+      JSON.stringify({
+        path: 'test',
+        isDirectory: false,
+        sourceKind: 'local',
+        resourceTarget: { ref: { libraryId: 'library', resourceId: 'resource' } },
+      }),
     )
     expect(getFileDragData(dt)).toBeNull()
   })

@@ -34,6 +34,7 @@
       "presentation": "video",
       "mimeType": "video/mp4",
       "size": 42,
+      "preview": { "kind": "thumbnail", "available": true },
       "providerOperations": ["read", "stream", "download"],
       "availability": "present"
     }

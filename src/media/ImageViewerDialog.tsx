@@ -24,6 +24,12 @@ import {
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { createResponsiveImage } from '../lib/responsive-image'
 import { closeViewer, viewFile } from '../lib/url-state-actions'
+import {
+  OWNER_OPEN_SCOPE,
+  grantOpenScope,
+  resourceForFileItem,
+} from '../lib/legacy-resource-adapter'
+import { openResource } from '../lib/open-resource'
 
 type Props = {
   shareContext?: { token: string; sharePath: string } | null
@@ -65,6 +71,14 @@ function ImageViewerInner(props: {
   const dirFromUrl = createMemo(() => urlSearchParams().get('dir') ?? '')
 
   const imageFiles = createMemo(() => props.allFiles().filter((f) => f.type === MediaType.IMAGE))
+
+  function plannedImageViewer(file: FileItem) {
+    const plan = openResource(resourceForFileItem(file), 'view', {
+      surface: props.shareContext ? 'share' : 'library',
+      scope: props.shareContext ? grantOpenScope(props.shareContext.token) : OWNER_OPEN_SCOPE,
+    })
+    return plan.kind === 'viewer' && plan.viewer.id === 'image-viewer' ? plan.viewer.id : null
+  }
 
   const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
   const [rotation, setRotation] = createSignal(0)
@@ -127,8 +141,10 @@ function ImageViewerInner(props: {
     if (i === -1) return
     const target = Math.max(0, Math.min(list.length - 1, i + offset))
     if (target === i) return
+    const viewerId = plannedImageViewer(list[target])
+    if (!viewerId) return
     const d = dirFromUrl()
-    viewFile(list[target].path, d || undefined)
+    viewFile(list[target].path, d || undefined, viewerId)
   }
 
   function goNext() {

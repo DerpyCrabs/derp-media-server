@@ -31,7 +31,7 @@ import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
-import { formatFileSize } from '@/lib/media-utils'
+import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -464,7 +464,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     onSuccess: (_d, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       invalidateContent()
-      viewFile(variables.path, currentPath())
+      handleFileClick(fileItemFromPath(variables.path), currentPath(), false)
     },
   }))
 
@@ -504,7 +504,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
       invalidateContent()
       setShowPasteDialog(false)
       setPasteData(null)
-      viewFile(variables.path, currentPath())
+      handleFileClick(fileItemFromPath(variables.path), currentPath(), false)
     },
   }))
 
@@ -630,6 +630,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
       path: file.path,
       isDirectory: file.isDirectory,
       sourceKind: 'local',
+      resource: file.resource,
     })
     dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
     setDraggedPath(file.path)
@@ -806,7 +807,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
           setInlineMode(null)
           setInlineName('')
           createFolderMutation.reset()
-          if (inKb()) navigateToFolder(folderPath)
+          if (inKb()) handleBreadcrumbNavigate(folderPath)
         },
       },
     )
@@ -947,18 +948,31 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   function handleParentDirectory() {
     if (isVirtualFolder()) {
-      navigateToFolder(null)
+      handleBreadcrumbNavigate('')
       return
     }
     const parts = currentPath().split(/[/\\]/).filter(Boolean)
     if (parts.length > 0) {
       const parentPath = parts.slice(0, -1).join('/')
-      navigateToFolder(parentPath || null)
+      handleBreadcrumbNavigate(parentPath)
     }
   }
 
   function handleBreadcrumbNavigate(path: string) {
-    navigateToFolder(path || null)
+    const file: FileItem = {
+      name: path.split(/[/\\]/).filter(Boolean).at(-1) ?? 'Library',
+      path,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: isVirtualFolderPath(path),
+    }
+    const plan = openResource(resourceForFileItem(file), 'browse', {
+      surface: 'library',
+      scope: OWNER_OPEN_SCOPE,
+    })
+    if (plan.kind === 'browse') navigateToFolder(path || null)
   }
 
   function breadcrumbAsFolderItem(m: BreadcrumbMenuTarget): FileItem {
@@ -1007,6 +1021,11 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
+      const plan = openResource(resourceForFileItem(breadcrumbAsFolderItem(m)), 'browse', {
+        surface: 'library',
+        scope: OWNER_OPEN_SCOPE,
+      })
+      if (plan.kind !== 'browse') return
       window.open(`${window.location.origin}${window.location.pathname || '/'}`, '_blank')
       return
     }
@@ -1017,6 +1036,11 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
+      const plan = openResource(resourceForFileItem(breadcrumbAsFolderItem(m)), 'browse', {
+        surface: 'workspace',
+        scope: OWNER_OPEN_SCOPE,
+      })
+      if (plan.kind !== 'browse') return
       window.open('/workspace', '_blank')
       return
     }
@@ -1045,6 +1069,11 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   function handleContextOpenInNewTab(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
+    const plan = openResource(resourceForFileItem(file), 'browse', {
+      surface: 'library',
+      scope: OWNER_OPEN_SCOPE,
+    })
+    if (plan.kind !== 'browse') return
     const params = new URLSearchParams()
     if (file.path) params.set('dir', file.path)
     const url = `${window.location.origin}${window.location.pathname || '/'}?${params.toString()}`
@@ -1053,6 +1082,11 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   function handleContextOpenInWorkspace(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
+    const plan = openResource(resourceForFileItem(file), 'browse', {
+      surface: 'library',
+      scope: OWNER_OPEN_SCOPE,
+    })
+    if (plan.kind !== 'browse') return
     const params = new URLSearchParams()
     if (file.path) params.set('dir', file.path)
     const query = params.toString()
@@ -1187,7 +1221,20 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     return { queryClient, knowledgeBases: knowledgeBases() }
   }
 
-  function handleFileClick(file: FileItem, sourceDir = currentPath()) {
+  function fileItemFromPath(filePath: string): FileItem {
+    const name = filePath.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
+    const extension = name.includes('.') ? (name.split('.').pop()?.toLowerCase() ?? '') : ''
+    return {
+      name,
+      path: filePath,
+      type: getMediaType(extension),
+      size: 0,
+      extension,
+      isDirectory: false,
+    }
+  }
+
+  function handleFileClick(file: FileItem, sourceDir = currentPath(), countView = true) {
     const plan = openResource(resourceForFileItem(file), 'default', {
       surface: 'library',
       scope: OWNER_OPEN_SCOPE,
@@ -1199,12 +1246,12 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     }
     if (plan.kind !== 'playback' && plan.kind !== 'viewer') return
 
-    viewStats.incrementView(file.path)
+    if (countView) viewStats.incrementView(file.path)
     if (plan.kind === 'playback') {
       useMediaPlayer.getState().playFile(file.path, plan.media)
       playFile(file.path, sourceDir)
     } else {
-      viewFile(file.path, sourceDir)
+      viewFile(file.path, sourceDir, plan.viewer.id)
     }
   }
 
@@ -1221,7 +1268,15 @@ export function FileBrowser(props: FileBrowserProps = {}) {
   function handleKbResultClick(filePath: string) {
     setSearchQuery('')
     setSearchPopoverOpen(false)
-    viewFile(filePath, currentPath())
+    handleFileClick(fileItemFromPath(filePath), currentPath(), false)
+  }
+
+  function handleContextOpenWithReader(file: FileItem) {
+    const plan = openResource(resourceForFileItem(file), 'read', {
+      surface: 'library',
+      scope: OWNER_OPEN_SCOPE,
+    })
+    if (plan.kind === 'viewer') openInReader(file, plan.viewer.id)
   }
 
   function handleContextToggleKnowledgeBase(file: FileItem) {
@@ -1919,7 +1974,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
             onContextOpenInNewTab={handleContextOpenInNewTab}
             onContextOpenInWorkspace={handleContextOpenInWorkspace}
             onContextOpenWithBrowser={handleFileClick}
-            onContextOpenWithReader={openInReader}
+            onContextOpenWithReader={handleContextOpenWithReader}
             onContextToggleFavorite={handleContextToggleFavorite}
             isRowFavorite={isRowFavorite}
             onContextRename={handleContextRename}

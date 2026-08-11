@@ -61,6 +61,14 @@ import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
 import type { TextViewerShareContext } from '../media/TextViewerDialog'
 import type { WorkspaceShareConfig } from './workspace-browser-pane-types'
+import {
+  OWNER_OPEN_SCOPE,
+  grantOpenScope,
+  resourceForFileItem,
+} from '../lib/legacy-resource-adapter'
+import { openResource } from '../lib/open-resource'
+import { viewerMediaType, viewerReaderKind } from '../lib/viewer-registry'
+import type { ResourceSummary, ViewerId } from '@/lib/resource'
 
 const ReaderDialog = lazy(() =>
   import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
@@ -83,7 +91,12 @@ type Props = {
   knowledgeBases?: string[]
   shareCanEdit: boolean
   shareCanUpload: boolean
-  onUpdateViewing: (windowId: string, path: string) => void
+  onUpdateViewing: (
+    windowId: string,
+    path: string,
+    resource?: ResourceSummary,
+    viewerId?: ViewerId,
+  ) => void
   onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
   autoPlayVideo?: boolean
   /** Hand off video audio to taskbar; parent sets transport + closes tab if needed. */
@@ -155,11 +168,31 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   const viewingPath = createMemo(() => win()?.initialState?.viewing ?? '')
-  const readerKind = createMemo(() => win()?.initialState?.readerKind ?? null)
+  const readerKind = createMemo(() => {
+    const window = win()
+    return (
+      window?.initialState?.readerKind ??
+      (window?.viewerId ? viewerReaderKind(window.viewerId) : null)
+    )
+  })
   const currentTextTarget = createMemo(() => createTextDocumentTarget(viewingPath(), share()))
   const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
 
-  const mediaType = createMemo(() => getMediaTypeFromPath(viewingPath()))
+  const mediaType = createMemo(() => {
+    const window = win()
+    return (
+      (window?.viewerId ? viewerMediaType(window.viewerId) : null) ??
+      getMediaTypeFromPath(viewingPath())
+    )
+  })
+
+  function planPlaylistOpen(file: FileItem) {
+    const sh = share()
+    return openResource(resourceForFileItem(file), 'default', {
+      surface: 'workspace',
+      scope: sh ? grantOpenScope(sh.token) : OWNER_OPEN_SCOPE,
+    })
+  }
 
   const mediaUrl = createMemo(() => {
     const path = viewingPath()
@@ -449,7 +482,11 @@ export function WorkspaceViewerPane(props: Props) {
     if (i === -1) return
     const target = Math.max(0, Math.min(list.length - 1, i + offset))
     if (target === i) return
-    props.onUpdateViewing(props.windowId, list[target].path)
+    const file = list[target]
+    const plan = planPlaylistOpen(file)
+    if (plan.kind === 'viewer' && plan.viewer.id === 'image-viewer') {
+      props.onUpdateViewing(props.windowId, file.path, file.resource, plan.viewer.id)
+    }
   }
 
   function goNextImage() {
@@ -904,7 +941,17 @@ export function WorkspaceViewerPane(props: Props) {
                   data-audio-playlist-path={file.path}
                   class='flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted'
                   classList={{ 'bg-primary/10 text-primary': active() }}
-                  onClick={() => props.onUpdateViewing(props.windowId, file.path)}
+                  onClick={() => {
+                    const plan = planPlaylistOpen(file)
+                    if (plan.kind === 'playback' && plan.media === 'audio') {
+                      props.onUpdateViewing(
+                        props.windowId,
+                        file.path,
+                        file.resource,
+                        plan.viewer.id,
+                      )
+                    }
+                  }}
                 >
                   <Music2 class='size-3.5 shrink-0' />
                   <span class='min-w-0 flex-1 truncate text-xs' title={label()}>

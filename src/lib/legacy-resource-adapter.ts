@@ -28,18 +28,21 @@ function normalizedLegacyPath(path: string): string {
     .replace(/^\/+|\/+$/g, '')
 }
 
-function stablePublicId(value: string): string {
-  let hash = 0x811c9dc5
+function stableGrantId(value: string): string {
+  const hashes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35]
   for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
+    const code = value.charCodeAt(index)
+    for (let lane = 0; lane < hashes.length; lane += 1) {
+      hashes[lane] ^= code + lane * 0x9e37
+      hashes[lane] = Math.imul(hashes[lane], 0x01000193 + lane * 2)
+      hashes[lane] ^= hashes[lane] >>> (13 + lane)
+    }
   }
-  return (hash >>> 0).toString(36)
+  return hashes.map((hash) => (hash >>> 0).toString(16).padStart(8, '0')).join('')
 }
 
-export function grantOpenScope(sharePath: string): OpenScope {
-  const publicPath = normalizedLegacyPath(sharePath)
-  return { kind: 'grant', id: `legacy-share-${stablePublicId(publicPath)}` }
+export function grantOpenScope(grantToken: string): OpenScope {
+  return { kind: 'grant', id: `grant-${stableGrantId(grantToken)}` }
 }
 
 function presentationFor(file: FileItem): ResourcePresentation {

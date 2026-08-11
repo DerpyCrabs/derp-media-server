@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { ResourceSummary } from '@/lib/resource'
-import { builtInViewerRegistry } from '@/src/lib/viewer-registry'
+import { builtInViewerRegistry, viewerMediaType, viewerReaderKind } from '@/src/lib/viewer-registry'
+import { MediaType } from '@/lib/types'
 
 function resource(overrides: Partial<ResourceSummary> = {}): ResourceSummary {
   return {
@@ -66,5 +67,12 @@ describe('built-in ViewerRegistry', () => {
       builtInViewerRegistry.lookup(resource({ mimeType: 'application/pdf' }), 'read')?.id,
     ).toBe('pdf-reader')
     expect(builtInViewerRegistry.lookup(resource({ mimeType: 'image/png' }), 'read')).toBeNull()
+  })
+
+  test('renderer dispatch follows descriptor IDs without path inference', () => {
+    expect(viewerMediaType('image-viewer')).toBe(MediaType.IMAGE)
+    expect(viewerMediaType('unsupported-file')).toBe(MediaType.OTHER)
+    expect(viewerReaderKind('pdf-reader')).toBe('pdf')
+    expect(viewerReaderKind('folder-reader')).toBe('folder')
   })
 })

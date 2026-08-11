@@ -44,6 +44,8 @@ pub struct Share {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub root_relative_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<bool>,
@@ -108,31 +110,118 @@ fn roots(config: &Config, runtime: &[MediaRoot]) -> Vec<MediaRoot> {
     r.extend_from_slice(runtime);
     r
 }
+
+fn logical_path(root_count: usize, root: &MediaRoot, relative: &str) -> String {
+    if root_count > 1 {
+        if relative.is_empty() {
+            root.name.clone()
+        } else {
+            format!("{}/{}", root.name, relative)
+        }
+    } else {
+        relative.to_string()
+    }
+}
+
+fn persisted_root(
+    config: &Config,
+    all: &[MediaRoot],
+    share: &Share,
+) -> Option<(String, MediaRoot)> {
+    let binding = state_db::share_source_aliases(
+        &state_db::database(config),
+        &config.library_key,
+        share.source_id.as_deref(),
+        share.root_id.as_deref(),
+    );
+    match binding {
+        Ok(Some((source_id, aliases))) => {
+            let mut matches = all
+                .iter()
+                .filter(|root| aliases.iter().any(|alias| alias == &root.id));
+            let root = matches.next()?.clone();
+            if matches.next().is_some() {
+                return None;
+            }
+            Some((source_id, root))
+        }
+        Ok(None) if share.source_id.is_none() => {
+            let root_id = share.root_id.as_deref()?;
+            let mut matches = all.iter().filter(|root| root.id == root_id);
+            let root = matches.next()?.clone();
+            if matches.next().is_some() {
+                return None;
+            }
+            Some((String::new(), root))
+        }
+        Ok(None) | Err(_) => None,
+    }
+}
+
 pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
     let mut list = raw(config).unwrap_or_default();
     let all = roots(config, runtime);
+    let mut repairs = Vec::new();
     for share in &mut list {
-        if let (Some(id), Some(rel)) = (&share.root_id, &share.root_relative_path) {
-            if let Some(root) = all.iter().find(|r| &r.id == id) {
-                share.path = if all.len() > 1 {
-                    if rel.is_empty() {
-                        root.name.clone()
-                    } else {
-                        format!("{}/{}", root.name, rel)
-                    }
-                } else {
-                    rel.clone()
-                };
-                share.unavailable = Some(false)
-            } else {
-                share.unavailable = Some(true)
+        let resolved = if let Some(relative) = share.root_relative_path.clone() {
+            persisted_root(config, &all, share).map(|(source_id, root)| (source_id, root, relative))
+        } else {
+            media::resolve(config, runtime, &share.path)
+                .ok()
+                .and_then(|resolved| {
+                    state_db::share_source_aliases(
+                        &state_db::database(config),
+                        &config.library_key,
+                        None,
+                        Some(&resolved.root.id),
+                    )
+                    .ok()
+                    .flatten()
+                    .map(|(source_id, _)| (source_id, resolved.root, resolved.relative))
+                })
+        };
+        if let Some((source_id, root, relative)) = resolved {
+            let path = logical_path(all.len(), &root, &relative);
+            if !source_id.is_empty()
+                && (share.source_id.as_deref() != Some(&source_id)
+                    || share.root_id.as_deref() != Some(&root.id)
+                    || share.root_relative_path.as_deref() != Some(&relative)
+                    || share.path != path)
+            {
+                repairs.push((
+                    share.token.clone(),
+                    source_id.clone(),
+                    root.id.clone(),
+                    relative.clone(),
+                    path.clone(),
+                ));
             }
+            share.source_id = (!source_id.is_empty()).then_some(source_id);
+            share.root_id = Some(root.id);
+            share.root_relative_path = Some(relative);
+            share.path = path;
+            share.unavailable = Some(false);
+        } else if share.source_id.is_some()
+            || (share.root_id.is_some() && share.root_relative_path.is_some())
+        {
+            share.unavailable = Some(true);
         }
         if let Some(p) = share.passcode.clone()
             && let Some(plain) = decrypt(config, &p)
         {
             share.passcode = Some(plain)
         }
+    }
+    for (token, source_id, root_id, relative, path) in repairs {
+        let _ = state_db::repair_share_source(
+            &state_db::database(config),
+            &config.library_key,
+            &token,
+            &source_id,
+            &root_id,
+            &relative,
+            &path,
+        );
     }
     list
 }
@@ -148,6 +237,13 @@ pub fn create(
     restrictions: Option<Restrictions>,
 ) -> AppResult<Share> {
     let resolved = media::resolve(config, runtime, &path)?;
+    let source_id = state_db::share_source_aliases(
+        &state_db::database(config),
+        &config.library_key,
+        None,
+        Some(&resolved.root.id),
+    )?
+    .map(|(source_id, _)| source_id);
     let plain = if config.auth.enabled {
         Some(passcode())
     } else {
@@ -161,6 +257,7 @@ pub fn create(
         passcode: plain.as_ref().map(|p| encrypt(config, p)),
         created_at: now_ms(),
         root_id: Some(resolved.root.id),
+        source_id,
         root_relative_path: Some(resolved.relative),
         unavailable: None,
         restrictions: if editable { restrictions } else { None },
@@ -339,4 +436,156 @@ pub fn name(path: &str) -> String {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AuthConfig, FileSearchConfig, ImageOptimizationConfig};
+    use std::{fs, path::PathBuf};
+
+    fn root(id: &str, name: &str, path: PathBuf) -> MediaRoot {
+        MediaRoot {
+            id: id.into(),
+            name: name.into(),
+            path,
+            editable_folders: Vec::new(),
+            read_only: false,
+            source: "config".into(),
+            created_at: None,
+        }
+    }
+
+    fn config(data_path: PathBuf, roots: Vec<MediaRoot>, legacy_key: &str) -> Config {
+        Config {
+            port: 3000,
+            roots,
+            library_key: legacy_key.into(),
+            share_link_domain: None,
+            auth: AuthConfig::default(),
+            data_path: data_path.clone(),
+            file_search: FileSearchConfig {
+                enabled: false,
+                index_path: data_path.join("search.sqlite"),
+                watch_mode: "off".into(),
+                max_recursive_watchers: 0,
+                max_fs_concurrency: 1,
+                reconcile_directories_per_second: 1,
+            },
+            image_optimization: ImageOptimizationConfig::default(),
+            tls: None,
+            hermes: None,
+        }
+    }
+
+    #[test]
+    fn configured_source_edits_keep_persisted_share_available() {
+        let base =
+            std::env::temp_dir().join(format!("derp-share-source-compat-{}", uuid::Uuid::new_v4()));
+        let data_path = base.join("data");
+        let movies = base.join("movies");
+        let shows = base.join("shows");
+        fs::create_dir_all(movies.join("nested")).unwrap();
+        fs::create_dir_all(&shows).unwrap();
+
+        let mut initial = config(
+            data_path.clone(),
+            vec![
+                root("config:movies", "Movies", movies.clone()),
+                root("config:shows", "Shows", shows.clone()),
+            ],
+            "legacy-initial",
+        );
+        state_db::initialize(&initial).unwrap();
+        crate::resources::initialize_identity(&mut initial).unwrap();
+        let created = create(&initial, &[], "Movies/nested".into(), true, false, None).unwrap();
+        let stable_source_id = created.source_id.clone().unwrap();
+
+        let mut renamed = config(
+            data_path.clone(),
+            vec![
+                root("config:shows", "Shows", shows),
+                root("configured:cinema", "Cinema", movies.clone()),
+            ],
+            "legacy-renamed",
+        );
+        state_db::initialize(&renamed).unwrap();
+        crate::resources::initialize_identity(&mut renamed).unwrap();
+        let after_rename = read(&renamed, &[])
+            .into_iter()
+            .find(|share| share.token == created.token)
+            .unwrap();
+        assert_eq!(after_rename.path, "Cinema/nested");
+        assert_eq!(after_rename.root_id.as_deref(), Some("configured:cinema"));
+        assert_eq!(
+            after_rename.source_id.as_deref(),
+            Some(stable_source_id.as_str())
+        );
+        assert_eq!(after_rename.unavailable, Some(false));
+        let persisted = state_db::shares(&state_db::database(&renamed), &renamed.library_key)
+            .unwrap()
+            .into_iter()
+            .find(|share| share.token == created.token)
+            .unwrap();
+        assert_eq!(persisted.path, "Cinema/nested");
+        assert_eq!(persisted.root_id.as_deref(), Some("configured:cinema"));
+        assert_eq!(
+            persisted.source_id.as_deref(),
+            Some(stable_source_id.as_str())
+        );
+
+        state_db::mutate_shares(
+            &state_db::database(&renamed),
+            &renamed.library_key,
+            |shares| {
+                shares
+                    .iter_mut()
+                    .find(|share| share.token == created.token)
+                    .unwrap()
+                    .source_id = None;
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let mut changed_id = config(
+            data_path,
+            vec![root("configured:films", "Films", movies)],
+            "legacy-changed-id",
+        );
+        state_db::initialize(&changed_id).unwrap();
+        crate::resources::initialize_identity(&mut changed_id).unwrap();
+        let after_id_change = read(&changed_id, &[])
+            .into_iter()
+            .find(|share| share.token == created.token)
+            .unwrap();
+        assert_eq!(after_id_change.path, "nested");
+        assert_eq!(after_id_change.root_id.as_deref(), Some("configured:films"));
+        assert_eq!(
+            after_id_change.source_id.as_deref(),
+            Some(stable_source_id.as_str())
+        );
+        assert_eq!(after_id_change.unavailable, Some(false));
+
+        state_db::mutate_shares(
+            &state_db::database(&changed_id),
+            &changed_id.library_key,
+            |shares| {
+                shares
+                    .iter_mut()
+                    .find(|share| share.token == created.token)
+                    .unwrap()
+                    .source_id = Some("missing-source".into());
+                Ok(())
+            },
+        )
+        .unwrap();
+        let missing_binding = read(&changed_id, &[])
+            .into_iter()
+            .find(|share| share.token == created.token)
+            .unwrap();
+        assert_eq!(missing_binding.unavailable, Some(true));
+
+        fs::remove_dir_all(base).unwrap();
+    }
 }

@@ -1,12 +1,12 @@
 use crate::{
-    app::{AppState, list_directory, roots, settings_path, stats_path},
+    app::{AppState, knowledge_base_root, list_directory, roots, settings_path, stats_path},
     error::{AppError, AppResult},
     media,
     resources::{
         PageCursor, ReadContext, ReadSurface, ResourceDetail, ResourcePage, ResourceRef,
         summary_to_legacy_file,
     },
-    shares, store, virtual_directory,
+    shares, store, virtual_directory, workspace_persistence,
 };
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -67,12 +67,12 @@ pub(crate) async fn browse_grant(
             .map_err(|error| error.into_app_error())?;
         let context = ReadContext::grant(ReadSurface::Share, root.reference);
         let mut page = adapter
-            .browse(&context, logical, None, 1_000)
+            .browse_compatibility(&context, logical, None, usize::MAX)
             .await
             .map_err(|error| error.into_app_error())?;
         while let Some(cursor) = page.next_cursor.clone() {
             let next = adapter
-                .browse(&context, logical, Some(cursor), 1_000)
+                .browse_compatibility(&context, logical, Some(cursor), usize::MAX)
                 .await
                 .map_err(|error| error.into_app_error())?;
             page.items.extend(next.items);
@@ -104,6 +104,97 @@ pub(crate) async fn inspect_owner(
         .map_err(|error| error.into_app_error())
 }
 
+pub(crate) async fn inspect_grant(
+    state: &AppState,
+    grant_root: &str,
+    resource: &ResourceRef,
+) -> AppResult<ResourceDetail> {
+    let adapter = state.resources.compatibility();
+    let root = adapter
+        .resolve(grant_root, ReadSurface::Share)
+        .await
+        .map_err(|error| error.into_app_error())?;
+    state
+        .resources
+        .inspect(
+            &ReadContext::grant(ReadSurface::Share, root.reference),
+            resource,
+        )
+        .await
+        .map_err(|error| error.into_app_error())
+}
+
+pub(crate) async fn share_info(
+    state: &AppState,
+    share: &shares::Share,
+    token: &str,
+    authorized: bool,
+) -> Value {
+    let extension = if share.is_directory {
+        String::new()
+    } else {
+        media::extension(Path::new(&share.path))
+    };
+    let mut result = json!({
+        "name":shares::name(&share.path),
+        "isDirectory":share.is_directory,
+        "editable":share.editable,
+        "mediaType":if share.is_directory{"folder"}else{media::media_type(&extension)},
+        "extension":extension,
+        "needsPasscode":share.passcode.is_some(),
+        "authorized":authorized
+    });
+    if authorized {
+        result["path"] = json!(share.path);
+        let kb_root = knowledge_base_root(state, &share.path);
+        result["isKnowledgeBase"] = json!(share.is_directory && kb_root.is_some());
+        if let Some(root) = kb_root {
+            result["knowledgeBaseRoot"] = json!(root);
+        }
+        if share.is_directory {
+            let settings = store::section(
+                &settings_path(state),
+                &state.config.library_key,
+                crate::app::default_settings(),
+            );
+            result["adminViewMode"] = settings["viewModes"]
+                .get(&share.path)
+                .cloned()
+                .unwrap_or_else(|| json!("list"));
+            result["workspaceTaskbarPins"] = workspace_persistence::share_pins(
+                share
+                    .workspace_taskbar_pins
+                    .as_ref()
+                    .unwrap_or(&Value::Null),
+                &share.path,
+                token,
+            );
+            result["workspaceLayoutPresets"] = workspace_persistence::presets(
+                share
+                    .workspace_layout_presets
+                    .as_ref()
+                    .unwrap_or(&Value::Null),
+                Some((&share.path, token)),
+            );
+        }
+        if catalog_reads_enabled() {
+            let adapter = state.resources.compatibility();
+            if let Ok(root) = adapter.resolve(&share.path, ReadSurface::Share).await {
+                let context = ReadContext::grant(ReadSurface::Share, root.reference);
+                if let Ok(detail) = adapter.inspect(&context, &share.path).await {
+                    result["resource"] =
+                        serde_json::to_value(detail.summary).unwrap_or(Value::Null);
+                }
+            }
+        }
+    }
+    if share.editable {
+        result["restrictions"] = serde_json::to_value(shares::effective(share)).unwrap();
+        result["usedBytes"] = json!(share.used_bytes.unwrap_or(0));
+    }
+    result
+}
+
 async fn catalog_owner(
     state: &AppState,
     dir: &str,
@@ -116,13 +207,13 @@ async fn catalog_owner(
         || dir.starts_with(&format!("{}/", virtual_directory::HERMES_ROOT));
     let first_cursor = (hermes && offset > 0).then(|| PageCursor::new(format!("offset:{offset}")));
     let mut page = adapter
-        .browse(&context, dir, first_cursor, 1_000)
+        .browse_compatibility(&context, dir, first_cursor, usize::MAX)
         .await
         .map_err(|error| error.into_app_error())?;
     if !hermes {
         while let Some(cursor) = page.next_cursor.clone() {
             let next = adapter
-                .browse(&context, dir, Some(cursor), 1_000)
+                .browse_compatibility(&context, dir, Some(cursor), usize::MAX)
                 .await
                 .map_err(|error| error.into_app_error())?;
             page.items.extend(next.items);

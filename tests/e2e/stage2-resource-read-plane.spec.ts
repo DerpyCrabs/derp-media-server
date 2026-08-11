@@ -19,6 +19,11 @@ type FileItem = {
 }
 
 type FileListing = { files: FileItem[] }
+type ShareInfo = {
+  authorized: boolean
+  isDirectory: boolean
+  resource?: ResourceSummary
+}
 
 test.describe('Stage 2 Resource read plane', () => {
   test('owner API, SSR, inspect, and Grant return durable semantic Resources', async ({ page }) => {
@@ -75,5 +80,44 @@ test.describe('Stage 2 Resource read plane', () => {
     expect(grantPhoto?.resource?.providerOperations).toEqual(
       expect.arrayContaining(['read', 'download']),
     )
+
+    const grantReference = grantPhoto!.resource!.ref
+    const grantInspect = await page.request.get(
+      `/api/share/test-passcode-share-token1/resources/inspect?` +
+        `libraryId=${encodeURIComponent(grantReference.libraryId)}` +
+        `&resourceId=${encodeURIComponent(grantReference.resourceId)}`,
+    )
+    expect(grantInspect.ok()).toBe(true)
+    expect((await grantInspect.json()).summary.ref).toEqual(grantReference)
+
+    const outsideGrant = await page.request.get(
+      `/api/share/test-passcode-share-token1/resources/inspect?` +
+        `libraryId=${encodeURIComponent(reference.libraryId)}` +
+        `&resourceId=${encodeURIComponent(reference.resourceId)}`,
+    )
+    expect(outsideGrant.status()).toBe(403)
+
+    const infoResponse = await page.request.get('/api/share/test-passcode-share-token1/info')
+    expect(infoResponse.ok()).toBe(true)
+    const info = (await infoResponse.json()) as ShareInfo
+    await page.goto('/share/test-passcode-share-token1')
+    const shareSsr = await page.evaluate((token) => {
+      const queries = (
+        window as typeof window & {
+          __DEHYDRATED_STATE__?: {
+            queries?: Array<{ queryKey?: unknown[]; state?: { data?: unknown } }>
+          }
+        }
+      ).__DEHYDRATED_STATE__?.queries
+      const data = (key: unknown[]) =>
+        queries?.find((query) => JSON.stringify(query.queryKey) === JSON.stringify(key))?.state
+          ?.data
+      return {
+        info: data(['share-info', token]),
+        files: data(['share-files', token, '']),
+      }
+    }, 'test-passcode-share-token1')
+    expect(shareSsr.info).toEqual(info)
+    expect(shareSsr.files).toEqual(grant)
   })
 })

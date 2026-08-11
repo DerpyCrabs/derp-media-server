@@ -96,6 +96,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                               isDirectory: pin.isDirectory,
                               sourceKind: pin.source.kind,
                               sourceToken: pin.source.token,
+                              resourceTarget: pin.resourceTarget,
                             }
                             setFileDragData(dt, d)
                             dt.effectAllowed = 'copy'

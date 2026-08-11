@@ -215,14 +215,25 @@ impl ResourceCatalog {
         context: &ReadContext,
         query: BrowseQuery,
     ) -> CatalogResult<ResourcePage> {
+        self.browse_internal(context, query, false).await
+    }
+
+    async fn browse_internal(
+        &self,
+        context: &ReadContext,
+        query: BrowseQuery,
+        compatibility_unbounded: bool,
+    ) -> CatalogResult<ResourcePage> {
         self.require_library(&query.parent)?;
         self.require_scope(context, &query.parent).await?;
         let resource_id = query.parent.resource_id.as_str();
         if resource_id == LIBRARY_ROOT_ID {
-            return self.browse_library(context, query).await;
+            return self
+                .browse_library(context, query, compatibility_unbounded)
+                .await;
         }
         if collection_name(resource_id).is_some() {
-            return self.browse_collection(query).await;
+            return self.browse_collection(query, compatibility_unbounded).await;
         }
         if resource_id == HERMES_ROOT_ID {
             if context.surface != ReadSurface::Workspace {
@@ -239,12 +250,31 @@ impl ResourceCatalog {
                     String::new(),
                     self.hermes_source_summary(),
                     query,
+                    compatibility_unbounded,
                 )
                 .await;
         }
         if let Some((source, summary)) = self.source_root(&query.parent.resource_id).await? {
+            let source = source.ok_or_else(|| {
+                CatalogError::new(
+                    CatalogErrorCode::SourceUnavailable,
+                    "Filesystem Source is unavailable",
+                )
+            })?;
+            if summary.availability != ResourceAvailability::Present {
+                return Err(CatalogError::new(
+                    CatalogErrorCode::SourceUnavailable,
+                    "Filesystem Source is unavailable",
+                ));
+            }
             return self
-                .browse_provider(source, String::new(), summary, query)
+                .browse_provider(
+                    source,
+                    String::new(),
+                    summary,
+                    query,
+                    compatibility_unbounded,
+                )
                 .await;
         }
         let stored = self
@@ -265,8 +295,14 @@ impl ResourceCatalog {
         }
         let source = self.provider_source(&stored.source_id).await?;
         let parent = self.inspect(context, &query.parent).await?.summary;
-        self.browse_provider(source, stored.provider_locator, parent, query)
-            .await
+        self.browse_provider(
+            source,
+            stored.provider_locator,
+            parent,
+            query,
+            compatibility_unbounded,
+        )
+        .await
     }
 
     pub(crate) async fn inspect(
@@ -348,6 +384,7 @@ impl ResourceCatalog {
         &self,
         context: &ReadContext,
         query: BrowseQuery,
+        compatibility_unbounded: bool,
     ) -> CatalogResult<ResourcePage> {
         let roots = self.filesystem_sources().await?;
         let mut items = vec![
@@ -358,6 +395,11 @@ impl ResourceCatalog {
         if roots.len() > 1 {
             items.extend(roots.iter().map(|(_, summary)| summary.clone()));
         } else if let Some((source, _)) = roots.first() {
+            if !compatibility_unbounded {
+                return self
+                    .browse_single_root_library(context, source.clone(), query)
+                    .await;
+            }
             let page = self
                 .provider_browse(ProviderBrowse {
                     source: source.clone(),
@@ -372,16 +414,77 @@ impl ResourceCatalog {
         if context.surface == ReadSurface::Workspace && self.hermes.is_some() {
             items.push(self.hermes_source_summary());
         }
-        Ok(self.paginate(self.library_summary(), items, &query)?)
+        Ok(self.paginate(
+            self.library_summary(),
+            items,
+            &query,
+            compatibility_unbounded,
+        )?)
     }
 
-    async fn browse_collection(&self, query: BrowseQuery) -> CatalogResult<ResourcePage> {
+    async fn browse_single_root_library(
+        &self,
+        context: &ReadContext,
+        source: ProviderSource,
+        query: BrowseQuery,
+    ) -> CatalogResult<ResourcePage> {
+        let offset = cursor_offset(query.cursor.as_ref())?;
+        let limit = page_limit(query.limit);
+        let collections = vec![
+            self.collection_summary(FAVORITES_ID)?,
+            self.collection_summary(MOST_PLAYED_ID)?,
+            self.collection_summary(SHARES_ID)?,
+        ];
+        let collection_count = collections.len();
+        let mut items = collections
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect::<Vec<_>>();
+        let filesystem_offset = offset.saturating_sub(collection_count);
+        let filesystem_limit = limit.saturating_sub(items.len());
+        let page = self
+            .provider_browse(ProviderBrowse {
+                source: source.clone(),
+                locator: String::new(),
+                offset: filesystem_offset,
+                limit: filesystem_limit,
+            })
+            .await?;
+        items.extend(self.observe(&source, page.items)?);
+        let hermes_count =
+            usize::from(context.surface == ReadSurface::Workspace && self.hermes.is_some());
+        let total = collection_count + page.total + hermes_count;
+        let hermes_index = collection_count + page.total;
+        if hermes_count == 1
+            && items.len() < limit
+            && offset <= hermes_index
+            && hermes_index < offset.saturating_add(limit)
+        {
+            items.push(self.hermes_source_summary());
+        }
+        let end = offset.saturating_add(limit).min(total);
+        Ok(ResourcePage {
+            schema_version: 1,
+            parent: self.library_summary(),
+            items,
+            next_cursor: (end < total).then(|| cursor(end)),
+            total: total as u64,
+            legacy: LegacyPageFields::default(),
+        })
+    }
+
+    async fn browse_collection(
+        &self,
+        query: BrowseQuery,
+        compatibility_unbounded: bool,
+    ) -> CatalogResult<ResourcePage> {
         let name = collection_name(query.parent.resource_id.as_str()).ok_or_else(|| {
             CatalogError::new(CatalogErrorCode::ResourceNotFound, "Collection not found")
         })?;
         let items = self.collection_items(name).await?;
         let parent = self.collection_summary(query.parent.resource_id.as_str())?;
-        Ok(self.paginate(parent, items, &query)?)
+        Ok(self.paginate(parent, items, &query, compatibility_unbounded)?)
     }
 
     async fn browse_provider(
@@ -390,9 +493,14 @@ impl ResourceCatalog {
         locator: String,
         parent: ResourceSummary,
         query: BrowseQuery,
+        compatibility_unbounded: bool,
     ) -> CatalogResult<ResourcePage> {
         let offset = cursor_offset(query.cursor.as_ref())?;
-        let limit = page_limit(query.limit);
+        let limit = if compatibility_unbounded {
+            query.limit.max(1)
+        } else {
+            page_limit(query.limit)
+        };
         let page = self
             .provider_browse(ProviderBrowse {
                 source: source.clone(),
@@ -478,6 +586,7 @@ impl ResourceCatalog {
                 presentation: resource.presentation,
                 mime_type: resource.mime_type,
                 size: resource.size,
+                preview: resource.preview,
                 provider_operations: resource.operations,
                 availability: ResourceAvailability::Present,
                 appearance: resource.appearance,
@@ -577,12 +686,48 @@ impl ResourceCatalog {
     async fn source_root(
         &self,
         resource_id: &ResourceId,
-    ) -> CatalogResult<Option<(ProviderSource, ResourceSummary)>> {
-        Ok(self
+    ) -> CatalogResult<Option<(Option<ProviderSource>, ResourceSummary)>> {
+        let current = self
             .filesystem_sources()
             .await?
             .into_iter()
-            .find(|(_, summary)| summary.reference.resource_id == *resource_id))
+            .find(|(_, summary)| summary.reference.resource_id == *resource_id);
+        if let Some((source, summary)) = current {
+            return Ok(Some((Some(source), summary)));
+        }
+        let Some(stored) = self
+            .identity
+            .source_by_root_resource(resource_id)
+            .map_err(CatalogError::from)?
+        else {
+            return Ok(None);
+        };
+        Ok(Some((
+            None,
+            ResourceSummary {
+                reference: ResourceRef {
+                    library_id: self.identity.library_id().clone(),
+                    resource_id: stored.root_resource_id,
+                },
+                locator: ResourceLocator {
+                    source_id: stored.source_id,
+                    provider_locator: String::new(),
+                },
+                legacy_locator: Some(stored.display_name.clone()),
+                version: None,
+                name: stored.display_name,
+                kind: ResourceKind::Source,
+                presentation: ResourcePresentation::Browse,
+                mime_type: None,
+                size: None,
+                preview: None,
+                provider_operations: Vec::new(),
+                availability: ResourceAvailability::SourceUnavailable,
+                appearance: None,
+                open_target: None,
+                legacy: LegacyResourceFields::default(),
+            },
+        )))
     }
 
     async fn provider_source(&self, source_id: &SourceId) -> CatalogResult<ProviderSource> {
@@ -642,9 +787,14 @@ impl ResourceCatalog {
         parent: ResourceSummary,
         items: Vec<ResourceSummary>,
         query: &BrowseQuery,
+        compatibility_unbounded: bool,
     ) -> CatalogResult<ResourcePage> {
         let offset = cursor_offset(query.cursor.as_ref())?;
-        let limit = page_limit(query.limit);
+        let limit = if compatibility_unbounded {
+            query.limit.max(1)
+        } else {
+            page_limit(query.limit)
+        };
         let total = items.len();
         let end = offset.saturating_add(limit).min(total);
         let items = if offset >= total {
@@ -683,6 +833,7 @@ impl ResourceCatalog {
             presentation: ResourcePresentation::Browse,
             mime_type: None,
             size: None,
+            preview: None,
             provider_operations: vec![ProviderOperation::Browse],
             availability: ResourceAvailability::Present,
             appearance: None,
@@ -711,6 +862,7 @@ impl ResourceCatalog {
             presentation: ResourcePresentation::Browse,
             mime_type: None,
             size: None,
+            preview: None,
             provider_operations: vec![ProviderOperation::Browse],
             availability: ResourceAvailability::Present,
             appearance: None,
@@ -749,6 +901,7 @@ impl ResourceCatalog {
             presentation: ResourcePresentation::Browse,
             mime_type: None,
             size: None,
+            preview: None,
             provider_operations: vec![ProviderOperation::Browse, ProviderOperation::Download],
             availability: if root.path.is_dir() {
                 ResourceAvailability::Present
@@ -775,6 +928,7 @@ impl ResourceCatalog {
             presentation: ResourcePresentation::Browse,
             mime_type: None,
             size: None,
+            preview: None,
             provider_operations: vec![ProviderOperation::Browse],
             availability: if self.hermes.is_some() {
                 ResourceAvailability::Present
@@ -829,6 +983,7 @@ impl ResourceCatalog {
             },
             mime_type: None,
             size: None,
+            preview: None,
             provider_operations: Vec::new(),
             availability,
             appearance: None,
@@ -1004,6 +1159,27 @@ impl LegacyCatalogAdapter<'_> {
             .await
     }
 
+    pub(crate) async fn browse_compatibility(
+        &self,
+        context: &ReadContext,
+        path: &str,
+        cursor: Option<PageCursor>,
+        limit: usize,
+    ) -> CatalogResult<ResourcePage> {
+        let parent = self.resolve(path, context.surface).await?;
+        self.catalog
+            .browse_internal(
+                context,
+                BrowseQuery {
+                    parent: parent.reference,
+                    cursor,
+                    limit,
+                },
+                true,
+            )
+            .await
+    }
+
     pub(crate) async fn inspect(
         &self,
         context: &ReadContext,
@@ -1163,6 +1339,15 @@ pub(crate) fn summary_to_legacy_file(summary: ResourceSummary) -> media::FileIte
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_error_matches_shared_golden_fixture() {
+        let raw = include_str!("../../tests/fixtures/catalog-error-contract.json");
+        let expected: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let error: CatalogError = serde_json::from_value(expected.clone()).unwrap();
+        assert_eq!(error.code, CatalogErrorCode::SourceUnavailable);
+        assert_eq!(serde_json::to_value(error).unwrap(), expected);
+    }
     use crate::{
         config::{AuthConfig, FileSearchConfig, ImageOptimizationConfig},
         error::AppResult,
@@ -1171,7 +1356,12 @@ mod tests {
     };
     use futures_util::future::BoxFuture;
     use serde_json::Value;
-    use std::{collections::VecDeque, path::PathBuf, sync::Mutex};
+    use std::{
+        collections::VecDeque,
+        path::PathBuf,
+        sync::Mutex,
+        time::{Duration, Instant},
+    };
 
     fn root(id: &str, name: &str, path: PathBuf) -> MediaRoot {
         MediaRoot {
@@ -1336,6 +1526,106 @@ mod tests {
         let missing = catalog.inspect(&context, &clip.reference).await.unwrap();
         assert_eq!(missing.summary.availability, ResourceAvailability::Missing);
         assert!(missing.summary.provider_operations.is_empty());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cold_large_upgrade_pages_identity_backfill_within_stage1_browse_budget() {
+        const FIXTURE_ENTRIES: usize = 1_000;
+        const FIRST_PAGE_SIZE: usize = 32;
+        const STAGE1_BROWSE_BUDGET: Duration = Duration::from_millis(100);
+
+        let (base, config, identity) = fixture("cold-large-upgrade");
+        let media = config.roots[0].path.clone();
+        for index in 0..FIXTURE_ENTRIES {
+            std::fs::write(
+                media.join(format!("item-{index:04}.txt")),
+                index.to_string(),
+            )
+            .unwrap();
+        }
+        let database = identity.database().to_path_buf();
+        let catalog = catalog(config, identity, None);
+        let context = ReadContext::owner(ReadSurface::Library);
+
+        let listing_started = Instant::now();
+        let first = catalog
+            .browse(
+                &context,
+                BrowseQuery {
+                    parent: catalog.library_ref(),
+                    cursor: None,
+                    limit: FIRST_PAGE_SIZE,
+                },
+            )
+            .await
+            .unwrap();
+        let listing_elapsed = listing_started.elapsed();
+        assert_eq!(first.items.len(), FIRST_PAGE_SIZE);
+        assert_eq!(first.total, (FIXTURE_ENTRIES + 3) as u64);
+        assert!(first.next_cursor.is_some());
+        assert!(
+            listing_elapsed <= STAGE1_BROWSE_BUDGET,
+            "cold first listing took {listing_elapsed:?}, budget {STAGE1_BROWSE_BUDGET:?}"
+        );
+
+        let observed_after_page: i64 = state_db::connection(&database)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM resources", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(observed_after_page, (FIRST_PAGE_SIZE - 3) as i64);
+
+        let file = first
+            .items
+            .iter()
+            .find(|item| item.kind == ResourceKind::File)
+            .unwrap();
+        let open_started = Instant::now();
+        let detail = catalog.inspect(&context, &file.reference).await.unwrap();
+        let open_elapsed = open_started.elapsed();
+        assert_eq!(detail.summary.reference, file.reference);
+        assert!(
+            open_elapsed <= STAGE1_BROWSE_BUDGET,
+            "first media inspect took {open_elapsed:?}, budget {STAGE1_BROWSE_BUDGET:?}"
+        );
+        let observed_after_open: i64 = state_db::connection(&database)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM resources", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(observed_after_open, observed_after_page);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn retained_source_root_inspects_as_unavailable_after_configuration_removal() {
+        let (base, config, identity) = fixture("missing-source-root");
+        let (_, root_resource_id) = identity
+            .source_for_root(&config.roots[0].id, &config.roots[0].path)
+            .unwrap();
+        let mut removed = config.clone();
+        removed.roots.clear();
+        let catalog = catalog(removed, identity, None);
+        let reference = ResourceRef {
+            library_id: catalog.identity.library_id().clone(),
+            resource_id: root_resource_id,
+        };
+        let detail = catalog
+            .inspect(&ReadContext::owner(ReadSurface::Library), &reference)
+            .await
+            .unwrap();
+        assert_eq!(
+            detail.summary.availability,
+            ResourceAvailability::SourceUnavailable
+        );
+        assert!(detail.summary.provider_operations.is_empty());
+        let error = catalog
+            .browse(
+                &ReadContext::owner(ReadSurface::Library),
+                BrowseQuery::first(reference),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, CatalogErrorCode::SourceUnavailable);
         std::fs::remove_dir_all(base).unwrap();
     }
 

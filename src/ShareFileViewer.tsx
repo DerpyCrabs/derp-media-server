@@ -1,7 +1,7 @@
 import { MediaType } from '@/lib/types'
 import { post } from '@/lib/api'
 import Download from 'lucide-solid/icons/download'
-import { Match, Switch, onCleanup, onMount } from 'solid-js'
+import { Match, Switch, createMemo, onCleanup, onMount } from 'solid-js'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useBrowserHistory } from './browser-history'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
@@ -11,6 +11,8 @@ import { playFile, viewFile } from './lib/url-state-actions'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { TextViewerBody, type TextViewerShareContext } from './media/TextViewerDialog'
 import { ThemeSwitcher } from './ThemeSwitcher'
+import { grantOpenScope, resourceForFileItem } from './lib/legacy-resource-adapter'
+import { openResource } from './lib/open-resource'
 
 type Props = {
   token: string
@@ -36,15 +38,41 @@ export function ShareFileViewer(props: Props) {
   const shareCanUpload = () =>
     props.shareInfo.editable && props.shareInfo.restrictions?.allowUpload !== false
 
+  const plannedOpen = createMemo(() => {
+    const resource = resourceForFileItem({
+      name: props.shareInfo.name,
+      path: props.shareInfo.path,
+      type: props.shareInfo.mediaType as MediaType,
+      size: 0,
+      extension: props.shareInfo.extension,
+      isDirectory: false,
+      resource: props.shareInfo.resource,
+    })
+    return openResource(resource, 'default', {
+      surface: 'share',
+      scope: grantOpenScope(props.token),
+    })
+  })
+  const plannedViewerId = () => {
+    const plan = plannedOpen()
+    return plan.kind === 'viewer' ? plan.viewer.id : null
+  }
+
   onMount(() => {
     useMediaPlayer.getState().setShareContext(props.token, props.shareInfo.path)
     void post(`/api/share/${props.token}/view`, {}).catch(() => {})
 
-    const mt = props.shareInfo.mediaType
-    if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
+    const plan = plannedOpen()
+    if (plan.kind === 'playback') {
+      useMediaPlayer.getState().playFile(props.shareInfo.path, plan.media)
       playFile(props.shareInfo.path)
-    } else if (mt === MediaType.IMAGE || mt === MediaType.PDF || mt === MediaType.BOOK) {
-      viewFile(props.shareInfo.path)
+    } else if (
+      plan.kind === 'viewer' &&
+      (plan.viewer.id === 'image-viewer' ||
+        plan.viewer.id === 'pdf-reader' ||
+        plan.viewer.id === 'book-reader')
+    ) {
+      viewFile(props.shareInfo.path, undefined, plan.viewer.id)
     }
   })
 
@@ -56,7 +84,7 @@ export function ShareFileViewer(props: Props) {
     <>
       <ThemeSwitcher variant='floating' />
       <Switch>
-        <Match when={props.shareInfo.mediaType === MediaType.TEXT}>
+        <Match when={plannedViewerId() === 'text-viewer'}>
           <>
             <MainMediaPlayers
               shareContext={shareContext()}
@@ -81,11 +109,10 @@ export function ShareFileViewer(props: Props) {
         </Match>
         <Match
           when={
-            props.shareInfo.mediaType === MediaType.IMAGE ||
-            props.shareInfo.mediaType === MediaType.PDF ||
-            props.shareInfo.mediaType === MediaType.BOOK ||
-            props.shareInfo.mediaType === MediaType.VIDEO ||
-            props.shareInfo.mediaType === MediaType.AUDIO
+            plannedOpen().kind === 'playback' ||
+            plannedViewerId() === 'image-viewer' ||
+            plannedViewerId() === 'pdf-reader' ||
+            plannedViewerId() === 'book-reader'
           }
         >
           <div class='min-h-screen'>

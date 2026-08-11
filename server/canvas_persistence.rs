@@ -21,6 +21,21 @@ fn valid_rect(value: &Value) -> bool {
             .is_some_and(|x| x > 0.0)
 }
 
+fn valid_resource_target(target: &Value) -> bool {
+    let Some(reference) = target.get("ref") else {
+        return false;
+    };
+    ["libraryId", "resourceId"].iter().all(|key| {
+        reference
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty() && value.len() <= 512)
+    }) && target
+        .get("legacyLocator")
+        .and_then(Value::as_str)
+        .is_some_and(|path| !path.is_empty() && path.len() <= 4096 && !has_dot_dot(path))
+}
+
 fn valid_state(state: &Value) -> bool {
     if state.get("version").and_then(Value::as_u64) != Some(1)
         || !state.get("windows").is_some_and(Value::is_array)
@@ -36,6 +51,9 @@ fn valid_state(state: &Value) -> bool {
             let local = definition
                 .get("source")
                 .is_some_and(|source| source.get("kind").and_then(Value::as_str) == Some("local"));
+            let resource_target = definition
+                .get("resourceTarget")
+                .is_none_or(valid_resource_target);
             let safe_paths = ["iconPath"]
                 .into_iter()
                 .filter_map(|key| definition.get(key).and_then(Value::as_str))
@@ -58,6 +76,7 @@ fn valid_state(state: &Value) -> bool {
                         .and_then(Value::as_str)
                         .is_some())
                 && local
+                && resource_target
                 && safe_paths
         })
     })
@@ -175,5 +194,32 @@ mod tests {
             merge(&json!([first]), &json!([second]))[0]["name"],
             "Second"
         );
+    }
+
+    #[test]
+    fn durable_resource_target_is_additive_but_must_keep_legacy_locator() {
+        let with_target = |target: Value| {
+            let mut value = record(1, "Canvas", false);
+            value["state"]["windows"] = json!([{
+                "id":"window-1",
+                "bounds":{"x":0,"y":0,"width":320,"height":224},
+                "definition":{
+                    "type":"viewer",
+                    "source":{"kind":"local"},
+                    "resourceTarget":target
+                }
+            }]);
+            value
+        };
+        let valid = with_target(json!({
+            "ref":{"libraryId":"library","resourceId":"resource"},
+            "legacyLocator":"Documents/file.md"
+        }));
+        assert_eq!(merge(&json!([]), &json!([valid]))[0]["id"], "canvas-1");
+
+        let invalid = with_target(json!({
+            "ref":{"libraryId":"library","resourceId":"resource"}
+        }));
+        assert_eq!(merge(&json!([]), &json!([invalid])), json!([]));
     }
 }

@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 #[derive(Clone, Debug)]
 pub(crate) struct IdentityStore {
@@ -32,6 +32,13 @@ pub(crate) struct StoredResourceIdentity {
     pub(crate) kind: String,
     pub(crate) status: String,
     pub(crate) legacy_locator: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StoredSourceIdentity {
+    pub(crate) source_id: SourceId,
+    pub(crate) root_resource_id: ResourceId,
+    pub(crate) display_name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +90,29 @@ fn apply_schema(connection: &mut Connection) -> Result<(), String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(sql_error)?;
+    if version == 2 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE resources
+                   ADD COLUMN current_legacy_locator TEXT NOT NULL DEFAULT '';
+                 UPDATE resources
+                 SET current_legacy_locator=COALESCE(
+                   (SELECT legacy_locator FROM resource_legacy_locators
+                    WHERE resource_id=resources.id
+                    ORDER BY last_seen_at DESC,legacy_locator
+                    LIMIT 1),
+                   provider_locator
+                 );",
+            )
+            .map_err(sql_error)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES(?1, ?2)",
+                params![SCHEMA_VERSION, now_ms()],
+            )
+            .map_err(sql_error)?;
+        return transaction.commit().map_err(sql_error);
+    }
     transaction
         .execute_batch(
             "CREATE TABLE libraries (
@@ -131,6 +161,7 @@ fn apply_schema(connection: &mut Connection) -> Result<(), String> {
                kind TEXT NOT NULL,
                platform_identity TEXT,
                fingerprint TEXT,
+               current_legacy_locator TEXT NOT NULL,
                status TEXT NOT NULL,
                first_seen_at INTEGER NOT NULL,
                last_seen_at INTEGER NOT NULL,
@@ -584,6 +615,7 @@ pub(crate) fn initialize_identity(config: &mut Config) -> Result<IdentityStore, 
             params![library_id, legacy_key, now_ms()],
         )
         .map_err(sql_error)?;
+    state_db::synchronize_library_namespaces(&transaction, &library_id).map_err(|error| error.1)?;
     transaction.commit().map_err(sql_error)?;
 
     config.library_key = library_id.clone();
@@ -629,6 +661,28 @@ impl IdentityStore {
             .optional()
             .map_err(|error| AppError::internal(error.to_string()))?
             .ok_or_else(|| AppError::internal("Configured Source identity is unavailable"))
+    }
+
+    pub(crate) fn source_by_root_resource(
+        &self,
+        resource_id: &ResourceId,
+    ) -> Result<Option<StoredSourceIdentity>, AppError> {
+        let connection = state_db::connection(&self.database)?;
+        connection
+            .query_row(
+                "SELECT id,root_resource_id,display_name FROM sources
+                 WHERE library_id=?1 AND provider='filesystem' AND root_resource_id=?2",
+                params![self.library_id.as_str(), resource_id.as_str()],
+                |row| {
+                    Ok(StoredSourceIdentity {
+                        source_id: SourceId::new(row.get::<_, String>(0)?),
+                        root_resource_id: ResourceId::new(row.get::<_, String>(1)?),
+                        display_name: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| AppError::internal(error.to_string()))
     }
 
     pub(crate) fn sync_runtime_sources(
@@ -701,19 +755,58 @@ impl IdentityStore {
             .map_err(|error| AppError::internal(error.to_string()))?;
         let mut result = Vec::with_capacity(observed.len());
         let now = now_ms();
+        let mut platform_counts = HashMap::<String, usize>::new();
+        let mut fingerprint_counts = HashMap::<String, usize>::new();
         for item in observed {
-            let exact: Option<String> = transaction
+            if let Some(identity) = &item.platform_identity {
+                *platform_counts.entry(identity.clone()).or_default() += 1;
+            }
+            if let Some(fingerprint) = &item.fingerprint {
+                *fingerprint_counts.entry(fingerprint.clone()).or_default() += 1;
+            }
+        }
+        for item in observed {
+            let exact: Option<(String, Option<String>)> = transaction
                 .query_row(
-                    "SELECT id FROM resources WHERE source_id=?1 AND provider_locator=?2",
+                    "SELECT id,platform_identity FROM resources
+                     WHERE source_id=?1 AND provider_locator=?2",
                     params![source_id.as_str(), item.provider_locator],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()
                 .map_err(|error| AppError::internal(error.to_string()))?;
+            let exact = if let Some((resource_id, stored_platform)) = exact {
+                let strong_conflict = item.platform_identity.as_ref().is_some_and(|observed| {
+                    stored_platform
+                        .as_ref()
+                        .is_some_and(|stored| stored != observed)
+                });
+                if strong_conflict {
+                    transaction
+                        .execute(
+                            "UPDATE resources SET provider_locator=?2,status='missing',
+                               missing_since=COALESCE(missing_since,?3),last_seen_at=?3
+                             WHERE id=?1",
+                            params![
+                                resource_id,
+                                format!("missing:{resource_id}:{}", uuid::Uuid::new_v4()),
+                                now
+                            ],
+                        )
+                        .map_err(|error| AppError::internal(error.to_string()))?;
+                    None
+                } else {
+                    Some(resource_id)
+                }
+            } else {
+                None
+            };
             let resource_id = if let Some(resource_id) = exact {
                 resource_id
             } else {
-                let mut matches = if let Some(platform_identity) = &item.platform_identity {
+                let mut matches = if let Some(platform_identity) = &item.platform_identity
+                    && platform_counts.get(platform_identity) == Some(&1)
+                {
                     let mut statement = transaction
                         .prepare(
                             "SELECT id FROM resources
@@ -730,8 +823,10 @@ impl IdentityStore {
                 } else {
                     Vec::new()
                 };
-                if matches.is_empty()
+                if item.platform_identity.is_none()
+                    && matches.is_empty()
                     && let Some(fingerprint) = &item.fingerprint
+                    && fingerprint_counts.get(fingerprint) == Some(&1)
                 {
                     let mut statement = transaction
                         .prepare(
@@ -751,14 +846,16 @@ impl IdentityStore {
                     transaction
                         .execute(
                             "UPDATE resources SET provider_locator=?2,status='present',
-                               missing_since=NULL,last_seen_at=?3,kind=?4,fingerprint=?5
+                               missing_since=NULL,last_seen_at=?3,kind=?4,fingerprint=?5,
+                               current_legacy_locator=?6
                              WHERE id=?1",
                             params![
                                 matches[0],
                                 item.provider_locator,
                                 now,
                                 item.kind,
-                                item.fingerprint
+                                item.fingerprint,
+                                item.legacy_locator
                             ],
                         )
                         .map_err(|error| AppError::internal(error.to_string()))?;
@@ -771,12 +868,14 @@ impl IdentityStore {
                 .execute(
                     "INSERT INTO resources(
                        id,library_id,source_id,provider_locator,kind,platform_identity,
-                       fingerprint,status,first_seen_at,last_seen_at,missing_since
-                     ) VALUES(?1,?2,?3,?4,?5,?6,?7,'present',?8,?8,NULL)
+                       fingerprint,current_legacy_locator,status,first_seen_at,last_seen_at,
+                       missing_since
+                     ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'present',?9,?9,NULL)
                      ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,
                        platform_identity=COALESCE(excluded.platform_identity,resources.platform_identity),
-                       fingerprint=excluded.fingerprint,status='present',missing_since=NULL,
-                       last_seen_at=excluded.last_seen_at",
+                       fingerprint=excluded.fingerprint,
+                       current_legacy_locator=excluded.current_legacy_locator,
+                       status='present',missing_since=NULL,last_seen_at=excluded.last_seen_at",
                     params![
                         resource_id,
                         self.library_id.as_str(),
@@ -785,6 +884,7 @@ impl IdentityStore {
                         item.kind,
                         item.platform_identity,
                         item.fingerprint,
+                        item.legacy_locator,
                         now
                     ],
                 )
@@ -814,9 +914,7 @@ impl IdentityStore {
         let connection = state_db::connection(&self.database)?;
         connection
             .query_row(
-                "SELECT id,source_id,provider_locator,kind,status,
-                   (SELECT legacy_locator FROM resource_legacy_locators
-                    WHERE resource_id=resources.id ORDER BY last_seen_at DESC LIMIT 1)
+                "SELECT id,source_id,provider_locator,kind,status,current_legacy_locator
                  FROM resources WHERE library_id=?1 AND id=?2",
                 params![self.library_id.as_str(), resource_id.as_str()],
                 |row| {
@@ -855,8 +953,7 @@ impl IdentityStore {
         connection
             .query_row(
                 "SELECT r.id,r.source_id,r.provider_locator,r.kind,r.status,
-                   (SELECT legacy_locator FROM resource_legacy_locators
-                    WHERE resource_id=r.id ORDER BY last_seen_at DESC LIMIT 1)
+                   r.current_legacy_locator
                  FROM resource_legacy_locators l
                  JOIN resources r ON r.id=l.resource_id
                  WHERE r.library_id=?1 AND l.legacy_locator=?2
@@ -933,9 +1030,16 @@ impl IdentityStore {
             let legacy = format!("{new_legacy_locator}{suffix}");
             transaction
                 .execute(
-                    "UPDATE resources SET source_id=?2,provider_locator=?3,last_seen_at=?4
+                    "UPDATE resources SET source_id=?2,provider_locator=?3,
+                       current_legacy_locator=?4,last_seen_at=?5
                      WHERE id=?1",
-                    params![resource_id, destination_source_id.as_str(), relocated, now],
+                    params![
+                        resource_id,
+                        destination_source_id.as_str(),
+                        relocated,
+                        legacy,
+                        now
+                    ],
                 )
                 .map_err(|error| AppError::internal(error.to_string()))?;
             transaction
@@ -1147,7 +1251,7 @@ mod tests {
         let connection = state_db::connection(second.database()).unwrap();
         let versions: i64 = connection
             .query_row(
-                "SELECT COUNT(*) FROM schema_migrations WHERE version=2",
+                "SELECT COUNT(*) FROM schema_migrations WHERE version=3",
                 [],
                 |row| row.get(0),
             )
@@ -1199,9 +1303,105 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(versions, [1, 2]);
+        assert_eq!(versions, [1, 3]);
         drop(connection);
         assert!(data.join("legacy-json-backup").is_dir());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn intermediate_resource_schema_upgrades_without_rebinding_legacy_locator() {
+        let base = fixture("resource-v2-upgrade");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut initial = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&initial).unwrap();
+        let identity = initialize_identity(&mut initial).unwrap();
+        let (source_id, _) = identity.source_for_root("config:primary", &media).unwrap();
+        let connection = state_db::connection(identity.database()).unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys=OFF;
+                 DROP TABLE resource_legacy_locators;
+                 DROP TABLE resources;
+                 CREATE TABLE resources (
+                   id TEXT PRIMARY KEY,
+                   library_id TEXT NOT NULL REFERENCES libraries(id),
+                   source_id TEXT NOT NULL REFERENCES sources(id),
+                   provider_locator TEXT NOT NULL,
+                   kind TEXT NOT NULL,
+                   platform_identity TEXT,
+                   fingerprint TEXT,
+                   status TEXT NOT NULL,
+                   first_seen_at INTEGER NOT NULL,
+                   last_seen_at INTEGER NOT NULL,
+                   missing_since INTEGER,
+                   UNIQUE(source_id, provider_locator)
+                 );
+                 CREATE INDEX resources_platform_identity
+                   ON resources(source_id, platform_identity)
+                   WHERE platform_identity IS NOT NULL;
+                 CREATE TABLE resource_legacy_locators (
+                   resource_id TEXT NOT NULL REFERENCES resources(id),
+                   legacy_locator TEXT NOT NULL,
+                   first_seen_at INTEGER NOT NULL,
+                   last_seen_at INTEGER NOT NULL,
+                   PRIMARY KEY(resource_id, legacy_locator)
+                 );
+                 CREATE INDEX resource_legacy_locator_lookup
+                   ON resource_legacy_locators(legacy_locator);
+                 DELETE FROM schema_migrations WHERE version=3;
+                 INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(2,1);
+                 PRAGMA foreign_keys=ON;",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO resources(
+                   id,library_id,source_id,provider_locator,kind,platform_identity,
+                   fingerprint,status,first_seen_at,last_seen_at,missing_since
+                 ) VALUES('resource-old',?1,?2,'moved/file.txt','file',NULL,NULL,'present',1,1,NULL)",
+                params![identity.library_id().as_str(), source_id.as_str()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO resource_legacy_locators(resource_id,legacy_locator,first_seen_at,last_seen_at)
+                 VALUES('resource-old','Media/moved/file.txt',1,2)",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut restarted = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&restarted).unwrap();
+        let upgraded = initialize_identity(&mut restarted).unwrap();
+        let stored = upgraded
+            .stored(&ResourceId::new("resource-old"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored.legacy_locator.as_deref(),
+            Some("Media/moved/file.txt")
+        );
+        let connection = state_db::connection(upgraded.database()).unwrap();
+        let versions = connection
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .unwrap()
+            .query_map([], |row| row.get::<_, i64>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(versions, [1, 2, 3]);
+        drop(connection);
         std::fs::remove_dir_all(base).unwrap();
     }
 
@@ -1282,9 +1482,10 @@ mod tests {
             .execute(
                 "INSERT INTO resources(
                    id,library_id,source_id,provider_locator,kind,platform_identity,
-                   fingerprint,status,first_seen_at,last_seen_at,missing_since
+                   fingerprint,current_legacy_locator,status,first_seen_at,last_seen_at,
+                   missing_since
                  ) VALUES('resource-collision',?1,?2,'second.txt','file','collision',
-                   NULL,'present',1,1,NULL)",
+                   NULL,'second.txt','present',1,1,NULL)",
                 params![identity.library_id().as_str(), source.as_str()],
             )
             .unwrap();
@@ -1309,6 +1510,97 @@ mod tests {
             identity.stored(&first).unwrap().unwrap().provider_locator,
             "first.txt"
         );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn replacement_at_same_locator_gets_new_identity() {
+        let base = fixture("resource-replacement");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let item = |platform: &str| ObservedResourceIdentity {
+            provider_locator: "same.txt".into(),
+            legacy_locator: "same.txt".into(),
+            kind: "file".into(),
+            platform_identity: Some(platform.into()),
+            fingerprint: Some("same-metadata".into()),
+        };
+        let original = identity.observe(&source, &[item("platform:old")]).unwrap()[0].clone();
+        let replacement = identity.observe(&source, &[item("platform:new")]).unwrap()[0].clone();
+
+        assert_ne!(replacement, original);
+        assert_eq!(
+            identity.stored(&original).unwrap().unwrap().status,
+            "missing"
+        );
+        assert_eq!(
+            identity
+                .stored(&replacement)
+                .unwrap()
+                .unwrap()
+                .provider_locator,
+            "same.txt"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn same_batch_identity_collisions_never_silently_rebind() {
+        let base = fixture("resource-batch-collision");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let identity = initialize_identity(&mut config).unwrap();
+        let source = identity
+            .source_for_root("config:primary", &media)
+            .unwrap()
+            .0;
+        let item = |locator: &str| ObservedResourceIdentity {
+            provider_locator: locator.into(),
+            legacy_locator: locator.into(),
+            kind: "file".into(),
+            platform_identity: Some("shared-platform".into()),
+            fingerprint: Some("shared-fingerprint".into()),
+        };
+        let first = identity
+            .observe(&source, &[item("one.txt"), item("two.txt")])
+            .unwrap();
+        assert_ne!(first[0], first[1]);
+        let restarted = identity
+            .observe(&source, &[item("one.txt"), item("two.txt")])
+            .unwrap();
+        assert_eq!(restarted, first);
+
+        let strong_miss = identity
+            .observe(
+                &source,
+                &[ObservedResourceIdentity {
+                    provider_locator: "three.txt".into(),
+                    legacy_locator: "three.txt".into(),
+                    kind: "file".into(),
+                    platform_identity: Some("different-platform".into()),
+                    fingerprint: Some("shared-fingerprint".into()),
+                }],
+            )
+            .unwrap();
+        assert_ne!(strong_miss[0], first[0]);
+        assert_ne!(strong_miss[0], first[1]);
         std::fs::remove_dir_all(base).unwrap();
     }
 
@@ -1401,6 +1693,82 @@ mod tests {
         let legacy: serde_json::Value = serde_json::from_str(&legacy).unwrap();
         assert_eq!(legacy["marker"], "rollback");
         assert_eq!(legacy["reupgraded"], true);
+        drop(connection);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn root_edit_seeds_new_legacy_namespace_before_downgrade_write() {
+        let base = fixture("root-edit-rollback");
+        let original = base.join("original");
+        let renamed = base.join("renamed");
+        std::fs::create_dir_all(&original).unwrap();
+        let old_key = original.to_string_lossy().to_string();
+        let mut initial = config(
+            &base,
+            vec![root(
+                "configured:stable-media",
+                "Original",
+                original.clone(),
+            )],
+            &old_key,
+        );
+        state_db::initialize(&initial).unwrap();
+        let identity = initialize_identity(&mut initial).unwrap();
+        state_db::update_document(
+            identity.database(),
+            "settings",
+            identity.library_id().as_str(),
+            serde_json::json!({}),
+            |value| {
+                value["marker"] = serde_json::json!("before-root-edit");
+                Ok(())
+            },
+        )
+        .unwrap();
+        let connection = state_db::connection(identity.database()).unwrap();
+        connection
+            .execute(
+                "INSERT INTO shares(
+                   library_key,token,path,is_directory,editable,passcode,created_at
+                 ) VALUES(?1,'rollback-share','file.txt',0,0,NULL,1)",
+                [identity.library_id().as_str()],
+            )
+            .unwrap();
+        drop(connection);
+
+        std::fs::rename(&original, &renamed).unwrap();
+        let new_key = renamed.to_string_lossy().to_string();
+        let mut edited = config(
+            &base,
+            vec![root("configured:stable-media", "Renamed", renamed.clone())],
+            &new_key,
+        );
+        state_db::initialize(&edited).unwrap();
+        initialize_identity(&mut edited).unwrap();
+
+        let connection = state_db::connection(&state_db::database(&edited)).unwrap();
+        let document: String = connection
+            .query_row(
+                "SELECT value_json FROM state_documents
+                 WHERE kind='settings' AND library_key=?1",
+                [&new_key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&document).unwrap()["marker"],
+            "before-root-edit"
+        );
+        let share_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM shares
+                 WHERE library_key=?1 AND token='rollback-share'",
+                [&new_key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(share_count, 1);
         drop(connection);
         std::fs::remove_dir_all(base).unwrap();
     }

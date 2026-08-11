@@ -26,6 +26,12 @@ import {
 } from '../lib/build-media-url'
 import { playFile as urlPlayFile, setAudioOnly } from '../lib/url-state-actions'
 import type { TextViewerShareContext } from './TextViewerDialog'
+import {
+  OWNER_OPEN_SCOPE,
+  grantOpenScope,
+  resourceForFileItem,
+} from '../lib/legacy-resource-adapter'
+import { openResource } from '../lib/open-resource'
 
 type Props = {
   shareContext?: TextViewerShareContext | null
@@ -103,6 +109,15 @@ export function AudioPlayer(props: Props) {
   const audioFiles = createMemo(() =>
     allFiles().filter((f) => f.type === MediaType.AUDIO || f.type === MediaType.VIDEO),
   )
+
+  function canOpenAudio(file: FileItem): boolean {
+    const share = props.shareContext
+    const plan = openResource(resourceForFileItem(file), 'play', {
+      surface: share ? 'share' : 'library',
+      scope: share ? grantOpenScope(share.token) : OWNER_OPEN_SCOPE,
+    })
+    return plan.kind === 'playback' && plan.media === 'audio'
+  }
 
   const getMediaUrl = (filePath: string) => buildMediaUrl(filePath, shareCtx())
 
@@ -260,6 +275,7 @@ export function AudioPlayer(props: Props) {
         useMediaPlayer.getState().setIsPlaying(false)
         return
       }
+      if (!canOpenAudio(nextFile)) return
       incrementView(nextFile.path)
       urlPlayFile(nextFile.path, dir)
       useMediaPlayer.getState().playFile(nextFile.path, 'audio')
@@ -284,7 +300,7 @@ export function AudioPlayer(props: Props) {
           break
         }
       }
-      if (!previousFile) return
+      if (!previousFile || !canOpenAudio(previousFile)) return
       incrementView(previousFile.path)
       urlPlayFile(previousFile.path, dir)
       useMediaPlayer.getState().playFile(previousFile.path, 'audio')

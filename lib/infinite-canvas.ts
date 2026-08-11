@@ -1,4 +1,5 @@
 import type { WorkspaceWindowDefinition } from './use-workspace'
+import { isPersistedResourceTarget, isViewerId } from './resource'
 import { deletedHermesSessionIds } from './hermes-session-store'
 
 export const CANVAS_STORAGE_KEY = 'infinite-canvas-state-v1'
@@ -216,6 +217,12 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
       definition.initialState && typeof definition.initialState === 'object'
         ? definition.initialState
         : {}
+    const resourceTarget = isPersistedResourceTarget(definition.resourceTarget)
+      ? {
+          ref: { ...definition.resourceTarget.ref },
+          legacyLocator: definition.resourceTarget.legacyLocator,
+        }
+      : undefined
     windows.push({
       id: window.id,
       definition: {
@@ -234,6 +241,8 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
             ? { readerKind: initialStateRaw.readerKind }
             : {}),
         },
+        resourceTarget,
+        viewerId: isViewerId(definition.viewerId) ? definition.viewerId : undefined,
         ...(definition.type === 'hermes' && typeof definition.hermes?.sessionId === 'string'
           ? {
               hermes: {

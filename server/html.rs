@@ -149,38 +149,17 @@ async fn shared_files(state: &AppState, share: &shares::Share, dir: &str) -> Opt
     Some(json!({"files":listing.files}))
 }
 
-fn share_info(state: &AppState, token: &str, headers: &axum::http::HeaderMap) -> Option<Value> {
+async fn share_info(
+    state: &AppState,
+    token: &str,
+    headers: &axum::http::HeaderMap,
+) -> Option<Value> {
     let share = find_share(state, token).ok()?;
     if share.unavailable == Some(true) {
         return None;
     }
     let authorized = shares::authorized(&state.config, &share, &cookies(headers));
-    let extension = if share.is_directory {
-        String::new()
-    } else {
-        media::extension(Path::new(&share.path))
-    };
-    let kb_root = authorized
-        .then(|| knowledge_base_root(state, &share.path))
-        .flatten();
-    let mut info = json!({"name":shares::name(&share.path),"isDirectory":share.is_directory,"editable":share.editable,"mediaType":if share.is_directory{"folder"}else{media::media_type(&extension)},"extension":extension,"needsPasscode":share.passcode.is_some(),"authorized":authorized});
-    if authorized {
-        info["path"] = json!(share.path);
-        info["isKnowledgeBase"] = json!(share.is_directory && kb_root.is_some());
-        if let Some(root) = kb_root {
-            info["knowledgeBaseRoot"] = json!(root);
-        }
-    }
-    if authorized && share.is_directory {
-        info["adminViewMode"] = settings::sanitized(state)["viewModes"]
-            .get(&share.path)
-            .cloned()
-            .unwrap_or_else(|| json!("list"));
-    }
-    if share.editable {
-        info["restrictions"] = serde_json::to_value(shares::effective(&share)).unwrap();
-    }
-    Some(info)
+    Some(crate::application_queries::share_info(state, &share, token, authorized).await)
 }
 
 async fn dehydrated(
@@ -310,7 +289,7 @@ async fn dehydrated(
             }
         }
     } else if let RouteKind::Share { token, .. } = route
-        && let Some(info) = share_info(state, token, headers)
+        && let Some(info) = share_info(state, token, headers).await
     {
         let authorized = info["authorized"].as_bool().unwrap_or(false);
         let directory = info["isDirectory"].as_bool().unwrap_or(false);

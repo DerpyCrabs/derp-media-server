@@ -1,4 +1,10 @@
 import type { NavigationState } from '@/lib/navigation-session'
+import {
+  isPersistedResourceTarget,
+  isViewerId,
+  type PersistedResourceTarget,
+  type ViewerId,
+} from '@/lib/resource'
 import type { SourceContext } from '@/lib/source-context'
 import { MediaType } from '@/lib/types'
 import {
@@ -88,6 +94,8 @@ export interface WorkspaceWindowDefinition {
   iconIsVirtual?: boolean
   source: WorkspaceSource
   initialState: Partial<NavigationState>
+  resourceTarget?: PersistedResourceTarget
+  viewerId?: ViewerId
   tabGroupId?: string | null
   openedFromWindowId?: string | null
   /** Pinned tabs stay on the left and cannot be closed from the strip. */
@@ -402,11 +410,19 @@ export function normalizePersistedWorkspaceState(
           (w.source.kind === 'local' && typeof w.hermes?.sessionId === 'string')),
     )
     .map((w, i) => {
+      const resourceTarget = isPersistedResourceTarget(w.resourceTarget)
+        ? {
+            ref: { ...w.resourceTarget.ref },
+            legacyLocator: w.resourceTarget.legacyLocator,
+          }
+        : undefined
       const b = w.layout?.bounds
       // Keep saved pixel bounds for legacy assist-custom → tiling migration before viewport clamp.
       const bounds = b ?? createDefaultBounds(i, w.type === 'browser' ? 'browser' : 'viewer')
       return {
         ...w,
+        resourceTarget,
+        viewerId: isViewerId(w.viewerId) ? w.viewerId : undefined,
         layout: {
           ...w.layout,
           bounds,

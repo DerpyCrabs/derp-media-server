@@ -7,6 +7,7 @@ import type {
   WorkspaceSource,
 } from '@/lib/use-workspace'
 import type { FileItem } from '@/lib/types'
+import type { ResourceSummary, ViewerId } from '@/lib/resource'
 import {
   getTabGroupSplit,
   resolveGroupVisibleTabId,
@@ -77,9 +78,9 @@ export type WorkspacePageCanvasProps = {
   handleTabPullStart: (groupId: string, tabId: string, e: PointerEvent) => void
   dropFileToTabBar: (targetLeaderWindowId: string, data: FileDragData, insertIndex?: number) => void
   startSplitPaneDrag: (groupId: string, e: PointerEvent) => void
-  navigateDir: (windowId: string, dir: string) => void
-  openViewerFromBrowser: (windowId: string, file: FileItem) => void
-  openReaderFromBrowser: (windowId: string, file: FileItem) => void
+  navigateDir: (windowId: string, dir: string, resource?: ResourceSummary) => void
+  openViewerFromBrowser: (windowId: string, file: FileItem, viewerId?: ViewerId) => void
+  openReaderFromBrowser: (windowId: string, file: FileItem, viewerId?: ViewerId) => void
   openHermesFromBrowser: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
   bindHermesSession: (windowId: string, sessionId: string) => void
   openHermesBranch: (windowId: string, sessionId: string, title: string) => void
@@ -87,14 +88,31 @@ export type WorkspacePageCanvasProps = {
   addPinnedItem: (file: FileItem) => void
   openInNewTabInSameWindow: (
     sourceWindowId: string,
-    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+    file: FileItem,
     currentPath: string,
     insertIndex?: number,
     sourceOverride?: WorkspaceSource,
+    viewerId?: ViewerId,
   ) => void
-  openInSplitViewFromBrowserPane: (windowId: string, file: FileItem) => void
-  requestPlay: (source: WorkspaceSource, path: string, dir?: string) => void
-  updateWindowViewing: (windowId: string, viewing: string) => void
+  openInSplitViewFromBrowserPane: (
+    windowId: string,
+    file: FileItem,
+    plannedMedia?: 'audio' | 'video',
+    viewerId?: ViewerId,
+  ) => void
+  requestPlay: (
+    source: WorkspaceSource,
+    file: FileItem,
+    dir?: string,
+    plannedMedia?: 'audio' | 'video',
+    viewerId?: ViewerId,
+  ) => void
+  updateWindowViewing: (
+    windowId: string,
+    viewing: string,
+    resource?: ResourceSummary,
+    viewerId?: ViewerId,
+  ) => void
   resizeViewerWindowForVideoMetadata: (
     windowId: string,
     videoWidth: number,
@@ -102,7 +120,7 @@ export type WorkspacePageCanvasProps = {
   ) => void
   listenOnlyHandoff: (tabId: string, detail: WorkspaceVideoListenOnlyDetail) => void
   onBeginFileOpenTargetPick: (browserWindowId: string) => void
-  openFileInNewFloatingWindow: (windowId: string, file: FileItem) => void
+  openFileInNewFloatingWindow: (windowId: string, file: FileItem, viewerId?: ViewerId) => void
 }
 
 export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
@@ -247,8 +265,15 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 onOpenReader={props.openReaderFromBrowser}
                                 onOpenVirtualTarget={props.openHermesFromBrowser}
                                 onAddToTaskbar={props.addPinnedItem}
-                                onOpenInNewTab={(wid, file, path) =>
-                                  props.openInNewTabInSameWindow(wid, file, path)
+                                onOpenInNewTab={(wid, file, path, viewerId) =>
+                                  props.openInNewTabInSameWindow(
+                                    wid,
+                                    file,
+                                    path,
+                                    undefined,
+                                    undefined,
+                                    viewerId,
+                                  )
                                 }
                                 onOpenInSplitView={props.openInSplitViewFromBrowserPane}
                                 onRequestPlay={props.requestPlay}
@@ -345,8 +370,15 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               onOpenReader={props.openReaderFromBrowser}
                               onOpenVirtualTarget={props.openHermesFromBrowser}
                               onAddToTaskbar={props.addPinnedItem}
-                              onOpenInNewTab={(wid, file, path) =>
-                                props.openInNewTabInSameWindow(wid, file, path)
+                              onOpenInNewTab={(wid, file, path, viewerId) =>
+                                props.openInNewTabInSameWindow(
+                                  wid,
+                                  file,
+                                  path,
+                                  undefined,
+                                  undefined,
+                                  viewerId,
+                                )
                               }
                               onOpenInSplitView={props.openInSplitViewFromBrowserPane}
                               onRequestPlay={props.requestPlay}
@@ -440,8 +472,15 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 onOpenReader={props.openReaderFromBrowser}
                                 onOpenVirtualTarget={props.openHermesFromBrowser}
                                 onAddToTaskbar={props.addPinnedItem}
-                                onOpenInNewTab={(wid, file, path) =>
-                                  props.openInNewTabInSameWindow(wid, file, path)
+                                onOpenInNewTab={(wid, file, path, viewerId) =>
+                                  props.openInNewTabInSameWindow(
+                                    wid,
+                                    file,
+                                    path,
+                                    undefined,
+                                    undefined,
+                                    viewerId,
+                                  )
                                 }
                                 onOpenInSplitView={props.openInSplitViewFromBrowserPane}
                                 onRequestPlay={props.requestPlay}

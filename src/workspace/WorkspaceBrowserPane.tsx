@@ -31,7 +31,7 @@ import type { ShareLink } from '@/lib/shares'
 import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
-import type { ResourceOpenTarget } from '@/lib/resource'
+import type { ResourceOpenTarget, ViewerId } from '@/lib/resource'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import {
@@ -112,6 +112,10 @@ import type {
 export type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 
 type ExecutableOpenPlan = Exclude<OpenPlan, { kind: 'blocked' | 'conversation' }>
+
+function viewerIdForPlan(plan: ExecutableOpenPlan): ViewerId | undefined {
+  return plan.kind === 'viewer' || plan.kind === 'playback' ? plan.viewer.id : undefined
+}
 
 export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const queryClient = useQueryClient()
@@ -291,7 +295,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const virtualEntry = (file: FileItem) => virtualEntries()[file.path]
   const openScope = createMemo(() => {
     const currentShare = share()
-    return currentShare ? grantOpenScope(currentShare.sharePath) : OWNER_OPEN_SCOPE
+    return currentShare ? grantOpenScope(currentShare.token) : OWNER_OPEN_SCOPE
   })
 
   function resourceOpenTarget(target?: VirtualOpenTarget): ResourceOpenTarget | undefined {
@@ -329,7 +333,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               }
             : {}),
         })
-    return openResource(resource, intent, { surface: 'workspace', scope: openScope() })
+    return openResource(resource, intent, {
+      surface: props.surface ?? 'workspace',
+      scope: openScope(),
+    })
   }
 
   function openConversationPlan(file: FileItem, target: ResourceOpenTarget | VirtualOpenTarget) {
@@ -345,6 +352,26 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       openTarget: target,
     }
     setVirtualDetail({ file, entry })
+  }
+
+  function openVirtualTarget(file: FileItem, target: VirtualOpenTarget) {
+    const openTarget = resourceOpenTarget(target)
+    if (!openTarget) {
+      setUnsupportedFile(file)
+      return
+    }
+    const resource = resourceForFileItem(file, {
+      kind: openTarget.type === 'hermesSession' ? 'conversation' : 'draft',
+      presentation: 'conversation',
+      providerOperations: ['read'],
+      openTarget,
+    })
+    const plan = openResource(resource, 'default', {
+      surface: props.surface ?? 'workspace',
+      scope: openScope(),
+    })
+    if (plan.kind === 'conversation') openConversationPlan(file, plan.target)
+    else setUnsupportedFile(file)
   }
 
   function executePlannedDisposition(
@@ -644,14 +671,18 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       const popName = pathToOpen.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
       const lower = popName.toLowerCase()
       const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
-      props.onOpenViewer(props.windowId, {
-        path: pathToOpen,
-        name: popName,
-        isDirectory: false,
-        size: 0,
-        extension: ext,
-        type: getMediaType(ext),
-      })
+      handleFileClick(
+        {
+          path: pathToOpen,
+          name: popName,
+          isDirectory: false,
+          size: 0,
+          extension: ext,
+          type: getMediaType(ext),
+        },
+        currentPath(),
+        false,
+      )
     },
   }))
 
@@ -939,7 +970,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           name: `${file.name} branch`,
           path: `virtual-branch-${Date.now()}`,
         }
-        props.onOpenVirtualTarget?.(props.windowId, branch, result.openTarget)
+        openVirtualTarget(branch, result.openTarget)
       })
       return
     }
@@ -1114,6 +1145,11 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   function openDirectoryInMediaServer(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
     const sh = share()
+    const plan = openResource(resourceForFileItem(file), 'browse', {
+      surface: sh ? 'share' : 'library',
+      scope: openScope(),
+    })
+    if (plan.kind !== 'browse') return
     const params = new URLSearchParams()
     if (sh) {
       const rel = stripSharePrefix(file.path, sh.sharePath.replace(/\\/g, '/'))
@@ -1158,7 +1194,17 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   function handleBreadcrumbNavigate(path: string) {
-    props.onNavigateDir(props.windowId, path)
+    const file: FileItem = {
+      name: path.split(/[/\\]/).filter(Boolean).at(-1) ?? 'Library',
+      path,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: isVirtualFolderPath(path),
+    }
+    const plan = planFileOpen(file, 'browse')
+    if (plan.kind === 'browse') props.onNavigateDir(props.windowId, path)
   }
 
   function workspaceBreadcrumbAsFolderItem(m: BreadcrumbMenuTarget): FileItem {
@@ -1207,19 +1253,26 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const m = breadcrumbMenu()
     if (!m) return
     const sh = share()
+    const item = workspaceBreadcrumbAsFolderItem(m)
+    const plan = openResource(resourceForFileItem(item), 'browse', {
+      surface: m.isHome
+        ? sh
+          ? 'workspace'
+          : 'library'
+        : props.onOpenInNewTab
+          ? (props.surface ?? 'workspace')
+          : 'library',
+      scope: openScope(),
+    })
+    if (plan.kind !== 'browse') return
     if (m.isHome) {
       if (sh) window.open(`/share/${sh.token}/workspace`, '_blank')
       else window.open('/', '_blank')
       return
     }
-    const item = workspaceBreadcrumbAsFolderItem(m)
     if (!item.isDirectory || item.isVirtual) return
     if (props.onOpenInNewTab) {
-      props.onOpenInNewTab(
-        props.windowId,
-        { path: item.path, isDirectory: true, isVirtual: item.isVirtual },
-        currentPath(),
-      )
+      props.onOpenInNewTab(props.windowId, item, currentPath())
       return
     }
     const params = new URLSearchParams()
@@ -1231,11 +1284,16 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const m = breadcrumbMenu()
     if (!m) return
     const sh = share()
+    const item = workspaceBreadcrumbAsFolderItem(m)
+    const plan = openResource(resourceForFileItem(item), 'browse', {
+      surface: sh ? 'share' : 'library',
+      scope: openScope(),
+    })
+    if (plan.kind !== 'browse') return
     if (m.isHome) {
       window.open(sh ? `/share/${sh.token}` : '/', '_blank')
       return
     }
-    const item = workspaceBreadcrumbAsFolderItem(m)
     if (!item.isDirectory || item.isVirtual) return
     if (sh) {
       const rel = stripSharePrefix(item.path, sh.sharePath.replace(/\\/g, '/'))
@@ -1270,26 +1328,27 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   function openInNewTabFromRow(file: FileItem) {
     if (!props.onOpenInNewTab) return
-    executePlannedDisposition(file, planFileOpen(file, 'default'), () =>
-      props.onOpenInNewTab?.(
-        props.windowId,
-        { path: file.path, isDirectory: file.isDirectory, isVirtual: file.isVirtual },
-        currentPath(),
-      ),
+    executePlannedDisposition(file, planFileOpen(file, 'default'), (plan) =>
+      props.onOpenInNewTab?.(props.windowId, file, currentPath(), viewerIdForPlan(plan)),
     )
   }
 
   function openFileInNewWindowFromRow(file: FileItem) {
     if (file.isDirectory || !props.onOpenFileInNewFloatingWindow) return
-    executePlannedDisposition(file, planFileOpen(file, 'default'), () =>
-      props.onOpenFileInNewFloatingWindow?.(props.windowId, file),
+    executePlannedDisposition(file, planFileOpen(file, 'default'), (plan) =>
+      props.onOpenFileInNewFloatingWindow?.(props.windowId, file, viewerIdForPlan(plan)),
     )
   }
 
   function openInSplitViewFromRow(file: FileItem) {
     if (!props.onOpenInSplitView) return
-    executePlannedDisposition(file, planFileOpen(file, 'default'), () =>
-      props.onOpenInSplitView?.(props.windowId, file),
+    executePlannedDisposition(file, planFileOpen(file, 'default'), (plan) =>
+      props.onOpenInSplitView?.(
+        props.windowId,
+        file,
+        plan.kind === 'playback' ? plan.media : undefined,
+        viewerIdForPlan(plan),
+      ),
     )
   }
 
@@ -1298,15 +1357,15 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       file,
       planFileOpen(file, file.isDirectory ? 'browse' : 'view'),
       (plan) => {
-        if (plan.kind === 'browse') props.onNavigateDir(props.windowId, file.path)
-        else props.onOpenViewer(props.windowId, file)
+        if (plan.kind === 'browse') props.onNavigateDir(props.windowId, file.path, file.resource)
+        else props.onOpenViewer(props.windowId, file, plan.viewer.id)
       },
     )
   }
 
   function openWithReader(file: FileItem) {
     executePlannedDisposition(file, planFileOpen(file, 'read'), (plan) => {
-      if (plan.kind === 'viewer') props.onOpenReader(props.windowId, file)
+      if (plan.kind === 'viewer') props.onOpenReader(props.windowId, file, plan.viewer.id)
       else setUnsupportedFile(file)
     })
   }
@@ -1326,18 +1385,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             isDirectory: false,
             isVirtual: true,
           }
-          props.onOpenVirtualTarget?.(props.windowId, draft, result.openTarget)
-          if (!props.onOpenVirtualTarget) {
-            setVirtualDetail({
-              file: draft,
-              entry: {
-                provider: 'hermes',
-                kind: 'draft',
-                capabilities: [],
-                openTarget: result.openTarget,
-              },
-            })
-          }
+          openVirtualTarget(draft, result.openTarget)
         })
       return
     }
@@ -1531,7 +1579,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     setSearchQuery('')
     setDebouncedSearch('')
     setSearchPopoverOpen(false)
-    props.onOpenViewer(props.windowId, fileItemFromPath(filePath, displayName))
+    handleFileClick(fileItemFromPath(filePath, displayName), currentPath(), false)
   }
 
   function handleKbResultClickFromSearch(path: string) {
@@ -1571,7 +1619,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         setInlineMode(null)
         setInlineName('')
         createFileMutation.reset()
-        props.onOpenViewer(props.windowId, fileItemFromPath(fullOpenPath))
+        handleFileClick(fileItemFromPath(fullOpenPath), currentPath(), false)
         return
       }
       const base = currentPath() ? `${currentPath()}/${stem}` : stem
@@ -1580,7 +1628,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setInlineMode(null)
       setInlineName('')
       createFileMutation.reset()
-      props.onOpenViewer(props.windowId, fileItemFromPath(finalPath))
+      handleFileClick(fileItemFromPath(finalPath), currentPath(), false)
     } catch {
       /* createFileMutation.isError surfaces failures */
     }
@@ -1597,7 +1645,18 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setInlineMode(null)
       setInlineName('')
       createFolderMutation.reset()
-      props.onNavigateDir(props.windowId, dirPathToOpen)
+      handleFileClick(
+        {
+          path: dirPathToOpen,
+          name,
+          isDirectory: true,
+          size: 0,
+          extension: '',
+          type: MediaType.FOLDER,
+        },
+        currentPath(),
+        false,
+      )
     }
     if (sh) {
       void createFolderMutation
@@ -1651,14 +1710,14 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   function handleParentDirectory() {
-    props.onNavigateDir(props.windowId, workspaceBrowserPaneParentDir(currentPath()))
+    handleBreadcrumbNavigate(workspaceBrowserPaneParentDir(currentPath()))
   }
 
-  function handleFileClick(file: FileItem, sourceDir = currentPath()) {
+  function handleFileClick(file: FileItem, sourceDir = currentPath(), countView = true) {
     const plan = planFileOpen(file, 'default')
     if (plan.kind === 'browse') {
       setUnsupportedFile(null)
-      props.onNavigateDir(props.windowId, file.path)
+      props.onNavigateDir(props.windowId, file.path, file.resource)
       return
     }
     if (plan.kind === 'conversation') {
@@ -1666,11 +1725,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       return
     }
     if (plan.kind === 'blocked') {
-      if (!file.isDirectory && !virtualEntry(file)?.openTarget) viewStats.incrementView(file.path)
       setUnsupportedFile(file)
       return
     }
-    if (!file.isDirectory) viewStats.incrementView(file.path)
+    if (countView && !file.isDirectory) viewStats.incrementView(file.path)
     if (plan.kind === 'playback') {
       const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)
       const sh = share()
@@ -1679,7 +1737,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         (sh
           ? { kind: 'share', token: sh.token, sharePath: sh.sharePath }
           : DEFAULT_WORKSPACE_SOURCE)
-      props.onRequestPlay?.(src, file.path, sourceDir || undefined)
+      props.onRequestPlay?.(src, file, sourceDir || undefined, plan.media, plan.viewer.id)
       return
     }
     if (plan.viewer.id === 'unsupported-file') {
@@ -1687,7 +1745,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       return
     }
     setUnsupportedFile(null)
-    props.onOpenViewer(props.windowId, file)
+    props.onOpenViewer(props.windowId, file, plan.viewer.id)
   }
 
   createEffect(() => {
@@ -1752,6 +1810,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       path: file.path,
       isDirectory: file.isDirectory,
       sourceKind: kind,
+      resource: file.resource,
       ...(kind === 'share' && tok ? { sourceToken: tok } : {}),
       ...(virtualEntry(file)?.openTarget
         ? { virtualOpenTarget: virtualEntry(file)!.openTarget }

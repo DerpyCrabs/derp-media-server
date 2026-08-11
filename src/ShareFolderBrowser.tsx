@@ -13,7 +13,7 @@ import { queryKeys } from '@/lib/query-keys'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
-import { formatFileSize } from '@/lib/media-utils'
+import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
 import { useMediaPlayer } from '@/lib/use-media-player'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -80,6 +80,7 @@ import {
 import type { TextViewerShareContext } from './media/TextViewerDialog'
 import { grantOpenScope, resourceForFileItem } from './lib/legacy-resource-adapter'
 import { openResource } from './lib/open-resource'
+import type { ResourceSummary } from '@/lib/resource'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -100,6 +101,7 @@ export type ShareInfoPayload = {
   /** Present when this share path lies inside a configured knowledge base (for KB markdown / paste). */
   knowledgeBaseRoot?: string
   adminViewMode: 'list' | 'grid'
+  resource?: ResourceSummary
 }
 
 type MenuState = { x: number; y: number; file: FileItem }
@@ -254,7 +256,7 @@ export function ShareFolderBrowser(props: Props) {
           setInlineMode(null)
           setInlineName('')
           createFileMutation.reset()
-          if (inKb()) viewFile(fullPath)
+          if (inKb()) handleFileClick(fileItemFromPath(fullPath), false)
         },
       },
     )
@@ -271,7 +273,7 @@ export function ShareFolderBrowser(props: Props) {
           setInlineMode(null)
           setInlineName('')
           createFolderMutation.reset()
-          if (inKb()) navigateToFolder(subPath)
+          if (inKb()) navigateShareBreadcrumb(subPath, name)
         },
       },
     )
@@ -394,6 +396,8 @@ export function ShareFolderBrowser(props: Props) {
   })
 
   function shareBreadcrumbAsFolder(m: BreadcrumbMenuTarget): FileItem {
+    const root = props.shareInfo.path.replace(/\\/g, '/').replace(/\/+$/, '')
+    const path = m.serverPath.replace(/\\/g, '/').replace(/\/+$/, '')
     return {
       name: m.displayName,
       path: m.serverPath,
@@ -401,12 +405,40 @@ export function ShareFolderBrowser(props: Props) {
       size: 0,
       extension: '',
       isDirectory: true,
+      ...(path === root && props.shareInfo.resource ? { resource: props.shareInfo.resource } : {}),
     }
+  }
+
+  function canOpenShareFolder(file: FileItem, surface: 'share' | 'workspace'): boolean {
+    if (!file.isDirectory) return false
+    return (
+      openResource(resourceForFileItem(file), 'browse', {
+        surface,
+        scope: grantOpenScope(props.token),
+      }).kind === 'browse'
+    )
+  }
+
+  function navigateShareBreadcrumb(path: string, name: string) {
+    const shareRoot = props.shareInfo.path.replace(/\\/g, '/').replace(/\/+$/, '')
+    const serverPath = path ? `${shareRoot}/${path}` : shareRoot
+    const file: FileItem = {
+      name,
+      path: serverPath,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      ...(!path && props.shareInfo.resource ? { resource: props.shareInfo.resource } : {}),
+    }
+    if (canOpenShareFolder(file, 'share')) navigateToFolder(path || null)
   }
 
   function handleShareBreadcrumbOpenInNewTab() {
     const m = breadcrumbMenu()
     if (!m) return
+    const file = shareBreadcrumbAsFolder(m)
+    if (!canOpenShareFolder(file, 'share')) return
     const subPath = stripSharePrefix(m.serverPath, props.shareInfo.path)
     const params = new URLSearchParams()
     if (subPath) params.set('dir', subPath)
@@ -417,6 +449,8 @@ export function ShareFolderBrowser(props: Props) {
   function handleShareBreadcrumbOpenInWorkspace() {
     const m = breadcrumbMenu()
     if (!m || !props.shareInfo.isDirectory) return
+    const file = shareBreadcrumbAsFolder(m)
+    if (!canOpenShareFolder(file, 'workspace')) return
     const subPath = stripSharePrefix(m.serverPath, props.shareInfo.path)
     const params = new URLSearchParams()
     if (subPath) params.set('dir', subPath)
@@ -428,8 +462,35 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   function openShareWorkspaceSameTab() {
+    const subDir = currentSubDir()
+    const root = props.shareInfo.path.replace(/\\/g, '/').replace(/\/+$/, '')
+    const file: FileItem = {
+      name: subDir.split('/').filter(Boolean).at(-1) ?? props.shareInfo.name,
+      path: subDir ? `${root}/${subDir}` : root,
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      ...(!subDir && props.shareInfo.resource ? { resource: props.shareInfo.resource } : {}),
+    }
+    if (!canOpenShareFolder(file, 'workspace')) return
     const qs = urlSearchParams().toString()
     window.location.href = `/share/${props.token}/workspace${qs ? `?${qs}` : ''}`
+  }
+
+  function openShareFolderInWorkspace(file: FileItem) {
+    if (!canOpenShareFolder(file, 'workspace')) return
+    const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
+    const pathNorm = file.path.replace(/\\/g, '/')
+    const subPath =
+      pathNorm === sharePathNorm ? '' : stripSharePrefix(file.path, props.shareInfo.path)
+    const params = new URLSearchParams()
+    if (subPath) params.set('dir', subPath)
+    const query = params.toString()
+    window.open(
+      query ? `/share/${props.token}/workspace?${query}` : `/share/${props.token}/workspace`,
+      '_blank',
+    )
   }
 
   function handleShareBreadcrumbDownloadZip() {
@@ -477,11 +538,11 @@ export function ShareFolderBrowser(props: Props) {
     const sub = currentSubDir()
     if (!sub) return
     const parts = sub.split('/').filter(Boolean)
-    if (parts.length <= 1) {
-      navigateToFolder(null)
-    } else {
-      navigateToFolder(parts.slice(0, -1).join('/'))
-    }
+    const parent = parts.length <= 1 ? '' : parts.slice(0, -1).join('/')
+    navigateShareBreadcrumb(
+      parent,
+      parent.split('/').filter(Boolean).at(-1) ?? props.shareInfo.name,
+    )
   }
 
   function handleDownload(file: FileItem) {
@@ -498,11 +559,24 @@ export function ShareFolderBrowser(props: Props) {
     } else makeAvailableOffline(file, { token: props.token, sharePath: props.shareInfo.path })
   }
 
-  function handleFileClick(file: FileItem) {
+  function fileItemFromPath(filePath: string): FileItem {
+    const name = filePath.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
+    const extension = name.includes('.') ? (name.split('.').pop()?.toLowerCase() ?? '') : ''
+    return {
+      name,
+      path: filePath,
+      type: getMediaType(extension),
+      size: 0,
+      extension,
+      isDirectory: false,
+    }
+  }
+
+  function handleFileClick(file: FileItem, countView = true) {
     const strip = (p: string) => stripSharePrefix(p, props.shareInfo.path)
     const plan = openResource(resourceForFileItem(file), 'default', {
       surface: 'share',
-      scope: grantOpenScope(props.shareInfo.path),
+      scope: grantOpenScope(props.token),
     })
 
     if (plan.kind === 'browse') {
@@ -511,12 +585,12 @@ export function ShareFolderBrowser(props: Props) {
     }
     if (plan.kind !== 'playback' && plan.kind !== 'viewer') return
 
-    viewMutation.mutate(strip(file.path))
+    if (countView) viewMutation.mutate(strip(file.path))
     if (plan.kind === 'playback') {
       useMediaPlayer.getState().playFile(file.path, plan.media)
       playFile(file.path)
     } else {
-      viewFile(file.path)
+      viewFile(file.path, undefined, plan.viewer.id)
     }
   }
 
@@ -770,21 +844,7 @@ export function ShareFolderBrowser(props: Props) {
                       class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                       role='menuitem'
                       onClick={() => {
-                        const sharePathNorm = props.shareInfo.path.replace(/\\/g, '/')
-                        const pathNorm = ctx.file.path.replace(/\\/g, '/')
-                        const subPath =
-                          pathNorm === sharePathNorm
-                            ? ''
-                            : stripSharePrefix(ctx.file.path, props.shareInfo.path)
-                        const params = new URLSearchParams()
-                        if (subPath) params.set('dir', subPath)
-                        const query = params.toString()
-                        window.open(
-                          query
-                            ? `/share/${props.token}/workspace?${query}`
-                            : `/share/${props.token}/workspace`,
-                          '_blank',
-                        )
+                        openShareFolderInWorkspace(ctx.file)
                         dismissMenu()
                       }}
                     >
@@ -969,7 +1029,7 @@ export function ShareFolderBrowser(props: Props) {
                               ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
                               : 'text-foreground hover:bg-accent hover:text-accent-foreground',
                           )}
-                          onClick={() => navigateToFolder(crumb.path || null)}
+                          onClick={() => navigateShareBreadcrumb(crumb.path, crumb.name)}
                           onContextMenu={(e) => {
                             e.preventDefault()
                             e.stopPropagation()

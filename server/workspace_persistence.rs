@@ -17,11 +17,33 @@ fn valid_source(source: &Value, kind: &str, token: Option<&str>) -> bool {
             .is_none_or(|expected| source.get("token").and_then(Value::as_str) == Some(expected))
 }
 
+fn valid_resource_target(target: &Value) -> bool {
+    let Some(reference) = target.get("ref") else {
+        return false;
+    };
+    ["libraryId", "resourceId"].iter().all(|key| {
+        reference
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty() && value.len() <= 512)
+    }) && target
+        .get("legacyLocator")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty() && value.len() <= 4096)
+}
+
+fn optional_resource_target(value: &Value) -> bool {
+    value
+        .get("resourceTarget")
+        .is_none_or(valid_resource_target)
+}
+
 fn valid_pin(pin: &Value) -> bool {
     pin.get("id").and_then(Value::as_str).is_some()
         && pin.get("path").and_then(Value::as_str).is_some()
         && pin.get("isDirectory").and_then(Value::as_bool).is_some()
         && pin.get("title").and_then(Value::as_str).is_some()
+        && optional_resource_target(pin)
         && pin.get("source").is_some_and(|source| {
             valid_source(source, "local", None)
                 || source
@@ -42,6 +64,11 @@ pub fn admin_pins(raw: &Value) -> Value {
                     && pin["path"]
                         .as_str()
                         .is_some_and(|path| !path.is_empty() && !has_dot_dot(path))
+                    && pin
+                        .get("resourceTarget")
+                        .and_then(|target| target.get("legacyLocator"))
+                        .and_then(Value::as_str)
+                        .is_none_or(|path| !has_dot_dot(path))
             })
             .cloned()
             .collect(),
@@ -63,7 +90,16 @@ pub fn share_pins(raw: &Value, share_path: &str, token: &str) -> Value {
                     !has_dot_dot(&path)
                         && !is_private_virtual_path(&path)
                         && (path == root || path.starts_with(&(root.clone() + "/")))
-                })
+                }) && pin
+                    .get("resourceTarget")
+                    .and_then(|target| target.get("legacyLocator"))
+                    .and_then(Value::as_str)
+                    .is_none_or(|path| {
+                        let path = path.replace('\\', "/");
+                        !has_dot_dot(&path)
+                            && !is_private_virtual_path(&path)
+                            && (path == root || path.starts_with(&(root.clone() + "/")))
+                    })
             })
             .cloned()
             .collect(),
@@ -76,6 +112,13 @@ fn window_paths(window: &Value) -> Vec<&str> {
         .get("iconPath")
         .and_then(Value::as_str)
         .filter(|x| !x.is_empty())
+    {
+        paths.push(path);
+    }
+    if let Some(path) = window
+        .get("resourceTarget")
+        .and_then(|target| target.get("legacyLocator"))
+        .and_then(Value::as_str)
     {
         paths.push(path);
     }
@@ -102,6 +145,9 @@ fn valid_snapshot(snapshot: &Value, share: Option<(&str, &str)>) -> bool {
     }
     let root = share.map(|(path, _)| path.replace('\\', "/"));
     for window in windows {
+        if !optional_resource_target(window) {
+            return false;
+        }
         let Some(source) = window.get("source") else {
             return false;
         };
@@ -207,5 +253,42 @@ mod tests {
         }]);
         let filtered = presets(&raw, Some(("Hermes Sessions", "token")));
         assert_eq!(filtered, json!([]));
+    }
+
+    #[test]
+    fn resource_targets_require_legacy_locator_and_stay_inside_share() {
+        let snapshot = |legacy_locator: Option<&str>| {
+            json!([{
+                "id":"preset", "name":"Target", "scope":"share:token",
+                "snapshot":{
+                    "windows":[{
+                        "source":{"kind":"share","token":"token"},
+                        "initialState":{"viewing":"Shared/file.md"},
+                        "resourceTarget":{
+                            "ref":{"libraryId":"library","resourceId":"resource"},
+                            "legacyLocator":legacy_locator
+                        }
+                    }],
+                    "pinnedTaskbarItems":[]
+                }
+            }])
+        };
+
+        assert_eq!(
+            presets(&snapshot(Some("Shared/file.md")), Some(("Shared", "token")))[0]["snapshot"]["windows"]
+                [0]["resourceTarget"]["legacyLocator"],
+            "Shared/file.md"
+        );
+        assert_eq!(
+            presets(
+                &snapshot(Some("Private/file.md")),
+                Some(("Shared", "token"))
+            ),
+            json!([])
+        );
+        assert_eq!(
+            presets(&snapshot(None), Some(("Shared", "token"))),
+            json!([])
+        );
     }
 }

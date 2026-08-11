@@ -25,6 +25,12 @@ import {
   buildThumbnailUrl,
   type MediaShareContext,
 } from '../lib/build-media-url'
+import {
+  OWNER_OPEN_SCOPE,
+  grantOpenScope,
+  resourceForFileItem,
+} from '../lib/legacy-resource-adapter'
+import { openResource } from '../lib/open-resource'
 
 const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
 const VIDEO_EXT = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
@@ -164,6 +170,15 @@ export function WorkspaceTaskbarAudio(props: Props) {
     allFiles().filter((f) => f.type === MediaType.AUDIO || f.type === MediaType.VIDEO),
   )
 
+  function canOpenAudio(file: FileItem): boolean {
+    const share = props.shareCtx()
+    const plan = openResource(resourceForFileItem(file), 'play', {
+      surface: 'workspace',
+      scope: share ? grantOpenScope(share.token) : OWNER_OPEN_SCOPE,
+    })
+    return plan.kind === 'playback' && plan.media === 'audio'
+  }
+
   const mediaShare = () => props.shareCtx()
   const getMediaUrl = (filePath: string) => buildMediaUrl(filePath, mediaShare())
 
@@ -249,6 +264,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
       useWorkspaceAudio.getState().setIsPlaying(false)
       return
     }
+    if (!canOpenAudio(nextFile)) return
 
     useWorkspaceAudio.getState().armUserGestureTransport(nextFile.path)
     st.playFile(props.storageKey() || undefined, nextFile.path, dir ?? undefined)
@@ -279,7 +295,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
       }
     }
 
-    if (!previousFile) return
+    if (!previousFile || !canOpenAudio(previousFile)) return
 
     useWorkspaceAudio.getState().armUserGestureTransport(previousFile.path)
     st.playFile(props.storageKey() || undefined, previousFile.path, dir ?? undefined)
