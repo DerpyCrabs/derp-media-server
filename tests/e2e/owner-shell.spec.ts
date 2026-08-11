@@ -247,7 +247,7 @@ test.describe('Stage 1 owner shell', () => {
   })
 
   test('public theme controls never request owner APIs', async ({ browser, baseURL }) => {
-    const context = await browser.newContext({ baseURL })
+    const context = await browser.newContext({ baseURL, serviceWorkers: 'block' })
     const page = await context.newPage()
     const ownerRequests: string[] = []
     const isOwnerApi = (url: string) => {

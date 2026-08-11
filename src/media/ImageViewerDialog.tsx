@@ -82,7 +82,7 @@ function ImageViewerInner(props: {
   const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
   const [rotation, setRotation] = createSignal(0)
   const [imageSurface, setImageSurface] = createSignal<HTMLDivElement>()
-  let displayPath = ''
+  let displayPath = props.viewingPath
   let activePointer: number | null = null
   let gestureStartX = 0
   let lastTouchAt = 0
@@ -91,14 +91,6 @@ function ImageViewerInner(props: {
   let wheelFlushTimer: ReturnType<typeof setTimeout> | undefined
   let pendingWheelSteps = 0
   let viewerElement!: HTMLDivElement
-
-  createEffect(() => {
-    const path = props.viewingPath
-    if (path === displayPath) return
-    displayPath = path
-    setZoom('fit')
-    setRotation(0)
-  })
 
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
 
@@ -129,6 +121,12 @@ function ImageViewerInner(props: {
     viewport: imageSurface,
     zoom,
     prefetchPaths,
+    onDisplayPath: (path) => {
+      if (path === displayPath) return
+      displayPath = path
+      setZoom('fit')
+      setRotation(0)
+    },
   })
 
   function handleClose() {

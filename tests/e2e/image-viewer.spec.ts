@@ -63,10 +63,31 @@ test.describe('Image Viewer', () => {
   })
 
   test('zooms in and out on button click', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    let releaseImage!: () => void
+    let markImageRequested!: () => void
+    const imageGate = new Promise<void>((resolve) => {
+      releaseImage = resolve
+    })
+    const imageRequested = new Promise<void>((resolve) => {
+      markImageRequested = resolve
+    })
+    await page.route('**/api/image/Images/photo.jpg*', async (route) => {
+      markImageRequested()
+      await imageGate
+      await route.continue()
+    })
+    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Fit')).toBeVisible()
+    await imageRequested
 
     await page.locator('button:has(.lucide-zoom-in)').click()
+    await expect(page.getByText('125%')).toBeVisible()
+
+    releaseImage()
+    await expect(page.locator('img[alt="photo.jpg"]')).toHaveAttribute(
+      'src',
+      /\/api\/image\/Images\/photo\.jpg/,
+    )
     await expect(page.getByText('125%')).toBeVisible()
 
     await page.locator('button:has(.lucide-zoom-out)').click()

@@ -88,6 +88,36 @@ async function selectBookText(page: Page, phrase: string) {
     }, phrase)
 }
 
+async function waitForBookLayout(page: Page, chapterId: string) {
+  const viewport = page.getByTestId('reader-viewport')
+  await expect(viewport.locator(`[data-book-chapter="${chapterId}"]`)).toBeVisible()
+  await page.evaluate(async () => {
+    await document.fonts.ready
+  })
+  let previousGeometry = ''
+  let stableSamples = 0
+  await expect
+    .poll(async () => {
+      const geometry = await viewport.evaluate((element, id) => {
+        const chapter = element.querySelector<HTMLElement>(`[data-book-chapter="${id}"]`)
+        return chapter
+          ? {
+              scrollTop: Math.round(element.scrollTop),
+              scrollHeight: element.scrollHeight,
+              clientHeight: element.clientHeight,
+              chapterHeight: Math.round(chapter.getBoundingClientRect().height),
+            }
+          : null
+      }, chapterId)
+      const snapshot = JSON.stringify(geometry)
+      stableSamples = snapshot === previousGeometry ? stableSamples + 1 : 0
+      previousGeometry = snapshot
+      return stableSamples
+    })
+    .toBeGreaterThanOrEqual(2)
+  return viewport
+}
+
 test.describe('Reader', () => {
   test('opens PDFs directly and restores server-synced position settings', async ({ page }) => {
     await page.goto('/?dir=Documents')
@@ -272,6 +302,7 @@ test.describe('Reader', () => {
     await page.getByRole('button', { name: 'Reset appearance' }).click()
     await page.getByRole('button', { name: 'compact', exact: true }).click()
     await page.getByLabel('Close reader').click()
+    await expect(page.getByTestId('reader-dialog')).toBeHidden()
   })
 
   test('saves old book position when mounted reader switches files', async ({ page }) => {
@@ -297,7 +328,7 @@ test.describe('Reader', () => {
       await page.getByTestId('reader-outline-button').click()
     }
     await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
-    const viewport = page.getByTestId('reader-viewport')
+    const viewport = await waitForBookLayout(page, 'chapter-1')
     await expect
       .poll(() =>
         viewport.evaluate((element) => {
@@ -348,12 +379,10 @@ test.describe('Reader', () => {
       await page.getByTestId('reader-outline-button').click()
     }
     await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
-    const viewport = page.getByTestId('reader-viewport')
-    await page.waitForTimeout(350)
+    const viewport = await waitForBookLayout(page, 'chapter-1')
     await viewport.evaluate((element) => {
       element.scrollTop += 300
     })
-    await page.waitForTimeout(50)
     const savedTop = await viewport.evaluate((element) => element.scrollTop)
     expect(savedTop).toBeGreaterThan(250)
     const geometry = await viewport.evaluate((element) => {
