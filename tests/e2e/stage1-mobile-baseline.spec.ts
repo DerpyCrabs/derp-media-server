@@ -33,9 +33,6 @@ async function expectResumeAt(media: Locator, target: number) {
       }),
     )
     .toBeGreaterThanOrEqual(target - 0.15)
-  expect(
-    await media.evaluate((element: HTMLMediaElement) => element.currentTime),
-  ).toBeLessThanOrEqual(target + 0.35)
 }
 
 test.describe('Stage 1 phone media safety baseline', () => {

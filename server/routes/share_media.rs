@@ -1,14 +1,16 @@
 use crate::{
     app::{
-        Shared, emit, knowledge_base_root, knowledge_bases, parent_logical, roots,
-        safe_upload_name, timestamp_ms,
+        Shared, cookies, knowledge_base_root, knowledge_bases, parent_logical, roots,
+        safe_upload_name,
+    },
+    content_commands::{
+        CommandError, CommandErrorCode, ContentCommand, ContentOperation, CreatePathMode,
+        request_digest,
     },
     error::{AppError, AppResult},
     markdown_images, media,
-    routes::{
-        files, media as media_routes,
-        share_access::{account_bytes, ensure_quota, restriction, validate},
-    },
+    resources::{ReadSurface, ResourceSummary},
+    routes::{files, media as media_routes, share_access::validate},
     shares,
 };
 use axum::{
@@ -18,12 +20,55 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use rand::RngExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::path::Path as FsPath;
-use std::sync::atomic::Ordering;
-use tokio::fs;
+
+async fn authenticated_grant(
+    state: &crate::app::AppState,
+    token: &str,
+    headers: &HeaderMap,
+) -> AppResult<crate::access::AuthenticatedGrant> {
+    state
+        .access
+        .authenticate_grant(token, &cookies(headers))
+        .await
+        .map_err(crate::access::AccessError::into_app_error)
+}
+
+async fn resolve_resource(
+    state: &crate::app::AppState,
+    logical: &str,
+) -> Result<ResourceSummary, crate::resources::CatalogError> {
+    state
+        .resources
+        .compatibility()
+        .resolve_filesystem(logical, ReadSurface::Share)
+        .await
+}
+
+fn request_idempotency_key(headers: &HeaderMap) -> String {
+    headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("request-{}", uuid::Uuid::new_v4()))
+}
+
+fn command_key(base: &str, scope: &str) -> String {
+    let suffix = format!(":{scope}");
+    if base.len() + suffix.len() <= 200 {
+        return format!("{base}{suffix}");
+    }
+    let digest = Sha256::digest(format!("{base}\0{scope}").as_bytes());
+    let encoded = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("request-{encoded}")
+}
 
 fn image_scope_root(state: &crate::app::AppState, share: &shares::Share) -> String {
     knowledge_base_root(state, &share.path).unwrap_or_else(|| {
@@ -35,14 +80,29 @@ fn image_scope_root(state: &crate::app::AppState, share: &shares::Share) -> Stri
     })
 }
 
+fn grant_id(share: &shares::Share) -> AppResult<&shares::GrantId> {
+    share
+        .grant_id
+        .as_ref()
+        .ok_or_else(|| AppError::internal("Grant internal ID is missing"))
+}
+
 async fn shared_media_logical(
     state: &Shared,
     token: &str,
     path: &str,
     headers: &HeaderMap,
 ) -> AppResult<String> {
-    let share = validate(&state, &token, &headers)?;
+    let authenticated = authenticated_grant(state, token, headers).await?;
+    let share = authenticated.share;
     let canonical_path = markdown_images::canonical(&path);
+    let canonical_resource = match canonical_path.as_deref() {
+        Some(path) => resolve_resource(state, path)
+            .await
+            .ok()
+            .map(|summary| summary.reference),
+        None => None,
+    };
     let authorized_reference =
         if !share.is_directory && share.path.to_ascii_lowercase().ends_with(".md") {
             media::resolve(&state.config, &roots(&state), &share.path)
@@ -57,24 +117,16 @@ async fn shared_media_logical(
         } else {
             false
         };
-    let preview_authorized = if share.is_directory {
-        false
-    } else {
-        let now = timestamp_ms();
-        let mut previews = state.share_images.lock().await;
-        previews.retain(|_, preview| preview.finalized_at.is_some() || preview.expires_at > now);
-        let key = canonical_path
-            .as_ref()
-            .map(|path| (token.to_string(), share.path.clone(), path.clone()));
-        if authorized_reference {
-            if let Some(key) = &key {
-                previews.remove(key);
-            }
-            false
-        } else {
-            key.is_some_and(|key| previews.contains_key(&key))
-        }
-    };
+    let preview_authorized = state
+        .share_images
+        .preview_authorized(
+            grant_id(&share)?,
+            canonical_path.as_deref(),
+            canonical_resource.as_ref(),
+            authorized_reference,
+            share.is_directory,
+        )
+        .await;
     let logical = if share.is_directory {
         shares::resolve_authorized_subpath(&state.config, &roots(state), &share, path)?.logical
     } else if path == share.path || path == "." {
@@ -194,16 +246,10 @@ async fn upload(
     Path(token): Path<String>,
     headers: HeaderMap,
     mut multipart: Multipart,
-) -> AppResult<Response> {
-    let share = validate(&state, &token, &headers)?;
-    if !share.editable {
-        return Err(AppError::forbidden("Share is not editable"));
-    }
-    if !restriction(&share, "upload") {
-        return Err(AppError::forbidden(
-            "Uploads are not allowed for this share",
-        ));
-    }
+) -> Result<Response, CommandError> {
+    let authenticated = authenticated_grant(&state, &token, &headers).await?;
+    let share = &authenticated.share;
+    let base_key = request_idempotency_key(&headers);
     let mut target = String::new();
     let mut uploads = Vec::new();
     while let Some(field) = multipart
@@ -227,32 +273,18 @@ async fn upload(
         }
     }
     if uploads.is_empty() {
-        return Err(AppError::bad("No files provided"));
+        return Err(AppError::bad("No files provided").into());
     }
     let total: u64 = uploads.iter().map(|(_, data)| data.len() as u64).sum();
-    let maximum = shares::effective(&share)
-        .max_upload_bytes
-        .unwrap_or(2.0 * 1024.0 * 1024.0 * 1024.0);
-    let remaining = if maximum == 0.0 {
-        f64::INFINITY
-    } else {
-        (maximum - share.used_bytes.unwrap_or(0) as f64).max(0.0)
-    };
-    if maximum != 0.0 && total as f64 > remaining {
-        return Ok((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(json!({
-                "error":format!("Upload exceeds quota ({} remaining, {} requested)",format_size(remaining),format_size(total as f64)),
-                "remaining":remaining,
-                "requested":total,
-            })),
-        )
-            .into_response());
-    }
+    state
+        .access
+        .preauthorize_upload(&authenticated.context, total)
+        .await
+        .map_err(|error| CommandError::from(error.into_app_error()))?;
     let mut count = 0;
-    let mut broadcasts = std::collections::HashMap::new();
+    let mut receipts = Vec::new();
     let runtime = roots(&state);
-    for (name, data) in uploads {
+    for (index, (name, data)) in uploads.into_iter().enumerate() {
         let sub = if target.is_empty() {
             name
         } else {
@@ -260,32 +292,25 @@ async fn upload(
         };
         let authorized = shares::resolve_authorized_subpath(&state.config, &runtime, &share, &sub)?;
         let logical = authorized.logical;
-        let full = authorized.resolved.full;
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).await.map_err(AppError::io)?
-        }
-        fs::write(full, data).await.map_err(AppError::io)?;
-        broadcasts.insert(parent_logical(&logical), logical);
+        let file_key = command_key(&base_key, &format!("upload-{index}"));
+        let result = state
+            .content_commands
+            .create_path(
+                &authenticated.context,
+                file_key,
+                &logical,
+                &sub,
+                CreatePathMode::UploadFile {
+                    accounted_bytes: data.len() as u64,
+                    content: data.to_vec(),
+                },
+                None,
+            )
+            .await?;
+        receipts.extend(result.receipts);
         count += 1;
     }
-    if total > 0 {
-        account_bytes(&state, &token, total as i64).await?;
-    }
-    for logical in broadcasts.values() {
-        emit(&state, logical);
-    }
-    Ok(Json(json!({"success":true,"uploaded":count})).into_response())
-}
-
-fn format_size(bytes: f64) -> String {
-    if bytes == 0.0 {
-        return "0 Bytes".into();
-    }
-    let sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    let index = (bytes.ln() / 1024_f64.ln()).floor() as usize;
-    let index = index.min(sizes.len() - 1);
-    let rounded = ((bytes / 1024_f64.powi(index as i32)) * 100.0).round() / 100.0;
-    format!("{rounded} {}", sizes[index])
+    Ok(Json(json!({"success":true,"uploaded":count,"receipts":receipts})).into_response())
 }
 
 fn shared_file_path(
@@ -309,28 +334,16 @@ fn shared_file_path(
     }
 }
 
-fn image_suffix() -> String {
+fn generated_image_name(idempotency_key: &str, encoded: &str, extension: &str) -> String {
     const CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let mut rng = rand::rng();
-    (0..6)
-        .map(|_| CHARS[rng.random_range(0..CHARS.len())] as char)
-        .collect()
-}
-
-async fn restore_image_grant(
-    state: &crate::app::AppState,
-    id: &str,
-    mut grant: crate::app::ImageGrant,
-) {
-    if grant.expires_at <= timestamp_ms() {
-        return;
-    }
-    grant.recorded_at = state.preview_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-    state
-        .image_grants
-        .lock()
-        .await
-        .insert(id.to_string(), grant);
+    let digest = Sha256::digest(format!("{idempotency_key}\0{encoded}").as_bytes());
+    let number =
+        u64::from_be_bytes(digest[..8].try_into().unwrap()) % 9_000_000_000_000 + 1_000_000_000_000;
+    let suffix = digest[8..14]
+        .iter()
+        .map(|byte| CHARS[*byte as usize % CHARS.len()] as char)
+        .collect::<String>();
+    format!("image-{number}-{suffix}.{extension}")
 }
 
 async fn upload_image(
@@ -338,23 +351,16 @@ async fn upload_image(
     Path(token): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
-    if !share.editable {
-        return Err(AppError::forbidden("Share is not editable"));
-    }
-    if !restriction(&share, "upload") {
-        return Err(AppError::forbidden(
-            "Uploads are not allowed for this share",
-        ));
-    }
+) -> Result<Json<Value>, CommandError> {
+    let authenticated = authenticated_grant(&state, &token, &headers).await?;
+    let share = &authenticated.share;
+    let base_key = request_idempotency_key(&headers);
     let encoded = body["base64Content"]
         .as_str()
         .filter(|value| !value.is_empty())
         .ok_or_else(|| AppError::bad("base64Content is required"))?;
     let data = crate::app::decode_node_base64(encoded);
     let accounted = ((encoded.encode_utf16().count() * 3).div_ceil(4)) as u64;
-    ensure_quota(&share, accounted)?;
     let share_path = share.path.replace('\\', "/");
     let kb_root = knowledge_base_root(&state, &share_path);
     let images_dir = if let Some(root) = &kb_root {
@@ -369,11 +375,6 @@ async fn upload_image(
             format!("{parent}/images")
         }
     };
-    if !media::editable(&state.config, &roots(&state), &images_dir) {
-        return Err(AppError::forbidden(
-            "Images folder is not in an editable directory",
-        ));
-    }
     let requested = body["fileName"].as_str().unwrap_or("").trim();
     let extension = body["mimeType"]
         .as_str()
@@ -405,141 +406,87 @@ async fn upload_image(
     let mut name = if valid {
         requested.to_string()
     } else {
-        format!(
-            "image-{}-{}.{}",
-            timestamp_ms(),
-            image_suffix(),
+        generated_image_name(
+            &base_key,
+            encoded,
             if safe_extension == "jpeg" {
                 "jpg"
             } else {
                 &safe_extension
-            }
+            },
         )
     };
-    let runtime = roots(&state);
-    let authorization_root = image_scope_root(&state, &share);
-    let mut logical = format!("{images_dir}/{name}");
-    let mut index = 1;
-    let mut authorized = shares::authorize_grant_logical_path(
-        &state.config,
-        &runtime,
-        &authorization_root,
-        &logical,
-    )?;
-    while authorized.full.exists() {
-        let stem = FsPath::new(&name)
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
-        let suffix = FsPath::new(&name)
-            .extension()
-            .unwrap_or_default()
-            .to_string_lossy();
-        name = format!("{stem}_{index}.{suffix}");
-        logical = format!("{images_dir}/{name}");
-        index += 1;
-        authorized = shares::authorize_grant_logical_path(
-            &state.config,
-            &runtime,
-            &authorization_root,
+    let anchor = resolve_resource(&state, &share.path)
+        .await
+        .map_err(crate::resources::CatalogError::into_app_error)?
+        .reference;
+    let requested_name = name.clone();
+    let mut attempt = 0usize;
+    let (logical, result) = loop {
+        if attempt > 0 {
+            let stem = FsPath::new(&requested_name)
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy();
+            let suffix = FsPath::new(&requested_name)
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy();
+            name = format!("{stem}_{attempt}.{suffix}");
+        }
+        let logical = format!("{images_dir}/{name}");
+        let request_path = format!("image/{name}");
+        match state
+            .content_commands
+            .create_path(
+                &authenticated.context,
+                command_key(&base_key, &format!("image-{attempt}")),
+                &logical,
+                &request_path,
+                CreatePathMode::CreateFile {
+                    content: data.clone(),
+                    accounted_bytes: accounted,
+                },
+                Some(anchor.clone()),
+            )
+            .await
+        {
+            Ok(result) => break (logical, result),
+            Err(error) if error.code == CommandErrorCode::Conflict => attempt += 1,
+            Err(error) => return Err(error),
+        }
+    };
+    let replayed = result.replayed;
+    let receipt = result.receipt;
+    let receipts = result.receipts;
+    let uploaded_version = receipt.resulting_versions.first().ok_or_else(|| {
+        CommandError::new(
+            CommandErrorCode::Internal,
+            "Image upload receipt is missing its resulting Resource version",
+        )
+    })?;
+    let version = uploaded_version.version.clone().ok_or_else(|| {
+        CommandError::new(
+            CommandErrorCode::Internal,
+            "Image upload Resource has no comparable version",
+        )
+    })?;
+    let rollback = state
+        .share_images
+        .register_upload(
+            grant_id(share)?,
+            share.is_directory,
             &logical,
-        )?;
-    }
-    let full = authorized.full;
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).await.map_err(AppError::io)?
-    }
-    fs::write(full, data).await.map_err(AppError::io)?;
-    account_bytes(&state, &token, accounted as i64).await?;
-    let _image_operation = state.image_operations.lock().await;
-    let rollback = uuid::Uuid::new_v4().to_string();
-    let expires = timestamp_ms() + 5 * 60 * 1000;
-    if !share.is_directory {
-        let mut previews = state.share_images.lock().await;
-        let recorded_at = state.preview_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-        previews.insert(
-            (token.clone(), share.path.clone(), logical.clone()),
-            crate::app::ImagePreview {
-                expires_at: expires,
-                finalized_at: None,
-                recorded_at,
-            },
-        );
-        while previews
-            .keys()
-            .filter(|(scope_token, scope_path, _)| {
-                scope_token == &token && scope_path == &share.path
-            })
-            .count()
-            > 128
-        {
-            let oldest = previews
-                .iter()
-                .filter(|((scope_token, scope_path, _), _)| {
-                    scope_token == &token && scope_path == &share.path
-                })
-                .min_by_key(|(_, preview)| preview.recorded_at)
-                .map(|(key, _)| key.clone());
-            if let Some(key) = oldest {
-                previews.remove(&key);
-            } else {
-                break;
-            }
-        }
-        while previews
-            .keys()
-            .map(|(scope_token, scope_path, _)| (scope_token, scope_path))
-            .collect::<std::collections::HashSet<_>>()
-            .len()
-            > 128
-        {
-            let mut scope_activity = std::collections::HashMap::new();
-            for ((scope_token, scope_path, _), preview) in previews.iter() {
-                scope_activity
-                    .entry((scope_token.clone(), scope_path.clone()))
-                    .and_modify(|latest: &mut u64| *latest = (*latest).max(preview.recorded_at))
-                    .or_insert(preview.recorded_at);
-            }
-            let oldest_scope = scope_activity
-                .into_iter()
-                .min_by_key(|(_, latest)| *latest)
-                .map(|(scope, _)| scope);
-            if let Some((scope_token, scope_path)) = oldest_scope {
-                previews.retain(|(candidate_token, candidate_path, _), _| {
-                    candidate_token != &scope_token || candidate_path != &scope_path
-                });
-            } else {
-                break;
-            }
-        }
-    }
-    let mut grants = state.image_grants.lock().await;
-    grants.retain(|_, grant| grant.expires_at > timestamp_ms());
-    while grants.len() >= 512 {
-        let Some(oldest) = grants
-            .iter()
-            .min_by_key(|(_, grant)| grant.recorded_at)
-            .map(|(id, _)| id.clone())
-        else {
-            break;
-        };
-        grants.remove(&oldest);
-    }
-    grants.insert(
-        rollback.clone(),
-        crate::app::ImageGrant {
-            token: token.clone(),
-            share_path: share.path.clone(),
-            image_path: logical.clone(),
-            accounted_bytes: accounted,
-            expires_at: expires,
-            recorded_at: state.preview_sequence.fetch_add(1, Ordering::SeqCst) + 1,
-        },
-    );
-    drop(grants);
-    emit(&state, &logical);
+            accounted,
+            uploaded_version.reference.clone(),
+            version,
+            &receipt.command_id,
+            !replayed,
+        )
+        .await
+        .rollback_id;
     Ok(Json(
-        json!({"success":true,"path":logical,"fileName":shares::name(&logical),"rollbackId":rollback}),
+        json!({"success":true,"path":logical,"fileName":shares::name(&logical),"rollbackId":rollback,"receipt":receipt,"receipts":receipts}),
     ))
 }
 
@@ -549,31 +496,15 @@ async fn finalize_image(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
+    let authenticated = authenticated_grant(&state, &token, &headers).await?;
+    let share = authenticated.share;
     let id = body["rollbackId"]
         .as_str()
         .ok_or_else(|| AppError::bad("Image rollback capability is required"))?;
-    let _image_operation = state.image_operations.lock().await;
-    let mut grants = state.image_grants.lock().await;
-    let grant = grants.get(id).cloned();
-    if !grant.as_ref().is_some_and(|grant| {
-        grant.token == token && grant.share_path == share.path && grant.expires_at > timestamp_ms()
-    }) {
-        return Err(AppError::forbidden("Image upload is no longer pending"));
-    }
-    let grant = grants.remove(id).unwrap();
-    drop(grants);
-    if !share.is_directory
-        && let Some(preview) =
-            state
-                .share_images
-                .lock()
-                .await
-                .get_mut(&(token, share.path, grant.image_path))
-    {
-        preview.finalized_at = Some(state.preview_sequence.fetch_add(1, Ordering::SeqCst) + 1);
-        preview.expires_at = u128::MAX;
-    }
+    state
+        .share_images
+        .finalize_upload(grant_id(&share)?, share.is_directory, id)
+        .await?;
     Ok(Json(json!({"success":true})))
 }
 async fn cancel_image(
@@ -581,54 +512,65 @@ async fn cancel_image(
     Path(token): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
+) -> Result<Json<Value>, CommandError> {
+    let authenticated = authenticated_grant(&state, &token, &headers).await?;
+    let share = authenticated.share;
     let id = body["rollbackId"]
         .as_str()
         .ok_or_else(|| AppError::bad("Image rollback capability is required"))?;
-    let mut grants = state.image_grants.lock().await;
-    let Some(grant) = grants.get(id).cloned() else {
-        return Err(AppError::forbidden("Image upload cannot be cancelled"));
-    };
-    if grant.token != token || grant.share_path != share.path || grant.expires_at <= timestamp_ms()
+    let key = command_key(&request_idempotency_key(&headers), "cancel-image");
+    let transport_digest = request_digest(&json!({
+        "type":"cancelImage","rollbackId":id,
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&authenticated.context, &key, &transport_digest, None)
+        .await?
     {
-        return Err(AppError::forbidden("Image upload cannot be cancelled"));
+        return Ok(Json(json!({"success":true,"receipt":receipt})));
     }
-    grants.remove(id);
-    drop(grants);
-    if !media::editable(&state.config, &roots(&state), &grant.image_path) {
-        restore_image_grant(&state, id, grant).await;
-        return Err(AppError::forbidden(
-            "Cannot delete file: Path is not in an editable folder",
-        ));
-    }
-    let full = match shares::authorize_grant_logical_path(
-        &state.config,
-        &roots(&state),
-        &image_scope_root(&state, &share),
-        &grant.image_path,
-    ) {
-        Ok(resolved) => resolved.full,
+    let grant = state
+        .share_images
+        .take_for_cancel(grant_id(&share)?, id)
+        .await?;
+    let accounted_bytes = grant.accounted_bytes;
+    let target = grant.resource.clone();
+    let expected_version = grant.version.clone();
+    let anchor = match resolve_resource(&state, &share.path).await {
+        Ok(summary) => summary.reference,
         Err(error) => {
-            restore_image_grant(&state, id, grant).await;
+            state.share_images.restore_cancel(id, grant).await;
+            return Err(error.into_app_error().into());
+        }
+    };
+    let receipt = match state
+        .content_commands
+        .execute_with_request_digest(
+            &authenticated.context,
+            ContentCommand {
+                idempotency_key: key,
+                operation: ContentOperation::Delete {
+                    target: target.clone(),
+                    expected_version: Some(expected_version),
+                    attachment_anchor: Some(anchor),
+                    quota_refund: accounted_bytes,
+                },
+            },
+            transport_digest,
+        )
+        .await
+    {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            state.share_images.restore_cancel(id, grant).await;
             return Err(error);
         }
     };
-    if let Err(error) = fs::remove_file(full).await {
-        restore_image_grant(&state, id, grant.clone()).await;
-        return Err(AppError::io(error));
-    }
-    if let Err(error) = account_bytes(&state, &grant.token, -(grant.accounted_bytes as i64)).await {
-        restore_image_grant(&state, id, grant).await;
-        return Err(error);
-    }
     state
         .share_images
-        .lock()
-        .await
-        .remove(&(token, share.path, grant.image_path.clone()));
-    emit(&state, &grant.image_path);
-    Ok(Json(json!({"success":true})))
+        .complete_cancel(grant_id(&share)?, &target)
+        .await;
+    Ok(Json(json!({"success":true,"receipt":receipt})))
 }
 
 async fn kb_image(
@@ -734,4 +676,42 @@ pub fn router() -> Router<Shared> {
             get(kb_image),
         )
         .route("/api/share/{token}/download", get(download))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grant_media_adapter_contains_no_direct_content_mutations() {
+        let source = include_str!("share_media.rs");
+        let namespace = ["f", "s"].concat();
+        for operation in [
+            "write",
+            "create_dir",
+            "create_dir_all",
+            "remove_file",
+            "remove_dir",
+            "remove_dir_all",
+            "rename",
+            "copy",
+        ] {
+            let needle = format!("{namespace}::{operation}(");
+            assert!(
+                !source.contains(&needle),
+                "direct mutation remains: {needle}"
+            );
+        }
+    }
+
+    #[test]
+    fn generated_image_names_are_retry_stable() {
+        let first = generated_image_name("same-key", "image-data", "png");
+        assert_eq!(first, generated_image_name("same-key", "image-data", "png"));
+        assert_ne!(
+            first,
+            generated_image_name("other-key", "image-data", "png")
+        );
+        assert!(first.ends_with(".png"));
+    }
 }

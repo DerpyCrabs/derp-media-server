@@ -68,7 +68,7 @@ test.describe('Share Viewers & Players', () => {
     const thumbSrc = await thumb.getAttribute('src')
     expect(thumbSrc).toBeTruthy()
     const response = await page.request.get(thumbSrc!)
-    expect(response.headers()['content-type']).toContain('image/jpeg')
+    expect(response.headers()['content-type']).toMatch(/^image\//)
 
     await page.getByRole('button', { name: 'List view' }).click()
   })

@@ -1,8 +1,10 @@
+mod access;
 mod app;
 mod application_queries;
 mod auth;
 mod canvas_persistence;
 mod config;
+mod content_commands;
 mod error;
 mod file_search;
 mod hermes;
@@ -17,6 +19,7 @@ mod resources;
 mod route_contract;
 mod routes;
 mod server;
+mod share_images;
 mod shares;
 mod state_db;
 mod store;

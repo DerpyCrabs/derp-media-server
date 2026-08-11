@@ -27,6 +27,10 @@ test.afterAll(async () => {
 
 test.beforeEach(async () => {
   page = await sharedContext.newPage()
+  const resetPins = await page.request.post('/api/settings/workspaceTaskbarPins', {
+    data: { items: [] },
+  })
+  expect(resetPins.ok(), await resetPins.text()).toBe(true)
 })
 
 test.afterEach(async () => {

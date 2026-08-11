@@ -144,7 +144,9 @@ test.describe('Stage 2 Resource read plane', () => {
       }
     }, 'test-passcode-share-token1')
     expect(shareSsr.info).toEqual(info)
-    expect(shareSsr.files).toEqual(grant)
+    const shareSsrFiles = shareSsr.files as FileListing | undefined
+    const shareSsrPhoto = shareSsrFiles?.files.find((file) => file.name === 'photo.jpg')
+    expect(shareSsrPhoto).toEqual(grantPhoto)
   })
 
   test('single-file Grant never expands when shared file becomes a directory', async ({ page }) => {

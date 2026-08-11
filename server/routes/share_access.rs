@@ -1,7 +1,13 @@
 use crate::{
-    app::{AppState, Shared, cookies, emit, find_share, rate_limit, roots, stats_path},
+    access::AuthenticatedGrant,
+    app::{AppState, Shared, cookies, find_share, rate_limit, roots, stats_path},
+    content_commands::{
+        ChildName, CommandError, CommandErrorCode, ContentCommand, ContentOperation,
+        CreatePathMode, request_digest,
+    },
     error::{AppError, AppResult},
-    markdown_images, media, shares, store, workspace_persistence,
+    resources::{ReadSurface, ResourceKind, ResourceSummary, ResourceVersion},
+    shares, store, workspace_persistence,
 };
 use axum::{
     Json, Router,
@@ -12,8 +18,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{sync::atomic::Ordering, time::UNIX_EPOCH};
-use tokio::fs;
+use sha2::{Digest, Sha256};
 
 pub(crate) fn validate(
     state: &AppState,
@@ -36,46 +41,16 @@ pub(crate) fn validate(
     Ok(share)
 }
 
-pub(crate) fn restriction(share: &shares::Share, field: &str) -> bool {
-    let value = shares::effective(share);
-    match field {
-        "upload" => value.allow_upload.unwrap_or(true),
-        "edit" => value.allow_edit.unwrap_or(true),
-        "delete" => value.allow_delete.unwrap_or(true),
-        _ => false,
-    }
-}
-
-pub(crate) fn ensure_quota(share: &shares::Share, requested: u64) -> AppResult<()> {
-    let maximum = shares::effective(share)
-        .max_upload_bytes
-        .unwrap_or(2.0 * 1024.0 * 1024.0 * 1024.0);
-    if maximum == 0.0 {
-        return Ok(());
-    }
-    let remaining = (maximum - share.used_bytes.unwrap_or(0) as f64).max(0.0);
-    if requested as f64 > remaining {
-        return Err(AppError(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "Upload quota exceeded for this share".into(),
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) async fn account_bytes(state: &AppState, token: &str, delta: i64) -> AppResult<()> {
-    shares::add_used_bytes(&state.config, token, delta)?;
-    Ok(())
-}
-
-fn require_editable_path(state: &AppState, logical: &str, operation: &str) -> AppResult<()> {
-    if media::editable(&state.config, &roots(state), logical) {
-        Ok(())
-    } else {
-        Err(AppError::forbidden(format!(
-            "Cannot {operation}: Path is not in an editable folder"
-        )))
-    }
+pub(crate) async fn authenticate(
+    state: &AppState,
+    token: &str,
+    headers: &HeaderMap,
+) -> AppResult<AuthenticatedGrant> {
+    state
+        .access
+        .authenticate_grant(token, &cookies(headers))
+        .await
+        .map_err(|error| error.into_app_error())
 }
 
 async fn info(
@@ -322,63 +297,156 @@ fn decoded_content(body: &Value, required: &str) -> AppResult<(Vec<u8>, u64, Opt
     Err(AppError::bad(required))
 }
 
+fn idempotency_key(headers: &HeaderMap) -> AppResult<String> {
+    let value = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("share-{}", uuid::Uuid::new_v4()));
+    if value.len() > 200
+        || value
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return Err(AppError::bad(
+            "Idempotency key must be 1-200 visible non-whitespace characters",
+        ));
+    }
+    Ok(value)
+}
+
+fn payload_digest(content: &[u8]) -> String {
+    Sha256::digest(content)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn request_path(path: &str) -> String {
+    path.replace('\\', "/").trim_matches('/').to_string()
+}
+
+fn split_child_path(logical: &str) -> AppResult<(String, ChildName)> {
+    let normalized = logical.replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/');
+    let (parent, name) = normalized.rsplit_once('/').unwrap_or(("", normalized));
+    let child = ChildName::parse(name).map_err(|error| error.into_app_error())?;
+    Ok((parent.to_string(), child))
+}
+
+async fn resolve_logical_summary(state: &AppState, logical: &str) -> AppResult<ResourceSummary> {
+    state
+        .resources
+        .compatibility()
+        .resolve_filesystem(logical, ReadSurface::Share)
+        .await
+        .map_err(|error| error.into_app_error())
+}
+
+async fn finish_markdown_save(
+    state: &AppState,
+    share: &shares::Share,
+    content: Option<&str>,
+    save_started_at: u64,
+) -> AppResult<()> {
+    let grant_id = share
+        .grant_id
+        .as_ref()
+        .ok_or_else(|| AppError::internal("Grant internal ID is missing"))?;
+    if !share.is_directory
+        && share.path.to_ascii_lowercase().ends_with(".md")
+        && let Some(content) = content
+    {
+        state
+            .share_images
+            .finish_markdown_save(
+                grant_id,
+                &share.path,
+                content,
+                &crate::app::knowledge_bases(state),
+                save_started_at,
+            )
+            .await;
+    }
+    Ok(())
+}
+
+fn destination_logical_parts(
+    state: &AppState,
+    share: &shares::Share,
+    relative: &str,
+) -> AppResult<(String, ChildName)> {
+    let logical =
+        shares::resolve_authorized_subpath(&state.config, &roots(state), share, relative)?.logical;
+    split_child_path(&logical)
+}
+
+async fn resolve_destination(
+    state: &AppState,
+    share: &shares::Share,
+    relative: &str,
+) -> AppResult<(ResourceSummary, ChildName)> {
+    let (parent_path, child) = destination_logical_parts(state, share, relative)?;
+    let parent = resolve_logical_summary(state, &parent_path).await?;
+    Ok((parent, child))
+}
+
+fn current_version(
+    summary: &ResourceSummary,
+    expected_legacy: Option<f64>,
+    changed_message: &str,
+) -> Result<ResourceVersion, CommandError> {
+    if let Some(expected) = expected_legacy {
+        let current = summary.legacy.numeric_version().unwrap_or(0.0);
+        if (current - expected).abs() >= 1.0 {
+            return Err(CommandError::new(
+                CommandErrorCode::VersionMismatch,
+                changed_message,
+            ));
+        }
+    }
+    summary.version.clone().ok_or_else(|| {
+        CommandError::new(
+            CommandErrorCode::Conflict,
+            "Resource version is unavailable",
+        )
+    })
+}
+
 async fn create(
     State(state): State<Shared>,
     Path(token): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
-    if !share.editable {
-        return Err(AppError::forbidden("Share is not editable"));
-    }
-    if !restriction(&share, "upload") {
-        return Err(AppError::forbidden(
-            "Creating files/folders is not allowed for this share",
-        ));
-    }
-    let authorized = shares::resolve_authorized_subpath(
-        &state.config,
-        &roots(&state),
-        &share,
-        body["path"].as_str().unwrap_or(""),
-    )?;
-    let logical = authorized.logical;
-    let full = authorized.resolved.full;
-    if full.exists() {
-        return Err(AppError::conflict(format!(
-            "A {} with this name already exists",
-            if body["type"] == "folder" {
-                "folder"
-            } else {
-                "file"
-            }
-        )));
-    }
-    if body["type"] == "folder" {
-        if !media::editable(
-            &state.config,
-            &roots(&state),
-            &crate::app::parent_logical(&logical),
-        ) {
-            require_editable_path(&state, &logical, "create directory")?;
+) -> Result<Json<Value>, CommandError> {
+    let grant = authenticate(&state, &token, &headers).await?;
+    let base_key = idempotency_key(&headers)?;
+    let relative = body["path"].as_str().unwrap_or("");
+    let logical =
+        shares::resolve_authorized_subpath(&state.config, &roots(&state), &grant.share, relative)?
+            .logical;
+    let is_folder = body["type"] == "folder";
+    let mode = if is_folder {
+        CreatePathMode::Folder
+    } else {
+        let (content, accounted_bytes, _) =
+            decoded_content(&body, "Content is required for files")?;
+        CreatePathMode::CreateFile {
+            content,
+            accounted_bytes,
         }
-        fs::create_dir_all(full).await.map_err(AppError::io)?;
-        emit(&state, &logical);
-        return Ok(Json(json!({"success":true,"message":"Folder created"})));
-    }
-    let (data, size, _) = decoded_content(&body, "Content is required for files")?;
-    ensure_quota(&share, size)?;
-    require_editable_path(&state, &logical, "write file")?;
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).await.map_err(AppError::io)?;
-    }
-    fs::write(full, data).await.map_err(AppError::io)?;
-    if size > 0 {
-        account_bytes(&state, &token, size as i64).await?;
-    }
-    emit(&state, &logical);
-    Ok(Json(json!({"success":true,"message":"File saved"})))
+    };
+    let result = state
+        .content_commands
+        .create_path(&grant.context, base_key, &logical, relative, mode, None)
+        .await?;
+    Ok(Json(json!({
+        "success":true,
+        "message":if is_folder {"Folder created"} else {"File saved"},
+        "receipt":result.receipt,
+        "receipts":result.receipts,
+    })))
 }
 
 async fn edit(
@@ -386,88 +454,62 @@ async fn edit(
     Path(token): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    let save_started_at = state.preview_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-    let share = validate(&state, &token, &headers)?;
-    if !share.editable {
-        return Err(AppError::forbidden("Share is not editable"));
-    }
-    if !restriction(&share, "edit") {
-        return Err(AppError::forbidden(
-            "Editing files is not allowed for this share",
+) -> Result<Json<Value>, CommandError> {
+    let save_started_at = state.share_images.begin_markdown_save();
+    let grant = authenticate(&state, &token, &headers).await?;
+    let relative = body["path"].as_str().unwrap_or("");
+    let logical =
+        shares::resolve_authorized_subpath(&state.config, &roots(&state), &grant.share, relative)?
+            .logical;
+    let (content, accounted_bytes, text) = decoded_content(&body, "Content is required")?;
+    let key = idempotency_key(&headers)?;
+    let transport_digest = request_digest(&json!({
+        "type":"replaceFile","path":request_path(relative),
+        "payloadDigest":payload_digest(&content),"payloadLength":content.len(),
+        "accountedBytes":accounted_bytes,"expectedVersion":body["expectedVersion"],
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&grant.context, &key, &transport_digest, Some(&content))
+        .await?
+    {
+        finish_markdown_save(&state, &grant.share, text.as_deref(), save_started_at).await?;
+        return Ok(Json(
+            json!({"success":true,"message":"File saved","receipt":receipt}),
         ));
     }
-    let authorized = shares::resolve_authorized_subpath(
-        &state.config,
-        &roots(&state),
-        &share,
-        body["path"].as_str().unwrap_or(""),
-    )?;
-    let logical = authorized.logical;
-    let full = authorized.resolved.full;
-    let metadata = fs::metadata(&full).await.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            AppError::not_found("File not found")
-        } else {
-            AppError::io(error)
-        }
-    })?;
-    if metadata.is_dir() {
-        return Err(AppError::conflict(
+    let target = resolve_logical_summary(&state, &logical).await?;
+    if target.kind != ResourceKind::File {
+        return Err(CommandError::new(
+            CommandErrorCode::Conflict,
             "A folder cannot be replaced with a file",
         ));
     }
-    if let Some(expected) = body["expectedVersion"].as_f64() {
-        let current = metadata
-            .modified()
-            .ok()
-            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-            .map(|value| value.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
-        if (current - expected).abs() >= 1.0 {
-            return Err(AppError::conflict(
-                "File changed since the replacement was prepared",
-            ));
-        }
-    }
-    let (data, size, text) = decoded_content(&body, "Content is required")?;
-    ensure_quota(&share, size)?;
-    require_editable_path(&state, &logical, "write file")?;
-    fs::write(full, data).await.map_err(AppError::io)?;
-    crate::path_metadata::content_replaced(&state, &logical)?;
-    if !share.is_directory
-        && share.path.to_ascii_lowercase().ends_with(".md")
-        && let Some(content) = text
-    {
-        let _image_operation = state.image_operations.lock().await;
-        let referenced = markdown_images::referenced(
-            &content,
-            &share.path,
-            &crate::app::knowledge_bases(&state),
-        );
-        state
-            .share_images
-            .lock()
-            .await
-            .retain(|(grant_token, grant_path, image_path), preview| {
-                grant_token != &token
-                    || grant_path != &share.path
-                    || (!referenced.contains(image_path)
-                        && preview
-                            .finalized_at
-                            .is_none_or(|sequence| sequence > save_started_at))
-            });
-        state.image_grants.lock().await.retain(|_, grant| {
-            grant.token != token
-                || grant.share_path != share.path
-                || !referenced.contains(&grant.image_path)
-        });
-    }
-    if size > 0 {
-        account_bytes(&state, &token, size as i64).await?;
-    }
-    emit(&state, &logical);
-    Ok(Json(json!({"success":true,"message":"File saved"})))
+    let expected_version = current_version(
+        &target,
+        body["expectedVersion"].as_f64(),
+        "File changed since the replacement was prepared",
+    )?;
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &grant.context,
+            ContentCommand {
+                idempotency_key: key,
+                operation: ContentOperation::ReplaceFile {
+                    target: target.reference,
+                    expected_version,
+                    content,
+                    accounted_bytes,
+                },
+            },
+            transport_digest,
+        )
+        .await?;
+    finish_markdown_save(&state, &grant.share, text.as_deref(), save_started_at).await?;
+    Ok(Json(
+        json!({"success":true,"message":"File saved","receipt":receipt}),
+    ))
 }
 
 async fn delete(
@@ -475,39 +517,49 @@ async fn delete(
     Path(token): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
-    if !share.editable {
-        return Err(AppError::forbidden("Share is not editable"));
+) -> Result<Json<Value>, CommandError> {
+    let grant = authenticate(&state, &token, &headers).await?;
+    let relative = body["path"].as_str().unwrap_or("");
+    let logical =
+        shares::resolve_authorized_subpath(&state.config, &roots(&state), &grant.share, relative)?
+            .logical;
+    let key = idempotency_key(&headers)?;
+    let transport_digest = request_digest(&json!({
+        "type":"delete","path":request_path(relative),
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&grant.context, &key, &transport_digest, None)
+        .await?
+    {
+        return Ok(Json(json!({
+            "success":true,"message":"Deleted successfully","receipt":receipt,
+        })));
     }
-    if !restriction(&share, "delete") {
-        return Err(AppError::forbidden(
-            "Deletion is not allowed for this share",
-        ));
-    }
-    let authorized = shares::resolve_authorized_subpath(
-        &state.config,
-        &roots(&state),
-        &share,
-        body["path"].as_str().unwrap_or(""),
-    )?;
-    let logical = authorized.logical;
-    if logical == share.path {
-        return Err(AppError::forbidden("Cannot delete share root"));
-    }
-    require_editable_path(&state, &logical, "delete")?;
-    let full = authorized.resolved.full;
-    let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
-    if metadata.is_dir() {
-        fs::remove_dir_all(full).await.map_err(AppError::io)?
-    } else {
-        fs::remove_file(full).await.map_err(AppError::io)?
-    }
-    crate::path_metadata::removed(&state, &logical).await?;
-    emit(&state, &logical);
-    Ok(Json(
-        json!({"success":true,"message":if metadata.is_dir(){"Folder deleted"}else{"File deleted"}}),
-    ))
+    let target = resolve_logical_summary(&state, &logical).await?;
+    let is_directory = target.kind == ResourceKind::Folder;
+    let operation = ContentOperation::Delete {
+        expected_version: target.version.clone(),
+        target: target.reference,
+        attachment_anchor: None,
+        quota_refund: 0,
+    };
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &grant.context,
+            ContentCommand {
+                idempotency_key: key,
+                operation,
+            },
+            transport_digest,
+        )
+        .await?;
+    Ok(Json(json!({
+        "success":true,
+        "message":if is_directory {"Folder deleted"} else {"File deleted"},
+        "receipt":receipt,
+    })))
 }
 
 async fn rename(
@@ -515,57 +567,149 @@ async fn rename(
     Path(token): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
-    if !share.editable {
-        return Err(AppError::forbidden("Share is not editable"));
+) -> Result<Json<Value>, CommandError> {
+    let grant = authenticate(&state, &token, &headers).await?;
+    let key = idempotency_key(&headers)?;
+    let transport_digest = request_digest(&json!({
+        "type":"move",
+        "sourcePath":request_path(body["oldPath"].as_str().unwrap_or("")),
+        "destinationPath":request_path(body["newPath"].as_str().unwrap_or("")),
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&grant.context, &key, &transport_digest, None)
+        .await?
+    {
+        return Ok(Json(json!({
+            "success":true,"message":"Renamed successfully","receipt":receipt,
+        })));
     }
-    if !restriction(&share, "edit") {
-        return Err(AppError::forbidden("Editing is not allowed for this share"));
-    }
-    let runtime = roots(&state);
-    let old_authorized = shares::resolve_authorized_subpath(
+    let source_path = shares::resolve_authorized_subpath(
         &state.config,
-        &runtime,
-        &share,
+        &roots(&state),
+        &grant.share,
         body["oldPath"].as_str().unwrap_or(""),
-    )?;
-    let new_authorized = shares::resolve_authorized_subpath(
-        &state.config,
-        &runtime,
-        &share,
-        body["newPath"].as_str().unwrap_or(""),
-    )?;
-    let old_logical = old_authorized.logical;
-    let new_logical = new_authorized.logical;
-    require_editable_path(&state, &old_logical, "rename source")?;
-    require_editable_path(&state, &new_logical, "rename destination")?;
-    let old = old_authorized.resolved.full;
-    let new = new_authorized.resolved.full;
-    if new.exists() {
-        return Err(AppError::conflict(
-            "Destination file or directory already exists",
+    )?
+    .logical;
+    let source = resolve_logical_summary(&state, &source_path).await?;
+    let (destination_parent, target_name) =
+        resolve_destination(&state, &grant.share, body["newPath"].as_str().unwrap_or("")).await?;
+    let operation = ContentOperation::Move {
+        expected_source_version: source.version.clone(),
+        source: source.reference,
+        expected_destination_parent_version: None,
+        destination_parent: destination_parent.reference,
+        target_name,
+    };
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &grant.context,
+            ContentCommand {
+                idempotency_key: key,
+                operation,
+            },
+            transport_digest,
+        )
+        .await?;
+    Ok(Json(
+        json!({"success":true,"message":"Renamed successfully","receipt":receipt}),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CopyBody {
+    source_path: String,
+    destination_dir: String,
+}
+
+async fn copy(
+    State(state): State<Shared>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<CopyBody>,
+) -> Result<Json<Value>, CommandError> {
+    if body.source_path.is_empty() {
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "sourcePath is required",
         ));
     }
-    fs::rename(old, new).await.map_err(AppError::io)?;
-    if let Err(error) = state
-        .resources
-        .record_move(&old_logical, &new_logical)
-        .await
+    let grant = authenticate(&state, &token, &headers).await?;
+    let source_path = shares::resolve_authorized_subpath(
+        &state.config,
+        &roots(&state),
+        &grant.share,
+        &body.source_path,
+    )?
+    .logical;
+    let destination_path = shares::resolve_authorized_subpath(
+        &state.config,
+        &roots(&state),
+        &grant.share,
+        &body.destination_dir,
+    )?
+    .logical;
+    let key = idempotency_key(&headers)?;
+    let transport_digest = request_digest(&json!({
+        "type":"copy","sourcePath":request_path(&body.source_path),
+        "destinationDir":request_path(&body.destination_dir),
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&grant.context, &key, &transport_digest, None)
+        .await?
     {
-        eprintln!(
-            "Warning: shared rename completed but Resource identity reconciliation will retry from observation: {}",
-            error.message
-        );
+        return Ok(Json(json!({
+            "success":true,"message":"Copied successfully","receipt":receipt,
+        })));
     }
-    crate::path_metadata::moved(&state, &old_logical, &new_logical).await?;
-    emit(&state, &old_logical);
-    if crate::app::parent_logical(&old_logical) != crate::app::parent_logical(&new_logical) {
-        emit(&state, &new_logical);
+    let source = resolve_logical_summary(&state, &source_path).await?;
+    let destination_parent = resolve_logical_summary(&state, &destination_path).await?;
+    if destination_parent.kind != ResourceKind::Folder
+        && destination_parent.kind != ResourceKind::Source
+    {
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "Destination is not a folder",
+        ));
     }
+    let target_name = ChildName::parse(source.name.clone())?;
+    let operation = ContentOperation::Copy {
+        expected_source_version: source.version.clone(),
+        source: source.reference,
+        expected_destination_parent_version: None,
+        destination_parent: destination_parent.reference,
+        target_name,
+    };
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &grant.context,
+            ContentCommand {
+                idempotency_key: key,
+                operation,
+            },
+            transport_digest,
+        )
+        .await?;
     Ok(Json(
-        json!({"success":true,"message":"Renamed successfully"}),
+        json!({"success":true,"message":"Copied successfully","receipt":receipt}),
     ))
+}
+
+async fn retry_command(
+    State(state): State<Shared>,
+    Path((token, command_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, CommandError> {
+    let grant = authenticate(&state, &token, &headers).await?;
+    let receipt = state
+        .content_commands
+        .retry(&grant.context, &command_id)
+        .await?;
+    Ok(Json(json!({"success":true,"receipt":receipt})))
 }
 
 pub fn router() -> Router<Shared> {
@@ -588,4 +732,43 @@ pub fn router() -> Router<Shared> {
         .route("/api/share/{token}/edit", post(edit))
         .route("/api/share/{token}/delete", post(delete))
         .route("/api/share/{token}/rename", post(rename))
+        .route("/api/share/{token}/copy", post(copy))
+        .route(
+            "/api/share/{token}/content-commands/{command_id}/retry",
+            post(retry_command),
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_adapter_uses_supplied_idempotency_key() {
+        let mut headers = HeaderMap::new();
+        headers.insert("idempotency-key", HeaderValue::from_static("grant-save-1"));
+        assert_eq!(idempotency_key(&headers).unwrap(), "grant-save-1");
+        assert!(
+            idempotency_key(&HeaderMap::new())
+                .unwrap()
+                .starts_with("share-")
+        );
+        assert_eq!(payload_digest(b"same"), payload_digest(b"same"));
+        assert_ne!(payload_digest(b"same"), payload_digest(b"different"));
+
+        headers.insert("idempotency-key", HeaderValue::from_static("bad key"));
+        assert!(idempotency_key(&headers).is_err());
+    }
+
+    #[test]
+    fn destination_adapter_accepts_library_root_and_validates_child_name() {
+        let (parent, child) = split_child_path("Shared/folder/note.md").unwrap();
+        assert_eq!(parent, "Shared/folder");
+        assert_eq!(child.as_str(), "note.md");
+        let (parent, child) = split_child_path("root-only").unwrap();
+        assert_eq!(parent, "");
+        assert_eq!(child.as_str(), "root-only");
+        assert!(split_child_path("Shared/..").is_err());
+        assert!(split_child_path("").is_err());
+    }
 }

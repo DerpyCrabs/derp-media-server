@@ -207,17 +207,17 @@ test.describe('SSE Live Updates', () => {
     await gotoWithSSE(share2, shareUrl)
     await expect(share2.locator('table')).toBeVisible()
 
-    await fillCreateFileDialog(share1, fileName.replace(/\.txt$/, ''))
-    await expect(share1.locator('table').getByText(fileName)).toBeVisible()
-    await expect(share1.locator('[role="dialog"]')).not.toBeVisible()
+    const createResponse = await share1.request.post(`/api/share/${token}/create`, {
+      data: { type: 'file', path: fileName, content: 'shared SSE update' },
+    })
+    expect(createResponse.ok(), await createResponse.text()).toBe(true)
 
     await expect(share2.locator('table').getByText(fileName)).toBeVisible()
 
-    await share1.locator('table tr').filter({ hasText: fileName }).click({ button: 'right' })
-    await share1.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-    const deleteConfirm = share1.getByRole('alertdialog')
-    await expect(deleteConfirm).toBeVisible()
-    await deleteConfirm.getByRole('button', { name: /Delete/i }).click({ force: true })
+    const deleteResponse = await share1.request.post(`/api/share/${token}/delete`, {
+      data: { path: fileName },
+    })
+    expect(deleteResponse.ok(), await deleteResponse.text()).toBe(true)
 
     await expect(share2.locator('table').getByText(fileName)).not.toBeVisible()
 

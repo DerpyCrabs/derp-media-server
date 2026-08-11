@@ -1,4 +1,5 @@
 use crate::{
+    access::RequestContext,
     app::{Shared, all_roots, timestamp_ms},
     auth,
     config::Config,
@@ -72,11 +73,7 @@ fn is_public_path(path: &str) -> bool {
         || path.starts_with("/api/share/")
 }
 
-pub async fn middleware(State(state): State<Shared>, request: Request, next: Next) -> Response {
-    if !state.config.auth.enabled {
-        return next.run(request).await;
-    }
-    let path = request.uri().path();
+fn requires_owner_context(path: &str) -> bool {
     let asset = path.starts_with("/@")
         || path.starts_with("/node_modules/")
         || path.starts_with("/src/")
@@ -84,8 +81,17 @@ pub async fn middleware(State(state): State<Shared>, request: Request, next: Nex
             .rsplit('/')
             .next()
             .is_some_and(|name| name.contains('.') && !path.starts_with("/api/"));
-    let public = asset || is_public_path(path);
-    if public {
+    !asset && !is_public_path(path)
+}
+
+pub async fn middleware(State(state): State<Shared>, request: Request, next: Next) -> Response {
+    let mut request = request;
+    let path = request.uri().path().to_string();
+    if !requires_owner_context(&path) {
+        return next.run(request).await;
+    }
+    if !state.config.auth.enabled {
+        request.extensions_mut().insert(RequestContext::owner());
         return next.run(request).await;
     }
     let value = auth::cookie(request.headers(), auth::COOKIE);
@@ -101,6 +107,7 @@ pub async fn middleware(State(state): State<Shared>, request: Request, next: Nex
                 (StatusCode::FOUND, [(header::LOCATION, "/login")]).into_response()
             };
         }
+        request.extensions_mut().insert(RequestContext::owner());
         let mut response = next.run(request).await;
         if let Some(value) = auth::session(&state.config) {
             let secure = state.config.auth.secure_cookies.unwrap_or(!state.dev);
@@ -225,7 +232,7 @@ pub fn router() -> Router<Shared> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_public_path;
+    use super::{is_public_path, requires_owner_context};
 
     #[test]
     fn public_routes_stop_at_namespace_boundaries() {
@@ -252,6 +259,25 @@ mod tests {
             "/api/shareevil/token",
         ] {
             assert!(!is_public_path(path), "expected protected: {path}");
+        }
+    }
+
+    #[test]
+    fn owner_context_is_limited_to_protected_application_routes() {
+        for path in ["/", "/workspace", "/api/files", "/api/shares"] {
+            assert!(requires_owner_context(path), "expected owner flow: {path}");
+        }
+        for path in [
+            "/share/token",
+            "/api/share/token/files",
+            "/api/auth/login",
+            "/src/index.tsx",
+            "/assets/app.js",
+        ] {
+            assert!(
+                !requires_owner_context(path),
+                "expected public flow: {path}"
+            );
         }
     }
 }

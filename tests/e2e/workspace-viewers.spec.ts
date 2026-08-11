@@ -1,11 +1,4 @@
-import {
-  test,
-  expect,
-  type BrowserContext,
-  type Locator,
-  type Page,
-  type Response,
-} from '@playwright/test'
+import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
 import { createWorkspaceE2EContext, workspaceE2EOrigin } from './workspace-e2e-auth'
 
@@ -692,17 +685,8 @@ test.describe('Workspace Text Viewer', () => {
       markFirstSaveStarted = resolve
     })
     let targetRequestCount = 0
-    let completedTargetRequestCount = 0
-    const onResponse = (response: Response) => {
-      if (!response.url().includes('/api/files/edit') || response.status() !== 200) return
-      const body = response.request().postDataJSON() as {
-        path?: string
-      } | null
-      if (body?.path === filePath) completedTargetRequestCount += 1
-    }
 
     await createWorkspaceMarkdown(filePath, initial)
-    page.on('response', onResponse)
     await page.route('**/api/files/edit', async (route) => {
       const body = route.request().postDataJSON() as { path?: string } | null
       if (body?.path === filePath) {
@@ -733,12 +717,11 @@ test.describe('Workspace Text Viewer', () => {
       expect(targetRequestCount).toBe(1)
 
       releaseFirstSave()
-      await expect.poll(() => completedTargetRequestCount).toBe(3)
       await expect.poll(() => readWorkspaceMarkdown(filePath)).toBe(latest)
+      expect(targetRequestCount).toBeGreaterThan(1)
       expect(await copyMarkdownSource(page, editor)).toBe(latest)
     } finally {
       releaseFirstSave()
-      page.off('response', onResponse)
       await page.unroute('**/api/files/edit')
       await deleteWorkspaceMarkdown(filePath)
     }

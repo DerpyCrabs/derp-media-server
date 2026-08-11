@@ -29,8 +29,10 @@ fn restrictions(value: Option<&Value>) -> Option<shares::Restrictions> {
     .then_some(parsed)
 }
 
-async fn list(State(state): State<Shared>) -> Json<Value> {
-    Json(json!({"shares":shares::read(&state.config, &roots(&state))}))
+async fn list(State(state): State<Shared>) -> AppResult<Json<Value>> {
+    Ok(Json(
+        json!({"shares":shares::read(&state.config, &roots(&state))?}),
+    ))
 }
 
 async fn create(
@@ -97,9 +99,7 @@ async fn update(State(state): State<Shared>, Json(body): Json<Value>) -> AppResu
         return Err(AppError::bad("No valid updates provided"));
     }
     let runtime = roots(&state);
-    let existing = shares::read(&state.config, &runtime)
-        .into_iter()
-        .find(|share| share.token == token);
+    let existing = shares::find(&state.config, &runtime, token)?;
     let editable = match (editable, existing.as_ref()) {
         (Some(true), Some(share)) => Some(media::editable(&state.config, &runtime, &share.path)),
         (value, _) => value,
@@ -117,7 +117,7 @@ async fn remove(State(state): State<Shared>, Json(body): Json<Value>) -> AppResu
     if !shares::delete(&state.config, token)? {
         return Err(AppError::not_found("Share not found"));
     }
-    crate::path_metadata::cleanup_share(&state, token)?;
+    crate::path_metadata::cleanup_share_for_config(&state.config, token)?;
     Ok(Json(json!({"success":true})))
 }
 

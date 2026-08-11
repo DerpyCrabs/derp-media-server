@@ -1,6 +1,6 @@
 # Derp Desk Roadmap
 
-Status: active; Stage 2 complete
+Status: active; Stage 3 complete
 Initiative branch: `derp-desk`
 Last updated: 2026-08-11
 
@@ -127,8 +127,8 @@ Every stage also requires:
 | Stage | Release outcome                                                | Depends on                | Status                |
 | ----- | -------------------------------------------------------------- | ------------------------- | --------------------- |
 | 1     | Cohesive shell with protected mobile media path                | Current `canvas` baseline | Complete (2026-08-11) |
-| 2     | Stable Resource read plane and one opener                      | 1                         | Not started           |
-| 3     | Recoverable content commands                                   | 2                         | Not started           |
+| 2     | Stable Resource read plane and one opener                      | 1                         | Complete (2026-08-11) |
+| 3     | Recoverable content commands                                   | 2                         | Complete (2026-08-11) |
 | 4     | One ExplorerModel across owner, Grant, pane, and offline views | 3                         | Not started           |
 | 5     | One playback session across routes and presentations           | 2-4                       | Not started           |
 | 6     | Versioned SpaceEngine with one-time Canvas import              | 2-5                       | Not started           |
@@ -326,14 +326,14 @@ impl ContentCommands {
 
 ### Work packages
 
-- [ ] **3.1 Stabilize Grant persistence.** Assign internal GrantId mapped to current share token. Replace full-list delete/reinsert persistence with targeted typed Grant reads/updates.
-- [ ] **3.2 Establish RequestContext.** Authentication Adapters turn owner cookie or Grant token/session into Principal. AccessPolicy resolves Resource and Grant facts and returns effective capabilities.
-- [ ] **3.3 Define command algebra.** Create file/folder and upload use destination parent ResourceRef plus validated child name. Replace uses target and expected ResourceVersion. Copy/move use source, destination parent, target name, expected versions, and idempotency key. Existing delete semantics stay unchanged in this stage.
-- [ ] **3.4 Extract mutation implementation.** Move validation, quota, editable-root checks, path resolution, filesystem work, metadata relocation, image cleanup, search invalidation, and event creation out of route files.
-- [ ] **3.5 Add small operation journal.** Journal uploads, moves, and other commands that cross filesystem/database steps. Store request identity, state, and result; use temp renames and retry unfinished work on startup.
-- [ ] **3.6 Convert owner routes.** Existing endpoints become thin transport Adapters over ContentCommands.
-- [ ] **3.7 Convert Grant routes.** Keep `/api/share/...` separate, but route through same commands and AccessPolicy. Preserve quotas and existing restrictions.
-- [ ] **3.8 Define typed receipt/event envelope.** Successful commands produce command ID, resulting versions, affected refs, scope, and event. Stage 8 consumes this shape.
+- [x] **3.1 Stabilize Grant persistence.** Assign internal GrantId mapped to current share token. Replace full-list delete/reinsert persistence with targeted typed Grant reads/updates.
+- [x] **3.2 Establish RequestContext.** Authentication Adapters turn owner cookie or Grant token/session into Principal. AccessPolicy resolves Resource and Grant facts and returns effective capabilities.
+- [x] **3.3 Define command algebra.** Create file/folder and upload use destination parent ResourceRef plus validated child name. Replace uses target and expected ResourceVersion. Copy/move use source, destination parent, target name, expected versions, and idempotency key. Existing delete semantics stay unchanged in this stage.
+- [x] **3.4 Extract mutation implementation.** Move validation, quota, editable-root checks, path resolution, filesystem work, metadata relocation, image cleanup, search invalidation, and event creation out of route files.
+- [x] **3.5 Add small operation journal.** Journal uploads, moves, and other commands that cross filesystem/database steps. Store request identity, state, and result; use temp renames and retry unfinished work on startup.
+- [x] **3.6 Convert owner routes.** Existing endpoints become thin transport Adapters over ContentCommands.
+- [x] **3.7 Convert Grant routes.** Keep `/api/share/...` separate, but route through same commands and AccessPolicy. Preserve quotas and existing restrictions.
+- [x] **3.8 Define typed receipt/event envelope.** Successful commands produce command ID, resulting versions, affected refs, scope, and event. Stage 8 consumes this shape.
 
 ### Likely code areas
 
@@ -367,6 +367,15 @@ impl ContentCommands {
 - No collaborative editing.
 - No background workflow engine beyond command journal/reconciliation.
 - No Trash/undo semantics change yet; Stage 8 adds it after Activity UI exists.
+
+### Completion record
+
+- Completed: 2026-08-11; all work packages 3.1-3.8 and Stage 3 exit gates verified.
+- Commit/release: Stage 3 implementation commit on `derp-desk`; release not pushed.
+- Data changes: Grant schema v4 assigns stable internal GrantIds after a one-time pre-migration SQLite backup; command journal and exact quota ledger are additive. Existing share tokens, files, media URLs, and direct Range playback remain intact.
+- Architecture: owner and Grant routes are transport Adapters over one AccessPolicy and ContentCommands engine; image bookkeeping, metadata relocation, search invalidation, typed events, idempotency, recovery, and reconciliation live behind that seam.
+- Validation: command/policy/migration/recovery unit coverage; owner/Grant conformance, quota, idempotency, move metadata, share-image, phone media, and Range E2E coverage; required type, lint, unit, and six-batch E2E gates.
+- Remaining Stage 3 issues: none known.
 
 ---
 

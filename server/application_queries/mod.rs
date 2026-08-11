@@ -389,7 +389,10 @@ pub(crate) fn legacy_virtual_items(
         let runtime = roots(state);
         let mut items = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        let mut all = shares::read(&state.config, &runtime);
+        let mut all = match shares::read(&state.config, &runtime) {
+            Ok(all) => all,
+            Err(error) => return Some(Err(error)),
+        };
         all.sort_by_key(|item| std::cmp::Reverse(item.created_at));
         for share in all {
             if !seen.insert(share.path.replace('\\', "/")) {

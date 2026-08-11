@@ -2,6 +2,7 @@ use crate::{
     app::{
         AppState, Shared, cookies, find_share, knowledge_base_root, roots, stats_path, timestamp_ms,
     },
+    error::AppResult,
     media,
     route_contract::{self, OwnerRoute, RouteKind},
     routes::{media as media_routes, settings},
@@ -182,7 +183,7 @@ async fn dehydrated(
     state: &AppState,
     uri: &axum::http::Uri,
     headers: &axum::http::HeaderMap,
-) -> Value {
+) -> AppResult<Value> {
     let path = uri.path();
     let params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
         .into_owned()
@@ -215,7 +216,7 @@ async fn dehydrated(
         queries.push(query(json!(["settings"]), settings::sanitized(state)));
         queries.push(query(
             json!(["shares"]),
-            json!({"shares":shares::read(&state.config,&roots(state))}),
+            json!({"shares":shares::read(&state.config,&roots(state))?}),
         ));
         let stats = store::section(
             &stats_path(state),
@@ -393,7 +394,7 @@ async fn dehydrated(
             }
         }
     }
-    json!({"mutations":[],"queries":queries})
+    Ok(json!({"mutations":[],"queries":queries}))
 }
 
 async fn inject(
@@ -401,14 +402,14 @@ async fn inject(
     state: &AppState,
     uri: &axum::http::Uri,
     headers: &axum::http::HeaderMap,
-) -> String {
-    html.replace(
+) -> AppResult<String> {
+    Ok(html.replace(
         "<!--DEHYDRATED-->",
         &format!(
             "<script>window.__DEHYDRATED_STATE__={}</script>",
-            dehydrated(state, uri, headers).await
+            dehydrated(state, uri, headers).await?
         ),
-    )
+    ))
 }
 
 fn safe_static(path: &str) -> Option<PathBuf> {
@@ -544,15 +545,18 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
                     .is_some_and(|value| value.contains("text/html"));
                 let bytes = response.bytes().await.unwrap_or_default();
                 let body = if html {
-                    Body::from(
-                        inject(
-                            String::from_utf8_lossy(&bytes).into_owned(),
-                            &state,
-                            &request_uri,
-                            &headers,
-                        )
-                        .await,
+                    let injected = match inject(
+                        String::from_utf8_lossy(&bytes).into_owned(),
+                        &state,
+                        &request_uri,
+                        &headers,
                     )
+                    .await
+                    {
+                        Ok(injected) => injected,
+                        Err(error) => return error.into_response(),
+                    };
+                    Body::from(injected)
                 } else {
                     Body::from(bytes)
                 };
@@ -602,8 +606,11 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
         }
         match fs::read_to_string("dist/client/index.html").await {
             Ok(html) => {
-                let mut response = Html(inject(html, &state, &request_uri, &request_headers).await)
-                    .into_response();
+                let injected = match inject(html, &state, &request_uri, &request_headers).await {
+                    Ok(injected) => injected,
+                    Err(error) => return error.into_response(),
+                };
+                let mut response = Html(injected).into_response();
                 *response.status_mut() = app_document_status(request_uri.path());
                 response
             }

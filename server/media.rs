@@ -9,6 +9,38 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+pub(crate) const COMMAND_STAGING_DIR: &str = ".derp-command-staging";
+pub(crate) const COMMAND_STAGING_SENTINEL: &str = ".derp-command-owned-v1";
+pub(crate) const COMMAND_STAGING_SENTINEL_CONTENT: &[u8] = b"derp-command-staging-v1\n";
+
+pub(crate) fn reserved_internal_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(COMMAND_STAGING_DIR)
+}
+
+pub(crate) fn command_staging_owned(path: &Path) -> bool {
+    if !path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(reserved_internal_name)
+    {
+        return false;
+    }
+    let Ok(directory) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !directory.is_dir() || directory.file_type().is_symlink() {
+        return false;
+    }
+    let sentinel = path.join(COMMAND_STAGING_SENTINEL);
+    let Ok(metadata) = fs::symlink_metadata(&sentinel) else {
+        return false;
+    };
+    metadata.is_file()
+        && !metadata.file_type().is_symlink()
+        && metadata.len() == COMMAND_STAGING_SENTINEL_CONTENT.len() as u64
+        && fs::read(sentinel).is_ok_and(|bytes| bytes == COMMAND_STAGING_SENTINEL_CONTENT)
+}
+
 #[derive(Clone, Debug)]
 pub struct ResolvedPath {
     pub root: MediaRoot,
@@ -178,6 +210,15 @@ pub fn resolve(
         return Err(AppError::bad("Invalid path: Path traversal detected"));
     }
     if absolute_root.exists() {
+        let mut component_path = absolute_root.clone();
+        for component in Path::new(&relative).components() {
+            if let Component::Normal(part) = component {
+                component_path.push(part);
+                if command_staging_owned(&component_path) {
+                    return Err(AppError::not_found("Path not found"));
+                }
+            }
+        }
         let mut existing = absolute.as_path();
         while !existing.exists() {
             let Some(parent) = existing.parent() else {
@@ -339,6 +380,9 @@ pub(crate) fn list_observed(
         let Ok(entry) = entry else { continue };
         let Ok(meta) = entry.metadata() else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
+        if meta.is_dir() && command_staging_owned(&entry.path()) {
+            continue;
+        }
         if excluded_locator(&name, meta.is_dir()) {
             continue;
         }
@@ -563,6 +607,33 @@ mod tests {
         assert!(traversal.1.contains("Path traversal detected"));
         let missing = list(&config, &[], "missing").unwrap_err();
         assert_eq!(missing.0, axum::http::StatusCode::NOT_FOUND);
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn only_sentinel_owned_command_staging_is_hidden() {
+        let base = fixture("owned-command-staging");
+        let media = base.join("media");
+        let staging = media.join(COMMAND_STAGING_DIR);
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("user.txt"), "keep").unwrap();
+        let config = config(&base, vec![root("legacy-primary", "Media", media.clone())]);
+
+        let files = list(&config, &[], "").unwrap();
+        assert!(files.iter().all(|item| item.name != COMMAND_STAGING_DIR));
+        let user = resolve(&config, &[], &format!("{COMMAND_STAGING_DIR}/user.txt")).unwrap();
+        assert_eq!(fs::read_to_string(user.full).unwrap(), "keep");
+
+        fs::write(
+            staging.join(COMMAND_STAGING_SENTINEL),
+            COMMAND_STAGING_SENTINEL_CONTENT,
+        )
+        .unwrap();
+        let files = list(&config, &[], "").unwrap();
+        assert!(files.iter().all(|item| item.name != COMMAND_STAGING_DIR));
+        let error = resolve(&config, &[], &format!("{COMMAND_STAGING_DIR}/user.txt")).unwrap_err();
+        assert_eq!(error.0, axum::http::StatusCode::NOT_FOUND);
 
         fs::remove_dir_all(base).unwrap();
     }

@@ -1,11 +1,14 @@
 use crate::{
+    access::AccessPolicy,
     app::{AppState, Shared},
     config::{Config, TlsConfig},
+    content_commands::{self, ContentCommands},
     file_search::FileSearch,
-    image_variants, routes, state_db, thumbnails,
+    image_variants, routes,
+    share_images::ShareImages,
+    shares, state_db, thumbnails,
 };
 use axum::{Router, extract::DefaultBodyLimit, middleware};
-use std::sync::atomic::AtomicU64;
 use std::{collections::HashMap, process::Stdio, sync::Arc};
 use tokio::{
     fs,
@@ -144,6 +147,10 @@ pub(crate) async fn run() {
         .unwrap_or_else(|error| panic!("Failed to initialize app database: {error}"));
     let resource_identity = crate::resources::initialize_identity(&mut config)
         .unwrap_or_else(|error| panic!("Failed to initialize Resource identity: {error}"));
+    shares::initialize(&config)
+        .unwrap_or_else(|error| panic!("Failed to initialize Grant persistence: {error}"));
+    content_commands::initialize(&config)
+        .unwrap_or_else(|error| panic!("Failed to initialize command journal: {error}"));
     let dev = std::env::var("NODE_ENV").unwrap_or_default() != "production"
         && !std::env::args().any(|argument| argument == "--production");
     let vite_port = vite_port(config.port);
@@ -161,8 +168,8 @@ pub(crate) async fn run() {
         });
     let mut search_roots = config.roots.clone();
     search_roots.extend(runtime_roots.clone());
-    let (events, _) = tokio::sync::broadcast::channel(256);
     let (admin_events, _) = tokio::sync::broadcast::channel(256);
+    let (command_events, _) = tokio::sync::broadcast::channel(256);
     let (hermes_events, _) = tokio::sync::broadcast::channel(1024);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -202,19 +209,35 @@ pub(crate) async fn run() {
         thumbnails.clone(),
         hermes.clone(),
     ));
+    let file_search = FileSearch::new(config.file_search.clone(), search_roots);
+    let access = Arc::new(AccessPolicy::new(
+        config.clone(),
+        runtime_roots.clone(),
+        resources.clone(),
+    ));
+    let content_commands = Arc::new(ContentCommands::new(
+        config.clone(),
+        runtime_roots.clone(),
+        access.clone(),
+        resources.clone(),
+        admin_events.clone(),
+        command_events.clone(),
+        file_search.clone(),
+    ));
+    content_commands
+        .recover_pending()
+        .await
+        .unwrap_or_else(|error| panic!("Failed to recover content commands: {}", error.message));
     let state = Arc::new(AppState {
         config: config.clone(),
         runtime_roots,
         dev,
         vite_port,
         client,
-        events,
         admin_events,
+        command_events,
         hermes_events,
-        image_grants: Mutex::new(HashMap::new()),
-        share_images: Mutex::new(HashMap::new()),
-        image_operations: Mutex::new(()),
-        preview_sequence: AtomicU64::new(0),
+        share_images: Arc::new(ShareImages::new()),
         login_attempts: Mutex::new(HashMap::new()),
         share_verify_attempts: Mutex::new(HashMap::new()),
         reader_state_writes: Mutex::new(HashMap::new()),
@@ -224,9 +247,11 @@ pub(crate) async fn run() {
             config.data_path.join("image-variants"),
             config.image_optimization.clone(),
         ),
-        file_search: FileSearch::new(config.file_search.clone(), search_roots),
+        file_search,
         hermes,
         resources,
+        access,
+        content_commands,
         hermes_project_operations: Mutex::new(()),
         hermes_runtime_ids: Mutex::new(HashMap::new()),
     });

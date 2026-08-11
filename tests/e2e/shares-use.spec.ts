@@ -173,8 +173,7 @@ test.describe('Using Shares', () => {
       const saveResponsePromise = page.waitForResponse(
         (response) =>
           new URL(response.url()).pathname === `/api/share/${token}/edit` &&
-          response.request().method() === 'POST' &&
-          response.status() === 200,
+          response.request().method() === 'POST',
       )
 
       await editor.evaluate((element, pngBase64) => {
@@ -205,6 +204,7 @@ test.describe('Using Shares', () => {
       const readOnlyButton = page.getByRole('button', { name: 'Read only' })
       await readOnlyButton.focus()
       const saveResponse = await saveResponsePromise
+      expect(saveResponse.ok(), await saveResponse.text()).toBe(true)
       expect(saveResponse.request().postDataJSON()).toMatchObject({ path: '.', content: inserted })
 
       const mediaResponsePromise = page.waitForResponse((response) => {

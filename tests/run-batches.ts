@@ -66,6 +66,7 @@ export const BATCHES = [
       'media-range',
       'stage1-mobile-baseline',
       'sse-live-updates',
+      'stage3-content-commands',
     ],
   },
   {

@@ -129,12 +129,12 @@ fn validate(
     Ok((name.into(), path))
 }
 
-async fn list(State(state): State<Shared>) -> Json<Value> {
+async fn list(State(state): State<Shared>) -> AppResult<Json<Value>> {
     let runtime = roots(&state);
-    let existing_shares = shares::read(&state.config, &runtime);
-    Json(
+    let existing_shares = shares::read(&state.config, &runtime)?;
+    Ok(Json(
         json!({"mounts":runtime.iter().map(|root| json!({"id":root.id,"name":root.name,"path":root.path,"createdAt":root.created_at.unwrap_or(0),"readOnly":true,"status":if root.path.is_dir(){"online"}else{"offline"},"shareCount":existing_shares.iter().filter(|share|share.root_id.as_deref()==Some(&root.id)).count()})).collect::<Vec<_>>() }),
-    )
+    ))
 }
 
 async fn add(

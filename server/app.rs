@@ -1,21 +1,18 @@
 use crate::{
+    access::AccessPolicy,
     config::{Config, MediaRoot},
+    content_commands::{CommandEventEnvelope, ContentCommands},
     error::AppResult,
     file_search::FileSearch,
     image_variants, media,
     resources::ResourceCatalog,
+    share_images::ShareImages,
     shares, store, thumbnails,
 };
 use axum::http::{HeaderMap, header};
 use base64::Engine;
-use serde::Serialize;
 use serde_json::{Value, json};
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, atomic::AtomicU64},
-    time::UNIX_EPOCH,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock};
 
 pub(crate) struct AppState {
@@ -24,13 +21,10 @@ pub(crate) struct AppState {
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
-    pub events: tokio::sync::broadcast::Sender<FileEvent>,
     pub admin_events: tokio::sync::broadcast::Sender<Value>,
+    pub command_events: tokio::sync::broadcast::Sender<CommandEventEnvelope>,
     pub hermes_events: tokio::sync::broadcast::Sender<Value>,
-    pub image_grants: Mutex<HashMap<String, ImageGrant>>,
-    pub share_images: Mutex<HashMap<(String, String, String), ImagePreview>>,
-    pub image_operations: Mutex<()>,
-    pub preview_sequence: AtomicU64,
+    pub share_images: Arc<ShareImages>,
     pub login_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub share_verify_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub reader_state_writes: Mutex<HashMap<String, (u32, u128)>>,
@@ -40,31 +34,10 @@ pub(crate) struct AppState {
     pub file_search: Arc<FileSearch>,
     pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
     pub resources: Arc<ResourceCatalog>,
+    pub access: Arc<AccessPolicy>,
+    pub content_commands: Arc<ContentCommands>,
     pub hermes_project_operations: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
-}
-
-#[derive(Clone)]
-pub(crate) struct ImageGrant {
-    pub token: String,
-    pub share_path: String,
-    pub image_path: String,
-    pub accounted_bytes: u64,
-    pub expires_at: u128,
-    pub recorded_at: u64,
-}
-
-pub(crate) struct ImagePreview {
-    pub expires_at: u128,
-    pub finalized_at: Option<u64>,
-    pub recorded_at: u64,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct FileEvent {
-    pub directory: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
 }
 
 pub(crate) type Shared = Arc<AppState>;
@@ -90,21 +63,6 @@ pub(crate) fn decode_node_base64(value: &str) -> Vec<u8> {
     )
     .decode(normalized)
     .unwrap_or_default()
-}
-
-pub(crate) fn emit(state: &AppState, path: &str) {
-    let event = FileEvent {
-        directory: parent_logical(path),
-        path: Some(path.replace('\\', "/")),
-    };
-    let _ = state.events.send(event.clone());
-    let _ = state.admin_events.send(json!({
-        "type":"files-changed",
-        "directory":event.directory,
-        "path":event.path,
-        "timestamp":timestamp_ms(),
-    }));
-    state.file_search.changed(&event.directory);
 }
 
 pub(crate) fn emit_admin(state: &AppState, kind: &str) {
@@ -215,9 +173,7 @@ pub(crate) fn knowledge_base_root(state: &AppState, path: &str) -> Option<String
 }
 
 pub(crate) fn find_share(state: &AppState, token: &str) -> AppResult<shares::Share> {
-    shares::read(&state.config, &roots(state))
-        .into_iter()
-        .find(|share| share.token == token)
+    shares::find(&state.config, &roots(state), token)?
         .ok_or_else(|| crate::error::AppError::not_found("Share not found"))
 }
 

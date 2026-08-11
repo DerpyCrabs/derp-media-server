@@ -204,7 +204,9 @@ test.describe('Stage 1 PWA and offline cutover', () => {
       share.passcode ? `?p=${encodeURIComponent(share.passcode)}` : ''
     }`
     const requests: string[] = []
-    page.on('request', (request) => requests.push(request.url()))
+    page.on('request', (request) => {
+      if (new URL(page.url()).pathname.startsWith('/share/')) requests.push(request.url())
+    })
 
     await page.goto(shareUrl)
     await expect(page.getByText('public-doc.txt', { exact: true })).toBeVisible()

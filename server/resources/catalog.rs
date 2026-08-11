@@ -15,7 +15,10 @@ use crate::{
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 
 const LIBRARY_ROOT_ID: &str = "resource-library-root";
@@ -202,11 +205,123 @@ impl ResourceCatalog {
             .map_err(Into::into)
     }
 
+    pub(crate) async fn resolve_command_path(
+        &self,
+        anchor: &ResourceRef,
+        logical_path: &str,
+    ) -> CatalogResult<PathBuf> {
+        self.require_library(anchor)?;
+        let (expected_source, direct_child_anchor) = if let Some(stored) = self
+            .identity
+            .stored(&anchor.resource_id)
+            .map_err(CatalogError::from)?
+        {
+            let mut direct_child = false;
+            if let Some(anchor_path) = stored.legacy_locator.as_deref() {
+                let anchor_path = anchor_path.replace('\\', "/").trim_matches('/').to_string();
+                let command_path = logical_path
+                    .replace('\\', "/")
+                    .trim_matches('/')
+                    .to_string();
+                let command_parent = command_path
+                    .rsplit_once('/')
+                    .map(|(parent, _)| parent)
+                    .unwrap_or("");
+                direct_child = command_parent == anchor_path;
+                if command_path != anchor_path && command_parent != anchor_path {
+                    return Err(CatalogError::new(
+                        CatalogErrorCode::SourceUnavailable,
+                        "Command Resource binding changed while the operation was pending",
+                    ));
+                }
+            }
+            (stored.source_id.clone(), direct_child.then_some(stored))
+        } else {
+            (
+                self.identity
+                    .source_by_root_resource(&anchor.resource_id)
+                    .map_err(CatalogError::from)?
+                    .map(|source| source.source_id)
+                    .ok_or_else(|| {
+                        CatalogError::new(
+                            CatalogErrorCode::ResourceNotFound,
+                            "Command path anchor is unavailable",
+                        )
+                    })?,
+                None,
+            )
+        };
+        let roots = self.runtime_roots().await;
+        let resolved =
+            media::resolve(&self.config, &roots, logical_path).map_err(CatalogError::from)?;
+        let (actual_source, _) = self
+            .identity
+            .source_for_root(&resolved.root.id, &resolved.root.path)
+            .map_err(CatalogError::from)?;
+        if actual_source != expected_source {
+            return Err(CatalogError::new(
+                CatalogErrorCode::SourceUnavailable,
+                "Command Source binding changed while the operation was pending",
+            ));
+        }
+        if let Some(stored) = direct_child_anchor {
+            let provider = self
+                .provider_inspect(ProviderInspect {
+                    source: self.provider_source(&expected_source).await?,
+                    locator: stored.provider_locator,
+                })
+                .await?;
+            if !self
+                .identity
+                .matches_physical_observation(
+                    &stored.resource_id,
+                    &expected_source,
+                    &observed_identity(&provider),
+                )
+                .map_err(CatalogError::from)?
+            {
+                return Err(CatalogError::new(
+                    CatalogErrorCode::SourceUnavailable,
+                    "Command destination parent identity changed while the operation was pending",
+                ));
+            }
+        }
+        Ok(resolved.full)
+    }
+
+    pub(crate) async fn command_destination_matches(
+        &self,
+        resource: &ResourceRef,
+        logical_path: &str,
+    ) -> CatalogResult<bool> {
+        self.require_library(resource)?;
+        let roots = self.runtime_roots().await;
+        let resolved =
+            media::resolve(&self.config, &roots, logical_path).map_err(CatalogError::from)?;
+        let (actual_source, _) = self
+            .identity
+            .source_for_root(&resolved.root.id, &resolved.root.path)
+            .map_err(CatalogError::from)?;
+        let provider = self
+            .provider_inspect(ProviderInspect {
+                source: self.provider_source(&actual_source).await?,
+                locator: resolved.relative,
+            })
+            .await?;
+        self.identity
+            .matches_physical_observation(
+                &resource.resource_id,
+                &actual_source,
+                &observed_identity(&provider),
+            )
+            .map_err(Into::into)
+    }
+
     pub(crate) async fn record_move(
         &self,
         old_legacy_locator: &str,
         new_legacy_locator: &str,
-    ) -> CatalogResult<()> {
+    ) -> CatalogResult<Vec<ResourceRef>> {
         let roots = self.runtime_roots().await;
         let old =
             media::resolve(&self.config, &roots, old_legacy_locator).map_err(CatalogError::from)?;
@@ -228,7 +343,70 @@ impl ResourceCatalog {
                 &new.relative,
                 new_legacy_locator,
             )
+            .map(|ids| {
+                ids.into_iter()
+                    .map(|resource_id| ResourceRef {
+                        library_id: self.identity.library_id().clone(),
+                        resource_id,
+                    })
+                    .collect()
+            })
             .map_err(Into::into)
+    }
+
+    pub(crate) async fn record_delete(
+        &self,
+        resource: &ResourceRef,
+    ) -> CatalogResult<Vec<ResourceRef>> {
+        self.require_library(resource)?;
+        let stored = self
+            .identity
+            .stored(&resource.resource_id)
+            .map_err(CatalogError::from)?
+            .ok_or_else(|| {
+                CatalogError::new(CatalogErrorCode::ResourceNotFound, "Resource not found")
+            })?;
+        self.identity
+            .mark_prefix_missing(&stored.source_id, &stored.provider_locator)
+            .map(|ids| {
+                ids.into_iter()
+                    .map(|resource_id| ResourceRef {
+                        library_id: self.identity.library_id().clone(),
+                        resource_id,
+                    })
+                    .collect()
+            })
+            .map_err(Into::into)
+    }
+
+    pub(crate) async fn refresh_after_write(
+        &self,
+        resource: &ResourceRef,
+    ) -> CatalogResult<ResourceDetail> {
+        self.require_library(resource)?;
+        let stored = self
+            .identity
+            .stored(&resource.resource_id)
+            .map_err(CatalogError::from)?
+            .ok_or_else(|| {
+                CatalogError::new(CatalogErrorCode::ResourceNotFound, "Resource not found")
+            })?;
+        let source = self.provider_source(&stored.source_id).await?;
+        let provider_resource = self
+            .provider_inspect(ProviderInspect {
+                source: source.clone(),
+                locator: stored.provider_locator,
+            })
+            .await?;
+        self.identity
+            .rebind_after_command(
+                &resource.resource_id,
+                source.source_id(),
+                &observed_identity(&provider_resource),
+            )
+            .map_err(CatalogError::from)?;
+        self.inspect(&ReadContext::owner(ReadSurface::Library), resource)
+            .await
     }
 
     pub(crate) async fn browse(
@@ -679,16 +857,7 @@ impl ResourceCatalog {
         source: &ProviderSource,
         resources: Vec<ProviderResource>,
     ) -> CatalogResult<Vec<ResourceSummary>> {
-        let observed = resources
-            .iter()
-            .map(|resource| ObservedResourceIdentity {
-                provider_locator: resource.provider_locator.clone(),
-                legacy_locator: resource.legacy_locator.clone(),
-                kind: kind_key(resource.kind).into(),
-                platform_identity: resource.platform_identity.clone(),
-                fingerprint: resource.fingerprint.clone(),
-            })
-            .collect::<Vec<_>>();
+        let observed = resources.iter().map(observed_identity).collect::<Vec<_>>();
         let ids = self
             .identity
             .observe(source.source_id(), &observed)
@@ -725,7 +894,7 @@ impl ResourceCatalog {
     async fn collection_items(&self, name: &str) -> CatalogResult<Vec<ResourceSummary>> {
         let roots = self.runtime_roots().await;
         let paths = if name == "Shares" {
-            let mut values = shares::read(&self.config, &roots);
+            let mut values = shares::read(&self.config, &roots).map_err(CatalogError::from)?;
             values.sort_by_key(|item| std::cmp::Reverse(item.created_at));
             let mut seen = std::collections::HashSet::new();
             values
@@ -1569,6 +1738,16 @@ fn kind_key(kind: ResourceKind) -> &'static str {
         ResourceKind::Conversation => "conversation",
         ResourceKind::ConversationProject => "conversationProject",
         ResourceKind::Draft => "draft",
+    }
+}
+
+fn observed_identity(resource: &ProviderResource) -> ObservedResourceIdentity {
+    ObservedResourceIdentity {
+        provider_locator: resource.provider_locator.clone(),
+        legacy_locator: resource.legacy_locator.clone(),
+        kind: kind_key(resource.kind).into(),
+        platform_identity: resource.platform_identity.clone(),
+        fingerprint: resource.fingerprint.clone(),
     }
 }
 

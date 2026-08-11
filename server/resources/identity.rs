@@ -1263,6 +1263,36 @@ impl IdentityStore {
             .map_err(|error| AppError::internal(error.to_string()))
     }
 
+    pub(crate) fn matches_physical_observation(
+        &self,
+        resource_id: &ResourceId,
+        source_id: &SourceId,
+        observed: &ObservedResourceIdentity,
+    ) -> Result<bool, AppError> {
+        let connection = state_db::connection(&self.database)?;
+        let expected = connection
+            .query_row(
+                "SELECT source_id,kind,platform_identity FROM resources
+                 WHERE library_id=?1 AND id=?2",
+                params![self.library_id.as_str(), resource_id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        let Some((expected_source, expected_kind, Some(expected_platform))) = expected else {
+            return Ok(false);
+        };
+        Ok(expected_source == source_id.as_str()
+            && expected_kind == observed.kind
+            && observed.platform_identity.as_deref() == Some(expected_platform.as_str()))
+    }
+
     pub(crate) fn mark_missing(&self, resource_id: &ResourceId) -> Result<(), AppError> {
         let connection = state_db::connection(&self.database)?;
         connection
@@ -1274,6 +1304,116 @@ impl IdentityStore {
             )
             .map_err(|error| AppError::internal(error.to_string()))?;
         Ok(())
+    }
+
+    pub(crate) fn mark_prefix_missing(
+        &self,
+        source_id: &SourceId,
+        locator: &str,
+    ) -> Result<Vec<ResourceId>, AppError> {
+        let mut connection = state_db::connection(&self.database)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        let ids = {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT id FROM resources WHERE source_id=?1 AND (
+                       provider_locator=?2 OR
+                       substr(provider_locator,1,length(?2)+1)=?2 || '/'
+                     ) ORDER BY length(provider_locator),id",
+                )
+                .map_err(|error| AppError::internal(error.to_string()))?;
+            statement
+                .query_map(params![source_id.as_str(), locator], |row| {
+                    row.get::<_, String>(0).map(ResourceId::new)
+                })
+                .map_err(|error| AppError::internal(error.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| AppError::internal(error.to_string()))?
+        };
+        transaction
+            .execute(
+                "UPDATE resources SET status='missing',missing_since=COALESCE(missing_since,?3),
+                   last_seen_at=?3
+                 WHERE source_id=?1 AND (
+                   provider_locator=?2 OR
+                   substr(provider_locator,1,length(?2)+1)=?2 || '/'
+                 )",
+                params![source_id.as_str(), locator, now_ms()],
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        Ok(ids)
+    }
+
+    pub(crate) fn rebind_after_command(
+        &self,
+        resource_id: &ResourceId,
+        source_id: &SourceId,
+        observed: &ObservedResourceIdentity,
+    ) -> Result<(), AppError> {
+        let mut connection = state_db::connection(&self.database)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        let exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM resources WHERE library_id=?1 AND id=?2)",
+                params![self.library_id.as_str(), resource_id.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        if !exists {
+            return Err(AppError::not_found("Resource identity is unavailable"));
+        }
+        let now = now_ms();
+        transaction
+            .execute(
+                "UPDATE resources SET provider_locator='missing:' || id || ':' || ?4,
+                   status='missing',missing_since=COALESCE(missing_since,?5),last_seen_at=?5
+                 WHERE source_id=?1 AND provider_locator=?2 AND id<>?3",
+                params![
+                    source_id.as_str(),
+                    observed.provider_locator,
+                    resource_id.as_str(),
+                    uuid::Uuid::new_v4().to_string(),
+                    now
+                ],
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        transaction
+            .execute(
+                "UPDATE resources SET source_id=?2,provider_locator=?3,kind=?4,
+                   platform_identity=?5,fingerprint=?6,current_legacy_locator=?7,
+                   status='present',missing_since=NULL,last_seen_at=?8 WHERE id=?1",
+                params![
+                    resource_id.as_str(),
+                    source_id.as_str(),
+                    observed.provider_locator,
+                    observed.kind,
+                    observed.platform_identity,
+                    observed.fingerprint,
+                    observed.legacy_locator,
+                    now
+                ],
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        transaction
+            .execute(
+                "INSERT INTO resource_legacy_locators(
+                   resource_id,legacy_locator,first_seen_at,last_seen_at
+                 ) VALUES(?1,?2,?3,?3)
+                 ON CONFLICT(resource_id,legacy_locator) DO UPDATE
+                   SET last_seen_at=excluded.last_seen_at",
+                params![resource_id.as_str(), observed.legacy_locator, now],
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| AppError::internal(error.to_string()))
     }
 
     pub(crate) fn by_legacy_locator(
@@ -1313,7 +1453,7 @@ impl IdentityStore {
         old_locator: &str,
         new_locator: &str,
         new_legacy_locator: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Vec<ResourceId>, AppError> {
         self.relocate_to(
             source_id,
             old_locator,
@@ -1330,7 +1470,7 @@ impl IdentityStore {
         destination_source_id: &SourceId,
         new_locator: &str,
         new_legacy_locator: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Vec<ResourceId>, AppError> {
         let mut connection = state_db::connection(&self.database)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1355,6 +1495,7 @@ impl IdentityStore {
                 .map_err(|error| AppError::internal(error.to_string()))?
         };
         let now = now_ms();
+        let mut relocated_ids = Vec::with_capacity(resources.len());
         for (resource_id, old_resource_locator) in resources {
             let suffix = old_resource_locator
                 .strip_prefix(old_locator)
@@ -1380,17 +1521,22 @@ impl IdentityStore {
             transaction
                 .execute(
                     "UPDATE resources SET source_id=?2,provider_locator=?3,
-                       current_legacy_locator=?4,last_seen_at=?5
+                       current_legacy_locator=?4,
+                       platform_identity=CASE WHEN ?6=?2 THEN platform_identity ELSE NULL END,
+                       fingerprint=CASE WHEN ?6=?2 THEN fingerprint ELSE NULL END,
+                       status='present',missing_since=NULL,last_seen_at=?5
                      WHERE id=?1",
                     params![
                         resource_id,
                         destination_source_id.as_str(),
                         relocated,
                         legacy,
-                        now
+                        now,
+                        source_id.as_str(),
                     ],
                 )
                 .map_err(|error| AppError::internal(error.to_string()))?;
+            relocated_ids.push(ResourceId::new(resource_id.clone()));
             transaction
                 .execute(
                     "INSERT INTO resource_legacy_locators(
@@ -1404,7 +1550,8 @@ impl IdentityStore {
         }
         transaction
             .commit()
-            .map_err(|error| AppError::internal(error.to_string()))
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        Ok(relocated_ids)
     }
 }
 

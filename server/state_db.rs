@@ -1,12 +1,12 @@
 use crate::{
     config::Config,
     error::{AppError, AppResult},
-    shares::Share,
+    shares::{GrantId, Share},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -19,6 +19,8 @@ const LEGACY_FILES: [&str; 5] = [
     "mounts.json",
     "canvases.json",
 ];
+const GRANT_SCHEMA_VERSION: i64 = 4;
+const GRANT_SCHEMA_BACKUP: &str = "app-before-grants-v4.sqlite3";
 
 pub fn database(config: &Config) -> PathBuf {
     config.data_path.join("app.sqlite3")
@@ -152,6 +154,7 @@ pub fn initialize(config: &Config) -> Result<(), String> {
                  );
                  CREATE TABLE IF NOT EXISTS shares (
                    library_key TEXT NOT NULL,
+                   grant_id TEXT,
                    token TEXT NOT NULL,
                    path TEXT NOT NULL,
                    is_directory INTEGER NOT NULL,
@@ -209,6 +212,136 @@ pub fn initialize(config: &Config) -> Result<(), String> {
     }
     import_legacy(config, &mut connection)?;
     Ok(())
+}
+
+fn backup_before_grant_schema(config: &Config, connection: &Connection) -> Result<(), String> {
+    let directory = config.data_path.join("schema-backups");
+    let backup = directory.join(GRANT_SCHEMA_BACKUP);
+    if backup.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Failed to create Grant schema backup directory {}: {error}",
+            directory.display()
+        )
+    })?;
+    connection
+        .execute("VACUUM INTO ?1", [backup.to_string_lossy().into_owned()])
+        .map_err(|error| {
+            format!(
+                "Failed to back up app database to {}: {error}",
+                backup.display()
+            )
+        })?;
+    Ok(())
+}
+
+pub(crate) fn initialize_grants(config: &Config) -> Result<(), String> {
+    let database = database(config);
+    let mut connection = connection(&database).map_err(|error| error.1)?;
+    let applied = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=?1)",
+            [GRANT_SCHEMA_VERSION],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if applied {
+        if !column_exists(&connection, "shares", "grant_id").map_err(|error| error.1)? {
+            return Err(
+                "Grant persistence recovery required: schema version exists without grant_id"
+                    .into(),
+            );
+        }
+        let missing: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM shares WHERE grant_id IS NULL OR grant_id=''",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if missing != 0 {
+            return Err(
+                "Grant persistence recovery required: stored Grant lacks internal ID".into(),
+            );
+        }
+        return Ok(());
+    }
+
+    backup_before_grant_schema(config, &connection)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    if !column_exists(&transaction, "shares", "grant_id").map_err(|error| error.1)? {
+        transaction
+            .execute("ALTER TABLE shares ADD COLUMN grant_id TEXT", [])
+            .map_err(|error| error.to_string())?;
+    }
+
+    let stored = {
+        let mut statement = transaction
+            .prepare("SELECT token,grant_id FROM shares ORDER BY token,library_key")
+            .map_err(|error| error.to_string())?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    let mut ids = HashMap::<String, GrantId>::new();
+    for (token, stored_id) in &stored {
+        let Some(stored_id) = stored_id.as_ref().filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let stored_id = GrantId::from_stored(stored_id);
+        if let Some(existing) = ids.get(token)
+            && existing != &stored_id
+        {
+            return Err(format!(
+                "Grant persistence recovery required: token {token} has multiple internal IDs"
+            ));
+        }
+        ids.insert(token.clone(), stored_id);
+    }
+    for (token, _) in stored {
+        ids.entry(token).or_insert_with(GrantId::new);
+    }
+    for (token, grant_id) in ids {
+        transaction
+            .execute(
+                "UPDATE shares SET grant_id=?1
+                 WHERE token=?2 AND (grant_id IS NULL OR grant_id='')",
+                params![grant_id.as_str(), token],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    let missing: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM shares WHERE grant_id IS NULL OR grant_id=''",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if missing != 0 {
+        return Err("Grant persistence recovery required: internal ID backfill incomplete".into());
+    }
+    transaction
+        .execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS shares_grant_id_per_library
+               ON shares(library_key,grant_id);
+             CREATE INDEX IF NOT EXISTS shares_token_lookup ON shares(token);",
+        )
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute(
+            "INSERT INTO schema_migrations(version,applied_at) VALUES(?1,?2)",
+            params![GRANT_SCHEMA_VERSION, now_ms()],
+        )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 fn now_ms() -> i64 {
@@ -635,13 +768,30 @@ pub(crate) fn synchronize_library_namespaces(
             selected = Some((revision, !list.is_empty(), list));
         }
     }
-    let shares = selected.map(|(_, _, list)| list).unwrap_or_default();
+    let mut shares = selected.map(|(_, _, list)| list).unwrap_or_default();
+    for share in &mut shares {
+        if share.grant_id.is_none() {
+            share.grant_id = Some(GrantId::new());
+        }
+    }
+    let selected_tokens = shares
+        .iter()
+        .map(|share| share.token.as_str())
+        .collect::<HashSet<_>>();
     for key in &keys {
-        transaction
-            .execute("DELETE FROM shares WHERE library_key=?1", [key])
-            .map_err(error)?;
+        for existing in shares_in(transaction, key)? {
+            if selected_tokens.contains(existing.token.as_str()) {
+                continue;
+            }
+            transaction
+                .execute(
+                    "DELETE FROM shares WHERE library_key=?1 AND token=?2",
+                    params![key, existing.token],
+                )
+                .map_err(error)?;
+        }
         for share in &shares {
-            insert_share(transaction, key, share)?;
+            upsert_share(transaction, key, share)?;
         }
     }
     Ok(())
@@ -654,108 +804,155 @@ fn json_column(value: &Option<Value>) -> AppResult<Option<String>> {
         .transpose()
 }
 
+struct StoredShareRow {
+    token: String,
+    path: String,
+    is_directory: bool,
+    editable: bool,
+    passcode: Option<String>,
+    created_at: i64,
+    root_id: Option<String>,
+    source_id: Option<String>,
+    root_relative_path: Option<String>,
+    restrictions: Option<String>,
+    used_bytes: Option<i64>,
+    pins: Option<String>,
+    presets: Option<String>,
+    grant_id: Option<String>,
+}
+
+fn stored_share_row(
+    row: &rusqlite::Row<'_>,
+    has_grant_id: bool,
+) -> rusqlite::Result<StoredShareRow> {
+    Ok(StoredShareRow {
+        token: row.get(0)?,
+        path: row.get(1)?,
+        is_directory: row.get(2)?,
+        editable: row.get(3)?,
+        passcode: row.get(4)?,
+        created_at: row.get(5)?,
+        root_id: row.get(6)?,
+        source_id: row.get(7)?,
+        root_relative_path: row.get(8)?,
+        restrictions: row.get(9)?,
+        used_bytes: row.get(10)?,
+        pins: row.get(11)?,
+        presets: row.get(12)?,
+        grant_id: if has_grant_id { row.get(13)? } else { None },
+    })
+}
+
+fn decode_share(row: StoredShareRow) -> AppResult<Share> {
+    Ok(Share {
+        grant_id: row.grant_id.map(GrantId::from_stored),
+        token: row.token,
+        path: row.path,
+        is_directory: row.is_directory,
+        editable: row.editable,
+        passcode: row.passcode,
+        created_at: row.created_at as u64,
+        root_id: row.root_id,
+        source_id: row.source_id,
+        root_relative_path: row.root_relative_path,
+        unavailable: None,
+        restrictions: row
+            .restrictions
+            .map(|raw| serde_json::from_str(&raw).map_err(error))
+            .transpose()?,
+        used_bytes: row.used_bytes.map(|value| value as u64),
+        workspace_taskbar_pins: row
+            .pins
+            .map(|raw| serde_json::from_str(&raw).map_err(error))
+            .transpose()?,
+        workspace_layout_presets: row
+            .presets
+            .map(|raw| serde_json::from_str(&raw).map_err(error))
+            .transpose()?,
+    })
+}
+
 fn insert_share(transaction: &Transaction<'_>, library_key: &str, share: &Share) -> AppResult<()> {
     let restrictions = share
         .restrictions
         .as_ref()
         .map(|value| serde_json::to_string(value).map_err(error))
         .transpose()?;
-    transaction
-        .execute(
-            "INSERT INTO shares(
-               library_key, token, path, is_directory, editable, passcode, created_at,
-               root_id, source_id, root_relative_path, restrictions_json, used_bytes,
-               workspace_taskbar_pins_json, workspace_layout_presets_json
-             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
-            params![
-                library_key,
-                share.token,
-                share.path,
-                share.is_directory,
-                share.editable,
-                share.passcode,
-                share.created_at as i64,
-                share.root_id,
-                share.source_id,
-                share.root_relative_path,
-                restrictions,
-                share.used_bytes.map(|value| value as i64),
-                json_column(&share.workspace_taskbar_pins)?,
-                json_column(&share.workspace_layout_presets)?,
-            ],
-        )
-        .map_err(error)?;
+    let pins = json_column(&share.workspace_taskbar_pins)?;
+    let presets = json_column(&share.workspace_layout_presets)?;
+    if column_exists(transaction, "shares", "grant_id")? {
+        let grant_id = share.grant_id.clone().unwrap_or_else(GrantId::new);
+        transaction
+            .execute(
+                "INSERT INTO shares(
+                   library_key, token, path, is_directory, editable, passcode, created_at,
+                   root_id, source_id, root_relative_path, restrictions_json, used_bytes,
+                   workspace_taskbar_pins_json, workspace_layout_presets_json, grant_id
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                params![
+                    library_key,
+                    share.token,
+                    share.path,
+                    share.is_directory,
+                    share.editable,
+                    share.passcode,
+                    share.created_at as i64,
+                    share.root_id,
+                    share.source_id,
+                    share.root_relative_path,
+                    restrictions,
+                    share.used_bytes.map(|value| value as i64),
+                    pins,
+                    presets,
+                    grant_id.as_str(),
+                ],
+            )
+            .map_err(error)?;
+    } else {
+        transaction
+            .execute(
+                "INSERT INTO shares(
+                   library_key, token, path, is_directory, editable, passcode, created_at,
+                   root_id, source_id, root_relative_path, restrictions_json, used_bytes,
+                   workspace_taskbar_pins_json, workspace_layout_presets_json
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                params![
+                    library_key,
+                    share.token,
+                    share.path,
+                    share.is_directory,
+                    share.editable,
+                    share.passcode,
+                    share.created_at as i64,
+                    share.root_id,
+                    share.source_id,
+                    share.root_relative_path,
+                    restrictions,
+                    share.used_bytes.map(|value| value as i64),
+                    pins,
+                    presets,
+                ],
+            )
+            .map_err(error)?;
+    }
     Ok(())
 }
 
 fn shares_in(transaction: &Transaction<'_>, library_key: &str) -> AppResult<Vec<Share>> {
+    let has_grant_id = column_exists(transaction, "shares", "grant_id")?;
+    let grant_column = if has_grant_id { ",grant_id" } else { "" };
     let mut statement = transaction
-        .prepare(
+        .prepare(&format!(
             "SELECT token,path,is_directory,editable,passcode,created_at,root_id,
                     source_id,root_relative_path,restrictions_json,used_bytes,
-                    workspace_taskbar_pins_json,workspace_layout_presets_json
-             FROM shares WHERE library_key=?1 ORDER BY created_at, token",
-        )
+                    workspace_taskbar_pins_json,workspace_layout_presets_json{grant_column}
+             FROM shares WHERE library_key=?1 ORDER BY created_at,token"
+        ))
         .map_err(error)?;
     let rows = statement
-        .query_map([library_key], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, bool>(2)?,
-                row.get::<_, bool>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<String>>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<String>>(9)?,
-                row.get::<_, Option<i64>>(10)?,
-                row.get::<_, Option<String>>(11)?,
-                row.get::<_, Option<String>>(12)?,
-            ))
-        })
+        .query_map([library_key], |row| stored_share_row(row, has_grant_id))
         .map_err(error)?;
-    rows.map(|row| {
-        let (
-            token,
-            path,
-            is_directory,
-            editable,
-            passcode,
-            created_at,
-            root_id,
-            source_id,
-            root_relative_path,
-            restrictions,
-            used_bytes,
-            pins,
-            presets,
-        ) = row.map_err(error)?;
-        Ok(Share {
-            token,
-            path,
-            is_directory,
-            editable,
-            passcode,
-            created_at: created_at as u64,
-            root_id,
-            source_id,
-            root_relative_path,
-            unavailable: None,
-            restrictions: restrictions
-                .map(|raw| serde_json::from_str(&raw).map_err(error))
-                .transpose()?,
-            used_bytes: used_bytes.map(|value| value as u64),
-            workspace_taskbar_pins: pins
-                .map(|raw| serde_json::from_str(&raw).map_err(error))
-                .transpose()?,
-            workspace_layout_presets: presets
-                .map(|raw| serde_json::from_str(&raw).map_err(error))
-                .transpose()?,
-        })
-    })
-    .collect()
+    rows.map(|row| decode_share(row.map_err(error)?)).collect()
 }
 
 pub fn shares(database: &Path, library_key: &str) -> AppResult<Vec<Share>> {
@@ -775,6 +972,320 @@ pub fn shares(database: &Path, library_key: &str) -> AppResult<Vec<Share>> {
         }
     }
     Ok(selected.map(|(_, _, list)| list).unwrap_or_default())
+}
+
+fn preferred_namespace(transaction: &Transaction<'_>, library_key: &str) -> AppResult<String> {
+    let keys = namespace_keys(transaction, library_key)?;
+    let mut selected: Option<(i64, bool, String)> = None;
+    for key in keys {
+        let populated = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM shares WHERE library_key=?1)",
+                [&key],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(error)?;
+        let revision = namespace_revision(transaction, "shares", &key)?;
+        let score = (revision, populated);
+        if selected
+            .as_ref()
+            .is_none_or(|current| score > (current.0, current.1))
+        {
+            selected = Some((revision, populated, key));
+        }
+    }
+    selected
+        .map(|(_, _, key)| key)
+        .ok_or_else(|| AppError::internal("Library namespace is unavailable"))
+}
+
+fn share_in_by_token(
+    transaction: &Transaction<'_>,
+    library_key: &str,
+    token: &str,
+) -> AppResult<Option<Share>> {
+    let has_grant_id = column_exists(transaction, "shares", "grant_id")?;
+    let grant_column = if has_grant_id { ",grant_id" } else { "" };
+    let row = transaction
+        .query_row(
+            &format!(
+                "SELECT token,path,is_directory,editable,passcode,created_at,root_id,
+                        source_id,root_relative_path,restrictions_json,used_bytes,
+                        workspace_taskbar_pins_json,workspace_layout_presets_json{grant_column}
+                 FROM shares WHERE library_key=?1 AND token=?2"
+            ),
+            params![library_key, token],
+            |row| stored_share_row(row, has_grant_id),
+        )
+        .optional()
+        .map_err(error)?;
+    row.map(decode_share).transpose()
+}
+
+fn share_in_by_id(
+    transaction: &Transaction<'_>,
+    library_key: &str,
+    grant_id: &GrantId,
+) -> AppResult<Option<Share>> {
+    if !column_exists(transaction, "shares", "grant_id")? {
+        return Ok(None);
+    }
+    let row = transaction
+        .query_row(
+            "SELECT token,path,is_directory,editable,passcode,created_at,root_id,
+                    source_id,root_relative_path,restrictions_json,used_bytes,
+                    workspace_taskbar_pins_json,workspace_layout_presets_json,grant_id
+             FROM shares WHERE library_key=?1 AND grant_id=?2",
+            params![library_key, grant_id.as_str()],
+            |row| stored_share_row(row, true),
+        )
+        .optional()
+        .map_err(error)?;
+    row.map(decode_share).transpose()
+}
+
+pub(crate) fn share_by_token(
+    database: &Path,
+    library_key: &str,
+    token: &str,
+) -> AppResult<Option<Share>> {
+    let mut connection = connection(database)?;
+    let transaction = connection.transaction().map_err(error)?;
+    let key = preferred_namespace(&transaction, library_key)?;
+    share_in_by_token(&transaction, &key, token)
+}
+
+pub(crate) fn share_by_id(
+    database: &Path,
+    library_key: &str,
+    grant_id: &GrantId,
+) -> AppResult<Option<Share>> {
+    let mut connection = connection(database)?;
+    let transaction = connection.transaction().map_err(error)?;
+    let key = preferred_namespace(&transaction, library_key)?;
+    share_in_by_id(&transaction, &key, grant_id)
+}
+
+fn upsert_share(transaction: &Transaction<'_>, library_key: &str, share: &Share) -> AppResult<()> {
+    let restrictions = share
+        .restrictions
+        .as_ref()
+        .map(|value| serde_json::to_string(value).map_err(error))
+        .transpose()?;
+    let pins = json_column(&share.workspace_taskbar_pins)?;
+    let presets = json_column(&share.workspace_layout_presets)?;
+    if column_exists(transaction, "shares", "grant_id")? {
+        let grant_id = share
+            .grant_id
+            .as_ref()
+            .ok_or_else(|| AppError::internal("Grant internal ID is missing"))?;
+        transaction
+            .execute(
+                "INSERT INTO shares(
+                   library_key,token,path,is_directory,editable,passcode,created_at,
+                   root_id,source_id,root_relative_path,restrictions_json,used_bytes,
+                   workspace_taskbar_pins_json,workspace_layout_presets_json,grant_id
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+                 ON CONFLICT(library_key,token) DO UPDATE SET
+                   path=excluded.path,is_directory=excluded.is_directory,
+                   editable=excluded.editable,passcode=excluded.passcode,
+                   created_at=excluded.created_at,root_id=excluded.root_id,
+                   source_id=excluded.source_id,root_relative_path=excluded.root_relative_path,
+                   restrictions_json=excluded.restrictions_json,used_bytes=excluded.used_bytes,
+                   workspace_taskbar_pins_json=excluded.workspace_taskbar_pins_json,
+                   workspace_layout_presets_json=excluded.workspace_layout_presets_json,
+                   grant_id=excluded.grant_id",
+                params![
+                    library_key,
+                    share.token,
+                    share.path,
+                    share.is_directory,
+                    share.editable,
+                    share.passcode,
+                    share.created_at as i64,
+                    share.root_id,
+                    share.source_id,
+                    share.root_relative_path,
+                    restrictions,
+                    share.used_bytes.map(|value| value as i64),
+                    pins,
+                    presets,
+                    grant_id.as_str(),
+                ],
+            )
+            .map_err(error)?;
+    } else {
+        transaction
+            .execute(
+                "INSERT INTO shares(
+                   library_key,token,path,is_directory,editable,passcode,created_at,
+                   root_id,source_id,root_relative_path,restrictions_json,used_bytes,
+                   workspace_taskbar_pins_json,workspace_layout_presets_json
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+                 ON CONFLICT(library_key,token) DO UPDATE SET
+                   path=excluded.path,is_directory=excluded.is_directory,
+                   editable=excluded.editable,passcode=excluded.passcode,
+                   created_at=excluded.created_at,root_id=excluded.root_id,
+                   source_id=excluded.source_id,root_relative_path=excluded.root_relative_path,
+                   restrictions_json=excluded.restrictions_json,used_bytes=excluded.used_bytes,
+                   workspace_taskbar_pins_json=excluded.workspace_taskbar_pins_json,
+                   workspace_layout_presets_json=excluded.workspace_layout_presets_json",
+                params![
+                    library_key,
+                    share.token,
+                    share.path,
+                    share.is_directory,
+                    share.editable,
+                    share.passcode,
+                    share.created_at as i64,
+                    share.root_id,
+                    share.source_id,
+                    share.root_relative_path,
+                    restrictions,
+                    share.used_bytes.map(|value| value as i64),
+                    pins,
+                    presets,
+                ],
+            )
+            .map_err(error)?;
+    }
+    Ok(())
+}
+
+fn update_share_by_id(
+    transaction: &Transaction<'_>,
+    library_key: &str,
+    grant_id: &GrantId,
+    share: &Share,
+) -> AppResult<bool> {
+    let restrictions = share
+        .restrictions
+        .as_ref()
+        .map(|value| serde_json::to_string(value).map_err(error))
+        .transpose()?;
+    let pins = json_column(&share.workspace_taskbar_pins)?;
+    let presets = json_column(&share.workspace_layout_presets)?;
+    transaction
+        .execute(
+            "UPDATE shares SET
+               token=?1,path=?2,is_directory=?3,editable=?4,passcode=?5,created_at=?6,
+               root_id=?7,source_id=?8,root_relative_path=?9,restrictions_json=?10,
+               used_bytes=?11,workspace_taskbar_pins_json=?12,
+               workspace_layout_presets_json=?13
+             WHERE library_key=?14 AND grant_id=?15",
+            params![
+                share.token,
+                share.path,
+                share.is_directory,
+                share.editable,
+                share.passcode,
+                share.created_at as i64,
+                share.root_id,
+                share.source_id,
+                share.root_relative_path,
+                restrictions,
+                share.used_bytes.map(|value| value as i64),
+                pins,
+                presets,
+                library_key,
+                grant_id.as_str(),
+            ],
+        )
+        .map(|updated| updated != 0)
+        .map_err(error)
+}
+
+pub(crate) fn insert_grant(database: &Path, library_key: &str, share: &Share) -> AppResult<()> {
+    if share.grant_id.is_none() {
+        return Err(AppError::internal("Grant internal ID is missing"));
+    }
+    let mut connection = connection(database)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    for key in namespace_keys(&transaction, library_key)? {
+        insert_share(&transaction, &key, share)?;
+    }
+    transaction.commit().map_err(error)
+}
+
+pub(crate) fn update_grant(
+    database: &Path,
+    library_key: &str,
+    grant_id: &GrantId,
+    update: impl FnOnce(&mut Share) -> AppResult<()>,
+) -> AppResult<Option<Share>> {
+    let mut connection = connection(database)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    let selected = preferred_namespace(&transaction, library_key)?;
+    let Some(mut share) = share_in_by_id(&transaction, &selected, grant_id)? else {
+        return Ok(None);
+    };
+    update(&mut share)?;
+    for key in namespace_keys(&transaction, library_key)? {
+        if !update_share_by_id(&transaction, &key, grant_id, &share)? {
+            insert_share(&transaction, &key, &share)?;
+        }
+    }
+    transaction.commit().map_err(error)?;
+    Ok(Some(share))
+}
+
+pub(crate) fn mutate_grants(
+    database: &Path,
+    library_key: &str,
+    mut update: impl FnMut(&mut Share) -> AppResult<bool>,
+) -> AppResult<Vec<Share>> {
+    let mut connection = connection(database)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    let selected = preferred_namespace(&transaction, library_key)?;
+    let mut shares = shares_in(&transaction, &selected)?;
+    let keys = namespace_keys(&transaction, library_key)?;
+    let mut changed = Vec::new();
+    for share in &mut shares {
+        if !update(share)? {
+            continue;
+        }
+        let grant_id = share
+            .grant_id
+            .as_ref()
+            .ok_or_else(|| AppError::internal("Grant internal ID is missing"))?;
+        for key in &keys {
+            if !update_share_by_id(&transaction, key, grant_id, share)? {
+                insert_share(&transaction, key, share)?;
+            }
+        }
+        changed.push(share.clone());
+    }
+    transaction.commit().map_err(error)?;
+    Ok(changed)
+}
+
+pub(crate) fn delete_grant(
+    database: &Path,
+    library_key: &str,
+    grant_id: &GrantId,
+) -> AppResult<bool> {
+    let mut connection = connection(database)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    let mut deleted = false;
+    for key in namespace_keys(&transaction, library_key)? {
+        deleted |= transaction
+            .execute(
+                "DELETE FROM shares WHERE library_key=?1 AND grant_id=?2",
+                params![key, grant_id.as_str()],
+            )
+            .map_err(error)?
+            > 0;
+    }
+    transaction.commit().map_err(error)?;
+    Ok(deleted)
 }
 
 pub(crate) struct ShareSourceBinding {
@@ -862,7 +1373,7 @@ pub(crate) fn share_source_aliases(
 pub(crate) fn repair_share_source(
     database: &Path,
     library_key: &str,
-    token: &str,
+    grant_id: &GrantId,
     source_id: &str,
     root_id: &str,
     root_relative_path: &str,
@@ -879,7 +1390,7 @@ pub(crate) fn repair_share_source(
             .execute(
                 "UPDATE shares SET source_id=?1,root_id=?2,root_relative_path=?3,path=?4,
                    workspace_taskbar_pins_json=?5,workspace_layout_presets_json=?6
-                 WHERE library_key=?7 AND token=?8",
+                 WHERE library_key=?7 AND grant_id=?8",
                 params![
                     source_id,
                     root_id,
@@ -888,48 +1399,12 @@ pub(crate) fn repair_share_source(
                     json_column(workspace_taskbar_pins)?,
                     json_column(workspace_layout_presets)?,
                     key,
-                    token
+                    grant_id.as_str()
                 ],
             )
             .map_err(error)?;
     }
     transaction.commit().map_err(error)
-}
-
-pub fn mutate_shares<T>(
-    database: &Path,
-    library_key: &str,
-    update: impl FnOnce(&mut Vec<Share>) -> AppResult<T>,
-) -> AppResult<T> {
-    let mut connection = connection(database)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(error)?;
-    let keys = namespace_keys(&transaction, library_key)?;
-    let mut selected: Option<(i64, bool, Vec<Share>)> = None;
-    for key in &keys {
-        let list = shares_in(&transaction, key)?;
-        let revision = namespace_revision(&transaction, "shares", key)?;
-        let score = (revision, !list.is_empty());
-        if selected
-            .as_ref()
-            .is_none_or(|current| score > (current.0, current.1))
-        {
-            selected = Some((revision, !list.is_empty(), list));
-        }
-    }
-    let mut list = selected.map(|(_, _, list)| list).unwrap_or_default();
-    let result = update(&mut list)?;
-    for key in keys {
-        transaction
-            .execute("DELETE FROM shares WHERE library_key=?1", [&key])
-            .map_err(error)?;
-        for share in &list {
-            insert_share(&transaction, &key, share)?;
-        }
-    }
-    transaction.commit().map_err(error)?;
-    Ok(result)
 }
 
 pub fn mounts(database: &Path) -> AppResult<Vec<(String, String, PathBuf, Option<u128>)>> {
@@ -1009,6 +1484,26 @@ mod tests {
         std::env::temp_dir().join(format!("derp-state-{name}-{}", uuid::Uuid::new_v4()))
     }
 
+    fn test_share(token: &str) -> Share {
+        Share {
+            grant_id: Some(GrantId::new()),
+            token: token.into(),
+            path: format!("Shared/{token}.txt"),
+            is_directory: false,
+            editable: false,
+            passcode: None,
+            created_at: 1,
+            root_id: None,
+            source_id: None,
+            root_relative_path: None,
+            unavailable: None,
+            restrictions: None,
+            used_bytes: None,
+            workspace_taskbar_pins: None,
+            workspace_layout_presets: None,
+        }
+    }
+
     #[test]
     fn imports_and_archives_legacy_state() {
         let data_path = temp_data("import");
@@ -1044,6 +1539,7 @@ mod tests {
         );
         let imported_shares = shares(&database(&config), "library").unwrap();
         assert_eq!(imported_shares.len(), 1);
+        assert!(imported_shares[0].grant_id.is_some());
         assert_eq!(imported_shares[0].passcode.as_deref(), Some("ciphertext"));
         assert_eq!(mounts(&database(&config)).unwrap().len(), 1);
         for name in LEGACY_FILES {
@@ -1139,6 +1635,187 @@ mod tests {
         let share = shares(&database(&config), "library").unwrap().remove(0);
         assert_eq!(share.path, "Movies/file.txt");
         assert_eq!(share.source_id, None);
+        fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[test]
+    fn grant_schema_upgrade_backs_up_and_backfills_one_id_across_aliases() {
+        let data_path = temp_data("grant-id-upgrade");
+        fs::create_dir_all(&data_path).unwrap();
+        let mut config = test_config(data_path.clone());
+        initialize(&config).unwrap();
+        crate::resources::initialize_identity(&mut config).unwrap();
+        let canonical = config.library_key.clone();
+        let legacy_db = connection(&database(&config)).unwrap();
+        legacy_db
+            .execute("ALTER TABLE shares DROP COLUMN grant_id", [])
+            .unwrap();
+        for key in [canonical.as_str(), "library"] {
+            legacy_db
+                .execute(
+                    "INSERT INTO shares(
+                       library_key,token,path,is_directory,editable,created_at
+                     ) VALUES(?1,'stable-token','Shared/file.txt',0,0,1)",
+                    [key],
+                )
+                .unwrap();
+        }
+        drop(legacy_db);
+
+        initialize_grants(&config).unwrap();
+
+        let backup = data_path.join("schema-backups").join(GRANT_SCHEMA_BACKUP);
+        assert!(backup.is_file());
+        let backup_db = connection(&backup).unwrap();
+        assert!(!column_exists(&backup_db, "shares", "grant_id").unwrap());
+        drop(backup_db);
+        let migrated_db = connection(&database(&config)).unwrap();
+        let (rows, ids): (i64, i64) = migrated_db
+            .query_row(
+                "SELECT COUNT(*),COUNT(DISTINCT grant_id)
+                 FROM shares WHERE token='stable-token'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((rows, ids), (2, 1));
+        let grant_id: String = migrated_db
+            .query_row(
+                "SELECT grant_id FROM shares WHERE library_key=?1 AND token='stable-token'",
+                [&canonical],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(migrated_db);
+
+        initialize_grants(&config).unwrap();
+
+        let loaded = share_by_token(&database(&config), &canonical, "stable-token")
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.grant_id.unwrap().as_str(), grant_id);
+        let connection = connection(&database(&config)).unwrap();
+        let versions: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version=4",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(versions, 1);
+        drop(connection);
+        fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[test]
+    fn targeted_grant_updates_preserve_unrelated_rows_and_stable_ids() {
+        let data_path = temp_data("targeted-grants");
+        fs::create_dir_all(&data_path).unwrap();
+        let mut config = test_config(data_path.clone());
+        initialize(&config).unwrap();
+        crate::resources::initialize_identity(&mut config).unwrap();
+        initialize_grants(&config).unwrap();
+        let first = test_share("first");
+        let second = test_share("second");
+        let first_id = first.grant_id.clone().unwrap();
+        let second_id = second.grant_id.clone().unwrap();
+        insert_grant(&database(&config), &config.library_key, &first).unwrap();
+        insert_grant(&database(&config), &config.library_key, &second).unwrap();
+        let prepared_db = connection(&database(&config)).unwrap();
+        prepared_db
+            .execute("ALTER TABLE shares ADD COLUMN test_sentinel TEXT", [])
+            .unwrap();
+        prepared_db
+            .execute(
+                "UPDATE shares SET test_sentinel='keep'
+                 WHERE grant_id=?1",
+                [second_id.as_str()],
+            )
+            .unwrap();
+        let second_rowid: i64 = prepared_db
+            .query_row(
+                "SELECT rowid FROM shares WHERE library_key=?1 AND grant_id=?2",
+                params![config.library_key.as_str(), second_id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(prepared_db);
+
+        update_grant(
+            &database(&config),
+            &config.library_key,
+            &first_id,
+            |share| {
+                share.editable = true;
+                share.used_bytes = Some(25);
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let untouched = share_by_id(&database(&config), &config.library_key, &second_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(untouched.token, "second");
+        assert_eq!(untouched.used_bytes, None);
+        let connection = connection(&database(&config)).unwrap();
+        let after_rowid: i64 = connection
+            .query_row(
+                "SELECT rowid FROM shares WHERE library_key=?1 AND grant_id=?2",
+                params![config.library_key.as_str(), second_id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after_rowid, second_rowid);
+        let sentinel: String = connection
+            .query_row(
+                "SELECT test_sentinel FROM shares WHERE library_key=?1 AND grant_id=?2",
+                params![config.library_key.as_str(), second_id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(sentinel, "keep");
+        drop(connection);
+        let changed = share_by_id(&database(&config), &config.library_key, &first_id)
+            .unwrap()
+            .unwrap();
+        assert!(changed.editable);
+        assert_eq!(changed.used_bytes, Some(25));
+        assert!(delete_grant(&database(&config), &config.library_key, &first_id).unwrap());
+        assert!(
+            share_by_id(&database(&config), &config.library_key, &first_id)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            share_by_id(&database(&config), &config.library_key, &second_id)
+                .unwrap()
+                .is_some()
+        );
+        fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[test]
+    fn malformed_grant_row_is_reported_instead_of_becoming_an_empty_list() {
+        let data_path = temp_data("grant-read-error");
+        fs::create_dir_all(&data_path).unwrap();
+        let mut config = test_config(data_path.clone());
+        initialize(&config).unwrap();
+        crate::resources::initialize_identity(&mut config).unwrap();
+        initialize_grants(&config).unwrap();
+        let share = test_share("malformed");
+        insert_grant(&database(&config), &config.library_key, &share).unwrap();
+        let connection = connection(&database(&config)).unwrap();
+        connection
+            .execute(
+                "UPDATE shares SET restrictions_json='{bad' WHERE token='malformed'",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let failure = shares(&database(&config), &config.library_key).unwrap_err();
+        assert!(!failure.1.is_empty());
         fs::remove_dir_all(data_path).unwrap();
     }
 }

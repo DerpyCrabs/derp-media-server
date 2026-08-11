@@ -1,19 +1,26 @@
 use crate::{
-    app::{Shared, emit, parent_logical, roots, safe_upload_name},
+    access::{RequestContext, parent_logical},
+    app::{Shared, roots, safe_upload_name},
+    content_commands::{
+        ChildName, CommandError, CommandErrorCode, ContentCommand, ContentOperation,
+        CreatePathMode, request_digest,
+    },
     error::{AppError, AppResult},
     media,
+    resources::{ReadSurface, ResourceKind, ResourceSummary, ResourceVersion},
 };
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Multipart, Query, State},
-    http::{HeaderValue, header},
+    extract::{DefaultBodyLimit, Extension, Multipart, Query, State},
+    http::{HeaderMap, HeaderValue, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{io::Write, path::Path, time::UNIX_EPOCH};
+use sha2::{Digest, Sha256};
+use std::{io::Write, path::Path};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 
@@ -155,51 +162,122 @@ struct CreateBody {
     base64_content: Option<String>,
 }
 
+fn command_key(headers: &HeaderMap, suffix: &str) -> String {
+    let base = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("request-{}", uuid::Uuid::new_v4()));
+    let value = if suffix.is_empty() {
+        base.clone()
+    } else {
+        format!("{base}:{suffix}")
+    };
+    if value.len() <= 200 {
+        value
+    } else {
+        let digest = Sha256::digest(value.as_bytes());
+        format!("request-{}", hex(&digest))
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn destination_parts(path: &str) -> Result<(String, ChildName), CommandError> {
+    let normalized = path.replace('\\', "/").trim_matches('/').to_string();
+    let name = normalized
+        .rsplit('/')
+        .next()
+        .ok_or_else(|| CommandError::new(CommandErrorCode::InvalidRequest, "Path is required"))?;
+    Ok((parent_logical(&normalized), ChildName::parse(name)?))
+}
+
+async fn owner_summary(
+    state: &crate::app::AppState,
+    path: &str,
+) -> Result<ResourceSummary, CommandError> {
+    state
+        .resources
+        .compatibility()
+        .resolve_filesystem(path, ReadSurface::Library)
+        .await
+        .map_err(Into::into)
+}
+
+fn expected_opaque_version(
+    summary: &ResourceSummary,
+    expected_numeric: Option<f64>,
+) -> Result<ResourceVersion, CommandError> {
+    if let Some(expected) = expected_numeric {
+        let current = summary.legacy.numeric_version().unwrap_or(0.0);
+        if (current - expected).abs() >= 1.0 {
+            return Err(CommandError::new(
+                CommandErrorCode::VersionMismatch,
+                "File changed since the replacement was prepared",
+            ));
+        }
+    }
+    summary.version.clone().ok_or_else(|| {
+        CommandError::new(
+            CommandErrorCode::Conflict,
+            "Filesystem resource has no comparable version",
+        )
+    })
+}
+
 async fn create(
     State(state): State<Shared>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
     Json(body): Json<CreateBody>,
-) -> AppResult<Json<Value>> {
+) -> Result<Json<Value>, CommandError> {
     if body.path.is_empty() {
-        return Err(AppError::bad("Path is required"));
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "Path is required",
+        ));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &parent_logical(&body.path))
-        && !media::editable(&state.config, &runtime, &body.path)
-    {
-        return Err(AppError::forbidden("Path is not in an editable folder"));
-    }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
-    if full.exists() {
-        return Err(AppError::conflict(format!(
-            "A {} with this name already exists",
-            if body.kind.as_deref() == Some("folder") {
-                "folder"
-            } else {
-                "file"
-            }
-        )));
-    }
-    if body.kind.as_deref() == Some("folder") {
-        fs::create_dir_all(full).await.map_err(AppError::io)?;
-        emit(&state, &body.path);
-        return Ok(Json(json!({"success":true,"message":"Folder created"})));
-    }
-    if body.content.is_none() && body.base64_content.is_none() {
-        return Err(AppError::bad("Content is required for files"));
-    }
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).await.map_err(AppError::io)?;
-    }
-    let data = match (body.base64_content, body.content) {
-        (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value),
-        (_, Some(content)) => content.into_bytes(),
-        (Some(_), None) => Vec::new(),
-        (None, None) => unreachable!(),
+    let folder = body.kind.as_deref() == Some("folder");
+    let mode = if folder {
+        CreatePathMode::Folder
+    } else {
+        if body.content.is_none() && body.base64_content.is_none() {
+            return Err(CommandError::new(
+                CommandErrorCode::InvalidRequest,
+                "Content is required for files",
+            ));
+        }
+        let data = match (body.base64_content, body.content) {
+            (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value),
+            (_, Some(content)) => content.into_bytes(),
+            (Some(_), None) => Vec::new(),
+            (None, None) => unreachable!(),
+        };
+        CreatePathMode::CreateFile {
+            content: data,
+            accounted_bytes: 0,
+        }
     };
-    fs::write(full, data).await.map_err(AppError::io)?;
-    crate::path_metadata::content_replaced(&state, &body.path)?;
-    emit(&state, &body.path);
-    Ok(Json(json!({"success":true,"message":"File saved"})))
+    let result = state
+        .content_commands
+        .create_path(
+            &context,
+            command_key(&headers, ""),
+            &body.path,
+            &body.path,
+            mode,
+            None,
+        )
+        .await?;
+    Ok(Json(json!({
+        "success":true,
+        "message":if folder { "Folder created" } else { "File saved" },
+        "receipt":result.receipt,
+        "receipts":result.receipts,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -211,44 +289,23 @@ struct EditBody {
     expected_version: Option<f64>,
 }
 
-async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppResult<Json<Value>> {
+async fn edit(
+    State(state): State<Shared>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Json(body): Json<EditBody>,
+) -> Result<Json<Value>, CommandError> {
     if body.path.is_empty() {
-        return Err(AppError::bad("Path is required"));
-    }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.path) {
-        return Err(AppError::forbidden("Path is not in an editable folder"));
-    }
-    if body.content.is_none() && body.base64_content.is_none() {
-        return Err(AppError::bad("Content is required"));
-    }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
-    let metadata = fs::metadata(&full).await.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            AppError::not_found("File not found")
-        } else {
-            AppError::io(error)
-        }
-    })?;
-    if metadata.is_dir() {
-        return Err(AppError::conflict(
-            "A folder cannot be replaced with a file",
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "Path is required",
         ));
     }
-    if let Some(expected) = body.expected_version {
-        let current = metadata
-            .modified()
-            .ok()
-            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-            .map(|value| value.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
-        // Same NTFS timestamp can round slightly differently across the JSON/client boundary.
-        // A real replacement changes it by at least one millisecond in this API.
-        if (current - expected).abs() >= 1.0 {
-            return Err(AppError::conflict(
-                "File changed since the replacement was prepared",
-            ));
-        }
+    if body.content.is_none() && body.base64_content.is_none() {
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "Content is required",
+        ));
     }
     let data = match (body.base64_content, body.content) {
         (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value),
@@ -256,36 +313,101 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
     };
-    fs::write(full, data).await.map_err(AppError::io)?;
-    crate::path_metadata::content_replaced(&state, &body.path)?;
-    emit(&state, &body.path);
-    Ok(Json(json!({"success":true,"message":"File saved"})))
+    let key = command_key(&headers, "");
+    let transport_digest = request_digest(&json!({
+        "type":"replaceFile","path":body.path.replace('\\', "/").trim_matches('/'),
+        "payloadDigest":hex(&Sha256::digest(&data)),"payloadLength":data.len(),
+        "expectedVersion":body.expected_version,
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&context, &key, &transport_digest, Some(&data))
+        .await?
+    {
+        return Ok(Json(
+            json!({"success":true,"message":"File saved","receipt":receipt}),
+        ));
+    }
+    let target = owner_summary(&state, &body.path).await?;
+    if target.kind != ResourceKind::File {
+        return Err(CommandError::new(
+            CommandErrorCode::Conflict,
+            "A folder cannot be replaced with a file",
+        ));
+    }
+    let expected_version = expected_opaque_version(&target, body.expected_version)?;
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &context,
+            ContentCommand {
+                idempotency_key: key,
+                operation: ContentOperation::ReplaceFile {
+                    target: target.reference,
+                    expected_version,
+                    content: data,
+                    accounted_bytes: 0,
+                },
+            },
+            transport_digest,
+        )
+        .await?;
+    Ok(Json(
+        json!({"success":true,"message":"File saved","receipt":receipt}),
+    ))
 }
 
 #[derive(Deserialize)]
 struct PathBody {
     path: String,
 }
-async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppResult<Json<Value>> {
+async fn delete(
+    State(state): State<Shared>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Json(body): Json<PathBody>,
+) -> Result<Json<Value>, CommandError> {
     if body.path.is_empty() {
-        return Err(AppError::bad("Path is required"));
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "Path is required",
+        ));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.path) {
-        return Err(AppError::forbidden("Path is not in an editable folder"));
+    let key = command_key(&headers, "");
+    let normalized_path = body.path.replace('\\', "/").trim_matches('/').to_string();
+    let transport_digest = request_digest(&json!({"type":"delete","path":normalized_path}))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&context, &key, &transport_digest, None)
+        .await?
+    {
+        return Ok(Json(json!({
+            "success":true,"message":"Deleted successfully","receipt":receipt,
+        })));
     }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
-    let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
-    if metadata.is_dir() {
-        fs::remove_dir_all(full).await.map_err(AppError::io)?;
-    } else {
-        fs::remove_file(full).await.map_err(AppError::io)?;
-    }
-    crate::path_metadata::removed(&state, &body.path).await?;
-    emit(&state, &body.path);
-    Ok(Json(
-        json!({"success":true,"message":if metadata.is_dir(){"Folder deleted"}else{"File deleted"}}),
-    ))
+    let target = owner_summary(&state, &body.path).await?;
+    let folder = target.kind == ResourceKind::Folder;
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &context,
+            ContentCommand {
+                idempotency_key: key,
+                operation: ContentOperation::Delete {
+                    target: target.reference,
+                    expected_version: target.version,
+                    attachment_anchor: None,
+                    quota_refund: 0,
+                },
+            },
+            transport_digest,
+        )
+        .await?;
+    Ok(Json(json!({
+        "success":true,
+        "message":if folder { "Folder deleted" } else { "File deleted" },
+        "receipt":receipt,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -296,48 +418,54 @@ struct RenameBody {
 }
 async fn rename(
     State(state): State<Shared>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
     Json(body): Json<RenameBody>,
-) -> AppResult<Json<Value>> {
+) -> Result<Json<Value>, CommandError> {
     if body.old_path.is_empty() || body.new_path.is_empty() {
-        return Err(AppError::bad("Both oldPath and newPath are required"));
-    }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.old_path) {
-        return Err(AppError::forbidden(
-            "Cannot rename: Source path is not in an editable folder",
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "Both oldPath and newPath are required",
         ));
     }
-    if !media::editable(&state.config, &runtime, &body.new_path) {
-        return Err(AppError::forbidden(
-            "Cannot rename: Destination path is not in an editable folder",
-        ));
-    }
-    let old = media::resolve(&state.config, &runtime, &body.old_path)?.full;
-    let new = media::resolve(&state.config, &runtime, &body.new_path)?.full;
-    if new.exists() {
-        return Err(AppError::conflict(
-            "Destination file or directory already exists",
-        ));
-    }
-    fs::rename(old, new).await.map_err(AppError::io)?;
-    if let Err(error) = state
-        .resources
-        .record_move(&body.old_path, &body.new_path)
-        .await
+    let key = command_key(&headers, "");
+    let transport_digest = request_digest(&json!({
+        "type":"move",
+        "sourcePath":body.old_path.replace('\\', "/").trim_matches('/'),
+        "destinationPath":body.new_path.replace('\\', "/").trim_matches('/'),
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&context, &key, &transport_digest, None)
+        .await?
     {
-        eprintln!(
-            "Warning: file rename completed but Resource identity reconciliation will retry from observation: {}",
-            error.message
-        );
+        return Ok(Json(json!({
+            "success":true,"message":"Renamed successfully","receipt":receipt,
+        })));
     }
-    crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await?;
-    emit(&state, &body.old_path);
-    if parent_logical(&body.old_path) != parent_logical(&body.new_path) {
-        emit(&state, &body.new_path);
-    }
-    Ok(Json(
-        json!({"success":true,"message":"Renamed successfully"}),
-    ))
+    let source = owner_summary(&state, &body.old_path).await?;
+    let (parent_path, target_name) = destination_parts(&body.new_path)?;
+    let parent = owner_summary(&state, &parent_path).await?;
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &context,
+            ContentCommand {
+                idempotency_key: key,
+                operation: ContentOperation::Move {
+                    source: source.reference,
+                    destination_parent: parent.reference,
+                    target_name,
+                    expected_source_version: source.version,
+                    expected_destination_parent_version: None,
+                },
+            },
+            transport_digest,
+        )
+        .await?;
+    Ok(Json(json!({
+        "success":true,"message":"Renamed successfully","receipt":receipt,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -346,121 +474,145 @@ struct CopyBody {
     source_path: String,
     destination_dir: String,
 }
-async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppResult<Json<Value>> {
+async fn copy(
+    State(state): State<Shared>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    Json(body): Json<CopyBody>,
+) -> Result<Json<Value>, CommandError> {
     if body.source_path.is_empty() {
-        return Err(AppError::bad("sourcePath is required"));
-    }
-    let runtime = roots(&state);
-    let source = media::resolve(&state.config, &runtime, &body.source_path)?.full;
-    let name = source
-        .file_name()
-        .ok_or_else(|| AppError::bad("Invalid source path"))?
-        .to_owned();
-    let logical = if body.destination_dir.is_empty() {
-        name.to_string_lossy().into_owned()
-    } else {
-        format!("{}/{}", body.destination_dir, name.to_string_lossy())
-    };
-    if !media::editable(&state.config, &runtime, &logical) {
-        return Err(AppError::forbidden(
-            "Cannot copy: Destination is not in an editable folder",
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "sourcePath is required",
         ));
     }
-    let destination = media::resolve(&state.config, &runtime, &logical)?.full;
-    if destination.exists() {
-        return Err(AppError::conflict(
-            "Destination file or directory already exists",
-        ));
+    let key = command_key(&headers, "");
+    let transport_digest = request_digest(&json!({
+        "type":"copy","sourcePath":body.source_path.replace('\\', "/").trim_matches('/'),
+        "destinationDir":body.destination_dir.replace('\\', "/").trim_matches('/'),
+    }))?;
+    if let Some(receipt) = state
+        .content_commands
+        .replay_request(&context, &key, &transport_digest, None)
+        .await?
+    {
+        return Ok(Json(json!({
+            "success":true,"message":"Copied successfully","receipt":receipt,
+        })));
     }
-    copy_recursive(&source, &destination).await?;
-    emit(&state, &logical);
-    Ok(Json(
-        json!({"success":true,"message":"Copied successfully"}),
-    ))
+    let source = owner_summary(&state, &body.source_path).await?;
+    let source_name = body
+        .source_path
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .ok_or_else(|| CommandError::new(CommandErrorCode::InvalidRequest, "Invalid source path"))?
+        .to_string();
+    let parent = owner_summary(&state, &body.destination_dir).await?;
+    let receipt = state
+        .content_commands
+        .execute_with_request_digest(
+            &context,
+            ContentCommand {
+                idempotency_key: key,
+                operation: ContentOperation::Copy {
+                    source: source.reference,
+                    destination_parent: parent.reference,
+                    target_name: ChildName::parse(source_name)?,
+                    expected_source_version: source.version,
+                    expected_destination_parent_version: None,
+                },
+            },
+            transport_digest,
+        )
+        .await?;
+    Ok(Json(json!({
+        "success":true,"message":"Copied successfully","receipt":receipt,
+    })))
 }
 
-async fn copy_recursive(source: &Path, destination: &Path) -> AppResult<()> {
-    let metadata = fs::symlink_metadata(source).await.map_err(AppError::io)?;
-    if metadata.file_type().is_symlink() {
-        return Err(AppError::forbidden(
-            "Cannot copy symbolic links through a media directory",
-        ));
-    }
-    if metadata.is_file() {
-        fs::copy(source, destination).await.map_err(AppError::io)?;
-    } else {
-        fs::create_dir_all(destination)
-            .await
-            .map_err(AppError::io)?;
-        let mut directory = fs::read_dir(source).await.map_err(AppError::io)?;
-        while let Some(entry) = directory.next_entry().await.map_err(AppError::io)? {
-            Box::pin(copy_recursive(
-                &entry.path(),
-                &destination.join(entry.file_name()),
-            ))
-            .await?;
-        }
-    }
-    Ok(())
-}
-
-async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppResult<Json<Value>> {
+async fn upload(
+    State(state): State<Shared>,
+    Extension(context): Extension<RequestContext>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, CommandError> {
     let mut target = String::new();
     let mut files = Vec::new();
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|error| AppError::bad(error.to_string()))?
+        .map_err(|error| CommandError::new(CommandErrorCode::InvalidRequest, error.to_string()))?
     {
         if field.name() == Some("targetDir") {
-            target = field
-                .text()
-                .await
-                .map_err(|error| AppError::bad(error.to_string()))?;
+            target = field.text().await.map_err(|error| {
+                CommandError::new(CommandErrorCode::InvalidRequest, error.to_string())
+            })?;
         } else if let Some(name) = field.file_name().map(safe_upload_name) {
             files.push((
                 name,
-                field
-                    .bytes()
-                    .await
-                    .map_err(|error| AppError::bad(error.to_string()))?,
+                field.bytes().await.map_err(|error| {
+                    CommandError::new(CommandErrorCode::InvalidRequest, error.to_string())
+                })?,
             ));
         }
     }
     if files.is_empty() {
-        return Err(AppError::bad("No files provided"));
+        return Err(CommandError::new(
+            CommandErrorCode::InvalidRequest,
+            "No files provided",
+        ));
     }
-    let runtime = roots(&state);
     let mut count = 0;
-    let mut broadcasts = std::collections::HashMap::new();
-    for (name, data) in files {
-        let logical = if target.is_empty() {
+    let mut receipts = Vec::new();
+    for (index, (name, data)) in files.into_iter().enumerate() {
+        let path = if target.trim_matches(['/', '\\']).is_empty() {
             name
         } else {
-            format!("{target}/{name}")
+            format!("{}/{}", target.trim_matches(['/', '\\']), name)
         };
-        if !media::editable(&state.config, &runtime, &logical)
-            && !media::editable(&state.config, &runtime, &parent_logical(&logical))
-        {
-            continue;
+        let result = state
+            .content_commands
+            .create_path(
+                &context,
+                command_key(&headers, &index.to_string()),
+                &path,
+                &path,
+                CreatePathMode::UploadFile {
+                    content: data.to_vec(),
+                    accounted_bytes: 0,
+                },
+                None,
+            )
+            .await;
+        match result {
+            Ok(result) => {
+                receipts.extend(result.receipts);
+                count += 1;
+            }
+            Err(error) if error.code == CommandErrorCode::Forbidden => {}
+            Err(error) => return Err(error),
         }
-        let full = media::resolve(&state.config, &runtime, &logical)?.full;
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).await.map_err(AppError::io)?;
-        }
-        fs::write(full, data).await.map_err(AppError::io)?;
-        broadcasts.insert(parent_logical(&logical), logical);
-        count += 1;
     }
     if count == 0 {
-        return Err(AppError::forbidden(
+        return Err(CommandError::new(
+            CommandErrorCode::Forbidden,
             "No files were uploaded — target path is not editable",
         ));
     }
-    for logical in broadcasts.values() {
-        emit(&state, logical);
-    }
-    Ok(Json(json!({"success":true,"uploaded":count})))
+    Ok(Json(
+        json!({"success":true,"uploaded":count,"receipts":receipts}),
+    ))
+}
+
+async fn retry_command(
+    State(state): State<Shared>,
+    Extension(context): Extension<RequestContext>,
+    axum::extract::Path(command_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, CommandError> {
+    let receipt = state.content_commands.retry(&context, &command_id).await?;
+    Ok(Json(json!({"success":true,"receipt":receipt})))
 }
 
 #[derive(Deserialize)]
@@ -547,7 +699,10 @@ fn zip_body(source: std::path::PathBuf) -> Body {
             let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated)
                 .compression_level(Some(1));
-            for entry in walkdir::WalkDir::new(&source) {
+            for entry in walkdir::WalkDir::new(&source)
+                .into_iter()
+                .filter_entry(|entry| zip_path_visible(entry.path()))
+            {
                 let entry = entry?;
                 if entry.depth() == 0 {
                     continue;
@@ -582,6 +737,10 @@ fn zip_body(source: std::path::PathBuf) -> Body {
     })
 }
 
+pub(crate) fn zip_path_visible(path: &Path) -> bool {
+    !crate::media::command_staging_owned(path)
+}
+
 pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/files", get(list))
@@ -595,6 +754,10 @@ pub fn router() -> Router<Shared> {
         .route(
             "/api/files/upload",
             post(upload).layer(DefaultBodyLimit::max(10_000_000_000usize)),
+        )
+        .route(
+            "/api/content-commands/{command_id}/retry",
+            post(retry_command),
         )
         .route("/api/files/download", get(download))
         .route("/api/virtual-directory/action", post(virtual_action))

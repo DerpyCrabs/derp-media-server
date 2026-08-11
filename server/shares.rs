@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -32,9 +33,30 @@ pub struct Restrictions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_upload_bytes: Option<f64>,
 }
+
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct GrantId(String);
+
+impl GrantId {
+    pub(crate) fn new() -> Self {
+        Self(format!("grant-{}", uuid::Uuid::new_v4()))
+    }
+
+    pub(crate) fn from_stored(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Share {
+    #[serde(default, skip_serializing)]
+    pub grant_id: Option<GrantId>,
     pub token: String,
     pub path: String,
     pub is_directory: bool,
@@ -124,10 +146,41 @@ fn logical_path(root_count: usize, root: &MediaRoot, relative: &str) -> String {
     }
 }
 
+fn normalized_logical_path(path: &str) -> String {
+    path.replace('\\', "/").trim_matches('/').to_string()
+}
+
+fn logical_path_eq(left: &str, right: &str) -> bool {
+    if cfg!(windows) {
+        left.eq_ignore_ascii_case(right)
+    } else {
+        left == right
+    }
+}
+
+fn matching_logical_suffix<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
+    if logical_path_eq(path, prefix) {
+        return Some("");
+    }
+    let split = prefix.len();
+    (path.as_bytes().get(split) == Some(&b'/') && logical_path_eq(path.get(..split)?, prefix))
+        .then(|| &path[split..])
+}
+
+fn logical_path_contains(root: &str, candidate: &str) -> bool {
+    let root = normalized_logical_path(root);
+    let candidate = normalized_logical_path(candidate);
+    root.is_empty() || matching_logical_suffix(&candidate, &root).is_some()
+}
+
+fn logical_paths_overlap(left: &str, right: &str) -> bool {
+    logical_path_contains(left, right) || logical_path_contains(right, left)
+}
+
 fn rewritten_share_path(path: &str, old_root: &str, new_root: &str) -> Option<String> {
-    let path = path.replace('\\', "/").trim_matches('/').to_string();
-    let old_root = old_root.replace('\\', "/").trim_matches('/').to_string();
-    let new_root = new_root.replace('\\', "/").trim_matches('/').to_string();
+    let path = normalized_logical_path(path);
+    let old_root = normalized_logical_path(old_root);
+    let new_root = normalized_logical_path(new_root);
     if old_root.is_empty() {
         return Some(if new_root.is_empty() || path.is_empty() {
             format!("{new_root}{path}")
@@ -135,15 +188,15 @@ fn rewritten_share_path(path: &str, old_root: &str, new_root: &str) -> Option<St
             format!("{new_root}/{path}")
         });
     }
-    if path == old_root {
+    let suffix = matching_logical_suffix(&path, &old_root)?;
+    if suffix.is_empty() {
         return Some(new_root);
     }
-    path.strip_prefix(&(old_root + "/")).map(|suffix| {
-        if new_root.is_empty() {
-            suffix.to_string()
-        } else {
-            format!("{new_root}/{suffix}")
-        }
+    let suffix = suffix.trim_start_matches('/');
+    Some(if new_root.is_empty() {
+        suffix.to_string()
+    } else {
+        format!("{new_root}/{suffix}")
     })
 }
 
@@ -225,15 +278,15 @@ fn persisted_root(
     config: &Config,
     all: &[MediaRoot],
     share: &Share,
-) -> Option<(String, MediaRoot)> {
+) -> AppResult<Option<(String, MediaRoot)>> {
     let binding = state_db::share_source_aliases(
         &state_db::database(config),
         &config.library_key,
         share.source_id.as_deref(),
         share.root_id.as_deref(),
-    );
+    )?;
     match binding {
-        Ok(Some(binding)) => {
+        Some(binding) => {
             let mut current = all.iter().filter(|root| {
                 binding.configured_id.as_deref().is_some_and(|configured| {
                     root.id.strip_prefix("configured:") == Some(configured)
@@ -242,57 +295,59 @@ fn persisted_root(
             });
             let direct = current.next().cloned();
             if current.next().is_some() {
-                return None;
+                return Ok(None);
             }
             if let Some(root) = direct {
-                return Some((binding.source_id, root));
+                return Ok(Some((binding.source_id, root)));
             }
             if share.source_id.is_some() {
-                return None;
+                return Ok(None);
             }
             let mut matches = all
                 .iter()
                 .filter(|root| binding.legacy_ids.iter().any(|alias| alias == &root.id));
-            let root = matches.next()?.clone();
+            let Some(root) = matches.next().cloned() else {
+                return Ok(None);
+            };
             if matches.next().is_some() {
-                return None;
+                return Ok(None);
             }
-            Some((binding.source_id, root))
+            Ok(Some((binding.source_id, root)))
         }
-        Ok(None) if share.source_id.is_none() => {
-            let root_id = share.root_id.as_deref()?;
+        None if share.source_id.is_none() => {
+            let Some(root_id) = share.root_id.as_deref() else {
+                return Ok(None);
+            };
             let mut matches = all.iter().filter(|root| root.id == root_id);
-            let root = matches.next()?.clone();
+            let Some(root) = matches.next().cloned() else {
+                return Ok(None);
+            };
             if matches.next().is_some() {
-                return None;
+                return Ok(None);
             }
-            Some((String::new(), root))
+            Ok(Some((String::new(), root)))
         }
-        Ok(None) | Err(_) => None,
+        None => Ok(None),
     }
 }
 
-pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
-    let mut list = raw(config).unwrap_or_default();
+fn hydrate(config: &Config, runtime: &[MediaRoot], mut list: Vec<Share>) -> AppResult<Vec<Share>> {
     let all = roots(config, runtime);
     let mut repairs = Vec::new();
     for share in &mut list {
         let resolved = if let Some(relative) = share.root_relative_path.clone() {
-            persisted_root(config, &all, share).map(|(source_id, root)| (source_id, root, relative))
+            persisted_root(config, &all, share)?
+                .map(|(source_id, root)| (source_id, root, relative))
+        } else if let Ok(resolved) = media::resolve(config, runtime, &share.path) {
+            state_db::share_source_aliases(
+                &state_db::database(config),
+                &config.library_key,
+                None,
+                Some(&resolved.root.id),
+            )?
+            .map(|binding| (binding.source_id, resolved.root, resolved.relative))
         } else {
-            media::resolve(config, runtime, &share.path)
-                .ok()
-                .and_then(|resolved| {
-                    state_db::share_source_aliases(
-                        &state_db::database(config),
-                        &config.library_key,
-                        None,
-                        Some(&resolved.root.id),
-                    )
-                    .ok()
-                    .flatten()
-                    .map(|binding| (binding.source_id, resolved.root, resolved.relative))
-                })
+            None
         };
         if let Some((source_id, root, relative)) = resolved {
             let path = logical_path(all.len(), &root, &relative);
@@ -305,7 +360,10 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
                     || share.path != path)
             {
                 repairs.push((
-                    share.token.clone(),
+                    share
+                        .grant_id
+                        .clone()
+                        .ok_or_else(|| AppError::internal("Grant internal ID is missing"))?,
                     source_id.clone(),
                     root.id.clone(),
                     relative.clone(),
@@ -330,20 +388,44 @@ pub fn read(config: &Config, runtime: &[MediaRoot]) -> Vec<Share> {
             share.passcode = Some(plain)
         }
     }
-    for (token, source_id, root_id, relative, path, pins, presets) in repairs {
-        let _ = state_db::repair_share_source(
+    for (grant_id, source_id, root_id, relative, path, pins, presets) in repairs {
+        state_db::repair_share_source(
             &state_db::database(config),
             &config.library_key,
-            &token,
+            &grant_id,
             &source_id,
             &root_id,
             &relative,
             &path,
             &pins,
             &presets,
-        );
+        )?;
     }
-    list
+    Ok(list)
+}
+
+pub fn initialize(config: &Config) -> Result<(), String> {
+    state_db::initialize_grants(config)
+}
+
+pub fn read(config: &Config, runtime: &[MediaRoot]) -> AppResult<Vec<Share>> {
+    hydrate(config, runtime, raw(config)?)
+}
+
+pub fn find(config: &Config, runtime: &[MediaRoot], token: &str) -> AppResult<Option<Share>> {
+    let share = state_db::share_by_token(&state_db::database(config), &config.library_key, token)?;
+    let mut hydrated = hydrate(config, runtime, share.into_iter().collect())?;
+    Ok(hydrated.pop())
+}
+
+pub fn find_by_id(
+    config: &Config,
+    runtime: &[MediaRoot],
+    grant_id: &GrantId,
+) -> AppResult<Option<Share>> {
+    let share = state_db::share_by_id(&state_db::database(config), &config.library_key, grant_id)?;
+    let mut hydrated = hydrate(config, runtime, share.into_iter().collect())?;
+    Ok(hydrated.pop())
 }
 
 fn canonical_root_locator(path: &Path) -> Option<String> {
@@ -352,6 +434,21 @@ fn canonical_root_locator(path: &Path) -> Option<String> {
 fn raw(config: &Config) -> AppResult<Vec<Share>> {
     state_db::shares(&state_db::database(config), &config.library_key)
 }
+
+fn raw_find(config: &Config, token: &str) -> AppResult<Option<Share>> {
+    state_db::share_by_token(&state_db::database(config), &config.library_key, token)
+}
+
+fn grant_id_for_token(config: &Config, token: &str) -> AppResult<Option<GrantId>> {
+    raw_find(config, token)?
+        .map(|share| {
+            share
+                .grant_id
+                .ok_or_else(|| AppError::internal("Grant internal ID is missing"))
+        })
+        .transpose()
+}
+
 pub fn create(
     config: &Config,
     runtime: &[MediaRoot],
@@ -374,6 +471,7 @@ pub fn create(
         None
     };
     let mut share = Share {
+        grant_id: Some(GrantId::new()),
         token: token(),
         path: path.clone(),
         is_directory,
@@ -389,19 +487,15 @@ pub fn create(
         workspace_taskbar_pins: None,
         workspace_layout_presets: None,
     };
-    state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
-        list.push(share.clone());
-        Ok(())
-    })?;
+    state_db::insert_grant(&state_db::database(config), &config.library_key, &share)?;
     share.passcode = plain;
     Ok(share)
 }
 pub fn delete(config: &Config, token: &str) -> AppResult<bool> {
-    state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
-        let len = list.len();
-        list.retain(|share| share.token != token);
-        Ok(len != list.len())
-    })
+    let Some(grant_id) = grant_id_for_token(config, token)? else {
+        return Ok(false);
+    };
+    state_db::delete_grant(&state_db::database(config), &config.library_key, &grant_id)
 }
 pub fn update(
     config: &Config,
@@ -410,23 +504,25 @@ pub fn update(
     editable: Option<bool>,
     restrictions: Option<Restrictions>,
 ) -> AppResult<Option<Share>> {
-    let changed =
-        state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
-            let Some(share) = list.iter_mut().find(|share| share.token == token) else {
-                return Ok(false);
-            };
+    let Some(grant_id) = grant_id_for_token(config, token)? else {
+        return Ok(None);
+    };
+    let changed = state_db::update_grant(
+        &state_db::database(config),
+        &config.library_key,
+        &grant_id,
+        |share| {
             if let Some(value) = editable {
                 share.editable = value;
             }
             if restrictions.is_some() {
                 share.restrictions = restrictions;
             }
-            Ok(true)
-        })?;
-    if !changed {
-        return Ok(None);
-    }
-    Ok(read(config, runtime).into_iter().find(|s| s.token == token))
+            Ok(())
+        },
+    )?;
+    let mut hydrated = hydrate(config, runtime, changed.into_iter().collect())?;
+    Ok(hydrated.pop())
 }
 pub fn update_workspace(
     config: &Config,
@@ -435,40 +531,89 @@ pub fn update_workspace(
     pins: Option<Value>,
     presets: Option<Value>,
 ) -> AppResult<Option<Share>> {
-    let changed =
-        state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
-            let Some(share) = list.iter_mut().find(|share| share.token == token) else {
-                return Ok(false);
-            };
+    let Some(grant_id) = grant_id_for_token(config, token)? else {
+        return Ok(None);
+    };
+    let changed = state_db::update_grant(
+        &state_db::database(config),
+        &config.library_key,
+        &grant_id,
+        |share| {
             if let Some(value) = pins {
                 share.workspace_taskbar_pins = Some(value);
             }
             if let Some(value) = presets {
                 share.workspace_layout_presets = Some(value);
             }
-            Ok(true)
-        })?;
-    if !changed {
-        return Ok(None);
+            Ok(())
+        },
+    )?;
+    let mut hydrated = hydrate(config, runtime, changed.into_iter().collect())?;
+    Ok(hydrated.pop())
+}
+
+pub fn relocate_content(
+    config: &Config,
+    runtime: &[MediaRoot],
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<Vec<GrantId>> {
+    let old_path = normalized_logical_path(old_path);
+    let new_path = normalized_logical_path(new_path);
+    if old_path == new_path {
+        return Ok(Vec::new());
     }
-    Ok(read(config, runtime)
-        .into_iter()
-        .find(|share| share.token == token))
+
+    let database = state_db::database(config);
+    let mut source_ids = HashMap::new();
+    for root in roots(config, runtime) {
+        let source_id =
+            state_db::share_source_aliases(&database, &config.library_key, None, Some(&root.id))?
+                .map(|binding| binding.source_id);
+        source_ids.insert(root.id, source_id);
+    }
+    let mut affected = Vec::new();
+    state_db::mutate_grants(&database, &config.library_key, |share| {
+        let original_path = share.path.clone();
+        let rewritten_root = rewritten_share_path(&original_path, &old_path, &new_path);
+        let relevant = logical_paths_overlap(&original_path, &old_path)
+            || logical_paths_overlap(&original_path, &new_path);
+        let original_pins = share.workspace_taskbar_pins.clone();
+        let original_presets = share.workspace_layout_presets.clone();
+        if rewritten_root.is_some()
+            || (logical_path_contains(&original_path, &old_path)
+                && logical_path_contains(&original_path, &new_path))
+        {
+            rewrite_workspace_paths(share, &old_path, &new_path);
+        }
+        let mut did_change = share.workspace_taskbar_pins != original_pins
+            || share.workspace_layout_presets != original_presets;
+
+        if let Some(rewritten) = rewritten_root
+            && rewritten != original_path
+        {
+            let resolved = media::resolve(config, runtime, &rewritten)?;
+            let source_id = source_ids.get(&resolved.root.id).cloned().flatten();
+            share.path = rewritten;
+            share.root_id = Some(resolved.root.id);
+            share.source_id = source_id;
+            share.root_relative_path = Some(resolved.relative);
+            did_change = true;
+        }
+
+        if relevant || did_change {
+            affected.push(
+                share
+                    .grant_id
+                    .clone()
+                    .ok_or_else(|| AppError::internal("Grant internal ID is missing"))?,
+            );
+        }
+        Ok(did_change)
+    })?;
+    Ok(affected)
 }
-pub fn add_used_bytes(config: &Config, token: &str, delta: i64) -> AppResult<bool> {
-    state_db::mutate_shares(&state_db::database(config), &config.library_key, |list| {
-        let Some(share) = list.iter_mut().find(|share| share.token == token) else {
-            return Ok(false);
-        };
-        let current = share.used_bytes.unwrap_or(0);
-        share.used_bytes = Some(if delta >= 0 {
-            current.saturating_add(delta as u64)
-        } else {
-            current.saturating_sub(delta.unsigned_abs())
-        });
-        Ok(true)
-    })
-}
+
 fn token() -> String {
     let mut b = [0; 16];
     rand::fill(&mut b);
@@ -665,6 +810,7 @@ mod tests {
 
     fn directory_share(path: impl Into<String>) -> Share {
         Share {
+            grant_id: Some(GrantId::new()),
             token: "grant".into(),
             path: path.into(),
             is_directory: true,
@@ -702,6 +848,22 @@ mod tests {
                 Err(error) => panic!("failed to create directory symlink: {error}"),
             }
         }
+    }
+
+    #[test]
+    fn grant_id_stays_internal_to_share_wire_json() {
+        let share = directory_share("Shared");
+        let value = serde_json::to_value(&share).unwrap();
+        assert!(value.get("grantId").is_none());
+        let restored: Share = serde_json::from_value(serde_json::json!({
+            "token":"legacy-token",
+            "path":"Shared",
+            "isDirectory":true,
+            "editable":false,
+            "createdAt":1
+        }))
+        .unwrap();
+        assert!(restored.grant_id.is_none());
     }
 
     #[test]
@@ -757,6 +919,124 @@ mod tests {
             rewritten_share_path("Other/child.md", "Media", "Cinema"),
             None
         );
+        if cfg!(windows) {
+            assert_eq!(
+                rewritten_share_path("Parent/Sub/Child.MD", "pArEnT", "Requested"),
+                Some("Requested/Sub/Child.MD".into())
+            );
+            assert!(logical_path_contains("pArEnT", "Parent/Sub/Child.MD"));
+            assert!(!logical_path_contains("pArEnT", "Parentish/Sub/Child.MD"));
+        }
+    }
+
+    #[test]
+    fn relocate_content_updates_nested_grant_root_and_replays_with_stable_scope() {
+        let base = std::env::temp_dir().join(format!(
+            "derp-share-content-relocation-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media = base.join("media");
+        fs::create_dir_all(media.join("Parent").join("Shared")).unwrap();
+        fs::create_dir_all(media.join("Other")).unwrap();
+        fs::write(
+            media.join("Parent").join("Shared").join("inside.md"),
+            "inside",
+        )
+        .unwrap();
+        let mut config = config(
+            base.join("data"),
+            vec![root("configured:media", "Media", media.clone())],
+            "legacy",
+        );
+        state_db::initialize(&config).unwrap();
+        crate::resources::initialize_identity(&mut config).unwrap();
+        initialize(&config).unwrap();
+        let created = create(&config, &[], "Parent/Shared".into(), true, true, None).unwrap();
+        let unrelated = create(&config, &[], "Other".into(), true, false, None).unwrap();
+        let pin = serde_json::json!({
+            "path":"Parent/Shared/inside.md",
+            "source":{"sharePath":"Parent/Shared"},
+            "resourceTarget":{"legacyLocator":"Parent/Shared/inside.md"}
+        });
+        update_workspace(
+            &config,
+            &[],
+            &created.token,
+            Some(serde_json::json!([pin.clone()])),
+            Some(serde_json::json!([{
+                "snapshot":{
+                    "windows":[{
+                        "iconPath":"Parent/Shared/inside.md",
+                        "initialState":{
+                            "dir":"Parent/Shared",
+                            "viewing":"Parent/Shared/inside.md"
+                        },
+                        "resourceTarget":{"legacyLocator":"Parent/Shared/inside.md"}
+                    }],
+                    "pinnedTaskbarItems":[pin]
+                }
+            }])),
+        )
+        .unwrap()
+        .unwrap();
+        fs::rename(media.join("Parent"), media.join("Renamed")).unwrap();
+
+        let expected = vec![created.grant_id.clone().unwrap()];
+        let old_request = if cfg!(windows) { "pArEnT" } else { "Parent" };
+        assert_eq!(
+            relocate_content(&config, &[], old_request, "Renamed").unwrap(),
+            expected
+        );
+        assert_eq!(
+            relocate_content(&config, &[], old_request, "Renamed").unwrap(),
+            expected
+        );
+
+        let relocated = find(&config, &[], &created.token).unwrap().unwrap();
+        assert_eq!(relocated.path, "Renamed/Shared");
+        assert_eq!(
+            relocated.root_relative_path.as_deref(),
+            Some("Renamed/Shared")
+        );
+        assert_eq!(relocated.token, created.token);
+        assert_eq!(
+            relocated.workspace_taskbar_pins.as_ref().unwrap()[0]["path"],
+            "Renamed/Shared/inside.md"
+        );
+        assert_eq!(
+            relocated.workspace_layout_presets.as_ref().unwrap()[0]["snapshot"]["windows"][0]["initialState"]
+                ["viewing"],
+            "Renamed/Shared/inside.md"
+        );
+        let untouched = find(&config, &[], &unrelated.token).unwrap().unwrap();
+        assert_eq!(untouched.path, "Other");
+
+        fs::rename(
+            media.join("Renamed").join("Shared").join("inside.md"),
+            media.join("Other").join("inside.md"),
+        )
+        .unwrap();
+        let affected =
+            relocate_content(&config, &[], "Renamed/Shared/inside.md", "Other/inside.md").unwrap();
+        assert!(affected.contains(created.grant_id.as_ref().unwrap()));
+        let after_scope_exit = find(&config, &[], &created.token).unwrap().unwrap();
+        assert_eq!(
+            after_scope_exit.workspace_taskbar_pins.as_ref().unwrap()[0]["path"],
+            "Renamed/Shared/inside.md"
+        );
+
+        let connection = state_db::connection(&state_db::database(&config)).unwrap();
+        let (aliases, paths): (i64, i64) = connection
+            .query_row(
+                "SELECT COUNT(*),COUNT(DISTINCT path) FROM shares WHERE grant_id=?1",
+                [created.grant_id.as_ref().unwrap().as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(aliases >= 2);
+        assert_eq!(paths, 1);
+        drop(connection);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -778,6 +1058,7 @@ mod tests {
         fs::create_dir_all(media.join("Shared")).unwrap();
         let created = create(&config, &[], "Shared".into(), true, false, None).unwrap();
         let loaded = read(&config, &[])
+            .unwrap()
             .into_iter()
             .find(|share| share.token == created.token)
             .unwrap();
@@ -819,14 +1100,11 @@ mod tests {
                 "legacyLocator":"Movies/nested/child.md"
             }
         });
-        state_db::mutate_shares(
+        state_db::update_grant(
             &state_db::database(&initial),
             &initial.library_key,
-            |shares| {
-                let share = shares
-                    .iter_mut()
-                    .find(|share| share.token == created.token)
-                    .unwrap();
+            created.grant_id.as_ref().unwrap(),
+            |share| {
                 share.workspace_taskbar_pins = Some(serde_json::json!([pin.clone()]));
                 share.workspace_layout_presets = Some(serde_json::json!([{
                     "id":"preset", "name":"Saved", "scope":format!("share:{}", created.token),
@@ -851,6 +1129,7 @@ mod tests {
                 Ok(())
             },
         )
+        .unwrap()
         .unwrap();
 
         let mut renamed = config(
@@ -864,6 +1143,7 @@ mod tests {
         state_db::initialize(&renamed).unwrap();
         crate::resources::initialize_identity(&mut renamed).unwrap();
         let after_rename = read(&renamed, &[])
+            .unwrap()
             .into_iter()
             .find(|share| share.token == created.token)
             .unwrap();
@@ -924,18 +1204,16 @@ mod tests {
             "Cinema/nested/child.md"
         );
 
-        state_db::mutate_shares(
+        state_db::update_grant(
             &state_db::database(&renamed),
             &renamed.library_key,
-            |shares| {
-                shares
-                    .iter_mut()
-                    .find(|share| share.token == created.token)
-                    .unwrap()
-                    .source_id = None;
+            created.grant_id.as_ref().unwrap(),
+            |share| {
+                share.source_id = None;
                 Ok(())
             },
         )
+        .unwrap()
         .unwrap();
 
         let mut changed_id = config(
@@ -946,6 +1224,7 @@ mod tests {
         state_db::initialize(&changed_id).unwrap();
         crate::resources::initialize_identity(&mut changed_id).unwrap();
         let after_id_change = read(&changed_id, &[])
+            .unwrap()
             .into_iter()
             .find(|share| share.token == created.token)
             .unwrap();
@@ -957,20 +1236,19 @@ mod tests {
         );
         assert_eq!(after_id_change.unavailable, Some(false));
 
-        state_db::mutate_shares(
+        state_db::update_grant(
             &state_db::database(&changed_id),
             &changed_id.library_key,
-            |shares| {
-                shares
-                    .iter_mut()
-                    .find(|share| share.token == created.token)
-                    .unwrap()
-                    .source_id = Some("missing-source".into());
+            created.grant_id.as_ref().unwrap(),
+            |share| {
+                share.source_id = Some("missing-source".into());
                 Ok(())
             },
         )
+        .unwrap()
         .unwrap();
         let missing_binding = read(&changed_id, &[])
+            .unwrap()
             .into_iter()
             .find(|share| share.token == created.token)
             .unwrap();
@@ -1012,6 +1290,7 @@ mod tests {
         crate::resources::initialize_identity(&mut changed).unwrap();
 
         let restored = read(&changed, &[])
+            .unwrap()
             .into_iter()
             .find(|share| share.token == created.token)
             .unwrap();
@@ -1031,6 +1310,7 @@ mod tests {
         state_db::initialize(&reused_only).unwrap();
         crate::resources::initialize_identity(&mut reused_only).unwrap();
         let unavailable = read(&reused_only, &[])
+            .unwrap()
             .into_iter()
             .find(|share| share.token == created.token)
             .unwrap();
