@@ -1,6 +1,6 @@
 # Derp Desk Roadmap
 
-Status: active; Stage 1 complete
+Status: active; Stage 2 complete
 Initiative branch: `derp-desk`
 Last updated: 2026-08-11
 
@@ -240,14 +240,14 @@ openResource(ref: ResourceRef, intent: OpenIntent, context: OpenContext): OpenPl
 
 ### Work packages
 
-- [ ] **2.1 Define serialization contract.** Define LibraryId, SourceId, global ResourceId, ResourceRef, mutable ResourceLocator, opaque ResourceVersion, ResourceSummary, ResourceKind, provider-supported operations, and typed errors in Rust and TypeScript. Add shared JSON fixtures so shapes cannot drift. Never infer version client-side from path or mtime.
-- [ ] **2.2 Add durable Library/Source identity.** Persist IDs independent of display name, absolute path, root count, or root order. Preserve identity across ordinary configuration edits and show recovery guidance when a match is genuinely ambiguous.
-- [ ] **2.3 Add Resource identity catalog.** Filesystem Resources receive durable IDs and mutable locators. In-app moves retain ID. External moves reconcile best-effort; unclear replacements become missing/new resources instead of being guessed. Backfill lazily from observed resources and saved state.
-- [ ] **2.4 Build ResourceCatalog.** Hide root mapping, basic path validation, exclusions, built-in Collections, pagination, preview metadata, and intrinsic provider operations.
-- [ ] **2.5 Add real provider Adapters.** Local filesystem and minimal read-only Hermes provider satisfy internal provider Interface. Favorites, Most Played, and Shared become Collection Resources. Recent waits for ActivityHub. Path-shaped Hermes data stays inside its Adapter.
-- [ ] **2.6 Unify application queries.** Axum handlers and `server/html.rs` call same typed query Modules. Remove route-to-route calls and independently assembled SSR JSON.
-- [ ] **2.7 Add narrow ViewerRegistry and one opener.** Registry maps Resource kind/MIME to built-in renderer/opener descriptors containing dynamic-import factories. Route generation, access, offline policy, and pane geometry stay in their owning Modules. Route existing Library, Workspace, Canvas, and share opens through pure `openResource` planning plus caller executor.
-- [ ] **2.8 Complete passcode-fragment rollout.** Generated links use fragment secret. Existing query links remain readable during rollout.
+- [x] **2.1 Define serialization contract.** Define LibraryId, SourceId, global ResourceId, ResourceRef, mutable ResourceLocator, opaque ResourceVersion, ResourceSummary, ResourceKind, provider-supported operations, and typed errors in Rust and TypeScript. Add shared JSON fixtures so shapes cannot drift. Never infer version client-side from path or mtime.
+- [x] **2.2 Add durable Library/Source identity.** Persist IDs independent of display name, absolute path, root count, or root order. Preserve identity across ordinary configuration edits and show recovery guidance when a match is genuinely ambiguous.
+- [x] **2.3 Add Resource identity catalog.** Filesystem Resources receive durable IDs and mutable locators. In-app moves retain ID. External moves reconcile best-effort; unclear replacements become missing/new resources instead of being guessed. Backfill lazily from observed resources and saved state.
+- [x] **2.4 Build ResourceCatalog.** Hide root mapping, basic path validation, exclusions, built-in Collections, pagination, preview metadata, and intrinsic provider operations.
+- [x] **2.5 Add real provider Adapters.** Local filesystem and minimal read-only Hermes provider satisfy internal provider Interface. Favorites, Most Played, and Shared become Collection Resources. Recent waits for ActivityHub. Path-shaped Hermes data stays inside its Adapter.
+- [x] **2.6 Unify application queries.** Axum handlers and `server/html.rs` call same typed query Modules. Remove route-to-route calls and independently assembled SSR JSON.
+- [x] **2.7 Add narrow ViewerRegistry and one opener.** Registry maps Resource kind/MIME to built-in renderer/opener descriptors containing dynamic-import factories. Route generation, access, offline policy, and pane geometry stay in their owning Modules. Route existing Library, Workspace, Canvas, and share opens through pure `openResource` planning plus caller executor.
+- [x] **2.8 Complete passcode-fragment rollout.** Generated links use fragment secret. Existing query links remain readable during rollout.
 
 ### Likely code areas
 
@@ -287,6 +287,18 @@ openResource(ref: ResourceRef, intent: OpenIntent, context: OpenContext): OpenPl
 - Media byte/range routes remain direct and unchanged; ResourceCatalog returns identity, metadata, capabilities, and existing playback URLs.
 - No public provider/plugin interface.
 - No whole-library content index.
+
+### Completion record
+
+- Completed: 2026-08-11; all work packages 2.1-2.8 and Stage 2 exit gates verified.
+- Commit/release: `5262599` through `97d0639` on `derp-desk`; release not pushed.
+- Data changes: additive Resource, Source, locator, and share-source records in SQLite; saved Workspace and Canvas targets now include ResourceRefs while retaining current path fields.
+- Transitional Adapters retained: current path URLs, direct media byte routes, and `catalog_reads` diagnostic switch.
+- Targeted tests: shared Rust/TypeScript contracts, identity/source edits and restarts, filesystem/Hermes provider conformance, owner/Grant query parity, opener/viewer matrices, saved-state backfill, fragment links, and share reconnect behavior.
+- Full validation: Rust 125/125; Bun 479/479; all six E2E batches passed, plus type, lint, format, build-asset, and diff checks.
+- Manual desktop smoke: production login and Library root load.
+- Manual phone smoke: 320x568 and 390x844 Library browse/player, protected fragment share, secret scrubbing, scoped text viewer, and no horizontal overflow.
+- Known follow-ups explicitly deferred: Resource mutations and effective capability policy remain Stage 3 work.
 
 ---
 
