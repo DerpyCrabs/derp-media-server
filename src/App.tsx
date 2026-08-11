@@ -1,6 +1,5 @@
-import { api, post } from '@/lib/api'
-import { queryKeys } from '@/lib/query-keys'
-import { useMutation, useQuery } from '@tanstack/solid-query'
+import { post } from '@/lib/api'
+import { useMutation } from '@tanstack/solid-query'
 import {
   ErrorBoundary,
   Match,
@@ -20,7 +19,6 @@ import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { OfflineStatus } from './OfflineStatus'
 import { SolidThemeSync } from './SolidThemeSync'
 import { ThemeSwitcher } from './ThemeSwitcher'
-import type { AuthConfig } from './file-browser/types'
 import { shareOfflineJobScope } from './lib/offline-job-observer'
 import { recentLocationFromUrl, recordRecentOwnerLocation } from './lib/recent-owner-locations'
 import { hrefFor, navigate, parseRoute, type AppRoute } from './lib/routes'
@@ -388,37 +386,7 @@ function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
   )
 }
 
-function LegacyOwnerRoutes(props: { route: Accessor<AppRoute> }) {
-  return (
-    <>
-      <OfflineStatus />
-      <Switch fallback={<FileBrowser forceOffline={props.route().query.offline} />}>
-        <Match when={props.route().kind === 'workspace'}>
-          <WorkspacePage />
-        </Match>
-        <Match when={props.route().kind === 'canvas'}>
-          <CanvasPage />
-        </Match>
-      </Switch>
-      <Show when={props.route().query.reader} keyed>
-        {(sourcePath) => (
-          <ReaderDialog sourcePath={sourcePath} sourceKind={props.route().query.readerKind} />
-        )}
-      </Show>
-    </>
-  )
-}
-
 function OwnerApplication(props: { route: Accessor<AppRoute> }) {
-  const [cachedNewShell, setCachedNewShell] = createSignal(
-    localStorage.getItem('derp-desk-new-shell-v1') !== '0',
-  )
-  const authQuery = useQuery(() => ({
-    queryKey: queryKeys.authConfig(),
-    queryFn: ({ signal }) => api<AuthConfig>('/api/auth/config', { signal }),
-    staleTime: Infinity,
-  }))
-  const newShell = () => authQuery.data?.newShell ?? cachedNewShell()
   const immersive = () => {
     const route = props.route()
     return (
@@ -428,15 +396,6 @@ function OwnerApplication(props: { route: Accessor<AppRoute> }) {
       !!route.query.reader
     )
   }
-
-  createEffect(() => {
-    const value = authQuery.data?.newShell
-    if (typeof value !== 'boolean') return
-    setCachedNewShell(value)
-    try {
-      localStorage.setItem('derp-desk-new-shell-v1', value ? '1' : '0')
-    } catch {}
-  })
 
   createEffect(() => {
     const route = props.route()
@@ -451,16 +410,14 @@ function OwnerApplication(props: { route: Accessor<AppRoute> }) {
   })
 
   return (
-    <Show when={newShell()} fallback={<LegacyOwnerRoutes route={props.route} />}>
-      <OwnerShell
-        active={ownerSurface(props.route())}
-        immersive={immersive()}
-        navigate={navigateHref}
-      >
-        <OfflineStatus />
-        <OwnerRouteContent route={props.route} />
-      </OwnerShell>
-    </Show>
+    <OwnerShell
+      active={ownerSurface(props.route())}
+      immersive={immersive()}
+      navigate={navigateHref}
+    >
+      <OfflineStatus />
+      <OwnerRouteContent route={props.route} />
+    </OwnerShell>
   )
 }
 

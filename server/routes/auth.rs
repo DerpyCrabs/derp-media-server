@@ -3,7 +3,6 @@ use crate::{
     auth,
     config::Config,
     error::{AppError, AppResult},
-    route_contract,
 };
 use axum::{
     Json, Router,
@@ -151,7 +150,7 @@ async fn config(State(state): State<Shared>, headers: HeaderMap) -> AppResult<Js
         values
     };
     Ok(Json(
-        json!({"enabled":state.config.auth.enabled,"newShell":route_contract::new_shell_enabled(),"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":roots.iter().map(|root|json!({"id":root.id,"name":root.name,"editableFolders":root.editable_folders,"readOnly":root.read_only,"source":root.source})).collect::<Vec<_>>() }),
+        json!({"enabled":state.config.auth.enabled,"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":roots.iter().map(|root|json!({"id":root.id,"name":root.name,"editableFolders":root.editable_folders,"readOnly":root.read_only,"source":root.source})).collect::<Vec<_>>() }),
     ))
 }
 

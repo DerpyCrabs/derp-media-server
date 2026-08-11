@@ -23,7 +23,6 @@ export const BATCHES = [
       'file-search-palette',
       'folder-virtualization',
       'infinite-canvas',
-      'stage1-performance',
       'stage2-resource-read-plane',
     ],
   },

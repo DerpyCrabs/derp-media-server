@@ -50,7 +50,7 @@ fn auth_config(state: &AppState) -> Value {
         }));
         values
     };
-    json!({"enabled":state.config.auth.enabled,"newShell":route_contract::new_shell_enabled(),"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
+    json!({"enabled":state.config.auth.enabled,"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
 }
 
 fn parent(path: &str) -> String {

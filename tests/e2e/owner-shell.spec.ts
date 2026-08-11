@@ -185,37 +185,6 @@ test.describe('Stage 1 owner shell', () => {
     await expect(phoneNav).toBeVisible()
   })
 
-  test('new_shell rollback selects only legacy header and route behavior', async ({ page }) => {
-    await page.addInitScript(() => {
-      Object.defineProperty(window, '__DEHYDRATED_STATE__', {
-        configurable: true,
-        get: () => undefined,
-        set: () => undefined,
-      })
-    })
-    await page.route('**/api/auth/config', (route) =>
-      route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          enabled: true,
-          newShell: false,
-          editableFolders: [],
-          mediaRoots: [],
-        }),
-      }),
-    )
-
-    await page.goto('/home')
-    await expect(page.locator('[data-owner-shell]')).toHaveCount(0)
-    await expect(page.getByTestId('home-page')).toHaveCount(0)
-    await expect(page.getByTestId('file-browser')).toBeVisible()
-
-    await page.goto('/workspace')
-    await expect(page.locator('[data-owner-shell]')).toHaveCount(0)
-    await expect(page.locator('.workspace-layout')).toBeVisible()
-    await expect(page.getByTestId('file-browser')).toHaveCount(0)
-  })
-
   test('offline observer survives routes, scopes jobs, and loads manager on demand', async ({
     page,
   }) => {

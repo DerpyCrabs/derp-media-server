@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "cargo run",
-    "build:client": "vite build && bun scripts/generate-service-worker.ts && bun scripts/check-stage1-budgets.ts",
+    "build:client": "vite build && bun scripts/generate-service-worker.ts && bun scripts/check-build-assets.ts",
     "build": "bun run build:client && cargo build --release",
     "start": "bun run build && cargo run --release -- --production",
     "tsgo": "tsgo -p tsconfig.json",
@@ -15,7 +15,6 @@
     "test": "bun run build && playwright test",
     "test:unit": "cargo test && bun test tests/unit/",
     "test:batch": "bun run build && bun tests/run-batches.ts",
-    "test:stage1-rollback": "node scripts/verify-stage1-shell-rollback.mts",
     "test:stage2-rollback": "node scripts/verify-stage2-catalog-rollback.mts",
     "test:generate-media": "bun tests/fixtures/generate-media-cache.ts",
     "test:ui": "bun run build && playwright test --ui",

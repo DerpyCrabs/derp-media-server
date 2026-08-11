@@ -66,17 +66,6 @@ pub(crate) fn classify_path(path: &str) -> RouteKind<'_> {
     }
 }
 
-fn enabled_switch(value: Option<&str>) -> bool {
-    !value.is_some_and(|value| {
-        let value = value.trim();
-        value == "0" || value.eq_ignore_ascii_case("false")
-    })
-}
-
-pub(crate) fn new_shell_enabled() -> bool {
-    enabled_switch(std::env::var("NEW_SHELL").ok().as_deref())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,15 +113,5 @@ mod tests {
             };
             assert_eq!(token, case.token.as_deref(), "{}", case.url);
         }
-    }
-
-    #[test]
-    fn new_shell_switch_defaults_on_and_accepts_explicit_false_values() {
-        assert!(enabled_switch(None));
-        assert!(enabled_switch(Some("")));
-        assert!(enabled_switch(Some("true")));
-        assert!(!enabled_switch(Some("0")));
-        assert!(!enabled_switch(Some("false")));
-        assert!(!enabled_switch(Some(" FALSE ")));
     }
 }

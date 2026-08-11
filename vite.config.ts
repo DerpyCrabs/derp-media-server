@@ -2,14 +2,13 @@ import { defineConfig } from 'vite'
 import solid from 'vite-plugin-solid'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
-import { stage1ModuleGraphPlugin } from './scripts/stage1-module-graph'
 
 export default defineConfig({
   cacheDir:
     process.env.NODE_ENV === 'test'
       ? `node_modules/.vite-test${process.env.BATCH_ID ? `-${process.env.BATCH_ID}` : ''}`
       : undefined,
-  plugins: [solid(), tailwindcss(), stage1ModuleGraphPlugin()],
+  plugins: [solid(), tailwindcss()],
   server: {
     allowedHosts: true,
     hmr: process.env.VITE_HMR_PORT
