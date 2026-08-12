@@ -1,8 +1,11 @@
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OwnerRoute {
+use std::borrow::Cow;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum OwnerRoute<'a> {
     Library,
     Home,
     Spaces,
+    Space { id: Cow<'a, str> },
     Workspace,
     Canvas,
     Assistant,
@@ -10,10 +13,10 @@ pub(crate) enum OwnerRoute {
     Settings,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum RouteKind<'a> {
     Login,
-    Owner(OwnerRoute),
+    Owner(OwnerRoute<'a>),
     Share { token: &'a str, workspace: bool },
     NotFound,
 }
@@ -41,6 +44,23 @@ pub(crate) fn classify_path(path: &str) -> RouteKind<'_> {
     };
     if let Some(owner) = owner {
         return RouteKind::Owner(owner);
+    }
+    if let Some(encoded_id) = path
+        .strip_prefix("/spaces/id/")
+        .and_then(|token| token.strip_prefix('~'))
+        .filter(|id| !id.is_empty() && !id.contains('/'))
+    {
+        return percent_encoding::percent_decode_str(encoded_id)
+            .decode_utf8()
+            .ok()
+            .filter(|id| {
+                id.encode_utf16().count() <= 128
+                    && !id
+                        .chars()
+                        .any(|character| character <= '\u{001f}' || character == '\u{007f}')
+            })
+            .map(|id| RouteKind::Owner(OwnerRoute::Space { id }))
+            .unwrap_or(RouteKind::NotFound);
     }
     if path == "/login" {
         return RouteKind::Login;
@@ -76,14 +96,16 @@ mod tests {
         url: String,
         kind: String,
         token: Option<String>,
+        id: Option<String>,
     }
 
-    fn kind_name(route: RouteKind<'_>) -> &'static str {
+    fn kind_name(route: &RouteKind<'_>) -> &'static str {
         match route {
             RouteKind::Login => "login",
             RouteKind::Owner(OwnerRoute::Library) => "library",
             RouteKind::Owner(OwnerRoute::Home) => "home",
             RouteKind::Owner(OwnerRoute::Spaces) => "spaces",
+            RouteKind::Owner(OwnerRoute::Space { .. }) => "space",
             RouteKind::Owner(OwnerRoute::Workspace) => "workspace",
             RouteKind::Owner(OwnerRoute::Canvas) => "canvas",
             RouteKind::Owner(OwnerRoute::Assistant) => "assistant",
@@ -106,12 +128,46 @@ mod tests {
         for case in cases {
             let url = url::Url::parse(&format!("http://localhost{}", case.url)).unwrap();
             let route = classify_path(url.path());
-            assert_eq!(kind_name(route), case.kind, "{}", case.url);
-            let token = match route {
-                RouteKind::Share { token, .. } => Some(token),
+            assert_eq!(kind_name(&route), case.kind, "{}", case.url);
+            let token = match &route {
+                RouteKind::Share { token, .. } => Some(*token),
                 _ => None,
             };
             assert_eq!(token, case.token.as_deref(), "{}", case.url);
+
+            let route = classify_path(url.path());
+            let id = match route {
+                RouteKind::Owner(OwnerRoute::Space { id }) => Some(id),
+                _ => None,
+            };
+            assert_eq!(id.as_deref(), case.id.as_deref(), "{}", case.url);
         }
+    }
+
+    #[test]
+    fn space_ids_are_single_opaque_percent_decoded_segments() {
+        assert_eq!(
+            classify_path("/spaces/id/~folder%2Fdesk%25one"),
+            RouteKind::Owner(OwnerRoute::Space {
+                id: Cow::Borrowed("folder/desk%one")
+            })
+        );
+        assert_eq!(classify_path("/spaces/id/~one/two"), RouteKind::NotFound);
+        assert_eq!(classify_path("/spaces/id/~%FF"), RouteKind::NotFound);
+        assert_eq!(
+            classify_path("/spaces/id/~control%00id"),
+            RouteKind::NotFound
+        );
+        assert_eq!(
+            classify_path(&format!("/spaces/id/~{}", "a".repeat(129))),
+            RouteKind::NotFound
+        );
+        assert_eq!(classify_path("/spaces/id/research"), RouteKind::NotFound);
+        assert_eq!(
+            classify_path("/spaces/id/~."),
+            RouteKind::Owner(OwnerRoute::Space {
+                id: Cow::Borrowed(".")
+            })
+        );
     }
 }

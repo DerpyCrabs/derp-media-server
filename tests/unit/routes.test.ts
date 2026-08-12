@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import routeCases from '../fixtures/route-cases.json'
 import {
+  hrefForSpace,
   hrefFor,
   hrefForLibraryFile,
   navigate,
+  navigateSpace,
   parseRoute,
   type NavigationAdapter,
   type RouteKind,
@@ -12,6 +14,7 @@ import {
 type RouteCase = {
   url: string
   kind: RouteKind
+  id?: string
   token?: string
   directory?: string
 }
@@ -23,6 +26,7 @@ describe('route Module Interface', () => {
       const route = parseRoute(url)
       expect(route.kind).toBe(routeCase.kind)
       if (routeCase.directory !== undefined) expect(route.directory).toBe(routeCase.directory)
+      expect('id' in route ? route.id : undefined).toBe(routeCase.id)
       expect('token' in route ? route.token : undefined).toBe(routeCase.token)
       expect(hrefFor(route)).toBe(routeCase.url)
     })
@@ -43,6 +47,10 @@ describe('route Module Interface', () => {
     ).toBe('/?dir=Music+%26+Audio&playing=Music+%26+Audio%2Ftrack.mp3&audioOnly=true&offline=1')
     expect(hrefFor({ kind: 'shareWorkspace', token: 'public token' })).toBe(
       '/share/public%20token/workspace',
+    )
+    expect(hrefFor({ kind: 'space', id: 'research desk' })).toBe('/spaces/id/~research%20desk')
+    expect(hrefForSpace('research desk', { history: true })).toBe(
+      '/spaces/id/~research%20desk#history',
     )
   })
 
@@ -83,11 +91,26 @@ describe('route Module Interface', () => {
     }
     expect(navigate({ kind: 'home' }, { adapter })).toBe('/home')
     expect(navigate({ kind: 'offline' }, { replace: true, adapter })).toBe('/offline')
-    expect(calls).toEqual(['push:/home', 'replace:/offline'])
+    expect(navigateSpace('desk/primary', { adapter })).toBe('/spaces/id/~desk%2Fprimary')
+    expect(calls).toEqual(['push:/home', 'replace:/offline', 'push:/spaces/id/~desk%2Fprimary'])
   })
 
   test('rejects ambiguous share tokens', () => {
     expect(() => hrefFor({ kind: 'share', token: '' })).toThrow()
     expect(() => hrefFor({ kind: 'share', token: 'one/two' })).toThrow()
+  })
+
+  test('rejects ambiguous Space IDs', () => {
+    expect(() => hrefFor({ kind: 'space', id: '' })).toThrow()
+    expect(hrefFor({ kind: 'space', id: 'one/two' })).toBe('/spaces/id/~one%2Ftwo')
+    expect(hrefFor({ kind: 'space', id: '.' })).toBe('/spaces/id/~.')
+    expect(hrefFor({ kind: 'space', id: '..' })).toBe('/spaces/id/~..')
+    expect(parseRoute({ pathname: '/spaces/id/~.' })).toMatchObject({ kind: 'space', id: '.' })
+    expect(parseRoute({ pathname: '/spaces/id/~..' })).toMatchObject({ kind: 'space', id: '..' })
+    expect(parseRoute({ pathname: '/spaces/id/research' }).kind).toBe('notFound')
+    expect(() => hrefFor({ kind: 'space', id: 'bad\u0000id' })).toThrow()
+    expect(parseRoute({ pathname: '/spaces/id/~%FF' }).kind).toBe('notFound')
+    expect(parseRoute({ pathname: '/spaces/id/~control%00id' }).kind).toBe('notFound')
+    expect(parseRoute({ pathname: `/spaces/id/~${'a'.repeat(129)}` }).kind).toBe('notFound')
   })
 })

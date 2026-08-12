@@ -11,5 +11,6 @@ pub mod share_access;
 pub mod share_media;
 pub mod share_search;
 pub mod shares;
+pub mod spaces;
 pub mod sse;
 pub mod stats;

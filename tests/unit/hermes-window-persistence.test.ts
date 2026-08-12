@@ -62,5 +62,6 @@ describe('Hermes window persistence boundary', () => {
     const restored = parseInfiniteCanvasState(JSON.parse(encoded))
     expect(restored?.windows).toHaveLength(1)
     expect(restored?.windows[0]?.definition.hermes?.sessionId).toBe('durable-2')
+    expect(restored?.windows[0]?.definition.hermes?.cwd).toBe('C:/repo')
   })
 })

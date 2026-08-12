@@ -41,12 +41,15 @@ const ShareWorkspacePage = lazy(() =>
 const WorkspacePage = lazy(() =>
   import('./WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
 )
-const CanvasPage = lazy(() =>
-  import('./CanvasPage').then((module) => ({ default: module.CanvasPage })),
+const CanvasImportRoute = lazy(() =>
+  import('./spaces/CanvasImportRoute').then((module) => ({ default: module.CanvasImportRoute })),
 )
 const HomePage = lazy(() => import('./HomePage').then((module) => ({ default: module.HomePage })))
 const SpacesPage = lazy(() =>
   import('./SpacesPage').then((module) => ({ default: module.SpacesPage })),
+)
+const SpaceRoutePage = lazy(() =>
+  import('./spaces/SpaceRoutePage').then((module) => ({ default: module.SpaceRoutePage })),
 )
 const SettingsPage = lazy(() =>
   import('./SettingsPage').then((module) => ({ default: module.SettingsPage })),
@@ -342,12 +345,17 @@ function ownerSurface(route: AppRoute): OwnerSurface {
   }
   if (route.kind === 'home') return 'home'
   if (route.kind === 'spaces') return 'spaces'
+  if (route.kind === 'space') return 'spaces'
   if (route.kind === 'workspace') return 'workspace'
   if (route.kind === 'canvas') return 'canvas'
   if (route.kind === 'assistant') return 'assistant'
   if (route.kind === 'offline') return 'offline'
   if (route.kind === 'settings') return 'settings'
   return 'library'
+}
+
+function spaceRouteId(route: AppRoute): string | undefined {
+  return route.kind === 'space' ? route.id : undefined
 }
 
 function navigateHref(href: string) {
@@ -370,11 +378,14 @@ function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
         <Match when={props.route().kind === 'spaces'}>
           <SpacesPage />
         </Match>
+        <Match when={spaceRouteId(props.route())} keyed>
+          {(spaceId) => <SpaceRoutePage spaceId={spaceId} />}
+        </Match>
         <Match when={props.route().kind === 'workspace'}>
           <WorkspacePage />
         </Match>
         <Match when={props.route().kind === 'canvas'}>
-          <CanvasPage />
+          <CanvasImportRoute />
         </Match>
         <Match when={props.route().kind === 'assistant'}>
           <AssistantRedirect />
@@ -409,6 +420,7 @@ function OwnerApplication(props: { route: Accessor<AppRoute> }) {
     return (
       route.kind === 'workspace' ||
       route.kind === 'canvas' ||
+      route.kind === 'space' ||
       !!route.query.viewing ||
       !!route.query.reader
     )

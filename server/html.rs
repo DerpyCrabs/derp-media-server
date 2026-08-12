@@ -190,13 +190,13 @@ async fn dehydrated(
         .collect::<HashMap<_, _>>();
     let mut queries = Vec::new();
     let route = route_contract::classify_path(path);
-    if let RouteKind::Owner(owner_route) = route {
+    if let RouteKind::Owner(owner_route) = &route {
         let dir = params
             .get("dir")
             .or_else(|| params.get("path"))
             .cloned()
             .unwrap_or_default();
-        if owner_route == OwnerRoute::Library
+        if *owner_route == OwnerRoute::Library
             && dir != "Favorites"
             && dir != "Most Played"
             && dir != "Shares"
@@ -231,7 +231,12 @@ async fn dehydrated(
             }),
         ));
         queries.push(query(json!(["auth-config"]), auth_config(state)));
-        if owner_route == OwnerRoute::Library && knowledge_base_root(state, &dir).is_some() {
+        if let OwnerRoute::Space { id } = owner_route
+            && let Ok(space) = state.spaces.load(id.as_ref())
+        {
+            queries.push(query(json!(["space", id.as_ref()]), json!({"space":space})));
+        }
+        if *owner_route == OwnerRoute::Library && knowledge_base_root(state, &dir).is_some() {
             queries.push(query(
                 json!(["content", "admin", "kb-recent", dir]),
                 kb_recent(state, &dir),
@@ -403,13 +408,24 @@ async fn inject(
     uri: &axum::http::Uri,
     headers: &axum::http::HeaderMap,
 ) -> AppResult<String> {
+    let dehydrated = dehydrated(state, uri, headers).await?;
     Ok(html.replace(
         "<!--DEHYDRATED-->",
         &format!(
             "<script>window.__DEHYDRATED_STATE__={}</script>",
-            dehydrated(state, uri, headers).await?
+            html_safe_json(&dehydrated)
         ),
     ))
+}
+
+fn html_safe_json(value: &Value) -> String {
+    value
+        .to_string()
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
 }
 
 fn safe_static(path: &str) -> Option<PathBuf> {
@@ -616,5 +632,26 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
             }
             Err(_) => StatusCode::NOT_FOUND.into_response(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::html_safe_json;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn dehydrated_json_cannot_break_out_of_its_script() {
+        let value = json!({
+            "name": "</script><script>globalThis.spaceBreakout = true</script>",
+            "characters": "<&>\u{2028}\u{2029}",
+        });
+
+        let encoded = html_safe_json(&value);
+        let script = format!("<script>window.__DEHYDRATED_STATE__={encoded}</script>");
+
+        assert!(!encoded.contains(['<', '>', '&', '\u{2028}', '\u{2029}']));
+        assert_eq!(script.matches("</script>").count(), 1);
+        assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), value);
     }
 }

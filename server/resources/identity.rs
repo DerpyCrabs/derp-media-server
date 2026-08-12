@@ -353,20 +353,27 @@ fn explicit_configured_id(legacy_id: &str) -> Option<&str> {
 }
 
 fn apply_schema(connection: &mut Connection) -> Result<(), String> {
-    let version: i64 = connection
+    let applied: bool = connection
         .query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=?1)",
+            [SCHEMA_VERSION],
+            |row| row.get(0),
+        )
+        .map_err(sql_error)?;
+    if applied {
+        return Ok(());
+    }
+    let has_v2: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)",
             [],
             |row| row.get(0),
         )
         .map_err(sql_error)?;
-    if version >= SCHEMA_VERSION {
-        return Ok(());
-    }
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(sql_error)?;
-    if version == 2 {
+    if has_v2 {
         transaction
             .execute_batch(
                 "ALTER TABLE resources
@@ -1930,6 +1937,43 @@ mod tests {
             )
             .unwrap();
         assert_eq!(versions, 1);
+        drop(connection);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn later_unrelated_schema_version_does_not_skip_resource_schema() {
+        let base = fixture("later-unrelated-schema");
+        let media = base.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let mut config = config(
+            &base,
+            vec![root("config:primary", "Media", media.clone())],
+            media.to_str().unwrap(),
+        );
+        state_db::initialize(&config).unwrap();
+        let connection = state_db::connection(&state_db::database(&config)).unwrap();
+        connection
+            .execute(
+                "INSERT INTO schema_migrations(version,applied_at) VALUES(5,1)",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let identity = initialize_identity(&mut config).unwrap();
+        assert!(identity.source_for_root("config:primary", &media).is_ok());
+        let connection = state_db::connection(identity.database()).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version=3",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
         drop(connection);
         std::fs::remove_dir_all(base).unwrap();
     }

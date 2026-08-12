@@ -1,9 +1,4 @@
-use crate::{
-    app::{Shared, canvases_path},
-    canvas_persistence,
-    error::AppResult,
-    store,
-};
+use crate::{app::Shared, spaces::SpaceError};
 use axum::{
     Json, Router,
     extract::State,
@@ -11,27 +6,18 @@ use axum::{
 };
 use serde_json::{Value, json};
 
-fn read(state: &Shared) -> Value {
-    store::section(&canvases_path(state), &state.config.library_key, json!([]))
+async fn list(State(state): State<Shared>) -> Result<Json<Value>, SpaceError> {
+    Ok(Json(json!({"canvases": state.spaces.legacy_canvases()?})))
 }
 
-async fn list(State(state): State<Shared>) -> Json<Value> {
-    Json(json!({"canvases":canvas_persistence::merge(&json!([]), &read(&state))}))
-}
-
-async fn sync(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
+async fn sync(
+    State(state): State<Shared>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, SpaceError> {
     let incoming = body.get("canvases").unwrap_or(&Value::Null);
-    let merged = store::mutate_section(
-        &canvases_path(&state),
-        &state.config.library_key,
-        json!([]),
-        |current| {
-            let merged = canvas_persistence::merge(current, incoming);
-            *current = merged.clone();
-            Ok(merged)
-        },
-    )?;
-    Ok(Json(json!({"canvases":merged})))
+    Ok(Json(
+        json!({"canvases": state.spaces.sync_legacy_canvases(incoming)?}),
+    ))
 }
 
 pub fn router() -> Router<Shared> {

@@ -178,8 +178,8 @@ describe('infinite canvas persistence', () => {
       title: persisted.id,
       source: { kind: 'local' },
       initialState: { viewing: 'safe.md' },
-      tabGroupId: null,
     })
+    expect(parsed?.windows[0]?.definition.tabGroupId).toBeUndefined()
   })
 
   test('preserves reader source kind for persisted viewer windows', () => {

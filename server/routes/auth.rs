@@ -74,6 +74,12 @@ fn is_public_path(path: &str) -> bool {
 }
 
 fn requires_owner_context(path: &str) -> bool {
+    if matches!(
+        crate::route_contract::classify_path(path),
+        crate::route_contract::RouteKind::Owner(_)
+    ) {
+        return true;
+    }
     let asset = path.starts_with("/@")
         || path.starts_with("/node_modules/")
         || path.starts_with("/src/")
@@ -264,7 +270,13 @@ mod tests {
 
     #[test]
     fn owner_context_is_limited_to_protected_application_routes() {
-        for path in ["/", "/workspace", "/api/files", "/api/shares"] {
+        for path in [
+            "/",
+            "/workspace",
+            "/spaces/id/~private.id",
+            "/api/files",
+            "/api/shares",
+        ] {
             assert!(requires_owner_context(path), "expected owner flow: {path}");
         }
         for path in [

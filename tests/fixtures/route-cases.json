@@ -16,6 +16,7 @@
   { "url": "/?offline=1&dir=Saved", "kind": "library", "directory": "Saved" },
   { "url": "/home", "kind": "home" },
   { "url": "/spaces", "kind": "spaces" },
+  { "url": "/spaces/id/~research%20desk", "kind": "space", "id": "research desk" },
   { "url": "/workspace?ws=legacy-session", "kind": "workspace" },
   { "url": "/canvas", "kind": "canvas" },
   { "url": "/assistant", "kind": "assistant" },

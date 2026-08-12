@@ -35,6 +35,7 @@ pub(crate) struct AppState {
     pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
     pub resources: Arc<ResourceCatalog>,
     pub access: Arc<AccessPolicy>,
+    pub spaces: Arc<crate::spaces::SpaceEngine>,
     pub content_commands: Arc<ContentCommands>,
     pub hermes_project_operations: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
@@ -106,10 +107,6 @@ pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<medi
 
 pub(crate) fn settings_path(state: &AppState) -> PathBuf {
     state.config.data_path.join("settings.json")
-}
-
-pub(crate) fn canvases_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("canvases.json")
 }
 
 pub(crate) fn stats_path(state: &AppState) -> PathBuf {

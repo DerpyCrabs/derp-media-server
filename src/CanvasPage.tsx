@@ -2,14 +2,26 @@ import { api } from '@/lib/api'
 import { createCanvasExport, parseCanvasExport } from '@/lib/canvas-features'
 import {
   CANVAS_COLLECTION_STORAGE_KEY,
+  canvasSpaceRecoveryKey,
+  canvasSpaceSessionKey,
+  clearCanvasSpaceRecovery,
   compareCanvasRecords,
   createCanvasRecord,
+  inspectCanvasSpaceRecovery,
+  loadCanvasSpaceSession,
   loadCanvasCollection,
+  markCanvasSpaceRecoveryCopy,
   mergeCanvasRecords,
   nextCanvasTimestamp,
   parseCanvasRecords,
+  persistCanvasSpaceRecovery,
+  persistCanvasSpaceSession,
+  preserveCanvasStorageSources,
+  readCanvasStorageSources,
   serializeCanvasCollection,
+  type CanvasSpaceRecovery,
   type CanvasCollection,
+  type PersistedCanvas,
 } from '@/lib/canvas-persistence'
 import { getFileDragData, hasFileDragData, isDirectoryFileDragData } from '@/lib/file-drag-data'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
@@ -56,6 +68,14 @@ import {
   resourceTargetKey,
 } from '@/lib/resource-target-resolution'
 import { queryKeys } from '@/lib/query-keys'
+import {
+  canvasSessionState,
+  canvasStateToSpace,
+  projectSpaceToCanvas,
+  type Space,
+} from '@/lib/space'
+import { createBrowserSpaceTransport, createOptimisticSpaceClient } from '@/lib/space-client'
+import { sameSpaceContent, spaceCommandsToMatch } from '@/lib/space-sync'
 import { MediaType, type FileItem } from '@/lib/types'
 import type { GlobalSettings } from '@/lib/use-settings'
 import type {
@@ -107,6 +127,7 @@ import { OWNER_OPEN_SCOPE, resourceForFileItem } from './lib/legacy-resource-ada
 import { executeOpenPlan, openResource } from './lib/open-resource'
 import { reconcileResolvedWindowPresentation } from './lib/resource-window-resolution'
 import { viewerMediaType, viewerReaderKind } from './lib/viewer-registry'
+import { followAppLink, hrefForSpace, navigate, navigateSpace } from './lib/routes'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
@@ -373,23 +394,137 @@ function canvasDialogLabel(dialog: CanvasDialogState): string {
   }
 }
 
-export function CanvasPage() {
+export function CanvasPage(props: { initialSpace?: Space } = {}) {
   useAdminEventsStream()
   const browserStorage =
     typeof localStorage === 'undefined'
       ? ({ getItem: () => null } as Pick<Storage, 'getItem'>)
       : localStorage
+  if (props.initialSpace && typeof localStorage !== 'undefined') {
+    try {
+      preserveCanvasStorageSources(localStorage, readCanvasStorageSources(localStorage))
+    } catch {}
+  }
   const hadLocalCanvas = Boolean(
     browserStorage.getItem(CANVAS_COLLECTION_STORAGE_KEY) ??
     browserStorage.getItem(CANVAS_STORAGE_KEY),
   )
   const loadedCollection = loadCanvasCollection(browserStorage)
-  const initialCollection = loadedCollection
+  const localSpaceRecord = props.initialSpace
+    ? loadedCollection.canvases.find((item) => item.id === props.initialSpace!.id && item.state)
+    : undefined
+  const spaceSessionStorageKey = props.initialSpace
+    ? canvasSpaceSessionKey(props.initialSpace.id)
+    : ''
+  const spaceRecoveryStorageKey = props.initialSpace
+    ? canvasSpaceRecoveryKey(props.initialSpace.id)
+    : ''
+  const storedSpaceSession = props.initialSpace
+    ? loadCanvasSpaceSession(browserStorage, spaceSessionStorageKey)
+    : null
+  const initialCanvasRecoveryInspection = props.initialSpace
+    ? inspectCanvasSpaceRecovery(browserStorage, spaceRecoveryStorageKey)
+    : null
+  let initialCanvasRecovery =
+    initialCanvasRecoveryInspection?.kind === 'loaded'
+      ? initialCanvasRecoveryInspection.recovery
+      : null
+  const initialCorruptCanvasRecovery =
+    initialCanvasRecoveryInspection?.kind === 'corrupt'
+      ? { raw: initialCanvasRecoveryInspection.raw }
+      : null
+  const initialSession =
+    storedSpaceSession ??
+    (initialCanvasRecovery?.state
+      ? canvasSessionState(initialCanvasRecovery.state)
+      : localSpaceRecord?.state
+        ? canvasSessionState(localSpaceRecord.state)
+        : {})
+  let staleCanvasRecovery: CanvasSpaceRecovery | null = null
+  let initialSpaceState = props.initialSpace
+    ? projectSpaceToCanvas(props.initialSpace, initialSession)
+    : null
+  const canvasCandidateAgainstInitial = (recovery: CanvasSpaceRecovery) => {
+    const candidate = canvasStateToSpace({
+      id: props.initialSpace!.id,
+      name: recovery.name,
+      state: recovery.state,
+      revision: props.initialSpace!.revision,
+      createdAt: props.initialSpace!.createdAt,
+      updatedAt: props.initialSpace!.updatedAt,
+    })
+    return {
+      ...candidate,
+      arrangements: {
+        ...props.initialSpace!.arrangements,
+        spatial: candidate.arrangements.spatial,
+      },
+    }
+  }
+  if (props.initialSpace && initialCanvasRecovery) {
+    const recoveredCandidate = canvasCandidateAgainstInitial(initialCanvasRecovery)
+    if (sameSpaceContent(recoveredCandidate, props.initialSpace)) {
+      try {
+        clearCanvasSpaceRecovery(localStorage, spaceRecoveryStorageKey)
+      } catch {}
+      initialCanvasRecovery = null
+    } else if (initialCanvasRecovery.baseRevision === props.initialSpace.revision) {
+      initialSpaceState = projectSpaceToCanvas(recoveredCandidate, initialSession)
+    } else {
+      staleCanvasRecovery = initialCanvasRecovery
+    }
+  } else if (
+    props.initialSpace &&
+    localSpaceRecord?.state &&
+    localSpaceRecord.updatedAt > props.initialSpace.updatedAt
+  ) {
+    const legacyRecovery: CanvasSpaceRecovery = {
+      baseRevision: 0,
+      name: localSpaceRecord.name,
+      state: cloneState(localSpaceRecord.state),
+    }
+    if (!sameSpaceContent(canvasCandidateAgainstInitial(legacyRecovery), props.initialSpace)) {
+      staleCanvasRecovery = legacyRecovery
+      try {
+        persistCanvasSpaceRecovery(localStorage, spaceRecoveryStorageKey, legacyRecovery)
+      } catch {}
+    }
+  }
+  const initialSpaceRecord = props.initialSpace
+    ? {
+        id: props.initialSpace.id,
+        name:
+          initialCanvasRecovery && !staleCanvasRecovery
+            ? initialCanvasRecovery.name
+            : props.initialSpace.name,
+        state: initialSpaceState,
+        updatedAt: Math.max(props.initialSpace.updatedAt, localSpaceRecord?.updatedAt ?? 0),
+        writerId: loadedCollection.writerId,
+        deleted: props.initialSpace.deletedAt !== undefined,
+      }
+    : null
+  const initialCollection: CanvasCollection = props.initialSpace
+    ? {
+        version: 1,
+        activeId: props.initialSpace.id,
+        writerId: loadedCollection.writerId,
+        lastTimestamp: Math.max(
+          loadedCollection.lastTimestamp,
+          props.initialSpace.updatedAt || Date.now(),
+        ),
+        canvases: [initialSpaceRecord!],
+      }
+    : loadedCollection
   const initialCanvas = initialCollection.canvases.find(
     (item) => item.id === initialCollection.activeId && !item.deleted,
   )!
   const [collection, setCollection] = createSignal<CanvasCollection>(initialCollection)
   const [state, setState] = createSignal<InfiniteCanvasState>(initialCanvas.state!)
+  const [remoteCanvasRecords, setRemoteCanvasRecords] = createSignal<PersistedCanvas[]>([])
+  const spaceTransport = props.initialSpace ? createBrowserSpaceTransport() : null
+  const spaceClient = props.initialSpace
+    ? createOptimisticSpaceClient({ transport: spaceTransport!, initialSpace: props.initialSpace })
+    : null
   const maximizedWindowId = () => state().maximizedWindowId
   const [undoStack, setUndoStack] = createSignal<InfiniteCanvasState[]>([])
   const [redoStack, setRedoStack] = createSignal<InfiniteCanvasState[]>([])
@@ -414,6 +549,14 @@ export function CanvasPage() {
   const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'offline' | 'error'>(
     'saved',
   )
+  const [canvasRecoveryMessage, setCanvasRecoveryMessage] = createSignal<string | null>(null)
+  const [corruptCanvasRecovery, setCorruptCanvasRecovery] = createSignal<{ raw: string } | null>(
+    initialCorruptCanvasRecovery,
+  )
+  const [recoveredCanvasSpaceId, setRecoveredCanvasSpaceId] = createSignal<string | null>(null)
+  const [staleCanvasRecoveryPending, setStaleCanvasRecoveryPending] = createSignal(
+    staleCanvasRecovery !== null,
+  )
   const [resourceResolutionAttempts, setResourceResolutionAttempts] = createSignal<
     ReadonlySet<string>
   >(new Set())
@@ -430,7 +573,7 @@ export function CanvasPage() {
     )
   const resolvingResourceTargets = new Set<string>()
   const resourceResolutionAbort = new AbortController()
-  const readOnlyMode = () => false
+  const readOnlyMode = () => staleCanvasRecoveryPending()
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let importInputEl: HTMLInputElement | undefined
   let dialogEl: HTMLDivElement | undefined
@@ -443,6 +586,39 @@ export function CanvasPage() {
   let syncRunning = false
   let syncPending = false
   let syncPendingPullFirst = false
+  let lastSpaceSnapshot = props.initialSpace
+  let lastConfirmedSpace = props.initialSpace
+  let pendingStaleCanvasRecovery = staleCanvasRecovery
+  let preservedRecoveredCanvasCopy = false
+  let canvasRecoveryRunning = false
+  const unsubscribeSpaceClient = spaceClient?.subscribe(() => {
+    const snapshot = spaceClient.getSnapshot()
+    if (snapshot.space) {
+      lastSpaceSnapshot = snapshot.space
+      if (snapshot.status === 'saved' && snapshot.pending === 0) {
+        lastConfirmedSpace = snapshot.space
+        setCollection((current) => ({
+          ...current,
+          canvases: current.canvases.map((item) =>
+            item.id === snapshot.space!.id ? { ...item, name: snapshot.space!.name } : item,
+          ),
+        }))
+        persistCanvasRecoveryForCurrent()
+      }
+    }
+    setSyncStatus(
+      snapshot.status === 'saved'
+        ? 'saved'
+        : snapshot.status === 'saving'
+          ? 'saving'
+          : snapshot.status === 'offline'
+            ? 'offline'
+            : 'error',
+    )
+    if (snapshot.recoveredCopy) {
+      navigateSpace(snapshot.recoveredCopy.id, { replace: true })
+    }
+  })
   const panController = createCanvasPanController({
     camera: () => state().camera,
     viewport: () => viewportEl,
@@ -566,7 +742,11 @@ export function CanvasPage() {
   const activeCanvas = createMemo(() =>
     collection().canvases.find((item) => item.id === collection().activeId && !item.deleted),
   )
-  const availableCanvases = createMemo(() => collection().canvases.filter((item) => !item.deleted))
+  const availableCanvases = createMemo(() => {
+    const local = collection().canvases.filter((item) => !item.deleted)
+    const localIds = new Set(local.map((item) => item.id))
+    return [...local, ...remoteCanvasRecords().filter((item) => !localIds.has(item.id))]
+  })
   const filteredCanvases = createMemo(() => {
     const query = canvasQuery().trim().toLocaleLowerCase()
     const canvases = [...availableCanvases()].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -620,8 +800,213 @@ export function CanvasPage() {
   })
 
   function storeCollection(next: CanvasCollection) {
+    if (props.initialSpace) {
+      try {
+        persistCanvasSpaceSession(localStorage, spaceSessionStorageKey, state())
+      } catch {
+        setCanvasRecoveryMessage('Canvas session could not be saved on this device')
+      }
+      return
+    }
     localStorage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(next))
     localStorage.setItem(CANVAS_STORAGE_KEY, serializeInfiniteCanvasState(state()))
+  }
+
+  async function refreshCanvasSpaces() {
+    if (!spaceTransport) return
+    const spaces = await spaceTransport.list()
+    setRemoteCanvasRecords(
+      spaces
+        .filter((space) => space.origin === 'canvas' && space.deletedAt === undefined)
+        .map((space) => ({
+          id: space.id,
+          name: space.name,
+          state: null,
+          updatedAt: space.updatedAt,
+          writerId: 'space',
+          deleted: false,
+        })),
+    )
+  }
+
+  function desiredSpace(): Space | null {
+    if (!props.initialSpace || !lastSpaceSnapshot) return null
+    const candidate = canvasStateToSpace({
+      id: props.initialSpace.id,
+      name: activeCanvas()?.name ?? lastSpaceSnapshot.name,
+      state: state(),
+      revision: lastSpaceSnapshot.revision,
+      createdAt: lastSpaceSnapshot.createdAt,
+      updatedAt: lastSpaceSnapshot.updatedAt,
+    })
+    return {
+      ...candidate,
+      arrangements: {
+        ...lastSpaceSnapshot.arrangements,
+        spatial: candidate.arrangements.spatial,
+      },
+    }
+  }
+
+  function persistCanvasRecoveryForCurrent() {
+    if (
+      !props.initialSpace ||
+      !lastConfirmedSpace ||
+      pendingStaleCanvasRecovery ||
+      corruptCanvasRecovery()
+    ) {
+      return
+    }
+    const candidate = canvasStateToSpace({
+      id: lastConfirmedSpace.id,
+      name: activeCanvas()?.name ?? lastConfirmedSpace.name,
+      state: state(),
+      revision: lastConfirmedSpace.revision,
+      createdAt: lastConfirmedSpace.createdAt,
+      updatedAt: lastConfirmedSpace.updatedAt,
+    })
+    const desired = {
+      ...candidate,
+      arrangements: {
+        ...lastConfirmedSpace.arrangements,
+        spatial: candidate.arrangements.spatial,
+      },
+    }
+    try {
+      if (sameSpaceContent(lastConfirmedSpace, desired)) {
+        if (preservedRecoveredCanvasCopy) return
+        clearCanvasSpaceRecovery(localStorage, spaceRecoveryStorageKey)
+      } else {
+        preservedRecoveredCanvasCopy = false
+        persistCanvasSpaceRecovery(localStorage, spaceRecoveryStorageKey, {
+          baseRevision: lastConfirmedSpace.revision,
+          name: desired.name,
+          state: state(),
+        })
+      }
+    } catch {
+      setCanvasRecoveryMessage('Pending Canvas changes could not be saved on this device')
+    }
+  }
+
+  async function recoverStaleCanvasCopy() {
+    const recovery = pendingStaleCanvasRecovery
+    if (!recovery || !spaceTransport || !props.initialSpace || canvasRecoveryRunning) return
+    canvasRecoveryRunning = true
+    setSyncStatus(canvasIsOffline() ? 'offline' : 'saving')
+    setCanvasRecoveryMessage('Local Canvas changes came from an older Space revision')
+    try {
+      if (recovery.recoveredSpaceId) {
+        try {
+          const existing = await spaceTransport.load(recovery.recoveredSpaceId)
+          pendingStaleCanvasRecovery = null
+          preservedRecoveredCanvasCopy = true
+          setRecoveredCanvasSpaceId(existing.id)
+          setStaleCanvasRecoveryPending(false)
+          setSyncStatus('saved')
+          return
+        } catch {}
+      }
+      const id = recovery.recoveredSpaceId ?? crypto.randomUUID()
+      if (!recovery.recoveredSpaceId) {
+        markCanvasSpaceRecoveryCopy(localStorage, spaceRecoveryStorageKey, id)
+        recovery.recoveredSpaceId = id
+      }
+      const suffix = ' (recovered)'
+      const name = `${recovery.name.slice(0, 120 - suffix.length).trimEnd()}${suffix}`
+      const draft = canvasStateToSpace({ id, name, state: recovery.state })
+      const saved = await spaceTransport.apply({
+        command: {
+          type: 'create',
+          id,
+          name,
+          origin: 'canvas',
+          panes: draft.panes,
+          arrangements: draft.arrangements,
+        },
+      })
+      markCanvasSpaceRecoveryCopy(localStorage, spaceRecoveryStorageKey, saved.id)
+      pendingStaleCanvasRecovery = null
+      preservedRecoveredCanvasCopy = true
+      setRecoveredCanvasSpaceId(saved.id)
+      setStaleCanvasRecoveryPending(false)
+      setSyncStatus('saved')
+      await refreshCanvasSpaces()
+    } catch (error) {
+      setSyncStatus(canvasIsOffline() ? 'offline' : 'error')
+      setCanvasRecoveryMessage(
+        error instanceof Error ? error.message : 'Recovered Canvas copy could not be saved',
+      )
+    } finally {
+      canvasRecoveryRunning = false
+    }
+  }
+
+  function waitForSpaceSave(): Promise<boolean> {
+    if (!spaceClient) return Promise.resolve(false)
+    const current = spaceClient.getSnapshot()
+    if (current.pending === 0) return Promise.resolve(current.status === 'saved')
+    return new Promise((resolve) => {
+      const unsubscribe = spaceClient!.subscribe(() => {
+        const snapshot = spaceClient!.getSnapshot()
+        if (
+          snapshot.pending === 0 ||
+          snapshot.status === 'offline' ||
+          snapshot.status === 'failed' ||
+          snapshot.status === 'conflict'
+        ) {
+          unsubscribe()
+          resolve(snapshot.pending === 0 && snapshot.status === 'saved')
+        }
+      })
+    })
+  }
+
+  async function syncSpace(waitForSave = false): Promise<boolean> {
+    if (!spaceClient || !lastSpaceSnapshot) return false
+    if (corruptCanvasRecovery()) {
+      setSyncStatus('error')
+      setCanvasRecoveryMessage('Unreadable local Canvas recovery needs attention')
+      return false
+    }
+    if (canvasIsOffline()) {
+      spaceClient.setOnline(false)
+      setSyncStatus('offline')
+      return false
+    }
+    spaceClient.setOnline(true)
+    const pending = spaceClient.getSnapshot()
+    if (pending.status === 'failed') {
+      await spaceClient.retry()
+      if (!(await waitForSpaceSave())) return false
+      return syncSpace(waitForSave)
+    }
+    if (pending.pending > 0) {
+      if (!(await waitForSpaceSave())) return false
+      return syncSpace(waitForSave)
+    }
+    const desired = desiredSpace()
+    if (!desired) return false
+    const commands = spaceCommandsToMatch(lastSpaceSnapshot, desired)
+    if (commands.length === 0) {
+      setSyncStatus('saved')
+      return true
+    }
+    setSyncStatus('saving')
+    for (const command of commands) {
+      if (waitForSave) {
+        try {
+          lastSpaceSnapshot = await spaceClient.dispatch(command)
+        } catch {
+          return false
+        }
+      } else {
+        void spaceClient.dispatch(command).catch(() => undefined)
+        const optimistic = spaceClient.getSnapshot().space
+        if (optimistic) lastSpaceSnapshot = optimistic
+      }
+    }
+    return waitForSave ? waitForSpaceSave() : true
   }
 
   function persistActiveState(): CanvasCollection {
@@ -647,6 +1032,7 @@ export function CanvasPage() {
       return result
     })
     storeCollection(result)
+    persistCanvasRecoveryForCurrent()
     return result
   }
 
@@ -656,7 +1042,9 @@ export function CanvasPage() {
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     syncTimer = window.setTimeout(() => {
       syncTimer = undefined
-      void syncCanvases()
+      if (pendingStaleCanvasRecovery) void recoverStaleCanvasCopy()
+      else if (props.initialSpace) void syncSpace()
+      else void syncCanvases()
     }, delay)
   }
 
@@ -664,7 +1052,43 @@ export function CanvasPage() {
     return navigator.onLine === false
   }
 
+  function exportCorruptCanvasRecovery() {
+    const corrupt = corruptCanvasRecovery()
+    if (!corrupt) return
+    const blob = new Blob([corrupt.raw], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `canvas-recovery-corrupt-${Date.now()}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function discardCorruptCanvasRecovery() {
+    if (
+      !corruptCanvasRecovery() ||
+      !window.confirm(
+        'Discard the unreadable local Canvas recovery? Export it first if you may need it.',
+      )
+    ) {
+      return
+    }
+    try {
+      clearCanvasSpaceRecovery(localStorage, spaceRecoveryStorageKey)
+      setCorruptCanvasRecovery(null)
+      setCanvasRecoveryMessage(null)
+      persistCanvasRecoveryForCurrent()
+      void syncSpace()
+    } catch {
+      setCanvasRecoveryMessage('Unreadable local Canvas recovery could not be discarded')
+    }
+  }
+
   async function syncCanvases(pullFirst = false) {
+    if (props.initialSpace) {
+      await syncSpace()
+      return
+    }
     if (canvasIsOffline()) {
       setSyncStatus('offline')
       return
@@ -790,7 +1214,19 @@ export function CanvasPage() {
     const clearFileDropPreview = () => setFileDropPreview(null)
     const clearFileDropPreviewAfterDrop = () => queueMicrotask(clearFileDropPreview)
     const persistBeforePageTeardown = () => persistActiveState()
-    const syncWhenOnline = () => void syncCanvases()
+    const blockStaleRecoveryKeyboardInput = (event: KeyboardEvent) => {
+      if (!staleCanvasRecoveryPending()) return
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-stale-recovery-overlay]')) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+    const syncWhenOnline = () =>
+      pendingStaleCanvasRecovery
+        ? void recoverStaleCanvasCopy()
+        : props.initialSpace
+          ? void syncSpace()
+          : void syncCanvases()
     const markOffline = () => setSyncStatus('offline')
     const updateFileDropPreview = (event: DragEvent) => {
       const transfer = event.dataTransfer
@@ -826,11 +1262,22 @@ export function CanvasPage() {
     document.addEventListener('dragend', clearFileDropPreview, true)
     document.addEventListener('drop', clearFileDropPreviewAfterDrop, true)
     window.addEventListener('blur', clearFileDropPreview)
+    window.addEventListener('keydown', blockStaleRecoveryKeyboardInput, true)
     window.addEventListener('pagehide', persistBeforePageTeardown)
     window.addEventListener('online', syncWhenOnline)
     window.addEventListener('offline', markOffline)
-    syncInterval = window.setInterval(() => void syncCanvases(), 30_000)
-    void syncCanvases(true)
+    syncInterval = window.setInterval(
+      () =>
+        pendingStaleCanvasRecovery
+          ? void recoverStaleCanvasCopy()
+          : props.initialSpace
+            ? void syncSpace()
+            : void syncCanvases(),
+      30_000,
+    )
+    if (pendingStaleCanvasRecovery) void recoverStaleCanvasCopy()
+    if (props.initialSpace) void refreshCanvasSpaces()
+    else void syncCanvases(true)
     onCleanup(() => {
       viewport?.removeEventListener('pointerdown', beginPan, true)
       viewportObserver.disconnect()
@@ -839,6 +1286,7 @@ export function CanvasPage() {
       document.removeEventListener('dragend', clearFileDropPreview, true)
       document.removeEventListener('drop', clearFileDropPreviewAfterDrop, true)
       window.removeEventListener('blur', clearFileDropPreview)
+      window.removeEventListener('keydown', blockStaleRecoveryKeyboardInput, true)
       window.removeEventListener('pagehide', persistBeforePageTeardown)
       window.removeEventListener('online', syncWhenOnline)
       window.removeEventListener('offline', markOffline)
@@ -854,7 +1302,7 @@ export function CanvasPage() {
     persistenceTimer = window.setTimeout(() => {
       persistActiveState()
       persistenceTimer = undefined
-      scheduleSync()
+      scheduleSync(props.initialSpace ? 0 : 700)
     }, 220)
   })
 
@@ -863,6 +1311,8 @@ export function CanvasPage() {
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     persistActiveState()
+    unsubscribeSpaceClient?.()
+    spaceClient?.dispose()
     panController.dispose()
   })
 
@@ -898,7 +1348,15 @@ export function CanvasPage() {
     })
   }
 
-  function switchCanvas(id: string) {
+  async function switchCanvas(id: string) {
+    if (props.initialSpace) {
+      setCanvasMenuOpen(false)
+      if (id !== props.initialSpace.id) {
+        persistActiveState()
+        if (await syncSpace(true)) navigateSpace(id)
+      }
+      return
+    }
     persistActiveState()
     const target = collection().canvases.find((item) => item.id === id && !item.deleted)
     if (!target?.state) return
@@ -914,7 +1372,37 @@ export function CanvasPage() {
     storeCollection(next)
   }
 
-  function createNamedCanvas() {
+  async function createNamedCanvas() {
+    if (spaceTransport) {
+      const name = dialogInput().trim()
+      if (!name) return
+      persistActiveState()
+      if (!(await syncSpace(true))) {
+        setDialog({ kind: 'message', message: 'Save current Canvas before creating another.' })
+        return
+      }
+      const id = crypto.randomUUID()
+      const draft = canvasStateToSpace({ id, name, state: createEmptyCanvasState() })
+      try {
+        const created = await spaceTransport.apply({
+          command: {
+            type: 'create',
+            id,
+            name,
+            origin: 'canvas',
+            panes: draft.panes,
+            arrangements: draft.arrangements,
+          },
+        })
+        navigateSpace(created.id)
+      } catch (error) {
+        setDialog({
+          kind: 'message',
+          message: error instanceof Error ? error.message : 'Could not create Canvas',
+        })
+      }
+      return
+    }
     const current = persistActiveState()
     const record = createCanvasRecord(current, dialogInput())
     const next = {
@@ -937,6 +1425,37 @@ export function CanvasPage() {
   function renameCanvas(canvasId: string) {
     const name = dialogInput().trim()
     if (!name) return
+    if (spaceTransport) {
+      void spaceTransport
+        .load(canvasId)
+        .then((current) =>
+          spaceTransport.apply({
+            spaceId: canvasId,
+            expectedRevision: current.revision,
+            command: { type: 'rename', name },
+          }),
+        )
+        .then(async (renamed) => {
+          if (renamed.id === props.initialSpace?.id) {
+            lastSpaceSnapshot = renamed
+            setCollection((current) => ({
+              ...current,
+              canvases: current.canvases.map((item) =>
+                item.id === renamed.id ? { ...item, name: renamed.name } : item,
+              ),
+            }))
+          }
+          await refreshCanvasSpaces()
+          setDialog(null)
+        })
+        .catch((error) =>
+          setDialog({
+            kind: 'message',
+            message: error instanceof Error ? error.message : 'Could not rename Canvas',
+          }),
+        )
+      return
+    }
     const current = persistActiveState()
     const updatedAt = nextCanvasTimestamp(current)
     saveCollection({
@@ -950,6 +1469,39 @@ export function CanvasPage() {
   }
 
   function deleteCanvas(canvasId: string) {
+    if (spaceTransport) {
+      void spaceTransport
+        .load(canvasId)
+        .then((current) =>
+          spaceTransport.apply({
+            spaceId: canvasId,
+            expectedRevision: current.revision,
+            command: { type: 'delete' },
+          }),
+        )
+        .then(async () => {
+          const currentCollection = collection()
+          const nextCollection = {
+            ...currentCollection,
+            canvases: currentCollection.canvases.filter((item) => item.id !== canvasId),
+          }
+          setCollection(nextCollection)
+          storeCollection(nextCollection)
+          if (canvasId === props.initialSpace?.id) {
+            navigate({ kind: 'spaces' }, { replace: true })
+          } else {
+            await refreshCanvasSpaces()
+            setDialog(null)
+          }
+        })
+        .catch((error) =>
+          setDialog({
+            kind: 'message',
+            message: error instanceof Error ? error.message : 'Could not delete Canvas',
+          }),
+        )
+      return
+    }
     const current = persistActiveState()
     const updatedAt = nextCanvasTimestamp(current)
     let canvases = current.canvases.map((item) =>
@@ -1436,6 +1988,22 @@ export function CanvasPage() {
     try {
       const bundle = parseCanvasExport(JSON.parse(await file.text()))
       if (!bundle) throw new Error('Unsupported canvas file')
+      if (spaceTransport) {
+        const id = crypto.randomUUID()
+        const draft = canvasStateToSpace({ id, name: bundle.name, state: bundle.state })
+        const imported = await spaceTransport.apply({
+          command: {
+            type: 'create',
+            id,
+            name: draft.name,
+            origin: 'canvas',
+            panes: draft.panes,
+            arrangements: draft.arrangements,
+          },
+        })
+        navigateSpace(imported.id)
+        return
+      }
       const current = persistActiveState()
       const record = createCanvasRecord(current, bundle.name, bundle.state)
       const next = {
@@ -2005,7 +2573,7 @@ export function CanvasPage() {
                         type='button'
                         aria-label={canvas.name}
                         class='min-w-0 flex-1 self-stretch px-2.5 text-left'
-                        onClick={() => switchCanvas(canvas.id)}
+                        onClick={() => void switchCanvas(canvas.id)}
                       >
                         <span class='block truncate'>{canvas.name}</span>
                       </button>
@@ -2077,13 +2645,27 @@ export function CanvasPage() {
           )}
         </Show>
         <div class='ml-auto flex shrink-0 items-center gap-2'>
+          <Show when={recoveredCanvasSpaceId()}>
+            {(spaceId) => (
+              <a
+                data-testid='canvas-recovered-space-link'
+                class='inline-flex h-8 items-center rounded-md px-2 text-sm font-medium text-primary hover:bg-primary/10'
+                href={hrefForSpace(spaceId())}
+                onClick={(event) => followAppLink(event, hrefForSpace(spaceId()))}
+              >
+                Open recovered copy
+              </a>
+            )}
+          </Show>
           <Show when={syncStatus() === 'error'}>
             <button
               type='button'
               data-testid='canvas-sync-error'
               class='inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm text-destructive hover:bg-destructive/10'
-              title='Canvas is saved locally, but server sync failed'
-              onClick={() => void syncCanvases()}
+              title={canvasRecoveryMessage() ?? 'Canvas is saved locally, but server sync failed'}
+              onClick={() =>
+                pendingStaleCanvasRecovery ? void recoverStaleCanvasCopy() : void syncCanvases()
+              }
             >
               <CircleAlert class='size-4' />
               <span class='hidden sm:inline'>Sync failed</span>
@@ -2264,6 +2846,60 @@ export function CanvasPage() {
           />
         </div>
       </header>
+
+      <Show when={staleCanvasRecoveryPending()}>
+        <div
+          data-testid='canvas-stale-recovery-blocker'
+          data-stale-recovery-overlay
+          class='fixed inset-0 z-[104100] flex items-center justify-center bg-background/75 p-4 backdrop-blur-sm'
+        >
+          <div
+            role='alert'
+            class='max-w-md rounded-lg border border-border bg-card p-5 text-sm shadow-xl'
+          >
+            <p class='font-semibold'>Saving older local Canvas changes</p>
+            <p class='mt-2 text-muted-foreground'>
+              Editing is paused until those changes are safely stored as a separate recovered Space.
+            </p>
+            <Show when={syncStatus() !== 'saving'}>
+              <button
+                type='button'
+                data-testid='canvas-stale-recovery-retry'
+                class='mt-4 rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground hover:bg-primary/90'
+                onClick={() => void recoverStaleCanvasCopy()}
+              >
+                Retry recovered copy
+              </button>
+            </Show>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={corruptCanvasRecovery()}>
+        <div
+          data-testid='canvas-corrupt-recovery'
+          class='fixed top-14 right-3 z-[104000] max-w-sm rounded-md border border-destructive/50 bg-card/95 p-3 text-xs shadow-xl backdrop-blur'
+        >
+          <p class='font-medium'>This local Canvas recovery is unreadable.</p>
+          <p class='mt-1 text-muted-foreground'>It remains stored unchanged until you decide.</p>
+          <div class='mt-2 flex gap-3'>
+            <button
+              type='button'
+              class='font-medium underline'
+              onClick={exportCorruptCanvasRecovery}
+            >
+              Export original
+            </button>
+            <button
+              type='button'
+              class='font-medium text-destructive underline'
+              onClick={discardCorruptCanvasRecovery}
+            >
+              Discard recovery
+            </button>
+          </div>
+        </div>
+      </Show>
 
       <Show when={!maximizedWindowId()}>
         <div
@@ -2999,7 +3635,7 @@ export function CanvasPage() {
                     const value = dialogInput().trim()
                     if (!value) return
                     const valueDialog = current()
-                    if (valueDialog.kind === 'new-canvas') createNamedCanvas()
+                    if (valueDialog.kind === 'new-canvas') void createNamedCanvas()
                     else if (valueDialog.kind === 'rename-canvas')
                       renameCanvas(valueDialog.canvasId)
                   }}

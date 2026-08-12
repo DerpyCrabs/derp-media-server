@@ -6,7 +6,7 @@ import { CANVAS_GRID_SIZE } from '@/lib/infinite-canvas'
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   await page.route('**/api/canvases**', async (route) => {
     const body =
       route.request().method() === 'POST'
@@ -21,7 +21,27 @@ test.beforeEach(async ({ page }) => {
     localStorage.removeItem('infinite-canvases-v1')
     localStorage.setItem('workspace-state-test-sentinel', 'untouched')
   })
-  await page.goto('/canvas')
+  const spaceId = [
+    'canvas-e2e',
+    process.env.BATCH_ID ?? 'local',
+    testInfo.workerIndex,
+    Date.now(),
+    Math.random().toString(36).slice(2),
+  ].join('-')
+  const created = await page.request.post('/api/spaces/commands', {
+    data: {
+      command: {
+        type: 'create',
+        id: spaceId,
+        name: `Canvas test ${spaceId}`,
+        origin: 'canvas',
+        panes: {},
+        arrangements: { spatial: { placements: {} } },
+      },
+    },
+  })
+  expect(created.ok()).toBe(true)
+  await page.goto(`/spaces/id/~${encodeURIComponent(spaceId)}`)
   await expect(page.getByTestId('infinite-canvas')).toBeVisible()
 })
 
@@ -102,23 +122,10 @@ test('searches canvases from picker', async ({ page }) => {
 test('keeps canvas camera fixed with an unmodified wheel', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.hover({ position: { x: 900, y: 500 } })
-  const before = await page.evaluate(() => {
-    const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
-      camera?: { x?: number; y?: number }
-    }
-    return raw.camera ?? { x: 0, y: 0 }
-  })
+  const world = page.getByTestId('canvas-world')
+  const before = await world.getAttribute('style')
   await page.mouse.wheel(40, 80)
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
-          camera?: { x?: number; y?: number }
-        }
-        return raw.camera
-      }),
-    )
-    .toEqual({ x: before.x ?? 0, y: before.y ?? 0, zoom: 1 })
+  await expect(world).toHaveAttribute('style', before ?? '')
 })
 
 test('closes canvas dialogs with Escape and restores focus', async ({ page }) => {
@@ -165,21 +172,16 @@ test('keeps primary and zoom controls reachable on narrow screens', async ({ pag
 
 test('shows only actionable canvas sync errors', async ({ page }) => {
   let failSync = true
-  await page.unroute('**/api/canvases**')
-  await page.route('**/api/canvases**', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.fulfill({ json: { canvases: [] } })
-      return
-    }
+  await page.route('**/api/spaces/commands', async (route) => {
     if (failSync) {
       await route.fulfill({ status: 500, json: { error: 'sync failed' } })
       return
     }
-    const body = route.request().postDataJSON() as { canvases?: unknown[] }
-    await route.fulfill({ json: { canvases: body.canvases ?? [] } })
+    await route.fallback()
   })
 
-  await page.reload()
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('button', { name: 'File browser' }).click()
   const retry = page.getByTestId('canvas-sync-error')
   await expect(retry).toContainText('Sync failed')
   await expect(retry).toContainText('Retry')
@@ -189,143 +191,35 @@ test('shows only actionable canvas sync errors', async ({ page }) => {
   await expect(retry).toHaveCount(0)
 })
 
-test('does not replace a live Hermes pane with stale sync content', async ({ page }) => {
-  let staleResponse: { canvasId: string; updatedAt: number } | null = null
-  await page.addInitScript(() => {
-    const collection = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
-      activeId?: string
-      lastTimestamp?: number
-      canvases?: Array<{
-        id: string
-        updatedAt: number
-        state?: {
-          windows?: unknown[]
-          nextItemId?: number
-          nextZIndex?: number
-        }
-      }>
-    }
-    const active = collection.canvases?.find((canvas) => canvas.id === collection.activeId)
-    if (!active?.state) throw new Error('Active canvas missing from local storage')
-    active.state.windows = [
-      {
-        id: 'canvas-window-1',
-        definition: {
-          id: 'canvas-window-1',
-          type: 'hermes',
-          title: 'Live chat',
-          iconPath: 'Hermes Sessions/session/live-session',
-          iconIsVirtual: true,
-          source: { kind: 'local' },
-          initialState: {},
-          tabGroupId: null,
-          hermes: { sessionId: 'live-session', readOnly: false },
-        },
-        bounds: { x: 0, y: 0, width: 640, height: 480 },
-        zIndex: 1,
-      },
-    ]
-    active.state.nextItemId = 2
-    active.state.nextZIndex = 2
-    active.updatedAt = Math.max(Date.now(), active.updatedAt + 1)
-    collection.lastTimestamp = active.updatedAt
-    localStorage.setItem('infinite-canvases-v1', JSON.stringify(collection))
+test('rebases a local pane change over a concurrently accepted revision', async ({ page }) => {
+  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
+  const loaded = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+  const current = (await loaded.json()) as { space: { revision: number } }
+  const renamed = await page.request.post('/api/spaces/commands', {
+    data: {
+      spaceId: id,
+      expectedRevision: current.space.revision,
+      command: { type: 'rename', name: 'Concurrent Canvas' },
+    },
   })
-  await page.route('**/api/hermes/sessions/live-session**', async (route) => {
-    const isMessages = new URL(route.request().url()).pathname.endsWith('/messages')
-    await route.fulfill({
-      json: isMessages
-        ? { messages: [] }
-        : {
-            sessionId: 'live-session',
-            title: 'Live chat',
-            archived: false,
-            externallyActive: false,
-          },
-    })
-  })
-  await page.unroute('**/api/canvases**')
-  await page.route('**/api/canvases**', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.fulfill({ json: { canvases: [] } })
-      return
-    }
-    const body = route.request().postDataJSON() as { canvases: any[] }
-    const liveCanvas = body.canvases.find((canvas) =>
-      canvas.state?.windows?.some((window: any) => window.definition.type === 'hermes'),
-    )
-    if (!liveCanvas || staleResponse) {
-      await route.fulfill({ json: { canvases: body.canvases } })
-      return
-    }
-    const stale = body.canvases.map((canvas) => ({
-      ...canvas,
-      updatedAt: canvas.updatedAt + 1,
-      state: {
-        ...canvas.state,
-        windows: canvas.state.windows.map((window: any) => ({
-          ...window,
-          definition:
-            window.definition.type === 'hermes'
-              ? { ...window.definition, title: 'Stale remote chat' }
-              : window.definition,
-        })),
-      },
-    }))
-    staleResponse = { canvasId: liveCanvas.id, updatedAt: liveCanvas.updatedAt + 1 }
-    await route.fulfill({ json: { canvases: stale } })
-  })
+  expect(renamed.ok()).toBe(true)
 
-  await page.reload()
-  await expect(page.getByTestId('canvas-window')).toContainText('Live chat')
-  await expect.poll(() => staleResponse).not.toBeNull()
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('button', { name: 'File browser' }).click()
+  await expect(page.getByTestId('canvas-window')).toHaveCount(1)
   await expect
-    .poll(() =>
-      page.evaluate((response) => {
-        const saved = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
-          canvases?: Array<{ id: string; updatedAt: number }>
-        }
-        return saved.canvases?.find((canvas) => canvas.id === response!.canvasId)?.updatedAt ?? -1
-      }, staleResponse),
-    )
-    .toBeGreaterThanOrEqual(staleResponse!.updatedAt)
-  await expect(page.getByTestId('canvas-window')).not.toContainText('Stale remote chat')
+    .poll(async () => {
+      const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+      const body = (await response.json()) as {
+        space: { name: string; panes: Record<string, unknown> }
+      }
+      return { name: body.space.name, paneCount: Object.keys(body.space.panes).length }
+    })
+    .toEqual({ name: 'Concurrent Canvas', paneCount: 1 })
 })
 
-test('keeps edits offline and syncs them after reconnect', async ({ page }) => {
-  let syncedNames: string[] = []
-  let markBlockedSyncStarted: () => void = () => undefined
-  let releaseBlockedSync: () => void = () => undefined
-  const blockedSyncStarted = new Promise<void>((resolve) => {
-    markBlockedSyncStarted = resolve
-  })
-  const blockedSyncReleased = new Promise<void>((resolve) => {
-    releaseBlockedSync = resolve
-  })
-  let blockNextSync = true
-  await page.unroute('**/api/canvases**')
-  await page.route('**/api/canvases**', async (route) => {
-    const body =
-      route.request().method() === 'POST'
-        ? (route.request().postDataJSON() as {
-            canvases?: Array<{ name?: string; deleted?: boolean }>
-          })
-        : null
-    if (body?.canvases) {
-      syncedNames = body.canvases
-        .filter((canvas) => !canvas.deleted)
-        .map((canvas) => canvas.name ?? '')
-      if (blockNextSync) {
-        blockNextSync = false
-        markBlockedSyncStarted()
-        await blockedSyncReleased
-      }
-    }
-    await route.fulfill({ json: { canvases: body?.canvases ?? [] } })
-  })
-
-  await page.reload()
-  await blockedSyncStarted
+test('keeps pane edits offline and saves them after reconnect', async ({ page }) => {
+  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
   await page.evaluate(() => {
     ;(window as Window & { __canvasTestOnline?: boolean }).__canvasTestOnline = false
     Object.defineProperty(navigator, 'onLine', {
@@ -334,31 +228,35 @@ test('keeps edits offline and syncs them after reconnect', async ({ page }) => {
     })
     window.dispatchEvent(new Event('offline'))
   })
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await page.getByLabel('Name').fill('Offline plan')
-  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('button', { name: 'File browser' }).click()
+  await expect(page.getByTestId('canvas-window')).toHaveCount(1)
+  await page.waitForTimeout(1_000)
+  const before = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+  const beforeBody = (await before.json()) as { space: { panes: Record<string, unknown> } }
+  expect(Object.keys(beforeBody.space.panes)).toHaveLength(0)
 
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const saved = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
-          canvases?: Array<{ name?: string }>
-        }
-        return saved.canvases?.some((canvas) => canvas.name === 'Offline plan') ?? false
-      }),
-    )
-    .toBe(true)
   await page.evaluate(() => {
     ;(window as Window & { __canvasTestOnline?: boolean }).__canvasTestOnline = true
     window.dispatchEvent(new Event('online'))
   })
-  releaseBlockedSync()
-  await expect.poll(() => syncedNames).toContain('Offline plan')
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+      const body = (await response.json()) as { space: { panes: Record<string, unknown> } }
+      return Object.keys(body.space.panes).length
+    })
+    .toBe(1)
 })
 
-test('persists canvas records through server sync API', async ({ request }) => {
-  const id = `canvas-e2e-${Date.now()}`
+test('persists canvas records through server sync API', async ({ request }, testInfo) => {
+  const id = [
+    'canvas-adapter-e2e',
+    process.env.BATCH_ID ?? 'local',
+    testInfo.workerIndex,
+    Date.now(),
+    Math.random().toString(36).slice(2),
+  ].join('-')
   const record = {
     id,
     name: 'Server canvas',
@@ -391,19 +289,17 @@ test('persists canvas records through server sync API', async ({ request }) => {
 })
 
 test('locally restores canvas windows', async ({ page }) => {
+  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
   await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 32, y: 650 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
 
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const raw = localStorage.getItem('infinite-canvas-state-v1')
-        if (!raw) return null
-        const state = JSON.parse(raw) as { windows?: unknown[] }
-        return state.windows?.length ?? 0
-      }),
-    )
+    .poll(async () => {
+      const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+      const body = (await response.json()) as { space: { panes: Record<string, unknown> } }
+      return Object.keys(body.space.panes).length
+    })
     .toBe(1)
   await page.reload()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
@@ -1043,6 +939,11 @@ test('keeps multiple audio presenters on one transport and focuses the active on
 })
 
 test('keeps canvas video paused while mounting and switching canvases', async ({ page }) => {
+  const originalCanvasId = decodeURIComponent(
+    new URL(page.url()).pathname.split('/').at(-1)!.slice(1),
+  )
+  const originalCanvasName = await page.getByTestId('canvas-name-trigger').textContent()
+  if (!originalCanvasName) throw new Error('Initial Canvas name is missing')
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
@@ -1069,12 +970,22 @@ test('keeps canvas video paused while mounting and switching canvases', async ({
   expect(videoBox.x + videoBox.width).toBeLessThanOrEqual(canvasBox.x + canvasBox.width)
   expect(videoBox.y + videoBox.height).toBeLessThanOrEqual(canvasBox.y + canvasBox.height)
 
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(
+        `/api/spaces/by-id/~${encodeURIComponent(originalCanvasId)}`,
+      )
+      const body = (await response.json()) as { space: { panes: Record<string, unknown> } }
+      return Object.keys(body.space.panes).length
+    })
+    .toBe(2)
+
   await page.getByTestId('canvas-name-trigger').click()
   await page.getByRole('button', { name: 'New canvas' }).click()
   await page.getByLabel('Name').fill('Other canvas')
   await page.getByRole('button', { name: 'Save' }).click()
   await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'Untitled canvas', exact: true }).click()
+  await page.getByRole('button', { name: originalCanvasName, exact: true }).click()
   await expect(
     page.getByTestId('canvas-window').filter({ has: page.locator('video') }),
   ).toBeVisible()
@@ -1141,6 +1052,7 @@ test('creates dotted knowledge-base note names with md extension', async ({ page
 })
 
 test('loads large virtualized directories inside canvas browser', async ({ page }) => {
+  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
   const folderName = `CanvasLarge-${batchId ?? 'local'}`
   const folderPath = path.resolve(mediaDirName, folderName)
   fs.mkdirSync(folderPath, { recursive: true })
@@ -1160,16 +1072,13 @@ test('loads large virtualized directories inside canvas browser', async ({ page 
   await expect(firstItem).toBeVisible()
 
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const raw = localStorage.getItem('infinite-canvas-state-v1')
-        if (!raw) return null
-        const state = JSON.parse(raw) as {
-          windows?: Array<{ definition?: { initialState?: { dir?: string } } }>
-        }
-        return state.windows?.[0]?.definition?.initialState?.dir ?? null
-      }),
-    )
+    .poll(async () => {
+      const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+      const body = (await response.json()) as {
+        space: { panes: Record<string, { state?: { initialState?: { dir?: string } } }> }
+      }
+      return Object.values(body.space.panes)[0]?.state?.initialState?.dir ?? null
+    })
     .toBe(folderName)
   await page.reload()
   await expect(firstItem).toBeVisible()

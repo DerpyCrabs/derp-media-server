@@ -1,6 +1,6 @@
 # Derp Desk Roadmap
 
-Status: active; Stage 5 complete
+Status: active; Stage 6 complete
 Initiative branch: `derp-desk`
 Last updated: 2026-08-12
 
@@ -558,14 +558,14 @@ Focused pane, camera, scroll, transient selection, and playback controls are dev
 
 ### Work packages
 
-- [ ] **6.1 Specify Space commands and invariants.** Create/rename/delete/duplicate Space; add/remove/update Pane; apply arrangement; restore revision. Pane identity and content state do not change when presentation changes.
-- [ ] **6.2 Add typed schema and history.** Store current head, revision snapshots with retention, arrangements, tombstones, and schema version in SQLite. Expected-revision compare/update and snapshot append occur in one transaction.
-- [ ] **6.3 Build SpaceEngine.** Small typed-result Interface: list, load, apply command with expected revision. Hide validation, storage, history retention, tombstones, and conflict recovery.
-- [ ] **6.4 Add optimistic client Adapter.** Local changes apply immediately, save through versioned commands, show saved/saving/offline/conflict/failed state, and create named recovered copy for irreconcilable conflict. No CRDT.
-- [ ] **6.5 Import current Canvas state once.** Deterministic, idempotent conversion preserves Canvas IDs, panes, layouts, and tombstones. Space Store becomes canonical after successful import; keep an export of original data.
-- [ ] **6.6 Import Workspace state explicitly.** On first open/save, offer deterministic conversion of current local `?ws=` session into Space. Do not enumerate or upload every browser-local session. Named layouts stay templates; taskbar settings stay preferences. Ask before unexpected/corrupt state and never silently discard it.
-- [ ] **6.7 Put current screens on correct mode.** `/canvas` resolves imported durable Space through SpaceEngine. `/workspace?ws=` remains local scratch until user imports/saves; converted `/spaces/:id` uses SpaceEngine.
-- [ ] **6.8 Add revision recovery UI.** User can inspect retained versions and restore/duplicate after conflict or accidental layout loss. Define tombstone restoration and expired-history behaviour.
+- [x] **6.1 Specify Space commands and invariants.** Create/rename/delete/duplicate Space; add/remove/update Pane; apply arrangement; restore revision. Pane identity and content state do not change when presentation changes.
+- [x] **6.2 Add typed schema and history.** Store current head, revision snapshots with retention, arrangements, tombstones, and schema version in SQLite. Expected-revision compare/update and snapshot append occur in one transaction.
+- [x] **6.3 Build SpaceEngine.** Small typed-result Interface: list, load, apply command with expected revision. Hide validation, storage, history retention, tombstones, and conflict recovery.
+- [x] **6.4 Add optimistic client Adapter.** Local changes apply immediately, save through versioned commands, show saved/saving/offline/conflict/failed state, and create named recovered copy for irreconcilable conflict. No CRDT.
+- [x] **6.5 Import current Canvas state once.** Deterministic, idempotent conversion preserves Canvas IDs, panes, layouts, and tombstones. Space Store becomes canonical after successful import; keep an export of original data.
+- [x] **6.6 Import Workspace state explicitly.** On first open/save, offer deterministic conversion of current local `?ws=` session into Space. Do not enumerate or upload every browser-local session. Named layouts stay templates; taskbar settings stay preferences. Ask before unexpected/corrupt state and never silently discard it.
+- [x] **6.7 Put current screens on correct mode.** `/canvas` resolves imported durable Space through SpaceEngine. `/workspace?ws=` remains local scratch until user imports/saves; converted `/spaces/:id` uses SpaceEngine.
+- [x] **6.8 Add revision recovery UI.** User can inspect retained versions and restore/duplicate after conflict or accidental layout loss. Define tombstone restoration and expired-history behaviour.
 
 ### Likely code areas
 
@@ -600,6 +600,19 @@ Focused pane, camera, scroll, transient selection, and playback controls are dev
 
 - No real-time multiplayer or CRDT.
 - No final combined Space chrome; Stage 7 owns presentation convergence.
+
+### Completion record
+
+- Completed: 2026-08-12; all work packages 6.1-6.8 and Stage 6 exit gates verified.
+- Commit/release: one Stage 6 implementation commit on `derp-desk`; release not pushed.
+- Data changes: SQLite schema v5 adds canonical Space heads, retained revision snapshots, tombstones, and exact import-source records. Startup creates the one-time `data/schema-backups/app-before-spaces-v5.sqlite3` backup before migration. Canvas and explicitly saved Workspace imports retain their original source for export; corrupt records are preserved and quarantined instead of discarded.
+- Transitional Adapters retained: `/api/canvases` and `/api/canvases/sync` now project canonical Spaces for existing Canvas clients. `/canvas` resolves the imported Space online but keeps the original local Canvas usable when the Space API is unavailable. Unsaved `/workspace?ws=` sessions remain local scratch until explicit Save as Space; named layouts and user/taskbar preferences remain separate.
+- Architecture: one typed Space model, transactional SpaceEngine, 50-revision retention, expected-revision conflicts, optimistic command client, and revision restore/duplicate UI. Durable pane content and tiled/spatial arrangements are separated from device-local focus, camera, transient selection, playback controls, and preferences. ContentCommands reconcile moved or missing ResourceRefs without changing stable identity.
+- Targeted tests: command/schema validation, atomic conflicts, retention and expired history, tombstones, migration/restart and fresh-install ordering, Canvas and Workspace raw import/export/quarantine/idempotency, offline/rebase/recovered-copy behavior, route SSR and opaque IDs, device-local camera/focus, rapid Workspace reload recovery, and ResourceRef move/delete reconciliation.
+- Full validation: `bun run tsgo`, `bun run lint-errors`, `bun run test:unit` (189 Rust and 611 Bun tests), and `bun run test:batch` (559 tests across all six isolated E2E batches) passed on 2026-08-12. `bun run fmt:check`, `cargo fmt --all -- --check`, and `git diff --check` also passed.
+- Manual desktop smoke: not separately performed; production-build Chromium coverage exercises Canvas and Workspace import, switching, revision recovery, conflict handling, reload, navigation, and media playback.
+- Manual phone smoke: not separately performed; automated narrow-phone, Range, offline replay, and Canvas control coverage preserves the existing simple phone-media journey.
+- Known follow-ups explicitly deferred: Stage 7 owns final Focus/Tiled/Map presentation convergence and combined Space chrome.
 
 ---
 

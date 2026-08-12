@@ -90,6 +90,7 @@ test.describe('Stage 1 PWA and offline cutover', () => {
     expect(plan.offlineRenderers.some((asset) => /book-worker-[^/]+\.js$/.test(asset))).toBe(true)
     expect(plan.optional.some((asset) => /WorkspacePage-/.test(asset))).toBe(true)
     expect(plan.optional.some((asset) => /CanvasPage-/.test(asset))).toBe(true)
+    expect(plan.optional.some((asset) => /SpaceRoutePage-/.test(asset))).toBe(true)
     expect(plan.optional.some((asset) => /MarkdownDocument-/.test(asset))).toBe(true)
     expect(plan.optional.some((asset) => /SettingsPage-/.test(asset))).toBe(true)
     expect(plan.optional.some((asset) => /OfflineManager-/.test(asset))).toBe(true)

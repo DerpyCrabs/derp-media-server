@@ -223,4 +223,83 @@ test.describe('Stage 5 owner playback continuity', () => {
       )
       .toBeLessThan(0.25)
   })
+
+  test('phone Space-card navigation keeps the owner audio host mounted', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(60_000)
+    const id = `stage5-space-playback-${testInfo.workerIndex}-${Date.now()}`
+    const name = `Playback Space ${Date.now()}`
+    const created = await page.request.post('/api/spaces/commands', {
+      data: {
+        command: {
+          type: 'create',
+          id,
+          name,
+          origin: 'canvas',
+          panes: {},
+          arrangements: { spatial: { placements: {} } },
+        },
+      },
+    })
+    expect(created.ok()).toBe(true)
+
+    try {
+      await page.goto(`/?dir=${MUSIC_DIR}`)
+      await page.locator('table').getByText(FIRST_TRACK, { exact: true }).click()
+      const host = audioHost(page)
+      const chrome = audioChrome(page)
+      await expectOneAudioOwner(page)
+      await pausePlayback(chrome, host)
+      await expect
+        .poll(() =>
+          host.evaluate(
+            (element: HTMLAudioElement) =>
+              element.readyState >= HTMLMediaElement.HAVE_METADATA &&
+              Number.isFinite(element.duration) &&
+              element.duration > 0,
+          ),
+        )
+        .toBe(true)
+      const expectedPosition = await host.evaluate((element: HTMLAudioElement) => {
+        const position = Math.min(0.75, element.duration / 2)
+        element.currentTime = position
+        element.dataset.spaceContinuityProbe = 'owner-audio'
+        return position
+      })
+
+      await page.setViewportSize({ width: 390, height: 844 })
+      const phoneNav = page.getByTestId('owner-phone-nav')
+      await phoneNav.getByRole('link', { name: 'Spaces', exact: true }).click()
+      await expect(page.getByTestId('spaces-page')).toBeVisible()
+      await page.locator('article').filter({ hasText: name }).locator('a').first().click()
+      await expect(page.getByTestId('infinite-canvas')).toBeVisible()
+      expect(new URL(page.url()).pathname).toBe(`/spaces/id/~${encodeURIComponent(id)}`)
+
+      await expectOneAudioOwner(page)
+      await expect(host).toHaveAttribute('data-space-continuity-probe', 'owner-audio')
+      await expect
+        .poll(async () =>
+          Math.abs(
+            (await host.evaluate((element) => (element as HTMLAudioElement).currentTime)) -
+              expectedPosition,
+          ),
+        )
+        .toBeLessThan(0.25)
+    } finally {
+      const loaded = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+      if (loaded.ok()) {
+        const body = (await loaded.json()) as { space: { revision: number; deletedAt?: number } }
+        if (body.space.deletedAt === undefined) {
+          await page.request.post('/api/spaces/commands', {
+            data: {
+              spaceId: id,
+              expectedRevision: body.space.revision,
+              command: { type: 'delete' },
+            },
+          })
+        }
+      }
+    }
+  })
 })

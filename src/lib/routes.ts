@@ -6,6 +6,7 @@ export type RouteKind =
   | 'home'
   | 'library'
   | 'spaces'
+  | 'space'
   | 'workspace'
   | 'canvas'
   | 'assistant'
@@ -36,7 +37,12 @@ export type RouteLocation = {
 }
 
 type StaticRouteTarget = {
-  kind: Exclude<RouteKind, 'share' | 'shareWorkspace' | 'notFound'>
+  kind: Exclude<RouteKind, 'space' | 'share' | 'shareWorkspace' | 'notFound'>
+}
+
+type SpaceRouteTarget = {
+  kind: 'space'
+  id: string
 }
 
 type ShareRouteTarget = {
@@ -49,7 +55,11 @@ type NotFoundRouteTarget = {
   pathname: string
 }
 
-export type RouteTarget = StaticRouteTarget | ShareRouteTarget | NotFoundRouteTarget
+export type RouteTarget =
+  | StaticRouteTarget
+  | SpaceRouteTarget
+  | ShareRouteTarget
+  | NotFoundRouteTarget
 
 type Located<T> = T extends RouteTarget
   ? T & {
@@ -123,6 +133,15 @@ function decodePathSegment(segment: string): string {
   }
 }
 
+function decodeSpaceId(segment: string): string | null {
+  try {
+    const id = decodeURIComponent(segment)
+    return id.length > 0 && id.length <= 128 && !/[\u0000-\u001f\u007f]/.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
+
 function parseQuery(search: string): RouteQuery {
   const params = new URLSearchParams(search)
   const readerKind = params.get('readerKind')
@@ -163,6 +182,15 @@ export function parseRoute(input: RouteLocation): AppRoute {
   if (staticKind) return located({ kind: staticKind }, location)
 
   const segments = pathname.split('/').slice(1)
+  if (
+    segments[0] === 'spaces' &&
+    segments[1] === 'id' &&
+    segments[2]?.startsWith('~') &&
+    segments.length === 3
+  ) {
+    const id = decodeSpaceId(segments[2].slice(1))
+    if (id !== null) return located({ kind: 'space', id }, location)
+  }
   if (segments[0] === 'share' && segments[1]) {
     const token = decodePathSegment(segments[1])
     if (segments.length === 2) {
@@ -189,6 +217,12 @@ function appendQuery(params: URLSearchParams, query: RouteQuery) {
 }
 
 function targetPath(target: RouteTarget) {
+  if (target.kind === 'space') {
+    if (!target.id || target.id.length > 128 || /[\u0000-\u001f\u007f]/.test(target.id)) {
+      throw new Error('Space ID must be a safe non-empty ID')
+    }
+    return `/spaces/id/~${encodeURIComponent(target.id)}`
+  }
   if (target.kind === 'share' || target.kind === 'shareWorkspace') {
     if (!target.token || target.token.includes('/'))
       throw new Error('Share token must be one segment')
@@ -208,6 +242,11 @@ export function hrefFor(target: RouteTarget | AppRoute, query?: RouteQuery): str
   if (query) appendQuery(params, query)
   const search = params.toString()
   return `${targetPath(target)}${search ? `?${search}` : ''}`
+}
+
+export function hrefForSpace(spaceId: string, options: { history?: boolean } = {}): string {
+  const href = hrefFor({ kind: 'space', id: spaceId })
+  return options.history ? `${href}#history` : href
 }
 
 /** Generate a compatible Library destination that opens playable media in player chrome. */
@@ -234,14 +273,49 @@ function browserNavigation(): NavigationAdapter {
   }
 }
 
+function navigateHref(
+  href: string,
+  options: { replace?: boolean; adapter?: NavigationAdapter } = {},
+) {
+  const adapter = options.adapter ?? browserNavigation()
+  if (options.replace) adapter.replace(href)
+  else adapter.push(href)
+  return href
+}
+
+export function navigateSpace(
+  spaceId: string,
+  options: { replace?: boolean; history?: boolean; adapter?: NavigationAdapter } = {},
+) {
+  return navigateHref(hrefForSpace(spaceId, options), options)
+}
+
+/** Keep ordinary same-app anchors accessible while avoiding a document navigation on plain click. */
+export function followAppLink(
+  event: MouseEvent,
+  href: string,
+  options: { replace?: boolean } = {},
+) {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return false
+  }
+  event.preventDefault()
+  navigateHref(href, options)
+  return true
+}
+
 /** Navigate through same generator used by links. Adapter keeps tests outside browser globals. */
 export function navigate(
   target: RouteTarget | AppRoute,
   options: { replace?: boolean; query?: RouteQuery; adapter?: NavigationAdapter } = {},
 ) {
   const href = hrefFor(target, options.query)
-  const adapter = options.adapter ?? browserNavigation()
-  if (options.replace) adapter.replace(href)
-  else adapter.push(href)
-  return href
+  return navigateHref(href, options)
 }

@@ -6,13 +6,14 @@ export function useWorkspacePageLocalPersistence(options: {
   storageSessionKeyFull: Accessor<{ key: string }>
   workspace: Accessor<PersistedWorkspaceState | null>
   isShareSession: Accessor<boolean>
+  enabled?: Accessor<boolean>
 }) {
   let persistTimer: ReturnType<typeof setTimeout> | null = null
 
   createEffect(() => {
     const { key } = options.storageSessionKeyFull()
     const w = options.workspace()
-    if (!key || !w) return
+    if (!key || !w || options.enabled?.() === false) return
     if (options.isShareSession()) {
       persistWorkspaceState(key, w)
       return
@@ -34,7 +35,7 @@ export function useWorkspacePageLocalPersistence(options: {
     const flushPersist = () => {
       const k = options.storageSessionKeyFull().key
       const w = options.workspace()
-      if (k && w) persistWorkspaceState(k, w)
+      if (k && w && options.enabled?.() !== false) persistWorkspaceState(k, w)
     }
     window.addEventListener('beforeunload', flushPersist)
     const onVis = () => {

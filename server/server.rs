@@ -117,6 +117,7 @@ fn router(state: Shared) -> Router {
     Router::new()
         .merge(routes::auth::router())
         .merge(routes::canvases::router())
+        .merge(routes::spaces::router())
         .merge(routes::files::router())
         .merge(routes::hermes_chat::router())
         .merge(routes::settings::router())
@@ -149,6 +150,10 @@ pub(crate) async fn run() {
         .unwrap_or_else(|error| panic!("Failed to initialize Resource identity: {error}"));
     shares::initialize(&config)
         .unwrap_or_else(|error| panic!("Failed to initialize Grant persistence: {error}"));
+    let spaces = Arc::new(
+        crate::spaces::initialize(&config)
+            .unwrap_or_else(|error| panic!("Failed to initialize Space persistence: {error}")),
+    );
     content_commands::initialize(&config)
         .unwrap_or_else(|error| panic!("Failed to initialize command journal: {error}"));
     let dev = std::env::var("NODE_ENV").unwrap_or_default() != "production"
@@ -251,6 +256,7 @@ pub(crate) async fn run() {
         hermes,
         resources,
         access,
+        spaces,
         content_commands,
         hermes_project_operations: Mutex::new(()),
         hermes_runtime_ids: Mutex::new(HashMap::new()),

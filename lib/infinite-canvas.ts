@@ -272,11 +272,16 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
           ? {
               hermes: {
                 sessionId: definition.hermes.sessionId,
+                ...(typeof definition.hermes.cwd === 'string' || definition.hermes.cwd === null
+                  ? { cwd: definition.hermes.cwd }
+                  : {}),
                 readOnly: !!definition.hermes.readOnly,
               },
             }
           : {}),
-        tabGroupId: null,
+        ...(definition.tabGroupId === null || typeof definition.tabGroupId === 'string'
+          ? { tabGroupId: definition.tabGroupId }
+          : {}),
       },
       bounds,
       zIndex: Math.max(1, Math.floor(finiteNumber(window.zIndex, 1))),

@@ -41,8 +41,22 @@ import type {
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import {
+  projectSpaceToWorkspace,
+  workspaceSessionState,
+  workspaceStateToSpace,
+  type Space,
+} from '@/lib/space'
+import {
+  createBrowserSpaceTransport,
+  createOptimisticSpaceClient,
+  type OptimisticSpaceClient,
+  type SpaceSaveStatus,
+} from '@/lib/space-client'
+import { sameSpaceContent, spaceCommandsToMatch } from '@/lib/space-sync'
+import {
   resolveNewTabAnchorWindowId,
   serializeWorkspaceLayoutState,
+  serializeWorkspacePersistedState,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
 } from '@/lib/use-workspace'
@@ -113,10 +127,16 @@ import {
 import { TaskbarGroupRow } from './workspace/WorkspaceTaskbarRows'
 import type { WorkspaceVideoListenOnlyDetail } from './workspace/WorkspaceViewerPane'
 import {
+  clearSpaceWorkspaceRecovery,
   DEFAULT_WORKSPACE_SOURCE,
   defaultInitialBrowserTitle,
+  inspectPersistedWorkspace,
+  inspectSpaceWorkspaceRecovery,
   isWorkspaceRoute,
-  loadPersisted,
+  markSpaceWorkspaceRecoveryCopy,
+  persistSpaceWorkspaceRecovery,
+  workspaceRecoveryCanReplay,
+  workspaceSpaceRecoveryKey,
 } from './workspace/workspace-page-persistence'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
@@ -132,6 +152,7 @@ import { reconcileResolvedWindowPresentation } from './lib/resource-window-resol
 import { viewerMediaType } from './lib/viewer-registry'
 import { usePlaybackSession, usePlaybackSnapshot } from './media/playback/PlaybackProvider'
 import { playbackItemFromFileItem } from './media/playback/items'
+import { followAppLink, hrefForSpace, navigateSpace } from './lib/routes'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
   const playbackSession = usePlaybackSession()
@@ -140,6 +161,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const urlSearchParams = createUrlSearchParamsMemo(history)
 
   const shareConfig = () => props.shareConfig ?? null
+  const durableSpace = () => props.initialSpace ?? null
   const server = useWorkspacePageServerData(props, shareConfig)
   useAdminEventsStream(!props.shareConfig)
 
@@ -155,12 +177,37 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   )
 
   const storageSessionKeyFull = createMemo(() => {
+    const space = durableSpace()
+    if (space) {
+      return { sid: space.id, key: `space-session-workspace-${encodeURIComponent(space.id)}` }
+    }
     const sid = urlSearchParams().get('ws') ?? ''
     const base = workspaceStorageBaseKey(shareConfig()?.token ?? null)
     return { sid, key: sid ? workspaceStorageSessionKey(base, sid) : '' }
   })
+  const spaceRecoveryStorageKey = createMemo(() => {
+    const space = durableSpace()
+    return space ? workspaceSpaceRecoveryKey(space.id) : ''
+  })
 
   const [workspace, setWorkspace] = createSignal<PersistedWorkspaceState | null>(null)
+  const [spaceSaveStatus, setSpaceSaveStatus] = createSignal<SpaceSaveStatus>('saved')
+  const [spaceSaveError, setSpaceSaveError] = createSignal<string | null>(null)
+  const [recoveredSpaceId, setRecoveredSpaceId] = createSignal<string | null>(null)
+  const [corruptDraft, setCorruptDraft] = createSignal<{ key: string; raw: string } | null>(null)
+  const [corruptSpaceRecovery, setCorruptSpaceRecovery] = createSignal<{ raw: string } | null>(null)
+  const [staleWorkspaceRecoveryPending, setStaleWorkspaceRecoveryPending] = createSignal(false)
+  const [scratchSavePending, setScratchSavePending] = createSignal(false)
+  const [scratchSaveError, setScratchSaveError] = createSignal<string | null>(null)
+  let spaceClient: OptimisticSpaceClient | null = null
+  let spaceClientUnsubscribe: (() => void) | null = null
+  let applyingSpaceProjection = false
+  let lastSpaceProjection = ''
+  let queuedWorkspaceSync: PersistedWorkspaceState | null = null
+  let workspaceSyncRunning = false
+  let workspaceSyncTimer: ReturnType<typeof setTimeout> | null = null
+  let lastConfirmedSpaceRevision = 0
+  let retryStaleWorkspaceRecovery: (() => Promise<void>) | null = null
   let resolvedResourceSummaries = new Map<string, ResourceSummary>()
   const [resourceResolutionAttempts, setResourceResolutionAttempts] = createSignal<
     ReadonlySet<string>
@@ -243,6 +290,390 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     storageSessionKeyFull,
     workspace,
     isShareSession: () => !!shareConfig(),
+    enabled: () => !durableSpace() && !corruptDraft(),
+  })
+
+  function workspaceDeviceSession(seed?: PersistedWorkspaceState | null) {
+    const local = seed ?? workspace()
+    return {
+      activeWindowId: local?.activeWindowId ?? null,
+      activeTabMap: structuredClone(local?.activeTabMap ?? {}),
+      nextWindowId: local?.nextWindowId ?? 1,
+      pinnedTaskbarItems: structuredClone(
+        local?.pinnedTaskbarItems ?? server.serverPinsList() ?? [],
+      ),
+      ...(local?.browserTabTitle ? { browserTabTitle: local.browserTabTitle } : {}),
+      ...(local?.browserTabIcon ? { browserTabIcon: local.browserTabIcon } : {}),
+      ...(local?.browserTabIconColor ? { browserTabIconColor: local.browserTabIconColor } : {}),
+      fileOpenTarget: local?.fileOpenTarget ?? getWorkspaceFileOpenTarget(),
+    }
+  }
+
+  type StoredSpaceWorkspaceSession = Pick<
+    PersistedWorkspaceState,
+    'activeWindowId' | 'activeTabMap' | 'nextWindowId'
+  >
+
+  function loadSpaceWorkspaceSession(): StoredSpaceWorkspaceSession | null {
+    if (!durableSpace()) return null
+    try {
+      const raw = localStorage.getItem(storageSessionKeyFull().key)
+      if (!raw) return null
+      const value = JSON.parse(raw) as Partial<StoredSpaceWorkspaceSession>
+      if (
+        (value.activeWindowId !== null && typeof value.activeWindowId !== 'string') ||
+        !value.activeTabMap ||
+        typeof value.activeTabMap !== 'object' ||
+        Array.isArray(value.activeTabMap) ||
+        !Object.values(value.activeTabMap).every((paneId) => typeof paneId === 'string') ||
+        !Number.isSafeInteger(value.nextWindowId) ||
+        Number(value.nextWindowId) < 1
+      ) {
+        return null
+      }
+      return {
+        activeWindowId: value.activeWindowId ?? null,
+        activeTabMap: structuredClone(value.activeTabMap),
+        nextWindowId: Number(value.nextWindowId),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  function persistSpaceWorkspaceSession(current: PersistedWorkspaceState) {
+    if (!durableSpace()) return
+    try {
+      const session = workspaceSessionState(current)
+      localStorage.setItem(
+        storageSessionKeyFull().key,
+        JSON.stringify({
+          activeWindowId: session.activeWindowId,
+          activeTabMap: session.activeTabMap,
+          nextWindowId: session.nextWindowId,
+        }),
+      )
+    } catch {}
+  }
+
+  function spaceProjectionKey(space: NonNullable<ReturnType<typeof durableSpace>>) {
+    return JSON.stringify({
+      id: space.id,
+      revision: space.revision,
+      panes: space.panes,
+      tiled: space.arrangements.tiled,
+    })
+  }
+
+  function persistDurableWorkspaceRecovery(current: PersistedWorkspaceState) {
+    const key = spaceRecoveryStorageKey()
+    if (!key || corruptSpaceRecovery() || staleWorkspaceRecoveryPending()) return
+    persistSpaceWorkspaceRecovery(
+      localStorage,
+      key,
+      current,
+      Math.max(1, lastConfirmedSpaceRevision),
+    )
+  }
+
+  function clearDurableWorkspaceRecovery() {
+    const key = spaceRecoveryStorageKey()
+    if (key && !corruptSpaceRecovery() && !staleWorkspaceRecoveryPending()) {
+      clearSpaceWorkspaceRecovery(localStorage, key)
+    }
+  }
+
+  function applySpaceClientSnapshot() {
+    const currentSpace = spaceClient?.getSnapshot()
+    if (!currentSpace?.space) return
+    setSpaceSaveStatus(currentSpace.status)
+    setSpaceSaveError(currentSpace.error)
+    setRecoveredSpaceId(currentSpace.recoveredCopy?.id ?? null)
+    if (corruptSpaceRecovery()) {
+      setSpaceSaveStatus('failed')
+      setSpaceSaveError('Unreadable local Workspace recovery needs attention')
+    }
+    if (currentSpace.status === 'saved' && currentSpace.pending === 0) {
+      lastConfirmedSpaceRevision = currentSpace.space.revision
+    }
+    const projectionKey = spaceProjectionKey(currentSpace.space)
+    if (projectionKey === lastSpaceProjection) return
+    lastSpaceProjection = projectionKey
+    applyingSpaceProjection = true
+    setWorkspace((previous) =>
+      projectSpaceToWorkspace(currentSpace.space!, workspaceDeviceSession(previous)),
+    )
+    queueMicrotask(() => {
+      applyingSpaceProjection = false
+    })
+  }
+
+  async function flushWorkspaceSpaceSync() {
+    if (
+      workspaceSyncRunning ||
+      !spaceClient ||
+      corruptSpaceRecovery() ||
+      staleWorkspaceRecoveryPending()
+    ) {
+      return
+    }
+    workspaceSyncRunning = true
+    try {
+      while (queuedWorkspaceSync && spaceClient) {
+        const desiredWorkspace = queuedWorkspaceSync
+        queuedWorkspaceSync = null
+        const clientSnapshot = spaceClient.getSnapshot()
+        const currentSpace = clientSnapshot.space
+        if (!currentSpace) continue
+        const desiredSpace = workspaceStateToSpace({
+          id: currentSpace.id,
+          name: currentSpace.name,
+          state: desiredWorkspace,
+          revision: currentSpace.revision,
+          createdAt: currentSpace.createdAt,
+          updatedAt: currentSpace.updatedAt,
+        })
+        const desiredWithOtherArrangements = {
+          ...desiredSpace,
+          arrangements: {
+            ...currentSpace.arrangements,
+            tiled: desiredSpace.arrangements.tiled,
+          },
+        }
+        if (sameSpaceContent(currentSpace, desiredWithOtherArrangements)) continue
+        for (const command of spaceCommandsToMatch(currentSpace, desiredWithOtherArrangements)) {
+          await spaceClient.dispatch(command)
+        }
+      }
+      const latestWorkspace = workspace()
+      const latestSnapshot = spaceClient?.getSnapshot()
+      if (
+        !queuedWorkspaceSync &&
+        latestWorkspace &&
+        latestSnapshot?.space &&
+        latestSnapshot.status === 'saved' &&
+        latestSnapshot.pending === 0
+      ) {
+        const desiredSpace = workspaceStateToSpace({
+          id: latestSnapshot.space.id,
+          name: latestSnapshot.space.name,
+          state: latestWorkspace,
+          revision: latestSnapshot.space.revision,
+          createdAt: latestSnapshot.space.createdAt,
+          updatedAt: latestSnapshot.space.updatedAt,
+        })
+        const desiredWithOtherArrangements = {
+          ...desiredSpace,
+          arrangements: {
+            ...latestSnapshot.space.arrangements,
+            tiled: desiredSpace.arrangements.tiled,
+          },
+        }
+        if (sameSpaceContent(latestSnapshot.space, desiredWithOtherArrangements)) {
+          clearDurableWorkspaceRecovery()
+        }
+      }
+    } catch (error) {
+      setSpaceSaveStatus(spaceClient?.getSnapshot().status ?? 'failed')
+      setSpaceSaveError(error instanceof Error ? error.message : 'Space could not save')
+    } finally {
+      workspaceSyncRunning = false
+      if (queuedWorkspaceSync) void flushWorkspaceSpaceSync()
+    }
+  }
+
+  createEffect(() => {
+    const initialSpace = durableSpace()
+    if (!initialSpace || shareConfig()) return
+    if (!spaceClient || spaceClient.getSnapshot().space?.id !== initialSpace.id) {
+      spaceClientUnsubscribe?.()
+      spaceClient?.dispose()
+      spaceClient = createOptimisticSpaceClient({
+        transport: createBrowserSpaceTransport(),
+        initialSpace,
+      })
+      lastConfirmedSpaceRevision = initialSpace.revision
+      spaceClientUnsubscribe = spaceClient.subscribe(applySpaceClientSnapshot)
+      retryStaleWorkspaceRecovery = null
+      setStaleWorkspaceRecoveryPending(false)
+      const storedSession = loadSpaceWorkspaceSession()
+      const recoveryInspection = inspectSpaceWorkspaceRecovery(
+        localStorage,
+        spaceRecoveryStorageKey(),
+      )
+      const recovery = recoveryInspection.kind === 'loaded' ? recoveryInspection.recovery : null
+      setCorruptSpaceRecovery(
+        recoveryInspection.kind === 'corrupt' ? { raw: recoveryInspection.raw } : null,
+      )
+      if (recovery && workspaceRecoveryCanReplay(recovery, initialSpace.revision)) {
+        const recoveredWorkspace = storedSession
+          ? { ...recovery.workspace, ...storedSession }
+          : recovery.workspace
+        lastSpaceProjection = spaceProjectionKey(initialSpace)
+        applyingSpaceProjection = true
+        setWorkspace(recoveredWorkspace)
+        persistSpaceWorkspaceSession(recoveredWorkspace)
+        queuedWorkspaceSync = structuredClone(recoveredWorkspace)
+        if (workspaceSyncTimer) clearTimeout(workspaceSyncTimer)
+        workspaceSyncTimer = setTimeout(() => {
+          workspaceSyncTimer = null
+          void flushWorkspaceSpaceSync()
+        }, 0)
+        queueMicrotask(() => {
+          applyingSpaceProjection = false
+        })
+      } else if (recovery) {
+        setStaleWorkspaceRecoveryPending(true)
+        const recoveredId =
+          recovery.recoveredSpaceId ?? globalThis.crypto?.randomUUID?.() ?? `space-${Date.now()}`
+        const recoveredNameSuffix = ' (recovered)'
+        const recoveredName = `${initialSpace.name
+          .slice(0, 120 - recoveredNameSuffix.length)
+          .trimEnd()}${recoveredNameSuffix}`
+        const recovered = workspaceStateToSpace({
+          id: recoveredId,
+          name: recoveredName,
+          state: recovery.workspace,
+        })
+        markSpaceWorkspaceRecoveryCopy(localStorage, spaceRecoveryStorageKey(), recoveredId)
+        queueMicrotask(() => {
+          setSpaceSaveStatus('conflict')
+          setSpaceSaveError('Local Workspace recovery was based on an older Space revision')
+        })
+        const recoveryTransport = createBrowserSpaceTransport()
+        let recoverySaveRunning = false
+        retryStaleWorkspaceRecovery = async () => {
+          if (recoverySaveRunning) return
+          recoverySaveRunning = true
+          setSpaceSaveStatus(navigator.onLine === false ? 'offline' : 'saving')
+          try {
+            let saved: Space
+            try {
+              saved = await recoveryTransport.load(recoveredId)
+              if (saved.deletedAt !== undefined) throw new Error('Recovered Space is deleted')
+            } catch {
+              saved = await recoveryTransport.apply({
+                command: {
+                  type: 'create',
+                  id: recovered.id,
+                  name: recovered.name,
+                  origin: 'workspace',
+                  panes: recovered.panes,
+                  arrangements: recovered.arrangements,
+                },
+              })
+            }
+            markSpaceWorkspaceRecoveryCopy(localStorage, spaceRecoveryStorageKey(), saved.id)
+            setRecoveredSpaceId(saved.id)
+            setStaleWorkspaceRecoveryPending(false)
+            setSpaceSaveStatus('conflict')
+            setSpaceSaveError('Local Workspace recovery was saved as a separate Space')
+            retryStaleWorkspaceRecovery = null
+          } catch (error) {
+            setSpaceSaveStatus(navigator.onLine === false ? 'offline' : 'failed')
+            setSpaceSaveError(
+              error instanceof Error ? error.message : 'Recovered Space could not save',
+            )
+          } finally {
+            recoverySaveRunning = false
+          }
+        }
+        void retryStaleWorkspaceRecovery()
+      } else if (storedSession) {
+        applyingSpaceProjection = true
+        setWorkspace(
+          projectSpaceToWorkspace(initialSpace, {
+            ...workspaceDeviceSession(),
+            ...storedSession,
+          }),
+        )
+        queueMicrotask(() => {
+          applyingSpaceProjection = false
+        })
+      }
+      applySpaceClientSnapshot()
+      if (recoveryInspection.kind === 'corrupt') {
+        setSpaceSaveStatus('failed')
+        setSpaceSaveError('Unreadable local Workspace recovery needs attention')
+      }
+      const onOnline = () => {
+        spaceClient?.setOnline(true)
+        if (retryStaleWorkspaceRecovery) void retryStaleWorkspaceRecovery()
+      }
+      const onOffline = () => spaceClient?.setOnline(false)
+      window.addEventListener('online', onOnline)
+      window.addEventListener('offline', onOffline)
+      onCleanup(() => {
+        window.removeEventListener('online', onOnline)
+        window.removeEventListener('offline', onOffline)
+      })
+    } else {
+      const snapshot = spaceClient.getSnapshot()
+      if (snapshot.pending === 0 && snapshot.space?.revision !== initialSpace.revision) {
+        void spaceClient.load(initialSpace.id).catch((error: unknown) => {
+          setSpaceSaveError(error instanceof Error ? error.message : 'Space could not reload')
+        })
+      }
+    }
+  })
+
+  createEffect(() => {
+    const currentWorkspace = workspace()
+    if (!durableSpace() || !currentWorkspace || applyingSpaceProjection) return
+    persistSpaceWorkspaceSession(currentWorkspace)
+    if (staleWorkspaceRecoveryPending()) return
+    if (corruptSpaceRecovery()) {
+      setSpaceSaveStatus('failed')
+      setSpaceSaveError('Unreadable local Workspace recovery needs attention')
+      return
+    }
+    persistDurableWorkspaceRecovery(currentWorkspace)
+    queuedWorkspaceSync = structuredClone(currentWorkspace)
+    if (workspaceSyncTimer) clearTimeout(workspaceSyncTimer)
+    workspaceSyncTimer = setTimeout(() => {
+      workspaceSyncTimer = null
+      void flushWorkspaceSpaceSync()
+    }, 300)
+  })
+
+  onMount(() => {
+    const flushDurableWorkspace = () => {
+      const currentWorkspace = workspace()
+      if (!durableSpace() || !currentWorkspace) return
+      persistSpaceWorkspaceSession(currentWorkspace)
+      if (corruptSpaceRecovery() || staleWorkspaceRecoveryPending()) return
+      persistDurableWorkspaceRecovery(currentWorkspace)
+      queuedWorkspaceSync = structuredClone(currentWorkspace)
+      if (workspaceSyncTimer) {
+        clearTimeout(workspaceSyncTimer)
+        workspaceSyncTimer = null
+      }
+      void flushWorkspaceSpaceSync()
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushDurableWorkspace()
+    }
+    const blockStaleRecoveryKeyboardInput = (event: KeyboardEvent) => {
+      if (!staleWorkspaceRecoveryPending()) return
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-stale-recovery-overlay]')) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+    window.addEventListener('pagehide', flushDurableWorkspace)
+    window.addEventListener('keydown', blockStaleRecoveryKeyboardInput, true)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    onCleanup(() => {
+      window.removeEventListener('pagehide', flushDurableWorkspace)
+      window.removeEventListener('keydown', blockStaleRecoveryKeyboardInput, true)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    })
+  })
+
+  onCleanup(() => {
+    if (workspaceSyncTimer) clearTimeout(workspaceSyncTimer)
+    spaceClientUnsubscribe?.()
+    spaceClient?.dispose()
   })
 
   createEffect(() => {
@@ -282,13 +713,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     }
     const base = workspaceStorageBaseKey(shareConfig()?.token ?? null)
     const key = workspaceStorageSessionKey(base, sid)
+    const inspection = inspectPersistedWorkspace(localStorage, key)
+    setCorruptDraft(inspection.kind === 'corrupt' ? { key, raw: inspection.raw } : null)
     const dirParam = sp.get('dir')
     const presetParam = sp.get('preset')
     void server.settingsQuery.isSuccess
     void server.serverLayoutPresets()
     const presetsReadyNow = shareConfig() ? true : server.settingsQuery.isSuccess
     // Always prefer session draft in localStorage over a named preset in the URL.
-    const loaded = loadPersisted(key)
+    const loaded = inspection.kind === 'loaded' ? inspection.workspace : null
     const src = browserSource()
     const scope = server.layoutScope()
     const presetsList = server.serverLayoutPresets()
@@ -330,7 +763,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const deferred = resolveWorkspaceDeferredPresetApply({
       presetParam,
       presetsReadyNow,
-      hasPersistedDraft: !!loadPersisted(key),
+      hasPersistedDraft: inspection.kind !== 'missing',
       presetsList,
       layoutScope: scope,
     })
@@ -1783,6 +2216,93 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     setFileOpenPickHoverId(null)
   }
 
+  async function saveScratchAsSpace() {
+    const currentWorkspace = workspace()
+    if (!currentWorkspace || shareConfig() || durableSpace()) return
+    if (
+      corruptDraft() &&
+      !window.confirm(
+        'The stored draft is unreadable. Save the fresh fallback as a Space? The original local data will remain unchanged for export.',
+      )
+    ) {
+      return
+    }
+    const suggested = `Workspace ${new Date().toLocaleDateString()}`
+    const requested = window.prompt('Name this Space', suggested)?.trim()
+    if (!requested) return
+    setScratchSavePending(true)
+    setScratchSaveError(null)
+    try {
+      const id = globalThis.crypto?.randomUUID?.() ?? `space-${Date.now()}`
+      const desired = workspaceStateToSpace({ id, name: requested, state: currentWorkspace })
+      const scratchStorageKey = storageSessionKeyFull().key
+      const sourceKey = scratchStorageKey || `workspace-unsaved:${id}`
+      const serializedCurrent = serializeWorkspacePersistedState(currentWorkspace)
+      const storedRaw = scratchStorageKey ? localStorage.getItem(scratchStorageKey) : null
+      const rawSource = corruptDraft()?.raw ?? storedRaw ?? serializedCurrent
+      if (scratchStorageKey && !storedRaw && !corruptDraft()) {
+        localStorage.setItem(scratchStorageKey, serializedCurrent)
+      }
+      const { space: saved } = await createBrowserSpaceTransport().importWorkspace({
+        sourceKey,
+        raw: rawSource,
+        id,
+        name: requested,
+        panes: desired.panes,
+        arrangements: desired.arrangements,
+      })
+      navigateSpace(saved.id)
+    } catch (error) {
+      setScratchSaveError(error instanceof Error ? error.message : 'Workspace could not save')
+    } finally {
+      setScratchSavePending(false)
+    }
+  }
+
+  function exportCorruptDraft() {
+    const corrupt = corruptDraft()
+    if (!corrupt) return
+    const blob = new Blob([corrupt.raw], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `workspace-corrupt-${Date.now()}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportCorruptSpaceRecovery() {
+    const corrupt = corruptSpaceRecovery()
+    if (!corrupt) return
+    const blob = new Blob([corrupt.raw], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `workspace-recovery-corrupt-${Date.now()}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function discardCorruptSpaceRecovery() {
+    const currentWorkspace = workspace()
+    if (
+      !corruptSpaceRecovery() ||
+      !window.confirm(
+        'Discard the unreadable local Workspace recovery? Export it first if you may need it.',
+      )
+    ) {
+      return
+    }
+    clearSpaceWorkspaceRecovery(localStorage, spaceRecoveryStorageKey())
+    setCorruptSpaceRecovery(null)
+    setSpaceSaveError(null)
+    setSpaceSaveStatus('saved')
+    if (!currentWorkspace) return
+    persistDurableWorkspaceRecovery(currentWorkspace)
+    queuedWorkspaceSync = structuredClone(currentWorkspace)
+    void flushWorkspaceSpaceSync()
+  }
+
   function updateFileOpenPickHover(clientX: number, clientY: number) {
     const w = workspace()
     const area = snap.getWorkspaceAreaElement()
@@ -1864,6 +2384,120 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'
       classList={{ 'pb-[var(--playback-audio-chrome-height)]': workspaceAudioChromeVisible() }}
     >
+      <Show
+        when={
+          !shareConfig() &&
+          (durableSpace() || corruptDraft() || corruptSpaceRecovery() || scratchSaveError())
+        }
+      >
+        <div class='pointer-events-auto absolute top-3 right-3 z-[100100] flex max-w-sm flex-col items-end gap-2'>
+          <Show when={durableSpace()}>
+            <div
+              class='bg-card/95 rounded-md border border-border px-3 py-2 text-xs shadow-md backdrop-blur'
+              data-testid='workspace-space-save-status'
+            >
+              <span class='font-medium capitalize'>{spaceSaveStatus()}</span>
+              <Show when={spaceSaveError()}>
+                {(error) => <span class='text-destructive ml-2'>{error()}</span>}
+              </Show>
+              <Show when={spaceSaveStatus() === 'failed' || spaceSaveStatus() === 'offline'}>
+                <button
+                  type='button'
+                  class='ml-2 underline'
+                  onClick={() =>
+                    retryStaleWorkspaceRecovery
+                      ? void retryStaleWorkspaceRecovery()
+                      : void spaceClient?.retry()
+                  }
+                >
+                  Retry
+                </button>
+              </Show>
+              <Show when={recoveredSpaceId()}>
+                {(spaceId) => (
+                  <a
+                    class='ml-2 font-medium underline'
+                    href={hrefForSpace(spaceId())}
+                    onClick={(event) => followAppLink(event, hrefForSpace(spaceId()))}
+                  >
+                    Open recovered copy
+                  </a>
+                )}
+              </Show>
+            </div>
+          </Show>
+          <Show when={corruptDraft()}>
+            <div class='bg-card/95 rounded-md border border-destructive/50 p-3 text-xs shadow-md backdrop-blur'>
+              <p class='font-medium'>This local Workspace draft is unreadable.</p>
+              <p class='text-muted-foreground mt-1'>The original data is still stored unchanged.</p>
+              <button type='button' class='mt-2 font-medium underline' onClick={exportCorruptDraft}>
+                Export original draft
+              </button>
+            </div>
+          </Show>
+          <Show when={corruptSpaceRecovery()}>
+            <div
+              class='rounded-md border border-destructive/50 bg-card/95 p-3 text-xs shadow-md backdrop-blur'
+              data-testid='workspace-corrupt-recovery'
+            >
+              <p class='font-medium'>This local Workspace recovery is unreadable.</p>
+              <p class='mt-1 text-muted-foreground'>
+                It remains stored unchanged until you decide.
+              </p>
+              <div class='mt-2 flex gap-3'>
+                <button
+                  type='button'
+                  class='font-medium underline'
+                  onClick={exportCorruptSpaceRecovery}
+                >
+                  Export original
+                </button>
+                <button
+                  type='button'
+                  class='font-medium text-destructive underline'
+                  onClick={discardCorruptSpaceRecovery}
+                >
+                  Discard recovery
+                </button>
+              </div>
+            </div>
+          </Show>
+          <Show when={scratchSaveError()}>
+            {(error) => (
+              <div class='bg-card/95 rounded-md border border-destructive/50 px-3 py-2 text-xs shadow-md backdrop-blur'>
+                {error()}
+              </div>
+            )}
+          </Show>
+        </div>
+      </Show>
+      <Show when={staleWorkspaceRecoveryPending()}>
+        <div
+          data-testid='workspace-stale-recovery-blocker'
+          data-stale-recovery-overlay
+          class='pointer-events-auto fixed inset-0 z-[100200] flex items-center justify-center bg-background/75 p-4 backdrop-blur-sm'
+        >
+          <div
+            role='alert'
+            class='max-w-md rounded-lg border border-border bg-card p-5 text-sm shadow-xl'
+          >
+            <p class='font-semibold'>Saving older local Workspace changes</p>
+            <p class='mt-2 text-muted-foreground'>
+              Editing is paused until those changes are safely stored as a separate recovered Space.
+            </p>
+            <Show when={spaceSaveStatus() !== 'saving'}>
+              <button
+                type='button'
+                data-testid='workspace-stale-recovery-retry'
+                class='mt-4 rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground hover:bg-primary/90'
+                onClick={() => void retryStaleWorkspaceRecovery?.()}
+              >
+                Retry recovered copy
+              </button>
+            </Show>
+          </div>
+        </div>
+      </Show>
       <div
         class='relative min-h-0 flex-1 overflow-hidden'
         ref={(el) => snap.bindWorkspaceAreaRoot(el)}
@@ -1992,6 +2626,17 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         requestPlay={requestPlay}
         suppressTaskbarAudioChrome={suppressWorkspaceTaskbarAudioForVideoViewer}
       />
+      <Show when={!shareConfig() && !durableSpace()}>
+        <button
+          type='button'
+          class='bg-card hover:bg-muted absolute right-3 bottom-[calc(3rem+0.75rem)] z-[100050] min-h-10 rounded-md border border-border px-3 text-xs font-medium shadow-md disabled:opacity-50'
+          disabled={!workspace() || scratchSavePending()}
+          data-testid='workspace-save-as-space'
+          onClick={() => void saveScratchAsSpace()}
+        >
+          {scratchSavePending() ? 'Saving…' : 'Save as Space'}
+        </button>
+      </Show>
     </div>
   )
 }

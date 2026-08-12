@@ -265,6 +265,7 @@ pub fn move_path(config: &Config, old_path: &str, new_path: &str) -> AppResult<(
             Ok(())
         },
     )?;
+    crate::spaces::reconcile_move(config, old_path, new_path).map_err(AppError::internal)?;
     reader_state::move_prefix(&database, old_path, new_path)
 }
 
@@ -314,6 +315,7 @@ pub fn remove_path(config: &Config, path: &str) -> AppResult<()> {
             Ok(())
         },
     )?;
+    crate::spaces::reconcile_remove(config, path).map_err(AppError::internal)?;
     reader_state::remove_prefix(&database, None, path)
 }
 
@@ -757,6 +759,62 @@ mod tests {
             reader_state::get(&database, "owner", "Gone/item.md")
                 .unwrap()
                 .is_none()
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn content_path_hooks_reconcile_canonical_space_heads() {
+        let (base, config) = fixture("canonical-spaces");
+        let spaces = crate::spaces::initialize(&config).unwrap();
+        let create = serde_json::from_value(json!({
+            "spaceId":"space-path-hook",
+            "expectedRevision":0,
+            "command":{
+                "type":"create",
+                "name":"Path hook",
+                "origin":"workspace",
+                "panes":{
+                    "pane":{
+                        "kind":"viewer",
+                        "state":{
+                            "resourceTarget":{
+                                "ref":{"libraryId":"library","resourceId":"resource-stable"},
+                                "legacyLocator":"Before/file.md"
+                            }
+                        }
+                    }
+                },
+                "arrangements":{}
+            }
+        }))
+        .unwrap();
+        spaces.apply(create).unwrap();
+
+        move_path(&config, "Before", "After").unwrap();
+        move_path(&config, "Before", "After").unwrap();
+        let moved = spaces.load("space-path-hook").unwrap();
+        assert_eq!(moved.revision, 2);
+        assert_eq!(
+            moved.panes["pane"].state["resourceTarget"]["legacyLocator"],
+            "After/file.md"
+        );
+        assert_eq!(
+            moved.panes["pane"].state["resourceTarget"]["ref"]["resourceId"],
+            "resource-stable"
+        );
+
+        remove_path(&config, "After").unwrap();
+        remove_path(&config, "After").unwrap();
+        let missing = spaces.load("space-path-hook").unwrap();
+        assert_eq!(missing.revision, 3);
+        assert_eq!(
+            missing.panes["pane"].state["resourceTarget"]["ref"]["resourceId"],
+            "resource-stable"
+        );
+        assert_eq!(
+            missing.panes["pane"].state["resourceTarget"]["availability"],
+            "missing"
         );
         fs::remove_dir_all(base).unwrap();
     }

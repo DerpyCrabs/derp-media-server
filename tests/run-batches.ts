@@ -53,6 +53,7 @@ export const BATCHES = [
       'share-browser-parity',
       'multiple-media-dirs',
       'owner-shell',
+      'stage6-space-engine',
       'stage4-explorer-parity',
     ],
   },
