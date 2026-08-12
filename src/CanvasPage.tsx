@@ -1667,10 +1667,7 @@ export function CanvasPage() {
     queueMicrotask(() => ensureWindowsVisible([windowId]))
   }
 
-  function handleAudioPlay(windowId: string, element: HTMLAudioElement) {
-    document.querySelectorAll<HTMLAudioElement>('[data-canvas-audio-player]').forEach((audio) => {
-      if (audio !== element && !audio.paused) audio.pause()
-    })
+  function handleAudioActivate(windowId: string) {
     setLastAudioWindowId(windowId)
   }
 
@@ -2737,7 +2734,7 @@ export function CanvasPage() {
                           onVideoMetadataLoaded={(width, height) =>
                             sizeVideoWindow(windowId, width, height)
                           }
-                          onAudioPlay={(element) => handleAudioPlay(windowId, element)}
+                          onAudioActivate={() => handleAudioActivate(windowId)}
                           showListenOnly={false}
                         />
                       </Show>

@@ -48,9 +48,10 @@ export function ShareRoute(props: Props) {
     const data = shareQuery.data
     if (!data || shareQuery.isPending || shareQuery.isError) return undefined
     if (data.needsPasscode && !data.authorized) return undefined
+    if (typeof data.path !== 'string') return undefined
     return {
       name: data.name,
-      path: data.path ?? '',
+      path: data.path,
       isDirectory: data.isDirectory,
       editable: data.editable,
       mediaType: data.mediaType,

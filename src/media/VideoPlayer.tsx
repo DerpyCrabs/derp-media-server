@@ -1,19 +1,25 @@
-import { useMediaPlayer } from '@/lib/use-media-player'
-import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import {
   getDefaultPosition,
   useVideoPlayerPosition,
   validatePosition,
 } from '@/lib/use-video-player-position'
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js'
+import {
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  untrack,
+} from 'solid-js'
 import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { closePlayer, setAudioOnly } from '../lib/url-state-actions'
-import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
-import { createOwnerPlaybackProgress } from '../lib/owner-playback-progress'
+import { usePlaybackSession, usePlaybackSnapshot } from './playback/PlaybackProvider'
 
 type Props = {
   shareContext?: { token: string; sharePath: string } | null
@@ -22,24 +28,31 @@ type Props = {
 const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 
 export function VideoPlayer(props: Props) {
+  void props.shareContext
+  const playbackSession = usePlaybackSession()
+  const playbackSnapshot = usePlaybackSnapshot()
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
-  const playbackProgress = createOwnerPlaybackProgress(useVideoPlaybackTime.getState())
 
-  const playingPath = createMemo(() => urlSearchParams().get('playing'))
+  const playingPath = createMemo(
+    () => playbackSnapshot().currentItem?.locator ?? urlSearchParams().get('playing'),
+  )
 
   const audioOnly = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
 
   const extension = createMemo(() => (playingPath() || '').split('.').pop()?.toLowerCase() || '')
-  const isVideoFile = createMemo(
-    () => !!playingPath() && VIDEO_EXTENSIONS.includes(extension()) && !audioOnly(),
-  )
+  const isVideoFile = createMemo(() => {
+    const item = playbackSnapshot().currentItem
+    if (item) return item.media === 'video' && playbackSnapshot().mode === 'video'
+    return !!playingPath() && VIDEO_EXTENSIONS.includes(extension()) && !audioOnly()
+  })
 
   const mediaUrl = createMemo(() => {
-    const path = playingPath()
-    if (!path) return ''
-    const ctx = props.shareContext
-    return ctx ? buildShareMediaUrl(ctx.token, ctx.sharePath, path) : buildAdminMediaUrl(path)
+    return playbackSnapshot().source?.url ?? ''
+  })
+  const recovery = createMemo(() => {
+    const state = playbackSnapshot()
+    return state.phase === 'recoverable' || state.phase === 'error' ? state : null
   })
 
   const fileName = createMemo(() => (playingPath() || '').split('/').pop() || '')
@@ -55,70 +68,85 @@ export function VideoPlayer(props: Props) {
   })
 
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
+  let boundGeneration = 0
+  let boundHref = ''
+  let bindingReady = false
+  let suppressPause = false
+  let suppressPauseTimer: number | undefined
 
-  createEffect(() => {
-    const path = playingPath()
-    const url = mediaUrl()
-    const vid = videoEl()
-    if (!path || !isVideoFile() || !vid || !url) return
-
-    const targetHref = new URL(url, window.location.origin).href
-    const srcMismatch = vid.src !== targetHref
-    const current = useMediaPlayer.getState()
-    const storeTime =
-      current.currentFile === path && current.mediaType === 'video' ? current.currentTime : 0
-    if (srcMismatch) {
-      releasePlaybackTime(vid)
-      vid.pause()
-    }
-    useMediaPlayer.getState().setCurrentFile(path, 'video')
-
-    const finish = () => {
-      const savedTime = playbackProgress.load(path, props.shareContext ? 'grant' : 'owner') ?? 0
-      const t = storeTime > 0 ? storeTime : savedTime
-      if (t > 0) {
-        try {
-          vid.currentTime = t
-        } catch {
-          /* ignore */
-        }
-      }
-      void vid.play().catch(() => {})
-    }
-
-    let onCanPlay: () => void = () => {}
-
-    if (srcMismatch) {
-      onCanPlay = () => {
-        vid.removeEventListener('canplay', onCanPlay)
-        vid.removeEventListener('error', onCanPlay)
-        finish()
-      }
-      vid.addEventListener('canplay', onCanPlay)
-      vid.addEventListener('error', onCanPlay)
-      vid.src = targetHref
-      vid.load()
-    } else {
-      finish()
-    }
-
-    onCleanup(() => {
-      vid.removeEventListener('canplay', onCanPlay)
-      vid.removeEventListener('error', onCanPlay)
-    })
+  const sourceBindingKey = createMemo(() => {
+    const source = playbackSnapshot().source
+    return `${videoEl() ? 1 : 0}|${isVideoFile() ? 1 : 0}|${source?.generation ?? 0}|${source?.url ?? ''}`
   })
 
-  createEffect(() => {
-    const path = playingPath()
-    const vid = videoEl()
-    if (!path || !isVideoFile()) {
-      if (vid) {
-        releasePlaybackTime(vid)
-        vid.pause()
-        vid.removeAttribute('src')
-        vid.load()
+  function pauseForHandoff(video: HTMLVideoElement) {
+    if (video.paused) return
+    suppressPause = true
+    video.pause()
+    if (suppressPauseTimer !== undefined) window.clearTimeout(suppressPauseTimer)
+    suppressPauseTimer = window.setTimeout(() => {
+      suppressPause = false
+      suppressPauseTimer = undefined
+    }, 250)
+  }
+
+  createEffect(
+    on(sourceBindingKey, () => {
+      const vid = videoEl()
+      const state = untrack(playbackSnapshot)
+      const source = state.source
+      if (!vid) return
+      if (!untrack(isVideoFile) || !source) {
+        persistPlaybackTime(vid)
+        pauseForHandoff(vid)
+        if (vid.src) {
+          vid.removeAttribute('src')
+          vid.load()
+        }
+        boundGeneration = 0
+        boundHref = ''
+        bindingReady = false
+        return
       }
+
+      const targetHref = new URL(source.url, window.location.origin).href
+      if (boundGeneration === source.generation && vid.src === targetHref) return
+      persistPlaybackTime(vid)
+      pauseForHandoff(vid)
+      boundGeneration = source.generation
+      boundHref = targetHref
+      bindingReady = false
+
+      const onCanPlay = () => {
+        if (boundGeneration !== source.generation || !matchesBoundSource(vid)) return
+        const position = playbackSession.getSnapshot().position
+        if (position > 0) {
+          try {
+            vid.currentTime = position
+          } catch {}
+        }
+        bindingReady = true
+        playbackSession.dispatch({ type: 'mediaReady', generation: source.generation })
+        if (playbackSession.getSnapshot().desiredPlaying) void vid.play().catch(() => {})
+      }
+      vid.addEventListener('canplay', onCanPlay, { once: true })
+      vid.src = source.url
+      vid.load()
+      if (state.desiredPlaying) void vid.play().catch(() => {})
+      onCleanup(() => vid.removeEventListener('canplay', onCanPlay))
+    }),
+  )
+
+  createEffect(() => {
+    const state = playbackSnapshot()
+    const vid = videoEl()
+    if (!vid || !isVideoFile() || !state.source || boundGeneration !== state.source.generation) {
+      return
     }
+    vid.volume = state.volume
+    vid.muted = state.muted
+    if (state.desiredPlaying && vid.paused) void vid.play().catch(() => {})
+    if (!state.desiredPlaying && !vid.paused) pauseForHandoff(vid)
   })
 
   function toggleMinimize() {
@@ -144,48 +172,60 @@ export function VideoPlayer(props: Props) {
     const path = playingPath()
     if (!path) return
     if (vid) {
-      releasePlaybackTime(vid)
-      vid.pause()
-      useMediaPlayer.getState().setCurrentTime(vid.currentTime)
+      persistPlaybackTime(vid)
+      bindingReady = false
+      pauseForHandoff(vid)
     }
     setAudioOnly(true)
-    useMediaPlayer.getState().setCurrentFile(path, 'audio')
-    useMediaPlayer.getState().setIsPlaying(true)
+    playbackSession.dispatch({ type: 'setMode', mode: 'audio' })
   }
 
   function handleClose() {
     const vid = videoEl()
     if (vid) {
-      releasePlaybackTime(vid)
-      vid.pause()
+      persistPlaybackTime(vid)
+      bindingReady = false
+      pauseForHandoff(vid)
       vid.removeAttribute('src')
       vid.load()
     }
+    playbackSession.dispatch({ type: 'stop' })
     closePlayer()
     setIsMinimized(false)
   }
 
-  function persistPlaybackTime(video: HTMLVideoElement) {
-    if (!Number.isFinite(video.duration) || video.duration <= 0) return
-    useMediaPlayer.getState().setCurrentTime(video.currentTime)
-    playbackProgress.save(video.currentTime, video.duration)
+  function recoverPlayback() {
+    playbackSession.dispatch({
+      type: playbackSnapshot().issue === 'versionChanged' ? 'acceptVersion' : 'retry',
+    })
   }
 
-  function releasePlaybackTime(video: HTMLVideoElement) {
-    if (Number.isFinite(video.duration) && video.duration > 0) {
-      useMediaPlayer.getState().setCurrentTime(video.currentTime)
-    }
-    playbackProgress.release(video.currentTime, video.duration)
+  function persistPlaybackTime(video: HTMLVideoElement) {
+    if (!bindingReady || !boundGeneration || !matchesBoundSource(video)) return
+    playbackSession.dispatch({
+      type: 'time',
+      generation: boundGeneration,
+      position: video.currentTime,
+      ...(Number.isFinite(video.duration) ? { duration: video.duration } : {}),
+    })
+  }
+
+  function matchesBoundSource(video: HTMLVideoElement) {
+    return !!boundHref && (video.currentSrc || video.src) === boundHref
   }
 
   onCleanup(() => {
     const vid = videoEl()
     if (vid) {
-      releasePlaybackTime(vid)
-      vid.pause()
+      persistPlaybackTime(vid)
+      bindingReady = false
+      pauseForHandoff(vid)
       vid.removeAttribute('src')
       vid.load()
     }
+    boundGeneration = 0
+    boundHref = ''
+    if (suppressPauseTimer !== undefined) window.clearTimeout(suppressPauseTimer)
   })
 
   const containerClass = () => (isMinimized() ? 'fixed z-40 w-80' : 'w-full bg-background')
@@ -270,10 +310,64 @@ export function VideoPlayer(props: Props) {
               class='w-full bg-black'
               style={videoAreaStyle()}
               onTimeUpdate={(event) => persistPlaybackTime(event.currentTarget)}
-              onPause={(event) => persistPlaybackTime(event.currentTarget)}
+              onVolumeChange={(event) => {
+                if (!boundGeneration || !matchesBoundSource(event.currentTarget)) return
+                playbackSession.dispatch({
+                  type: 'setVolume',
+                  volume: event.currentTarget.volume,
+                })
+                playbackSession.dispatch({
+                  type: 'setMuted',
+                  muted: event.currentTarget.muted,
+                })
+              }}
+              onPause={(event) => {
+                persistPlaybackTime(event.currentTarget)
+                if (suppressPause) {
+                  suppressPause = false
+                  return
+                }
+                if (boundGeneration && matchesBoundSource(event.currentTarget)) {
+                  playbackSession.dispatch({ type: 'mediaPause', generation: boundGeneration })
+                }
+              }}
+              onPlay={(event) => {
+                suppressPause = false
+                if (boundGeneration && matchesBoundSource(event.currentTarget)) {
+                  playbackSession.dispatch({ type: 'mediaPlay', generation: boundGeneration })
+                }
+              }}
+              onEnded={(event) => {
+                if (boundGeneration && matchesBoundSource(event.currentTarget)) {
+                  playbackSession.dispatch({ type: 'mediaEnded', generation: boundGeneration })
+                }
+              }}
+              onError={(event) => {
+                if (boundGeneration && matchesBoundSource(event.currentTarget)) {
+                  playbackSession.dispatch({
+                    type: 'mediaError',
+                    generation: boundGeneration,
+                    message: 'Video playback failed.',
+                  })
+                }
+              }}
             >
               Your browser does not support the video tag.
             </video>
+            <Show when={recovery()} keyed>
+              {(state) => (
+                <div
+                  role='alert'
+                  data-testid='video-playback-recoverable'
+                  class='flex items-center justify-between gap-3 border-t border-border bg-card px-3 py-2 text-sm'
+                >
+                  <span>{state.error ?? 'Playback is temporarily unavailable.'}</span>
+                  <button type='button' class='shrink-0 underline' onClick={recoverPlayback}>
+                    {state.issue === 'versionChanged' ? 'Play updated file' : 'Retry'}
+                  </button>
+                </div>
+              )}
+            </Show>
           </div>
         </div>
       </div>

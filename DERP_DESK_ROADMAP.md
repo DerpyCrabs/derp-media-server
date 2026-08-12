@@ -1,6 +1,6 @@
 # Derp Desk Roadmap
 
-Status: active; Stage 4 complete
+Status: active; Stage 5 complete
 Initiative branch: `derp-desk`
 Last updated: 2026-08-12
 
@@ -129,8 +129,8 @@ Every stage also requires:
 | 1     | Cohesive shell with protected mobile media path                | Current `canvas` baseline | Complete (2026-08-11) |
 | 2     | Stable Resource read plane and one opener                      | 1                         | Complete (2026-08-11) |
 | 3     | Recoverable content commands                                   | 2                         | Complete (2026-08-11) |
-| 4     | One ExplorerModel across owner, Grant, pane, and offline views | 3                         | Not started           |
-| 5     | One playback session across routes and presentations           | 2-4                       | Not started           |
+| 4     | One ExplorerModel across owner, Grant, pane, and offline views | 3                         | Complete (2026-08-12) |
+| 5     | One playback session across routes and presentations           | 2-4                       | Complete (2026-08-12) |
 | 6     | Versioned SpaceEngine with one-time Canvas import              | 2-5                       | Not started           |
 | 7     | One Space UX with Focus, Tiled, and Map presentations          | 6                         | Not started           |
 | 8     | Typed events, unified discovery, Continue, and activity        | 2-7                       | Not started           |
@@ -477,13 +477,13 @@ Session stores ResourceRef/opaque version and resolves playable URL through curr
 
 ### Work packages
 
-- [ ] **5.1 Characterize media semantics.** Lock current audio queue, video/native-control, audio-only switching, Range, share, resume, and offline behaviour with fixtures.
-- [ ] **5.2 Define playback state machine.** Explicit states and commands cover load, play/pause, seek, queue, next/previous, error/retry, source refresh, offline fallback, and teardown. Specify event ordering and stale media/version behaviour.
-- [ ] **5.3 Move ownership above routes.** Shell owns one owner PlaybackSession. Shared view owns its own session; moving between them stops or explicitly transfers playback.
-- [ ] **5.4 Adapt every presenter.** Library player hook, workspace audio store, Canvas panes, shared audio/video, and offline player become thin presenters/Adapters. One visible chrome owns audio; video fullscreen/native controls remain appropriate to device.
-- [ ] **5.5 Persist safe continuity.** Save queue refs and progress without credentials. Missing, moved, revoked, or version-changed Resources produce explicit recoverable state. Resource move keeps playback identity.
-- [ ] **5.6 Preserve offline playback.** Existing installed media stays usable without redownload. Online/offline switch does not duplicate queue entries or reset position.
-- [ ] **5.7 Complete cutover.** Move all presenters to PlaybackSession, verify phone/shared/offline flows, then remove competing player ownership.
+- [x] **5.1 Characterize media semantics.** Lock current audio queue, video/native-control, audio-only switching, Range, share, resume, and offline behaviour with fixtures.
+- [x] **5.2 Define playback state machine.** Explicit states and commands cover load, play/pause, seek, queue, next/previous, error/retry, source refresh, offline fallback, and teardown. Specify event ordering and stale media/version behaviour.
+- [x] **5.3 Move ownership above routes.** Shell owns one owner PlaybackSession. Shared view owns its own session; moving between them stops or explicitly transfers playback.
+- [x] **5.4 Adapt every presenter.** Library player hook, workspace audio store, Canvas panes, shared audio/video, and offline player become thin presenters/Adapters. One visible chrome owns audio; video fullscreen/native controls remain appropriate to device.
+- [x] **5.5 Persist safe continuity.** Save queue refs and progress without credentials. Missing, moved, revoked, or version-changed Resources produce explicit recoverable state. Resource move keeps playback identity.
+- [x] **5.6 Preserve offline playback.** Existing installed media stays usable without redownload. Online/offline switch does not duplicate queue entries or reset position.
+- [x] **5.7 Complete cutover.** Move all presenters to PlaybackSession, verify phone/shared/offline flows, then remove competing player ownership.
 
 ### Likely code areas
 
@@ -517,6 +517,19 @@ Session stores ResourceRef/opaque version and resolves playable URL through curr
 
 - No recommendation engine, transcoding redesign, or server queue.
 - No Activity/Continue aggregation yet; Stage 8 consumes PlaybackSession progress.
+
+### Completion record
+
+- Completed: 2026-08-12; all work packages 5.1-5.7 and Stage 5 exit gates verified.
+- Commit/release: one Stage 5 implementation commit on `derp-desk`; release not pushed.
+- Data changes: no server, SQLite, or user-file migration. Playback continuity uses a credential-free localStorage schema v1, isolated between owner and opaque Grant-session scopes. It persists ResourceRefs, opaque versions, safe locators, queue position, media mode, and transport preferences; tokens, passcodes, and resolved media URLs are never persisted. Existing offline IndexedDB/OPFS media remains in place without rewrite or redownload.
+- Transitional Adapters retained: direct owner and Grant media URLs, audio extraction, service-worker offline responses, and HTTP Range behavior remain unchanged. Owner playback continues to read and update the legacy `video-playback-times` progress shape while schema v1 becomes authoritative; current playback deep links remain readable.
+- Architecture: one scoped PlaybackSession owns queue identity, transport intent, position, source generation, retry/recovery, audio-only mode, and safe persistence. Owner and Grant source Adapters re-resolve stable Resources within their authorized scope, reconcile moves, and surface missing, unavailable, revoked, and opaque-version-changed states without storing credentials.
+- Targeted tests: PlaybackSession transitions and ordering; queue identity, restore, stale-source rejection, retry, teardown, and persistence; owner/Grant source isolation, moved Resource resolution, missing/revoked/version-changed handling, and offline source selection; existing audio, video, audio-only, Workspace, shared-media, Range, reload/resume, and offline replay regressions.
+- Full validation: `bun run tsgo`, `bun run lint-errors`, `bun run test:unit` (176 Rust and 570 Bun tests), and `bun run test:batch` (all six isolated E2E batches) passed on 2026-08-12.
+- Manual desktop smoke: not separately performed; existing automated desktop Chromium coverage exercises Library, Workspace, owner/Grant playback, native video controls, and route continuity.
+- Manual phone smoke: not separately performed; existing automated narrow-phone coverage exercises browse, play, seek, reload, resume, HTTP Range, and offline replay.
+- Known follow-ups explicitly deferred: Activity/Continue aggregation remains Stage 8 scope; Space presentation consolidation remains Stages 6-7 scope.
 
 ---
 

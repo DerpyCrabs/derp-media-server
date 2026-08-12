@@ -15,6 +15,7 @@ test.afterAll(async () => {
 
 test.beforeEach(async () => {
   page = await sharedContext.newPage()
+  await page.addInitScript(() => localStorage.removeItem('derp-playback-session-owner-v1'))
 })
 
 test.afterEach(async () => {

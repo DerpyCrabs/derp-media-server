@@ -54,7 +54,6 @@ import {
   resolveWorkspaceDeferredPresetApply,
   resolveWorkspaceInitialHydration,
 } from '@/lib/workspace-bootstrap'
-import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
 import {
   getWorkspaceFileOpenTarget,
@@ -73,6 +72,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  onMount,
   untrack,
 } from 'solid-js'
 import { useThemeStore } from '@/lib/theme-store'
@@ -130,8 +130,12 @@ import {
 import { executeOpenPlan, openResource } from './lib/open-resource'
 import { reconcileResolvedWindowPresentation } from './lib/resource-window-resolution'
 import { viewerMediaType } from './lib/viewer-registry'
+import { usePlaybackSession, usePlaybackSnapshot } from './media/playback/PlaybackProvider'
+import { playbackItemFromFileItem } from './media/playback/items'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
+  const playbackSession = usePlaybackSession()
+  const playbackSnapshot = usePlaybackSnapshot()
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
 
@@ -557,9 +561,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   }
 
   function stopWorkspacePlaybackFromTaskbar() {
-    const key = storageSessionKeyFull().key
-    if (!key) return
-    useWorkspaceAudio.getState().closePlayer(key)
+    playbackSession.dispatch({ type: 'stop' })
   }
 
   function closeWindow(windowId: string) {
@@ -668,10 +670,22 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     detail: WorkspaceVideoListenOnlyDetail,
   ) {
     if (!storageSessionKeyFull().key) return
-    useWorkspaceAudio.getState().setCurrentTime(detail.videoCurrentTime)
-    useWorkspaceAudio.getState().armUserGestureTransport(detail.path)
-    useWorkspaceAudio.getState().playAudio(detail.path, detail.dir)
-    useWorkspaceAudio.getState().setAudioOnly(undefined, true)
+    const activeItem = playbackSession.getSnapshot().currentItem
+    const file = legacyFileItemFromPath(detail.path)
+    const item =
+      activeItem?.locator === detail.path && activeItem.media === 'video'
+        ? activeItem
+        : playbackItemFromFileItem({ ...file, type: MediaType.VIDEO })
+    if (item) {
+      playbackSession.dispatch({
+        type: 'load',
+        item,
+        queue: [item],
+        autoplay: true,
+        position: detail.videoCurrentTime,
+        mode: 'audio',
+      })
+    }
     closeTab(tabId, { ignoreTabPinForListenOnlyDismiss: true })
   }
 
@@ -791,19 +805,56 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     resourceTarget?: PersistedResourceTarget,
     plannedMedia?: 'audio' | 'video',
     plannedViewerId?: ViewerId,
+    resourceSummary?: ResourceSummary,
   ) {
     const key = storageSessionKeyFull().key
     if (!key) return
     const video = plannedMedia ? plannedMedia === 'video' : isVideoPath(path)
+    const baseFile = legacyFileItemFromPath(path)
+    const baseResource = resourceForFileItem(baseFile)
+    const resource =
+      resourceSummary ??
+      (resourceTarget
+        ? {
+            ...baseResource,
+            ref: { ...resourceTarget.ref },
+            legacyLocator: resourceTarget.legacyLocator,
+            availability: resourceTarget.availability ?? ('present' as const),
+          }
+        : baseResource)
+    const activeItem = playbackSession.getSnapshot().currentItem
+    const playbackItem =
+      activeItem?.locator === path && activeItem.media === (video ? 'video' : 'audio')
+        ? activeItem
+        : playbackItemFromFileItem({
+            ...baseFile,
+            type: video ? MediaType.VIDEO : MediaType.AUDIO,
+            resource,
+          })
     if (!video) {
-      useWorkspaceAudio.getState().armUserGestureTransport(path)
-      useWorkspaceAudio.getState().playAudio(path, dir)
+      if (playbackItem) {
+        playbackSession.dispatch({
+          type: 'load',
+          item: playbackItem,
+          queue: [playbackItem],
+          autoplay: true,
+          mode: 'audio',
+        })
+      }
       return
     }
     const w = workspace()
     if (!w) return
 
-    useWorkspaceAudio.getState().setAudioOnly(undefined, false)
+    if (playbackItem) {
+      playbackSession.dispatch({
+        type: 'load',
+        item: playbackItem,
+        queue: [playbackItem],
+        autoplay: true,
+        mode: 'video',
+      })
+    }
 
     let work: PersistedWorkspaceState = w
 
@@ -932,6 +983,31 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       activeTabMap: nextTabMap,
     })
   }
+
+  onMount(() => {
+    const showSessionVideo = () => {
+      const snapshot = playbackSession.getSnapshot()
+      const item = snapshot.currentItem
+      if (!item || item.media !== 'video' || snapshot.mode !== 'video') return
+      const existing = workspace()?.windows.find(
+        (win) => win.type === 'viewer' && win.initialState?.viewing === item.locator,
+      )
+      if (existing) {
+        focusWindow(existing.id)
+        return
+      }
+      requestPlay(
+        browserSource(),
+        item.locator,
+        item.locator.split(/[/\\]/).slice(0, -1).join('/') || undefined,
+        { ref: { ...item.ref }, legacyLocator: item.locator },
+        'video',
+        'video-player',
+      )
+    }
+    window.addEventListener('derp-playback-show-video', showSessionVideo)
+    onCleanup(() => window.removeEventListener('derp-playback-show-video', showSessionVideo))
+  })
 
   function resizeViewerWindowForVideoMetadata(
     windowId: string,
@@ -1335,6 +1411,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         persistedResourceTarget(file.resource),
         'audio',
         viewerId,
+        file.resource,
       )
       return
     }
@@ -1479,6 +1556,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           persistedResourceTarget(file.resource),
           planned.media,
           planned.viewer.id,
+          file.resource,
         )
         return
       }
@@ -1616,19 +1694,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     pinId: string
   } | null>(null)
 
-  const wxAudioTick = useStoreSync(useWorkspaceAudio)
-
   const playbackPlayingPath = createMemo(() => {
-    void wxAudioTick()
-    return useWorkspaceAudio.getState().playing ?? null
+    return playbackSnapshot().currentItem?.locator ?? null
   })
 
   const suppressWorkspaceTaskbarAudioForVideoViewer = createMemo(() => {
-    void wxAudioTick()
     const w = workspace()
-    const st = useWorkspaceAudio.getState()
-    const path = st.playing
-    if (!path || !isVideoPath(path) || st.audioOnly || !w) return false
+    const st = playbackSnapshot()
+    const path = st.currentItem?.locator
+    if (!path || st.currentItem?.media !== 'video' || st.mode === 'audio' || !w) return false
     const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
     const n = norm(path)
     return w.windows.some((win) => {
@@ -1639,25 +1713,27 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   })
 
+  const workspaceAudioChromeVisible = createMemo(() => {
+    const state = playbackSnapshot()
+    return (
+      !!state.currentItem &&
+      (state.currentItem.media === 'audio' || state.mode === 'audio') &&
+      !suppressWorkspaceTaskbarAudioForVideoViewer()
+    )
+  })
+
   const workspaceFileIconContext = (): FileIconContext => {
-    void wxAudioTick()
-    const key = storageSessionKeyFull().key
-    const slice = key ? useWorkspaceAudio.getState().byKey[key] : undefined
-    const tm = useWorkspaceAudio.getState()
+    const tm = playbackSnapshot()
     const sp = server.sharePanel()
-    const playing = slice?.playing ?? null
-    const audioOnly = slice?.audioOnly ?? false
-    const audioMode = !!(playing && (!isVideoPath(playing) || audioOnly))
-    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
-    const transportAudioForRow = !!playing && !!tm.playing && norm(playing) === norm(tm.playing)
-    const taskbarDrivesIcon = audioMode && transportAudioForRow
+    const playing = tm.currentItem?.locator ?? null
+    const audioMode = !!(playing && tm.mode === 'audio')
 
     return {
       customIcons: server.settingsQuery.data?.customIcons ?? {},
       knowledgeBases: server.settingsQuery.data?.knowledgeBases ?? [],
       playingPath: playing,
       currentFile: audioMode ? playing : null,
-      mediaPlayerIsPlaying: taskbarDrivesIcon ? tm.isPlaying : false,
+      mediaPlayerIsPlaying: audioMode ? tm.desiredPlaying : false,
       mediaType: audioMode ? 'audio' : null,
       mediaShare: sp ? { token: sp.token, sharePath: sp.sharePath } : undefined,
     }
@@ -1784,7 +1860,10 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   })
 
   return (
-    <div class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'>
+    <div
+      class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'
+      classList={{ 'pb-[var(--playback-audio-chrome-height)]': workspaceAudioChromeVisible() }}
+    >
       <div
         class='relative min-h-0 flex-1 overflow-hidden'
         ref={(el) => snap.bindWorkspaceAreaRoot(el)}
@@ -1850,6 +1929,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
               persistedResourceTarget(file.resource),
               plannedMedia,
               viewerId,
+              file.resource,
             )
           }
           updateWindowViewing={updateWindowViewing}

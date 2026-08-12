@@ -1,5 +1,5 @@
 import type { FileItem } from '@/lib/types'
-import type { ResourceSummary } from '@/lib/resource'
+import type { ResourceRef, ResourceSummary, ResourceVersion } from '@/lib/resource'
 import { buildOfflineRollbackPlan, executeOfflineDownload } from './offline-download-lifecycle'
 import { publishOfflineJob, type OfflineJobScope } from './offline-job-observer'
 import { generateOfflineThumbnail } from './offline-thumbnail'
@@ -27,11 +27,22 @@ export type StoredOfflineEntry = {
   resource?: ResourceSummary
 }
 
+type WebOfflinePlaybackEntry = Pick<StoredOfflineEntry, 'path' | 'mediaUrl'> &
+  Readonly<{
+    ref?: ResourceRef
+    version?: ResourceVersion
+  }>
+
+export type WebOfflinePlaybackLookup =
+  | Readonly<{ status: 'missing' }>
+  | Readonly<{ status: 'found'; mediaUrl: string }>
+
 const WEB_OFFLINE_CATALOG_EVENT = 'derp-offline-catalog'
 
 declare global {
   interface Window {
     __DERP_WEB_OFFLINE_PATHS__?: string[]
+    __DERP_WEB_OFFLINE_PLAYBACK__?: WebOfflinePlaybackEntry[]
   }
 }
 
@@ -87,8 +98,47 @@ function isAtOrBelowPath(path: string, root: string): boolean {
 }
 
 async function refreshCatalog() {
-  window.__DERP_WEB_OFFLINE_PATHS__ = (await allEntries()).map((entry) => entry.path)
+  const saved = await allEntries()
+  window.__DERP_WEB_OFFLINE_PATHS__ = saved.map((entry) => entry.path)
+  window.__DERP_WEB_OFFLINE_PLAYBACK__ = saved.map((entry) => ({
+    path: entry.path,
+    ...(entry.mediaUrl ? { mediaUrl: entry.mediaUrl } : {}),
+    ...(entry.resource ? { ref: { ...entry.resource.ref }, version: entry.resource.version } : {}),
+  }))
   window.dispatchEvent(new Event(WEB_OFFLINE_CATALOG_EVENT))
+}
+
+function normalizedOfflinePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+export function findWebOfflinePlaybackMedia(
+  ref: ResourceRef,
+  version: ResourceVersion | undefined,
+  locator: string,
+  mediaUrlPrefix: string,
+): WebOfflinePlaybackLookup {
+  if (typeof window === 'undefined' || window.__DERP_WEB_OFFLINE_PLAYBACK__ === undefined) {
+    return { status: 'missing' }
+  }
+  const entries = window.__DERP_WEB_OFFLINE_PLAYBACK__.filter(
+    (entry): entry is WebOfflinePlaybackEntry & { mediaUrl: string } =>
+      typeof entry.mediaUrl === 'string' && entry.mediaUrl.startsWith(mediaUrlPrefix),
+  )
+  const sameVersion = (entry: WebOfflinePlaybackEntry) =>
+    version === undefined || entry.version === undefined || entry.version === version
+  const stable = entries.find(
+    (entry) =>
+      entry.ref?.libraryId === ref.libraryId &&
+      entry.ref.resourceId === ref.resourceId &&
+      sameVersion(entry),
+  )
+  if (stable) return { status: 'found', mediaUrl: stable.mediaUrl }
+  const normalizedLocator = normalizedOfflinePath(locator)
+  const legacy = entries.find(
+    (entry) => normalizedOfflinePath(entry.path) === normalizedLocator && sameVersion(entry),
+  )
+  return legacy ? { status: 'found', mediaUrl: legacy.mediaUrl } : { status: 'missing' }
 }
 
 export async function initializeWebOfflineCatalog(): Promise<void> {

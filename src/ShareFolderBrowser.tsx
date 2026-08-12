@@ -11,7 +11,6 @@ import type { DirectoryListing } from '@/lib/virtual-directory'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize } from '@/lib/media-utils'
 import { cn } from '@/lib/utils'
-import { useMediaPlayer } from '@/lib/use-media-player'
 import { useQueryClient } from '@tanstack/solid-query'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
@@ -36,6 +35,7 @@ import {
 } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
 import { navigateSearchParams } from './browser-history'
+import { navigate, parseRoute } from './lib/routes'
 import {
   BreadcrumbContextMenu,
   type BreadcrumbMenuTarget,
@@ -94,6 +94,8 @@ import { useExplorerModel } from './explorer/use-explorer-model'
 import { createExplorerMutation } from './explorer/create-explorer-mutation'
 import { explorerCapabilitiesForFile, explorerItemForFile } from './explorer/snapshot-items'
 import { subscribeSseShare } from './lib/sse-shared-worker-client'
+import { usePlaybackSession, usePlaybackSnapshot } from './media/playback/PlaybackProvider'
+import { playbackItemFromFileItem, playbackQueueFromFiles } from './media/playback/items'
 
 type ShareRestrictions = {
   allowDelete: boolean
@@ -125,6 +127,8 @@ type Props = {
 }
 
 export function ShareFolderBrowser(props: Props) {
+  const playbackSession = usePlaybackSession()
+  const playbackSnapshot = usePlaybackSnapshot()
   let browserRootEl: HTMLDivElement | undefined
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
@@ -234,7 +238,9 @@ export function ShareFolderBrowser(props: Props) {
   )
 
   const currentSubDir = createMemo(() => explorerSnapshot().path)
-  const playingPath = createMemo(() => urlSearchParams().get('playing') ?? '')
+  const playingPath = createMemo(
+    () => playbackSnapshot().currentItem?.locator ?? urlSearchParams().get('playing') ?? '',
+  )
   const shareBrowserScrollScope = () => `share-file-browser:${props.token}`
 
   const shareContext = createMemo(
@@ -248,6 +254,14 @@ export function ShareFolderBrowser(props: Props) {
   const shareFileIconContext = createMemo(
     (): FileIconContext => ({
       ...EMPTY_FILE_ICON_CONTEXT,
+      playingPath: playbackSnapshot().currentItem?.locator ?? null,
+      currentFile: playbackSnapshot().currentItem?.locator ?? null,
+      mediaPlayerIsPlaying: playbackSnapshot().desiredPlaying,
+      mediaType: playbackSnapshot().currentItem
+        ? playbackSnapshot().mode === 'audio'
+          ? 'audio'
+          : 'video'
+        : null,
       mediaShare: { token: props.token, sharePath: props.shareInfo.path },
     }),
   )
@@ -285,6 +299,36 @@ export function ShareFolderBrowser(props: Props) {
   }
 
   const files = createMemo(() => explorerSnapshot().items.map((item) => item.file))
+
+  let bootstrappedPlayback = ''
+  createEffect(() => {
+    const path = urlSearchParams().get('playing')
+    const listed = files()
+    const requestedAudioOnly = urlSearchParams().get('audioOnly') === 'true'
+    const requestedPlayback = path ? `${path}\0${requestedAudioOnly ? 'audio' : 'video'}` : ''
+    if (!path || requestedPlayback === bootstrappedPlayback) return
+    const existing = playbackSnapshot().currentItem
+    const requestedMode =
+      existing?.media === 'video' && requestedAudioOnly ? 'audio' : existing?.media
+    if (existing?.locator === path && playbackSnapshot().mode === requestedMode) {
+      bootstrappedPlayback = requestedPlayback
+      return
+    }
+    const file = listed.find((candidate) => candidate.path === path) ?? fileItemFromPath(path)
+    const item = playbackItemFromFileItem(file)
+    if (!item) return
+    bootstrappedPlayback = requestedPlayback
+    playbackSession.dispatch({
+      type: 'load',
+      item,
+      queue:
+        item.media === 'audio'
+          ? playbackQueueFromFiles(listed.filter((candidate) => candidate.type === MediaType.AUDIO))
+          : [item],
+      autoplay: true,
+      mode: item.media === 'video' && requestedAudioOnly ? 'audio' : item.media,
+    })
+  })
   const isFilesLoadingInitial = createMemo(
     () => filesQuery.isPending && filesQuery.data === undefined,
   )
@@ -480,14 +524,6 @@ export function ShareFolderBrowser(props: Props) {
     return explorerSnapshot().breadcrumbs
   })
 
-  onMount(() => {
-    useMediaPlayer.getState().setShareContext(props.token, props.shareInfo.path)
-  })
-
-  onCleanup(() => {
-    useMediaPlayer.getState().clearShareContext()
-  })
-
   function dismissMenu() {
     setRowMenu(null)
   }
@@ -619,7 +655,12 @@ export function ShareFolderBrowser(props: Props) {
     }
     if (!canOpenShareFolder(file, 'workspace')) return
     const qs = urlSearchParams().toString()
-    window.location.href = `/share/${encodeURIComponent(props.token)}/workspace${qs ? `?${qs}` : ''}`
+    navigate(
+      parseRoute({
+        pathname: `/share/${encodeURIComponent(props.token)}/workspace`,
+        search: qs ? `?${qs}` : '',
+      }),
+    )
   }
 
   function openShareFolderInWorkspace(file: FileItem) {
@@ -728,7 +769,20 @@ export function ShareFolderBrowser(props: Props) {
           })
         }
         if (planned.kind === 'playback') {
-          useMediaPlayer.getState().playFile(file.path, planned.media)
+          const playbackItem = playbackItemFromFileItem(file, planned)
+          if (!playbackItem) return
+          playbackSession.dispatch({
+            type: 'load',
+            item: playbackItem,
+            queue:
+              planned.media === 'audio'
+                ? playbackQueueFromFiles(
+                    files().filter((candidate) => candidate.type === MediaType.AUDIO),
+                  )
+                : [playbackItem],
+            autoplay: true,
+            mode: planned.media,
+          })
           playFile(file.path)
         } else {
           viewFile(file.path, undefined, planned.viewer.id)

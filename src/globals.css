@@ -858,6 +858,10 @@ body {
   user-select: text;
 }
 
+:root {
+  --playback-audio-chrome-height: calc(3.5rem + 1px + env(safe-area-inset-bottom, 0px));
+}
+
 .owner-shell-modern {
   --owner-shell-rail-width: 0px;
   --owner-shell-mobile-nav-height: calc(4rem + env(safe-area-inset-bottom, 0px));
@@ -878,7 +882,7 @@ body {
 
 .owner-shell-modern [data-testid='media-chrome-pad-root'][data-audio-active='true'] {
   padding-bottom: calc(
-    2.875rem + env(safe-area-inset-bottom, 0px) + var(--owner-shell-mobile-nav-height)
+    var(--playback-audio-chrome-height) + var(--owner-shell-mobile-nav-height)
   ) !important;
 }
 
@@ -893,8 +897,8 @@ body {
 }
 
 @media (min-width: 650px) {
-  .owner-shell-modern [data-testid='media-chrome-pad-root'][data-audio-active='true'] {
-    padding-bottom: calc(3rem + var(--owner-shell-mobile-nav-height)) !important;
+  :root {
+    --playback-audio-chrome-height: calc(3.25rem + 1px + env(safe-area-inset-bottom, 0px));
   }
 }
 

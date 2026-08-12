@@ -3,12 +3,10 @@ import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
 import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
-import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import {
   workspaceLayoutScopeFromShareToken,
   type WorkspaceLayoutPreset,
 } from '@/lib/workspace-layout-presets'
-import { workspaceSourceToMediaContext } from '@/lib/use-workspace'
 import ArrowLeftFromLine from 'lucide-solid/icons/arrow-left-from-line'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import { For, Show, type JSX } from 'solid-js'
@@ -16,7 +14,6 @@ import { FloatingContextMenu } from '@/src/file-browser/FloatingContextMenu'
 import { pinnedShellIcon } from '@/src/lib/use-file-icon'
 import type { GlobalSettings } from '@/lib/use-settings'
 import { WorkspaceNamedLayoutMenu } from '@/src/workspace/WorkspaceNamedLayoutMenu'
-import { WorkspaceTaskbarAudio } from '@/src/workspace/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from '@/src/workspace/WorkspaceTaskbarSettings'
 import type { WorkspacePageProps } from './workspace-page-types'
 import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
@@ -188,31 +185,6 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                 <ArrowLeftFromLine class='h-4 w-4' stroke-width={2} />
               </button>
             </Show>
-            <WorkspaceTaskbarAudio
-              suppressTaskbarAudioChrome={props.suppressTaskbarAudioChrome}
-              storageKey={() => props.storageSessionKey()}
-              shareCtx={() => {
-                const c = workspaceSourceToMediaContext(props.browserSource())
-                if (!c?.shareToken || !c.sharePath) return null
-                return { token: c.shareToken, sharePath: c.sharePath }
-              }}
-              onShowVideo={() => {
-                const key = props.storageSessionKey()
-                const path = key ? (useWorkspaceAudio.getState().byKey[key]?.playing ?? null) : null
-                if (!path) return
-                const dir = key ? useWorkspaceAudio.getState().byKey[key]?.dir : undefined
-                const w = props.workspace()
-                const viewerWin = w?.windows.find(
-                  (win) => win.type === 'viewer' && win.initialState?.viewing === path,
-                )
-                if (viewerWin) {
-                  props.focusWindow(viewerWin.id)
-                  return
-                }
-                props.requestPlay(props.browserSource(), path, dir ?? undefined)
-              }}
-              onStopPlayback={props.stopWorkspacePlaybackFromTaskbar}
-            />
             <WorkspaceNamedLayoutMenu
               scope={props.layoutScope()}
               shareToken={props.pageProps.shareConfig?.token ?? null}

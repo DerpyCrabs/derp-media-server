@@ -1,5 +1,6 @@
-import { post } from '@/lib/api'
-import { useMutation } from '@tanstack/solid-query'
+import { api, post } from '@/lib/api'
+import { queryKeys } from '@/lib/query-keys'
+import { useMutation, useQuery } from '@tanstack/solid-query'
 import {
   ErrorBoundary,
   Match,
@@ -24,6 +25,12 @@ import { recentLocationFromUrl, recordRecentOwnerLocation } from './lib/recent-o
 import { hrefFor, navigate, parseRoute, type AppRoute } from './lib/routes'
 import { captureSharePasscodeFromLocation } from './lib/share-url'
 import { OwnerShell, type OwnerSurface } from './owner/OwnerShell'
+import { PlaybackProvider } from './media/playback/PlaybackProvider'
+import {
+  createGrantBrowserPlaybackSession,
+  createOwnerBrowserPlaybackSession,
+} from './media/playback/browser-session'
+import { PlaybackAudioHost } from './media/playback/PlaybackAudioHost'
 
 const ShareRoute = lazy(() =>
   import('./ShareRoute').then((module) => ({ default: module.ShareRoute })),
@@ -356,7 +363,9 @@ function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
           <HomePage />
         </Match>
         <Match when={props.route().kind === 'library'}>
-          <FileBrowser forceOffline={props.route().query.offline} />
+          <Show when={props.route().query.offline ? 'offline' : 'online'} keyed>
+            {(mode) => <FileBrowser forceOffline={mode === 'offline'} />}
+          </Show>
         </Match>
         <Match when={props.route().kind === 'spaces'}>
           <SpacesPage />
@@ -394,6 +403,7 @@ function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
 }
 
 function OwnerApplication(props: { route: Accessor<AppRoute> }) {
+  const playbackSession = createOwnerBrowserPlaybackSession()
   const immersive = () => {
     const route = props.route()
     return (
@@ -417,28 +427,69 @@ function OwnerApplication(props: { route: Accessor<AppRoute> }) {
   })
 
   return (
-    <OwnerShell
-      active={ownerSurface(props.route())}
-      immersive={immersive()}
-      navigate={navigateHref}
-    >
-      <OfflineStatus />
-      <OwnerRouteContent route={props.route} />
-    </OwnerShell>
+    <PlaybackProvider session={playbackSession}>
+      <OwnerShell
+        active={ownerSurface(props.route())}
+        immersive={immersive()}
+        navigate={navigateHref}
+      >
+        <OfflineStatus />
+        <OwnerRouteContent route={props.route} />
+      </OwnerShell>
+    </PlaybackProvider>
+  )
+}
+
+function GrantApplication(props: { token: string; workspace: Accessor<boolean> }) {
+  const shareInfo = useQuery(() => ({
+    queryKey: queryKeys.shareInfo(props.token),
+    queryFn: () =>
+      api<{ path?: string; needsPasscode: boolean; authorized: boolean }>(
+        `/api/share/${encodeURIComponent(props.token)}/info`,
+      ),
+  }))
+  const authorizedPath = createMemo(() => {
+    const info = shareInfo.data
+    if (!info || (info.needsPasscode && !info.authorized)) return null
+    return typeof info.path === 'string' ? info.path : null
+  })
+  const session = createGrantBrowserPlaybackSession({
+    token: props.token,
+    sharePath: () => authorizedPath() ?? '',
+    authorized: () => authorizedPath() !== null,
+  })
+
+  createEffect(() => {
+    if (authorizedPath() === null) return
+    const snapshot = session.getSnapshot()
+    if (snapshot.currentItem && snapshot.phase === 'recoverable' && snapshot.issue === 'revoked') {
+      session.dispatch({ type: 'refreshSource' })
+    }
+  })
+
+  return (
+    <PlaybackProvider session={session}>
+      <Show when={authorizedPath() !== null} fallback={<ShareRoute token={props.token} />}>
+        <OfflineStatus scope={shareOfflineJobScope(props.token)} />
+        <Show when={props.workspace()} fallback={<ShareRoute token={props.token} />}>
+          <ShareWorkspacePage token={props.token} />
+        </Show>
+        <PlaybackAudioHost
+          shareContext={{ token: props.token, sharePath: authorizedPath() ?? '' }}
+        />
+      </Show>
+    </PlaybackProvider>
   )
 }
 
 export function App() {
   const location = useBrowserHistory()
   const route = createMemo(() => parseRoute(location()))
-  const shareToken = createMemo(() => {
+  const grantToken = createMemo(() => {
     const current = route()
-    return current.kind === 'share' ? current.token : null
+    return current.kind === 'share' || current.kind === 'shareWorkspace' ? current.token : null
   })
-  const shareWorkspaceToken = createMemo(() => {
-    const current = route()
-    return current.kind === 'shareWorkspace' ? current.token : null
-  })
+  const grantWorkspace = () => route().kind === 'shareWorkspace'
 
   createEffect(() => {
     const current = location()
@@ -453,26 +504,18 @@ export function App() {
       <SolidThemeSync />
       <GlobalForbiddenToast />
       <UpdateRequiredNotice />
-      <ErrorBoundary fallback={<RouteLoadFailure />}>
+      <ErrorBoundary
+        fallback={(error) => {
+          console.error('Route feature failed to render', error)
+          return <RouteLoadFailure />
+        }}
+      >
         <Switch fallback={<NotFoundPage />}>
           <Match when={route().kind === 'login'}>
             <LoginPage />
           </Match>
-          <Match when={shareWorkspaceToken()} keyed>
-            {(token) => (
-              <>
-                <OfflineStatus scope={shareOfflineJobScope(token)} />
-                <ShareWorkspacePage token={token} />
-              </>
-            )}
-          </Match>
-          <Match when={shareToken()} keyed>
-            {(token) => (
-              <>
-                <OfflineStatus scope={shareOfflineJobScope(token)} />
-                <ShareRoute token={token} />
-              </>
-            )}
+          <Match when={grantToken()} keyed>
+            {(token) => <GrantApplication token={token} workspace={grantWorkspace} />}
           </Match>
           <Match when={isOwnerRoute(route())}>
             <OwnerApplication route={route} />

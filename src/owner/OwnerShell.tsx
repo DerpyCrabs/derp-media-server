@@ -14,6 +14,7 @@ import { Dynamic } from 'solid-js/web'
 import { FileSearchButton } from '../FileSearchPalette'
 import { hrefFor, type RouteQuery, type RouteTarget } from '../lib/routes'
 import { executeOwnerSearchResult } from './owner-search-open'
+import { PlaybackAudioHost } from '../media/playback/PlaybackAudioHost'
 
 export type OwnerSurface =
   | 'home'
@@ -244,6 +245,7 @@ export function OwnerShell(props: Props) {
       </Show>
 
       <div class='owner-shell-content min-w-0'>{props.children}</div>
+      <PlaybackAudioHost />
     </div>
   )
 }

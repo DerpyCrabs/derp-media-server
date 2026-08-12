@@ -1,6 +1,5 @@
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
-import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
-import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
+import { playbackResourceKey, type PlaybackItem } from '@/lib/playback-session'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api'
 import {
@@ -59,11 +58,18 @@ import {
 import { createResponsiveImage } from '../lib/responsive-image'
 import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
+import { usePlaybackSession, usePlaybackSnapshot } from '../media/playback/PlaybackProvider'
+import {
+  dedupePlaybackQueue,
+  playbackItemFromFileItem,
+  playbackQueueFromFiles,
+} from '../media/playback/items'
 import type { TextViewerShareContext } from '../media/TextViewerDialog'
 import type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 import {
   OWNER_OPEN_SCOPE,
   grantOpenScope,
+  legacyFileItemFromPath,
   resourceForFileItem,
 } from '../lib/legacy-resource-adapter'
 import { executeOpenPlan, openResource } from '../lib/open-resource'
@@ -104,8 +110,7 @@ type Props = {
   /** Close the viewer tab after switching to taskbar audio (playback keeps running). */
   onListenOnlyDismissViewer?: () => void
   showListenOnly?: boolean
-  onAudioPlay?: (element: HTMLAudioElement) => void
-  onAudioPause?: (element: HTMLAudioElement) => void
+  onAudioActivate?: () => void
 }
 
 type WorkspaceTextSaveQueryKey =
@@ -145,8 +150,28 @@ function formatMediaTime(time: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+function normalizedMediaLocator(locator: string): string {
+  return locator.replace(/\\/g, '/').replace(/^\/+/, '')
+}
+
+function samePlaybackItem(
+  left: PlaybackItem | null | undefined,
+  right: PlaybackItem | null | undefined,
+): boolean {
+  if (!left || !right) return false
+  const legacyIdentity = (item: PlaybackItem) =>
+    item.ref.libraryId === 'legacy-library' || item.ref.resourceId.startsWith('legacy-path-')
+  return (
+    playbackResourceKey(left) === playbackResourceKey(right) ||
+    ((legacyIdentity(left) || legacyIdentity(right)) &&
+      normalizedMediaLocator(left.locator) === normalizedMediaLocator(right.locator))
+  )
+}
+
 export function WorkspaceViewerPane(props: Props) {
   const queryClient = useQueryClient()
+  const playbackSession = usePlaybackSession()
+  const playbackSnapshot = usePlaybackSnapshot()
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
 
   const share = createMemo((): WorkspaceShareConfig | null => {
@@ -211,14 +236,8 @@ export function WorkspaceViewerPane(props: Props) {
   const dirFromWindow = createMemo(() => win()?.initialState?.dir ?? '')
 
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
-  const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
   const [mediaLoading, setMediaLoading] = createSignal(false)
   const [mediaError, setMediaError] = createSignal<string | null>(null)
-  const [audioPlaying, setAudioPlaying] = createSignal(false)
-  const [audioCurrentTime, setAudioCurrentTime] = createSignal(0)
-  const [audioDuration, setAudioDuration] = createSignal(0)
-  const [audioVolume, setAudioVolume] = createSignal(1)
-  const [audioMuted, setAudioMuted] = createSignal(false)
   const [audioSurfaceEl, setAudioSurfaceEl] = createSignal<HTMLDivElement>()
   const [audioSurfaceSize, setAudioSurfaceSize] = createSignal({ width: 576, height: 256 })
 
@@ -250,103 +269,13 @@ export function WorkspaceViewerPane(props: Props) {
     viewingPath()
     const type = mediaType()
     setMediaError(null)
-    setMediaLoading(type === MediaType.VIDEO || type === MediaType.AUDIO)
-    setAudioPlaying(false)
-    setAudioCurrentTime(0)
-    setAudioDuration(0)
-  })
-
-  createEffect(() => {
-    const path = viewingPath()
-    const url = mediaUrl()
-    const vid = videoEl()
-    if (!path || !viewerShowVideoSurface() || !vid || !url) return
-
-    const abs = new URL(url, window.location.origin).href
-    const srcMismatch = vid.src !== abs
-
-    const ws = useWorkspaceAudio.getState()
-    const storedTime = ws.playing === path ? ws.currentTime : 0
-    const savedTime = useVideoPlaybackTime.getState().getSavedTime(path)
-    const timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
-
-    let onCanPlay: () => void = () => {}
-
-    if (srcMismatch) {
-      onCanPlay = () => {
-        vid.removeEventListener('canplay', onCanPlay)
-        vid.removeEventListener('error', onCanPlay)
-        if (timeToRestore > 0) {
-          try {
-            vid.currentTime = timeToRestore
-          } catch {
-            /* ignore */
-          }
-        }
-        if (props.autoPlayVideo !== false) void vid.play().catch(() => {})
-      }
-      vid.addEventListener('canplay', onCanPlay)
-      vid.src = url
-      vid.load()
-    } else if (timeToRestore > 0) {
-      try {
-        vid.currentTime = timeToRestore
-      } catch {
-        /* ignore */
-      }
-      if (props.autoPlayVideo !== false) void vid.play().catch(() => {})
-    }
-
-    onCleanup(() => {
-      vid.removeEventListener('canplay', onCanPlay)
-    })
+    setMediaLoading(type === MediaType.VIDEO)
   })
 
   function handleMediaError(element: HTMLMediaElement) {
     const code = element.error?.code
     setMediaLoading(false)
     setMediaError(code ? `Playback failed (media error ${code}).` : 'Playback failed.')
-  }
-
-  function retryMedia() {
-    const element = mediaType() === MediaType.VIDEO ? videoEl() : audioEl()
-    if (!element) return
-    setMediaError(null)
-    setMediaLoading(true)
-    element.load()
-    void element.play().catch(() => {})
-  }
-
-  function toggleAudioPlayback() {
-    const element = audioEl()
-    if (!element) return
-    if (element.paused) void element.play().catch(() => {})
-    else element.pause()
-  }
-
-  function seekAudio(time: number) {
-    const element = audioEl()
-    if (!element || !Number.isFinite(time)) return
-    element.currentTime = time
-    setAudioCurrentTime(time)
-  }
-
-  function setAudioPlayerVolume(volume: number) {
-    const element = audioEl()
-    const next = Math.max(0, Math.min(1, volume))
-    setAudioVolume(next)
-    setAudioMuted(next === 0)
-    if (element) {
-      element.volume = next
-      element.muted = next === 0
-    }
-  }
-
-  function toggleAudioMute() {
-    const element = audioEl()
-    const muted = !audioMuted()
-    setAudioMuted(muted)
-    if (element) element.muted = muted
   }
 
   createEffect(() => {
@@ -390,6 +319,351 @@ export function WorkspaceViewerPane(props: Props) {
   const folderAudioFiles = createMemo(() =>
     (filesQuery.data?.files ?? []).filter((file) => file.type === MediaType.AUDIO),
   )
+
+  const panePlaybackItem = createMemo(() => {
+    const path = viewingPath()
+    if (!path || (mediaType() !== MediaType.AUDIO && mediaType() !== MediaType.VIDEO)) return null
+    const normalizedPath = normalizedMediaLocator(path)
+    const listed = (filesQuery.data?.files ?? []).find(
+      (file) => normalizedMediaLocator(file.path) === normalizedPath,
+    )
+    if (listed) return playbackItemFromFileItem(listed)
+
+    const legacyFile = legacyFileItemFromPath(path)
+    const target = win()?.resourceTarget
+    if (!target) {
+      return playbackItemFromFileItem({
+        ...legacyFile,
+        type: mediaType() === MediaType.VIDEO ? MediaType.VIDEO : MediaType.AUDIO,
+      })
+    }
+    const legacyResource = resourceForFileItem(legacyFile)
+    return playbackItemFromFileItem({
+      ...legacyFile,
+      type: mediaType() === MediaType.VIDEO ? MediaType.VIDEO : MediaType.AUDIO,
+      resource: {
+        ...legacyResource,
+        ref: { ...target.ref },
+        legacyLocator: target.legacyLocator,
+        availability: target.availability ?? 'present',
+      },
+    })
+  })
+
+  const paneOwnsPlayback = createMemo(() =>
+    samePlaybackItem(playbackSnapshot().currentItem, panePlaybackItem()),
+  )
+  const paneOwnsAudio = createMemo(
+    () =>
+      mediaType() === MediaType.AUDIO && paneOwnsPlayback() && playbackSnapshot().mode === 'audio',
+  )
+  const audioPlaying = createMemo(() => paneOwnsAudio() && playbackSnapshot().desiredPlaying)
+  const audioCurrentTime = createMemo(() => (paneOwnsAudio() ? playbackSnapshot().position : 0))
+  const audioDuration = createMemo(() => (paneOwnsAudio() ? playbackSnapshot().duration : 0))
+  const audioVolume = createMemo(() => playbackSnapshot().volume)
+  const audioMuted = createMemo(() => playbackSnapshot().muted)
+  const audioLoading = createMemo(() => paneOwnsAudio() && playbackSnapshot().phase === 'resolving')
+  const audioError = createMemo(() => {
+    if (!paneOwnsAudio()) return null
+    const state = playbackSnapshot()
+    return state.phase === 'error' || state.phase === 'recoverable'
+      ? (state.error ?? 'Playback is unavailable.')
+      : null
+  })
+  const videoPlaybackError = createMemo(() => {
+    const state = playbackSnapshot()
+    if (
+      paneOwnsPlayback() &&
+      state.mode === 'video' &&
+      (state.phase === 'error' || state.phase === 'recoverable')
+    ) {
+      return state.error ?? 'Playback is unavailable.'
+    }
+    return mediaError()
+  })
+  const videoPlaybackLoading = createMemo(
+    () =>
+      mediaLoading() ||
+      (paneOwnsPlayback() &&
+        playbackSnapshot().mode === 'video' &&
+        playbackSnapshot().phase === 'resolving'),
+  )
+  const playbackRecoveryLabel = createMemo(() =>
+    paneOwnsPlayback() && playbackSnapshot().issue === 'versionChanged'
+      ? 'Play updated file'
+      : 'Retry',
+  )
+
+  function audioQueue(item: PlaybackItem): PlaybackItem[] {
+    return dedupePlaybackQueue([...playbackQueueFromFiles(folderAudioFiles()), item])
+  }
+
+  function activateAudio(item = panePlaybackItem(), autoplay = true) {
+    if (!item || item.media !== 'audio') return
+    props.onAudioActivate?.()
+    const state = playbackSession.getSnapshot()
+    if (samePlaybackItem(state.currentItem, item) && state.mode === 'audio') {
+      playbackSession.dispatch({ type: 'setQueue', queue: audioQueue(item), current: item })
+      if (autoplay) playbackSession.dispatch({ type: 'play' })
+      return
+    }
+    playbackSession.dispatch({
+      type: 'load',
+      item,
+      queue: audioQueue(item),
+      autoplay,
+      mode: 'audio',
+    })
+  }
+
+  createEffect(() => {
+    if (!paneOwnsAudio()) return
+    const state = playbackSnapshot()
+    const current = state.currentItem
+    if (!current) return
+    const queue = audioQueue(current)
+    const sameQueue =
+      queue.length === state.queue.length &&
+      queue.every((item, index) => {
+        const previous = state.queue[index]
+        return (
+          previous !== undefined &&
+          playbackResourceKey(item) === playbackResourceKey(previous) &&
+          item.version === previous.version &&
+          item.locator === previous.locator &&
+          item.name === previous.name &&
+          item.media === previous.media
+        )
+      })
+    if (!sameQueue) playbackSession.dispatch({ type: 'setQueue', queue, current })
+  })
+
+  function toggleAudioPlayback() {
+    if (!paneOwnsAudio()) {
+      activateAudio()
+      return
+    }
+    props.onAudioActivate?.()
+    playbackSession.dispatch({ type: 'toggle' })
+  }
+
+  function seekAudio(time: number) {
+    if (!paneOwnsAudio() || !Number.isFinite(time)) return
+    playbackSession.dispatch({ type: 'seek', position: time })
+  }
+
+  function setAudioPlayerVolume(volume: number) {
+    if (!Number.isFinite(volume)) return
+    playbackSession.dispatch({ type: 'setVolume', volume })
+  }
+
+  function toggleAudioMute() {
+    playbackSession.dispatch({ type: 'setMuted', muted: !playbackSnapshot().muted })
+  }
+
+  function retryMedia() {
+    setMediaError(null)
+    if (paneOwnsPlayback() && playbackSession.getSnapshot().issue === 'versionChanged') {
+      playbackSession.dispatch({ type: 'acceptVersion' })
+      return
+    }
+    if (mediaType() === MediaType.AUDIO) {
+      if (!paneOwnsAudio()) {
+        activateAudio()
+        return
+      }
+      playbackSession.dispatch({ type: 'retry' })
+      return
+    }
+    const element = videoEl()
+    const item = panePlaybackItem()
+    if (!element || !item) return
+    setMediaLoading(true)
+    const state = playbackSession.getSnapshot()
+    if (!samePlaybackItem(state.currentItem, item) || state.mode !== 'video') {
+      playbackSession.dispatch({
+        type: 'load',
+        item,
+        queue: [item],
+        autoplay: true,
+        position: element.currentTime,
+        mode: 'video',
+      })
+      return
+    }
+    playbackSession.dispatch({ type: 'retry' })
+  }
+
+  let videoBoundGeneration = 0
+  let videoBoundHref = ''
+  let videoBindingReady = false
+  let suppressVideoPause = false
+
+  function activeVideoGeneration(
+    element?: HTMLVideoElement,
+    allowPendingBinding = false,
+  ): number | null {
+    const state = playbackSession.getSnapshot()
+    if (!paneOwnsPlayback() || state.mode !== 'video' || !state.source) return null
+    if (!allowPendingBinding && !videoBindingReady) return null
+    if (state.source.generation !== videoBoundGeneration) return null
+    if (element && (element.currentSrc || element.src) !== videoBoundHref) return null
+    return state.source.generation
+  }
+
+  function unloadVideoTransport(element: HTMLVideoElement) {
+    const generation = activeVideoGeneration(element)
+    if (generation !== null) {
+      playbackSession.dispatch({
+        type: 'time',
+        generation,
+        position: element.currentTime,
+        ...(Number.isFinite(element.duration) ? { duration: element.duration } : {}),
+      })
+    }
+    videoBoundGeneration = 0
+    videoBoundHref = ''
+    videoBindingReady = false
+    suppressVideoPause = true
+    if (!element.paused) element.pause()
+    if (element.hasAttribute('src')) {
+      element.removeAttribute('src')
+      element.load()
+    }
+    setMediaLoading(false)
+  }
+
+  createEffect(() => {
+    const element = videoEl()
+    const state = playbackSnapshot()
+    const directUrl = mediaUrl()
+    if (!element) return
+    if (!viewerShowVideoSurface() || !directUrl) {
+      if (videoBoundHref || element.hasAttribute('src')) unloadVideoTransport(element)
+      return
+    }
+
+    const ownsVideo = paneOwnsPlayback() && state.mode === 'video'
+    if (ownsVideo && !state.source) {
+      if (!element.paused) {
+        suppressVideoPause = true
+        element.pause()
+      }
+      return
+    }
+
+    const requestedUrl = ownsVideo ? state.source!.url : directUrl
+    const requestedGeneration = ownsVideo ? state.source!.generation : 0
+    const requestedHref = new URL(requestedUrl, window.location.origin).href
+    if (videoBoundGeneration !== requestedGeneration || element.src !== requestedHref) {
+      if (!element.paused) {
+        suppressVideoPause = true
+        element.pause()
+      }
+      videoBoundGeneration = requestedGeneration
+      videoBoundHref = requestedHref
+      videoBindingReady = false
+      setMediaError(null)
+      setMediaLoading(true)
+      element.src = requestedUrl
+      element.load()
+      return
+    }
+
+    if (!ownsVideo) {
+      if (!element.paused) {
+        suppressVideoPause = true
+        element.pause()
+      }
+      return
+    }
+
+    element.volume = state.volume
+    element.muted = state.muted
+    if (state.phase !== 'playing' && Math.abs(element.currentTime - state.position) > 0.75) {
+      try {
+        element.currentTime = state.position
+      } catch {}
+    }
+    if (
+      state.desiredPlaying &&
+      props.contentVisible() &&
+      element.paused &&
+      element.readyState >= 2
+    ) {
+      void element.play().catch(() => undefined)
+    } else if ((!state.desiredPlaying || !props.contentVisible()) && !element.paused) {
+      element.pause()
+    }
+  })
+
+  onCleanup(() => {
+    const element = videoEl()
+    if (element) unloadVideoTransport(element)
+  })
+
+  function handleVideoCanPlay(element: HTMLVideoElement) {
+    setMediaLoading(false)
+    const generation = activeVideoGeneration(element, true)
+    if (generation === null || generation !== videoBoundGeneration) return
+    const state = playbackSession.getSnapshot()
+    if (Math.abs(element.currentTime - state.position) > 0.25) {
+      try {
+        element.currentTime = state.position
+      } catch {}
+    }
+    videoBindingReady = true
+    playbackSession.dispatch({ type: 'mediaReady', generation })
+    if (playbackSession.getSnapshot().desiredPlaying && props.contentVisible()) {
+      void element.play().catch(() => undefined)
+    }
+  }
+
+  function handleVideoPlay(element: HTMLVideoElement) {
+    suppressVideoPause = false
+    const item = panePlaybackItem()
+    if (!item) return
+    let state = playbackSession.getSnapshot()
+    if (!samePlaybackItem(state.currentItem, item) || state.mode !== 'video') {
+      playbackSession.dispatch({
+        type: 'load',
+        item,
+        queue: [item],
+        autoplay: true,
+        position: element.currentTime,
+        mode: 'video',
+      })
+      state = playbackSession.getSnapshot()
+    } else if (!state.desiredPlaying) {
+      playbackSession.dispatch({ type: 'play' })
+      state = playbackSession.getSnapshot()
+    }
+    const generation = state.source?.generation
+    if (generation !== undefined && samePlaybackItem(state.currentItem, item)) {
+      playbackSession.dispatch({ type: 'mediaPlay', generation })
+    }
+  }
+
+  function handleVideoPause(element: HTMLVideoElement) {
+    if (suppressVideoPause) {
+      suppressVideoPause = false
+      return
+    }
+    const generation = activeVideoGeneration(element)
+    if (generation !== null) playbackSession.dispatch({ type: 'mediaPause', generation })
+  }
+
+  function handleVideoError(element: HTMLVideoElement) {
+    handleMediaError(element)
+    const generation = activeVideoGeneration(element)
+    if (generation === null) return
+    const code = element.error?.code
+    playbackSession.dispatch({
+      type: 'mediaError',
+      generation,
+      message: code ? `Playback failed (media error ${code}).` : 'Playback failed.',
+    })
+  }
 
   const audioMetadataUrl = createMemo(() => {
     const path = viewingPath()
@@ -950,12 +1224,14 @@ export function WorkspaceViewerPane(props: Props) {
                     const plan = planPlaylistOpen(file)
                     executeOpenPlan(plan, (planned) => {
                       if (planned.kind === 'playback' && planned.media === 'audio') {
+                        const item = playbackItemFromFileItem(file, planned)
                         props.onUpdateViewing(
                           props.windowId,
                           file.path,
                           file.resource,
                           planned.viewer.id,
                         )
+                        if (item) activateAudio(item)
                       }
                     })
                   }}
@@ -1155,13 +1431,18 @@ export function WorkspaceViewerPane(props: Props) {
                       })
                       return
                     }
-                    const key = props.storageKey
-                    if (vid) useWorkspaceAudio.getState().setCurrentTime(vid.currentTime)
-                    if (key) {
-                      useWorkspaceAudio.getState().armUserGestureTransport(path)
-                      useWorkspaceAudio.getState().playAudio(path, dirFromWindow() || undefined)
-                      useWorkspaceAudio.getState().setAudioOnly(key, true)
+                    const item = panePlaybackItem()
+                    if (item) {
+                      playbackSession.dispatch({
+                        type: 'load',
+                        item,
+                        queue: [item],
+                        autoplay: true,
+                        position: vid?.currentTime ?? playbackSnapshot().position,
+                        mode: 'audio',
+                      })
                     }
+                    props.onAudioActivate?.()
                     props.onListenOnlyDismissViewer?.()
                   }}
                 >
@@ -1169,31 +1450,33 @@ export function WorkspaceViewerPane(props: Props) {
                 </button>
               </div>
             </Show>
-            <Show when={mediaLoading() && !mediaError()}>
+            <Show when={videoPlaybackLoading() && !videoPlaybackError()}>
               <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/45 text-white'>
                 <LoaderCircle class='h-7 w-7 animate-spin' stroke-width={2} />
               </div>
             </Show>
-            <Show when={mediaError()}>
-              <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center text-white'>
-                <p class='text-sm'>{mediaError()}</p>
-                <div class='flex gap-2'>
-                  <button
-                    type='button'
-                    class='rounded-md bg-white px-3 py-1.5 text-sm text-black'
-                    onClick={retryMedia}
-                  >
-                    Retry
-                  </button>
-                  <a
-                    href={downloadHref()}
-                    download={fileName()}
-                    class='rounded-md border border-white/40 px-3 py-1.5 text-sm'
-                  >
-                    Download
-                  </a>
+            <Show when={videoPlaybackError()} keyed>
+              {(error) => (
+                <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center text-white'>
+                  <p class='text-sm'>{error}</p>
+                  <div class='flex gap-2'>
+                    <button
+                      type='button'
+                      class='rounded-md bg-white px-3 py-1.5 text-sm text-black'
+                      onClick={retryMedia}
+                    >
+                      {playbackRecoveryLabel()}
+                    </button>
+                    <a
+                      href={downloadHref()}
+                      download={fileName()}
+                      class='rounded-md border border-white/40 px-3 py-1.5 text-sm'
+                    >
+                      Download
+                    </a>
+                  </div>
                 </div>
-              </div>
+              )}
             </Show>
             <video
               ref={(el) => setVideoEl(el ?? undefined)}
@@ -1203,8 +1486,49 @@ export function WorkspaceViewerPane(props: Props) {
               data-media-type={MediaType.VIDEO}
               title={fileName()}
               onLoadStart={() => setMediaLoading(true)}
-              onCanPlay={() => setMediaLoading(false)}
-              onError={(event) => handleMediaError(event.currentTarget)}
+              onCanPlay={(event) => handleVideoCanPlay(event.currentTarget)}
+              onPlay={(event) => handleVideoPlay(event.currentTarget)}
+              onPause={(event) => handleVideoPause(event.currentTarget)}
+              onTimeUpdate={(event) => {
+                const generation = activeVideoGeneration(event.currentTarget)
+                if (generation === null) return
+                const element = event.currentTarget
+                playbackSession.dispatch({
+                  type: 'time',
+                  generation,
+                  position: element.currentTime,
+                  ...(Number.isFinite(element.duration) ? { duration: element.duration } : {}),
+                })
+              }}
+              onDurationChange={(event) => {
+                const generation = activeVideoGeneration(event.currentTarget)
+                if (generation !== null && Number.isFinite(event.currentTarget.duration)) {
+                  playbackSession.dispatch({
+                    type: 'duration',
+                    generation,
+                    duration: event.currentTarget.duration,
+                  })
+                }
+              }}
+              onEnded={(event) => {
+                const generation = activeVideoGeneration(event.currentTarget)
+                if (generation !== null) {
+                  playbackSession.dispatch({ type: 'mediaEnded', generation })
+                }
+              }}
+              onVolumeChange={(event) => {
+                const generation = activeVideoGeneration(event.currentTarget)
+                if (generation === null) return
+                playbackSession.dispatch({
+                  type: 'setVolume',
+                  volume: event.currentTarget.volume,
+                })
+                playbackSession.dispatch({
+                  type: 'setMuted',
+                  muted: event.currentTarget.muted,
+                })
+              }}
+              onError={(event) => handleVideoError(event.currentTarget)}
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget
                 if (v.videoWidth > 0 && v.videoHeight > 0) {
@@ -1223,58 +1547,33 @@ export function WorkspaceViewerPane(props: Props) {
           data-audio-layout={audioLayout()}
           class='relative h-full min-h-0 overflow-hidden bg-gradient-to-br from-muted/45 via-background to-background'
         >
-          <audio
-            ref={(element) => setAudioEl(element)}
-            src={mediaUrl()}
-            preload='auto'
-            class='hidden'
-            title={fileName()}
-            data-canvas-audio-player={props.windowId}
-            onLoadStart={() => setMediaLoading(true)}
-            onCanPlay={() => setMediaLoading(false)}
-            onLoadedMetadata={(event) => setAudioDuration(event.currentTarget.duration || 0)}
-            onDurationChange={(event) => setAudioDuration(event.currentTarget.duration || 0)}
-            onTimeUpdate={(event) => setAudioCurrentTime(event.currentTarget.currentTime)}
-            onPlay={(event) => {
-              setAudioPlaying(true)
-              props.onAudioPlay?.(event.currentTarget)
-            }}
-            onPause={(event) => {
-              setAudioPlaying(false)
-              props.onAudioPause?.(event.currentTarget)
-            }}
-            onEnded={(event) => {
-              setAudioPlaying(false)
-              props.onAudioPause?.(event.currentTarget)
-            }}
-            onError={(event) => handleMediaError(event.currentTarget)}
-          />
-
-          <Show when={mediaLoading() && !mediaError()}>
+          <Show when={audioLoading() && !audioError()}>
             <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/55 backdrop-blur-sm'>
               <LoaderCircle class='h-7 w-7 animate-spin text-muted-foreground' stroke-width={2} />
             </div>
           </Show>
-          <Show when={mediaError()}>
-            <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center'>
-              <p class='text-destructive text-sm'>{mediaError()}</p>
-              <div class='flex gap-2'>
-                <button
-                  type='button'
-                  class='rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground'
-                  onClick={retryMedia}
-                >
-                  Retry
-                </button>
-                <a
-                  href={downloadHref()}
-                  download={fileName()}
-                  class='rounded-md border border-input px-3 py-1.5 text-sm'
-                >
-                  Download
-                </a>
+          <Show when={audioError()} keyed>
+            {(error) => (
+              <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center'>
+                <p class='text-destructive text-sm'>{error}</p>
+                <div class='flex gap-2'>
+                  <button
+                    type='button'
+                    class='rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground'
+                    onClick={retryMedia}
+                  >
+                    {playbackRecoveryLabel()}
+                  </button>
+                  <a
+                    href={downloadHref()}
+                    download={fileName()}
+                    class='rounded-md border border-input px-3 py-1.5 text-sm'
+                  >
+                    Download
+                  </a>
+                </div>
               </div>
-            </div>
+            )}
           </Show>
 
           <Switch>

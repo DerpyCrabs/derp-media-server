@@ -58,7 +58,7 @@ const descriptors = {
     id: 'audio-player',
     role: 'playback',
     media: 'audio',
-    load: () => import('../media/AudioPlayer'),
+    load: () => import('../media/playback/PlaybackAudioHost'),
   },
   video: {
     id: 'video-player',

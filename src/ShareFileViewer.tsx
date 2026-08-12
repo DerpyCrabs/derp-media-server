@@ -1,8 +1,7 @@
 import { MediaType } from '@/lib/types'
 import { post } from '@/lib/api'
 import Download from 'lucide-solid/icons/download'
-import { Match, Switch, createMemo, onCleanup, onMount } from 'solid-js'
-import { useMediaPlayer } from '@/lib/use-media-player'
+import { Match, Switch, createMemo, onMount } from 'solid-js'
 import { useBrowserHistory } from './browser-history'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import type { ShareInfoPayload } from './ShareFolderBrowser'
@@ -13,6 +12,8 @@ import { TextViewerBody, type TextViewerShareContext } from './media/TextViewerD
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { grantOpenScope, resourceForFileItem } from './lib/legacy-resource-adapter'
 import { executeOpenPlan, openResource } from './lib/open-resource'
+import { usePlaybackSession } from './media/playback/PlaybackProvider'
+import { playbackItemFromFileItem } from './media/playback/items'
 
 type Props = {
   token: string
@@ -20,6 +21,7 @@ type Props = {
 }
 
 export function ShareFileViewer(props: Props) {
+  const playbackSession = usePlaybackSession()
   const history = useBrowserHistory()
   useShareFileWatcher(() => props.token)
   useDynamicFavicon(() => ({}), {
@@ -59,13 +61,30 @@ export function ShareFileViewer(props: Props) {
   }
 
   onMount(() => {
-    useMediaPlayer.getState().setShareContext(props.token, props.shareInfo.path)
     void post(`/api/share/${encodeURIComponent(props.token)}/view`, {}).catch(() => {})
 
     const plan = plannedOpen()
     executeOpenPlan(plan, (planned) => {
       if (planned.kind === 'playback') {
-        useMediaPlayer.getState().playFile(props.shareInfo.path, planned.media)
+        const file = {
+          name: props.shareInfo.name,
+          path: props.shareInfo.path,
+          type: props.shareInfo.mediaType as MediaType,
+          size: 0,
+          extension: props.shareInfo.extension,
+          isDirectory: false,
+          resource: props.shareInfo.resource,
+        }
+        const item = playbackItemFromFileItem(file, planned)
+        if (item) {
+          playbackSession.dispatch({
+            type: 'load',
+            item,
+            queue: [item],
+            autoplay: true,
+            mode: planned.media,
+          })
+        }
         playFile(props.shareInfo.path)
       } else if (
         planned.kind === 'viewer' &&
@@ -76,10 +95,6 @@ export function ShareFileViewer(props: Props) {
         viewFile(props.shareInfo.path, undefined, planned.viewer.id)
       }
     })
-  })
-
-  onCleanup(() => {
-    useMediaPlayer.getState().clearShareContext()
   })
 
   return (

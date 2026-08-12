@@ -4,7 +4,6 @@ import { MediaType } from '@/lib/types'
 import type { FileItem } from '@/lib/types'
 import { Show, lazy } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
-import { AudioPlayer } from './AudioPlayer'
 import type { TextViewerShareContext } from './TextViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
 import { closeViewer } from '../lib/url-state-actions'
@@ -109,11 +108,6 @@ export function MainMediaPlayers(props: Props) {
       </Show>
       <LazyDocumentReader shareContext={props.shareContext} offline={props.offline} />
       <VideoPlayer shareContext={props.shareContext} />
-      <AudioPlayer
-        shareContext={props.shareContext}
-        offline={props.offline}
-        explorerFiles={props.explorerFiles}
-      />
       <Show when={viewerType() === MediaType.OTHER}>
         <UnsupportedFileViewerDialog
           shareContext={props.shareContext}

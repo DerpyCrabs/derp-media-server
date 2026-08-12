@@ -35,7 +35,6 @@ import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize } from '@/lib/media-utils'
-import { useMediaPlayer } from '@/lib/use-media-player'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
@@ -98,7 +97,6 @@ import { ViewModeToggle } from './file-browser/ViewModeToggle'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
-import { useStoreSync } from './lib/solid-store-sync'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { openInReader } from './reader/reader-url'
 import { useViewStats } from './lib/use-view-stats'
@@ -126,12 +124,16 @@ import { createOfflineResourceAdapter } from './lib/resource-adapters/offline'
 import { createOwnerExplorerAdapter } from './lib/resource-adapters/owner'
 import { removeWebOfflineAndWait, subscribeWebOfflineCatalog } from './lib/web-offline-storage'
 import { subscribeSseAdmin } from './lib/sse-shared-worker-client'
+import { usePlaybackSession, usePlaybackSnapshot } from './media/playback/PlaybackProvider'
+import { playbackItemFromFileItem, playbackQueueFromFiles } from './media/playback/items'
 
 type FileBrowserProps = {
   forceOffline?: boolean
 }
 
 export function FileBrowser(props: FileBrowserProps = {}) {
+  const playbackSession = usePlaybackSession()
+  const playbackSnapshot = usePlaybackSnapshot()
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
@@ -140,7 +142,9 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   const playingParam = createMemo(() => urlSearchParams().get('playing'))
 
-  const playingPath = createMemo(() => playingParam() ?? '')
+  const playingPath = createMemo(
+    () => playbackSnapshot().currentItem?.locator ?? playingParam() ?? '',
+  )
 
   const audioOnlyParam = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
 
@@ -315,6 +319,35 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     return explicitOffline || fallbackAdapter?.isUsingFallback() === true
   })
 
+  const syncPlaybackOnline = () => {
+    playbackSession.dispatch({
+      type: 'onlineChanged',
+      online: navigator.onLine && !isOfflineBrowser(),
+    })
+  }
+
+  createEffect(syncPlaybackOnline)
+
+  onMount(() => {
+    let mounted = true
+    const handleConnectivityChange = () => {
+      queueMicrotask(() => {
+        if (mounted) syncPlaybackOnline()
+      })
+    }
+    window.addEventListener('online', handleConnectivityChange)
+    window.addEventListener('offline', handleConnectivityChange)
+    onCleanup(() => {
+      mounted = false
+      window.removeEventListener('online', handleConnectivityChange)
+      window.removeEventListener('offline', handleConnectivityChange)
+    })
+  })
+
+  onCleanup(() => {
+    playbackSession.dispatch({ type: 'onlineChanged', online: navigator.onLine })
+  })
+
   const isEditable = createMemo(() => {
     const capabilities = explorerSnapshot().capabilities
     return (
@@ -400,42 +433,54 @@ export function FileBrowser(props: FileBrowserProps = {}) {
   const viewStats = useViewStats(() => ({}), { includeCounts: !explicitOffline })
   useDynamicFavicon(() => customIcons(), { getSearch: () => history().search })
 
-  const mediaPlayerTick = useStoreSync(useMediaPlayer)
-
   const isAudioPlayingBar = createMemo(() => {
-    void mediaPlayerTick()
-    const p = playingPath()
-    if (!p) return false
-    const ext = p.split('.').pop()?.toLowerCase() || ''
-    const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
-    const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
-    const inAud = audioExtensions.includes(ext)
-    const inVid = videoExtensions.includes(ext)
-    const mt = useMediaPlayer.getState().mediaType
-    if (inAud && !inVid) return true
-    if (inVid && !inAud) {
-      if (mt === 'video' && !audioOnlyParam()) return false
-      return audioOnlyParam() || mt === 'audio'
-    }
-    if (inAud && inVid) {
-      if (mt === 'video' && !audioOnlyParam()) return false
-      return audioOnlyParam() || mt === 'audio'
-    }
-    return false
+    const snapshot = playbackSnapshot()
+    const item = snapshot.currentItem
+    return !!item && (item.media === 'audio' || snapshot.mode === 'audio')
   })
 
   const fileIconCtx = createMemo((): FileIconContext => {
-    void mediaPlayerTick()
-    const st = useMediaPlayer.getState()
+    const st = playbackSnapshot()
     return {
       customIcons: customIcons(),
       knowledgeBases: knowledgeBases(),
-      playingPath: playingParam(),
-      currentFile: st.currentFile,
-      mediaPlayerIsPlaying: st.isPlaying,
-      mediaType: st.mediaType,
+      playingPath: st.currentItem?.locator ?? null,
+      currentFile: st.currentItem?.locator ?? null,
+      mediaPlayerIsPlaying: st.desiredPlaying,
+      mediaType: st.currentItem ? (st.mode === 'audio' ? 'audio' : 'video') : null,
       mediaShare: null,
     }
+  })
+
+  let bootstrappedPlayback = ''
+  createEffect(() => {
+    const path = playingParam()
+    const listed = files()
+    const requestedAudioOnly = audioOnlyParam()
+    const requestedPlayback = path ? `${path}\0${requestedAudioOnly ? 'audio' : 'video'}` : ''
+    if (!path || requestedPlayback === bootstrappedPlayback) return
+    const existing = playbackSnapshot().currentItem
+    const requestedMode =
+      existing?.media === 'video' && requestedAudioOnly ? 'audio' : existing?.media
+    if (existing?.locator === path && playbackSnapshot().mode === requestedMode) {
+      bootstrappedPlayback = requestedPlayback
+      return
+    }
+    const file = listed.find((candidate) => candidate.path === path) ?? fileItemFromPath(path)
+    const item = playbackItemFromFileItem(file)
+    if (!item) return
+    bootstrappedPlayback = requestedPlayback
+    const queue =
+      item.media === 'audio'
+        ? playbackQueueFromFiles(listed.filter((candidate) => candidate.type === MediaType.AUDIO))
+        : [item]
+    playbackSession.dispatch({
+      type: 'load',
+      item,
+      queue,
+      autoplay: true,
+      mode: item.media === 'video' && requestedAudioOnly ? 'audio' : item.media,
+    })
   })
 
   const [searchQuery, setSearchQuery] = createSignal('')
@@ -1566,7 +1611,20 @@ export function FileBrowser(props: FileBrowserProps = {}) {
         }
       }
       if (planned.kind === 'playback') {
-        useMediaPlayer.getState().playFile(file.path, planned.media)
+        const playbackItem = playbackItemFromFileItem(file, planned)
+        if (!playbackItem) return
+        playbackSession.dispatch({
+          type: 'load',
+          item: playbackItem,
+          queue:
+            planned.media === 'audio'
+              ? playbackQueueFromFiles(
+                  files().filter((candidate) => candidate.type === MediaType.AUDIO),
+                )
+              : [playbackItem],
+          autoplay: true,
+          mode: planned.media,
+        })
         playFile(file.path, sourceDir)
       } else {
         viewFile(file.path, sourceDir, planned.viewer.id)
@@ -1739,10 +1797,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
         explorerFiles={files()}
       />
       <div
-        class={cn(
-          isAudioPlayingBar() &&
-            'max-[649px]:pb-[calc(2.875rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-12',
-        )}
+        class={cn(isAudioPlayingBar() && 'pb-[var(--playback-audio-chrome-height)]')}
         data-testid='media-chrome-pad-root'
         data-audio-active={isAudioPlayingBar() ? 'true' : undefined}
       >
@@ -1943,7 +1998,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
                                           data-file-path={file.path}
                                           class={cn(
                                             'ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col',
-                                            playingParam() === file.path ? 'bg-primary/10' : '',
+                                            playingPath() === file.path ? 'bg-primary/10' : '',
                                             selected() ? 'ring-2 ring-primary bg-primary/5' : '',
                                           )}
                                           onClick={() => handleFileClick(file)}
@@ -2181,7 +2236,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
                                           aria-selected={selected()}
                                           class={cn(
                                             'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group',
-                                            playingParam() === file.path ? 'bg-primary/10' : '',
+                                            playingPath() === file.path ? 'bg-primary/10' : '',
                                             selected() ? 'bg-primary/10' : '',
                                             file.isDirectory && dragOverPath() === file.path
                                               ? 'bg-primary/20'

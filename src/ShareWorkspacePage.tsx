@@ -67,7 +67,7 @@ export function ShareWorkspacePage(props: Props) {
     const d = shareQuery.data
     if (!d?.isDirectory) return false
     if (d.needsPasscode && !d.authorized) return false
-    return true
+    return typeof d.path === 'string'
   })
 
   const shareAllowUpload = createMemo(() => {

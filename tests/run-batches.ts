@@ -60,6 +60,7 @@ export const BATCHES = [
     id: '5',
     tests: [
       'audio-player',
+      'stage5-playback-continuity',
       'video-audio-mode-switch',
       'shares-manage',
       'shares-use',

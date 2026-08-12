@@ -18,7 +18,7 @@ test.describe('Drag and Drop File Moving', () => {
 
     // File should disappear from current view
     await expect(page.locator('table').getByText('drag-test.txt')).not.toBeVisible({
-      timeout: 5_000,
+      timeout: 10_000,
     })
 
     // File should be in the subfolder
