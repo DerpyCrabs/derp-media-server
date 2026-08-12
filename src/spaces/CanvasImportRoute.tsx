@@ -5,12 +5,12 @@ import {
   readCanvasStorageSources,
   type CanvasStorageInspection,
 } from '@/lib/canvas-persistence'
-import { canvasStateToSpace, type Space } from '@/lib/space'
+import { canvasStateToSpace } from '@/lib/space'
 import { createBrowserSpaceTransport } from '@/lib/space-client'
 import Download from 'lucide-solid/icons/download'
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { CanvasPage } from '../CanvasPage'
-import { followAppLink, hrefFor } from '../lib/routes'
+import { followAppLink, hrefFor, navigateSpace } from '../lib/routes'
 
 const CANVAS_IMPORTED_SPACE_KEY = 'space-imported-canvas-id-v1'
 
@@ -25,7 +25,6 @@ export function CanvasImportRoute() {
   }
   const initialInspection = inspectCanvasStorage(localStorage)
   const startLocally = navigator.onLine === false && initialInspection.kind !== 'unexpected'
-  const [space, setSpace] = createSignal<Space | null>(null)
   const [localMode, setLocalMode] = createSignal(startLocally)
   const [error, setError] = createSignal<string | null>(preservationError)
   const [needsConfirmation, setNeedsConfirmation] = createSignal(
@@ -84,13 +83,13 @@ export function CanvasImportRoute() {
               const missing = collection.canvases.filter((canvas) => !knownIds.has(canvas.id))
               if (missing.length > 0) await transport.importCanvases(missing)
             }
-            setSpace(imported)
+            navigateSpace(imported.id, { presentation: 'map', replace: true })
             return
           }
         } catch {}
       }
       if (inspection.kind === 'none' && existing.length > 0) {
-        setSpace(await transport.load(existing[0]!.id))
+        navigateSpace(existing[0]!.id, { presentation: 'map', replace: true })
         return
       }
 
@@ -105,7 +104,7 @@ export function CanvasImportRoute() {
           (existing[0] ? await transport.load(existing[0].id) : null)
         if (!fallback) throw new Error('Canvas import produced no usable Space')
         localStorage.setItem(CANVAS_IMPORTED_SPACE_KEY, fallback.id)
-        setSpace(fallback)
+        navigateSpace(fallback.id, { presentation: 'map', replace: true })
         return
       }
 
@@ -123,7 +122,7 @@ export function CanvasImportRoute() {
         },
       })
       localStorage.setItem(CANVAS_IMPORTED_SPACE_KEY, created.id)
-      setSpace(created)
+      navigateSpace(created.id, { presentation: 'map', replace: true })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Canvas import failed')
       setLocalMode(true)
@@ -146,86 +145,76 @@ export function CanvasImportRoute() {
 
   return (
     <Show
-      when={space()}
-      keyed
+      when={localMode()}
       fallback={
-        <Show
-          when={localMode()}
-          fallback={
-            <main
-              class='flex min-h-[70vh] items-center justify-center p-4'
-              data-testid='canvas-import-route'
-            >
-              <div class='bg-card w-full max-w-lg rounded-xl border border-border p-6 shadow-sm'>
-                <p class='text-primary text-sm font-semibold'>Canvas to Space</p>
-                <h1 class='mt-1 text-xl font-semibold'>
-                  {needsConfirmation()
-                    ? 'Canvas source needs attention'
-                    : 'Preparing durable Canvas…'}
-                </h1>
-                <p class='text-muted-foreground mt-2 text-sm'>
-                  {needsConfirmation()
-                    ? 'Original browser data remains unchanged. Export it before choosing whether to continue with recoverable data or a new empty Canvas.'
-                    : 'Existing Canvas IDs, panes, and placement stay intact. Camera and selection remain on this device.'}
-                </p>
-                <Show
-                  when={
-                    error() ||
-                    (initialInspection.kind === 'unexpected' ? initialInspection.message : null)
-                  }
-                >
-                  {(message) => (
-                    <div class='border-destructive/40 bg-destructive/5 mt-4 rounded-lg border p-3 text-sm'>
-                      <p data-testid='canvas-import-error'>{message()}</p>
-                    </div>
-                  )}
-                </Show>
-                <Show when={needsConfirmation()}>
-                  <div class='mt-4 flex flex-wrap gap-2'>
-                    <Show when={sources.length > 0}>
-                      <For each={sources}>
-                        {(source, index) => (
-                          <button
-                            type='button'
-                            class='inline-flex min-h-10 items-center gap-2 rounded-md border border-border px-3 font-medium'
-                            onClick={() => downloadOriginal(source)}
-                          >
-                            <Download class='size-4' />
-                            {index() === 0 ? 'Export exact original' : 'Export exact legacy source'}
-                          </button>
-                        )}
-                      </For>
-                    </Show>
-                    <button
-                      type='button'
-                      class='bg-primary text-primary-foreground min-h-10 rounded-md px-3 font-medium'
-                      data-testid='canvas-import-continue'
-                      disabled={preservationError !== null}
-                      onClick={continueAfterWarning}
-                    >
-                      {initialInspection.kind === 'unexpected' &&
-                      !initialInspection.hasRecoverableCanvas
-                        ? 'Start empty local Canvas'
-                        : 'Continue with recoverable Canvas'}
-                    </button>
-                    <a
-                      href={hrefFor({ kind: 'spaces' })}
-                      class='inline-flex min-h-10 items-center rounded-md px-3 font-medium'
-                      onClick={(event) => followAppLink(event, hrefFor({ kind: 'spaces' }))}
-                    >
-                      Open Spaces
-                    </a>
-                  </div>
-                </Show>
-              </div>
-            </main>
-          }
+        <main
+          class='flex min-h-[70vh] items-center justify-center p-4'
+          data-testid='canvas-import-route'
         >
-          <CanvasPage />
-        </Show>
+          <div class='bg-card w-full max-w-lg rounded-xl border border-border p-6 shadow-sm'>
+            <p class='text-primary text-sm font-semibold'>Canvas to Space</p>
+            <h1 class='mt-1 text-xl font-semibold'>
+              {needsConfirmation() ? 'Canvas source needs attention' : 'Preparing durable Canvas…'}
+            </h1>
+            <p class='text-muted-foreground mt-2 text-sm'>
+              {needsConfirmation()
+                ? 'Original browser data remains unchanged. Export it before choosing whether to continue with recoverable data or a new empty Canvas.'
+                : 'Existing Canvas IDs, panes, and placement stay intact. Camera and selection remain on this device.'}
+            </p>
+            <Show
+              when={
+                error() ||
+                (initialInspection.kind === 'unexpected' ? initialInspection.message : null)
+              }
+            >
+              {(message) => (
+                <div class='border-destructive/40 bg-destructive/5 mt-4 rounded-lg border p-3 text-sm'>
+                  <p data-testid='canvas-import-error'>{message()}</p>
+                </div>
+              )}
+            </Show>
+            <Show when={needsConfirmation()}>
+              <div class='mt-4 flex flex-wrap gap-2'>
+                <Show when={sources.length > 0}>
+                  <For each={sources}>
+                    {(source, index) => (
+                      <button
+                        type='button'
+                        class='inline-flex min-h-10 items-center gap-2 rounded-md border border-border px-3 font-medium'
+                        onClick={() => downloadOriginal(source)}
+                      >
+                        <Download class='size-4' />
+                        {index() === 0 ? 'Export exact original' : 'Export exact legacy source'}
+                      </button>
+                    )}
+                  </For>
+                </Show>
+                <button
+                  type='button'
+                  class='bg-primary text-primary-foreground min-h-10 rounded-md px-3 font-medium'
+                  data-testid='canvas-import-continue'
+                  disabled={preservationError !== null}
+                  onClick={continueAfterWarning}
+                >
+                  {initialInspection.kind === 'unexpected' &&
+                  !initialInspection.hasRecoverableCanvas
+                    ? 'Start empty local Canvas'
+                    : 'Continue with recoverable Canvas'}
+                </button>
+                <a
+                  href={hrefFor({ kind: 'spaces' })}
+                  class='inline-flex min-h-10 items-center rounded-md px-3 font-medium'
+                  onClick={(event) => followAppLink(event, hrefFor({ kind: 'spaces' }))}
+                >
+                  Open Spaces
+                </a>
+              </div>
+            </Show>
+          </div>
+        </main>
       }
     >
-      {(loadedSpace) => <CanvasPage initialSpace={loadedSpace} />}
+      <CanvasPage />
     </Show>
   )
 }

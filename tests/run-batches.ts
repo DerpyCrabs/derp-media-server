@@ -9,7 +9,11 @@ import path from 'path'
 export const BATCHES = [
   {
     id: '1',
-    tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome'],
+    tests: [
+      'workspace-layout-snap-resize',
+      'workspace-layout-chrome',
+      'stage7-space-presentations',
+    ],
   },
   {
     id: '2',

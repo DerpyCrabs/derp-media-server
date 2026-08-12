@@ -231,7 +231,7 @@ async fn dehydrated(
             }),
         ));
         queries.push(query(json!(["auth-config"]), auth_config(state)));
-        if let OwnerRoute::Space { id } = owner_route
+        if let OwnerRoute::Space { id, .. } = owner_route
             && let Ok(space) = state.spaces.load(id.as_ref())
         {
             queries.push(query(json!(["space", id.as_ref()]), json!({"space":space})));

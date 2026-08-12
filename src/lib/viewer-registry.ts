@@ -1,9 +1,15 @@
 import type { ResourceSummary, ViewerId } from '@/lib/resource'
 import { MediaType } from '@/lib/types'
+import { getMediaTypeFromPath } from '@/lib/media-utils'
+import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 
 export type { ViewerId } from '@/lib/resource'
 
 export type ViewerLoadFactory = () => Promise<unknown>
+export type ViewerPaneModule = Readonly<{
+  default: typeof import('../workspace/WorkspaceViewerPane').WorkspaceViewerPane
+}>
+export type ViewerPaneLoadFactory = () => Promise<ViewerPaneModule>
 
 type ViewerDescriptorBase = Readonly<{
   id: ViewerId
@@ -11,9 +17,15 @@ type ViewerDescriptorBase = Readonly<{
 }>
 
 export type ViewerDescriptor =
-  | (ViewerDescriptorBase & { role: 'playback'; media: 'audio' | 'video' })
-  | (ViewerDescriptorBase & { role: 'viewer' })
+  | (ViewerDescriptorBase & {
+      role: 'playback'
+      media: 'audio' | 'video'
+      pane?: ViewerPaneLoadFactory
+    })
+  | (ViewerDescriptorBase & { role: 'viewer'; pane?: ViewerPaneLoadFactory })
   | (ViewerDescriptorBase & { role: 'conversation' })
+
+export type ViewerPaneDescriptor = ViewerDescriptor & { pane: ViewerPaneLoadFactory }
 
 export type ViewerLookupIntent = 'default' | 'read'
 
@@ -51,45 +63,62 @@ export type ViewerRegistry = Readonly<{
     resource: Pick<ResourceSummary, 'kind' | 'mimeType' | 'presentation'>,
     intent?: ViewerLookupIntent,
   ): ViewerDescriptor | null
+  byId?(viewerId: ViewerId): ViewerDescriptor | null
 }>
+
+const loadAudioPane: ViewerPaneLoadFactory = () => import('../spaces/viewer-panes/AudioViewerPane')
+const loadVideoPane: ViewerPaneLoadFactory = () => import('../spaces/viewer-panes/VideoViewerPane')
+const loadImagePane: ViewerPaneLoadFactory = () => import('../spaces/viewer-panes/ImageViewerPane')
+const loadTextPane: ViewerPaneLoadFactory = () => import('../spaces/viewer-panes/TextViewerPane')
+const loadReaderPane: ViewerPaneLoadFactory = () =>
+  import('../spaces/viewer-panes/ReaderViewerPane')
+const loadUnsupportedPane: ViewerPaneLoadFactory = () =>
+  import('../spaces/viewer-panes/UnsupportedViewerPane')
 
 const descriptors = {
   audio: {
     id: 'audio-player',
     role: 'playback',
     media: 'audio',
-    load: () => import('../media/playback/PlaybackAudioHost'),
+    load: loadAudioPane,
+    pane: loadAudioPane,
   },
   video: {
     id: 'video-player',
     role: 'playback',
     media: 'video',
-    load: () => import('../media/VideoPlayer'),
+    load: loadVideoPane,
+    pane: loadVideoPane,
   },
   image: {
     id: 'image-viewer',
     role: 'viewer',
-    load: () => import('../media/ImageViewerDialog'),
+    load: loadImagePane,
+    pane: loadImagePane,
   },
   text: {
     id: 'text-viewer',
     role: 'viewer',
-    load: () => import('../media/TextViewerDialog'),
+    load: loadTextPane,
+    pane: loadTextPane,
   },
   pdf: {
     id: 'pdf-reader',
     role: 'viewer',
-    load: () => import('../reader/ReaderDialog'),
+    load: loadReaderPane,
+    pane: loadReaderPane,
   },
   book: {
     id: 'book-reader',
     role: 'viewer',
-    load: () => import('../reader/ReaderDialog'),
+    load: loadReaderPane,
+    pane: loadReaderPane,
   },
   folderReader: {
     id: 'folder-reader',
     role: 'viewer',
-    load: () => import('../reader/ReaderDialog'),
+    load: loadReaderPane,
+    pane: loadReaderPane,
   },
   conversation: {
     id: 'conversation',
@@ -99,7 +128,8 @@ const descriptors = {
   unsupported: {
     id: 'unsupported-file',
     role: 'viewer',
-    load: () => import('../media/UnsupportedFileViewerDialog'),
+    load: loadUnsupportedPane,
+    pane: loadUnsupportedPane,
   },
 } as const satisfies Record<string, ViewerDescriptor>
 
@@ -172,6 +202,9 @@ function descriptorForPresentation(
 }
 
 export const builtInViewerRegistry: ViewerRegistry = Object.freeze({
+  byId(viewerId) {
+    return Object.values(descriptors).find((descriptor) => descriptor.id === viewerId) ?? null
+  },
   lookup(resource, intent = 'default') {
     if (intent === 'read') {
       if (resource.kind === 'folder') return descriptors.folderReader
@@ -185,3 +218,37 @@ export const builtInViewerRegistry: ViewerRegistry = Object.freeze({
     return descriptorForMime(resource.mimeType) ?? descriptorForPresentation(resource.presentation)
   },
 })
+
+export function viewerPaneDescriptorForWindow(
+  window: Pick<WorkspaceWindowDefinition, 'viewerId' | 'initialState'> | undefined,
+): ViewerPaneDescriptor | null {
+  if (!window) return null
+  const explicit = window.viewerId ? builtInViewerRegistry.byId?.(window.viewerId) : null
+  if (explicit && 'pane' in explicit && explicit.pane) return explicit as ViewerPaneDescriptor
+  const readerKind = window.initialState.readerKind
+  const readerId =
+    readerKind === 'folder'
+      ? 'folder-reader'
+      : readerKind === 'book'
+        ? 'book-reader'
+        : readerKind === 'pdf'
+          ? 'pdf-reader'
+          : null
+  if (readerId) return builtInViewerRegistry.byId?.(readerId) as ViewerPaneDescriptor
+  const media = getMediaTypeFromPath(window.initialState.viewing ?? '')
+  const viewerId: ViewerId =
+    media === MediaType.AUDIO
+      ? 'audio-player'
+      : media === MediaType.VIDEO
+        ? 'video-player'
+        : media === MediaType.IMAGE
+          ? 'image-viewer'
+          : media === MediaType.TEXT
+            ? 'text-viewer'
+            : media === MediaType.PDF
+              ? 'pdf-reader'
+              : media === MediaType.BOOK
+                ? 'book-reader'
+                : 'unsupported-file'
+  return builtInViewerRegistry.byId?.(viewerId) as ViewerPaneDescriptor
+}

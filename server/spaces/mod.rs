@@ -19,6 +19,7 @@ use std::{
 const SCHEMA_VERSION: i64 = 5;
 const SCHEMA_BACKUP: &str = "app-before-spaces-v5.sqlite3";
 const HISTORY_RETENTION: i64 = 50;
+const COMMAND_RECEIPTS_TABLE: &str = "space_command_receipts";
 
 #[derive(Clone)]
 pub(crate) struct SpaceEngine {
@@ -114,6 +115,7 @@ fn apply_schema(config: &Config, database: &Path) -> Result<(), String> {
                 ));
             }
         }
+        ensure_command_receipts_schema(&mut connection)?;
         return Ok(());
     }
 
@@ -174,7 +176,33 @@ fn apply_schema(config: &Config, database: &Path) -> Result<(), String> {
             params![SCHEMA_VERSION, now_ms()],
         )
         .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())
+    transaction.commit().map_err(|error| error.to_string())?;
+    ensure_command_receipts_schema(&mut connection)
+}
+
+fn ensure_command_receipts_schema(connection: &mut Connection) -> Result<(), String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS space_command_receipts (
+               library_id TEXT NOT NULL,
+               command_id TEXT NOT NULL,
+               request_digest TEXT NOT NULL,
+               result_space_id TEXT NOT NULL,
+               PRIMARY KEY(library_id,command_id),
+               FOREIGN KEY(library_id,result_space_id) REFERENCES spaces(library_id,id)
+             );",
+        )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    if !table_exists(connection, COMMAND_RECEIPTS_TABLE)? {
+        return Err(format!(
+            "Space persistence recovery required: schema version exists without {COMMAND_RECEIPTS_TABLE}"
+        ));
+    }
+    Ok(())
 }
 
 impl SpaceEngine {
@@ -259,7 +287,37 @@ impl SpaceEngine {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(SpaceError::from)?;
-        let result = match request.command {
+        let ApplySpaceCommand {
+            command_id,
+            space_id,
+            expected_revision,
+            command,
+        } = request;
+        let request_digest = if let Some(command_id) = command_id.as_deref() {
+            validate_command_id(command_id)?;
+            let digest = command_request_digest(space_id.as_deref(), &command)?;
+            if let Some((recorded_digest, result_space_id)) =
+                command_receipt_in(&transaction, &self.library_id, command_id)?
+            {
+                if recorded_digest != digest {
+                    return Err(SpaceError::invalid(
+                        "Space command ID was already used for a different command",
+                    ));
+                }
+                let current = load_in(&transaction, &self.library_id, &result_space_id)?
+                    .ok_or_else(|| {
+                        SpaceError::internal(
+                            "Space command receipt references a missing result Space",
+                        )
+                    })?;
+                transaction.commit()?;
+                return Ok(current);
+            }
+            Some(digest)
+        } else {
+            None
+        };
+        let result = match command {
             SpaceCommand::Create {
                 id,
                 name,
@@ -268,8 +326,8 @@ impl SpaceEngine {
                 arrangements,
             } => self.create_in(
                 &transaction,
-                request.space_id,
-                request.expected_revision,
+                space_id,
+                expected_revision,
                 id,
                 name,
                 origin,
@@ -283,19 +341,23 @@ impl SpaceEngine {
                 name,
             } => self.duplicate_in(
                 &transaction,
-                request.space_id,
-                request.expected_revision,
+                space_id,
+                expected_revision,
                 source_revision,
                 new_id,
                 name,
             ),
-            command => self.update_in(
-                &transaction,
-                request.space_id,
-                request.expected_revision,
-                command,
-            ),
+            command => self.update_in(&transaction, space_id, expected_revision, command),
         }?;
+        if let (Some(command_id), Some(request_digest)) = (command_id, request_digest) {
+            insert_command_receipt(
+                &transaction,
+                &self.library_id,
+                &command_id,
+                &request_digest,
+                &result.id,
+            )?;
+        }
         transaction.commit()?;
         Ok(result)
     }
@@ -823,6 +885,16 @@ fn validate_id(id: &str) -> Result<(), SpaceError> {
     }
 }
 
+fn validate_command_id(id: &str) -> Result<(), SpaceError> {
+    if valid_id(id) {
+        Ok(())
+    } else {
+        Err(SpaceError::invalid(
+            "Space command ID must contain 1 to 128 UTF-16 code units and no control characters",
+        ))
+    }
+}
+
 pub(crate) fn validate_route_id(id: &str) -> Result<(), SpaceError> {
     validate_id(id)
 }
@@ -1102,6 +1174,38 @@ fn load_in(
         .transpose()
 }
 
+fn command_receipt_in(
+    transaction: &Transaction<'_>,
+    library_id: &str,
+    command_id: &str,
+) -> Result<Option<(String, String)>, SpaceError> {
+    transaction
+        .query_row(
+            "SELECT request_digest,result_space_id FROM space_command_receipts
+             WHERE library_id=?1 AND command_id=?2",
+            params![library_id, command_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(SpaceError::from)
+}
+
+fn insert_command_receipt(
+    transaction: &Transaction<'_>,
+    library_id: &str,
+    command_id: &str,
+    request_digest: &str,
+    result_space_id: &str,
+) -> Result<(), SpaceError> {
+    transaction.execute(
+        "INSERT INTO space_command_receipts(
+           library_id,command_id,request_digest,result_space_id
+         ) VALUES(?1,?2,?3,?4)",
+        params![library_id, command_id, request_digest, result_space_id],
+    )?;
+    Ok(())
+}
+
 fn revision_in(
     connection: &Connection,
     library_id: &str,
@@ -1243,6 +1347,13 @@ fn json_digest(value: &Value) -> Result<String, SpaceError> {
     let bytes = serde_json::to_vec(value)?;
     let digest = Sha256::digest(bytes);
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn command_request_digest(
+    space_id: Option<&str>,
+    command: &SpaceCommand,
+) -> Result<String, SpaceError> {
+    json_digest(&json!({"spaceId":space_id,"command":command}))
 }
 
 fn path_has_dot_dot(path: &str) -> bool {

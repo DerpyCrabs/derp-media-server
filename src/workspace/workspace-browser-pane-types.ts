@@ -5,11 +5,15 @@ import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspa
 import type { Accessor } from 'solid-js'
 import type { OpenSurface } from '../lib/open-resource'
 import type { FileIconContext } from '../lib/use-file-icon'
+import type { PaneExplorerRuntime } from '../explorer/browser-adapters'
 
 export type WorkspaceShareConfig = { token: string; sharePath: string }
 
 export type WorkspaceBrowserPaneProps = {
   windowId: string
+  runtimeKey?: string
+  runtime?: PaneExplorerRuntime
+  preserveHistory?: boolean
   surface?: OpenSurface
   workspace: Accessor<PersistedWorkspaceState | null>
   sharePanel: Accessor<WorkspaceShareConfig | null>

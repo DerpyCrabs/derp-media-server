@@ -213,6 +213,30 @@ describe('Canvas Space conversion', () => {
     }
   }
 
+  test('preserves an unsent assistant pane through Map projection', () => {
+    const state = canvas()
+    state.windows = [
+      {
+        id: 'assistant-draft',
+        definition: {
+          ...paneDefinition('assistant-draft', 'hermes'),
+          hermes: { draftId: 'draft-one', cwd: 'Documents' },
+        },
+        bounds: { x: 20, y: 40, width: 640, height: 480 },
+        zIndex: 2,
+      },
+    ]
+    const converted = canvasStateToSpace({ id: 'map-space', name: 'Map', state }, clock)
+    expect(converted.panes['assistant-draft']?.state.hermes).toEqual({
+      draftId: 'draft-one',
+      cwd: 'Documents',
+    })
+    expect(projectSpaceToCanvas(converted).windows[0]?.definition.hermes).toEqual({
+      draftId: 'draft-one',
+      cwd: 'Documents',
+    })
+  })
+
   test('preserves pane IDs, definitions, ResourceRefs, bounds, and z while excluding device state', () => {
     const state = canvas()
     const converted = canvasStateToSpace({ id: 'canvas-space', name: 'Canvas', state }, clock)
@@ -409,7 +433,7 @@ describe('Workspace Space conversion', () => {
     )
   })
 
-  test('excludes draft assistant windows but preserves cwd for durable assistants', () => {
+  test('preserves draft assistant panes for presentation changes and strips stale draft ids from sessions', () => {
     const state = workspace()
     state.windows = [
       {
@@ -425,7 +449,11 @@ describe('Workspace Space conversion', () => {
       { id: 'workspace-space', name: 'Workspace', state },
       clock,
     )
-    expect(Object.keys(converted.panes)).toEqual(['durable'])
+    expect(Object.keys(converted.panes)).toEqual(['draft', 'durable'])
+    expect(converted.panes.draft?.state.hermes).toEqual({
+      draftId: 'transient',
+      cwd: 'Documents',
+    })
     expect(converted.panes.durable?.state.hermes).toEqual({
       sessionId: 'session-1',
       cwd: 'Documents',

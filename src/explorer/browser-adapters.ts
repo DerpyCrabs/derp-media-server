@@ -63,7 +63,13 @@ export function createUrlExplorerHistory(options: UrlHistoryOptions): ExplorerHi
   }
 }
 
-type PaneHistoryState = { entries: string[]; index: number }
+export type PaneHistoryState = { entries: string[]; index: number }
+
+export type PaneExplorerRuntime = {
+  history?: PaneHistoryState
+  currentPath?: () => string | undefined
+  setCurrentPath?: (path: string) => void
+}
 
 function normalizePath(path: string): string {
   return path
@@ -72,7 +78,11 @@ function normalizePath(path: string): string {
     .replace(/\/{2,}/g, '/')
 }
 
-function readPaneHistory(key: string, initialPath: string): PaneHistoryState {
+function readPaneHistory(
+  key: string,
+  initialPath: string,
+  preserveCurrent: boolean,
+): PaneHistoryState {
   try {
     const parsed = JSON.parse(window.sessionStorage.getItem(key) ?? '') as PaneHistoryState
     if (
@@ -83,7 +93,7 @@ function readPaneHistory(key: string, initialPath: string): PaneHistoryState {
       parsed.index < parsed.entries.length
     ) {
       const initial = normalizePath(initialPath)
-      if (parsed.entries[parsed.index] !== initial) {
+      if (!preserveCurrent && parsed.entries[parsed.index] !== initial) {
         parsed.entries.splice(parsed.index + 1, parsed.entries.length, initial)
         parsed.index = parsed.entries.length - 1
       }
@@ -99,17 +109,23 @@ export function createPaneExplorerHistory(
   id: string,
   initialPath: string,
   onNavigate: (path: string) => void,
+  options: { preserveCurrent?: boolean; runtime?: PaneExplorerRuntime } = {},
 ): ExplorerHistoryAdapter {
   const storageKey = `derp-explorer-history:${id}`
-  const state = readPaneHistory(storageKey, initialPath)
+  const state =
+    options.runtime?.history ??
+    readPaneHistory(storageKey, initialPath, options.preserveCurrent === true)
+  if (options.runtime) options.runtime.history = state
   const listeners = new Set<(path: string) => void>()
   const persist = () => window.sessionStorage.setItem(storageKey, JSON.stringify(state))
   const notify = () => {
     const path = state.entries[state.index] ?? ''
+    options.runtime?.setCurrentPath?.(path)
     persist()
     onNavigate(path)
     for (const listener of [...listeners]) listener(path)
   }
+  options.runtime?.setCurrentPath?.(state.entries[state.index] ?? '')
   persist()
   return {
     current: () => state.entries[state.index] ?? '',

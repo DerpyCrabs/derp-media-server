@@ -1,12 +1,10 @@
 import type { FileSearchResult } from '@/lib/file-search'
-import AppWindow from 'lucide-solid/icons/app-window'
 import Bot from 'lucide-solid/icons/bot'
 import Download from 'lucide-solid/icons/download'
 import FolderHeart from 'lucide-solid/icons/folder-heart'
 import Home from 'lucide-solid/icons/house'
 import LayoutGrid from 'lucide-solid/icons/layout-grid'
 import Library from 'lucide-solid/icons/library'
-import Map from 'lucide-solid/icons/map'
 import Menu from 'lucide-solid/icons/menu'
 import Settings from 'lucide-solid/icons/settings'
 import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
@@ -42,13 +40,6 @@ const desktopDestinations = [
   { id: 'home' as const, href: ownerHref({ kind: 'home' }), label: 'Home', icon: Home },
   { id: 'library' as const, href: ownerHref({ kind: 'library' }), label: 'Library', icon: Library },
   { id: 'spaces' as const, href: ownerHref({ kind: 'spaces' }), label: 'Spaces', icon: LayoutGrid },
-  {
-    id: 'workspace' as const,
-    href: ownerHref({ kind: 'workspace' }),
-    label: 'Workspace',
-    icon: AppWindow,
-  },
-  { id: 'canvas' as const, href: ownerHref({ kind: 'canvas' }), label: 'Canvas', icon: Map },
   {
     id: 'assistant' as const,
     href: ownerHref({ kind: 'assistant' }),

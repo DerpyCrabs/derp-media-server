@@ -127,11 +127,12 @@ describe('optimistic Space client', () => {
       pending: 1,
     })
     expect(transport.requests).toEqual([
-      {
+      expect.objectContaining({
+        commandId: expect.any(String),
         spaceId: 'space-1',
         expectedRevision: 3,
         command: { type: 'rename', name: 'Renamed' },
-      },
+      }),
     ])
 
     pending.resolve(makeSpace({ name: 'Renamed', revision: 4, updatedAt: nextInstant }))
@@ -168,6 +169,53 @@ describe('optimistic Space client', () => {
       status: 'saved',
       pending: 0,
     })
+  })
+
+  test('reports command boundaries and waits until every queued save is confirmed', async () => {
+    const first = deferred<Space>()
+    const second = deferred<Space>()
+    const outcomes = [first, second]
+    const transport = new FakeTransport(() => outcomes.shift()!.promise)
+    const client = createOptimisticSpaceClient({ transport, initialSpace: makeSpace() })
+    const events: { type: string; beforeRevision: number }[] = []
+    client.subscribeCommands(({ command, beforeRevision }) =>
+      events.push({ type: command.type, beforeRevision }),
+    )
+
+    const renameA = client.dispatch({ type: 'rename', name: 'A' })
+    const renameB = client.dispatch({ type: 'rename', name: 'B' })
+    let idle = false
+    const waiting = client.waitForIdle().then(() => {
+      idle = true
+    })
+    expect(events).toEqual([])
+    expect(client.getPendingCommands().map((entry) => entry.command)).toEqual([
+      { type: 'rename', name: 'A' },
+      { type: 'rename', name: 'B' },
+    ])
+
+    first.resolve(makeSpace({ name: 'A', revision: 4 }))
+    await renameA
+    expect(idle).toBe(false)
+    expect(events).toEqual([{ type: 'rename', beforeRevision: 3 }])
+    second.resolve(makeSpace({ name: 'B', revision: 5 }))
+    await Promise.all([renameB, waiting])
+    expect(idle).toBe(true)
+    expect(events).toEqual([
+      { type: 'rename', beforeRevision: 3 },
+      { type: 'rename', beforeRevision: 4 },
+    ])
+    expect(client.getPendingCommands()).toEqual([])
+  })
+
+  test('refuses an idle handoff while offline edits remain queued', async () => {
+    const client = createOptimisticSpaceClient({
+      transport: new FakeTransport(async () => makeSpace()),
+      initialSpace: makeSpace(),
+      online: () => false,
+    })
+    void client.dispatch({ type: 'rename', name: 'Offline' })
+    await expect(client.waitForIdle()).rejects.toMatchObject({ code: 'offline' })
   })
 
   test('retains offline edits and drains them after reconnect', async () => {
@@ -207,6 +255,8 @@ describe('optimistic Space client', () => {
       return makeSpace({ name: 'Local', revision: 5, updatedAt: nextInstant })
     })
     const client = createOptimisticSpaceClient({ transport, initialSpace: makeSpace() })
+    const boundaries: number[] = []
+    client.subscribeCommands(({ beforeRevision }) => boundaries.push(beforeRevision))
 
     await expect(client.dispatch({ type: 'rename', name: 'Local' })).resolves.toMatchObject({
       name: 'Local',
@@ -219,6 +269,44 @@ describe('optimistic Space client', () => {
       status: 'saved',
       recoveredCopy: null,
     })
+    expect(boundaries).toEqual([4])
+  })
+
+  test('accepts an already-applied replay without duplicating or recovering it', async () => {
+    const alreadyApplied = makeSpace({
+      revision: 4,
+      panes: {
+        ...makeSpace().panes,
+        beta: { kind: 'viewer', state: { title: 'Beta' } },
+      },
+      updatedAt: nextInstant,
+    })
+    const transport = new FakeTransport(async () => {
+      throw new SpaceTransportError('conflict', 'Space changed on another device', {
+        expectedRevision: 3,
+        currentRevision: 4,
+        current: alreadyApplied,
+      })
+    })
+    const client = createOptimisticSpaceClient({ transport, initialSpace: makeSpace() })
+    const boundaries: number[] = []
+    client.subscribeCommands(({ beforeRevision }) => boundaries.push(beforeRevision))
+
+    await expect(
+      client.dispatch({
+        type: 'addPane',
+        paneId: 'beta',
+        pane: { kind: 'viewer', state: { title: 'Beta' } },
+      }),
+    ).resolves.toMatchObject({ revision: 4, panes: { beta: { state: { title: 'Beta' } } } })
+
+    expect(transport.requests).toHaveLength(1)
+    expect(client.getSnapshot()).toMatchObject({
+      status: 'saved',
+      pending: 0,
+      recoveredCopy: null,
+    })
+    expect(boundaries).toEqual([])
   })
 
   test('recovers all pending edits when a later queued command cannot replay after conflict', async () => {
@@ -268,6 +356,7 @@ describe('optimistic Space client', () => {
   })
 
   test('creates a named recovered copy when a conflict cannot be rebased', async () => {
+    const changedPane = { kind: 'viewer' as const, state: { title: 'Changed locally' } }
     const remote = makeSpace({
       name: 'Remote',
       revision: 4,
@@ -279,7 +368,7 @@ describe('optimistic Space client', () => {
       id: 'recovered-1',
       name: 'Space (recovered)',
       revision: 1,
-      panes: {},
+      panes: { alpha: changedPane },
       arrangements: { spatial: { placements: {} } },
       createdAt: nextInstant,
       updatedAt: nextInstant,
@@ -303,15 +392,15 @@ describe('optimistic Space client', () => {
       now: () => nextInstant,
     })
 
-    await expect(client.dispatch({ type: 'removePane', paneId: 'alpha' })).rejects.toMatchObject({
-      code: 'conflict',
-    })
+    await expect(
+      client.dispatch({ type: 'updatePane', paneId: 'alpha', pane: changedPane }),
+    ).rejects.toMatchObject({ code: 'conflict' })
     expect(transport.requests[1]).toMatchObject({
       command: {
         type: 'create',
         id: 'recovered-1',
         name: 'Space (recovered)',
-        panes: {},
+        panes: { alpha: changedPane },
       },
     })
     expect(client.getSnapshot()).toMatchObject({
@@ -322,6 +411,7 @@ describe('optimistic Space client', () => {
   })
 
   test('keeps the recovered suffix inside the Space name limit', async () => {
+    const changedPane = { kind: 'viewer' as const, state: { title: 'Changed locally' } }
     const remote = makeSpace({
       name: 'Remote',
       revision: 4,
@@ -332,7 +422,12 @@ describe('optimistic Space client', () => {
     const transport = new FakeTransport(async (request) => {
       if (request.command.type === 'create') {
         createdName = request.command.name
-        return makeSpace({ id: 'recovered-long', name: createdName, revision: 1, panes: {} })
+        return makeSpace({
+          id: 'recovered-long',
+          name: createdName,
+          revision: 1,
+          panes: { alpha: changedPane },
+        })
       }
       throw new SpaceTransportError('conflict', 'Conflict', {
         expectedRevision: 3,
@@ -345,12 +440,15 @@ describe('optimistic Space client', () => {
       initialSpace: makeSpace({ name: 'x'.repeat(120) }),
       id: () => 'recovered-long',
     })
-    await Promise.allSettled([client.dispatch({ type: 'removePane', paneId: 'alpha' })])
+    await Promise.allSettled([
+      client.dispatch({ type: 'updatePane', paneId: 'alpha', pane: changedPane }),
+    ])
     expect(createdName.length).toBeLessThanOrEqual(120)
     expect(createdName.endsWith(' (recovered)')).toBe(true)
   })
 
   test('does not expose an unsaved recovered copy and retries its create', async () => {
+    const changedPane = { kind: 'viewer' as const, state: { title: 'Changed locally' } }
     const remote = makeSpace({
       revision: 4,
       panes: {},
@@ -371,7 +469,7 @@ describe('optimistic Space client', () => {
         id: 'recovered-retry',
         name: 'Space (recovered)',
         revision: 1,
-        panes: {},
+        panes: { alpha: changedPane },
         arrangements: { spatial: { placements: {} } },
       })
     })
@@ -381,9 +479,9 @@ describe('optimistic Space client', () => {
       id: () => 'recovered-retry',
     })
 
-    await expect(client.dispatch({ type: 'removePane', paneId: 'alpha' })).rejects.toMatchObject({
-      code: 'conflict',
-    })
+    await expect(
+      client.dispatch({ type: 'updatePane', paneId: 'alpha', pane: changedPane }),
+    ).rejects.toMatchObject({ code: 'conflict' })
     expect(client.getSnapshot()).toMatchObject({ status: 'failed', recoveredCopy: null })
 
     await client.retry()

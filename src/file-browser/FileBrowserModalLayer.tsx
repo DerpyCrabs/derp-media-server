@@ -156,6 +156,7 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
         onOpenInNewTab={props.onBreadcrumbOpenInNewTab}
         showOpenInWorkspace={props.breadcrumbMenuActions().showOpenInWorkspace}
         onOpenInWorkspace={props.onBreadcrumbOpenInWorkspace}
+        openInWorkspaceLabel='Open in Tiled Space'
         showSetIcon={props.breadcrumbMenuActions().showSetIcon}
         onSetIcon={props.onBreadcrumbSetIcon}
       />
@@ -172,6 +173,7 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
         getPathHasShare={props.getPathHasShare}
         onOpenInNewTab={props.onContextOpenInNewTab}
         onOpenInWorkspace={props.onContextOpenInWorkspace}
+        openInWorkspaceLabel='Open in Tiled Space'
         onOpenWithBrowser={props.onContextOpenWithBrowser}
         onOpenWithReader={props.onContextOpenWithReader}
         onToggleFavorite={props.onContextToggleFavorite}

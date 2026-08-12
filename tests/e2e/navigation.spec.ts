@@ -26,7 +26,7 @@ test.describe('Folder Navigation', () => {
     await expect(page.locator('table').getByText('welcome.md')).toBeVisible()
   })
 
-  test('breadcrumb folder context menu includes Set icon and workspace actions', async ({
+  test('breadcrumb folder context menu includes Set icon and Tiled Space actions', async ({
     page,
   }) => {
     await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
@@ -34,6 +34,7 @@ test.describe('Folder Navigation', () => {
     await page.locator('[data-breadcrumb-path="Notes"]').click({ button: 'right' })
     await expect(page.getByTestId('breadcrumb-menu-set-icon')).toBeVisible()
     await expect(page.getByTestId('breadcrumb-menu-open-workspace')).toBeVisible()
+    await expect(page.getByText('Open in Tiled Space', { exact: true })).toBeVisible()
     await expect(page.getByTestId('breadcrumb-menu-open-new-tab')).toBeVisible()
   })
 
@@ -133,11 +134,11 @@ test.describe('Folder Navigation', () => {
     await expect(page.getByText('Most Played')).toBeVisible()
   })
 
-  test('context menu Open in Workspace targets workspace with folder dir', async ({ page }) => {
+  test('context menu creates a durable Tiled Space for a folder', async ({ page }) => {
     await page.goto('/')
     await page.locator('table').getByText('Documents', { exact: true }).click({ button: 'right' })
     await expect(
-      page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace'),
+      page.locator('[data-slot="context-menu-item"]').getByText('Open in Tiled Space'),
     ).toBeVisible()
 
     await page.evaluate(() => {
@@ -147,11 +148,23 @@ test.describe('Folder Navigation', () => {
         return null
       }
     })
-    await page.locator('[data-slot="context-menu-item"]').getByText('Open in Workspace').click()
-    const captured = await page.evaluate(
-      () => (window as Window & { __workspaceMenuOpenUrl?: string }).__workspaceMenuOpenUrl ?? '',
+    const created = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/api/spaces/commands') &&
+        response.request().method() === 'POST' &&
+        response.ok(),
     )
-    expect(captured).toMatch(/\/workspace\?dir=Documents(?:&|$)/)
+    await page.locator('[data-slot="context-menu-item"]').getByText('Open in Tiled Space').click()
+    const response = await created
+    const body = (await response.json()) as { space: { id: string } }
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __workspaceMenuOpenUrl?: string }).__workspaceMenuOpenUrl ?? '',
+        ),
+      )
+      .toBe(`/spaces/id/~${encodeURIComponent(body.space.id)}/tiled`)
   })
 
   test('favorites a folder via context menu and removes from Favorites', async ({ page }) => {

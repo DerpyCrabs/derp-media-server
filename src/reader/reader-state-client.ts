@@ -155,6 +155,7 @@ export async function loadSyncedReaderState(
   path: string,
   share: MediaShareContext,
 ): Promise<ReaderStateEnvelope> {
+  await readerStateSaveQueues.get(pendingKey(path, share))?.catch(() => null)
   const requestPath = share ? shareRelativePath(path, share) : path
   const result = await retryTransient(() =>
     api<ReaderStateEnvelope>(`${stateEndpoint(share)}?path=${encodeURIComponent(requestPath)}`),

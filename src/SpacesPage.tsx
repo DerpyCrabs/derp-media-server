@@ -112,7 +112,7 @@ export function SpacesPage() {
           <p class='text-muted-foreground text-sm font-medium'>Spaces</p>
           <h1 class='text-3xl font-semibold tracking-tight'>Durable work surfaces</h1>
           <p class='text-muted-foreground mt-2 max-w-2xl text-sm'>
-            Canvas boards and saved Workspace sessions live here with revision history.
+            Durable Panes open here in Focus, Tiled, or Map presentation with revision history.
           </p>
         </div>
         <button
@@ -161,13 +161,15 @@ export function SpacesPage() {
         <div class='bg-card rounded-xl border border-dashed border-border p-8 text-center'>
           <Map class='text-muted-foreground mx-auto size-8' />
           <h2 class='mt-3 font-semibold'>No Spaces yet</h2>
-          <p class='text-muted-foreground mt-1 text-sm'>Create one, or import current Canvas.</p>
+          <p class='text-muted-foreground mt-1 text-sm'>
+            Create one, or bring in legacy Canvas data.
+          </p>
           <a
             href={hrefFor({ kind: 'canvas' })}
             class='mt-4 inline-flex min-h-11 items-center rounded-md border border-border px-4 text-sm font-medium'
             onClick={(event) => followAppLink(event, hrefFor({ kind: 'canvas' }))}
           >
-            Open Canvas importer
+            Import legacy Canvas
           </a>
         </div>
       </Show>
@@ -192,7 +194,7 @@ export function SpacesPage() {
                 </div>
               </a>
               <div class='mt-4 flex items-center justify-between border-t border-border pt-3'>
-                <span class='text-muted-foreground text-xs capitalize'>{space.origin}</span>
+                <span class='text-muted-foreground text-xs'>Space</span>
                 <div class='flex gap-1'>
                   <a
                     href={hrefForSpace(space.id, { history: true })}

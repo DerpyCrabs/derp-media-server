@@ -5,12 +5,31 @@ pub(crate) enum OwnerRoute<'a> {
     Library,
     Home,
     Spaces,
-    Space { id: Cow<'a, str> },
+    Space {
+        id: Cow<'a, str>,
+        presentation: Option<SpacePresentation>,
+    },
     Workspace,
     Canvas,
     Assistant,
     Offline,
     Settings,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SpacePresentation {
+    Focus,
+    Tiled,
+    Map,
+}
+
+fn space_presentation(value: &str) -> Option<SpacePresentation> {
+    match value {
+        "focus" => Some(SpacePresentation::Focus),
+        "tiled" => Some(SpacePresentation::Tiled),
+        "map" => Some(SpacePresentation::Map),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,11 +64,17 @@ pub(crate) fn classify_path(path: &str) -> RouteKind<'_> {
     if let Some(owner) = owner {
         return RouteKind::Owner(owner);
     }
-    if let Some(encoded_id) = path
-        .strip_prefix("/spaces/id/")
-        .and_then(|token| token.strip_prefix('~'))
-        .filter(|id| !id.is_empty() && !id.contains('/'))
+    if let Some(rest) = path.strip_prefix("/spaces/id/")
+        && let Some(rest) = rest.strip_prefix('~')
     {
+        let (encoded_id, presentation) = match rest.split_once('/') {
+            Some((id, value)) if !value.contains('/') => (id, space_presentation(value)),
+            Some(_) => return RouteKind::NotFound,
+            None => (rest, None),
+        };
+        if encoded_id.is_empty() || presentation.is_none() && rest.contains('/') {
+            return RouteKind::NotFound;
+        }
         return percent_encoding::percent_decode_str(encoded_id)
             .decode_utf8()
             .ok()
@@ -59,7 +84,7 @@ pub(crate) fn classify_path(path: &str) -> RouteKind<'_> {
                         .chars()
                         .any(|character| character <= '\u{001f}' || character == '\u{007f}')
             })
-            .map(|id| RouteKind::Owner(OwnerRoute::Space { id }))
+            .map(|id| RouteKind::Owner(OwnerRoute::Space { id, presentation }))
             .unwrap_or(RouteKind::NotFound);
     }
     if path == "/login" {
@@ -97,6 +122,7 @@ mod tests {
         kind: String,
         token: Option<String>,
         id: Option<String>,
+        presentation: Option<String>,
     }
 
     fn kind_name(route: &RouteKind<'_>) -> &'static str {
@@ -137,10 +163,23 @@ mod tests {
 
             let route = classify_path(url.path());
             let id = match route {
-                RouteKind::Owner(OwnerRoute::Space { id }) => Some(id),
+                RouteKind::Owner(OwnerRoute::Space { id, .. }) => Some(id),
                 _ => None,
             };
             assert_eq!(id.as_deref(), case.id.as_deref(), "{}", case.url);
+
+            let route = classify_path(url.path());
+            let presentation = match route {
+                RouteKind::Owner(OwnerRoute::Space { presentation, .. }) => {
+                    presentation.map(|presentation| match presentation {
+                        SpacePresentation::Focus => "focus",
+                        SpacePresentation::Tiled => "tiled",
+                        SpacePresentation::Map => "map",
+                    })
+                }
+                _ => None,
+            };
+            assert_eq!(presentation, case.presentation.as_deref(), "{}", case.url);
         }
     }
 
@@ -149,7 +188,8 @@ mod tests {
         assert_eq!(
             classify_path("/spaces/id/~folder%2Fdesk%25one"),
             RouteKind::Owner(OwnerRoute::Space {
-                id: Cow::Borrowed("folder/desk%one")
+                id: Cow::Borrowed("folder/desk%one"),
+                presentation: None,
             })
         );
         assert_eq!(classify_path("/spaces/id/~one/two"), RouteKind::NotFound);
@@ -166,8 +206,20 @@ mod tests {
         assert_eq!(
             classify_path("/spaces/id/~."),
             RouteKind::Owner(OwnerRoute::Space {
-                id: Cow::Borrowed(".")
+                id: Cow::Borrowed("."),
+                presentation: None,
             })
+        );
+        assert_eq!(
+            classify_path("/spaces/id/~folder%2Fdesk/map"),
+            RouteKind::Owner(OwnerRoute::Space {
+                id: Cow::Borrowed("folder/desk"),
+                presentation: Some(SpacePresentation::Map),
+            })
+        );
+        assert_eq!(
+            classify_path("/spaces/id/~folder/grid"),
+            RouteKind::NotFound
         );
     }
 }

@@ -38,8 +38,10 @@ const ShareRoute = lazy(() =>
 const ShareWorkspacePage = lazy(() =>
   import('./ShareWorkspacePage').then((module) => ({ default: module.ShareWorkspacePage })),
 )
-const WorkspacePage = lazy(() =>
-  import('./WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
+const WorkspaceTransitionRoute = lazy(() =>
+  import('./spaces/WorkspaceTransitionRoute').then((module) => ({
+    default: module.WorkspaceTransitionRoute,
+  })),
 )
 const CanvasImportRoute = lazy(() =>
   import('./spaces/CanvasImportRoute').then((module) => ({ default: module.CanvasImportRoute })),
@@ -358,6 +360,10 @@ function spaceRouteId(route: AppRoute): string | undefined {
   return route.kind === 'space' ? route.id : undefined
 }
 
+function spaceRoutePresentation(route: AppRoute) {
+  return route.kind === 'space' ? route.presentation : undefined
+}
+
 function navigateHref(href: string) {
   const url = new URL(href, window.location.origin)
   navigate(parseRoute(url))
@@ -379,10 +385,17 @@ function OwnerRouteContent(props: { route: Accessor<AppRoute> }) {
           <SpacesPage />
         </Match>
         <Match when={spaceRouteId(props.route())} keyed>
-          {(spaceId) => <SpaceRoutePage spaceId={spaceId} />}
+          {(spaceId) => (
+            <SpaceRoutePage
+              spaceId={spaceId}
+              presentation={spaceRoutePresentation(props.route())}
+            />
+          )}
         </Match>
         <Match when={props.route().kind === 'workspace'}>
-          <WorkspacePage />
+          <WorkspaceTransitionRoute
+            sessionId={props.route().query.extra?.find(([key]) => key === 'ws')?.[1]}
+          />
         </Match>
         <Match when={props.route().kind === 'canvas'}>
           <CanvasImportRoute />

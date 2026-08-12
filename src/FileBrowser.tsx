@@ -28,6 +28,9 @@ import {
 } from '@/lib/breadcrumb-floating-store'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { persistedResourceTarget } from '@/lib/resource'
+import { workspaceStateToSpace, type Space } from '@/lib/space'
+import { buildWorkspaceFromDirParam } from '@/lib/workspace-bootstrap'
 import type { ShareLink } from '@/lib/shares'
 import type { DirectoryListing } from '@/lib/virtual-directory'
 import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
@@ -126,9 +129,16 @@ import { removeWebOfflineAndWait, subscribeWebOfflineCatalog } from './lib/web-o
 import { subscribeSseAdmin } from './lib/sse-shared-worker-client'
 import { usePlaybackSession, usePlaybackSnapshot } from './media/playback/PlaybackProvider'
 import { playbackItemFromFileItem, playbackQueueFromFiles } from './media/playback/items'
+import { hrefForSpace } from './lib/routes'
 
 type FileBrowserProps = {
   forceOffline?: boolean
+}
+
+type SpaceResponse = { space: Space }
+
+function newSpaceId() {
+  return globalThis.crypto?.randomUUID?.() ?? `space-${Date.now()}`
 }
 
 export function FileBrowser(props: FileBrowserProps = {}) {
@@ -1367,16 +1377,9 @@ export function FileBrowser(props: FileBrowserProps = {}) {
   function handleBreadcrumbOpenInWorkspace() {
     const m = breadcrumbMenu()
     if (!m) return
-    if (m.isHome) {
-      const plan = openResource(resourceForFileItem(breadcrumbAsFolderItem(m)), 'browse', {
-        surface: 'workspace',
-        scope: OWNER_OPEN_SCOPE,
-      })
-      if (plan.kind !== 'browse') return
-      window.open('/workspace', '_blank')
-      return
-    }
-    handleContextOpenInWorkspace(breadcrumbAsFolderItem(m))
+    const file = breadcrumbAsFolderItem(m)
+    if (m.isHome) file.name = 'Library'
+    handleContextOpenInWorkspace(file)
   }
 
   function handleBreadcrumbSetIcon() {
@@ -1436,16 +1439,40 @@ export function FileBrowser(props: FileBrowserProps = {}) {
 
   function handleContextOpenInWorkspace(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
-    const open = (kind: string) => {
+    const open = async (kind: string) => {
       if (kind !== 'browse') return
-      const params = new URLSearchParams()
-      if (file.path) params.set('dir', file.path)
-      const query = params.toString()
-      window.open(query ? `/workspace?${query}` : '/workspace', '_blank')
+      const id = newSpaceId()
+      const state = buildWorkspaceFromDirParam(file.path, { kind: 'local', rootPath: null })
+      const browserPane = state.windows[0]
+      if (browserPane) {
+        browserPane.resourceTarget = persistedResourceTarget(resourceForFileItem(file))
+      }
+      const space = workspaceStateToSpace({ id, name: file.name || 'Library', state })
+      try {
+        const response = await api<SpaceResponse>('/api/spaces/commands', {
+          method: 'POST',
+          body: JSON.stringify({
+            command: {
+              type: 'create',
+              id,
+              name: space.name,
+              origin: space.origin,
+              panes: space.panes,
+              arrangements: space.arrangements,
+            },
+          }),
+        })
+        window.open(hrefForSpace(response.space.id, { presentation: 'tiled' }), '_blank')
+      } catch (error) {
+        setUploadToast({
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Space could not be created',
+        })
+      }
     }
     const item = itemForFile(file)
     if (!item) {
-      open(
+      void open(
         openResource(resourceForFileItem(file), 'browse', {
           surface: 'workspace',
           scope: OWNER_OPEN_SCOPE,
@@ -1455,7 +1482,7 @@ export function FileBrowser(props: FileBrowserProps = {}) {
     }
     void explorer
       .dispatch({ type: 'open', key: item.key, intent: 'browse', surface: 'workspace' })
-      .then((outcome) => outcome.kind === 'open' && open(outcome.plan.kind))
+      .then((outcome) => outcome.kind === 'open' && void open(outcome.plan.kind))
   }
 
   function handleContextToggleFavorite(file: FileItem) {

@@ -1,7 +1,9 @@
+import { hrefForSpace, parseRoute } from './routes'
+
 export const RECENT_OWNER_LOCATIONS_KEY = 'derp-desk-recent-owner-locations-v1'
 
 export type RecentOwnerLocation = {
-  kind: 'library' | 'workspace' | 'canvas'
+  kind: 'library' | 'space'
   href: string
   label: string
   visitedAt: number
@@ -23,9 +25,14 @@ function isSafeOwnerHref(href: string): boolean {
 
 function parseLocation(value: unknown): RecentOwnerLocation | null {
   if (!value || typeof value !== 'object') return null
-  const item = value as Partial<RecentOwnerLocation>
+  const item = value as {
+    kind?: unknown
+    href?: unknown
+    label?: unknown
+    visitedAt?: unknown
+  }
   if (
-    (item.kind !== 'library' && item.kind !== 'workspace' && item.kind !== 'canvas') ||
+    (item.kind !== 'library' && item.kind !== 'space' && item.kind !== 'workspace') ||
     typeof item.href !== 'string' ||
     !isSafeOwnerHref(item.href) ||
     typeof item.label !== 'string' ||
@@ -35,6 +42,17 @@ function parseLocation(value: unknown): RecentOwnerLocation | null {
     item.visitedAt < 0
   ) {
     return null
+  }
+  if (item.kind === 'workspace') {
+    const url = new URL(item.href, 'https://derp-desk.invalid')
+    const session = url.pathname === '/workspace' ? url.searchParams.get('ws') : null
+    if (!session) return null
+    return {
+      kind: 'space',
+      href: `${url.pathname}${url.search}`,
+      label: `Space ${session}`.slice(0, 120),
+      visitedAt: item.visitedAt,
+    }
   }
   return { ...item, label: item.label.trim().slice(0, 120) } as RecentOwnerLocation
 }
@@ -87,14 +105,20 @@ export function recentLocationFromUrl(url: URL): Omit<RecentOwnerLocation, 'visi
   }
   if (url.pathname === '/workspace') {
     const session = url.searchParams.get('ws')
+    if (!session) return null
     return {
-      kind: 'workspace',
+      kind: 'space',
       href: `${url.pathname}${url.search}`,
-      label: session ? `Workspace ${session}` : 'Workspace',
+      label: `Space ${session}`,
     }
   }
-  if (url.pathname === '/canvas') {
-    return { kind: 'canvas', href: `${url.pathname}${url.search}`, label: 'Canvas' }
+  const route = parseRoute(url)
+  if (route.kind === 'space') {
+    return {
+      kind: 'space',
+      href: hrefForSpace(route.id, { presentation: route.presentation }),
+      label: route.id,
+    }
   }
   return null
 }

@@ -2,8 +2,8 @@ import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useQuery } from '@tanstack/solid-query'
-import AppWindow from 'lucide-solid/icons/app-window'
 import Download from 'lucide-solid/icons/download'
+import FolderHeart from 'lucide-solid/icons/folder-heart'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import LayoutGrid from 'lucide-solid/icons/layout-grid'
 import Play from 'lucide-solid/icons/play'
@@ -95,11 +95,11 @@ export function HomePage() {
             <span class='font-medium'>Spaces</span>
           </a>
           <a
-            href={hrefFor({ kind: 'workspace' })}
+            href={hrefFor({ kind: 'library' }, { dir: 'Shares' })}
             class='bg-card hover:bg-muted flex min-h-24 flex-col justify-between rounded-xl border border-border p-4'
           >
-            <AppWindow class='size-5' aria-hidden='true' />
-            <span class='font-medium'>Workspace</span>
+            <FolderHeart class='size-5' aria-hidden='true' />
+            <span class='font-medium'>Shared</span>
           </a>
           <a
             href={hrefFor({ kind: 'offline' })}

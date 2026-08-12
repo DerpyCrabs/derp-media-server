@@ -1,6 +1,6 @@
 # Derp Desk Roadmap
 
-Status: active; Stage 6 complete
+Status: active; Stage 7 complete
 Initiative branch: `derp-desk`
 Last updated: 2026-08-12
 
@@ -624,14 +624,14 @@ User opens stable Space URL and switches presentation without losing work. Stand
 
 ### Work packages
 
-- [ ] **7.1 Add stable Space routes.** `/spaces`, `/spaces/:id`, and explicit `/spaces/:id/focus|tiled|map`. Bare Space route selects device-local presentation without importing Tiled/Map first. Copied explicit presentation stays explicit across devices. Old `/canvas` and already imported/saved Workspace IDs redirect to durable Space. Unsaved local `?ws=` stays local scratch and offers explicit import; never silently uploads or redirects it.
-- [ ] **7.2 Build one Space shell.** Space picker, name, sync state, undo/redo, add Resource, existing Resource-share action, and presentation switcher live in common chrome. Space sharing waits for Stage 9.
-- [ ] **7.3 Build shared PaneHost/runtime.** One runtime keyed by Pane ID owns browser/viewer/editor/reader/player/assistant state. ViewerRegistry selects dynamic implementation; presenters own geometry. Presenter remount is allowed only when externally held state and Pane identity survive.
-- [ ] **7.4 Implement Focus presentation.** One active Pane with tab switcher. Default narrow-screen presentation and accessible fallback for every Space.
-- [ ] **7.5 Adapt Tiled presentation.** Reuse current Workspace tiling, splits, snapping, taskbar, and keyboard behaviour against Space arrangements.
-- [ ] **7.6 Adapt Map presentation.** Reuse current Canvas pan/zoom, semantic zoom, minimap, and placement against same Pane IDs.
-- [ ] **7.7 Preserve state across presentation changes.** Reader position, editor draft, browser history, assistant draft, PlaybackSession, and Pane identity survive Focus/Tiled/Map switch.
-- [ ] **7.8 Complete shell cutover.** Default Space route uses unified runtime. After parity tests pass, remove replaced Workspace/Canvas presenters while keeping useful route redirects.
+- [x] **7.1 Add stable Space routes.** `/spaces`, `/spaces/:id`, and explicit `/spaces/:id/focus|tiled|map`. Bare Space route selects device-local presentation without importing Tiled/Map first. Copied explicit presentation stays explicit across devices. Old `/canvas` and already imported/saved Workspace IDs redirect to durable Space. Unsaved local `?ws=` stays local scratch and offers explicit import; never silently uploads or redirects it.
+- [x] **7.2 Build one Space shell.** Space picker, name, sync state, undo/redo, add Resource, existing Resource-share action, and presentation switcher live in common chrome. Space sharing waits for Stage 9.
+- [x] **7.3 Build shared PaneHost/runtime.** One runtime keyed by Pane ID owns browser/viewer/editor/reader/player/assistant state. ViewerRegistry selects dynamic implementation; presenters own geometry. Presenter remount is allowed only when externally held state and Pane identity survive.
+- [x] **7.4 Implement Focus presentation.** One active Pane with tab switcher. Default narrow-screen presentation and accessible fallback for every Space.
+- [x] **7.5 Adapt Tiled presentation.** Reuse current Workspace tiling, splits, snapping, taskbar, and keyboard behaviour against Space arrangements.
+- [x] **7.6 Adapt Map presentation.** Reuse current Canvas pan/zoom, semantic zoom, minimap, and placement against same Pane IDs.
+- [x] **7.7 Preserve state across presentation changes.** Reader position, editor draft, browser history, assistant draft, PlaybackSession, and Pane identity survive Focus/Tiled/Map switch.
+- [x] **7.8 Complete shell cutover.** Default Space route uses unified runtime. After parity tests pass, remove replaced Workspace/Canvas presenters while keeping useful route redirects.
 
 ### Likely code areas
 
@@ -663,6 +663,17 @@ User opens stable Space URL and switches presentation without losing work. Stand
 
 - No shared Space Grants yet; Stage 9 owns them.
 - No new search index or AI workflow.
+
+### Completion record
+
+- Completed: 2026-08-12.
+- Scope: all Stage 7 work packages, implemented on `derp-desk` as one cohesive Space experience.
+- Architecture: stable Space routes now share one shell, one optimistic Space client, one Pane-ID runtime, and one owner PlaybackSession. Focus mounts only its active Pane; Tiled and Map are lazy presentation modules over the same Pane data. ViewerRegistry dynamically selects Pane adapters, and Map includes a presentation minimap.
+- Continuity: browser path/history, viewer transforms, editor and assistant drafts, reader position, playback identity/mode/position, Pane identity, undo/redo, and pending offline Space commands survive presentation changes. Playing video moves to the global audio host whenever its Pane is out of view and can return to an existing or recreated video Pane.
+- Data: existing Space heads, revisions, import sources, and local scratch Workspaces remain intact. An additive `space_command_receipts` table makes journal replay idempotent after a lost response; no destructive migration or schema-version choreography was added.
+- Cutover: Canvas and Workspace were removed as product destinations. `/canvas` and saved Workspace bookmarks remain transition routes; unsaved `?ws=` data stays local until explicit import. Existing Workspace/Canvas presenter code now serves only the Tiled/Map Space modules rather than parallel products.
+- Verification: TypeScript, error lint, unit, batched end-to-end, formatting, Rust formatting/checks, route/build asset checks, and diff checks passed at completion.
+- Deferred by roadmap: shared Space Grants remain Stage 9 scope; Activity/Continue aggregation remains Stage 8 scope.
 
 ---
 

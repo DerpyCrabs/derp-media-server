@@ -9,6 +9,7 @@ import {
   parseRoute,
   type NavigationAdapter,
   type RouteKind,
+  type SpacePresentation,
 } from '@/src/lib/routes'
 
 type RouteCase = {
@@ -17,6 +18,7 @@ type RouteCase = {
   id?: string
   token?: string
   directory?: string
+  presentation?: SpacePresentation
 }
 
 describe('route Module Interface', () => {
@@ -27,6 +29,7 @@ describe('route Module Interface', () => {
       expect(route.kind).toBe(routeCase.kind)
       if (routeCase.directory !== undefined) expect(route.directory).toBe(routeCase.directory)
       expect('id' in route ? route.id : undefined).toBe(routeCase.id)
+      expect('presentation' in route ? route.presentation : undefined).toBe(routeCase.presentation)
       expect('token' in route ? route.token : undefined).toBe(routeCase.token)
       expect(hrefFor(route)).toBe(routeCase.url)
     })
@@ -51,6 +54,12 @@ describe('route Module Interface', () => {
     expect(hrefFor({ kind: 'space', id: 'research desk' })).toBe('/spaces/id/~research%20desk')
     expect(hrefForSpace('research desk', { history: true })).toBe(
       '/spaces/id/~research%20desk#history',
+    )
+    expect(hrefForSpace('research desk', { presentation: 'focus' })).toBe(
+      '/spaces/id/~research%20desk/focus',
+    )
+    expect(hrefForSpace('research desk', { presentation: 'map', history: true })).toBe(
+      '/spaces/id/~research%20desk/map#history',
     )
   })
 
@@ -92,7 +101,15 @@ describe('route Module Interface', () => {
     expect(navigate({ kind: 'home' }, { adapter })).toBe('/home')
     expect(navigate({ kind: 'offline' }, { replace: true, adapter })).toBe('/offline')
     expect(navigateSpace('desk/primary', { adapter })).toBe('/spaces/id/~desk%2Fprimary')
-    expect(calls).toEqual(['push:/home', 'replace:/offline', 'push:/spaces/id/~desk%2Fprimary'])
+    expect(navigateSpace('desk/primary', { adapter, presentation: 'tiled' })).toBe(
+      '/spaces/id/~desk%2Fprimary/tiled',
+    )
+    expect(calls).toEqual([
+      'push:/home',
+      'replace:/offline',
+      'push:/spaces/id/~desk%2Fprimary',
+      'push:/spaces/id/~desk%2Fprimary/tiled',
+    ])
   })
 
   test('rejects ambiguous share tokens', () => {
@@ -112,5 +129,6 @@ describe('route Module Interface', () => {
     expect(parseRoute({ pathname: '/spaces/id/~%FF' }).kind).toBe('notFound')
     expect(parseRoute({ pathname: '/spaces/id/~control%00id' }).kind).toBe('notFound')
     expect(parseRoute({ pathname: `/spaces/id/~${'a'.repeat(129)}` }).kind).toBe('notFound')
+    expect(parseRoute({ pathname: '/spaces/id/~research/grid' }).kind).toBe('notFound')
   })
 })

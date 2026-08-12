@@ -91,7 +91,7 @@ test.describe('Stage 5 owner playback continuity', () => {
     await expect.poll(() => mediaPath(host)).toContain(`/api/media/${MUSIC_DIR}/${FIRST_TRACK}`)
   })
 
-  test('keeps one host, chrome, controls, and currentTime through folders, Workspace, and Canvas', async ({
+  test('keeps one host, chrome, controls, and currentTime through folders and Space presentations', async ({
     page,
   }) => {
     test.setTimeout(60_000)
@@ -151,11 +151,16 @@ test.describe('Stage 5 owner playback continuity', () => {
       )
       .toBeLessThan(0.25)
 
-    await page
-      .getByTestId('owner-desktop-rail')
-      .getByRole('link', { name: 'Workspace', exact: true })
-      .click()
-    await expect(page).toHaveURL(/\/workspace$/)
+    await page.getByTestId('owner-desktop-rail').getByRole('link', { name: 'Spaces' }).click()
+    await page.getByTestId('new-space-name').fill('Playback continuity')
+    await page.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect(page.getByTestId('space-shell')).toBeVisible()
+    const spaceHref = new URL(page.url()).pathname
+    const spaceId = decodeURIComponent(spaceHref!.split('/~')[1]!.split('/')[0]!)
+    const presentations = page.getByRole('navigation', { name: 'Space presentation' })
+    await presentations.getByRole('link', { name: 'tiled', exact: true }).click()
+    await expect(page).toHaveURL(/\/tiled$/)
+    await expect(page.getByTestId('space-shell')).toBeVisible()
     await expect(page.locator('.workspace-layout')).toBeVisible()
 
     await expectOneAudioOwner(page)
@@ -172,9 +177,9 @@ test.describe('Stage 5 owner playback continuity', () => {
       )
       .toBeLessThan(0.25)
 
-    await page.goBack()
-    await expect(page).toHaveURL(/dir=Documents/)
-    await expect(page.getByTestId('file-browser')).toBeVisible()
+    await presentations.getByRole('link', { name: 'focus', exact: true }).click()
+    await expect(page).toHaveURL(/\/focus$/)
+    await expect(page.getByTestId('space-focus')).toBeVisible()
     await expectOneAudioOwner(page)
     await expect(host).toHaveAttribute('data-stage5-continuity-probe', 'owner-audio')
     await expect(chrome).toHaveAttribute('data-stage5-continuity-probe', 'owner-chrome')
@@ -187,11 +192,8 @@ test.describe('Stage 5 owner playback continuity', () => {
       )
       .toBeLessThan(0.25)
 
-    await page
-      .getByTestId('owner-desktop-rail')
-      .getByRole('link', { name: 'Canvas', exact: true })
-      .click()
-    await expect(page).toHaveURL(/\/canvas$/)
+    await presentations.getByRole('link', { name: 'map', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/map$`))
     await expect(page.getByTestId('infinite-canvas')).toBeVisible()
 
     await expectOneAudioOwner(page)
@@ -208,9 +210,8 @@ test.describe('Stage 5 owner playback continuity', () => {
       )
       .toBeLessThan(0.25)
 
-    await page.goBack()
-    await expect(page).toHaveURL(/dir=Documents/)
-    await expect(page.getByTestId('file-browser')).toBeVisible()
+    await presentations.getByRole('link', { name: 'focus', exact: true }).click()
+    await expect(page.getByTestId('space-focus')).toBeVisible()
     await expectOneAudioOwner(page)
     await expect(host).toHaveAttribute('data-stage5-continuity-probe', 'owner-audio')
     await expect(chrome).toHaveAttribute('data-stage5-continuity-probe', 'owner-chrome')
@@ -222,6 +223,16 @@ test.describe('Stage 5 owner playback continuity', () => {
         ),
       )
       .toBeLessThan(0.25)
+
+    const loaded = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(spaceId)}`)
+    const body = (await loaded.json()) as { space: { revision: number } }
+    await page.request.post('/api/spaces/commands', {
+      data: {
+        spaceId,
+        expectedRevision: body.space.revision,
+        command: { type: 'delete' },
+      },
+    })
   })
 
   test('phone Space-card navigation keeps the owner audio host mounted', async ({
@@ -273,7 +284,8 @@ test.describe('Stage 5 owner playback continuity', () => {
       await phoneNav.getByRole('link', { name: 'Spaces', exact: true }).click()
       await expect(page.getByTestId('spaces-page')).toBeVisible()
       await page.locator('article').filter({ hasText: name }).locator('a').first().click()
-      await expect(page.getByTestId('infinite-canvas')).toBeVisible()
+      await expect(page.getByTestId('space-focus')).toBeVisible()
+      await expect(page.getByTestId('infinite-canvas')).toHaveCount(0)
       expect(new URL(page.url()).pathname).toBe(`/spaces/id/~${encodeURIComponent(id)}`)
 
       await expectOneAudioOwner(page)

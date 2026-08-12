@@ -9,6 +9,7 @@ import {
   type SpaceCommand,
   type SpaceSummary,
 } from './space'
+import { sameSpaceValue } from './space-sync'
 
 export type SpaceHistoryEntry = {
   revision: number
@@ -35,6 +36,7 @@ export type SpaceImportRecord = {
 }
 
 export type ApplySpaceCommandRequest = {
+  commandId?: string
   spaceId?: string
   expectedRevision?: number
   command: SpaceCommand
@@ -277,6 +279,7 @@ export function createBrowserSpaceTransport(): SpaceTransport {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(request),
+          keepalive: true,
           signal,
         })
       } catch (error) {
@@ -323,8 +326,13 @@ export type OptimisticSpaceSnapshot = {
 export interface OptimisticSpaceClient {
   getSnapshot(): OptimisticSpaceSnapshot
   subscribe(listener: () => void): () => void
+  subscribeCommands(
+    listener: (event: { command: SpaceCommand; beforeRevision: number }) => void,
+  ): () => void
+  getPendingCommands(): PendingSpaceCommand[]
   load(spaceId: string): Promise<Space>
-  dispatch(command: SpaceCommand): Promise<Space>
+  dispatch(command: SpaceCommand, options?: { commandId?: string }): Promise<Space>
+  waitForIdle(): Promise<void>
   retry(): Promise<void>
   setOnline(online: boolean): void
   dispose(): void
@@ -335,15 +343,22 @@ export type OptimisticSpaceClientOptions = {
   initialSpace?: Space | null
   online?: () => boolean
   id?: () => string
+  commandId?: () => string
   now?: () => number
   recoveredName?: (space: Space) => string
 }
 
 type QueuedCommand = {
+  commandId: string
   command: SpaceCommand
   resolve: (space: Space) => void
   reject: (error: unknown) => void
 }
+
+export type PendingSpaceCommand = Readonly<{
+  commandId: string
+  command: SpaceCommand
+}>
 
 function defaultId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -381,6 +396,36 @@ function optimisticApply(space: Space | null, command: SpaceCommand, now: () => 
   return result.space
 }
 
+export function isSpaceCommandSatisfied(space: Space, command: SpaceCommand): boolean {
+  switch (command.type) {
+    case 'create':
+      return (
+        space.id === command.id &&
+        space.name === command.name.trim() &&
+        space.origin === command.origin &&
+        sameSpaceValue(space.panes, command.panes ?? {}) &&
+        sameSpaceValue(space.arrangements, command.arrangements ?? {})
+      )
+    case 'rename':
+      return space.name === command.name.trim()
+    case 'delete':
+      return space.deletedAt !== undefined
+    case 'addPane':
+    case 'updatePane':
+      return sameSpaceValue(space.panes[command.paneId], command.pane)
+    case 'removePane':
+      return !Object.hasOwn(space.panes, command.paneId)
+    case 'applyArrangement':
+      return sameSpaceValue(
+        space.arrangements[command.presentation],
+        command.arrangement ?? undefined,
+      )
+    case 'duplicate':
+    case 'restoreRevision':
+      return false
+  }
+}
+
 function makeRecoveredCopy(
   desired: Space,
   id: () => string,
@@ -408,6 +453,7 @@ export function createOptimisticSpaceClient(
     options.online ?? (() => typeof navigator === 'undefined' || navigator.onLine !== false)
   const now = options.now ?? Date.now
   const id = options.id ?? defaultId
+  const commandId = options.commandId ?? (() => `space-command-${defaultId()}`)
   const recoveredName =
     options.recoveredName ??
     ((space: Space) => {
@@ -415,6 +461,10 @@ export function createOptimisticSpaceClient(
       return `${space.name.slice(0, 120 - suffix.length).trimEnd()}${suffix}`
     })
   const listeners = new Set<() => void>()
+  const commandListeners = new Set<
+    (event: { command: SpaceCommand; beforeRevision: number }) => void
+  >()
+  const idleWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>()
   const queue: QueuedCommand[] = []
   let disposed = false
   let running = false
@@ -432,6 +482,17 @@ export function createOptimisticSpaceClient(
   function emit(patch: Partial<OptimisticSpaceSnapshot>) {
     snapshot = Object.freeze({ ...snapshot, ...patch })
     for (const listener of [...listeners]) listener()
+    if (snapshot.pending === 0 && (snapshot.status === 'saved' || snapshot.status === 'conflict')) {
+      for (const waiter of idleWaiters) waiter.resolve()
+      idleWaiters.clear()
+    } else if (snapshot.status === 'offline' || snapshot.status === 'failed') {
+      const error = new SpaceTransportError(
+        snapshot.status,
+        snapshot.error ?? 'Space still has unsaved changes',
+      )
+      for (const waiter of idleWaiters) waiter.reject(error)
+      idleWaiters.clear()
+    }
   }
 
   function replay(base: Space | null, commands = queue): Space | null {
@@ -441,12 +502,15 @@ export function createOptimisticSpaceClient(
     )
   }
 
-  function requestFor(command: SpaceCommand): ApplySpaceCommandRequest {
-    if (command.type === 'create') return { command }
+  function requestFor(entry: QueuedCommand): ApplySpaceCommandRequest {
+    if (entry.command.type === 'create') {
+      return { commandId: entry.commandId, command: entry.command }
+    }
     return {
+      commandId: entry.commandId,
       spaceId: confirmed?.id ?? snapshot.space?.id,
       expectedRevision: confirmed?.revision ?? 0,
-      command,
+      command: entry.command,
     }
   }
 
@@ -552,10 +616,13 @@ export function createOptimisticSpaceClient(
       while (queue.length > 0 && !disposed) {
         const entry = queue[0]!
         const desired = snapshot.space ? structuredClone(snapshot.space) : null
+        let appliedOverRevision = confirmed?.revision ?? 0
+        let acceptedByClient = false
         try {
-          const saved = await options.transport.apply(requestFor(entry.command))
+          const saved = await options.transport.apply(requestFor(entry))
           if (runGeneration !== generation || disposed) return
           confirmed = saved
+          acceptedByClient = true
         } catch (rawError) {
           if (runGeneration !== generation || disposed) return
           const error = normalizeTransportError(rawError)
@@ -565,46 +632,52 @@ export function createOptimisticSpaceClient(
           }
           if (error.code === 'conflict' && error.conflict) {
             confirmed = error.conflict.current
-            let rebased: Space | null
-            let replayed: Space | null
-            try {
-              rebased = optimisticApply(confirmed, entry.command, now)
-              replayed = replay(confirmed)
-            } catch {
-              rebased = null
-              replayed = null
-            }
-            if (rebased && replayed) {
-              emit({
-                space: replayed,
-                status: 'saving',
-                pending: queue.length,
-                error: null,
-              })
+            if (isSpaceCommandSatisfied(confirmed, entry.command)) {
+              acceptedByClient = false
+            } else {
+              appliedOverRevision = confirmed.revision
+              let rebased: Space | null
+              let replayed: Space | null
               try {
-                const saved = await options.transport.apply(requestFor(entry.command))
-                if (runGeneration !== generation || disposed) return
-                confirmed = saved
-              } catch (retryError) {
-                const retryFailure = normalizeTransportError(retryError)
-                if (retryFailure.code === 'offline' || retryFailure.code === 'failed') {
-                  emit({
-                    status: retryFailure.code === 'offline' ? 'offline' : 'failed',
-                    pending: queue.length,
-                    error: retryFailure.message,
-                  })
+                rebased = optimisticApply(confirmed, entry.command, now)
+                replayed = replay(confirmed)
+              } catch {
+                rebased = null
+                replayed = null
+              }
+              if (rebased && replayed) {
+                emit({
+                  space: replayed,
+                  status: 'saving',
+                  pending: queue.length,
+                  error: null,
+                })
+                try {
+                  const saved = await options.transport.apply(requestFor(entry))
+                  if (runGeneration !== generation || disposed) return
+                  confirmed = saved
+                  acceptedByClient = true
+                } catch (retryError) {
+                  const retryFailure = normalizeTransportError(retryError)
+                  if (retryFailure.code === 'offline' || retryFailure.code === 'failed') {
+                    emit({
+                      status: retryFailure.code === 'offline' ? 'offline' : 'failed',
+                      pending: queue.length,
+                      error: retryFailure.message,
+                    })
+                    return
+                  }
+                  const remaining = queue.splice(0)
+                  await recoverDesiredCopy(desired ?? rebased, retryFailure)
+                  for (const pending of remaining) pending.reject(retryFailure)
                   return
                 }
+              } else {
                 const remaining = queue.splice(0)
-                await recoverDesiredCopy(desired ?? rebased, retryFailure)
-                for (const pending of remaining) pending.reject(retryFailure)
+                await recoverDesiredCopy(desired ?? error.conflict.current, error)
+                for (const pending of remaining) pending.reject(error)
                 return
               }
-            } else {
-              const remaining = queue.splice(0)
-              await recoverDesiredCopy(desired ?? error.conflict.current, error)
-              for (const pending of remaining) pending.reject(error)
-              return
             }
           } else {
             emit({ status: 'failed', pending: queue.length, error: error.message })
@@ -612,6 +685,14 @@ export function createOptimisticSpaceClient(
           }
         }
         queue.shift()
+        if (acceptedByClient) {
+          for (const listener of [...commandListeners]) {
+            listener({
+              command: structuredClone(entry.command),
+              beforeRevision: appliedOverRevision,
+            })
+          }
+        }
         entry.resolve(structuredClone(confirmed))
         let optimistic: Space | null
         try {
@@ -641,6 +722,16 @@ export function createOptimisticSpaceClient(
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    subscribeCommands(listener) {
+      commandListeners.add(listener)
+      return () => commandListeners.delete(listener)
+    },
+    getPendingCommands() {
+      return queue.map((entry) => ({
+        commandId: entry.commandId,
+        command: structuredClone(entry.command),
+      }))
+    },
     async load(spaceId) {
       if (disposed) throw new SpaceTransportError('failed', 'Client is disposed')
       const loadGeneration = ++generation
@@ -655,7 +746,7 @@ export function createOptimisticSpaceClient(
       emit({ space, status: 'saved', pending: 0, error: null, recoveredCopy: null })
       return structuredClone(space)
     },
-    dispatch(command) {
+    dispatch(command, dispatchOptions) {
       if (disposed) return Promise.reject(new SpaceTransportError('failed', 'Client is disposed'))
       let optimistic: Space
       try {
@@ -664,7 +755,12 @@ export function createOptimisticSpaceClient(
         return Promise.reject(error)
       }
       const promise = new Promise<Space>((resolve, reject) =>
-        queue.push({ command, resolve, reject }),
+        queue.push({
+          commandId: dispatchOptions?.commandId ?? commandId(),
+          command,
+          resolve,
+          reject,
+        }),
       )
       emit({
         space: optimistic,
@@ -674,6 +770,24 @@ export function createOptimisticSpaceClient(
       })
       void drain()
       return promise
+    },
+    waitForIdle() {
+      if (disposed) return Promise.reject(new SpaceTransportError('failed', 'Client is disposed'))
+      if (
+        snapshot.pending === 0 &&
+        (snapshot.status === 'saved' || snapshot.status === 'conflict')
+      ) {
+        return Promise.resolve()
+      }
+      if (snapshot.status === 'offline' || snapshot.status === 'failed') {
+        return Promise.reject(
+          new SpaceTransportError(
+            snapshot.status,
+            snapshot.error ?? 'Space still has unsaved changes',
+          ),
+        )
+      }
+      return new Promise<void>((resolve, reject) => idleWaiters.add({ resolve, reject }))
     },
     async retry() {
       if (snapshot.status === 'failed')
@@ -703,7 +817,10 @@ export function createOptimisticSpaceClient(
       generation += 1
       const error = new SpaceTransportError('failed', 'Client is disposed')
       for (const entry of queue.splice(0)) entry.reject(error)
+      for (const waiter of idleWaiters) waiter.reject(error)
+      idleWaiters.clear()
       listeners.clear()
+      commandListeners.clear()
     },
   }
 }

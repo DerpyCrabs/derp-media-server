@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { ResourceSummary } from '@/lib/resource'
-import { builtInViewerRegistry, viewerMediaType, viewerReaderKind } from '@/src/lib/viewer-registry'
+import {
+  builtInViewerRegistry,
+  viewerMediaType,
+  viewerPaneDescriptorForWindow,
+  viewerReaderKind,
+} from '@/src/lib/viewer-registry'
 import { MediaType } from '@/lib/types'
 
 function resource(overrides: Partial<ResourceSummary> = {}): ResourceSummary {
@@ -74,6 +79,32 @@ describe('built-in ViewerRegistry', () => {
     expect(viewerMediaType('unsupported-file')).toBe(MediaType.OTHER)
     expect(viewerReaderKind('pdf-reader')).toBe('pdf')
     expect(viewerReaderKind('folder-reader')).toBe('folder')
+  })
+
+  test('selects the dynamically loaded Pane implementation from durable viewer state', () => {
+    const explicit = viewerPaneDescriptorForWindow({
+      viewerId: 'image-viewer',
+      initialState: { viewing: 'Pictures/photo.bin' },
+    })
+    expect(explicit?.id).toBe('image-viewer')
+    expect(typeof explicit?.pane).toBe('function')
+    expect(explicit?.load).toBe(explicit?.pane)
+
+    const text = viewerPaneDescriptorForWindow({
+      viewerId: 'text-viewer',
+      initialState: { viewing: 'Documents/photo.bin' },
+    })
+    expect(text?.pane).not.toBe(explicit?.pane)
+
+    expect(
+      viewerPaneDescriptorForWindow({
+        initialState: { viewing: 'Documents/guide.pdf', readerKind: 'pdf' },
+      })?.id,
+    ).toBe('pdf-reader')
+    expect(
+      viewerPaneDescriptorForWindow({ initialState: { viewing: 'Music/track.mp3' } })?.id,
+    ).toBe('audio-player')
+    expect(builtInViewerRegistry.byId?.('conversation')?.role).toBe('conversation')
   })
 
   test('covers every ResourceKind before MIME fallbacks', () => {

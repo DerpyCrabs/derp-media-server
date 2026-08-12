@@ -268,10 +268,17 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
         },
         resourceTarget,
         viewerId: isViewerId(definition.viewerId) ? definition.viewerId : undefined,
-        ...(definition.type === 'hermes' && typeof definition.hermes?.sessionId === 'string'
+        ...(definition.type === 'hermes' &&
+        (typeof definition.hermes?.sessionId === 'string' ||
+          typeof definition.hermes?.draftId === 'string')
           ? {
               hermes: {
-                sessionId: definition.hermes.sessionId,
+                ...(typeof definition.hermes.sessionId === 'string'
+                  ? { sessionId: definition.hermes.sessionId }
+                  : {}),
+                ...(typeof definition.hermes.draftId === 'string'
+                  ? { draftId: definition.hermes.draftId }
+                  : {}),
                 ...(typeof definition.hermes.cwd === 'string' || definition.hermes.cwd === null
                   ? { cwd: definition.hermes.cwd }
                   : {}),

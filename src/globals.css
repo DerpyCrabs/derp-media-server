@@ -1,5 +1,11 @@
 @import 'tailwindcss';
 
+.space-presentation-embedded [data-canvas-picker],
+.space-presentation-embedded [data-testid='canvas-history-tools'],
+.space-presentation-embedded [data-canvas-history-divider] {
+  display: none;
+}
+
 .book-document {
   background: #fffdf8;
   color: #24211d;

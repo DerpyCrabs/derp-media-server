@@ -204,7 +204,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   let applyingSpaceProjection = false
   let lastSpaceProjection = ''
   let queuedWorkspaceSync: PersistedWorkspaceState | null = null
-  let workspaceSyncRunning = false
   let workspaceSyncTimer: ReturnType<typeof setTimeout> | null = null
   let lastConfirmedSpaceRevision = 0
   let retryStaleWorkspaceRecovery: (() => Promise<void>) | null = null
@@ -212,6 +211,19 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const [resourceResolutionAttempts, setResourceResolutionAttempts] = createSignal<
     ReadonlySet<string>
   >(new Set())
+
+  createEffect(() => {
+    const requested = props.activePaneId
+    const current = workspace()
+    if (!requested || !current || current.activeWindowId === requested) return
+    if (!current.windows.some((window) => window.id === requested)) return
+    setWorkspace({ ...current, activeWindowId: requested })
+  })
+
+  createEffect(() => {
+    const paneId = workspace()?.activeWindowId ?? null
+    if (paneId !== props.activePaneId) props.onActivePaneChange?.(paneId)
+  })
 
   function isResourceTargetPending(target: PersistedResourceTarget | null | undefined): boolean {
     return resourceTargetIsPending(
@@ -408,16 +420,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
-  async function flushWorkspaceSpaceSync() {
-    if (
-      workspaceSyncRunning ||
-      !spaceClient ||
-      corruptSpaceRecovery() ||
-      staleWorkspaceRecoveryPending()
-    ) {
-      return
-    }
-    workspaceSyncRunning = true
+  function flushWorkspaceSpaceSync() {
+    if (!spaceClient || corruptSpaceRecovery() || staleWorkspaceRecoveryPending()) return
     try {
       while (queuedWorkspaceSync && spaceClient) {
         const desiredWorkspace = queuedWorkspaceSync
@@ -432,6 +436,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           revision: currentSpace.revision,
           createdAt: currentSpace.createdAt,
           updatedAt: currentSpace.updatedAt,
+          origin: currentSpace.origin,
         })
         const desiredWithOtherArrangements = {
           ...desiredSpace,
@@ -441,44 +446,43 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           },
         }
         if (sameSpaceContent(currentSpace, desiredWithOtherArrangements)) continue
-        for (const command of spaceCommandsToMatch(currentSpace, desiredWithOtherArrangements)) {
-          await spaceClient.dispatch(command)
-        }
-      }
-      const latestWorkspace = workspace()
-      const latestSnapshot = spaceClient?.getSnapshot()
-      if (
-        !queuedWorkspaceSync &&
-        latestWorkspace &&
-        latestSnapshot?.space &&
-        latestSnapshot.status === 'saved' &&
-        latestSnapshot.pending === 0
-      ) {
-        const desiredSpace = workspaceStateToSpace({
-          id: latestSnapshot.space.id,
-          name: latestSnapshot.space.name,
-          state: latestWorkspace,
-          revision: latestSnapshot.space.revision,
-          createdAt: latestSnapshot.space.createdAt,
-          updatedAt: latestSnapshot.space.updatedAt,
-        })
-        const desiredWithOtherArrangements = {
-          ...desiredSpace,
-          arrangements: {
-            ...latestSnapshot.space.arrangements,
-            tiled: desiredSpace.arrangements.tiled,
-          },
-        }
-        if (sameSpaceContent(latestSnapshot.space, desiredWithOtherArrangements)) {
-          clearDurableWorkspaceRecovery()
-        }
+        const saves = spaceCommandsToMatch(currentSpace, desiredWithOtherArrangements).map(
+          (command) => spaceClient!.dispatch(command),
+        )
+        void Promise.all(saves)
+          .then(() => {
+            const latestWorkspace = workspace()
+            const latestSnapshot = spaceClient?.getSnapshot()
+            if (!latestWorkspace || !latestSnapshot?.space || latestSnapshot.pending > 0) return
+            const latestDesired = workspaceStateToSpace({
+              id: latestSnapshot.space.id,
+              name: latestSnapshot.space.name,
+              state: latestWorkspace,
+              revision: latestSnapshot.space.revision,
+              createdAt: latestSnapshot.space.createdAt,
+              updatedAt: latestSnapshot.space.updatedAt,
+              origin: latestSnapshot.space.origin,
+            })
+            if (
+              sameSpaceContent(latestSnapshot.space, {
+                ...latestDesired,
+                arrangements: {
+                  ...latestSnapshot.space.arrangements,
+                  tiled: latestDesired.arrangements.tiled,
+                },
+              })
+            ) {
+              clearDurableWorkspaceRecovery()
+            }
+          })
+          .catch((error: unknown) => {
+            setSpaceSaveStatus(spaceClient?.getSnapshot().status ?? 'failed')
+            setSpaceSaveError(error instanceof Error ? error.message : 'Space could not save')
+          })
       }
     } catch (error) {
       setSpaceSaveStatus(spaceClient?.getSnapshot().status ?? 'failed')
       setSpaceSaveError(error instanceof Error ? error.message : 'Space could not save')
-    } finally {
-      workspaceSyncRunning = false
-      if (queuedWorkspaceSync) void flushWorkspaceSpaceSync()
     }
   }
 
@@ -487,11 +491,13 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     if (!initialSpace || shareConfig()) return
     if (!spaceClient || spaceClient.getSnapshot().space?.id !== initialSpace.id) {
       spaceClientUnsubscribe?.()
-      spaceClient?.dispose()
-      spaceClient = createOptimisticSpaceClient({
-        transport: createBrowserSpaceTransport(),
-        initialSpace,
-      })
+      if (spaceClient && spaceClient !== props.spaceClient) spaceClient.dispose()
+      spaceClient =
+        props.spaceClient ??
+        createOptimisticSpaceClient({
+          transport: createBrowserSpaceTransport(),
+          initialSpace,
+        })
       lastConfirmedSpaceRevision = initialSpace.revision
       spaceClientUnsubscribe = spaceClient.subscribe(applySpaceClientSnapshot)
       retryStaleWorkspaceRecovery = null
@@ -502,10 +508,44 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         spaceRecoveryStorageKey(),
       )
       const recovery = recoveryInspection.kind === 'loaded' ? recoveryInspection.recovery : null
+      const recoveryMatchesInitialSpace = (() => {
+        if (!recovery) return false
+        const candidate = workspaceStateToSpace({
+          id: initialSpace.id,
+          name: initialSpace.name,
+          state: recovery.workspace,
+          revision: initialSpace.revision,
+          createdAt: initialSpace.createdAt,
+          updatedAt: initialSpace.updatedAt,
+          origin: initialSpace.origin,
+        })
+        return sameSpaceContent(initialSpace, {
+          ...candidate,
+          arrangements: {
+            ...initialSpace.arrangements,
+            tiled: candidate.arrangements.tiled,
+          },
+        })
+      })()
       setCorruptSpaceRecovery(
         recoveryInspection.kind === 'corrupt' ? { raw: recoveryInspection.raw } : null,
       )
-      if (recovery && workspaceRecoveryCanReplay(recovery, initialSpace.revision)) {
+      if (
+        recovery &&
+        (recoveryMatchesInitialSpace || (props.spaceClient?.getSnapshot().pending ?? 0) > 0)
+      ) {
+        clearDurableWorkspaceRecovery()
+        const projectedWorkspace = projectSpaceToWorkspace(initialSpace, {
+          ...workspaceDeviceSession(),
+          ...(storedSession ?? {}),
+        })
+        applyingSpaceProjection = true
+        setWorkspace(projectedWorkspace)
+        persistSpaceWorkspaceSession(projectedWorkspace)
+        queueMicrotask(() => {
+          applyingSpaceProjection = false
+        })
+      } else if (recovery && workspaceRecoveryCanReplay(recovery, initialSpace.revision)) {
         const recoveredWorkspace = storedSession
           ? { ...recovery.workspace, ...storedSession }
           : recovery.workspace
@@ -534,6 +574,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           id: recoveredId,
           name: recoveredName,
           state: recovery.workspace,
+          origin: initialSpace.origin,
         })
         markSpaceWorkspaceRecoveryCopy(localStorage, spaceRecoveryStorageKey(), recoveredId)
         queueMicrotask(() => {
@@ -650,6 +691,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       }
       void flushWorkspaceSpaceSync()
     }
+    const unregisterPresentationFlush = props.registerPresentationFlush?.(flushDurableWorkspace)
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') flushDurableWorkspace()
     }
@@ -664,6 +706,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     window.addEventListener('keydown', blockStaleRecoveryKeyboardInput, true)
     document.addEventListener('visibilitychange', onVisibilityChange)
     onCleanup(() => {
+      unregisterPresentationFlush?.()
       window.removeEventListener('pagehide', flushDurableWorkspace)
       window.removeEventListener('keydown', blockStaleRecoveryKeyboardInput, true)
       document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -672,8 +715,13 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   onCleanup(() => {
     if (workspaceSyncTimer) clearTimeout(workspaceSyncTimer)
+    const currentWorkspace = workspace()
+    if (durableSpace() && currentWorkspace && !corruptSpaceRecovery()) {
+      queuedWorkspaceSync = structuredClone(currentWorkspace)
+      void flushWorkspaceSpaceSync()
+    }
     spaceClientUnsubscribe?.()
-    spaceClient?.dispose()
+    if (spaceClient && spaceClient !== props.spaceClient) spaceClient.dispose()
   })
 
   createEffect(() => {
@@ -2381,7 +2429,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   return (
     <div
-      class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'
+      class={`workspace-layout pointer-events-auto ${props.embedded ? 'absolute inset-0' : 'fixed inset-0'} flex flex-col overflow-hidden bg-background select-none`}
       classList={{ 'pb-[var(--playback-audio-chrome-height)]': workspaceAudioChromeVisible() }}
     >
       <Show

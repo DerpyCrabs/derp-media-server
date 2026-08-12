@@ -39,19 +39,8 @@ test.describe('Stage 1 owner shell', () => {
     await expect(page).toHaveURL(/\/spaces$/)
     await expect(page.getByTestId('spaces-page')).toBeVisible()
 
-    await rail.getByRole('link', { name: 'Workspace', exact: true }).click()
-    await expect(page).toHaveURL(/\/workspace$/)
-    await expect(page.locator('.workspace-layout')).toBeVisible()
-    await expect(rail).toBeHidden()
-    await page.goBack()
-    await expect(rail).toBeVisible()
-
-    await rail.getByRole('link', { name: 'Canvas', exact: true }).click()
-    await expect(page).toHaveURL(/\/canvas$/)
-    await expect(page.getByTestId('infinite-canvas')).toBeVisible()
-    await expect(rail).toBeHidden()
-    await page.goBack()
-    await expect(rail).toBeVisible()
+    await expect(rail.getByRole('link', { name: 'Workspace', exact: true })).toHaveCount(0)
+    await expect(rail.getByRole('link', { name: 'Canvas', exact: true })).toHaveCount(0)
 
     await rail.getByRole('link', { name: 'Assistant', exact: true }).click()
     await expect(page).toHaveURL(/\/workspace\?[^#]*dir=Hermes(?:\+|%20)Sessions/)
@@ -157,7 +146,9 @@ test.describe('Stage 1 owner shell', () => {
     await page.goto('/definitely-not-a-derp-desk-route')
     await expect(page.locator('[data-owner-shell]')).toHaveCount(0)
     await expect(page.getByTestId('not-found')).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Open Library' })).toHaveAttribute('href', '/')
+    await expect(
+      page.getByTestId('not-found').getByRole('link', { name: 'Open Library' }),
+    ).toHaveAttribute('href', '/')
   })
 
   test('owner navigation disappears during video fullscreen', async ({ page }) => {
@@ -304,9 +295,9 @@ test.describe('Stage 1 Home projection', () => {
       'href',
       '/spaces',
     )
-    await expect(quickActions.getByRole('link', { name: 'Workspace' })).toHaveAttribute(
+    await expect(quickActions.getByRole('link', { name: 'Shared' })).toHaveAttribute(
       'href',
-      '/workspace',
+      '/?dir=Shares',
     )
     await expect(quickActions.getByRole('link', { name: 'Offline' })).toHaveAttribute(
       'href',

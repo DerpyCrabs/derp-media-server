@@ -342,11 +342,16 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   let navigationResource: import('@/lib/resource').ResourceSummary | undefined
-  const history = createPaneExplorerHistory(props.windowId, initialExplorerPath, (path) => {
-    props.onNavigateDir(props.windowId, path, navigationResource)
-    navigationResource = undefined
-  })
-  const explorerStorageKey = `explorer:workspace:${explorerAdapter.scope.kind}:${explorerAdapter.scope.id}:${props.windowId}`
+  const history = createPaneExplorerHistory(
+    props.runtimeKey ?? props.windowId,
+    initialExplorerPath,
+    (path) => {
+      props.onNavigateDir(props.windowId, path, navigationResource)
+      navigationResource = undefined
+    },
+    { preserveCurrent: props.preserveHistory === true, runtime: props.runtime },
+  )
+  const explorerStorageKey = `explorer:workspace:${explorerAdapter.scope.kind}:${explorerAdapter.scope.id}:${props.runtimeKey ?? props.windowId}`
   const explorer = useExplorerModel(
     createExplorerModel({
       adapter: explorerAdapter,

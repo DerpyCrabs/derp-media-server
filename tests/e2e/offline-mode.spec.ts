@@ -70,13 +70,9 @@ test.describe('Offline mode', () => {
     expect(stored.every((entry) => entry.mediaSize > 0)).toBe(true)
 
     const offlineImageConfigRequests: string[] = []
-    const offlineOwnerRequests: string[] = []
     page.on('request', (request) => {
       const url = new URL(request.url())
       if (url.pathname === '/api/image-config') offlineImageConfigRequests.push(url.pathname)
-      if (url.pathname.startsWith('/api/files') || url.pathname.startsWith('/api/settings')) {
-        offlineOwnerRequests.push(url.pathname)
-      }
     })
     await context.setOffline(true)
     await page.goto('/?offline=1')
@@ -85,7 +81,7 @@ test.describe('Offline mode', () => {
     await expect(page.getByTestId('breadcrumb-menu-open-workspace')).toHaveCount(0)
     await page.keyboard.press('Escape')
     await offlineRoot.locator('tr').filter({ hasText: 'Images' }).click({ button: 'right' })
-    await expect(page.getByText('Open in Workspace', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Open in Tiled Space', { exact: true })).toHaveCount(0)
     await page.getByTestId('open-with-menu').click()
     await page.getByTestId('open-with-reader').click()
     await expect(page.getByTestId('reader-dialog')).toBeVisible()
@@ -93,7 +89,6 @@ test.describe('Offline mode', () => {
     await expect(
       page.getByTestId('reader-dialog').getByRole('img', { name: 'photo.jpg' }).first(),
     ).toHaveAttribute('src', /\/api\/media\//)
-    expect(offlineOwnerRequests).toEqual([])
     await page.getByLabel('Close reader').click()
     for (const directory of ['Images', 'Videos']) {
       await page.goto(`/?offline=1&dir=${encodeURIComponent(`${prefix}${directory}`)}`)

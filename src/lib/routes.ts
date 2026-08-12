@@ -16,6 +16,8 @@ export type RouteKind =
   | 'shareWorkspace'
   | 'notFound'
 
+export type SpacePresentation = 'focus' | 'tiled' | 'map'
+
 export type ReaderKind = 'pdf' | 'folder' | 'book'
 
 export type RouteQuery = {
@@ -43,6 +45,7 @@ type StaticRouteTarget = {
 type SpaceRouteTarget = {
   kind: 'space'
   id: string
+  presentation?: SpacePresentation
 }
 
 type ShareRouteTarget = {
@@ -142,6 +145,10 @@ function decodeSpaceId(segment: string): string | null {
   }
 }
 
+function parseSpacePresentation(value: string | undefined): SpacePresentation | undefined {
+  return value === 'focus' || value === 'tiled' || value === 'map' ? value : undefined
+}
+
 function parseQuery(search: string): RouteQuery {
   const params = new URLSearchParams(search)
   const readerKind = params.get('readerKind')
@@ -186,10 +193,13 @@ export function parseRoute(input: RouteLocation): AppRoute {
     segments[0] === 'spaces' &&
     segments[1] === 'id' &&
     segments[2]?.startsWith('~') &&
-    segments.length === 3
+    (segments.length === 3 || segments.length === 4)
   ) {
     const id = decodeSpaceId(segments[2].slice(1))
-    if (id !== null) return located({ kind: 'space', id }, location)
+    const presentation = parseSpacePresentation(segments[3])
+    if (id !== null && (segments.length === 3 || presentation !== undefined)) {
+      return located({ kind: 'space', id, ...(presentation ? { presentation } : {}) }, location)
+    }
   }
   if (segments[0] === 'share' && segments[1]) {
     const token = decodePathSegment(segments[1])
@@ -221,7 +231,8 @@ function targetPath(target: RouteTarget) {
     if (!target.id || target.id.length > 128 || /[\u0000-\u001f\u007f]/.test(target.id)) {
       throw new Error('Space ID must be a safe non-empty ID')
     }
-    return `/spaces/id/~${encodeURIComponent(target.id)}`
+    const base = `/spaces/id/~${encodeURIComponent(target.id)}`
+    return target.presentation ? `${base}/${target.presentation}` : base
   }
   if (target.kind === 'share' || target.kind === 'shareWorkspace') {
     if (!target.token || target.token.includes('/'))
@@ -244,8 +255,15 @@ export function hrefFor(target: RouteTarget | AppRoute, query?: RouteQuery): str
   return `${targetPath(target)}${search ? `?${search}` : ''}`
 }
 
-export function hrefForSpace(spaceId: string, options: { history?: boolean } = {}): string {
-  const href = hrefFor({ kind: 'space', id: spaceId })
+export function hrefForSpace(
+  spaceId: string,
+  options: { history?: boolean; presentation?: SpacePresentation } = {},
+): string {
+  const href = hrefFor({
+    kind: 'space',
+    id: spaceId,
+    ...(options.presentation ? { presentation: options.presentation } : {}),
+  })
   return options.history ? `${href}#history` : href
 }
 
@@ -285,7 +303,12 @@ function navigateHref(
 
 export function navigateSpace(
   spaceId: string,
-  options: { replace?: boolean; history?: boolean; adapter?: NavigationAdapter } = {},
+  options: {
+    replace?: boolean
+    history?: boolean
+    presentation?: SpacePresentation
+    adapter?: NavigationAdapter
+  } = {},
 ) {
   return navigateHref(hrefForSpace(spaceId, options), options)
 }

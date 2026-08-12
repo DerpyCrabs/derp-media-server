@@ -16,18 +16,41 @@ function memoryStorage(initial?: string) {
 }
 
 describe('recent owner locations', () => {
-  test('quarantines corrupt and unsafe records', () => {
+  test('quarantines corrupt, unsafe, and retired Canvas records', () => {
     const storage = memoryStorage(
       JSON.stringify([
         { kind: 'library', href: '//evil.test', label: 'bad', visitedAt: 3 },
         { kind: 'library', href: '/\\evil.test', label: 'backslash', visitedAt: 4 },
         { kind: 'library', href: '/library\u0000', label: 'control', visitedAt: 5 },
         { kind: 'canvas', href: '/canvas', label: 'Canvas', visitedAt: 2 },
+        { kind: 'space', href: '/spaces/id/~desk/tiled', label: 'Desk', visitedAt: 6 },
         null,
       ]),
     )
     expect(readRecentOwnerLocations(storage)).toEqual([
-      { kind: 'canvas', href: '/canvas', label: 'Canvas', visitedAt: 2 },
+      { kind: 'space', href: '/spaces/id/~desk/tiled', label: 'Desk', visitedAt: 6 },
+    ])
+  })
+
+  test('keeps saved Workspace recents through their Space transition route', () => {
+    const storage = memoryStorage(
+      JSON.stringify([
+        {
+          kind: 'workspace',
+          href: '/workspace?ws=saved-desk',
+          label: 'Workspace saved-desk',
+          visitedAt: 9,
+        },
+        { kind: 'workspace', href: '/workspace', label: 'Workspace', visitedAt: 8 },
+      ]),
+    )
+    expect(readRecentOwnerLocations(storage)).toEqual([
+      {
+        kind: 'space',
+        href: '/workspace?ws=saved-desk',
+        label: 'Space saved-desk',
+        visitedAt: 9,
+      },
     ])
   })
 
@@ -61,5 +84,22 @@ describe('recent owner locations', () => {
       href: '/library?dir=Documents%2FBooks',
       label: 'Books',
     })
+  })
+
+  test('records canonical Space presentations and only saved Workspace transitions', () => {
+    expect(
+      recentLocationFromUrl(new URL('https://desk.test/spaces/id/~research%20desk/map#history')),
+    ).toEqual({
+      kind: 'space',
+      href: '/spaces/id/~research%20desk/map',
+      label: 'research desk',
+    })
+    expect(recentLocationFromUrl(new URL('https://desk.test/workspace?ws=saved-desk'))).toEqual({
+      kind: 'space',
+      href: '/workspace?ws=saved-desk',
+      label: 'Space saved-desk',
+    })
+    expect(recentLocationFromUrl(new URL('https://desk.test/workspace'))).toBeNull()
+    expect(recentLocationFromUrl(new URL('https://desk.test/canvas'))).toBeNull()
   })
 })

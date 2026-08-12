@@ -125,14 +125,14 @@ pub(crate) struct WorkspaceImportRequest {
     pub(crate) arrangements: SpaceArrangements,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ArrangementPresentation {
     Tiled,
     Spatial,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -201,6 +201,8 @@ impl SpaceCommand {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ApplySpaceCommand {
+    #[serde(default)]
+    pub(crate) command_id: Option<String>,
     #[serde(default)]
     pub(crate) space_id: Option<String>,
     #[serde(default)]

@@ -1,5 +1,5 @@
 import type { Space } from '@/lib/space'
-import type { SpaceHistoryEntry, SpaceTransport } from '@/lib/space-client'
+import type { OptimisticSpaceClient, SpaceHistoryEntry, SpaceTransport } from '@/lib/space-client'
 import Clock3 from 'lucide-solid/icons/clock-3'
 import Copy from 'lucide-solid/icons/copy'
 import RotateCcw from 'lucide-solid/icons/rotate-ccw'
@@ -9,7 +9,11 @@ import { For, Show, createSignal, onMount, type Accessor } from 'solid-js'
 export function SpaceRevisionControl(props: {
   space: Accessor<Space>
   transport: SpaceTransport
+  client?: OptimisticSpaceClient
+  onBeforeAction?: () => void
   onRestored(space: Space): void
+  triggerClass?: string
+  compact?: boolean
 }) {
   const [open, setOpen] = createSignal(false)
   const [history, setHistory] = createSignal<SpaceHistoryEntry[]>([])
@@ -56,6 +60,17 @@ export function SpaceRevisionControl(props: {
     setBusyRevision(entry.revision)
     setError(null)
     try {
+      props.onBeforeAction?.()
+      await props.client?.waitForIdle()
+      if (props.client) {
+        const restored = await props.client.dispatch({
+          type: 'restoreRevision',
+          revision: entry.revision,
+        })
+        props.onRestored(restored)
+        await loadHistory()
+        return
+      }
       const latest = await props.transport.load(props.space().id)
       const restored = await props.transport.apply({
         spaceId: props.space().id,
@@ -75,6 +90,18 @@ export function SpaceRevisionControl(props: {
     setBusyRevision(entry.revision)
     setError(null)
     try {
+      props.onBeforeAction?.()
+      await props.client?.waitForIdle()
+      if (props.client) {
+        const duplicate = await props.client.dispatch({
+          type: 'duplicate',
+          sourceRevision: entry.revision,
+          newId: crypto.randomUUID(),
+          name: `${entry.name.slice(0, 115).trimEnd()} copy`,
+        })
+        props.onRestored(duplicate)
+        return
+      }
       const latest = await props.transport.load(props.space().id)
       const suffix = ' copy'
       const duplicate = await props.transport.apply({
@@ -104,10 +131,14 @@ export function SpaceRevisionControl(props: {
       <button
         type='button'
         data-testid='space-history-trigger'
-        class='fixed bottom-16 left-3 z-[105000] inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-popover px-3 text-sm font-medium shadow-xl'
+        class={
+          props.triggerClass ??
+          'fixed bottom-16 left-3 z-[105000] inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-popover px-3 text-sm font-medium shadow-xl'
+        }
         onClick={showHistory}
       >
-        <Clock3 class='size-4' /> History
+        <Clock3 class='size-4' />
+        <Show when={!props.compact}>History</Show>
       </button>
       <Show when={open()}>
         <div class='fixed inset-0 z-[110000] bg-black/35' onClick={closeHistory} />

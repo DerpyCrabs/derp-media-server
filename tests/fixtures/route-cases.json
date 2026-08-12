@@ -17,6 +17,24 @@
   { "url": "/home", "kind": "home" },
   { "url": "/spaces", "kind": "spaces" },
   { "url": "/spaces/id/~research%20desk", "kind": "space", "id": "research desk" },
+  {
+    "url": "/spaces/id/~research%20desk/focus",
+    "kind": "space",
+    "id": "research desk",
+    "presentation": "focus"
+  },
+  {
+    "url": "/spaces/id/~research%20desk/tiled",
+    "kind": "space",
+    "id": "research desk",
+    "presentation": "tiled"
+  },
+  {
+    "url": "/spaces/id/~research%20desk/map",
+    "kind": "space",
+    "id": "research desk",
+    "presentation": "map"
+  },
   { "url": "/workspace?ws=legacy-session", "kind": "workspace" },
   { "url": "/canvas", "kind": "canvas" },
   { "url": "/assistant", "kind": "assistant" },

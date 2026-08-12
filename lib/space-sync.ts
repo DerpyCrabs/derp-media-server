@@ -1,13 +1,13 @@
 import type { Space, SpaceCommand } from './space'
 
-function sameValue(left: unknown, right: unknown): boolean {
+export function sameSpaceValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true
   if (Array.isArray(left) || Array.isArray(right)) {
     return (
       Array.isArray(left) &&
       Array.isArray(right) &&
       left.length === right.length &&
-      left.every((item, index) => sameValue(item, right[index]))
+      left.every((item, index) => sameSpaceValue(item, right[index]))
     )
   }
   if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
@@ -18,7 +18,7 @@ function sameValue(left: unknown, right: unknown): boolean {
   return (
     leftKeys.length === rightKeys.length &&
     leftKeys.every(
-      (key) => Object.hasOwn(rightRecord, key) && sameValue(leftRecord[key], rightRecord[key]),
+      (key) => Object.hasOwn(rightRecord, key) && sameSpaceValue(leftRecord[key], rightRecord[key]),
     )
   )
 }
@@ -41,14 +41,14 @@ export function spaceCommandsToMatch(current: Space, desired: Space): SpaceComma
     const existing = current.panes[paneId]!
     if (existing.kind !== pane.kind) {
       commands.push({ type: 'removePane', paneId }, { type: 'addPane', paneId, pane })
-    } else if (!sameValue(existing.state, pane.state)) {
+    } else if (!sameSpaceValue(existing.state, pane.state)) {
       commands.push({ type: 'updatePane', paneId, pane })
     }
   }
 
   for (const arrangement of ['tiled', 'spatial'] as const) {
     const desiredValue = desired.arrangements[arrangement]
-    if (!sameValue(current.arrangements[arrangement], desiredValue)) {
+    if (!sameSpaceValue(current.arrangements[arrangement], desiredValue)) {
       commands.push({
         type: 'applyArrangement',
         presentation: arrangement,
@@ -64,8 +64,8 @@ export function sameSpaceContent(left: Space, right: Space): boolean {
     left.id === right.id &&
     left.name === right.name &&
     left.origin === right.origin &&
-    sameValue(left.panes, right.panes) &&
-    sameValue(left.arrangements, right.arrangements) &&
+    sameSpaceValue(left.panes, right.panes) &&
+    sameSpaceValue(left.arrangements, right.arrangements) &&
     left.deletedAt === right.deletedAt
   )
 }

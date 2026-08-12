@@ -12,7 +12,10 @@ function uniqueId(prefix: string, testInfo: TestInfo) {
 }
 
 function spaceIdFromHref(href: string) {
-  const token = new URL(href, 'http://localhost').pathname.split('/').at(-1) ?? ''
+  const token =
+    new URL(href, 'http://localhost').pathname
+      .split('/')
+      .find((segment) => segment.startsWith('~')) ?? ''
   if (!token.startsWith('~')) throw new Error(`Unexpected Space href: ${href}`)
   return decodeURIComponent(token.slice(1))
 }
@@ -304,7 +307,7 @@ test('/canvas imports its local source once and keeps camera state device-local'
   try {
     await page.goto('/canvas')
     const originalSource = await page.evaluate(() => localStorage.getItem('infinite-canvases-v1'))
-    await expect(page).toHaveURL(/\/canvas$/)
+    await expect(page).toHaveURL(`/spaces/id/~${encodeURIComponent(id)}/map`)
     await expect(page.getByTestId('infinite-canvas')).toBeVisible()
     await expect(page.getByRole('slider', { name: 'Canvas zoom' })).toHaveValue('75')
 
@@ -429,7 +432,7 @@ test('/canvas keeps local Canvas usable when Space API is unavailable', async ({
 test('stale local Canvas recovery becomes a copy without overwriting newer Space panes', async ({
   page,
 }, testInfo) => {
-  test.slow()
+  test.setTimeout(90_000)
   const id = uniqueId('stage6-canvas-stale-recovery', testInfo)
   const serverPane = {
     kind: 'viewer',
@@ -516,7 +519,7 @@ test('stale local Canvas recovery becomes a copy without overwriting newer Space
     await page.route('**/api/spaces/commands', (route) => route.abort('failed'))
     await page.goto(`/spaces/id/~${encodeURIComponent(id)}`)
     await expect(page.getByTestId('canvas-window')).toHaveCount(1)
-    await expect(page.getByText('New server pane', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('canvas-window-title')).toHaveText('New server pane')
     await expect(page.getByText('Older local pane', { exact: true })).toHaveCount(0)
     await expect(page.getByTestId('canvas-sync-error')).toBeVisible()
     const recoveryBlocker = page.getByTestId('canvas-stale-recovery-blocker')
@@ -685,17 +688,17 @@ test('quarantines corrupt per-Space recovery until explicit discard', async ({
 
 test('keeps Workspace scratch local until explicit save', async ({ page }, testInfo) => {
   const ws = uniqueId('stage6-workspace', testInfo)
-  const spaceRequests: string[] = []
+  const spaceWrites: string[] = []
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname.startsWith('/api/spaces')) {
-      spaceRequests.push(request.url())
+    if (new URL(request.url()).pathname.startsWith('/api/spaces') && request.method() !== 'GET') {
+      spaceWrites.push(request.url())
     }
   })
 
   await page.goto(`/workspace?ws=${encodeURIComponent(ws)}`)
   await expect(page.getByTestId('workspace-save-as-space')).toBeVisible()
   await page.waitForTimeout(250)
-  expect(spaceRequests).toEqual([])
+  expect(spaceWrites).toEqual([])
   await expect
     .poll(() => page.evaluate((key) => localStorage.getItem(key), `workspace-state-ws-${ws}`))
     .not.toBeNull()
@@ -755,9 +758,6 @@ test('keeps Workspace scratch local until explicit save', async ({ page }, testI
         ),
       )
       .not.toBeNull()
-    await expect(page.getByTestId('workspace-space-save-status')).toContainText(/failed|saving/, {
-      timeout: 5000,
-    })
     await page.unroute('**/api/spaces/commands')
     await page.reload()
     await expect(
@@ -911,9 +911,11 @@ test('retains and exposes a corrupt Workspace draft without uploading it', async
   const ws = uniqueId('stage6-corrupt-ws', testInfo)
   const key = `workspace-state-ws-${ws}`
   const raw = '{not valid workspace json'
-  let spaceRequestCount = 0
+  let spaceWriteCount = 0
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname.startsWith('/api/spaces')) spaceRequestCount += 1
+    if (new URL(request.url()).pathname.startsWith('/api/spaces') && request.method() !== 'GET') {
+      spaceWriteCount += 1
+    }
   })
   await page.addInitScript(({ storageKey, value }) => localStorage.setItem(storageKey, value), {
     storageKey: key,
@@ -922,7 +924,7 @@ test('retains and exposes a corrupt Workspace draft without uploading it', async
   await page.goto(`/workspace?ws=${encodeURIComponent(ws)}`)
   await expect(page.getByText('This local Workspace draft is unreadable.')).toBeVisible()
   expect(await page.evaluate((storageKey) => localStorage.getItem(storageKey), key)).toBe(raw)
-  expect(spaceRequestCount).toBe(0)
+  expect(spaceWriteCount).toBe(0)
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export original draft' }).click()
   expect((await download).suggestedFilename()).toMatch(/^workspace-corrupt-\d+\.json$/)

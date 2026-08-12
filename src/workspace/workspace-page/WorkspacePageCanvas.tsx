@@ -8,21 +8,13 @@ import type {
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import type { FileItem } from '@/lib/types'
-import {
-  unavailablePersistedResourceTarget,
-  type ResourceSummary,
-  type ViewerId,
-} from '@/lib/resource'
+import { type ResourceSummary, type ViewerId } from '@/lib/resource'
 import {
   getTabGroupSplit,
   resolveGroupVisibleTabId,
   tabsInGroup,
 } from '@/src/workspace/tab-group-ops'
-import { WorkspaceBrowserPane } from '@/src/workspace/WorkspaceBrowserPane'
-import {
-  WorkspaceViewerPane,
-  type WorkspaceVideoListenOnlyDetail,
-} from '@/src/workspace/WorkspaceViewerPane'
+import { type WorkspaceVideoListenOnlyDetail } from '@/src/workspace/WorkspaceViewerPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from '@/src/workspace/WorkspaceWindowChrome'
 import { WorkspaceSnapAssistBar } from '@/src/workspace/WorkspaceSnapAssistBar'
 import { WorkspaceTilingPicker } from '@/src/workspace/WorkspaceTilingPicker'
@@ -34,11 +26,7 @@ import type { WorkspaceShareConfig } from '@/src/workspace/WorkspaceBrowserPane'
 import type { WorkspacePageProps } from './workspace-page-types'
 import type { FileIconContext } from '@/src/lib/use-file-icon'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
-import { HermesChatPane } from '@/src/workspace/HermesChatPane'
-import {
-  ResourceResolvingPane,
-  ResourceUnavailablePane,
-} from '@/src/workspace/ResourceUnavailablePane'
+import { PaneHost } from '@/src/spaces/PaneHost'
 
 export type WorkspacePageCanvasProps = {
   hasWorkspaceWindows: () => boolean
@@ -134,6 +122,10 @@ export type WorkspacePageCanvasProps = {
 }
 
 export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
+  const paneRuntimeKey = (paneId: string) =>
+    props.pageProps.initialSpace
+      ? `${props.pageProps.initialSpace.id}:${paneId}`
+      : `${props.storageKey()}:${paneId}`
   return (
     <Show
       when={props.hasWorkspaceWindows()}
@@ -251,114 +243,70 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             }`}
                             aria-hidden={tabId !== visibleTabId()}
                           >
-                            <Show when={props.resourceWindowIsPending(windowDef())}>
-                              <ResourceResolvingPane />
-                            </Show>
-                            <Show
-                              when={unavailablePersistedResourceTarget(windowDef()?.resourceTarget)}
-                            >
-                              {(target) => <ResourceUnavailablePane target={target()} />}
-                            </Show>
-                            <Show
-                              when={
-                                !props.resourceWindowIsPending(windowDef()) &&
-                                !windowDef()?.resourceTarget?.availability &&
-                                windowDef()?.type === 'browser'
+                            <PaneHost
+                              runtimeKey={paneRuntimeKey(tabId)}
+                              preserveBrowserHistory={props.pageProps.initialSpace !== undefined}
+                              paneId={tabId}
+                              window={windowDef}
+                              workspace={props.workspace}
+                              contentVisible={() => tabId === visibleTabId()}
+                              pending={() => props.resourceWindowIsPending(windowDef())}
+                              storageKey={props.storageKey()}
+                              sharePanel={props.sharePanel}
+                              editableFolders={props.editableFolders}
+                              knowledgeBases={props.knowledgeBases}
+                              fileIconContext={props.workspaceFileIconContext}
+                              shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
+                              shareCanEdit={
+                                props.pageProps.shareConfig
+                                  ? (props.pageProps.shareCanEdit ?? false)
+                                  : false
                               }
-                            >
-                              <WorkspaceBrowserPane
-                                windowId={tabId}
-                                workspace={props.workspace}
-                                sharePanel={props.sharePanel}
-                                shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanDelete={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanDelete ?? false)
-                                    : false
-                                }
-                                shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
-                                editableFolders={props.editableFolders()}
-                                fileIconContext={props.workspaceFileIconContext}
-                                onNavigateDir={props.navigateDir}
-                                onOpenViewer={props.openViewerFromBrowser}
-                                onOpenReader={props.openReaderFromBrowser}
-                                onOpenVirtualTarget={props.openHermesFromBrowser}
-                                onAddToTaskbar={props.addPinnedItem}
-                                onOpenInNewTab={(wid, file, path, viewerId) =>
-                                  props.openInNewTabInSameWindow(
-                                    wid,
-                                    file,
-                                    path,
-                                    undefined,
-                                    undefined,
-                                    viewerId,
-                                  )
-                                }
-                                onOpenInSplitView={props.openInSplitViewFromBrowserPane}
-                                onRequestPlay={props.requestPlay}
-                                onBeginFileOpenTargetPick={() =>
-                                  props.onBeginFileOpenTargetPick(tabId)
-                                }
-                                onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
-                              />
-                            </Show>
-                            <Show
-                              when={
-                                !props.resourceWindowIsPending(windowDef()) &&
-                                !windowDef()?.resourceTarget?.availability &&
-                                windowDef()?.type === 'viewer'
+                              shareCanDelete={
+                                props.pageProps.shareConfig
+                                  ? (props.pageProps.shareCanDelete ?? false)
+                                  : false
                               }
-                            >
-                              <WorkspaceViewerPane
-                                windowId={tabId}
-                                storageKey={props.storageKey()}
-                                contentVisible={() => tabId === visibleTabId()}
-                                workspace={props.workspace}
-                                sharePanel={props.sharePanel}
-                                editableFolders={props.editableFolders()}
-                                knowledgeBases={props.knowledgeBases()}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanUpload={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareAllowUpload ?? false)
-                                    : false
-                                }
-                                onUpdateViewing={props.updateWindowViewing}
-                                onVideoMetadataLoaded={(vw, vh) =>
-                                  props.resizeViewerWindowForVideoMetadata(tabId, vw, vh)
-                                }
-                                onListenOnlyHandoff={(d) => props.listenOnlyHandoff(tabId, d)}
-                                onListenOnlyDismissViewer={() =>
-                                  props.closeTab(tabId, { ignoreTabPinForListenOnlyDismiss: true })
-                                }
-                              />
-                            </Show>
-                            <Show
-                              when={
-                                !props.resourceWindowIsPending(windowDef()) &&
-                                !windowDef()?.resourceTarget?.availability &&
-                                windowDef()?.type === 'hermes'
+                              shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
+                              onNavigateDir={props.navigateDir}
+                              onOpenViewer={props.openViewerFromBrowser}
+                              onOpenReader={props.openReaderFromBrowser}
+                              onOpenVirtualTarget={props.openHermesFromBrowser}
+                              onAddToTaskbar={props.addPinnedItem}
+                              onOpenInNewTab={(wid, file, path, viewerId) =>
+                                props.openInNewTabInSameWindow(
+                                  wid,
+                                  file,
+                                  path,
+                                  undefined,
+                                  undefined,
+                                  viewerId,
+                                )
                               }
-                            >
-                              <HermesChatPane
-                                window={windowDef}
-                                contentVisible={() => tabId === visibleTabId()}
-                                onSessionCreated={(id) => props.bindHermesSession(tabId, id)}
-                                onBranchCreated={(id, title) =>
-                                  props.openHermesBranch(tabId, id, title)
-                                }
-                                onTitleChanged={(title) => props.renameHermesWindow(tabId, title)}
-                              />
-                            </Show>
+                              onOpenInSplitView={props.openInSplitViewFromBrowserPane}
+                              onRequestPlay={props.requestPlay}
+                              onBeginFileOpenTargetPick={() =>
+                                props.onBeginFileOpenTargetPick(tabId)
+                              }
+                              onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
+                              onUpdateViewing={props.updateWindowViewing}
+                              onVideoMetadataLoaded={(width, height) =>
+                                props.resizeViewerWindowForVideoMetadata(tabId, width, height)
+                              }
+                              onListenOnlyHandoff={(detail) =>
+                                props.listenOnlyHandoff(tabId, detail)
+                              }
+                              onListenOnlyDismissViewer={() =>
+                                props.closeTab(tabId, {
+                                  ignoreTabPinForListenOnlyDismiss: true,
+                                })
+                              }
+                              onSessionCreated={(id) => props.bindHermesSession(tabId, id)}
+                              onBranchCreated={(id, title) =>
+                                props.openHermesBranch(tabId, id, title)
+                              }
+                              onTitleChanged={(title) => props.renameHermesWindow(tabId, title)}
+                            />
                           </div>
                         )
                       }}
@@ -382,27 +330,99 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             width: `${(splitSnap()?.leftPaneFraction ?? 0.5) * 100}%`,
                           }}
                         >
-                          <Show when={props.resourceWindowIsPending(leftWindowDef())}>
-                            <ResourceResolvingPane />
-                          </Show>
-                          <Show
-                            when={unavailablePersistedResourceTarget(
-                              leftWindowDef()?.resourceTarget,
-                            )}
-                          >
-                            {(target) => <ResourceUnavailablePane target={target()} />}
-                          </Show>
-                          <Show
-                            when={
-                              !props.resourceWindowIsPending(leftWindowDef()) &&
-                              !leftWindowDef()?.resourceTarget?.availability &&
-                              leftWindowDef()?.type === 'browser'
+                          <PaneHost
+                            runtimeKey={paneRuntimeKey(leftTabId())}
+                            preserveBrowserHistory={props.pageProps.initialSpace !== undefined}
+                            paneId={leftTabId()}
+                            window={leftWindowDef}
+                            workspace={props.workspace}
+                            contentVisible={() => true}
+                            pending={() => props.resourceWindowIsPending(leftWindowDef())}
+                            storageKey={props.storageKey()}
+                            sharePanel={props.sharePanel}
+                            editableFolders={props.editableFolders}
+                            knowledgeBases={props.knowledgeBases}
+                            fileIconContext={props.workspaceFileIconContext}
+                            shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
+                            shareCanEdit={
+                              props.pageProps.shareConfig
+                                ? (props.pageProps.shareCanEdit ?? false)
+                                : false
                             }
+                            shareCanDelete={
+                              props.pageProps.shareConfig
+                                ? (props.pageProps.shareCanDelete ?? false)
+                                : false
+                            }
+                            shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
+                            onNavigateDir={props.navigateDir}
+                            onOpenViewer={props.openViewerFromBrowser}
+                            onOpenReader={props.openReaderFromBrowser}
+                            onOpenVirtualTarget={props.openHermesFromBrowser}
+                            onAddToTaskbar={props.addPinnedItem}
+                            onOpenInNewTab={(wid, file, path, viewerId) =>
+                              props.openInNewTabInSameWindow(
+                                wid,
+                                file,
+                                path,
+                                undefined,
+                                undefined,
+                                viewerId,
+                              )
+                            }
+                            onOpenInSplitView={props.openInSplitViewFromBrowserPane}
+                            onRequestPlay={props.requestPlay}
+                            onBeginFileOpenTargetPick={() =>
+                              props.onBeginFileOpenTargetPick(leftTabId())
+                            }
+                            onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
+                            onUpdateViewing={props.updateWindowViewing}
+                            onVideoMetadataLoaded={(width, height) =>
+                              props.resizeViewerWindowForVideoMetadata(leftTabId(), width, height)
+                            }
+                            onListenOnlyHandoff={(detail) =>
+                              props.listenOnlyHandoff(leftTabId(), detail)
+                            }
+                            onListenOnlyDismissViewer={() =>
+                              props.closeTab(leftTabId(), {
+                                ignoreTabPinForListenOnlyDismiss: true,
+                              })
+                            }
+                            onSessionCreated={(id) => props.bindHermesSession(leftTabId(), id)}
+                            onBranchCreated={(id, title) =>
+                              props.openHermesBranch(leftTabId(), id, title)
+                            }
+                            onTitleChanged={(title) => props.renameHermesWindow(leftTabId(), title)}
+                          />
+                        </div>
+                        <div
+                          data-testid='workspace-split-divider'
+                          data-no-window-drag
+                          class='w-1.5 shrink-0 cursor-col-resize border-border bg-muted/40 hover:bg-primary/25'
+                          style={{ 'border-left-width': '1px', 'border-right-width': '1px' }}
+                          onPointerDown={(e) => props.startSplitPaneDrag(gid, e)}
+                        />
+                        <div
+                          data-testid='workspace-split-right-pane'
+                          class='workspace-window-content relative h-full min-h-0 min-w-0 flex-1 overflow-hidden text-sm text-muted-foreground'
+                        >
+                          <div
+                            data-testid='workspace-window-visible-content'
+                            class='h-full min-h-0'
                           >
-                            <WorkspaceBrowserPane
-                              windowId={leftTabId()}
+                            <PaneHost
+                              runtimeKey={paneRuntimeKey(visibleTabId())}
+                              preserveBrowserHistory={props.pageProps.initialSpace !== undefined}
+                              paneId={visibleTabId()}
+                              window={rightWindowDef}
                               workspace={props.workspace}
+                              contentVisible={() => true}
+                              pending={() => props.resourceWindowIsPending(rightWindowDef())}
+                              storageKey={props.storageKey()}
                               sharePanel={props.sharePanel}
+                              editableFolders={props.editableFolders}
+                              knowledgeBases={props.knowledgeBases}
+                              fileIconContext={props.workspaceFileIconContext}
                               shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
                               shareCanEdit={
                                 props.pageProps.shareConfig
@@ -415,8 +435,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                   : false
                               }
                               shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
-                              editableFolders={props.editableFolders()}
-                              fileIconContext={props.workspaceFileIconContext}
                               onNavigateDir={props.navigateDir}
                               onOpenViewer={props.openViewerFromBrowser}
                               onOpenReader={props.openReaderFromBrowser}
@@ -435,201 +453,33 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               onOpenInSplitView={props.openInSplitViewFromBrowserPane}
                               onRequestPlay={props.requestPlay}
                               onBeginFileOpenTargetPick={() =>
-                                props.onBeginFileOpenTargetPick(leftTabId())
+                                props.onBeginFileOpenTargetPick(visibleTabId())
                               }
                               onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
-                            />
-                          </Show>
-                          <Show
-                            when={
-                              !props.resourceWindowIsPending(leftWindowDef()) &&
-                              !leftWindowDef()?.resourceTarget?.availability &&
-                              leftWindowDef()?.type === 'viewer'
-                            }
-                          >
-                            <WorkspaceViewerPane
-                              windowId={leftTabId()}
-                              storageKey={props.storageKey()}
-                              contentVisible={() => true}
-                              workspace={props.workspace}
-                              sharePanel={props.sharePanel}
-                              editableFolders={props.editableFolders()}
-                              knowledgeBases={props.knowledgeBases()}
-                              shareCanEdit={
-                                props.pageProps.shareConfig
-                                  ? (props.pageProps.shareCanEdit ?? false)
-                                  : false
-                              }
-                              shareCanUpload={
-                                props.pageProps.shareConfig
-                                  ? (props.pageProps.shareAllowUpload ?? false)
-                                  : false
-                              }
                               onUpdateViewing={props.updateWindowViewing}
-                              onVideoMetadataLoaded={(vw, vh) =>
-                                props.resizeViewerWindowForVideoMetadata(leftTabId(), vw, vh)
+                              onVideoMetadataLoaded={(width, height) =>
+                                props.resizeViewerWindowForVideoMetadata(
+                                  visibleTabId(),
+                                  width,
+                                  height,
+                                )
                               }
-                              onListenOnlyHandoff={(d) => props.listenOnlyHandoff(leftTabId(), d)}
+                              onListenOnlyHandoff={(detail) =>
+                                props.listenOnlyHandoff(visibleTabId(), detail)
+                              }
                               onListenOnlyDismissViewer={() =>
-                                props.closeTab(leftTabId(), {
+                                props.closeTab(visibleTabId(), {
                                   ignoreTabPinForListenOnlyDismiss: true,
                                 })
                               }
-                            />
-                          </Show>
-                          <Show
-                            when={
-                              !props.resourceWindowIsPending(leftWindowDef()) &&
-                              !leftWindowDef()?.resourceTarget?.availability &&
-                              leftWindowDef()?.type === 'hermes'
-                            }
-                          >
-                            <HermesChatPane
-                              window={leftWindowDef}
-                              contentVisible={() => true}
-                              onSessionCreated={(id) => props.bindHermesSession(leftTabId(), id)}
+                              onSessionCreated={(id) => props.bindHermesSession(visibleTabId(), id)}
                               onBranchCreated={(id, title) =>
-                                props.openHermesBranch(leftTabId(), id, title)
+                                props.openHermesBranch(visibleTabId(), id, title)
                               }
                               onTitleChanged={(title) =>
-                                props.renameHermesWindow(leftTabId(), title)
+                                props.renameHermesWindow(visibleTabId(), title)
                               }
                             />
-                          </Show>
-                        </div>
-                        <div
-                          data-testid='workspace-split-divider'
-                          data-no-window-drag
-                          class='w-1.5 shrink-0 cursor-col-resize border-border bg-muted/40 hover:bg-primary/25'
-                          style={{ 'border-left-width': '1px', 'border-right-width': '1px' }}
-                          onPointerDown={(e) => props.startSplitPaneDrag(gid, e)}
-                        />
-                        <div
-                          data-testid='workspace-split-right-pane'
-                          class='workspace-window-content relative h-full min-h-0 min-w-0 flex-1 overflow-hidden text-sm text-muted-foreground'
-                        >
-                          <div
-                            data-testid='workspace-window-visible-content'
-                            class='h-full min-h-0'
-                          >
-                            <Show when={props.resourceWindowIsPending(rightWindowDef())}>
-                              <ResourceResolvingPane />
-                            </Show>
-                            <Show
-                              when={unavailablePersistedResourceTarget(
-                                rightWindowDef()?.resourceTarget,
-                              )}
-                            >
-                              {(target) => <ResourceUnavailablePane target={target()} />}
-                            </Show>
-                            <Show
-                              when={
-                                !props.resourceWindowIsPending(rightWindowDef()) &&
-                                !rightWindowDef()?.resourceTarget?.availability &&
-                                rightWindowDef()?.type === 'browser'
-                              }
-                            >
-                              <WorkspaceBrowserPane
-                                windowId={visibleTabId()}
-                                workspace={props.workspace}
-                                sharePanel={props.sharePanel}
-                                shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanDelete={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanDelete ?? false)
-                                    : false
-                                }
-                                shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
-                                editableFolders={props.editableFolders()}
-                                fileIconContext={props.workspaceFileIconContext}
-                                onNavigateDir={props.navigateDir}
-                                onOpenViewer={props.openViewerFromBrowser}
-                                onOpenReader={props.openReaderFromBrowser}
-                                onOpenVirtualTarget={props.openHermesFromBrowser}
-                                onAddToTaskbar={props.addPinnedItem}
-                                onOpenInNewTab={(wid, file, path, viewerId) =>
-                                  props.openInNewTabInSameWindow(
-                                    wid,
-                                    file,
-                                    path,
-                                    undefined,
-                                    undefined,
-                                    viewerId,
-                                  )
-                                }
-                                onOpenInSplitView={props.openInSplitViewFromBrowserPane}
-                                onRequestPlay={props.requestPlay}
-                                onBeginFileOpenTargetPick={() =>
-                                  props.onBeginFileOpenTargetPick(visibleTabId())
-                                }
-                                onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
-                              />
-                            </Show>
-                            <Show
-                              when={
-                                !props.resourceWindowIsPending(rightWindowDef()) &&
-                                !rightWindowDef()?.resourceTarget?.availability &&
-                                rightWindowDef()?.type === 'viewer'
-                              }
-                            >
-                              <WorkspaceViewerPane
-                                windowId={visibleTabId()}
-                                storageKey={props.storageKey()}
-                                contentVisible={() => true}
-                                workspace={props.workspace}
-                                sharePanel={props.sharePanel}
-                                editableFolders={props.editableFolders()}
-                                knowledgeBases={props.knowledgeBases()}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanUpload={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareAllowUpload ?? false)
-                                    : false
-                                }
-                                onUpdateViewing={props.updateWindowViewing}
-                                onVideoMetadataLoaded={(vw, vh) =>
-                                  props.resizeViewerWindowForVideoMetadata(visibleTabId(), vw, vh)
-                                }
-                                onListenOnlyHandoff={(d) =>
-                                  props.listenOnlyHandoff(visibleTabId(), d)
-                                }
-                                onListenOnlyDismissViewer={() =>
-                                  props.closeTab(visibleTabId(), {
-                                    ignoreTabPinForListenOnlyDismiss: true,
-                                  })
-                                }
-                              />
-                            </Show>
-                            <Show
-                              when={
-                                !props.resourceWindowIsPending(rightWindowDef()) &&
-                                !rightWindowDef()?.resourceTarget?.availability &&
-                                rightWindowDef()?.type === 'hermes'
-                              }
-                            >
-                              <HermesChatPane
-                                window={rightWindowDef}
-                                contentVisible={() => true}
-                                onSessionCreated={(id) =>
-                                  props.bindHermesSession(visibleTabId(), id)
-                                }
-                                onBranchCreated={(id, title) =>
-                                  props.openHermesBranch(visibleTabId(), id, title)
-                                }
-                                onTitleChanged={(title) =>
-                                  props.renameHermesWindow(visibleTabId(), title)
-                                }
-                              />
-                            </Show>
                           </div>
                         </div>
                       </div>

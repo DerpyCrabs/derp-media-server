@@ -49,7 +49,6 @@ import {
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
 import {
   persistedResourceTarget,
-  unavailablePersistedResourceTarget,
   type PersistedResourceTarget,
   type ResourceOpenTarget,
   type ResourceSummary,
@@ -74,7 +73,11 @@ import {
   projectSpaceToCanvas,
   type Space,
 } from '@/lib/space'
-import { createBrowserSpaceTransport, createOptimisticSpaceClient } from '@/lib/space-client'
+import {
+  createBrowserSpaceTransport,
+  createOptimisticSpaceClient,
+  type OptimisticSpaceClient,
+} from '@/lib/space-client'
 import { sameSpaceContent, spaceCommandsToMatch } from '@/lib/space-sync'
 import { MediaType, type FileItem } from '@/lib/types'
 import type { GlobalSettings } from '@/lib/use-settings'
@@ -86,7 +89,6 @@ import type {
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
 import { canCloseHermesWindow } from '@/lib/hermes-session-store'
-import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
@@ -121,6 +123,7 @@ import {
 import { CanvasSearchPalette } from './canvas/CanvasSearchPalette'
 import { canvasEdgeAutoPanVelocity } from './canvas/canvas-edge-auto-pan'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
+import { createCanvasMinimapModel, minimapPointToWorld } from './canvas/canvas-minimap'
 import { bindReadingProgress as bindReadingProgressEvents } from './canvas/reading-progress'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { OWNER_OPEN_SCOPE, resourceForFileItem } from './lib/legacy-resource-adapter'
@@ -129,9 +132,7 @@ import { reconcileResolvedWindowPresentation } from './lib/resource-window-resol
 import { viewerMediaType, viewerReaderKind } from './lib/viewer-registry'
 import { followAppLink, hrefForSpace, navigate, navigateSpace } from './lib/routes'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
-import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
-import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
-import { ResourceResolvingPane, ResourceUnavailablePane } from './workspace/ResourceUnavailablePane'
+import { PaneHost } from './spaces/PaneHost'
 
 const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 const CANVAS_OPEN_CONTEXT = { surface: 'canvas', scope: OWNER_OPEN_SCOPE } as const
@@ -394,7 +395,16 @@ function canvasDialogLabel(dialog: CanvasDialogState): string {
   }
 }
 
-export function CanvasPage(props: { initialSpace?: Space } = {}) {
+export function CanvasPage(
+  props: {
+    initialSpace?: Space
+    spaceClient?: OptimisticSpaceClient
+    activePaneId?: string | null
+    onActivePaneChange?: (paneId: string | null) => void
+    registerPresentationFlush?: (flush: () => void) => () => void
+    embedded?: boolean
+  } = {},
+) {
   useAdminEventsStream()
   const browserStorage =
     typeof localStorage === 'undefined'
@@ -452,6 +462,7 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
       revision: props.initialSpace!.revision,
       createdAt: props.initialSpace!.createdAt,
       updatedAt: props.initialSpace!.updatedAt,
+      origin: props.initialSpace!.origin,
     })
     return {
       ...candidate,
@@ -523,13 +534,28 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
   const [remoteCanvasRecords, setRemoteCanvasRecords] = createSignal<PersistedCanvas[]>([])
   const spaceTransport = props.initialSpace ? createBrowserSpaceTransport() : null
   const spaceClient = props.initialSpace
-    ? createOptimisticSpaceClient({ transport: spaceTransport!, initialSpace: props.initialSpace })
+    ? (props.spaceClient ??
+      createOptimisticSpaceClient({ transport: spaceTransport!, initialSpace: props.initialSpace }))
     : null
   const maximizedWindowId = () => state().maximizedWindowId
   const [undoStack, setUndoStack] = createSignal<InfiniteCanvasState[]>([])
   const [redoStack, setRedoStack] = createSignal<InfiniteCanvasState[]>([])
   const [selection, setSelection] = createSignal<Selection>(null)
   const [selectedIds, setSelectedIds] = createSignal<string[]>([])
+
+  createEffect(() => {
+    const requested = props.activePaneId
+    if (!requested || !state().windows.some((window) => window.id === requested)) return
+    if (selection()?.id !== requested) {
+      setSelection({ kind: 'window', id: requested })
+      setSelectedIds([requested])
+    }
+  })
+
+  createEffect(() => {
+    const paneId = selection()?.id ?? maximizedWindowId() ?? state().windows[0]?.id ?? null
+    if (paneId !== props.activePaneId) props.onActivePaneChange?.(paneId)
+  })
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null)
   const [searchOpen, setSearchOpen] = createSignal(false)
   const [searchAnchor, setSearchAnchor] = createSignal<{ x: number; y: number } | null>(null)
@@ -537,6 +563,15 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
   const [addMenuOpen, setAddMenuOpen] = createSignal(false)
   const [outlineOpen, setOutlineOpen] = createSignal(false)
   const [viewportSize, setViewportSize] = createSignal({ width: 1, height: 1 })
+  const minimapModel = createMemo(() =>
+    createCanvasMinimapModel({
+      windows: state().windows.map((window) => canvasWindowVisualBounds(window.bounds)),
+      camera: state().camera,
+      viewport: viewportSize(),
+      width: 192,
+      height: 128,
+    }),
+  )
   const [canvasMenuOpen, setCanvasMenuOpen] = createSignal(false)
   const [canvasQuery, setCanvasQuery] = createSignal('')
   const [geometryActive, setGeometryActive] = createSignal(false)
@@ -588,6 +623,7 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
   let syncPendingPullFirst = false
   let lastSpaceSnapshot = props.initialSpace
   let lastConfirmedSpace = props.initialSpace
+  let projectedSpaceRevision = props.initialSpace?.revision ?? -1
   let pendingStaleCanvasRecovery = staleCanvasRecovery
   let preservedRecoveredCanvasCopy = false
   let canvasRecoveryRunning = false
@@ -595,6 +631,31 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
     const snapshot = spaceClient.getSnapshot()
     if (snapshot.space) {
       lastSpaceSnapshot = snapshot.space
+      if (
+        snapshot.space.revision !== projectedSpaceRevision &&
+        !pendingStaleCanvasRecovery &&
+        !corruptCanvasRecovery()
+      ) {
+        projectedSpaceRevision = snapshot.space.revision
+        const projected = projectSpaceToCanvas(snapshot.space, canvasSessionState(state()))
+        const paneIds = new Set(projected.windows.map((window) => window.id))
+        setState(projected)
+        setSelection((current) => (current && paneIds.has(current.id) ? current : null))
+        setSelectedIds((current) => current.filter((paneId) => paneIds.has(paneId)))
+        setCollection((current) => ({
+          ...current,
+          canvases: current.canvases.map((item) =>
+            item.id === snapshot.space!.id
+              ? {
+                  ...item,
+                  name: snapshot.space!.name,
+                  state: cloneState(projected),
+                  updatedAt: snapshot.space!.updatedAt,
+                }
+              : item,
+          ),
+        }))
+      }
       if (snapshot.status === 'saved' && snapshot.pending === 0) {
         lastConfirmedSpace = snapshot.space
         setCollection((current) => ({
@@ -838,6 +899,7 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
       revision: lastSpaceSnapshot.revision,
       createdAt: lastSpaceSnapshot.createdAt,
       updatedAt: lastSpaceSnapshot.updatedAt,
+      origin: lastSpaceSnapshot.origin,
     })
     return {
       ...candidate,
@@ -864,6 +926,7 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
       revision: lastConfirmedSpace.revision,
       createdAt: lastConfirmedSpace.createdAt,
       updatedAt: lastConfirmedSpace.updatedAt,
+      origin: lastConfirmedSpace.origin,
     })
     const desired = {
       ...candidate,
@@ -914,7 +977,12 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
       }
       const suffix = ' (recovered)'
       const name = `${recovery.name.slice(0, 120 - suffix.length).trimEnd()}${suffix}`
-      const draft = canvasStateToSpace({ id, name, state: recovery.state })
+      const draft = canvasStateToSpace({
+        id,
+        name,
+        state: recovery.state,
+        origin: props.initialSpace.origin,
+      })
       const saved = await spaceTransport.apply({
         command: {
           type: 'create',
@@ -968,6 +1036,23 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
       setSyncStatus('error')
       setCanvasRecoveryMessage('Unreadable local Canvas recovery needs attention')
       return false
+    }
+    if (props.spaceClient) {
+      const current = spaceClient.getSnapshot().space
+      if (!current) return false
+      lastSpaceSnapshot = current
+      const desired = desiredSpace()
+      if (!desired) return false
+      try {
+        for (const command of spaceCommandsToMatch(current, desired)) {
+          void spaceClient.dispatch(command).catch(() => undefined)
+        }
+        lastSpaceSnapshot = spaceClient.getSnapshot().space ?? lastSpaceSnapshot
+        projectedSpaceRevision = lastSpaceSnapshot.revision
+        return waitForSave ? waitForSpaceSave() : true
+      } catch {
+        return false
+      }
     }
     if (canvasIsOffline()) {
       spaceClient.setOnline(false)
@@ -1191,6 +1276,11 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
     const oldBodyOverflow = document.body.style.overflow
     document.documentElement.style.overflow = 'hidden'
     document.body.style.overflow = 'hidden'
+    const flushForPresentation = () => {
+      persistActiveState()
+      void syncSpace()
+    }
+    const unregisterPresentationFlush = props.registerPresentationFlush?.(flushForPresentation)
     const viewport = viewportEl
     const viewportObserver = new ResizeObserver(() => {
       setViewportSize({
@@ -1279,6 +1369,7 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
     if (props.initialSpace) void refreshCanvasSpaces()
     else void syncCanvases(true)
     onCleanup(() => {
+      unregisterPresentationFlush?.()
       viewport?.removeEventListener('pointerdown', beginPan, true)
       viewportObserver.disconnect()
       document.removeEventListener('pointerdown', dismissContextMenu, true)
@@ -1311,8 +1402,9 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     persistActiveState()
+    if (props.initialSpace) void syncSpace()
     unsubscribeSpaceClient?.()
-    spaceClient?.dispose()
+    if (spaceClient && spaceClient !== props.spaceClient) spaceClient.dispose()
     panController.dispose()
   })
 
@@ -2418,6 +2510,27 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
     zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, nextZoom)
   }
 
+  function centerFromMinimap(event: MouseEvent) {
+    const model = minimapModel()
+    const viewport = viewportEl?.getBoundingClientRect()
+    if (!model || !viewport) return
+    const rect =
+      event.currentTarget instanceof HTMLElement
+        ? event.currentTarget.getBoundingClientRect()
+        : null
+    if (!rect) return
+    const point = minimapPointToWorld(model, {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    })
+    const zoom = state().camera.zoom
+    animateCamera({
+      zoom,
+      x: viewport.width / 2 - point.x * zoom,
+      y: viewport.height / 2 - point.y * zoom,
+    })
+  }
+
   function onCanvasContextMenu(event: MouseEvent) {
     event.preventDefault()
     if (readOnlyMode()) return
@@ -2526,13 +2639,15 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
   })
 
   return (
-    <div class='canvas-layout fixed inset-0 flex select-none flex-col overflow-hidden bg-background text-foreground'>
+    <div
+      class={`canvas-layout ${props.embedded ? 'space-presentation-embedded absolute inset-0' : 'fixed inset-0'} flex select-none flex-col overflow-hidden bg-background text-foreground`}
+    >
       <header class='relative z-[100000] flex h-12 shrink-0 items-center border-b border-border bg-card/95 px-2 shadow-sm backdrop-blur'>
         <div class='mr-2 flex h-8 shrink-0 items-center border-r border-border pr-2'>
           <button
             type='button'
-            title='Canvas outline'
-            aria-label='Canvas outline'
+            title={props.embedded ? 'Map outline' : 'Canvas outline'}
+            aria-label={props.embedded ? 'Map outline' : 'Canvas outline'}
             class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
             onClick={() => setOutlineOpen((open) => !open)}
           >
@@ -2742,6 +2857,7 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
             </button>
           </div>
           <div
+            data-canvas-history-divider
             data-testid='canvas-toolbar-divider'
             class='hidden h-6 w-px shrink-0 bg-border md:block'
           />
@@ -2902,6 +3018,42 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
       </Show>
 
       <Show when={!maximizedWindowId()}>
+        <Show when={minimapModel()} keyed>
+          {(model) => (
+            <button
+              type='button'
+              data-testid='canvas-minimap'
+              aria-label='Map overview; click to center the view'
+              class='fixed right-3 bottom-16 z-[104000] h-32 w-48 overflow-hidden rounded-lg border border-border bg-popover/95 shadow-xl backdrop-blur'
+              onClick={centerFromMinimap}
+            >
+              <For each={model.windows}>
+                {(window, index) => (
+                  <span
+                    class='pointer-events-none absolute rounded-[2px] border border-muted-foreground/45 bg-muted-foreground/20'
+                    data-pane-index={index()}
+                    style={{
+                      left: `${window.x}px`,
+                      top: `${window.y}px`,
+                      width: `${window.width}px`,
+                      height: `${window.height}px`,
+                    }}
+                  />
+                )}
+              </For>
+              <span
+                data-testid='canvas-minimap-viewport'
+                class='pointer-events-none absolute border-2 border-primary bg-primary/10'
+                style={{
+                  left: `${model.viewport.x}px`,
+                  top: `${model.viewport.y}px`,
+                  width: `${model.viewport.width}px`,
+                  height: `${model.viewport.height}px`,
+                }}
+              />
+            </button>
+          )}
+        </Show>
         <div
           data-testid='canvas-zoom-control'
           class='fixed right-3 bottom-3 z-[104000] flex h-11 items-center gap-2 rounded-lg border border-border bg-popover/95 px-2 shadow-xl backdrop-blur'
@@ -2939,7 +3091,9 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
       <Show when={outlineOpen()}>
         <aside class='fixed top-12 bottom-0 left-0 z-[110000] flex w-72 flex-col border-r border-border bg-card/95 shadow-xl backdrop-blur'>
           <div class='flex h-11 items-center justify-between border-b px-3'>
-            <span class='text-sm font-semibold'>Canvas outline</span>
+            <span class='text-sm font-semibold'>
+              {props.embedded ? 'Map outline' : 'Canvas outline'}
+            </span>
             <button
               type='button'
               aria-label='Close canvas outline'
@@ -3310,85 +3464,42 @@ export function CanvasPage(props: { initialSpace?: Space } = {}) {
                           state().camera.zoom < LIVE_ZOOM && !maximized(),
                       }}
                     >
-                      <Show when={canvasResourceWindowIsPending(item()!.definition)}>
-                        <ResourceResolvingPane />
-                      </Show>
-                      <Show
-                        when={unavailablePersistedResourceTarget(item()!.definition.resourceTarget)}
-                      >
-                        {(target) => <ResourceUnavailablePane target={target()} />}
-                      </Show>
-                      <Show
-                        when={
-                          !canvasResourceWindowIsPending(item()!.definition) &&
-                          !item()!.definition.resourceTarget?.availability &&
-                          item()!.definition.type === 'browser'
+                      <PaneHost
+                        runtimeKey={`${props.initialSpace?.id ?? collection().activeId}:${windowId}`}
+                        preserveBrowserHistory={props.initialSpace !== undefined}
+                        paneId={windowId}
+                        window={() => item()!.definition}
+                        workspace={workspace}
+                        contentVisible={() => true}
+                        pending={() => canvasResourceWindowIsPending(item()!.definition)}
+                        surface='canvas'
+                        storageKey={`${CANVAS_STORAGE_KEY}:${props.initialSpace?.id ?? collection().activeId}`}
+                        sharePanel={() => null}
+                        fileIconContext={fileIconContext}
+                        editableFolders={() => (readOnlyMode() ? [] : editableFolders())}
+                        knowledgeBases={knowledgeBases}
+                        onNavigateDir={navigateDir}
+                        onOpenViewer={(paneId, file) => openFromBrowser(paneId, file)}
+                        onOpenReader={openReaderFromBrowser}
+                        onOpenVirtualTarget={openHermesFromBrowser}
+                        onOpenInNewTab={(paneId, file) => openFromBrowser(paneId, file, true)}
+                        openInNewTabLabel='Open in new Map Pane'
+                        onRequestPlay={(_source, file) => openFromBrowser(windowId, file)}
+                        onOpenFileInNewFloatingWindow={(paneId, file) =>
+                          openFromBrowser(paneId, file, true)
                         }
-                      >
-                        <WorkspaceBrowserPane
-                          windowId={windowId}
-                          surface='canvas'
-                          workspace={workspace}
-                          sharePanel={() => null}
-                          fileIconContext={fileIconContext}
-                          shareAllowUpload={false}
-                          shareCanEdit={false}
-                          shareCanDelete={false}
-                          shareIsKnowledgeBase={false}
-                          editableFolders={readOnlyMode() ? [] : editableFolders()}
-                          onNavigateDir={navigateDir}
-                          onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
-                          onOpenReader={openReaderFromBrowser}
-                          onOpenVirtualTarget={openHermesFromBrowser}
-                          onOpenInNewTab={(windowId, file) => openFromBrowser(windowId, file, true)}
-                          openInNewTabLabel='Open in new canvas window'
-                          onRequestPlay={(_source, file) => openFromBrowser(windowId, file)}
-                          onOpenFileInNewFloatingWindow={(windowId, file) =>
-                            openFromBrowser(windowId, file, true)
-                          }
-                        />
-                      </Show>
-                      <Show
-                        when={
-                          !canvasResourceWindowIsPending(item()!.definition) &&
-                          !item()!.definition.resourceTarget?.availability &&
-                          item()!.definition.type === 'viewer'
+                        onUpdateViewing={updateViewing}
+                        onVideoMetadataLoaded={(width, height) =>
+                          sizeVideoWindow(windowId, width, height)
                         }
-                      >
-                        <WorkspaceViewerPane
-                          windowId={windowId}
-                          storageKey={CANVAS_STORAGE_KEY}
-                          contentVisible={() => true}
-                          workspace={workspace}
-                          sharePanel={() => null}
-                          editableFolders={readOnlyMode() ? [] : editableFolders()}
-                          knowledgeBases={knowledgeBases()}
-                          shareCanEdit={false}
-                          shareCanUpload={false}
-                          autoPlayVideo={false}
-                          onUpdateViewing={updateViewing}
-                          onVideoMetadataLoaded={(width, height) =>
-                            sizeVideoWindow(windowId, width, height)
-                          }
-                          onAudioActivate={() => handleAudioActivate(windowId)}
-                          showListenOnly={false}
-                        />
-                      </Show>
-                      <Show
-                        when={
-                          !canvasResourceWindowIsPending(item()!.definition) &&
-                          !item()!.definition.resourceTarget?.availability &&
-                          item()!.definition.type === 'hermes'
+                        onAudioActivate={() => handleAudioActivate(windowId)}
+                        autoPlayVideo={false}
+                        showListenOnly={false}
+                        onSessionCreated={(id) => bindHermesSession(windowId, id)}
+                        onTitleChanged={(title) =>
+                          updateDefinition(windowId, (definition) => ({ ...definition, title }))
                         }
-                      >
-                        <HermesChatPane
-                          window={() => item()!.definition}
-                          onSessionCreated={(id) => bindHermesSession(windowId, id)}
-                          onTitleChanged={(title) =>
-                            updateDefinition(windowId, (definition) => ({ ...definition, title }))
-                          }
-                        />
-                      </Show>
+                      />
                     </div>
                     <Show when={state().camera.zoom < LIVE_ZOOM}>
                       <div

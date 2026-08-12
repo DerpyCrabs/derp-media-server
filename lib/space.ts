@@ -1,8 +1,4 @@
-import {
-  persistentWorkspaceWindows,
-  type PersistedWorkspaceState,
-  type WorkspaceWindowDefinition,
-} from './use-workspace'
+import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from './use-workspace'
 import { deletedHermesSessionIds } from './hermes-session-store'
 import {
   CANVAS_SCHEMA_VERSION,
@@ -716,6 +712,7 @@ export function canvasStateToSpace(
     revision?: number
     createdAt?: number
     updatedAt?: number
+    origin?: SpaceOrigin
   },
   clock: Clock = Date,
 ): Space {
@@ -723,12 +720,12 @@ export function canvasStateToSpace(
     .filter(
       (window) =>
         window.definition.type !== 'hermes' ||
-        (!!window.definition.hermes?.sessionId &&
-          !deletedHermesSessionIds.has(window.definition.hermes.sessionId)),
+        !window.definition.hermes?.sessionId ||
+        !deletedHermesSessionIds.has(window.definition.hermes.sessionId),
     )
     .map((window) => {
       const copy = structuredClone(window)
-      if (copy.definition.type !== 'hermes') return copy
+      if (copy.definition.type !== 'hermes' || !copy.definition.hermes?.sessionId) return copy
       const { draftId: _draftId, ...hermes } = copy.definition.hermes ?? {}
       return { ...copy, definition: { ...copy.definition, hermes } }
     })
@@ -754,7 +751,7 @@ export function canvasStateToSpace(
     id: input.id,
     name: input.name,
     revision: input.revision ?? 0,
-    origin: 'canvas',
+    origin: input.origin ?? 'canvas',
     panes,
     arrangements: { spatial },
     createdAt: input.createdAt ?? now,
@@ -828,11 +825,24 @@ export function workspaceStateToSpace(
     revision?: number
     createdAt?: number
     updatedAt?: number
+    origin?: SpaceOrigin
   },
   clock: Clock = Date,
 ): Space {
   const now = timestampNow(clock)
-  const windows = persistentWorkspaceWindows(input.state.windows)
+  const windows = input.state.windows
+    .filter(
+      (window) =>
+        window.type !== 'hermes' ||
+        !window.hermes?.sessionId ||
+        !deletedHermesSessionIds.has(window.hermes.sessionId),
+    )
+    .map((window) => {
+      const copy = structuredClone(window)
+      if (copy.type !== 'hermes' || !copy.hermes?.sessionId) return copy
+      const { draftId: _draftId, ...hermes } = copy.hermes
+      return { ...copy, hermes }
+    })
   assertUniquePaneIds(windows)
   const panes = Object.fromEntries(windows.map((window) => [window.id, definitionToPane(window)]))
   const tabGroups: Record<string, string[]> = {}
@@ -869,7 +879,7 @@ export function workspaceStateToSpace(
     id: input.id,
     name: input.name,
     revision: input.revision ?? 0,
-    origin: 'workspace',
+    origin: input.origin ?? 'workspace',
     panes,
     arrangements: { tiled },
     createdAt: input.createdAt ?? now,

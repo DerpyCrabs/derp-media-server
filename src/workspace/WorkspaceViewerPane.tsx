@@ -75,6 +75,7 @@ import {
 import { executeOpenPlan, openResource } from '../lib/open-resource'
 import { viewerMediaType, viewerReaderKind } from '../lib/viewer-registry'
 import type { ResourceSummary, ViewerId } from '@/lib/resource'
+import type { PaneViewerRuntime } from '../spaces/pane-runtime'
 
 const ReaderDialog = lazy(() =>
   import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
@@ -86,9 +87,11 @@ export type WorkspaceVideoListenOnlyDetail = {
   videoCurrentTime: number
 }
 
-type Props = {
+export type WorkspaceViewerPaneProps = {
   windowId: string
+  viewerId?: ViewerId
   storageKey: string
+  runtimeState?: PaneViewerRuntime
   contentVisible: Accessor<boolean>
   workspace: Accessor<PersistedWorkspaceState | null>
   sharePanel: Accessor<WorkspaceShareConfig | null>
@@ -168,7 +171,7 @@ function samePlaybackItem(
   )
 }
 
-export function WorkspaceViewerPane(props: Props) {
+export function WorkspaceViewerPane(props: WorkspaceViewerPaneProps) {
   const queryClient = useQueryClient()
   const playbackSession = usePlaybackSession()
   const playbackSnapshot = usePlaybackSnapshot()
@@ -197,6 +200,7 @@ export function WorkspaceViewerPane(props: Props) {
     const window = win()
     return (
       window?.initialState?.readerKind ??
+      (props.viewerId ? viewerReaderKind(props.viewerId) : null) ??
       (window?.viewerId ? viewerReaderKind(window.viewerId) : null)
     )
   })
@@ -206,6 +210,7 @@ export function WorkspaceViewerPane(props: Props) {
   const mediaType = createMemo(() => {
     const window = win()
     return (
+      (props.viewerId ? viewerMediaType(props.viewerId) : null) ??
       (window?.viewerId ? viewerMediaType(window.viewerId) : null) ??
       getMediaTypeFromPath(viewingPath())
     )
@@ -711,8 +716,12 @@ export function WorkspaceViewerPane(props: Props) {
     return audioMetadataQuery.data?.duration ?? 0
   })
 
-  const [zoom, setZoom] = createSignal<number | 'fit'>('fit')
-  const [rotation, setRotation] = createSignal(0)
+  const [localZoom, setLocalZoom] = createSignal<number | 'fit'>('fit')
+  const [localRotation, setLocalRotation] = createSignal(0)
+  const zoom = props.runtimeState?.zoom ?? localZoom
+  const setZoom = props.runtimeState?.setZoom ?? setLocalZoom
+  const rotation = props.runtimeState?.rotation ?? localRotation
+  const setRotation = props.runtimeState?.setRotation ?? setLocalRotation
   const [imageSurface, setImageSurface] = createSignal<HTMLDivElement>()
   let imageWheelDelta = 0
   let imageWheelResetTimer: ReturnType<typeof setTimeout> | undefined
@@ -743,8 +752,12 @@ export function WorkspaceViewerPane(props: Props) {
     zoom,
     prefetchPaths: imagePrefetchPaths,
     onDisplayPath: () => {
-      setZoom('fit')
-      setRotation(0)
+      const path = viewingPath()
+      if (!props.runtimeState || props.runtimeState.imagePath() !== path) {
+        setZoom('fit')
+        setRotation(0)
+        props.runtimeState?.setImagePath(path)
+      }
     },
   })
 
@@ -881,7 +894,9 @@ export function WorkspaceViewerPane(props: Props) {
     return isPathEditable(viewingPath(), props.editableFolders)
   })
 
-  const [readOnlyView, setReadOnlyView] = createSignal(false)
+  const [localReadOnlyView, setLocalReadOnlyView] = createSignal(false)
+  const readOnlyView = props.runtimeState?.readOnlyView ?? localReadOnlyView
+  const setReadOnlyView = props.runtimeState?.setReadOnlyView ?? setLocalReadOnlyView
   const [editContent, setEditContent] = createSignal('')
   const [editorBaseContent, setEditorBaseContent] = createSignal('')
   const [savedContentAwaitingQuery, setSavedContentAwaitingQuery] = createSignal<string | null>(
@@ -1484,6 +1499,11 @@ export function WorkspaceViewerPane(props: Props) {
               controls
               playsinline
               data-media-type={MediaType.VIDEO}
+              data-playback-generation={
+                playbackSnapshot().source?.generation === videoBoundGeneration && videoBindingReady
+                  ? videoBoundGeneration
+                  : undefined
+              }
               title={fileName()}
               onLoadStart={() => setMediaLoading(true)}
               onCanPlay={(event) => handleVideoCanPlay(event.currentTarget)}

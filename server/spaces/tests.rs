@@ -265,6 +265,88 @@ fn command_interface_preserves_identity_history_and_conflict_snapshot() {
 }
 
 #[test]
+fn command_receipt_retry_returns_current_result_without_reapplying() {
+    let fixture = fixture("command-receipt-retry");
+    apply(&fixture.engine, create_body("receipt-space", "pane")).unwrap();
+    let delete = json!({
+        "commandId":"delete-lost-ack",
+        "spaceId":"receipt-space",
+        "expectedRevision":1,
+        "command":{"type":"delete"},
+    });
+    let deleted = apply(&fixture.engine, delete.clone()).unwrap();
+    assert_eq!(deleted.revision, 2);
+    assert!(deleted.deleted_at.is_some());
+
+    let restored = apply(
+        &fixture.engine,
+        json!({
+            "commandId":"restore-after-delete",
+            "spaceId":"receipt-space",
+            "expectedRevision":2,
+            "command":{"type":"restoreRevision","revision":1},
+        }),
+    )
+    .unwrap();
+    assert_eq!(restored.revision, 3);
+    assert_eq!(restored.deleted_at, None);
+
+    let restarted = SpaceEngine::for_test(
+        fixture.engine.database.clone(),
+        fixture.engine.library_id.clone(),
+        HISTORY_RETENTION,
+    );
+    let mut retry = delete;
+    retry["expectedRevision"] = json!(999);
+    let replayed = apply(&restarted, retry).unwrap();
+    assert_eq!(replayed, restored);
+    assert_eq!(restarted.load("receipt-space").unwrap(), restored);
+    assert_eq!(restarted.history("receipt-space").unwrap().len(), 3);
+}
+
+#[test]
+fn command_receipt_rejects_mismatched_or_invalid_id_reuse() {
+    let fixture = fixture("command-receipt-mismatch");
+    apply(&fixture.engine, create_body("receipt-space", "pane")).unwrap();
+    let renamed = apply(
+        &fixture.engine,
+        json!({
+            "commandId":"rename-once",
+            "spaceId":"receipt-space",
+            "expectedRevision":1,
+            "command":{"type":"rename","name":"First name"},
+        }),
+    )
+    .unwrap();
+    let mismatch = apply(
+        &fixture.engine,
+        json!({
+            "commandId":"rename-once",
+            "spaceId":"receipt-space",
+            "expectedRevision":2,
+            "command":{"type":"rename","name":"Different command"},
+        }),
+    )
+    .unwrap_err();
+    assert!(matches!(mismatch.kind, SpaceErrorKind::Invalid));
+    assert_eq!(fixture.engine.load("receipt-space").unwrap(), renamed);
+    assert_eq!(fixture.engine.history("receipt-space").unwrap().len(), 2);
+
+    let invalid = apply(
+        &fixture.engine,
+        json!({
+            "commandId":"",
+            "spaceId":"receipt-space",
+            "expectedRevision":2,
+            "command":{"type":"rename","name":"Rejected"},
+        }),
+    )
+    .unwrap_err();
+    assert!(matches!(invalid.kind, SpaceErrorKind::Invalid));
+    assert_eq!(fixture.engine.load("receipt-space").unwrap(), renamed);
+}
+
+#[test]
 fn retained_history_expires_old_revisions_without_touching_head() {
     let fixture = fixture("retention");
     let engine = SpaceEngine::for_test(
@@ -785,9 +867,18 @@ fn production_migration_order_backup_and_restart_preserve_legacy_data() {
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(versions, vec![1, 3, 4, 5]);
-    for table in ["spaces", "space_revisions", "space_imports"] {
+    for table in [
+        "spaces",
+        "space_revisions",
+        "space_imports",
+        "space_command_receipts",
+    ] {
         assert!(table_exists(&connection, table).unwrap());
     }
+    connection
+        .execute("DROP TABLE space_command_receipts", [])
+        .unwrap();
+    assert!(!table_exists(&connection, "space_command_receipts").unwrap());
     drop(connection);
 
     let backup = config
@@ -808,6 +899,7 @@ fn production_migration_order_backup_and_restart_preserve_legacy_data() {
     assert_eq!(restarted.import_export().unwrap().len(), 1);
     assert_eq!(fs::read(&backup).unwrap(), backup_bytes);
     let connection = state_db::connection(&database).unwrap();
+    assert!(table_exists(&connection, "space_command_receipts").unwrap());
     assert_eq!(
         connection
             .query_row(

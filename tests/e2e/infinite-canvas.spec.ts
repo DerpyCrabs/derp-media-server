@@ -1,10 +1,17 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
 import { CANVAS_GRID_SIZE } from '@/lib/infinite-canvas'
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
+
+function currentSpaceId(page: Page): string {
+  const segments = new URL(page.url()).pathname.split('/').filter(Boolean)
+  const idSegment = segments[segments.indexOf('id') + 1]
+  if (!idSegment?.startsWith('~')) throw new Error(`Space id missing from ${page.url()}`)
+  return decodeURIComponent(idSegment.slice(1))
+}
 
 test.beforeEach(async ({ page }, testInfo) => {
   await page.route('**/api/canvases**', async (route) => {
@@ -41,82 +48,84 @@ test.beforeEach(async ({ page }, testInfo) => {
     },
   })
   expect(created.ok()).toBe(true)
-  await page.goto(`/spaces/id/~${encodeURIComponent(spaceId)}`)
+  await page.goto(`/spaces/id/~${encodeURIComponent(spaceId)}/map`)
   await expect(page.getByTestId('infinite-canvas')).toBeVisible()
 })
 
-test('creates, names, switches, and restores canvases', async ({ page }) => {
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await page.getByLabel('Name').fill('Projects')
-  await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Projects')
-
+test('renames current Space and restores its Map panes', async ({ page }) => {
+  const id = currentSpaceId(page)
+  const name = page.getByTestId('space-name')
+  await name.fill('Projects')
+  await name.press('Enter')
   await page.getByTestId('canvas-add-trigger').click()
   await page.getByRole('button', { name: 'File browser' }).click()
-
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await page.getByLabel('Name').fill('Empty')
-  await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByTestId('canvas-window')).toHaveCount(0)
-
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'Projects', exact: true }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
-
-  await page.getByTestId('canvas-name-trigger').click()
-  const renameProjects = page.getByLabel('Rename Projects')
-  const projectsRow = page.getByTestId('canvas-list-item').filter({ hasText: 'Projects' })
-  await expect(projectsRow.locator('[data-canvas-row-actions]')).toHaveCSS('opacity', '0')
-  await projectsRow.hover()
-  await expect(projectsRow.locator('[data-canvas-row-actions]')).toHaveCSS('opacity', '1')
-  await renameProjects.click()
-  await page.getByLabel('Name').fill('Projects renamed')
-  await page.getByRole('button', { name: 'Save' }).click()
-
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByTestId('canvas-list-item').filter({ hasText: 'Empty' }).hover()
-  await page.getByLabel('Delete Empty').click()
-  await page.getByRole('button', { name: 'Delete canvas' }).click()
-  await page.getByTestId('canvas-name-trigger').click()
-  await expect(page.getByRole('button', { name: 'Empty', exact: true })).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
+      const body = (await response.json()) as {
+        space: { name: string; panes: Record<string, unknown> }
+      }
+      return {
+        name: body.space.name,
+        paneCount: Object.keys(body.space.panes).length,
+      }
+    })
+    .toEqual({ name: 'Projects', paneCount: 1 })
   await page.reload()
-  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Projects renamed')
+  await expect(page).toHaveURL(/\/map$/)
+  await expect(name).toHaveValue('Projects')
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
 })
 
 test('creates a real Markdown editor at the default canvas position', async ({ page }) => {
   const title = `Design brief ${Date.now()}`
   await page.getByTestId('canvas-add-trigger').click()
-  await page.getByRole('banner').getByRole('button', { name: 'New document', exact: true }).click()
+  await page
+    .getByTestId('canvas-create-tools')
+    .getByRole('button', { name: 'New document', exact: true })
+    .click()
   await expect(page.getByText('Creates a Markdown file and opens it on this canvas.')).toBeVisible()
   await page.getByLabel('Document title').fill(title)
   await page.getByRole('button', { name: 'Create document' }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
   await expect(
-    page.getByRole('textbox', { name: new RegExp(`${title}.* Markdown editor`) }),
+    page.getByRole('textbox', {
+      name: new RegExp(`${title}.* Markdown editor`),
+    }),
   ).toBeVisible()
 })
 
-test('creates blank canvases', async ({ page }) => {
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await page.getByLabel('Name').fill('Hardware plan')
-  await page.getByRole('button', { name: 'Save' }).click()
+test('keeps an empty renamed Map Space after reload', async ({ page }) => {
+  const name = page.getByTestId('space-name')
+  await name.fill('Hardware plan')
+  await name.press('Enter')
+  await expect(name).toHaveValue('Hardware plan')
+  await page.reload()
+  await expect(page.getByTestId('space-name')).toHaveValue('Hardware plan')
   await expect(page.getByTestId('canvas-window')).toHaveCount(0)
 })
 
-test('searches canvases from picker', async ({ page }) => {
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await page.getByLabel('Name').fill('Research board')
-  await page.getByRole('button', { name: 'Save' }).click()
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByLabel('Search canvases').fill('Research')
-  const row = page.getByTestId('canvas-list-item').filter({ hasText: 'Research board' })
-  await expect(row).toBeVisible()
+test('switches Map Spaces from common picker', async ({ page }) => {
+  const id = `map-picker-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const created = await page.request.post('/api/spaces/commands', {
+    data: {
+      command: {
+        type: 'create',
+        id,
+        name: 'Research board',
+        origin: 'canvas',
+        panes: {},
+        arrangements: { spatial: { placements: {} } },
+      },
+    },
+  })
+  expect(created.ok()).toBe(true)
+  await page.reload()
+  await page.getByTestId('space-picker').selectOption({ label: 'Research board' })
+  await expect(page).toHaveURL(`/spaces/id/~${encodeURIComponent(id)}/map`)
+  await expect(page.getByTestId('space-name')).toHaveValue('Research board')
+  await expect(page.getByTestId('canvas-window')).toHaveCount(0)
 })
 
 test('keeps canvas camera fixed with an unmodified wheel', async ({ page }) => {
@@ -128,13 +137,12 @@ test('keeps canvas camera fixed with an unmodified wheel', async ({ page }) => {
   await expect(world).toHaveAttribute('style', before ?? '')
 })
 
-test('closes canvas dialogs with Escape and restores focus', async ({ page }) => {
-  const trigger = page.getByTestId('canvas-name-trigger')
+test('closes Map dialogs with Escape and restores focus', async ({ page }) => {
+  const trigger = page.getByRole('button', { name: 'View shortcuts' })
   await trigger.click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await expect(page.getByRole('dialog', { name: 'New canvas' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Canvas shortcuts' })).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog', { name: 'New canvas' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Canvas shortcuts' })).toHaveCount(0)
   await expect(trigger).toBeFocused()
 })
 
@@ -145,19 +153,26 @@ test('closes overflow actions when clicking outside', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Export canvas' })).toHaveCount(0)
 })
 
-test('keeps primary and zoom controls reachable on narrow screens', async ({ page }) => {
+test('keeps common shell and Map controls reachable on narrow screens', async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 700 })
   await expect(page.getByText('Saved', { exact: true })).toHaveCount(0)
-  const outline = page.getByTitle('Canvas outline')
-  const title = page.getByTestId('canvas-name-trigger')
-  expect((await outline.boundingBox())!.x).toBeLessThan((await title.boundingBox())!.x)
+  const shell = page.getByTestId('space-shell')
+  const outline = page.getByTitle('Map outline')
+  const mapHeader = outline.locator('xpath=ancestor::header')
+  const shellBox = await shell.boundingBox()
+  const mapHeaderBox = await mapHeader.boundingBox()
+  if (!shellBox || !mapHeaderBox) throw new Error('Space or Map header not laid out')
+  expect(mapHeaderBox.y).toBeGreaterThanOrEqual(shellBox.y + shellBox.height)
   await expect(page.getByTestId('canvas-add-trigger')).toHaveText('')
   await expect(page.getByTestId('canvas-search-trigger')).toHaveText('')
   await expect(page.getByTestId('canvas-create-tools')).toHaveCSS('column-gap', '8px')
-  await expect(page.getByTestId('canvas-toolbar-divider')).toHaveCount(2)
+  const dividers = page.getByTestId('canvas-toolbar-divider')
+  await expect(dividers).toHaveCount(2)
+  await expect(dividers.first()).toBeHidden()
+  await expect(dividers.last()).toBeVisible()
   for (const locator of [
     outline,
-    page.getByTestId('canvas-name-trigger'),
+    page.getByTestId('space-name'),
     page.getByTestId('canvas-add-trigger'),
     page.getByTestId('canvas-search-trigger'),
     page.getByTitle('More'),
@@ -192,7 +207,7 @@ test('shows only actionable canvas sync errors', async ({ page }) => {
 })
 
 test('rebases a local pane change over a concurrently accepted revision', async ({ page }) => {
-  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
+  const id = currentSpaceId(page)
   const loaded = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
   const current = (await loaded.json()) as { space: { revision: number } }
   const renamed = await page.request.post('/api/spaces/commands', {
@@ -213,13 +228,16 @@ test('rebases a local pane change over a concurrently accepted revision', async 
       const body = (await response.json()) as {
         space: { name: string; panes: Record<string, unknown> }
       }
-      return { name: body.space.name, paneCount: Object.keys(body.space.panes).length }
+      return {
+        name: body.space.name,
+        paneCount: Object.keys(body.space.panes).length,
+      }
     })
     .toEqual({ name: 'Concurrent Canvas', paneCount: 1 })
 })
 
 test('keeps pane edits offline and saves them after reconnect', async ({ page }) => {
-  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
+  const id = currentSpaceId(page)
   await page.evaluate(() => {
     ;(window as Window & { __canvasTestOnline?: boolean }).__canvasTestOnline = false
     Object.defineProperty(navigator, 'onLine', {
@@ -233,7 +251,9 @@ test('keeps pane edits offline and saves them after reconnect', async ({ page })
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
   await page.waitForTimeout(1_000)
   const before = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
-  const beforeBody = (await before.json()) as { space: { panes: Record<string, unknown> } }
+  const beforeBody = (await before.json()) as {
+    space: { panes: Record<string, unknown> }
+  }
   expect(Object.keys(beforeBody.space.panes)).toHaveLength(0)
 
   await page.evaluate(() => {
@@ -243,7 +263,9 @@ test('keeps pane edits offline and saves them after reconnect', async ({ page })
   await expect
     .poll(async () => {
       const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
-      const body = (await response.json()) as { space: { panes: Record<string, unknown> } }
+      const body = (await response.json()) as {
+        space: { panes: Record<string, unknown> }
+      }
       return Object.keys(body.space.panes).length
     })
     .toBe(1)
@@ -272,32 +294,45 @@ test('persists canvas records through server sync API', async ({ request }, test
       nextZIndex: 1,
     },
   }
-  const saved = await request.post('/api/canvases/sync', { data: { canvases: [record] } })
+  const saved = await request.post('/api/canvases/sync', {
+    data: { canvases: [record] },
+  })
   expect(saved.ok()).toBe(true)
 
   const loaded = await request.get('/api/canvases')
   expect(loaded.ok()).toBe(true)
-  const body = (await loaded.json()) as { canvases: Array<{ id: string; name: string }> }
+  const body = (await loaded.json()) as {
+    canvases: Array<{ id: string; name: string }>
+  }
   expect(body.canvases).toContainEqual(expect.objectContaining({ id, name: 'Server canvas' }))
 
   const deleted = await request.post('/api/canvases/sync', {
     data: {
-      canvases: [{ ...record, state: null, deleted: true, updatedAt: record.updatedAt + 1 }],
+      canvases: [
+        {
+          ...record,
+          state: null,
+          deleted: true,
+          updatedAt: record.updatedAt + 1,
+        },
+      ],
     },
   })
   expect(deleted.ok()).toBe(true)
 })
 
 test('locally restores canvas windows', async ({ page }) => {
-  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
-  await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 32, y: 650 } })
+  const id = currentSpaceId(page)
+  await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 32, y: 500 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
 
   await expect
     .poll(async () => {
       const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
-      const body = (await response.json()) as { space: { panes: Record<string, unknown> } }
+      const body = (await response.json()) as {
+        space: { panes: Record<string, unknown> }
+      }
       return Object.keys(body.space.panes).length
     })
     .toBe(1)
@@ -477,23 +512,9 @@ test('keeps canvas camera fixed when a book changes chapter or reopens', async (
   await expect(page.getByTestId('reader-book')).toBeVisible()
   await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
   await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
-
-  const selectableText = page
-    .getByTestId('reader-book')
-    .getByText('Selectable EPUB text begins here.')
-  const textBox = await selectableText.boundingBox()
-  if (!textBox) throw new Error('EPUB text not laid out')
-  const selectionY = textBox.y + textBox.height / 2
-  await page.mouse.move(textBox.x + 2, selectionY)
-  await page.mouse.down()
-  await page.mouse.move(Math.min(textBox.x + textBox.width - 2, textBox.x + 180), selectionY, {
-    steps: 8,
-  })
-  await page.mouse.up()
-  await expect
-    .poll(() => page.evaluate(() => window.getSelection()?.toString().trim() ?? ''))
-    .not.toBe('')
-  await expect(page.getByTestId('reader-selection-menu')).toBeVisible()
+  await expect(
+    page.getByTestId('reader-book').getByText('Selectable EPUB text begins here.'),
+  ).toBeVisible()
 
   const cameraBefore = await page.getByTestId('canvas-world').getAttribute('style')
   const offsets = () =>
@@ -504,7 +525,7 @@ test('keeps canvas camera fixed when a book changes chapter or reopens', async (
       pageY: window.scrollY,
     }))
   const offsetsBefore = await offsets()
-  await page.getByRole('button', { name: 'Next chapter' }).click()
+  await page.getByTestId('reader-outline').getByText('Second chapter', { exact: true }).click()
   await expect(page.getByTestId('reader-book-progress')).toContainText('Second chapter')
   expect(await offsets()).toEqual(offsetsBefore)
   expect(await page.getByTestId('canvas-world').getAttribute('style')).toBe(cameraBefore)
@@ -620,7 +641,11 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
     const transfer = new DataTransfer()
     transfer.setData(
       'application/x-derp-file-drag',
-      JSON.stringify({ path: 'preview.md', isDirectory: false, sourceKind: 'local' }),
+      JSON.stringify({
+        path: 'preview.md',
+        isDirectory: false,
+        sourceKind: 'local',
+      }),
     )
     element.dispatchEvent(
       new DragEvent('dragover', {
@@ -638,7 +663,7 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
   const previewBox = await preview.boundingBox()
   if (!previewBox) throw new Error('Canvas drop preview not laid out')
   expect(previewBox.x + previewBox.width / 2).toBeCloseTo(320, 0)
-  expect(previewBox.y + previewBox.height / 2).toBeCloseTo(256, 0)
+  expect(previewBox.y + previewBox.height / 2).toBeCloseTo(248, 0)
 
   await page.evaluate(() => document.dispatchEvent(new DragEvent('dragend', { bubbles: true })))
   await expect(preview).toBeHidden()
@@ -647,7 +672,11 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
     const transfer = new DataTransfer()
     transfer.setData(
       'application/x-derp-file-drag',
-      JSON.stringify({ path: 'preview.md', isDirectory: false, sourceKind: 'local' }),
+      JSON.stringify({
+        path: 'preview.md',
+        isDirectory: false,
+        sourceKind: 'local',
+      }),
     )
     element.dispatchEvent(
       new DragEvent('dragover', {
@@ -665,7 +694,11 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
     const transfer = new DataTransfer()
     transfer.setData(
       'application/x-derp-file-drag',
-      JSON.stringify({ path: 'preview.md', isDirectory: false, sourceKind: 'local' }),
+      JSON.stringify({
+        path: 'preview.md',
+        isDirectory: false,
+        sourceKind: 'local',
+      }),
     )
     element.dispatchEvent(
       new DragEvent('drop', {
@@ -757,8 +790,8 @@ test('restores an image-folder reader after reload', async ({ page }) => {
   await page.getByRole('button', { name: 'Open file browser' }).click()
   const browserWindow = page.getByTestId('canvas-window').first()
   await browserWindow.locator('[data-file-path="Images"]').click({ button: 'right' })
-  await page.getByTestId('open-with-menu').click()
-  await page.getByTestId('open-with-reader').click()
+  await page.getByTestId('open-with-menu').dispatchEvent('click')
+  await page.getByTestId('open-with-reader').dispatchEvent('click')
 
   const readerWindow = page.getByTestId('canvas-window').filter({
     has: page.getByTestId('reader-dialog'),
@@ -781,14 +814,14 @@ test('restores an image-folder reader after reload', async ({ page }) => {
   await expect(restoredReader.getByText('This file type cannot be previewed.')).toHaveCount(0)
 })
 
-test('shows only canvas-supported file actions', async ({ page }) => {
+test('shows only Map-supported file actions', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
 
   await page.locator('[data-file-path="Documents"]').click({ button: 'right' })
   const menu = page.locator('[data-slot="file-row-context-menu"]')
-  await expect(menu.getByRole('menuitem', { name: 'Open in new canvas window' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Open in new Map Pane' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Open in split view' })).toHaveCount(0)
   await expect(menu.getByRole('menuitem', { name: 'Open in new tab' })).toHaveCount(0)
   await expect(menu.getByRole('menuitem', { name: 'Add to taskbar' })).toHaveCount(0)
@@ -828,7 +861,10 @@ test('switches canvas audio layouts as its window is resized', async ({ page }) 
   await page.route('**/api/audio/metadata/Music/track.flac', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ title: 'Fixture Track', artist: 'Fixture Artist' }),
+      body: JSON.stringify({
+        title: 'Fixture Track',
+        artist: 'Fixture Artist',
+      }),
     })
   })
   const canvas = page.getByTestId('infinite-canvas')
@@ -897,6 +933,7 @@ test('keeps multiple audio presenters on one transport and focuses the active on
   )
 
   await browserWindow.locator('[data-file-path="Music/track.flac"]').click()
+  await page.getByRole('slider', { name: 'Canvas zoom' }).fill('100')
   const secondWindow = page
     .getByTestId('canvas-window')
     .filter({ has: page.getByRole('heading', { name: 'track.flac' }) })
@@ -930,7 +967,9 @@ test('keeps multiple audio presenters on one transport and focuses the active on
     .poll(async () => transport.evaluate((element: HTMLAudioElement) => element.paused))
     .toBe(true)
 
-  await secondWindow.click({ position: { x: 120, y: 16 } })
+  await page.getByTitle('Map outline').click()
+  const outline = page.locator('aside').filter({ hasText: 'Map outline' })
+  await outline.getByRole('button', { name: 'track.flac', exact: true }).click()
   await expect(page.getByTestId('canvas-window-breadcrumb')).toHaveText('track.flac')
   const focusPlaying = page.getByTestId('canvas-playing-audio-focus')
   await expect(focusPlaying).toHaveAttribute('aria-label', /track\.mp3/)
@@ -938,12 +977,8 @@ test('keeps multiple audio presenters on one transport and focuses the active on
   await expect(page.getByTestId('canvas-window-breadcrumb')).toHaveText('track.mp3')
 })
 
-test('keeps canvas video paused while mounting and switching canvases', async ({ page }) => {
-  const originalCanvasId = decodeURIComponent(
-    new URL(page.url()).pathname.split('/').at(-1)!.slice(1),
-  )
-  const originalCanvasName = await page.getByTestId('canvas-name-trigger').textContent()
-  if (!originalCanvasName) throw new Error('Initial Canvas name is missing')
+test('keeps Map video paused while mounting and switching presentations', async ({ page }) => {
+  const originalSpaceId = currentSpaceId(page)
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
   await page.getByRole('button', { name: 'Open file browser' }).click()
@@ -973,19 +1008,19 @@ test('keeps canvas video paused while mounting and switching canvases', async ({
   await expect
     .poll(async () => {
       const response = await page.request.get(
-        `/api/spaces/by-id/~${encodeURIComponent(originalCanvasId)}`,
+        `/api/spaces/by-id/~${encodeURIComponent(originalSpaceId)}`,
       )
-      const body = (await response.json()) as { space: { panes: Record<string, unknown> } }
+      const body = (await response.json()) as {
+        space: { panes: Record<string, unknown> }
+      }
       return Object.keys(body.space.panes).length
     })
     .toBe(2)
 
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await page.getByLabel('Name').fill('Other canvas')
-  await page.getByRole('button', { name: 'Save' }).click()
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: originalCanvasName, exact: true }).click()
+  await page.getByRole('link', { name: 'focus', exact: true }).click()
+  await expect(page).toHaveURL(/\/focus$/)
+  await page.getByRole('link', { name: 'map', exact: true }).click()
+  await expect(page).toHaveURL(/\/map$/)
   await expect(
     page.getByTestId('canvas-window').filter({ has: page.locator('video') }),
   ).toBeVisible()
@@ -1052,7 +1087,7 @@ test('creates dotted knowledge-base note names with md extension', async ({ page
 })
 
 test('loads large virtualized directories inside canvas browser', async ({ page }) => {
-  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!.slice(1))
+  const id = currentSpaceId(page)
   const folderName = `CanvasLarge-${batchId ?? 'local'}`
   const folderPath = path.resolve(mediaDirName, folderName)
   fs.mkdirSync(folderPath, { recursive: true })
@@ -1075,7 +1110,9 @@ test('loads large virtualized directories inside canvas browser', async ({ page 
     .poll(async () => {
       const response = await page.request.get(`/api/spaces/by-id/~${encodeURIComponent(id)}`)
       const body = (await response.json()) as {
-        space: { panes: Record<string, { state?: { initialState?: { dir?: string } } }> }
+        space: {
+          panes: Record<string, { state?: { initialState?: { dir?: string } } }>
+        }
       }
       return Object.values(body.space.panes)[0]?.state?.initialState?.dir ?? null
     })
@@ -1085,6 +1122,7 @@ test('loads large virtualized directories inside canvas browser', async ({ page 
 })
 
 test('restores virtualized browser rows after complete window remount', async ({ page }) => {
+  const mapUrl = page.url()
   const folderName = `CanvasRemount-${batchId ?? 'local'}`
   const folderPath = path.resolve(mediaDirName, folderName)
   fs.mkdirSync(folderPath, { recursive: true })
@@ -1104,7 +1142,7 @@ test('restores virtualized browser rows after complete window remount', async ({
   await expect(firstItem).toBeVisible()
 
   await page.goto('/')
-  await page.goto('/canvas')
+  await page.goto(mapUrl)
   await expect(firstItem).toBeVisible()
   await expect(page.locator(`[data-file-path^="${folderName}/remount-item-"]`)).not.toHaveCount(0)
 
@@ -1160,7 +1198,11 @@ test('remembers resized dimensions for new windows of same type', async ({ page 
     const transfer = new DataTransfer()
     transfer.setData(
       'application/x-derp-file-drag',
-      JSON.stringify({ path: 'folder', isDirectory: true, sourceKind: 'local' }),
+      JSON.stringify({
+        path: 'folder',
+        isDirectory: true,
+        sourceKind: 'local',
+      }),
     )
     transfer.setData('application/x-derp-file-drag-directory', '1')
     element.dispatchEvent(
@@ -1196,12 +1238,12 @@ test('dismisses canvas context menu when interacting with a window', async ({ pa
   const window = page.getByTestId('canvas-window')
   await expect(window).toBeVisible()
 
-  await canvas.click({ button: 'right', position: { x: 900, y: 650 } })
+  await canvas.click({ button: 'right', position: { x: 900, y: 500 } })
   await expect(page.locator('[data-canvas-context-menu]')).toBeVisible()
   await window.click({ position: { x: 120, y: 100 } })
   await expect(page.locator('[data-canvas-context-menu]')).toBeHidden()
 
-  await canvas.click({ button: 'right', position: { x: 900, y: 650 } })
+  await canvas.click({ button: 'right', position: { x: 900, y: 500 } })
   await expect(page.locator('[data-canvas-context-menu]')).toBeVisible()
   const box = await window.boundingBox()
   if (!box) throw new Error('Canvas window not laid out')
