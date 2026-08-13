@@ -1,5 +1,5 @@
 use crate::{
-    app::{Shared, roots, timestamp_ms},
+    app::{Shared, timestamp_ms},
     error::{AppError, AppResult},
     media, reader_state,
 };
@@ -38,7 +38,7 @@ fn database(state: &crate::app::AppState) -> std::path::PathBuf {
 }
 
 fn fingerprint(state: &crate::app::AppState, logical: &str) -> AppResult<String> {
-    let resolved = media::resolve(&state.config, &roots(state), logical)?;
+    let resolved = media::resolve(&state.config, logical)?;
     let metadata = std::fs::metadata(resolved.full).map_err(AppError::io)?;
     let modified = metadata
         .modified()

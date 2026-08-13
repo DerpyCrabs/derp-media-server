@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppState, Shared, roots},
+    app::{AppState, Shared},
     error::{AppError, AppResult},
     image_variants::{Demand, Priority},
     media, thumbnails,
@@ -55,7 +55,7 @@ pub(crate) fn thumbnail_response(
 }
 
 pub(crate) async fn thumbnail_path(state: &AppState, logical: &str) -> Response {
-    let Ok(resolved) = media::resolve(&state.config, &roots(state), logical) else {
+    let Ok(resolved) = media::resolve(&state.config, logical) else {
         return thumbnail_response(thumbnails::PLACEHOLDER.to_vec(), false, false);
     };
     let Ok(metadata) = fs::metadata(&resolved.full).await else {
@@ -145,7 +145,7 @@ pub(crate) async fn image_path(
     query: &ImageQuery,
     headers: &HeaderMap,
 ) -> AppResult<Response> {
-    let resolved = media::resolve(&state.config, &roots(state), logical)?;
+    let resolved = media::resolve(&state.config, logical)?;
     let metadata = fs::metadata(&resolved.full).await.map_err(AppError::io)?;
     if !metadata.is_file() {
         return Err(AppError::bad("Not a file"));
@@ -261,7 +261,7 @@ async fn audio_metadata(
     Path(path): Path<String>,
 ) -> AppResult<JsonValue> {
     let result = async {
-        let full = media::resolve(&state.config, &roots(&state), &path)?.full;
+        let full = media::resolve(&state.config, &path)?.full;
         audio_metadata_path(&full).await
     }
     .await;
@@ -397,7 +397,7 @@ async fn extract_audio(
     Path(path): Path<String>,
     headers: HeaderMap,
 ) -> AppResult<Response> {
-    let full = media::resolve(&state.config, &roots(&state), &path)?.full;
+    let full = media::resolve(&state.config, &path)?.full;
     if !full.exists() {
         return Err(AppError::not_found("File not found"));
     }
@@ -412,7 +412,7 @@ pub(crate) async fn media_path(
     logical: &str,
     headers: &HeaderMap,
 ) -> AppResult<Response> {
-    let resolved = media::resolve(&state.config, &roots(state), logical)?;
+    let resolved = media::resolve(&state.config, logical)?;
     let metadata = fs::metadata(&resolved.full).await.map_err(AppError::io)?;
     if !metadata.is_file() {
         return Err(AppError::bad("Not a file"));
@@ -436,7 +436,7 @@ pub(crate) async fn media_path(
             header::CACHE_CONTROL,
             HeaderValue::from_static(
                 if media::media_type(&extension) == "text"
-                    || media::editable(&state.config, &roots(state), logical)
+                    || media::editable(&state.config, logical)
                 {
                     "no-cache, no-store, must-revalidate"
                 } else {
@@ -476,9 +476,7 @@ pub(crate) async fn media_path(
     values.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static(
-            if media::media_type(&extension) == "text"
-                || media::editable(&state.config, &roots(state), logical)
-            {
+            if media::media_type(&extension) == "text" || media::editable(&state.config, logical) {
                 "no-cache, no-store, must-revalidate"
             } else {
                 "public, max-age=31536000"

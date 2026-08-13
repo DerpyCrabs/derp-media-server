@@ -5,7 +5,6 @@ export const queryKeys = {
   },
   settings: () => ['settings'] as const,
   serverConfig: () => ['server-config'] as const,
-  mounts: () => ['mounts'] as const,
   stats: () => ['stats'] as const,
   kb: () => ['kb'] as const,
   adminContent: () => ['content', 'admin'] as const,

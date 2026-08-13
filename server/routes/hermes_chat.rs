@@ -812,7 +812,7 @@ async fn reference(
         .hermes
         .as_ref()
         .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))?;
-    let resolved = media::resolve(&state.config, &crate::app::roots(&state), &body.path)?;
+    let resolved = media::resolve(&state.config, &body.path)?;
     let metadata = tokio::fs::metadata(&resolved.full)
         .await
         .map_err(AppError::io)?;

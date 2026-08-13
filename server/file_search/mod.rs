@@ -30,7 +30,6 @@ enum Request {
         mode: String,
         root_id: Option<String>,
     },
-    Sync(Vec<MediaRoot>),
     ChangeLogical(String),
     ChangeRoot {
         root_id: String,
@@ -115,12 +114,6 @@ impl FileSearch {
     pub fn changed(&self, directory: &str) {
         if self.config.enabled {
             let _ = self.sender.send(Request::ChangeLogical(directory.into()));
-        }
-    }
-
-    pub fn sync_roots(&self, roots: Vec<MediaRoot>) {
-        if self.config.enabled {
-            let _ = self.sender.send(Request::Sync(roots));
         }
     }
 
@@ -422,7 +415,6 @@ impl FileSearch {
                 }
                 self.refresh_watchers();
             }
-            Request::Sync(next) => self.sync(next),
             Request::ReconcileAll(complete) => {
                 let roots = self.roots.blocking_read().clone();
                 for root in &roots {
@@ -459,25 +451,6 @@ impl FileSearch {
                 self.handle_batch(vec![Request::ChangeRoot { root_id, directory }])
             }
         }
-    }
-
-    fn sync(&self, next: Vec<MediaRoot>) {
-        let roots = next.into_iter().map(root_from_media).collect::<Vec<_>>();
-        let old = self.roots.blocking_read().clone();
-        for root in &old {
-            if !roots.iter().any(|next| next.id == root.id) {
-                self.close_watcher(&root.id)
-            }
-        }
-        let rebuild = self.with_db(|db| db.sync_roots(&roots)).unwrap_or_default();
-        *self.roots.blocking_write() = roots.clone();
-        for root in &roots {
-            if rebuild.contains(&root.id) {
-                self.close_watcher(&root.id);
-                let _ = self.with_db(|db| indexer::full_scan(db, root));
-            }
-        }
-        self.refresh_watchers();
     }
 
     fn reconcile_one(&self, db: &mut IndexDb, root: &Root) -> Result<(), String> {
@@ -687,7 +660,7 @@ fn root_from_media(root: MediaRoot) -> Root {
         id: root.id,
         name: root.name,
         path: root.path,
-        source: root.source,
+        source: "config".into(),
     }
 }
 fn queue_change(

@@ -47,7 +47,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `imageOptimization` |                    | Responsive viewer variants and disk-cache settings                          |
 | `hermes`            |                    | Optional Hermes gateway, profile, and filesystem integration                |
 
-`dataPath` is config-file only and contains app-created settings, stats, mounts, search index,
+`dataPath` is config-file only and contains app-created settings, stats, search index,
 thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
 On first startup with the default path, legacy data beside the config and legacy caches in the
 working directory are migrated automatically.
@@ -116,11 +116,6 @@ as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 `name` is derived from the directory basename when possible, but must be set explicitly
 if the basename is empty, duplicates another media root, or conflicts with a virtual
 folder such as `Favorites` or `Most Played`.
-
-Additional media roots can be added without restarting from **Settings → Media directories**.
-They are persisted in `mounts.json` under `dataPath` and are always read only. Runtime roots
-appear alongside configured `mediaDirs`. Their names and server paths can be changed from the
-settings dialog.
 
 ## Production
 

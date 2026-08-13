@@ -1,7 +1,7 @@
 use crate::{
     app::{
-        AppState, Shared, emit, list_directory, parent_logical, roots, safe_upload_name,
-        settings_path, stats_path,
+        AppState, Shared, emit, list_directory, parent_logical, safe_upload_name, settings_path,
+        stats_path,
     },
     error::{AppError, AppResult},
     media, store,
@@ -181,10 +181,9 @@ pub(crate) fn legacy_virtual_items(
             values.truncate(50);
             values
         };
-        let runtime = roots(state);
         let mut items = Vec::new();
         for (path, view_count) in paths {
-            let Ok(resolved) = media::resolve(&state.config, &runtime, &path) else {
+            let Ok(resolved) = media::resolve(&state.config, &path) else {
                 continue;
             };
             let Ok(metadata) = std::fs::metadata(&resolved.full) else {
@@ -248,13 +247,12 @@ async fn create(
     if body.path.is_empty() {
         return Err(AppError::bad("Path is required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &parent_logical(&body.path))
-        && !media::editable(&state.config, &runtime, &body.path)
+    if !media::editable(&state.config, &parent_logical(&body.path))
+        && !media::editable(&state.config, &body.path)
     {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
+    let full = media::resolve(&state.config, &body.path)?.full;
     if full.exists() {
         return Err(AppError::conflict(format!(
             "A {} with this name already exists",
@@ -303,14 +301,13 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
     if body.path.is_empty() {
         return Err(AppError::bad("Path is required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.path) {
+    if !media::editable(&state.config, &body.path) {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
     if body.content.is_none() && body.base64_content.is_none() {
         return Err(AppError::bad("Content is required"));
     }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
+    let full = media::resolve(&state.config, &body.path)?.full;
     let metadata = fs::metadata(&full).await.map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             AppError::not_found("File not found")
@@ -360,11 +357,10 @@ async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppR
     if body.path.is_empty() {
         return Err(AppError::bad("Path is required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.path) {
+    if !media::editable(&state.config, &body.path) {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
+    let full = media::resolve(&state.config, &body.path)?.full;
     let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
     if metadata.is_dir() {
         fs::remove_dir_all(full).await.map_err(AppError::io)?;
@@ -394,19 +390,18 @@ async fn rename(
     if body.old_path.is_empty() || body.new_path.is_empty() {
         return Err(AppError::bad("Both oldPath and newPath are required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.old_path) {
+    if !media::editable(&state.config, &body.old_path) {
         return Err(AppError::forbidden(
             "Cannot rename: Source path is not in an editable folder",
         ));
     }
-    if !media::editable(&state.config, &runtime, &body.new_path) {
+    if !media::editable(&state.config, &body.new_path) {
         return Err(AppError::forbidden(
             "Cannot rename: Destination path is not in an editable folder",
         ));
     }
-    let old = media::resolve(&state.config, &runtime, &body.old_path)?.full;
-    let new = media::resolve(&state.config, &runtime, &body.new_path)?.full;
+    let old = media::resolve(&state.config, &body.old_path)?.full;
+    let new = media::resolve(&state.config, &body.new_path)?.full;
     if new.exists() {
         return Err(AppError::conflict(
             "Destination file or directory already exists",
@@ -436,8 +431,7 @@ async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppRes
     if body.source_path.is_empty() {
         return Err(AppError::bad("sourcePath is required"));
     }
-    let runtime = roots(&state);
-    let source = media::resolve(&state.config, &runtime, &body.source_path)?.full;
+    let source = media::resolve(&state.config, &body.source_path)?.full;
     let name = source
         .file_name()
         .ok_or_else(|| AppError::bad("Invalid source path"))?
@@ -447,12 +441,12 @@ async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppRes
     } else {
         format!("{}/{}", body.destination_dir, name.to_string_lossy())
     };
-    if !media::editable(&state.config, &runtime, &logical) {
+    if !media::editable(&state.config, &logical) {
         return Err(AppError::forbidden(
             "Cannot copy: Destination is not in an editable folder",
         ));
     }
-    let destination = media::resolve(&state.config, &runtime, &logical)?.full;
+    let destination = media::resolve(&state.config, &logical)?.full;
     if destination.exists() {
         return Err(AppError::conflict(
             "Destination file or directory already exists",
@@ -516,7 +510,6 @@ async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppRes
     if files.is_empty() {
         return Err(AppError::bad("No files provided"));
     }
-    let runtime = roots(&state);
     let mut count = 0;
     let mut broadcasts = std::collections::HashMap::new();
     for (name, data) in files {
@@ -525,12 +518,12 @@ async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppRes
         } else {
             format!("{target}/{name}")
         };
-        if !media::editable(&state.config, &runtime, &logical)
-            && !media::editable(&state.config, &runtime, &parent_logical(&logical))
+        if !media::editable(&state.config, &logical)
+            && !media::editable(&state.config, &parent_logical(&logical))
         {
             continue;
         }
-        let full = media::resolve(&state.config, &runtime, &logical)?.full;
+        let full = media::resolve(&state.config, &logical)?.full;
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent).await.map_err(AppError::io)?;
         }
@@ -567,7 +560,7 @@ pub(crate) async fn download_logical(
     state: &crate::app::AppState,
     logical: &str,
 ) -> AppResult<Response> {
-    let full = media::resolve(&state.config, &roots(state), logical)?.full;
+    let full = media::resolve(&state.config, logical)?.full;
     let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
     if metadata.is_dir() {
         let name = full.file_name().unwrap_or_default().to_string_lossy();

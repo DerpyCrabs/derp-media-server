@@ -32,10 +32,6 @@ export function useAdminEventsStream(
           void queryClient.invalidateQueries({
             queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES),
           })
-        } else if (data.type === 'mounts-changed') {
-          void queryClient.invalidateQueries({ queryKey: queryKeys.mounts() })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.serverConfig() })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
         }
       } catch (error) {
         console.error('[Admin SSE] Error handling message:', error)

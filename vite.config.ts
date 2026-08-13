@@ -26,7 +26,6 @@ export default defineConfig({
         '**/test-results/**',
         '**/playwright-report/**',
         '**/tests/**',
-        '**/mounts.json',
         '**/canvases.json',
         '**/settings.json',
         '**/stats.json',

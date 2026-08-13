@@ -179,7 +179,6 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
               layoutBaselinePresetId={props.layoutBaselinePresetId()}
             />
             <WorkspaceTaskbarSettings
-              showAdminSettings
               browserTabTitle={() => props.workspace()?.browserTabTitle ?? ''}
               browserTabIcon={() => props.workspace()?.browserTabIcon ?? ''}
               browserTabIconColor={() => props.workspace()?.browserTabIconColor ?? ''}

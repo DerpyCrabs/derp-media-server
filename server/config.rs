@@ -32,11 +32,6 @@ pub struct MediaRoot {
     pub path: PathBuf,
     #[serde(default)]
     pub editable_folders: Vec<String>,
-    #[serde(default)]
-    pub read_only: bool,
-    pub source: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<u128>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -413,12 +408,7 @@ fn clamped_integer(
     (number as i64).clamp(minimum as i64, maximum as i64) as u32
 }
 
-const DURABLE_DATA: [&str; 4] = [
-    "settings.json",
-    "stats.json",
-    "mounts.json",
-    "canvases.json",
-];
+const DURABLE_DATA: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
 const REBUILDABLE_DATA: [(&str, &str); 3] = [
     (".search-index", "search-index"),
     (".thumbnails", "thumbnails"),
@@ -597,9 +587,6 @@ impl Config {
                     name,
                     path: entry.path,
                     editable_folders: editable_folders(entry.editable_folders),
-                    read_only: false,
-                    source: "config".into(),
-                    created_at: None,
                 });
             }
         } else {
@@ -609,9 +596,6 @@ impl Config {
                 name,
                 path: primary.clone(),
                 editable_folders: editable,
-                read_only: false,
-                source: "config".into(),
-                created_at: None,
             });
         }
         let mut names = std::collections::HashSet::new();

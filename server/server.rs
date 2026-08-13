@@ -12,7 +12,7 @@ use std::{
 };
 use tokio::{
     process::{Child, Command},
-    sync::{Mutex, RwLock},
+    sync::Mutex,
 };
 use tower_http::compression::CompressionLayer;
 
@@ -79,7 +79,6 @@ fn router(state: Shared) -> Router {
         .merge(routes::files::router())
         .merge(routes::hermes_chat::router())
         .merge(routes::settings::router())
-        .merge(routes::mounts::router())
         .merge(routes::search::router())
         .merge(routes::stats::router())
         .merge(routes::media::router())
@@ -104,10 +103,7 @@ pub(crate) async fn run() {
             .await
             .unwrap_or_else(|error| panic!("Failed to start Vite: {error}"));
     }
-    let runtime_roots = routes::mounts::load(&config)
-        .unwrap_or_else(|error| panic!("Failed to load configured mounts: {}", error.1));
-    let mut search_roots = config.roots.clone();
-    search_roots.extend(runtime_roots.clone());
+    let search_roots = config.roots.clone();
     let (events, _) = tokio::sync::broadcast::channel(256);
     let (admin_events, _) = tokio::sync::broadcast::channel(256);
     let (hermes_events, _) = tokio::sync::broadcast::channel(1024);
@@ -141,7 +137,6 @@ pub(crate) async fn run() {
     });
     let state = Arc::new(AppState {
         config: config.clone(),
-        runtime_roots: RwLock::new(runtime_roots),
         dev,
         vite_port,
         client,
@@ -169,11 +164,11 @@ pub(crate) async fn run() {
         config.port
     );
     axum::serve(listener, router(state))
-    .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
-    })
-    .await
-    .unwrap();
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await
+        .unwrap();
     if let Some(child) = vite.as_mut() {
         let _ = child.kill().await;
     }

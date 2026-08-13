@@ -1,7 +1,5 @@
 use crate::{
-    app::{
-        AppState, Shared, knowledge_base_root, roots, stats_path, timestamp_ms,
-    },
+    app::{AppState, Shared, knowledge_base_root, stats_path, timestamp_ms},
     media,
     routes::{media as media_routes, settings},
     store,
@@ -35,9 +33,7 @@ fn query(key: Value, data: Value) -> Value {
 }
 
 fn server_config(state: &AppState) -> Value {
-    let runtime = roots(state);
-    let mut all = state.config.roots.clone();
-    all.extend(runtime);
+    let all = &state.config.roots;
     let editable = if all.len() == 1 {
         all[0].editable_folders.clone()
     } else {
@@ -77,7 +73,7 @@ fn visible(entry: &walkdir::DirEntry) -> bool {
 }
 
 fn kb_recent(state: &AppState, scope: &str) -> Value {
-    let Ok(resolved) = media::resolve(&state.config, &roots(state), scope) else {
+    let Ok(resolved) = media::resolve(&state.config, scope) else {
         return json!({"results":[]});
     };
     let mut files = walkdir::WalkDir::new(&resolved.full)
@@ -99,7 +95,7 @@ fn kb_recent(state: &AppState, scope: &str) -> Value {
                 .ok()?
                 .to_string_lossy()
                 .replace('\\', "/");
-            let path = if state.config.roots.len() + roots(state).len() > 1 {
+            let path = if state.config.roots.len() > 1 {
                 format!("{}/{}", resolved.root.name, relative)
             } else {
                 relative
@@ -154,7 +150,7 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
                 .unwrap_or_default()
                 .to_string_lossy();
             if media::media_type(&extension) == "text" {
-                if let Ok(resolved) = media::resolve(&state.config, &roots(state), viewing)
+                if let Ok(resolved) = media::resolve(&state.config, viewing)
                     && let Ok(content) = std::fs::read_to_string(resolved.full)
                 {
                     queries.push(query(
@@ -179,7 +175,7 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
                 .to_string_lossy();
             let kind = media::media_type(&extension);
             if kind == "audio"
-                && let Ok(resolved) = media::resolve(&state.config, &roots(state), playing)
+                && let Ok(resolved) = media::resolve(&state.config, playing)
                 && let Ok(metadata) = media_routes::audio_metadata_path(&resolved.full).await
             {
                 queries.push(query(json!(["audio-metadata", "v2", playing]), metadata.0));
@@ -198,11 +194,7 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
     json!({"mutations":[],"queries":queries})
 }
 
-async fn inject(
-    html: String,
-    state: &AppState,
-    uri: &axum::http::Uri,
-) -> String {
+async fn inject(html: String, state: &AppState, uri: &axum::http::Uri) -> String {
     html.replace(
         "<!--DEHYDRATED-->",
         &format!(
@@ -389,9 +381,7 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
                 .map(Body::new);
         }
         match fs::read_to_string("dist/client/index.html").await {
-            Ok(html) => {
-                Html(inject(html, &state, &request_uri).await).into_response()
-            }
+            Ok(html) => Html(inject(html, &state, &request_uri).await).into_response(),
             Err(_) => StatusCode::NOT_FOUND.into_response(),
         }
     }

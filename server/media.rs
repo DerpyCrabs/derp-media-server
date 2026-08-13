@@ -141,14 +141,9 @@ fn inside(child: &Path, root: &Path) -> bool {
     child.starts_with(root)
 }
 
-pub fn resolve(
-    config: &Config,
-    runtime_roots: &[MediaRoot],
-    input: &str,
-) -> AppResult<ResolvedPath> {
+pub fn resolve(config: &Config, input: &str) -> AppResult<ResolvedPath> {
     let logical = clean_logical(input)?;
-    let mut roots = config.roots.clone();
-    roots.extend_from_slice(runtime_roots);
+    let roots = &config.roots;
     let multiple = roots.len() > 1;
     let (root, relative) = if multiple {
         let mut split = logical.split('/');
@@ -202,14 +197,13 @@ pub fn resolve(
         full: absolute,
     })
 }
-pub fn editable(config: &Config, runtime: &[MediaRoot], input: &str) -> bool {
-    resolve(config, runtime, input)
+pub fn editable(config: &Config, input: &str) -> bool {
+    resolve(config, input)
         .map(|r| {
-            !r.root.read_only
-                && r.root.editable_folders.iter().any(|f| {
-                    let f = f.replace('\\', "/");
-                    r.relative == f || r.relative.starts_with(&(f + "/"))
-                })
+            r.root.editable_folders.iter().any(|f| {
+                let f = f.replace('\\', "/");
+                r.relative == f || r.relative.starts_with(&(f + "/"))
+            })
         })
         .unwrap_or(false)
 }
@@ -254,23 +248,19 @@ fn virtual_item(name: &str) -> FileItem {
         version: None,
     }
 }
-pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Vec<FileItem>> {
+pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
     let logical = clean_logical(input)?;
     let mut items = if logical.is_empty() {
-        vec![
-            virtual_item("Favorites"),
-            virtual_item("Most Played"),
-        ]
+        vec![virtual_item("Favorites"), virtual_item("Most Played")]
     } else {
         vec![]
     };
-    let mut roots = config.roots.clone();
-    roots.extend_from_slice(runtime);
+    let roots = &config.roots;
     if roots.len() > 1 && logical.is_empty() {
         for r in roots {
             items.push(FileItem {
                 name: r.name.clone(),
-                path: r.name,
+                path: r.name.clone(),
                 media_type: "folder".into(),
                 size: 0,
                 extension: String::new(),
@@ -284,7 +274,7 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
         sort(&mut items);
         return Ok(items);
     }
-    let resolved = resolve(config, runtime, input)?;
+    let resolved = resolve(config, input)?;
     for entry in fs::read_dir(&resolved.full).map_err(AppError::io)? {
         let Ok(entry) = entry else { continue };
         let Ok(meta) = entry.metadata() else { continue };

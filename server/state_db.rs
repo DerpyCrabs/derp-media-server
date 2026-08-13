@@ -5,18 +5,12 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-const LEGACY_FILES: [&str; 4] = [
-    "settings.json",
-    "stats.json",
-    "mounts.json",
-    "canvases.json",
-];
+const LEGACY_FILES: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
 
 pub fn database(config: &Config) -> PathBuf {
     config.data_path.join("app.sqlite3")
@@ -72,12 +66,6 @@ pub fn initialize(config: &Config) -> Result<(), String> {
                    updated_at INTEGER NOT NULL,
                    PRIMARY KEY(kind, library_key)
                  );
-                 CREATE TABLE IF NOT EXISTS mounts (
-                   id TEXT PRIMARY KEY,
-                   name TEXT NOT NULL,
-                   path TEXT NOT NULL,
-                   created_at INTEGER
-                 );
                  CREATE TABLE IF NOT EXISTS legacy_state_import (
                    version INTEGER PRIMARY KEY,
                    imported_at INTEGER NOT NULL
@@ -117,6 +105,21 @@ pub fn initialize(config: &Config) -> Result<(), String> {
         transaction
             .execute(
                 "INSERT INTO schema_migrations(version, applied_at) VALUES(2, ?1)",
+                [now_ms()],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
+    if version < 3 {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute_batch("DROP TABLE IF EXISTS mounts;")
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES(3, ?1)",
                 [now_ms()],
             )
             .map_err(|error| error.to_string())?;
@@ -176,13 +179,7 @@ fn import_legacy(config: &Config, connection: &mut Connection) -> Result<(), Str
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
     let populated: i64 = transaction
-        .query_row(
-            "SELECT
-               (SELECT COUNT(*) FROM state_documents) +
-               (SELECT COUNT(*) FROM mounts)",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT COUNT(*) FROM state_documents", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
     if populated != 0 {
         return Err("Cannot import legacy JSON: SQLite state tables are not empty".into());
@@ -198,7 +195,6 @@ fn import_legacy(config: &Config, connection: &mut Connection) -> Result<(), Str
             "settings.json" => import_documents(&transaction, path, "settings", value)?,
             "stats.json" => import_documents(&transaction, path, "stats", value)?,
             "canvases.json" => import_documents(&transaction, path, "canvases", value)?,
-            "mounts.json" => import_mounts(&transaction, path, value)?,
             _ => {}
         }
     }
@@ -281,36 +277,6 @@ fn validate_document(
         }
         _ => Ok(()),
     }
-}
-
-fn import_mounts(transaction: &Transaction<'_>, path: &Path, value: &Value) -> Result<(), String> {
-    let items = object(path, value)?
-        .get("mounts")
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("Invalid {}: expected mounts array", path.display()))?;
-    let mut ids = HashSet::new();
-    for (index, item) in items.iter().enumerate() {
-        let id = item.get("id").and_then(Value::as_str).unwrap_or("");
-        let name = item.get("name").and_then(Value::as_str).unwrap_or("");
-        let mount_path = item.get("path").and_then(Value::as_str).unwrap_or("");
-        if id.is_empty() || name.is_empty() || mount_path.is_empty() || !ids.insert(id) {
-            return Err(format!(
-                "Invalid {} mount {index}: unique id, name, and path are required",
-                path.display()
-            ));
-        }
-        let created_at = item
-            .get("createdAt")
-            .and_then(Value::as_u64)
-            .map(|v| v as i64);
-        transaction
-            .execute(
-                "INSERT INTO mounts(id, name, path, created_at) VALUES(?1, ?2, ?3, ?4)",
-                params![id, name, mount_path, created_at],
-            )
-            .map_err(|error| format!("Invalid {} mount {index}: {error}", path.display()))?;
-    }
-    Ok(())
 }
 
 fn archive_legacy(data_path: &Path, loaded: &[(PathBuf, Option<Value>)]) {
@@ -398,52 +364,6 @@ pub fn update_document<T>(
     Ok(result)
 }
 
-pub fn mounts(database: &Path) -> AppResult<Vec<(String, String, PathBuf, Option<u128>)>> {
-    let connection = connection(database)?;
-    let mut statement = connection
-        .prepare("SELECT id,name,path,created_at FROM mounts ORDER BY created_at,id")
-        .map_err(error)?;
-    statement
-        .query_map([], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                PathBuf::from(row.get::<_, String>(2)?),
-                row.get::<_, Option<i64>>(3)?.map(|value| value as u128),
-            ))
-        })
-        .map_err(error)?
-        .map(|row| row.map_err(error))
-        .collect()
-}
-
-pub fn replace_mounts(
-    database: &Path,
-    mounts: &[(String, String, PathBuf, Option<u128>)],
-) -> AppResult<()> {
-    let mut connection = connection(database)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(error)?;
-    transaction
-        .execute("DELETE FROM mounts", [])
-        .map_err(error)?;
-    for (id, name, path, created_at) in mounts {
-        transaction
-            .execute(
-                "INSERT INTO mounts(id,name,path,created_at) VALUES(?1,?2,?3,?4)",
-                params![
-                    id,
-                    name,
-                    path.to_string_lossy(),
-                    created_at.map(|value| value as i64)
-                ],
-            )
-            .map_err(error)?;
-    }
-    transaction.commit().map_err(error)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,11 +407,6 @@ mod tests {
         )
         .unwrap();
         fs::write(data_path.join("canvases.json"), r#"{"library":[]}"#).unwrap();
-        fs::write(
-            data_path.join("mounts.json"),
-            r#"{"version":1,"mounts":[{"id":"mount","name":"Archive","path":"C:\\\\Archive","createdAt":9,"ignored":true}]}"#,
-        )
-        .unwrap();
         let config = test_config(data_path.clone());
 
         initialize(&config).unwrap();
@@ -500,7 +415,6 @@ mod tests {
             document(&database(&config), "settings", "library", Value::Null).unwrap()["future"],
             true
         );
-        assert_eq!(mounts(&database(&config)).unwrap().len(), 1);
         for name in LEGACY_FILES {
             assert!(!data_path.join(name).exists());
         }

@@ -66,9 +66,6 @@ test.describe('File browser misc', () => {
 
     await page.getByRole('menuitem', { name: 'Cosmic Night' }).click()
     await expect(menu).not.toBeVisible()
-    await page.getByRole('button', { name: 'Open theme settings' }).click()
-    await page.getByRole('button', { name: 'Media directories' }).click()
-    await expect(page.getByRole('dialog', { name: 'Media directories' })).toBeVisible()
   })
 })
 

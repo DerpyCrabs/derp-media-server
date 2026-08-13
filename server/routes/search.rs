@@ -1,5 +1,5 @@
 use crate::{
-    app::{Shared, knowledge_bases, roots, search_snippet},
+    app::{Shared, knowledge_bases, search_snippet},
     error::{AppError, AppResult},
     media,
 };
@@ -129,7 +129,7 @@ fn logical_path(
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/");
-    if state.config.roots.len() + roots(state).len() > 1 {
+    if state.config.roots.len() > 1 {
         format!("{}/{}", resolved.root.name, relative)
     } else {
         relative
@@ -165,7 +165,7 @@ async fn kb_search(
         return Ok(Json(json!({"results":[]})));
     }
     validate_root(&state, &root, true)?;
-    let resolved = media::resolve(&state.config, &roots(&state), &root)?;
+    let resolved = media::resolve(&state.config, &root)?;
     let mut results = Vec::new();
     for entry in walkdir::WalkDir::new(&resolved.full)
         .into_iter()
@@ -208,7 +208,7 @@ async fn kb_recent(
         return Ok(Json(json!({"results":[]})));
     }
     validate_root(&state, &root, false)?;
-    let resolved = media::resolve(&state.config, &roots(&state), &root)?;
+    let resolved = media::resolve(&state.config, &root)?;
     let mut files = Vec::new();
     for entry in walkdir::WalkDir::new(&resolved.full)
         .into_iter()

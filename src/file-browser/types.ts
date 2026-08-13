@@ -4,8 +4,6 @@ export type ServerConfig = {
     id: string
     name: string
     editableFolders: string[]
-    readOnly: boolean
-    source: 'config' | 'mount'
   }[]
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, MediaRoot},
+    config::Config,
     error::AppResult,
     file_search::FileSearch,
     image_variants, media, store, thumbnails,
@@ -13,11 +13,10 @@ use std::{
     sync::Arc,
     time::UNIX_EPOCH,
 };
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 pub(crate) struct AppState {
     pub config: Config,
-    pub runtime_roots: RwLock<Vec<MediaRoot>>,
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
@@ -104,28 +103,13 @@ pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) 
     }));
 }
 
-pub(crate) fn roots(state: &AppState) -> Vec<MediaRoot> {
-    state
-        .runtime_roots
-        .try_read()
-        .map(|roots| roots.clone())
-        .unwrap_or_default()
-}
-
-pub(crate) fn all_roots(state: &AppState) -> Vec<MediaRoot> {
-    let mut result = state.config.roots.clone();
-    result.extend(roots(state));
-    result
-}
-
 pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<media::FileItem>> {
-    let runtime = roots(state);
-    let mut files = media::list(&state.config, &runtime, path)?;
+    let mut files = media::list(&state.config, path)?;
     for file in &mut files {
         if !matches!(file.media_type.as_str(), "image" | "video") {
             continue;
         }
-        if let Ok(resolved) = media::resolve(&state.config, &runtime, &file.path)
+        if let Ok(resolved) = media::resolve(&state.config, &file.path)
             && let Ok(metadata) = std::fs::metadata(&resolved.full)
         {
             file.thumbnail_generated = metadata
