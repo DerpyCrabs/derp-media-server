@@ -4,7 +4,7 @@ import path from 'path'
 
 const batchId = process.env.BATCH_ID
 const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
-const UPLOAD_DIR = 'SharedContent'
+const UPLOAD_DIR = 'MediaContent'
 
 test.describe('File browser misc', () => {
   test('uploads a folder via upload menu', async ({ page }) => {
@@ -69,18 +69,6 @@ test.describe('File browser misc', () => {
     await page.getByRole('button', { name: 'Open theme settings' }).click()
     await page.getByRole('button', { name: 'Media directories' }).click()
     await expect(page.getByRole('dialog', { name: 'Media directories' })).toBeVisible()
-  })
-
-  test('dismisses share dialog with Escape', async ({ page }) => {
-    await page.goto('/?dir=Documents')
-    await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
-    await page
-      .locator('[data-slot="context-menu-item"]')
-      .getByText(/Share|Manage Share/)
-      .click()
-    await expect(page.getByRole('heading', { name: 'Share Links' })).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(page.getByRole('heading', { name: 'Share Links' })).not.toBeVisible()
   })
 })
 

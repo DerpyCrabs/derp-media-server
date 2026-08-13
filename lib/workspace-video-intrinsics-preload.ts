@@ -1,4 +1,4 @@
-import { buildAdminMediaUrl, buildShareMediaUrl } from '@/src/lib/build-media-url'
+import { buildAdminMediaUrl } from '@/src/lib/build-media-url'
 import { createDefaultBounds, getPlayerBoundsForAspectRatio } from '@/lib/workspace-geometry'
 import type { WorkspaceSource } from '@/lib/use-workspace'
 
@@ -9,8 +9,7 @@ export function workspaceVideoIntrinsicsCacheKey(
   source: WorkspaceSource,
   filePath: string,
 ): string {
-  const tok = source.kind === 'share' ? (source.token ?? '') : ''
-  return `${source.kind}:${tok}:${filePath}`
+  return `${source.kind}:${filePath}`
 }
 
 export function getWorkspaceVideoIntrinsics(
@@ -29,28 +28,17 @@ export function rememberWorkspaceVideoIntrinsics(
   cache.set(workspaceVideoIntrinsicsCacheKey(source, filePath), { width, height })
 }
 
-function mediaUrlForPreload(
-  source: WorkspaceSource,
-  filePath: string,
-  shareBasePath: string,
-): string {
-  if (source.kind === 'share' && source.token) {
-    return buildShareMediaUrl(source.token, shareBasePath.replace(/\\/g, '/'), filePath)
-  }
+function mediaUrlForPreload(filePath: string): string {
   return buildAdminMediaUrl(filePath)
 }
 
-export function preloadWorkspaceVideoIntrinsics(
-  source: WorkspaceSource,
-  filePath: string,
-  shareBasePath: string,
-): void {
+export function preloadWorkspaceVideoIntrinsics(source: WorkspaceSource, filePath: string): void {
   if (typeof document === 'undefined') return
   const key = workspaceVideoIntrinsicsCacheKey(source, filePath)
   if (cache.has(key) || inFlight.has(key)) return
   inFlight.add(key)
 
-  const url = mediaUrlForPreload(source, filePath, shareBasePath)
+  const url = mediaUrlForPreload(filePath)
   const abs = new URL(url, window.location.origin).href
   const v = document.createElement('video')
   v.preload = 'metadata'

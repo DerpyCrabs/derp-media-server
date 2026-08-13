@@ -77,7 +77,7 @@ test.describe('Editable Folders', () => {
   })
 
   test('moves a file via context menu', async ({ page }) => {
-    await page.goto('/?dir=SharedContent')
+    await page.goto('/?dir=MediaContent')
     await page.locator('button[title="Create new file"]').click()
     await page.locator('input[placeholder*="File name"]').fill('move-me.txt')
     await page.getByRole('button', { name: 'Create' }).click()
@@ -98,7 +98,7 @@ test.describe('Editable Folders', () => {
   })
 
   test('copies a file via context menu', async ({ page }) => {
-    await page.goto('/?dir=SharedContent')
+    await page.goto('/?dir=MediaContent')
     await page.locator('table tr').filter({ hasText: 'public-doc.txt' }).click({ button: 'right' })
     const copyItem = page.locator('[data-slot="context-menu-item"]').getByText('Copy to...')
     await expect(copyItem).toBeVisible()

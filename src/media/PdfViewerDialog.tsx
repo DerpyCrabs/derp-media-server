@@ -1,6 +1,5 @@
 import { getMediaType } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
-import { stripSharePrefix } from '@/lib/source-context'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import ChevronLeft from 'lucide-solid/icons/chevron-left'
@@ -11,14 +10,12 @@ import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
-import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
+import { buildAdminMediaUrl } from '../lib/build-media-url'
 import { closeViewer } from '../lib/url-state-actions'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
-type Props = { shareContext?: { token: string; sharePath: string } | null }
-
-export function PdfViewerDialog(props: Props) {
+export function PdfViewerDialog() {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
   const viewingPath = createMemo(() => params().get('viewing'))
@@ -29,16 +26,13 @@ export function PdfViewerDialog(props: Props) {
   const mediaUrl = createMemo(() => {
     const path = viewingPath()
     if (!path) return ''
-    const ctx = props.shareContext
-    return ctx ? buildShareMediaUrl(ctx.token, ctx.sharePath, path) : buildAdminMediaUrl(path)
+    return buildAdminMediaUrl(path)
   })
   const fileName = createMemo(() => (viewingPath() ?? '').split(/[/\\]/).pop() ?? '')
   const downloadHref = createMemo(() => {
     const path = viewingPath()
     if (!path) return ''
-    const ctx = props.shareContext
-    if (!ctx) return `/api/files/download?path=${encodeURIComponent(path)}`
-    return `/api/share/${ctx.token}/download?path=${encodeURIComponent(stripSharePrefix(path, ctx.sharePath) || '.')}`
+    return `/api/files/download?path=${encodeURIComponent(path)}`
   })
   const [document, setDocument] = createSignal<pdfjs.PDFDocumentProxy>()
   const [page, setPage] = createSignal(1)

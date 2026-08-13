@@ -4,7 +4,7 @@ import { Show, lazy } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { AudioPlayer } from './AudioPlayer'
 import { ImageViewerDialog } from './ImageViewerDialog'
-import { TextViewerDialog, type TextViewerShareContext } from './TextViewerDialog'
+import { TextViewerDialog } from './TextViewerDialog'
 import { UnsupportedFileViewerDialog } from './UnsupportedFileViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
 import { closeViewer } from '../lib/url-state-actions'
@@ -14,17 +14,14 @@ const ReaderDialog = lazy(() =>
 )
 
 type Props = {
-  shareContext?: TextViewerShareContext | null
   editableFolders?: string[]
   knowledgeBases?: string[]
-  shareCanEdit?: boolean
-  shareCanUpload?: boolean
 }
 
-function LazyDocumentReader(props: Pick<Props, 'shareContext'>) {
+function LazyDocumentReader() {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
-  const viewingPath = () => params().get('viewing') ?? props.shareContext?.sharePath ?? ''
+  const viewingPath = () => params().get('viewing') ?? ''
   const mediaType = () => getMediaTypeFromPath(viewingPath())
   const readerKind = (): 'pdf' | 'book' | null =>
     mediaType() === MediaType.PDF ? 'pdf' : mediaType() === MediaType.BOOK ? 'book' : null
@@ -35,7 +32,6 @@ function LazyDocumentReader(props: Pick<Props, 'shareContext'>) {
         <ReaderDialog
           sourcePath={sourcePath}
           sourceKind={getMediaTypeFromPath(sourcePath) === MediaType.PDF ? 'pdf' : 'book'}
-          shareContext={props.shareContext}
           onClose={closeViewer}
         />
       )}
@@ -47,17 +43,14 @@ export function MainMediaPlayers(props: Props) {
   return (
     <>
       <TextViewerDialog
-        shareContext={props.shareContext}
         editableFolders={props.editableFolders}
         knowledgeBases={props.knowledgeBases}
-        shareCanEdit={props.shareCanEdit}
-        shareCanUpload={props.shareCanUpload}
       />
-      <ImageViewerDialog shareContext={props.shareContext} />
-      <LazyDocumentReader shareContext={props.shareContext} />
-      <VideoPlayer shareContext={props.shareContext} />
-      <AudioPlayer shareContext={props.shareContext} />
-      <UnsupportedFileViewerDialog shareContext={props.shareContext} />
+      <ImageViewerDialog />
+      <LazyDocumentReader />
+      <VideoPlayer />
+      <AudioPlayer />
+      <UnsupportedFileViewerDialog />
     </>
   )
 }

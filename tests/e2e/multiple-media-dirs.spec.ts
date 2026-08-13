@@ -64,22 +64,6 @@ function serverCommand(): { executable: string; args: string[] } {
   return { executable, args: ['--production'] }
 }
 
-async function createShare(page: Page, sharePath: string, editable = false): Promise<string> {
-  const response = await page.request.post(`${baseUrl}/api/shares`, {
-    data: {
-      path: sharePath,
-      isDirectory: true,
-      editable,
-      restrictions: editable
-        ? { allowUpload: true, allowEdit: true, allowDelete: true }
-        : undefined,
-    },
-  })
-  expect(response.ok()).toBe(true)
-  const json = await response.json()
-  return `${baseUrl}/share/${json.share.token}`
-}
-
 test.describe.serial('Multiple media directories', () => {
   test.setTimeout(60_000)
 
@@ -113,7 +97,6 @@ test.describe.serial('Multiple media directories', () => {
             { path: showsDir, name: 'Shows', editableFolders: ['Downloads'] },
           ],
           dataPath: dataDir,
-          shareLinkDomain: baseUrl,
           port,
           auth: { enabled: false },
         },
@@ -200,19 +183,6 @@ test.describe.serial('Multiple media directories', () => {
     await expect(content.getByText('episode-note.md')).toBeVisible()
   })
 
-  test('shares resolve root-prefixed paths in browser and workspace views', async ({ page }) => {
-    const readonlyShareUrl = await createShare(page, 'Shows/ReadOnly')
-    await page.goto(readonlyShareUrl)
-    await expect(page.getByText('show-info.txt')).toBeVisible()
-    await page.getByText('show-info.txt').click()
-    await expect(page.getByText('show info')).toBeVisible()
-
-    const editableShareUrl = await createShare(page, 'Movies/Incoming', true)
-    await page.goto(`${editableShareUrl}/workspace`)
-    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
-    await expect(workspaceContent(page).getByText('movie-note.md')).toBeVisible()
-  })
-
   test('adds, renames and removes a read-only runtime root without restart', async ({ page }) => {
     await page.goto(baseUrl)
     await page.getByRole('button', { name: 'Open theme settings' }).click()
@@ -242,18 +212,12 @@ test.describe.serial('Multiple media directories', () => {
     expect(writeResponse.status()).toBe(403)
     expect(fs.existsSync(path.join(archiveDir, 'blocked.txt'))).toBe(false)
 
-    const shareResponse = await page.request.post(`${baseUrl}/api/shares`, {
-      data: { path: 'Archive', isDirectory: true, editable: true },
-    })
-    expect(shareResponse.ok()).toBe(true)
-    const share = (await shareResponse.json()).share as { token: string; editable: boolean }
-    expect(share.editable).toBe(false)
-
     const renameResponse = await page.request.patch(`${baseUrl}/api/admin/mounts/${mount.id}`, {
       data: { name: 'Cold Storage', path: archiveDir },
     })
     expect(renameResponse.ok()).toBe(true)
-    await page.goto(`${baseUrl}/share/${share.token}`)
+    await page.goto(baseUrl)
+    await page.getByText('Cold Storage', { exact: true }).click()
     await expect(page.getByText('history.txt')).toBeVisible()
 
     fs.renameSync(archiveDir, `${archiveDir}-offline`)
@@ -263,7 +227,8 @@ test.describe.serial('Multiple media directories', () => {
       data: { name: 'Cold Storage', path: reconnectedArchiveDir },
     })
     expect(reconnectResponse.ok()).toBe(true)
-    await page.goto(`${baseUrl}/share/${share.token}`)
+    await page.goto(baseUrl)
+    await page.getByText('Cold Storage', { exact: true }).click()
     await expect(page.getByText('reconnected.txt')).toBeVisible()
 
     const persistedMounts = await page.request.get(`${baseUrl}/api/admin/mounts`)
@@ -276,7 +241,5 @@ test.describe.serial('Multiple media directories', () => {
 
     const deleteResponse = await page.request.delete(`${baseUrl}/api/admin/mounts/${mount.id}`)
     expect(deleteResponse.ok()).toBe(true)
-    const unavailableResponse = await page.request.get(`${baseUrl}/api/share/${share.token}/info`)
-    expect(unavailableResponse.status()).toBe(410)
   })
 })

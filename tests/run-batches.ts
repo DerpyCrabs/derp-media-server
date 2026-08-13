@@ -38,19 +38,11 @@ export const BATCHES = [
   },
   {
     id: '4',
-    tests: [
-      'editable-folders',
-      'share-security',
-      'url-state',
-      'login',
-      'share-workspace',
-      'share-browser-parity',
-      'multiple-media-dirs',
-    ],
+    tests: ['editable-folders', 'url-state', 'login', 'multiple-media-dirs'],
   },
   {
     id: '5',
-    tests: ['audio-player', 'shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates'],
+    tests: ['audio-player', 'sse-live-updates'],
   },
   {
     id: '6',
@@ -63,8 +55,6 @@ export const BATCHES = [
       'text-editor',
       'knowledge-base',
       'drag-drop',
-      'passcode-shares',
-      'share-viewers',
       'offline-mode',
       'mobile-media-management',
     ],
@@ -80,8 +70,7 @@ function generateBatchConfig(batchId: string, port: number): string {
     port,
     mediaDir: `test-media-${batchId}`,
     dataPath: `../../test-data-${batchId}`,
-    editableFolders: ['Notes', 'SharedContent'],
-    shareLinkDomain: `http://localhost:${port}`,
+    editableFolders: ['Notes', 'MediaContent'],
     auth: { enabled: true, password: 'test-password' },
   }
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2))

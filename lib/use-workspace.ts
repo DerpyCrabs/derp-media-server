@@ -1,5 +1,4 @@
 import type { NavigationState } from '@/lib/navigation-session'
-import type { SourceContext } from '@/lib/source-context'
 import { MediaType } from '@/lib/types'
 import {
   createDefaultBounds,
@@ -15,10 +14,8 @@ import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import { deletedHermesSessionIds } from '@/lib/hermes-session-store'
 
 export interface WorkspaceSource {
-  kind: 'local' | 'share'
+  kind: 'local'
   rootPath?: string | null
-  token?: string
-  sharePath?: string | null
 }
 
 export type SnapZone =
@@ -136,8 +133,8 @@ export interface PersistedWorkspaceState {
   fileOpenTarget?: WorkspaceFileOpenTarget
 }
 
-export function workspaceStorageBaseKey(shareToken?: string | null): string {
-  return shareToken ? `${STORAGE_KEY}-share-${shareToken}` : STORAGE_KEY
+export function workspaceStorageBaseKey(): string {
+  return STORAGE_KEY
 }
 
 export function workspaceStorageSessionKey(baseKey: string, workspaceSessionId: string): string {
@@ -508,27 +505,11 @@ export function normalizePersistedWorkspaceState(
 
 function isValidSource(s: unknown): s is WorkspaceSource {
   if (!s || typeof s !== 'object' || !('kind' in s)) return false
-  const k = (s as WorkspaceSource).kind
-  if (k === 'local') return true
-  if (k === 'share') return typeof (s as WorkspaceSource).token === 'string'
-  return false
+  return (s as WorkspaceSource).kind === 'local'
 }
 
 function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
   return parseWorkspaceTaskbarPins([p]).length === 1
-}
-
-export function workspaceSourceToMediaContext(
-  source: WorkspaceSource | null | undefined,
-): SourceContext | undefined {
-  if (!source || source.kind !== 'share') {
-    return undefined
-  }
-
-  return {
-    shareToken: source.token ?? null,
-    sharePath: source.sharePath ?? null,
-  }
 }
 
 export function getWorkspaceWindowTitle(

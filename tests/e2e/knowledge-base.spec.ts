@@ -83,7 +83,7 @@ test.describe('Knowledge Base', () => {
 
   test('toggles KB on a folder via context menu', async ({ page }) => {
     await page.goto('/')
-    await page.locator('table tr').filter({ hasText: 'SharedContent' }).click({ button: 'right' })
+    await page.locator('table tr').filter({ hasText: 'MediaContent' }).click({ button: 'right' })
     // Should show "Set as Knowledge Base" since it's not a KB
     const setKbItem = page
       .locator('[data-slot="context-menu-item"]')
@@ -92,14 +92,14 @@ test.describe('Knowledge Base', () => {
     await setKbItem.click({ noWaitAfter: true })
 
     // Navigate into the folder — should now show search
-    await page.locator('table').getByText('SharedContent', { exact: true }).click()
-    await page.waitForURL(/dir=SharedContent/)
+    await page.locator('table').getByText('MediaContent', { exact: true }).click()
+    await page.waitForURL(/dir=MediaContent/)
     await page.getByRole('button', { name: 'Search note contents' }).click()
     await expect(page.getByPlaceholder('Search notes...')).toBeVisible()
 
     // Toggle off
     await page.goto('/')
-    await page.locator('table tr').filter({ hasText: 'SharedContent' }).click({ button: 'right' })
+    await page.locator('table tr').filter({ hasText: 'MediaContent' }).click({ button: 'right' })
     const removeKbItem = page
       .locator('[data-slot="context-menu-item"]')
       .getByText('Remove Knowledge Base')

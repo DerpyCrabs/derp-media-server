@@ -12,7 +12,7 @@ const localSource: WorkspaceSource = { kind: 'local', rootPath: null }
 
 function minimalPreset(
   id: string,
-  scope: 'admin' | `share:${string}`,
+  scope: 'admin',
   windows: PersistedWorkspaceState['windows'],
 ): WorkspaceLayoutPreset {
   const snap: PersistedWorkspaceState = {
@@ -139,21 +139,6 @@ describe('workspace-bootstrap', () => {
       source: localSource,
     })
     expect(r).toEqual({ kind: 'defer-preset' })
-  })
-
-  test('initial: share context treats presets as ready without settings query', () => {
-    const r = resolveWorkspaceInitialHydration({
-      dirParam: null,
-      presetParam: 'p1',
-      loaded: null,
-      presetsReadyNow: true,
-      presetsList: [minimalPreset('p1', 'share:tok', oneBrowserWin('sh', localSource))],
-      layoutScope: 'share:tok',
-      source: { kind: 'share', token: 'tok', sharePath: '/s' },
-    })
-    expect(r.kind).toBe('set-workspace')
-    if (r.kind !== 'set-workspace') return
-    expect(r.baselinePresetId).toBe('p1')
   })
 
   test('deferred: applies preset when draft absent and settings became ready', () => {

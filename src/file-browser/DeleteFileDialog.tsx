@@ -20,7 +20,6 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
     <Show when={props.item()}>
       {(getItem) => {
         const item = getItem()
-        const isRevoke = () => !!item.shareToken
         return (
           <div
             data-no-window-drag
@@ -35,31 +34,18 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
               onClick={(e) => e.stopPropagation()}
             >
               <h2 class='text-lg font-semibold'>
-                {props.title ??
-                  (isRevoke()
-                    ? 'Revoke Share?'
-                    : `Delete ${item.isDirectory ? 'Folder' : 'File'}?`)}
+                {props.title ?? `Delete ${item.isDirectory ? 'Folder' : 'File'}?`}
               </h2>
               <p class='text-sm text-muted-foreground mt-2'>
                 <Show
                   when={props.description}
                   fallback={
-                    <Show
-                      when={isRevoke()}
-                      fallback={
-                        <>
-                          Are you sure you want to delete &quot;{item.name}&quot;?
-                          <span class='block mt-2 text-sm font-medium text-foreground'>
-                            This action cannot be undone.
-                          </span>
-                        </>
-                      }
-                    >
-                      <>
-                        Are you sure you want to revoke the share link for &quot;{item.name}&quot;?
-                        The link will stop working immediately.
-                      </>
-                    </Show>
+                    <>
+                      Are you sure you want to delete &quot;{item.name}&quot;?
+                      <span class='block mt-2 text-sm font-medium text-foreground'>
+                        This action cannot be undone.
+                      </span>
+                    </>
                   }
                 >
                   {props.description}
@@ -79,13 +65,7 @@ export function DeleteFileDialog(props: DeleteFileDialogProps) {
                   disabled={props.isPending}
                   onClick={() => props.onConfirm()}
                 >
-                  {props.isPending
-                    ? isRevoke()
-                      ? 'Revoking...'
-                      : 'Deleting...'
-                    : isRevoke()
-                      ? 'Revoke Share'
-                      : (props.confirmLabel ?? 'Delete')}
+                  {props.isPending ? 'Deleting...' : (props.confirmLabel ?? 'Delete')}
                 </button>
               </div>
             </div>

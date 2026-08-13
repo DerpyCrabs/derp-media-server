@@ -321,7 +321,7 @@ test.describe('Text Editor', () => {
     page,
     request,
   }, testInfo) => {
-    const path = `SharedContent/outside-kb-${testInfo.workerIndex}-${Date.now()}.md`
+    const path = `MediaContent/outside-kb-${testInfo.workerIndex}-${Date.now()}.md`
     const initial = '# Outside KB\n\nEditable Markdown file.\n'
     const updated = '# Outside KB Updated\n\nSaved through CodeMirror.\n'
     await createFile(request, path, initial)
@@ -330,7 +330,7 @@ test.describe('Text Editor', () => {
     })
     expect(settingsResponse.ok()).toBe(true)
 
-    await page.goto(`/?dir=SharedContent&viewing=${encodeURIComponent(path)}`)
+    await page.goto(`/?dir=MediaContent&viewing=${encodeURIComponent(path)}`)
     const document = markdownDocument(page, 'edit')
     await expect(document.getByRole('textbox')).toBeVisible()
     await expect(document.locator('.cm-md-heading-1')).toContainText('Outside KB')
@@ -346,7 +346,7 @@ test.describe('Text Editor', () => {
     request,
   }, testInfo) => {
     test.setTimeout(120_000)
-    const path = `SharedContent/large-markdown-${testInfo.workerIndex}-${Date.now()}.md`
+    const path = `MediaContent/large-markdown-${testInfo.workerIndex}-${Date.now()}.md`
     const fillerLine = `${'representative Markdown prose '.repeat(4)}\n`
     const fixedSource = [
       '# Large Markdown Fixture',
@@ -385,7 +385,7 @@ test.describe('Text Editor', () => {
       expect(settingsResponse.ok()).toBe(true)
 
       await timed('initial open', LARGE_MARKDOWN_OPEN_THRESHOLD_MS, async () => {
-        await page.goto(`/?dir=SharedContent&viewing=${encodeURIComponent(path)}`)
+        await page.goto(`/?dir=MediaContent&viewing=${encodeURIComponent(path)}`)
         await expect(markdownEditor(page)).toBeVisible()
         await expect(markdownDocument(page, 'edit').locator('.cm-line').first()).toContainText(
           'Large Markdown Fixture',

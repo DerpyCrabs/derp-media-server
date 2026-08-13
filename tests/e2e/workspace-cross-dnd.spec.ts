@@ -9,7 +9,7 @@ import {
   getWindowGroups,
   gotoWorkspace,
   html5DragDrop,
-  navigateToSharedContent,
+  navigateToMediaContent,
   openBrowserWindow,
 } from '../e2e/workspace-cross-dnd-helpers'
 import { createWorkspaceE2EContext } from './workspace-e2e-auth'
@@ -47,8 +47,8 @@ test.describe('Cross-Window File Move', () => {
     const contentA = getVisibleContent(groups.first())
     const contentB = getVisibleContent(groups.nth(1))
 
-    await navigateToSharedContent(contentA)
-    await navigateToSharedContent(contentB)
+    await navigateToMediaContent(contentA)
+    await navigateToMediaContent(contentB)
 
     const tempFile = 'cross-dnd-test.txt'
     await createTempFile(page, contentA, tempFile)
@@ -94,8 +94,8 @@ test.describe('Drop File onto Tab Bar', () => {
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const contentA = getVisibleContent(groups.first())
-    await expect(contentA.getByText('SharedContent', { exact: true })).toBeVisible()
-    await navigateToSharedContent(contentA)
+    await expect(contentA.getByText('MediaContent', { exact: true })).toBeVisible()
+    await navigateToMediaContent(contentA)
 
     const folderRow = contentA.locator('tr').filter({ hasText: 'subfolder' }).first()
     const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
@@ -119,7 +119,7 @@ test.describe('Drop File onto Tab Bar', () => {
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const contentA = getVisibleContent(groups.first())
-    await navigateToSharedContent(contentA)
+    await navigateToMediaContent(contentA)
 
     const fileRow = contentA.locator('tr').filter({ hasText: 'public-doc.txt' })
     const headerB = groups.nth(1).locator('[data-tab-drop-slot]').first()
@@ -143,7 +143,7 @@ test.describe('Drop File onto Tab Bar', () => {
     await dragToEdge(page, getDragHandle(groups.nth(1)), 'right')
 
     const contentA = getVisibleContent(groups.first())
-    await navigateToSharedContent(contentA)
+    await navigateToMediaContent(contentA)
 
     const videoRow = contentA.locator('tr').filter({ hasText: 'public-video.mp4' })
     if ((await videoRow.count()) === 0) {

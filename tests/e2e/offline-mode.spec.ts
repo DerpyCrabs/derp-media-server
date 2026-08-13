@@ -20,7 +20,7 @@ test.describe('Offline mode', () => {
       return (config.mediaRoots?.length ?? 0) > 1 ? config.mediaRoots![0].name : ''
     })
     await page.reload()
-    await page.route(/\/api\/(?:share\/[^/]+\/)?thumbnail\//, (route) => route.abort())
+    await page.route(/\/api\/thumbnail\//, (route) => route.abort())
     const prefix = root ? `${root}/` : ''
 
     for (const [directory, name] of [
@@ -183,43 +183,6 @@ test.describe('Offline mode', () => {
     await context.setOffline(false)
     await page.goto(mediaRoot ? `/?dir=${encodeURIComponent(mediaRoot)}` : '/')
     await expect(page.locator('table').getByText('Documents', { exact: true })).toBeVisible()
-  })
-
-  test('share content is saved through token-scoped APIs and opens offline', async ({
-    page,
-    context,
-  }) => {
-    test.setTimeout(45_000)
-    await page.goto('/')
-    const setup = await page.evaluate(async () => {
-      await navigator.serviceWorker.ready
-      const config = (await fetch('/api/auth/config').then((response) => response.json())) as {
-        mediaRoots?: Array<{ name: string }>
-      }
-      return { root: (config.mediaRoots?.length ?? 0) > 1 ? config.mediaRoots![0].name : '' }
-    })
-    await page.reload()
-    const sharePath = setup.root ? `${setup.root}/SharedContent` : 'SharedContent'
-    const created = await page.request.post('/api/shares', {
-      data: { path: sharePath, isDirectory: true },
-    })
-    const body = (await created.json()) as { share: { token: string; passcode?: string } }
-    const shareUrl = `/share/${body.share.token}${body.share.passcode ? `?p=${encodeURIComponent(body.share.passcode)}` : ''}`
-    await page.goto(shareUrl)
-
-    const row = page.locator('table tr').filter({ hasText: 'public-doc.txt' })
-    await row.click({ button: 'right' })
-    await page.getByText('Make available offline', { exact: true }).click()
-    await expect(
-      page.getByText('public-doc.txt is available offline', { exact: true }),
-    ).toBeVisible()
-
-    await context.setOffline(true)
-    await page.goto('/?offline=1')
-    if (setup.root) await page.locator('table tr').filter({ hasText: setup.root }).click()
-    await page.locator('table tr').filter({ hasText: 'SharedContent' }).click()
-    await page.locator('table tr').filter({ hasText: 'public-doc.txt' }).click()
-    await expect(page.getByText('This is a public document for share testing')).toBeVisible()
   })
 
   test('failed download is reported and leaves no partial offline entry', async ({ page }) => {

@@ -4,7 +4,6 @@ import {
   buildImageConfigUrl,
   buildImageUrl,
   buildMediaUrl,
-  type MediaShareContext,
   type ResponsiveImageRequest,
 } from './build-media-url'
 
@@ -12,7 +11,6 @@ type Dimensions = { width: number; height: number }
 
 type Options = {
   path: Accessor<string>
-  context: Accessor<MediaShareContext>
   viewport: Accessor<HTMLElement | undefined>
   zoom: Accessor<number | 'fit'>
   prefetchPaths: Accessor<string[]>
@@ -21,17 +19,16 @@ type Options = {
 
 const configRequests = new Map<string, Promise<boolean>>()
 
-function imageOptimizationEnabled(context: MediaShareContext): Promise<boolean> {
-  const key = context ? `share:${context.token}` : 'admin'
-  let request = configRequests.get(key)
+function imageOptimizationEnabled(): Promise<boolean> {
+  let request = configRequests.get('admin')
   if (!request) {
-    request = fetch(buildImageConfigUrl(context), { credentials: 'include' })
+    request = fetch(buildImageConfigUrl(), { credentials: 'include' })
       .then(async (response) => {
         if (!response.ok) return true
         return Boolean(((await response.json()) as { enabled?: boolean }).enabled)
       })
       .catch(() => true)
-    configRequests.set(key, request)
+    configRequests.set('admin', request)
   }
   return request
 }
@@ -101,10 +98,9 @@ export function createResponsiveImage(options: Options) {
   })
 
   createEffect(() => {
-    const context = options.context()
     let cancelled = false
     setEnabled(true)
-    void imageOptimizationEnabled(context).then((value) => {
+    void imageOptimizationEnabled().then((value) => {
       if (!cancelled) setEnabled(value)
     })
     onCleanup(() => {
@@ -149,10 +145,10 @@ export function createResponsiveImage(options: Options) {
     onCleanup(() => window.cancelAnimationFrame(frame))
   })
 
-  const originalUrl = createMemo(() => buildMediaUrl(options.path(), options.context()))
+  const originalUrl = createMemo(() => buildMediaUrl(options.path()))
   const optimizedUrl = createMemo(() => {
     const value = request()
-    return value ? buildImageUrl(options.path(), options.context(), value) : ''
+    return value ? buildImageUrl(options.path(), value) : ''
   })
   const desiredSrc = createMemo(() => {
     const retry = retryNonce()
@@ -235,7 +231,7 @@ export function createResponsiveImage(options: Options) {
     const controllers = paths.map(() => new AbortController())
     paths.forEach((prefetchPath, index) => {
       const priority = index === 0 ? 'next' : 'prefetch'
-      const url = buildImageUrl(prefetchPath, options.context(), { ...activeRequest, priority })
+      const url = buildImageUrl(prefetchPath, { ...activeRequest, priority })
       void fetch(url, {
         credentials: 'include',
         signal: controllers[index]?.signal,

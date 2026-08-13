@@ -29,7 +29,6 @@ export default defineConfig({
         '**/tests/**',
         '**/mounts.json',
         '**/canvases.json',
-        '**/shares.json',
         '**/settings.json',
         '**/stats.json',
         '**/dist/**',

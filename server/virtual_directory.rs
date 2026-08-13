@@ -12,7 +12,7 @@ pub(crate) const HERMES_ROOT: &str = "Hermes Sessions";
 const PAGE_SIZE: usize = 200;
 
 pub(crate) fn is_builtin_path(path: &str) -> bool {
-    matches!(path, "Favorites" | "Most Played" | "Shares")
+    matches!(path, "Favorites" | "Most Played")
 }
 
 pub(crate) fn list_builtin(
@@ -42,7 +42,6 @@ fn item(name: String, path: String, folder: bool) -> media::FileItem {
         is_directory: folder,
         is_virtual: Some(true),
         view_count: None,
-        share_token: None,
         thumbnail_generated: None,
         version: None,
     }

@@ -2,7 +2,7 @@ use crate::{
     app::{AppState, Shared, all_roots, emit_admin, roots, timestamp_ms},
     config::{Config, MediaRoot},
     error::{AppError, AppResult},
-    shares, state_db,
+    state_db,
 };
 use axum::{
     Json, Router,
@@ -77,7 +77,7 @@ fn validate(
             "Media root name \"{name}\" must not contain path separators"
         )));
     }
-    if ["favorites", "most played", "shares"]
+    if ["favorites", "most played"]
         .iter()
         .any(|reserved| name.eq_ignore_ascii_case(reserved))
     {
@@ -130,9 +130,8 @@ fn validate(
 
 async fn list(State(state): State<Shared>) -> Json<Value> {
     let runtime = roots(&state);
-    let existing_shares = shares::read(&state.config, &runtime);
     Json(
-        json!({"mounts":runtime.iter().map(|root| json!({"id":root.id,"name":root.name,"path":root.path,"createdAt":root.created_at.unwrap_or(0),"readOnly":true,"status":if root.path.is_dir(){"online"}else{"offline"},"shareCount":existing_shares.iter().filter(|share|share.root_id.as_deref()==Some(&root.id)).count()})).collect::<Vec<_>>() }),
+        json!({"mounts":runtime.iter().map(|root| json!({"id":root.id,"name":root.name,"path":root.path,"createdAt":root.created_at.unwrap_or(0),"readOnly":true,"status":if root.path.is_dir(){"online"}else{"offline"}})).collect::<Vec<_>>() }),
     )
 }
 

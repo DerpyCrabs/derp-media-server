@@ -26,9 +26,7 @@ export function useAdminEventsStream(
           console.log('[Admin SSE] Connected to events stream')
         } else if (data.type === 'files-changed' || pathMutation) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.shareFiles() })
           void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.shareKbRecent() })
         } else if (data.type === 'settings-changed') {
           void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
           void queryClient.invalidateQueries({
@@ -38,7 +36,6 @@ export function useAdminEventsStream(
           void queryClient.invalidateQueries({ queryKey: queryKeys.mounts() })
           void queryClient.invalidateQueries({ queryKey: queryKeys.authConfig() })
           void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
         }
       } catch (error) {
         console.error('[Admin SSE] Error handling message:', error)

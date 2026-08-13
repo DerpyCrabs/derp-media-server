@@ -4,8 +4,6 @@ import { useBrowserHistory } from './browser-history'
 import { SolidThemeSync } from './SolidThemeSync'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { FileBrowser } from './FileBrowser'
-import { ShareRoute } from './ShareRoute'
-import { ShareWorkspacePage } from './ShareWorkspacePage'
 import { WorkspacePage } from './WorkspacePage'
 import { CanvasPage } from './CanvasPage'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
@@ -74,22 +72,9 @@ function LoginPage() {
   )
 }
 
-function parseShareWorkspaceToken(pathname: string): string | null {
-  const m = pathname.match(/^\/share\/([^/]+)\/workspace\/?$/)
-  return m?.[1] ?? null
-}
-
-/** `/share/:token` only when token is non-empty (excludes `/share/` and `/share`). */
-function parseShareFolderOrFileToken(pathname: string): string | null {
-  if (parseShareWorkspaceToken(pathname)) return null
-  const m = pathname.match(/^\/share\/([^/]+)/)
-  return m?.[1] ?? null
-}
-
 export function App() {
   const loc = useBrowserHistory()
   const path = createMemo(() => loc().pathname)
-  const shareWorkspaceToken = createMemo(() => parseShareWorkspaceToken(path()))
 
   return (
     <>
@@ -108,22 +93,6 @@ export function App() {
             <SolidThemeSync />
             <LoginPage />
           </>
-        </Match>
-        <Match when={shareWorkspaceToken()} keyed>
-          {(token) => (
-            <>
-              <SolidThemeSync />
-              <ShareWorkspacePage token={token} />
-            </>
-          )}
-        </Match>
-        <Match when={parseShareFolderOrFileToken(path())} keyed>
-          {(token) => (
-            <>
-              <SolidThemeSync />
-              <ShareRoute token={token} />
-            </>
-          )}
         </Match>
         <Match when={path() === '/workspace'}>
           <>

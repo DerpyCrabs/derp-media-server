@@ -5,16 +5,8 @@ fn has_dot_dot(path: &str) -> bool {
     path.split(['/', '\\']).any(|segment| segment == "..")
 }
 
-fn is_private_virtual_path(path: &str) -> bool {
-    let path = path.replace('\\', "/");
-    path == crate::virtual_directory::HERMES_ROOT
-        || path.starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
-}
-
-fn valid_source(source: &Value, kind: &str, token: Option<&str>) -> bool {
-    source.get("kind").and_then(Value::as_str) == Some(kind)
-        && token
-            .is_none_or(|expected| source.get("token").and_then(Value::as_str) == Some(expected))
+fn valid_source(source: &Value) -> bool {
+    source.get("kind").and_then(Value::as_str) == Some("local")
 }
 
 fn valid_pin(pin: &Value) -> bool {
@@ -22,13 +14,7 @@ fn valid_pin(pin: &Value) -> bool {
         && pin.get("path").and_then(Value::as_str).is_some()
         && pin.get("isDirectory").and_then(Value::as_bool).is_some()
         && pin.get("title").and_then(Value::as_str).is_some()
-        && pin.get("source").is_some_and(|source| {
-            valid_source(source, "local", None)
-                || source
-                    .get("token")
-                    .and_then(Value::as_str)
-                    .is_some_and(|token| valid_source(source, "share", Some(token)))
-        })
+        && pin.get("source").is_some_and(valid_source)
 }
 
 pub fn admin_pins(raw: &Value) -> Value {
@@ -38,32 +24,9 @@ pub fn admin_pins(raw: &Value) -> Value {
             .flatten()
             .filter(|pin| {
                 valid_pin(pin)
-                    && valid_source(&pin["source"], "local", None)
                     && pin["path"]
                         .as_str()
                         .is_some_and(|path| !path.is_empty() && !has_dot_dot(path))
-            })
-            .cloned()
-            .collect(),
-    )
-}
-
-pub fn share_pins(raw: &Value, share_path: &str, token: &str) -> Value {
-    let root = share_path.replace('\\', "/");
-    Value::Array(
-        raw.as_array()
-            .into_iter()
-            .flatten()
-            .filter(|pin| {
-                if !valid_pin(pin) || !valid_source(&pin["source"], "share", Some(token)) {
-                    return false;
-                }
-                pin["path"].as_str().is_some_and(|path| {
-                    let path = path.replace('\\', "/");
-                    !has_dot_dot(&path)
-                        && !is_private_virtual_path(&path)
-                        && (path == root || path.starts_with(&(root.clone() + "/")))
-                })
             })
             .cloned()
             .collect(),
@@ -93,33 +56,23 @@ fn window_paths(window: &Value) -> Vec<&str> {
     paths
 }
 
-fn valid_snapshot(snapshot: &Value, share: Option<(&str, &str)>) -> bool {
+fn valid_snapshot(snapshot: &Value) -> bool {
     let Some(windows) = snapshot.get("windows").and_then(Value::as_array) else {
         return false;
     };
     if windows.is_empty() {
         return false;
     }
-    let root = share.map(|(path, _)| path.replace('\\', "/"));
     for window in windows {
         let Some(source) = window.get("source") else {
             return false;
         };
-        let valid = match share {
-            Some((_, token)) => valid_source(source, "share", Some(token)),
-            None => valid_source(source, "local", None),
-        };
-        if !valid {
+        if !valid_source(source) {
             return false;
         }
         for path in window_paths(window) {
             let path = path.replace('\\', "/");
-            if has_dot_dot(&path)
-                || (share.is_some() && is_private_virtual_path(&path))
-                || root.as_ref().is_some_and(|root| {
-                    !path.is_empty() && path != *root && !path.starts_with(&(root.clone() + "/"))
-                })
-            {
+            if has_dot_dot(&path) {
                 return false;
             }
         }
@@ -131,17 +84,13 @@ fn valid_snapshot(snapshot: &Value, share: Option<(&str, &str)>) -> bool {
         .flatten()
         .filter(|pin| valid_pin(pin))
         .count();
-    let filtered = match share {
-        Some((path, token)) => share_pins(raw_pins, path, token),
-        None => admin_pins(raw_pins),
-    };
+    let filtered = admin_pins(raw_pins);
     filtered
         .as_array()
         .is_some_and(|pins| pins.len() == parsed_count)
 }
 
-pub fn presets(raw: &Value, share: Option<(&str, &str)>) -> Value {
-    let wanted_scope = share.map(|(_, token)| format!("share:{token}"));
+pub fn presets(raw: &Value) -> Value {
     let mut out = Vec::new();
     for item in raw.as_array().into_iter().flatten() {
         let (Some(id), Some(name), Some(scope), Some(snapshot)) = (
@@ -157,10 +106,7 @@ pub fn presets(raw: &Value, share: Option<(&str, &str)>) -> Value {
         if name.is_empty() || raw_name.encode_utf16().count() > 120 {
             continue;
         }
-        let scope_ok = wanted_scope
-            .as_deref()
-            .map_or(scope == "admin", |wanted| scope == wanted);
-        if !scope_ok || !valid_snapshot(snapshot, share) {
+        if scope != "admin" || !valid_snapshot(snapshot) {
             continue;
         }
         let mut value = Map::new();
@@ -186,26 +132,4 @@ pub fn presets(raw: &Value, share: Option<(&str, &str)>) -> Value {
         }
     }
     Value::Array(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn share_presets_strip_private_virtual_paths_even_for_matching_share_root() {
-        let raw = json!([{
-            "id":"preset", "name":"Unsafe", "scope":"share:token",
-            "snapshot":{
-                "windows":[{
-                    "source":{"kind":"share","token":"token"},
-                    "initialState":{"dir":"Hermes Sessions/session/secret"}
-                }],
-                "pinnedTaskbarItems":[]
-            }
-        }]);
-        let filtered = presets(&raw, Some(("Hermes Sessions", "token")));
-        assert_eq!(filtered, json!([]));
-    }
 }

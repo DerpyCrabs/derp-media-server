@@ -37,7 +37,7 @@ import { Portal } from 'solid-js/web'
 import { ReaderSelectionMenu, type ReaderSelection } from './ReaderSelectionMenu'
 import { menuPositionForRect, visibleRectForRange } from './reader-geometry'
 import { closeReader } from './reader-url'
-import { buildMediaUrl, type MediaShareContext } from '../lib/build-media-url'
+import { buildMediaUrl } from '../lib/build-media-url'
 import { parseBook } from './book-parser'
 import { renderBook, type RenderedBook } from './book-sanitize'
 import { BookContent } from './BookContent'
@@ -391,7 +391,6 @@ function RegionLayer(props: {
 type ReaderDialogProps = {
   sourcePath?: string
   sourceKind?: 'pdf' | 'folder' | 'book'
-  shareContext?: MediaShareContext
   embedded?: boolean
   showClose?: boolean
   onClose?: () => void
@@ -519,19 +518,18 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       let preferences = desired
       let baseRevision = preferencesRevision()
       try {
-        const revision = await saveReaderPreferences(props.shareContext, preferences, baseRevision)
+        const revision = await saveReaderPreferences(preferences, baseRevision)
         setPreferencesRevision(revision)
         preferenceBase = preferences
         return
       } catch (reason) {
-        if (!(reason instanceof ApiError) || reason.status !== 409 || props.shareContext)
-          throw reason
+        if (!(reason instanceof ApiError) || reason.status !== 409) throw reason
       }
 
-      const latest = await loadReaderPreferences(props.shareContext)
+      const latest = await loadReaderPreferences()
       preferences = mergeReaderPreferenceChanges(latest.preferences, base, desired)
       baseRevision = latest.revision
-      const revision = await saveReaderPreferences(props.shareContext, preferences, baseRevision)
+      const revision = await saveReaderPreferences(preferences, baseRevision)
       setPreferencesRevision(revision)
       preferenceBase = preferences
       if (
@@ -583,8 +581,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     )
   }
 
-  const mediaUrl = (activePath: string) =>
-    buildMediaUrl(activePath.replace(/\\/g, '/'), props.shareContext)
+  const mediaUrl = (activePath: string) => buildMediaUrl(activePath.replace(/\\/g, '/'))
 
   const bookChapterElement = (chapterId: string) =>
     viewport?.querySelector<HTMLElement>(`[data-book-chapter="${CSS.escape(chapterId)}"]`) ?? null
@@ -669,9 +666,9 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     let cancelled = false
     let pdfTask: ReturnType<typeof pdfjs.getDocument> | undefined
     void Promise.all([
-      loadSyncedReaderState(activePath, props.shareContext).catch(() => null),
+      loadSyncedReaderState(activePath).catch(() => null),
       preferenceQueue
-        .then(() => loadReaderPreferences(props.shareContext))
+        .then(() => loadReaderPreferences())
         .catch(() => ({
           preferences: preferenceBase,
           revision: preferencesRevision(),
@@ -704,18 +701,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         if (kind === 'book') setSelectionMode('text')
 
         if (kind === 'folder') {
-          const share = props.shareContext
-          const base = share?.sharePath.replace(/\\/g, '/').replace(/\/$/, '') ?? ''
-          const normalized = activePath.replace(/\\/g, '/')
-          const relative =
-            normalized === base
-              ? ''
-              : normalized.startsWith(`${base}/`)
-                ? normalized.slice(base.length + 1)
-                : normalized
-          const listUrl = share
-            ? `/api/share/${encodeURIComponent(share.token)}/files?dir=${encodeURIComponent(relative)}`
-            : `/api/files?dir=${encodeURIComponent(activePath)}`
+          const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
           const response = await fetch(listUrl)
           const payload = await response.json()
           if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
@@ -874,24 +860,22 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     return {
       activePath,
       next,
-      shareContext: props.shareContext,
       revision: stateRevision(),
       fingerprint: stateFingerprint(),
     }
   }
 
   const persistNow = async (snapshot: NonNullable<ReturnType<typeof capturePersistedState>>) => {
-    const { activePath, next, shareContext, revision, fingerprint } = snapshot
+    const { activePath, next, revision, fingerprint } = snapshot
     const saved = await saveSyncedReaderState(
       activePath,
-      shareContext,
       next,
       stateRevision() === revision ? revision : stateRevision(),
       stateFingerprint() === fingerprint ? fingerprint : stateFingerprint(),
     ).catch(() => null)
     if (!saved) {
       setSyncBlocked(true)
-      const latest = await loadSyncedReaderState(activePath, shareContext).catch(() => null)
+      const latest = await loadSyncedReaderState(activePath).catch(() => null)
       if (latest) {
         setStateRevision(latest.revision)
         setStateFingerprint(latest.fingerprint)

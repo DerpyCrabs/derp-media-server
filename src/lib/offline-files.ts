@@ -1,17 +1,8 @@
 import type { FileItem } from '@/lib/types'
 import { removeWebOffline, saveForWebOffline, webOfflineSupported } from './web-offline-storage'
 
-type ShareContext = { token: string; sharePath: string } | null
-
 function absoluteUrl(relative: string): string {
   return new URL(relative, window.location.origin).href
-}
-
-function relativeSharePath(path: string, sharePath: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const base = sharePath.replace(/\\/g, '/').replace(/\/$/, '')
-  if (normalized === base) return ''
-  return normalized.startsWith(`${base}/`) ? normalized.slice(base.length + 1) : normalized
 }
 
 export function isOfflineFeatureAvailable(): boolean {
@@ -38,24 +29,15 @@ export function openOfflineFiles(): boolean {
   return true
 }
 
-export async function makeAvailableOffline(
-  file: FileItem,
-  share: ShareContext = null,
-): Promise<boolean> {
-  const relativePath = share ? relativeSharePath(file.path, share.sharePath) : file.path
-  const listUrl = file.isDirectory
-    ? share
-      ? `/api/share/${encodeURIComponent(share.token)}/files?dir=`
-      : '/api/files?dir='
-    : null
+export async function makeAvailableOffline(file: FileItem): Promise<boolean> {
+  const relativePath = file.path
+  const listUrl = file.isDirectory ? '/api/files?dir=' : null
   return saveForWebOffline({
     item: file,
     apiPath: relativePath,
     displayPath: file.path.replace(/\\/g, '/'),
     listBaseUrl: listUrl ? absoluteUrl(listUrl) : undefined,
-    mediaBaseUrl: share
-      ? absoluteUrl(`/api/share/${encodeURIComponent(share.token)}/media/`)
-      : absoluteUrl('/api/media/'),
+    mediaBaseUrl: absoluteUrl('/api/media/'),
   })
 }
 

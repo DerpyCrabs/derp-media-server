@@ -71,7 +71,7 @@ pub async fn middleware(State(state): State<Shared>, request: Request, next: Nex
             .next()
             .is_some_and(|name| name.contains('.') && !path.starts_with("/api/"));
     let public = asset
-        || ["/login", "/api/auth/", "/share", "/api/share/"]
+        || ["/login", "/api/auth/"]
             .iter()
             .any(|prefix| path == *prefix || path.starts_with(prefix));
     if public {
@@ -139,7 +139,7 @@ async fn config(State(state): State<Shared>, headers: HeaderMap) -> AppResult<Js
         values
     };
     Ok(Json(
-        json!({"enabled":state.config.auth.enabled,"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":roots.iter().map(|root|json!({"id":root.id,"name":root.name,"editableFolders":root.editable_folders,"readOnly":root.read_only,"source":root.source})).collect::<Vec<_>>() }),
+        json!({"enabled":state.config.auth.enabled,"editableFolders":editable,"mediaRoots":roots.iter().map(|root|json!({"id":root.id,"name":root.name,"editableFolders":root.editable_folders,"readOnly":root.read_only,"source":root.source})).collect::<Vec<_>>() }),
     ))
 }
 

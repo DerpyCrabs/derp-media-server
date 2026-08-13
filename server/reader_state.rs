@@ -137,14 +137,6 @@ pub fn remove_exact_all(database: &Path, path: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub fn remove_scope(database: &Path, scope: &str) -> AppResult<()> {
-    let connection = connection(database)?;
-    connection
-        .execute("DELETE FROM reader_state WHERE scope=?1", params![scope])
-        .map_err(|error| AppError::internal(error.to_string()))?;
-    Ok(())
-}
-
 pub fn move_prefix(database: &Path, old_path: &str, new_path: &str) -> AppResult<()> {
     let mut connection = connection(database)?;
     let transaction = connection

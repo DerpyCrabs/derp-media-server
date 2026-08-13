@@ -4,7 +4,7 @@ use crate::{
         settings_path, stats_path,
     },
     error::{AppError, AppResult},
-    media, shares, store,
+    media, store,
 };
 use axum::{
     Json, Router,
@@ -84,7 +84,6 @@ async fn list(
             is_directory: true,
             is_virtual: Some(true),
             view_count: None,
-            share_token: None,
             thumbnail_generated: None,
             version: None,
         });
@@ -170,48 +169,6 @@ pub(crate) fn legacy_virtual_items(
     state: &AppState,
     dir: &str,
 ) -> Option<AppResult<Vec<media::FileItem>>> {
-    if dir == "Shares" {
-        let runtime = roots(state);
-        let mut items = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        let mut all = shares::read(&state.config, &runtime);
-        all.sort_by_key(|item| std::cmp::Reverse(item.created_at));
-        for share in all {
-            if !seen.insert(share.path.replace('\\', "/")) {
-                continue;
-            }
-            let Ok(resolved) = media::resolve(&state.config, &runtime, &share.path) else {
-                continue;
-            };
-            let Ok(metadata) = std::fs::metadata(&resolved.full) else {
-                continue;
-            };
-            let name = shares::name(&share.path);
-            let extension = Path::new(&name)
-                .extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_ascii_lowercase();
-            items.push(media::FileItem {
-                name,
-                path: share.path,
-                media_type: if metadata.is_dir() {
-                    "folder".into()
-                } else {
-                    media::media_type(&extension).into()
-                },
-                size: if metadata.is_dir() { 0 } else { metadata.len() },
-                extension,
-                is_directory: share.is_directory,
-                is_virtual: None,
-                view_count: None,
-                share_token: Some(share.token),
-                thumbnail_generated: None,
-                version: None,
-            });
-        }
-        return Some(Ok(items));
-    }
     if dir == "Favorites" || dir == "Most Played" {
         let section = if dir == "Favorites" {
             store::section(
@@ -256,7 +213,7 @@ pub(crate) fn legacy_virtual_items(
             if dir == "Most Played" && metadata.is_dir() {
                 continue;
             }
-            let name = shares::name(&path);
+            let name = media::name(&path);
             let extension = Path::new(&name)
                 .extension()
                 .unwrap_or_default()
@@ -285,7 +242,6 @@ pub(crate) fn legacy_virtual_items(
                 is_directory: metadata.is_dir(),
                 is_virtual: None,
                 view_count,
-                share_token: None,
                 thumbnail_generated,
                 version: None,
             });

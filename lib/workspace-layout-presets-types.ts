@@ -1,6 +1,6 @@
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 
-export type WorkspaceLayoutScope = 'admin' | `share:${string}`
+export type WorkspaceLayoutScope = 'admin'
 
 export interface WorkspaceLayoutPreset {
   id: string
@@ -9,12 +9,6 @@ export interface WorkspaceLayoutPreset {
   snapshot: PersistedWorkspaceState
   createdAt: string
   updatedAt?: string
-}
-
-export function workspaceLayoutScopeFromShareToken(
-  token: string | null | undefined,
-): WorkspaceLayoutScope {
-  return token ? `share:${token}` : 'admin'
 }
 
 export function makeWorkspaceLayoutPresetId(): string {

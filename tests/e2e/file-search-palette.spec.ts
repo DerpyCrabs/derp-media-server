@@ -49,7 +49,7 @@ test.describe('File search palette', () => {
     await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)).toHaveCount(countBefore + 1)
   })
 
-  test('is touch accessible and absent from share UI', async ({ page }) => {
+  test('is touch accessible', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
     await page.getByTestId('classic-file-search-trigger').click()
@@ -57,9 +57,5 @@ test.describe('File search palette', () => {
     await expect(palette).toBeVisible()
     await expect(palette.getByRole('combobox')).toBeFocused()
     await palette.getByRole('button', { name: 'Close search' }).click()
-
-    await page.goto('/share/test-passcode-share-token1')
-    await expect(page.getByTestId('classic-file-search-trigger')).toHaveCount(0)
-    await expect(page.getByTestId('workspace-global-file-search-trigger')).toHaveCount(0)
   })
 })

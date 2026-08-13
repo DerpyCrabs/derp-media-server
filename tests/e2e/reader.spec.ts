@@ -161,29 +161,6 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('reader-book')).toContainText('Selectable FB2 text begins here.')
   })
 
-  test('reads shared EPUB through token-scoped routes and restores communal progress', async ({
-    page,
-    browser,
-  }) => {
-    const infoResponse = await page.request.get('/api/share/test-book-share-token1/info')
-    expect(infoResponse.ok()).toBe(true)
-    expect(await infoResponse.json()).toMatchObject({ mediaType: 'book' })
-    await page.goto('/share/test-book-share-token1')
-    await expect.poll(() => page.url()).toContain('viewing=')
-    await expect(page.getByTestId('reader-book')).toContainText('Selectable EPUB text begins here.')
-    if (!(await page.getByTestId('reader-outline').isVisible())) {
-      await page.getByTestId('reader-outline-button').click()
-    }
-    await page.getByTestId('reader-outline').getByText('Second chapter').click()
-    await expect(page.getByTestId('reader-book-progress')).toContainText('Second chapter')
-    await page.getByLabel('Close reader').click()
-    const otherContext = await browser.newContext({ serviceWorkers: 'block' })
-    const otherPage = await otherContext.newPage()
-    await otherPage.goto(`${new URL(page.url()).origin}/share/test-book-share-token1`)
-    await expect(otherPage.getByTestId('reader-book-progress')).toContainText('Second chapter')
-    await otherContext.close()
-  })
-
   test('keeps book settings separate from chapter controls in narrow readers', async ({ page }) => {
     await page.setViewportSize({ width: 500, height: 720 })
     await page.goto('/?dir=Documents&viewing=Documents%2Freader.epub')

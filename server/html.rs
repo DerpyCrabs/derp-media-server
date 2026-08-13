@@ -1,11 +1,10 @@
 use crate::{
     app::{
-        AppState, Shared, cookies, find_share, knowledge_base_root, list_directory, roots,
-        stats_path, timestamp_ms,
+        AppState, Shared, knowledge_base_root, roots, stats_path, timestamp_ms,
     },
     media,
     routes::{media as media_routes, settings},
-    shares, store,
+    store,
 };
 use axum::{
     body::Body,
@@ -50,7 +49,7 @@ fn auth_config(state: &AppState) -> Value {
         }));
         values
     };
-    json!({"enabled":state.config.auth.enabled,"shareLinkDomain":state.config.share_link_domain,"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
+    json!({"enabled":state.config.auth.enabled,"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
 }
 
 fn parent(path: &str) -> String {
@@ -110,86 +109,14 @@ fn kb_recent(state: &AppState, scope: &str) -> Value {
         .collect::<Vec<_>>();
     files.sort_by_key(|item| std::cmp::Reverse(item.0));
     json!({"results":files.into_iter().take(10).map(|(modified,path)|json!({
-        "name":shares::name(&path),
+        "name":media::name(&path),
         "path":path,
         "modifiedAt":chrono::DateTime::<chrono::Utc>::from(modified)
             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
     })).collect::<Vec<_>>()})
 }
 
-fn share_file_path(share: &shares::Share, requested: &str) -> Option<String> {
-    let share_path = share.path.replace('\\', "/");
-    let requested = requested.replace('\\', "/");
-    if !share.is_directory {
-        return (requested == share_path).then_some(share_path);
-    }
-    if requested == share_path || requested.starts_with(&(share_path.clone() + "/")) {
-        return Some(requested);
-    }
-    shares::resolve_subpath(share, &requested).ok()
-}
-
-fn share_listing_dir(share: &shares::Share, dir: Option<&String>, path: &str) -> String {
-    if let Some(dir) = dir {
-        return dir.replace('\\', "/");
-    }
-    let Some(resolved) = share_file_path(share, path) else {
-        return String::new();
-    };
-    let root = share.path.replace('\\', "/");
-    let relative = resolved.strip_prefix(&(root + "/")).unwrap_or("");
-    parent(relative)
-}
-
-fn shared_files(state: &AppState, share: &shares::Share, dir: &str) -> Option<Value> {
-    let logical = shares::resolve_subpath(share, dir).ok()?;
-    let files = list_directory(state, &logical)
-        .ok()?
-        .into_iter()
-        .filter(|item| item.is_virtual != Some(true))
-        .collect::<Vec<_>>();
-    Some(json!({"files":files}))
-}
-
-fn share_info(state: &AppState, token: &str, headers: &axum::http::HeaderMap) -> Option<Value> {
-    let share = find_share(state, token).ok()?;
-    if share.unavailable == Some(true) {
-        return None;
-    }
-    let authorized = shares::authorized(&state.config, &share, &cookies(headers));
-    let extension = if share.is_directory {
-        String::new()
-    } else {
-        media::extension(Path::new(&share.path))
-    };
-    let kb_root = authorized
-        .then(|| knowledge_base_root(state, &share.path))
-        .flatten();
-    let mut info = json!({"name":shares::name(&share.path),"isDirectory":share.is_directory,"editable":share.editable,"mediaType":if share.is_directory{"folder"}else{media::media_type(&extension)},"extension":extension,"needsPasscode":share.passcode.is_some(),"authorized":authorized});
-    if authorized {
-        info["path"] = json!(share.path);
-        info["isKnowledgeBase"] = json!(share.is_directory && kb_root.is_some());
-        if let Some(root) = kb_root {
-            info["knowledgeBaseRoot"] = json!(root);
-        }
-    }
-    if authorized && share.is_directory {
-        info["adminViewMode"] = settings::sanitized(state)["viewModes"]
-            .get(&share.path)
-            .cloned()
-            .unwrap_or_else(|| json!("list"));
-    }
-    if share.editable {
-        info["restrictions"] = serde_json::to_value(shares::effective(&share)).unwrap();
-    }
-    Some(info)
-}
-
-async fn dehydrated(
-    state: &AppState,
-    uri: &axum::http::Uri,
-    headers: &axum::http::HeaderMap,
-) -> Value {
+async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
     let path = uri.path();
     let params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
         .into_owned()
@@ -200,27 +127,19 @@ async fn dehydrated(
         if path == "/"
             && dir != "Favorites"
             && dir != "Most Played"
-            && dir != "Shares"
             && let Ok(files) = crate::routes::files::list_items(state, &dir)
         {
             queries.push(query(json!(["files", dir]), json!({"files":files})));
         }
         queries.push(query(json!(["settings"]), settings::sanitized(state)));
-        queries.push(query(
-            json!(["shares"]),
-            json!({"shares":shares::read(&state.config,&roots(state))}),
-        ));
         let stats = store::section(
             &stats_path(state),
             &state.config.library_key,
-            json!({"views":{},"shareViews":{}}),
+            json!({"views":{}}),
         );
         queries.push(query(
             json!(["stats"]),
-            json!({
-                "views":stats["views"].as_object().cloned().unwrap_or_default(),
-                "shareViews":stats["shareViews"].as_object().cloned().unwrap_or_default()
-            }),
+            json!({"views":stats["views"].as_object().cloned().unwrap_or_default()}),
         ));
         queries.push(query(json!(["auth-config"]), auth_config(state)));
         if path == "/" && knowledge_base_root(state, &dir).is_some() {
@@ -275,82 +194,6 @@ async fn dehydrated(
                 }
             }
         }
-    } else if let Some(token) = path
-        .strip_prefix("/share/")
-        .and_then(|rest| rest.split('/').next())
-        .filter(|token| !token.is_empty())
-        && let Some(info) = share_info(state, token, headers)
-    {
-        let authorized = info["authorized"].as_bool().unwrap_or(false);
-        let directory = info["isDirectory"].as_bool().unwrap_or(false);
-        queries.push(query(json!(["share-info", token]), info));
-        if authorized
-            && directory
-            && let Ok(share) = find_share(state, token)
-        {
-            let dir = params.get("dir").cloned().unwrap_or_default();
-            if let Some(files) = shared_files(state, &share, &dir) {
-                queries.push(query(json!(["share-files", token, dir]), files));
-            }
-            if knowledge_base_root(state, &share.path).is_some()
-                && let Ok(scope) = shares::resolve_subpath(&share, &dir)
-            {
-                queries.push(query(
-                    json!(["content", "share", token, "kb-recent", params.get("dir")]),
-                    kb_recent(state, &scope),
-                ));
-            }
-        }
-        if authorized && let Ok(share) = find_share(state, token) {
-            if let Some(viewing_path) = params.get("viewing") {
-                let viewing_kind = Path::new(viewing_path)
-                    .extension()
-                    .unwrap_or_default()
-                    .to_string_lossy();
-                if media::media_type(&viewing_kind) == "text"
-                    && let Some(logical) = share_file_path(&share, viewing_path)
-                    && let Ok(resolved) = media::resolve(&state.config, &roots(state), &logical)
-                    && let Ok(content) = std::fs::read_to_string(resolved.full)
-                {
-                    queries.push(query(
-                        json!([
-                            "content",
-                            "share",
-                            token,
-                            "text-target",
-                            share.path,
-                            viewing_path
-                        ]),
-                        json!(content),
-                    ));
-                } else if share.is_directory && media::media_type(&viewing_kind) != "pdf" {
-                    let dir = share_listing_dir(&share, params.get("dir"), viewing_path);
-                    if let Some(files) = shared_files(state, &share, &dir) {
-                        queries.push(query(json!(["share-files", token, dir]), files));
-                    }
-                }
-            }
-            if let Some(playing) = params.get("playing") {
-                let playing_kind = Path::new(playing)
-                    .extension()
-                    .unwrap_or_default()
-                    .to_string_lossy();
-                let kind = media::media_type(&playing_kind);
-                if kind == "audio"
-                    && let Some(logical) = share_file_path(&share, playing)
-                    && let Ok(resolved) = media::resolve(&state.config, &roots(state), &logical)
-                    && let Ok(metadata) = media_routes::audio_metadata_path(&resolved.full).await
-                {
-                    queries.push(query(json!(["audio-metadata", "v2", playing]), metadata.0));
-                }
-                if share.is_directory && matches!(kind, "audio" | "video") {
-                    let dir = share_listing_dir(&share, params.get("dir"), playing);
-                    if let Some(files) = shared_files(state, &share, &dir) {
-                        queries.push(query(json!(["share-files", token, dir]), files));
-                    }
-                }
-            }
-        }
     }
     json!({"mutations":[],"queries":queries})
 }
@@ -359,13 +202,12 @@ async fn inject(
     html: String,
     state: &AppState,
     uri: &axum::http::Uri,
-    headers: &axum::http::HeaderMap,
 ) -> String {
     html.replace(
         "<!--DEHYDRATED-->",
         &format!(
             "<script>window.__DEHYDRATED_STATE__={}</script>",
-            dehydrated(state, uri, headers).await
+            dehydrated(state, uri).await
         ),
     )
 }
@@ -500,7 +342,6 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
                             String::from_utf8_lossy(&bytes).into_owned(),
                             &state,
                             &request_uri,
-                            &headers,
                         )
                         .await,
                     )
@@ -549,7 +390,7 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
         }
         match fs::read_to_string("dist/client/index.html").await {
             Ok(html) => {
-                Html(inject(html, &state, &request_uri, &request_headers).await).into_response()
+                Html(inject(html, &state, &request_uri).await).into_response()
             }
             Err(_) => StatusCode::NOT_FOUND.into_response(),
         }

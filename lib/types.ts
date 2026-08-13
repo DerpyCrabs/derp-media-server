@@ -18,7 +18,6 @@ export interface FileItem {
   isDirectory: boolean
   isVirtual?: boolean
   viewCount?: number
-  shareToken?: string
   thumbnailGenerated?: boolean
   version?: number
 }

@@ -31,8 +31,6 @@ pub struct FileItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view_count: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub share_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail_generated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<f64>,
@@ -65,6 +63,13 @@ pub fn extension(path: &Path) -> String {
             .to_string_lossy()
             .to_ascii_lowercase()
     }
+}
+pub fn name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
 }
 pub fn mime_type(ext: &str) -> &'static str {
     match ext.to_ascii_lowercase().as_str() {
@@ -245,7 +250,6 @@ fn virtual_item(name: &str) -> FileItem {
         is_directory: true,
         is_virtual: Some(true),
         view_count: None,
-        share_token: None,
         thumbnail_generated: None,
         version: None,
     }
@@ -256,7 +260,6 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
         vec![
             virtual_item("Favorites"),
             virtual_item("Most Played"),
-            virtual_item("Shares"),
         ]
     } else {
         vec![]
@@ -274,7 +277,6 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
                 is_directory: true,
                 is_virtual: None,
                 view_count: None,
-                share_token: None,
                 thumbnail_generated: None,
                 version: None,
             });
@@ -319,7 +321,6 @@ pub fn list(config: &Config, runtime: &[MediaRoot], input: &str) -> AppResult<Ve
             is_directory: meta.is_dir(),
             is_virtual: None,
             view_count: None,
-            share_token: None,
             thumbnail_generated: if meta.is_file()
                 && ["image", "video"].contains(&media_type(
                     Path::new(&entry.path())

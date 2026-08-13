@@ -216,7 +216,7 @@ describe('infinite canvas persistence', () => {
       definition: {
         id: 'canvas-window-1',
         type: 'browser',
-        source: { kind: 'share', token: 'unexpected' },
+        source: { kind: 'remote' },
         initialState: { dir: 42, viewing: 'safe.md' },
       },
     } as unknown as CanvasWindow

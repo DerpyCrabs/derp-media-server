@@ -1,7 +1,7 @@
 use crate::{
     app::{Shared, knowledge_bases, roots, search_snippet},
     error::{AppError, AppResult},
-    media, shares,
+    media,
 };
 use axum::{
     Json, Router,
@@ -238,7 +238,7 @@ async fn kb_recent(
     files.sort_by_key(|item| std::cmp::Reverse(item.0));
     files.truncate(10);
     Ok(Json(
-        json!({"results":files.into_iter().map(|(modified,path)|json!({"name":shares::name(&path),"path":path,"modifiedAt":chrono::DateTime::from_timestamp_millis(modified as i64).map(|date|date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))})).collect::<Vec<_>>() }),
+        json!({"results":files.into_iter().map(|(modified,path)|json!({"name":media::name(&path),"path":path,"modifiedAt":chrono::DateTime::from_timestamp_millis(modified as i64).map(|date|date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))})).collect::<Vec<_>>() }),
     ))
 }
 

@@ -2531,12 +2531,7 @@ export function CanvasPage() {
                         <WorkspaceBrowserPane
                           windowId={windowId}
                           workspace={workspace}
-                          sharePanel={() => null}
                           fileIconContext={fileIconContext}
-                          shareAllowUpload={false}
-                          shareCanEdit={false}
-                          shareCanDelete={false}
-                          shareIsKnowledgeBase={false}
                           editableFolders={readOnlyMode() ? [] : editableFolders()}
                           onNavigateDir={navigateDir}
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
@@ -2564,11 +2559,8 @@ export function CanvasPage() {
                           storageKey={CANVAS_STORAGE_KEY}
                           contentVisible={() => true}
                           workspace={workspace}
-                          sharePanel={() => null}
                           editableFolders={readOnlyMode() ? [] : editableFolders()}
                           knowledgeBases={knowledgeBases()}
-                          shareCanEdit={false}
-                          shareCanUpload={false}
                           autoPlayVideo={false}
                           onUpdateViewing={updateViewing}
                           onVideoMetadataLoaded={(width, height) =>

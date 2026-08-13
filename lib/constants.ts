@@ -3,7 +3,6 @@
 export const VIRTUAL_FOLDERS = {
   MOST_PLAYED: 'Most Played',
   FAVORITES: 'Favorites',
-  SHARES: 'Shares',
 } as const
 
 export function isVirtualFolderPath(relativePath: string): boolean {

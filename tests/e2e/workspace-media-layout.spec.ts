@@ -42,7 +42,7 @@ test.describe('Workspace audio and video playback', () => {
       .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.currentSrc || el.src), {
         timeout: 15_000,
       })
-      .toMatch(/\/api\/(media|share)/)
+      .toMatch(/\/api\/media/)
 
     await page.getByRole('button', { name: 'Open audio controls' }).click()
     const playToggle = page
@@ -79,7 +79,7 @@ test.describe('Workspace audio and video playback', () => {
       .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.currentSrc || el.src), {
         timeout: 15_000,
       })
-      .toMatch(/\/api\/(media|share)/)
+      .toMatch(/\/api\/media/)
 
     await page.getByRole('button', { name: 'Open audio controls' }).click()
     const popover = page.locator('[data-workspace-taskbar-audio-root] .bg-popover')
@@ -140,7 +140,7 @@ test.describe('Workspace audio and video playback', () => {
       .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.currentSrc || el.src), {
         timeout: 15_000,
       })
-      .toMatch(/\/api\/(media|share)/)
+      .toMatch(/\/api\/media/)
 
     await page.getByRole('button', { name: 'Open audio controls' }).click()
     const playToggle = page
@@ -177,7 +177,7 @@ test.describe('Workspace audio and video playback', () => {
       .poll(async () => audio.evaluate((el: HTMLAudioElement) => el.currentSrc || el.src), {
         timeout: 15_000,
       })
-      .toMatch(/\/api\/(media|share)/)
+      .toMatch(/\/api\/media/)
 
     await page.waitForFunction(
       () => {

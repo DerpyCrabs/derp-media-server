@@ -1,11 +1,9 @@
 export interface WorkspaceTaskbarPinSource {
-  kind: 'local' | 'share'
+  kind: 'local'
   rootPath?: string | null
-  token?: string
-  sharePath?: string | null
 }
 
-/** Serializable pinned taskbar target (admin settings or share record). */
+/** Serializable pinned taskbar target. */
 export interface WorkspaceTaskbarPin {
   id: string
   path: string
@@ -20,7 +18,6 @@ function isValidSource(s: unknown): s is WorkspaceTaskbarPinSource {
   if (!s || typeof s !== 'object' || !('kind' in s)) return false
   const k = (s as WorkspaceTaskbarPinSource).kind
   if (k === 'local') return true
-  if (k === 'share') return typeof (s as WorkspaceTaskbarPinSource).token === 'string'
   return false
 }
 
@@ -56,19 +53,4 @@ export function filterAdminWorkspaceTaskbarPins(
       p.path.length > 0 &&
       !pathHasDotDot(p.path),
   )
-}
-
-/** Pins for /share/:token/workspace: share source, path under share root. */
-export function filterShareWorkspaceTaskbarPins(
-  sharePath: string,
-  token: string,
-  items: WorkspaceTaskbarPin[],
-): WorkspaceTaskbarPin[] {
-  const root = sharePath.replace(/\\/g, '/')
-  return items.filter((p) => {
-    if (p.isVirtual || p.source.kind !== 'share' || p.source.token !== token) return false
-    const pathNorm = p.path.replace(/\\/g, '/')
-    if (pathHasDotDot(pathNorm)) return false
-    return pathNorm === root || pathNorm.startsWith(`${root}/`)
-  })
 }

@@ -7,7 +7,6 @@ import Columns2 from 'lucide-solid/icons/columns-2'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import ExternalLink from 'lucide-solid/icons/external-link'
 import FolderOpen from 'lucide-solid/icons/folder-open'
-import Link from 'lucide-solid/icons/link'
 import Pencil from 'lucide-solid/icons/pencil'
 import Pin from 'lucide-solid/icons/pin'
 import Settings from 'lucide-solid/icons/settings'
@@ -25,16 +24,10 @@ type FileRowContextMenuProps = {
   editableFolders: Accessor<string[]>
   isCurrentDirEditable: Accessor<boolean>
   hasEditableFolders: Accessor<boolean>
-  /** When true, Delete is only shown if shareCanDelete is true (share workspace restrictions). */
-  shareDeleteGated?: Accessor<boolean>
-  shareCanDelete?: Accessor<boolean>
   onDismiss: () => void
   onDownload: (file: FileItem) => void
   onMakeAvailableOffline?: (file: FileItem) => void
   onDelete: (file: FileItem) => void
-  onShare?: (file: FileItem) => void
-  onCopyShareLink?: (file: FileItem) => void
-  getPathHasShare?: (file: FileItem) => boolean
   onAddToTaskbar?: (file: FileItem) => void
   onOpenInNewTab?: (file: FileItem) => void
   openInNewTabLabel?: string
@@ -82,31 +75,16 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
         const virtualEntry = () => props.getVirtualEntry?.(ctx.file)
         const canVirtual = (capability: VirtualCapability) =>
           virtualEntry()?.capabilities.includes(capability) ?? false
-        const showRevokeShare = () => !!ctx.file.shareToken
         const showDeleteFile = () => {
-          if (ctx.file.isVirtual || ctx.file.shareToken) return false
+          if (ctx.file.isVirtual) return false
           if (!isPathEditable(ctx.file.path, props.editableFolders())) return false
-          if (props.shareDeleteGated?.()) {
-            return !!(props.shareCanDelete?.() ?? false)
-          }
           return true
         }
-        const showShare = () => !ctx.file.isVirtual && !ctx.file.shareToken && !!props.onShare
-        const showCopyShareLink = () => !!ctx.file.shareToken && !!props.onCopyShareLink
         const showCopyTo = () => props.hasEditableFolders() && !ctx.file.isVirtual && !!props.onCopy
-        const showMove = () =>
-          props.isCurrentDirEditable() &&
-          !ctx.file.isVirtual &&
-          !ctx.file.shareToken &&
-          !!props.onMove
+        const showMove = () => props.isCurrentDirEditable() && !ctx.file.isVirtual && !!props.onMove
         const showRename = () =>
-          props.isCurrentDirEditable() &&
-          !ctx.file.isVirtual &&
-          !ctx.file.shareToken &&
-          !!props.onRename
-        const showEditSeparator = () =>
-          showRevokeShare() || showDeleteFile() || showMove() || showRename()
-        const manageLabel = () => (props.getPathHasShare?.(ctx.file) ? 'Manage Share' : 'Share')
+          props.isCurrentDirEditable() && !ctx.file.isVirtual && !!props.onRename
+        const showEditSeparator = () => showDeleteFile() || showMove() || showRename()
 
         const fileContextIsNewWindow = () =>
           !ctx.file.isDirectory &&
@@ -485,24 +463,6 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 {props.isFavorite?.(ctx.file) ? 'Unfavorite' : 'Favorite'}
               </button>
             </Show>
-            <Show when={showShare()}>
-              <button
-                type='button'
-                data-slot='context-menu-item'
-                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                role='menuitem'
-                onClick={() => {
-                  props.onShare?.(ctx.file)
-                  props.onDismiss()
-                }}
-              >
-                <Link
-                  class={`h-4 w-4 shrink-0 ${props.getPathHasShare?.(ctx.file) ? 'text-primary' : ''}`}
-                  stroke-width={2}
-                />
-                {manageLabel()}
-              </button>
-            </Show>
             <Show when={ctx.file.isDirectory && props.onToggleKnowledgeBase}>
               <button
                 type='button'
@@ -567,34 +527,8 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Copy to...
               </button>
             </Show>
-            <Show when={showCopyShareLink()}>
-              <button
-                type='button'
-                data-slot='context-menu-item'
-                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                role='menuitem'
-                onClick={() => {
-                  props.onCopyShareLink?.(ctx.file)
-                  props.onDismiss()
-                }}
-              >
-                <Link class='h-4 w-4 shrink-0' stroke-width={2} />
-                Copy share link
-              </button>
-            </Show>
             <Show when={showEditSeparator()}>
               <div class='bg-border my-1 h-px' role='separator' />
-            </Show>
-            <Show when={showRevokeShare()}>
-              <button
-                type='button'
-                data-slot='context-menu-item'
-                class='text-destructive flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                role='menuitem'
-                onClick={() => props.onDelete(ctx.file)}
-              >
-                Revoke Share
-              </button>
             </Show>
             <Show when={showMove()}>
               <button

@@ -1,7 +1,6 @@
 import { api } from '@/lib/api'
 import { MediaType, type FileItem } from '@/lib/types'
 import { queryKeys } from '@/lib/query-keys'
-import { stripSharePrefix } from '@/lib/source-context'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useQuery } from '@tanstack/solid-query'
@@ -23,7 +22,6 @@ import {
   buildAudioMetadataUrl,
   buildMediaUrl,
   buildThumbnailUrl,
-  type MediaShareContext,
 } from '../lib/build-media-url'
 
 const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
@@ -76,7 +74,6 @@ async function fetchAudioMetadata(url: string) {
 
 type Props = {
   storageKey: Accessor<string>
-  shareCtx: Accessor<MediaShareContext>
   onShowVideo: () => void
   onStopPlayback: () => void
   /** Hide taskbar transport while the same video is open in a workspace viewer (not listen-only). */
@@ -138,23 +135,14 @@ export function WorkspaceTaskbarAudio(props: Props) {
   })
 
   const listDir = createMemo(() => {
-    const raw = dirToFetch()
-    const ctx = props.shareCtx()
-    if (ctx) return stripSharePrefix(raw, ctx.sharePath.replace(/\\/g, '/'))
-    return raw
+    return dirToFetch()
   })
 
   const filesQuery = useQuery(() => {
-    const sh = props.shareCtx()
     const dir = listDir()
     return {
-      queryKey: sh ? queryKeys.shareFiles(sh.token, dir) : queryKeys.files(dir),
-      queryFn: () =>
-        sh
-          ? api<{ files: FileItem[] }>(
-              `/api/share/${sh.token}/files?dir=${encodeURIComponent(dir)}`,
-            )
-          : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
+      queryKey: queryKeys.files(dir),
+      queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
       enabled: !!dirToFetch(),
     }
   })
@@ -164,8 +152,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
     allFiles().filter((f) => f.type === MediaType.AUDIO || f.type === MediaType.VIDEO),
   )
 
-  const mediaShare = () => props.shareCtx()
-  const getMediaUrl = (filePath: string) => buildMediaUrl(filePath, mediaShare())
+  const getMediaUrl = (filePath: string) => buildMediaUrl(filePath)
 
   const coverArtUrl = createMemo(() => {
     const coverFile = allFiles().find((file) => {
@@ -180,7 +167,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const metadataUrl = createMemo(() => {
     const path = playingPath()
     if (!path) return null
-    return buildAudioMetadataUrl(path, mediaShare())
+    return buildAudioMetadataUrl(path)
   })
 
   const needMetadata = createMemo(() => !!(isAudioFile() || (isVideoFile() && audioOnlyWs())))
@@ -198,7 +185,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
     if (!shouldHandleAudio()) return null
     const path = playingPath()
     if (isVideoFile() && path) {
-      return buildThumbnailUrl(path, mediaShare())
+      return buildThumbnailUrl(path)
     }
     return audioMetadata()?.coverArt || coverArtUrl()
   })
@@ -419,9 +406,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
     const gesturePath = useWorkspaceAudio.getState().takeUserGestureTransport()
 
-    const mediaUrl = isVideoFile()
-      ? buildAudioExtractUrl(path, mediaShare())
-      : buildMediaUrl(path, mediaShare())
+    const mediaUrl = isVideoFile() ? buildAudioExtractUrl(path) : buildMediaUrl(path)
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     const tryGesturePlay = gesturePath != null && gesturePath === path && wantPlaying

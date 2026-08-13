@@ -2,15 +2,14 @@
 
 > Mostly vibe-coded; treat it as a personal tool, not a hardened product.
 
-Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** server. Browse, play, and edit files; optional password auth; token-based shares; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
+Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** server. Browse, play, and edit files; optional password auth; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
 
 ## Features (high level)
 
-- Workspaces: snap zones, viewers (image, video, PDF, text), audio player, persisted layout (admin and share views).
-- Shares: tokens, optional passcodes, editable shares with per-permission toggles and upload quota.
+- Workspaces: snap zones, viewers (image, video, PDF, text), audio player, and persisted layouts.
 - Knowledge bases: full-text search, recent files, `![[image]]` from `images/`.
 - File ops in editable folders: upload, move/copy, rename, delete, inline text edit; grid/list, thumbnails (FFmpeg optional), drag-and-drop.
-- Auth: session cookies, rate-limited login, optional admin hostname allowlist; shares stay reachable regardless.
+- Auth: session cookies, rate-limited login, and optional admin hostname allowlist.
 
 ## Quick start
 
@@ -53,7 +52,6 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `fileSearch`              |                             | Persistent filename/path search index settings                              |
 | `imageOptimization`       |                             | Responsive viewer variants and disk-cache settings                          |
 | `hermes`                  |                             | Optional Hermes gateway, profile, and filesystem integration                |
-| `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                                 |
 | `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                                |
 | `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
 | `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                                  |
@@ -61,8 +59,8 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 |                           | `TLS_CERT_PATH`             | PEM certificate used to serve HTTPS                                         |
 |                           | `TLS_KEY_PATH`              | PEM private key used to serve HTTPS                                         |
 
-`dataPath` is config-file only and contains app-created settings, stats, shares, mounts, search
-index, thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
+`dataPath` is config-file only and contains app-created settings, stats, mounts, search index,
+thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
 On first startup with the default path, legacy data beside the config and legacy caches in the
 working directory are migrated automatically.
 
@@ -130,13 +128,12 @@ When more than one media root is configured, the browser root shows each media d
 as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 `name` is derived from the directory basename when possible, but must be set explicitly
 if the basename is empty, duplicates another media root, or conflicts with a virtual
-folder such as `Favorites`, `Most Played`, or `Shares`.
+folder such as `Favorites` or `Most Played`.
 
 Additional media roots can be added without restarting from **Settings → Media directories**.
 They are persisted in `mounts.json` under `dataPath` and are always read only. Runtime roots
 appear alongside configured `mediaDirs`; their names can be changed and their server paths can
-be reconnected without invalidating shares. Removing a runtime root leaves its shares recorded
-but unavailable; reconnect an offline root by editing its path instead of removing it.
+be reconnected. Reconnect an offline root by editing its path instead of removing it.
 
 ## Production
 

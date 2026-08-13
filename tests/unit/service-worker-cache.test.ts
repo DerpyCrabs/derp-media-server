@@ -13,7 +13,8 @@ test('service worker offline fallback is scoped to the current shell cache', () 
   expect(source).toContain('self.clients.claim()')
   expect(source).toContain("key.startsWith('derp-shell-') && key !== SHELL_CACHE")
   expect(source).toContain("cache.put('/index.html', copy)")
-  expect(source).toContain('(?:media|knowledge-base-image)')
+  expect(source).toContain("url.pathname.startsWith('/api/media/')")
+  expect(source).not.toContain('/api/share/')
 })
 
 test('service worker generator identifies only Markdown-exclusive assets from Vite manifest', () => {

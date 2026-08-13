@@ -2,7 +2,6 @@ import type { Accessor } from 'solid-js'
 import { Match, Switch } from 'solid-js'
 import CircleCheck from 'lucide-solid/icons/circle-check'
 import CircleX from 'lucide-solid/icons/circle-x'
-import Info from 'lucide-solid/icons/info'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import type { UploadToastAnchor, UploadToastState } from './types'
 import { uploadToastPanelClass } from './types'
@@ -44,69 +43,6 @@ export function UploadToastStack(props: UploadToastStackProps) {
             <span class='text-sm font-medium'>Upload complete</span>
           </div>
         </div>
-      </Match>
-      <Match when={props.state().kind === 'copied' ? props.state() : false}>
-        {(get) => {
-          const { label, warning } = get() as Extract<UploadToastState, { kind: 'copied' }>
-          return (
-            <div class={panelClass()}>
-              <div class='flex items-center gap-3'>
-                <CircleCheck class='h-5 w-5 text-green-500 shrink-0' size={20} stroke-width={2} />
-                <div>
-                  <p class='text-sm font-medium'>{label ?? 'Copied to clipboard'}</p>
-                  {warning && <p class='text-muted-foreground mt-0.5 text-xs'>{warning}</p>}
-                </div>
-              </div>
-            </div>
-          )
-        }}
-      </Match>
-      <Match when={props.state().kind === 'clipboardError' ? props.state() : false}>
-        {(get) => {
-          const s = get() as Extract<UploadToastState, { kind: 'clipboardError' }>
-          return (
-            <div class={panelClass()}>
-              <div class='flex items-start gap-3'>
-                <Info class='text-destructive h-5 w-5 shrink-0 mt-0.5' size={20} stroke-width={2} />
-                <div class='min-w-0 flex-1'>
-                  <p class='text-destructive text-sm font-medium'>Could not copy</p>
-                  <p class='text-muted-foreground mt-0.5 text-xs wrap-break-word'>{s.message}</p>
-                  {s.warning && <p class='text-muted-foreground mt-1 text-xs'>{s.warning}</p>}
-                  {s.url && (
-                    <div class='mt-2 flex items-center gap-2'>
-                      <input
-                        type='text'
-                        readOnly
-                        aria-label='Share link'
-                        class='border-input bg-background min-w-0 flex-1 rounded border px-2 py-1 font-mono text-xs'
-                        value={s.url}
-                      />
-                      <button
-                        type='button'
-                        class='border-input bg-background hover:bg-accent shrink-0 rounded border px-2 py-1 text-xs'
-                        onClick={(e) => {
-                          const input = e.currentTarget.previousElementSibling as HTMLInputElement
-                          input.focus()
-                          input.select()
-                        }}
-                      >
-                        Select link
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <button
-                  type='button'
-                  class='hover:bg-accent inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md'
-                  onClick={() => props.onDismissError()}
-                  aria-label='Dismiss'
-                >
-                  <span class='text-lg leading-none'>×</span>
-                </button>
-              </div>
-            </div>
-          )
-        }}
       </Match>
       <Match when={props.state().kind === 'error' ? props.state() : false}>
         {(get) => {

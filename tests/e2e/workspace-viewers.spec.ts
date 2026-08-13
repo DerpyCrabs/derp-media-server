@@ -59,7 +59,7 @@ async function openFileFromBrowser(page: Page, folder: string, fileName: string)
 
 function uniqueWorkspaceMarkdownPath(prefix: string) {
   const fileName = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}.md`
-  return { fileName, filePath: `SharedContent/${fileName}` }
+  return { fileName, filePath: `MediaContent/${fileName}` }
 }
 
 async function createWorkspaceMarkdown(filePath: string, content: string) {
@@ -522,7 +522,7 @@ test.describe('Workspace PDF Viewer', () => {
 test.describe('Workspace Text Viewer', () => {
   test('edits and saves Markdown outside a knowledge base through workspace browser', async () => {
     const fileName = `workspace-outside-kb-${Date.now()}-${Math.random().toString(36).slice(2)}.md`
-    const filePath = `SharedContent/${fileName}`
+    const filePath = `MediaContent/${fileName}`
     const initial = '# Workspace Outside KB\n\nEditable Markdown file.\n'
     const updated = '# Workspace Outside KB Updated\n\nSaved through CodeMirror.\n'
     const origin = workspaceE2EOrigin()
@@ -533,7 +533,7 @@ test.describe('Workspace Text Viewer', () => {
 
     try {
       await gotoWorkspace(page)
-      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const viewer = await openFileFromBrowser(page, 'MediaContent', fileName)
       const markdown = viewer.getByTestId('markdown-document')
       const editor = getMarkdownEditor(viewer)
 
@@ -581,7 +581,7 @@ test.describe('Workspace Text Viewer', () => {
 
     try {
       await gotoWorkspace(page)
-      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const viewer = await openFileFromBrowser(page, 'MediaContent', fileName)
       const document = viewer.getByTestId('markdown-document')
       const editor = getMarkdownEditor(viewer)
       const link = document.getByRole('link', { name: 'External target' })
@@ -614,13 +614,13 @@ test.describe('Workspace Text Viewer', () => {
 
   test('editable Markdown image click reveals source and double-click opens fullscreen', async () => {
     const { fileName, filePath } = uniqueWorkspaceMarkdownPath('workspace-image-interaction')
-    const imageSource = '![workspace photo](SharedContent/photo.png)'
+    const imageSource = '![workspace photo](MediaContent/photo.png)'
     const source = `# Image interaction\n\n${imageSource}\n`
     await createWorkspaceMarkdown(filePath, source)
 
     try {
       await gotoWorkspace(page)
-      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const viewer = await openFileFromBrowser(page, 'MediaContent', fileName)
       const document = viewer.getByTestId('markdown-document')
       const editor = getMarkdownEditor(viewer)
       const image = document.locator('img.cm-md-image[alt="workspace photo"]')
@@ -659,7 +659,7 @@ test.describe('Workspace Text Viewer', () => {
 
     try {
       await gotoWorkspace(page)
-      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const viewer = await openFileFromBrowser(page, 'MediaContent', fileName)
       const editor = getMarkdownEditor(viewer)
       await expect(editor).toBeVisible()
       expect(await copyMarkdownSource(page, editor)).toBe(initial)
@@ -717,7 +717,7 @@ test.describe('Workspace Text Viewer', () => {
 
     try {
       await gotoWorkspace(page)
-      const viewer = await openFileFromBrowser(page, 'SharedContent', fileName)
+      const viewer = await openFileFromBrowser(page, 'MediaContent', fileName)
       const editor = getMarkdownEditor(viewer)
       await expect(editor).toBeVisible()
       expect(await copyMarkdownSource(page, editor)).toBe(initial)

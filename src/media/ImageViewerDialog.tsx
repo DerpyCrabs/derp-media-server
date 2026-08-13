@@ -3,7 +3,6 @@ import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { MediaType, type FileItem } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
-import { stripSharePrefix } from '@/lib/source-context'
 import Download from 'lucide-solid/icons/download'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import RotateCw from 'lucide-solid/icons/rotate-cw'
@@ -24,12 +23,6 @@ import {
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { createResponsiveImage } from '../lib/responsive-image'
 import { closeViewer, viewFile } from '../lib/url-state-actions'
-
-type Props = {
-  shareContext?: { token: string; sharePath: string } | null
-}
-
-type ShareCtx = { token: string; sharePath: string }
 
 function useDirFromUrl() {
   const history = useBrowserHistory()
@@ -56,7 +49,6 @@ function useDirToFetch(viewingPath: () => string, dirFromUrl: Accessor<string>) 
 
 function ImageViewerInner(props: {
   viewingPath: string
-  shareContext: ShareCtx | null
   allFiles: Accessor<FileItem[]>
 }): JSX.Element {
   const history = useBrowserHistory()
@@ -82,11 +74,6 @@ function ImageViewerInner(props: {
 
   const downloadHref = createMemo(() => {
     const path = props.viewingPath
-    const ctx = props.shareContext
-    if (ctx) {
-      const relative = stripSharePrefix(path, ctx.sharePath)
-      return `/api/share/${ctx.token}/download?path=${encodeURIComponent(relative || '.')}`
-    }
     return `/api/files/download?path=${encodeURIComponent(path)}`
   })
 
@@ -103,7 +90,6 @@ function ImageViewerInner(props: {
   })
   const responsiveImage = createResponsiveImage({
     path: () => props.viewingPath,
-    context: () => props.shareContext,
     viewport: imageSurface,
     zoom,
     prefetchPaths,
@@ -424,35 +410,10 @@ function ImageViewerBodyAdmin(props: { viewingPath: string }): JSX.Element {
     queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dirToFetch())}`),
   }))
   const allFiles = () => filesQuery.data?.files ?? []
-  return (
-    <ImageViewerInner viewingPath={props.viewingPath} shareContext={null} allFiles={allFiles} />
-  )
+  return <ImageViewerInner viewingPath={props.viewingPath} allFiles={allFiles} />
 }
 
-function ImageViewerBodyShare(props: { viewingPath: string; shareContext: ShareCtx }): JSX.Element {
-  const dirFromUrl = useDirFromUrl()
-  const dirToFetch = useDirToFetch(() => props.viewingPath, dirFromUrl)
-  const filesQuery = useQuery(() => {
-    const qDir = stripSharePrefix(dirToFetch(), props.shareContext.sharePath)
-    return {
-      queryKey: queryKeys.shareFiles(props.shareContext.token, qDir),
-      queryFn: () =>
-        api<{ files: FileItem[] }>(
-          `/api/share/${props.shareContext.token}/files?dir=${encodeURIComponent(qDir)}`,
-        ),
-    }
-  })
-  const allFiles = () => filesQuery.data?.files ?? []
-  return (
-    <ImageViewerInner
-      viewingPath={props.viewingPath}
-      shareContext={props.shareContext}
-      allFiles={allFiles}
-    />
-  )
-}
-
-export function ImageViewerDialog(props: Props) {
+export function ImageViewerDialog() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
 
@@ -463,12 +424,7 @@ export function ImageViewerDialog(props: Props) {
 
   return (
     <Show when={viewingPath() && isImage()}>
-      <Show
-        when={props.shareContext}
-        fallback={<ImageViewerBodyAdmin viewingPath={viewingPath()!} />}
-      >
-        {(ctx) => <ImageViewerBodyShare viewingPath={viewingPath()!} shareContext={ctx()!} />}
-      </Show>
+      <ImageViewerBodyAdmin viewingPath={viewingPath()!} />
     </Show>
   )
 }

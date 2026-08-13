@@ -13,7 +13,6 @@ import {
 import { queryKeys } from '@/lib/query-keys'
 import { fileDownloadHref } from '@/lib/download-urls'
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
-import { stripSharePrefix } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
@@ -51,16 +50,10 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import {
-  buildAdminMediaUrl,
-  buildAudioMetadataUrl,
-  buildShareMediaUrl,
-} from '../lib/build-media-url'
+import { buildAdminMediaUrl, buildAudioMetadataUrl } from '../lib/build-media-url'
 import { createResponsiveImage } from '../lib/responsive-image'
 import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
-import type { TextViewerShareContext } from '../media/TextViewerDialog'
-import type { WorkspaceShareConfig } from './workspace-browser-pane-types'
 
 const ReaderDialog = lazy(() =>
   import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
@@ -77,12 +70,9 @@ type Props = {
   storageKey: string
   contentVisible: Accessor<boolean>
   workspace: Accessor<PersistedWorkspaceState | null>
-  sharePanel: Accessor<WorkspaceShareConfig | null>
   editableFolders: string[]
   /** Same as main file browser — required for Obsidian-style images in knowledge bases. */
   knowledgeBases?: string[]
-  shareCanEdit: boolean
-  shareCanUpload: boolean
   onUpdateViewing: (windowId: string, path: string) => void
   onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
   autoPlayVideo?: boolean
@@ -95,20 +85,12 @@ type Props = {
   onAudioPause?: (element: HTMLAudioElement) => void
 }
 
-type WorkspaceTextSaveQueryKey =
-  | ReturnType<typeof queryKeys.textContent>
-  | ReturnType<typeof queryKeys.shareText>
+type WorkspaceTextSaveQueryKey = ReturnType<typeof queryKeys.textContent>
 
 type WorkspaceTextSaveVariables = {
   content: string
   target: TextDocumentTarget
   queryKey: WorkspaceTextSaveQueryKey
-}
-
-function shareEditRelativePath(viewingPath: string, sharePath: string): string {
-  const sp = sharePath.replace(/\\/g, '/')
-  const fileFwd = viewingPath.replace(/\\/g, '/')
-  return fileFwd.startsWith(sp + '/') ? fileFwd.slice(sp.length + 1) : fileFwd
 }
 
 type AudioMetadata = {
@@ -137,27 +119,9 @@ export function WorkspaceViewerPane(props: Props) {
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
   let paneEl: HTMLDivElement | undefined
 
-  const share = createMemo((): WorkspaceShareConfig | null => {
-    const w = win()
-    if (w?.source.kind === 'share' && w.source.token) {
-      const panel = props.sharePanel()
-      const fromWindow = (w.source.sharePath ?? '').trim()
-      const fromPanel =
-        panel && panel.token === w.source.token ? (panel.sharePath ?? '').trim() : ''
-      return { token: w.source.token, sharePath: fromWindow || fromPanel }
-    }
-    return props.sharePanel() ?? null
-  })
-
-  const textViewerShareCtx = createMemo((): TextViewerShareContext | null => {
-    const sh = share()
-    if (!sh) return null
-    return { token: sh.token, sharePath: sh.sharePath, isDirectory: true }
-  })
-
   const viewingPath = createMemo(() => win()?.initialState?.viewing ?? '')
   const readerKind = createMemo(() => win()?.initialState?.readerKind ?? null)
-  const currentTextTarget = createMemo(() => createTextDocumentTarget(viewingPath(), share()))
+  const currentTextTarget = createMemo(() => createTextDocumentTarget(viewingPath()))
   const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
 
   const mediaType = createMemo(() => getMediaTypeFromPath(viewingPath()))
@@ -165,15 +129,13 @@ export function WorkspaceViewerPane(props: Props) {
   const mediaUrl = createMemo(() => {
     const path = viewingPath()
     if (!path) return ''
-    const sh = share()
-    return sh ? buildShareMediaUrl(sh.token, sh.sharePath, path) : buildAdminMediaUrl(path)
+    return buildAdminMediaUrl(path)
   })
 
   const downloadHref = createMemo(() => {
     const path = viewingPath()
     if (!path) return '#'
-    const sh = share()
-    return fileDownloadHref(path, sh ? { token: sh.token, sharePath: sh.sharePath } : null)
+    return fileDownloadHref(path)
   })
 
   const dirFromWindow = createMemo(() => win()?.initialState?.dir ?? '')
@@ -327,25 +289,13 @@ export function WorkspaceViewerPane(props: Props) {
     }
   })
 
-  const listDirForFiles = createMemo(() => {
-    const d = dirFromWindow()
-    const sh = share()
-    if (sh) return stripSharePrefix(d, sh.sharePath.replace(/\\/g, '/'))
-    return d
-  })
+  const listDirForFiles = createMemo(() => dirFromWindow())
 
   const filesQuery = useQuery(() => {
-    const sh = share()
     return {
-      queryKey: sh
-        ? queryKeys.shareFiles(sh.token, listDirForFiles())
-        : queryKeys.files(listDirForFiles()),
+      queryKey: queryKeys.files(listDirForFiles()),
       queryFn: () =>
-        sh
-          ? api<{ files: FileItem[] }>(
-              `/api/share/${sh.token}/files?dir=${encodeURIComponent(listDirForFiles())}`,
-            )
-          : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(listDirForFiles())}`),
+        api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(listDirForFiles())}`),
       enabled:
         (mediaType() === MediaType.IMAGE || mediaType() === MediaType.AUDIO) &&
         Boolean(viewingPath()),
@@ -362,7 +312,7 @@ export function WorkspaceViewerPane(props: Props) {
   const audioMetadataUrl = createMemo(() => {
     const path = viewingPath()
     if (!path || mediaType() !== MediaType.AUDIO) return ''
-    return buildAudioMetadataUrl(path, share())
+    return buildAudioMetadataUrl(path)
   })
 
   const audioMetadataQuery = useQuery(() => ({
@@ -374,7 +324,7 @@ export function WorkspaceViewerPane(props: Props) {
 
   const playlistMetadataQueries = useQueries(() => ({
     queries: folderAudioFiles().map((file) => {
-      const url = buildAudioMetadataUrl(file.path, share())
+      const url = buildAudioMetadataUrl(file.path)
       return {
         queryKey: queryKeys.audioMetadata(file.path),
         queryFn: () => fetchAudioMetadata(url),
@@ -391,10 +341,7 @@ export function WorkspaceViewerPane(props: Props) {
       return stem === 'cover' || stem === 'folder'
     })
     if (!cover) return null
-    const sh = share()
-    return sh
-      ? buildShareMediaUrl(sh.token, sh.sharePath, cover.path)
-      : buildAdminMediaUrl(cover.path)
+    return buildAdminMediaUrl(cover.path)
   })
 
   const audioArtworkUrl = createMemo(() => audioMetadataQuery.data?.coverArt || folderCoverUrl())
@@ -432,7 +379,6 @@ export function WorkspaceViewerPane(props: Props) {
   })
   const responsiveImage = createResponsiveImage({
     path: viewingPath,
-    context: share,
     viewport: imageSurface,
     zoom,
     prefetchPaths: imagePrefetchPaths,
@@ -549,12 +495,7 @@ export function WorkspaceViewerPane(props: Props) {
     }
   })
 
-  const textQueryKey = createMemo(() => {
-    const target = currentTextTarget()
-    return target.kind === 'share'
-      ? queryKeys.shareText(target.token, target.sharePath, target.viewingPath)
-      : queryKeys.textContent(target.viewingPath)
-  })
+  const textQueryKey = createMemo(() => queryKeys.textContent(currentTextTarget().viewingPath))
 
   const textQuery = useQuery(() => ({
     queryKey: textQueryKey(),
@@ -571,7 +512,6 @@ export function WorkspaceViewerPane(props: Props) {
   const isMarkdown = createMemo(() => ext() === 'md')
 
   const fileEditable = createMemo(() => {
-    if (textViewerShareCtx()) return props.shareCanEdit
     return isPathEditable(viewingPath(), props.editableFolders)
   })
 
@@ -640,12 +580,7 @@ export function WorkspaceViewerPane(props: Props) {
     mutationFn: async (variables: WorkspaceTextSaveVariables) => {
       return enqueueTextDocumentSave(variables.target, async () => {
         const { content, target } = variables
-        if (target.kind === 'share') {
-          const rel = shareEditRelativePath(target.viewingPath, target.sharePath)
-          await post(`/api/share/${target.token}/edit`, { path: rel, content })
-        } else {
-          await post('/api/files/edit', { path: target.viewingPath, content })
-        }
+        await post('/api/files/edit', { path: target.viewingPath, content })
         return content
       })
     },
@@ -743,9 +678,7 @@ export function WorkspaceViewerPane(props: Props) {
   })
 
   const kbList = createMemo(() => props.knowledgeBases ?? [])
-  const resolveImageUrl = createMemo(() =>
-    buildResolveMarkdownImageUrl(viewingPath(), textViewerShareCtx(), kbList()),
-  )
+  const resolveImageUrl = createMemo(() => buildResolveMarkdownImageUrl(viewingPath(), kbList()))
 
   function AudioArtwork(props: { class: string }) {
     return (
@@ -938,7 +871,6 @@ export function WorkspaceViewerPane(props: Props) {
             <ReaderDialog
               sourcePath={sourcePath}
               sourceKind={readerKind()!}
-              shareContext={share()}
               embedded
               showClose={false}
             />
@@ -1062,13 +994,7 @@ export function WorkspaceViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.PDF && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <ReaderDialog
-              sourcePath={sourcePath}
-              sourceKind='pdf'
-              shareContext={share()}
-              embedded
-              showClose={false}
-            />
+            <ReaderDialog sourcePath={sourcePath} sourceKind='pdf' embedded showClose={false} />
           </div>
         )}
       </Show>
@@ -1076,13 +1002,7 @@ export function WorkspaceViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.BOOK && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <ReaderDialog
-              sourcePath={sourcePath}
-              sourceKind='book'
-              shareContext={share()}
-              embedded
-              showClose={false}
-            />
+            <ReaderDialog sourcePath={sourcePath} sourceKind='book' embedded showClose={false} />
           </div>
         )}
       </Show>
@@ -1390,9 +1310,6 @@ export function WorkspaceViewerPane(props: Props) {
                           viewingPath: viewingPath(),
                           knowledgeBases: kbList(),
                           editableFolders: props.editableFolders,
-                          shareContext: textViewerShareCtx(),
-                          shareCanEdit: props.shareCanEdit,
-                          shareCanUpload: props.shareCanUpload,
                           completeCodeMirrorPaste: (markdown) =>
                             completeMarkdownImagePaste(
                               markdown,

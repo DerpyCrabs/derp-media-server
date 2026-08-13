@@ -40,7 +40,6 @@ describe('reader state client', () => {
 
     const saving = saveSyncedReaderState(
       'Documents/reader.pdf',
-      undefined,
       {
         pageIndex: 2,
         scrollTop: 1_809,

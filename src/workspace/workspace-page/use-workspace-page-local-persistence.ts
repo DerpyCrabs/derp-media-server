@@ -5,7 +5,6 @@ import { persistWorkspaceState } from '../workspace-page-persistence'
 export function useWorkspacePageLocalPersistence(options: {
   storageSessionKeyFull: Accessor<{ key: string }>
   workspace: Accessor<PersistedWorkspaceState | null>
-  isShareSession: Accessor<boolean>
 }) {
   let persistTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -13,10 +12,6 @@ export function useWorkspacePageLocalPersistence(options: {
     const { key } = options.storageSessionKeyFull()
     const w = options.workspace()
     if (!key || !w) return
-    if (options.isShareSession()) {
-      persistWorkspaceState(key, w)
-      return
-    }
     if (persistTimer) clearTimeout(persistTimer)
     persistTimer = setTimeout(() => {
       persistTimer = null

@@ -4,7 +4,7 @@ import fs from 'fs'
 
 const batchId = process.env.BATCH_ID
 const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
-const UPLOAD_DIR = 'SharedContent'
+const UPLOAD_DIR = 'MediaContent'
 
 test.describe('File Upload', () => {
   test('upload button is visible in editable folders', async ({ page }) => {

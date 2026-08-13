@@ -2,13 +2,10 @@ use crate::{
     app::{Shared, roots, timestamp_ms},
     error::{AppError, AppResult},
     media, reader_state,
-    routes::share_access::validate,
-    shares,
 };
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Query, State},
     routing::get,
 };
 use serde::Deserialize;
@@ -113,44 +110,6 @@ async fn admin_save(
     save(&state, "admin", &logical, body)
 }
 
-async fn share_get(
-    State(state): State<Shared>,
-    Path(token): Path<String>,
-    headers: HeaderMap,
-    Query(query): Query<StateQuery>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
-    let logical = shares::resolve_subpath(&share, &query.path)?;
-    let _database = state.reader_state_db.lock().await;
-    response(&state, &format!("share:{token}"), &logical)
-}
-
-async fn share_save(
-    State(state): State<Shared>,
-    Path(token): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<StateBody>,
-) -> AppResult<Json<Value>> {
-    let share = validate(&state, &token, &headers)?;
-    let now = timestamp_ms();
-    let mut writes = state.reader_state_writes.lock().await;
-    let entry = writes.entry(token.clone()).or_insert((0, now + 60_000));
-    if now > entry.1 {
-        *entry = (0, now + 60_000);
-    }
-    if entry.0 >= 120 {
-        return Err(AppError(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many reader state updates".into(),
-        ));
-    }
-    entry.0 += 1;
-    drop(writes);
-    let logical = shares::resolve_subpath(&share, &body.path)?;
-    let _database = state.reader_state_db.lock().await;
-    save(&state, &format!("share:{token}"), &logical, body)
-}
-
 async fn preferences_get(State(state): State<Shared>) -> AppResult<Json<Value>> {
     let _database = state.reader_state_db.lock().await;
     let (preferences, revision) = reader_state::preferences(&database(&state), "admin")?;
@@ -178,9 +137,5 @@ pub fn router() -> Router<Shared> {
         .route(
             "/api/reader-preferences",
             get(preferences_get).post(preferences_save),
-        )
-        .route(
-            "/api/share/{token}/reader-state",
-            get(share_get).post(share_save),
         )
 }

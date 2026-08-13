@@ -135,8 +135,6 @@ struct RawConfig {
     editable_folders: Vec<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_media_dirs")]
     media_dirs: Option<Vec<MediaDirConfig>>,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
-    share_link_domain: Option<String>,
     #[serde(default, deserialize_with = "deserialize_auth")]
     auth: Option<AuthConfig>,
     #[serde(default, deserialize_with = "deserialize_optional_path")]
@@ -228,7 +226,6 @@ pub struct Config {
     pub port: u16,
     pub roots: Vec<MediaRoot>,
     pub library_key: String,
-    pub share_link_domain: Option<String>,
     pub auth: AuthConfig,
     pub data_path: PathBuf,
     pub file_search: FileSearchConfig,
@@ -381,7 +378,7 @@ fn root_name(path: &Path, explicit: Option<serde_json::Value>) -> Result<String,
             "mediaDirs name \"{name}\" must not contain path separators"
         ));
     }
-    if ["favorites", "most played", "shares"].contains(&name.to_lowercase().as_str()) {
+    if ["favorites", "most played"].contains(&name.to_lowercase().as_str()) {
         return Err(format!(
             "mediaDirs name \"{name}\" conflicts with a virtual folder"
         ));
@@ -525,16 +522,6 @@ fn editable_folders(values: Vec<serde_json::Value>) -> Vec<String> {
         .collect()
 }
 
-fn normalize_share_domain(value: String) -> String {
-    let trimmed = value.trim();
-    let s = trimmed.strip_suffix('/').unwrap_or(trimmed);
-    if s.starts_with("http://") || s.starts_with("https://") {
-        s.into()
-    } else {
-        format!("https://{s}")
-    }
-}
-
 fn clamped_integer(
     value: Option<&serde_json::Value>,
     fallback: u32,
@@ -567,10 +554,9 @@ fn parse_js_positive_integer(value: &str) -> Option<u64> {
     digits.parse::<u64>().ok().filter(|seconds| *seconds > 0)
 }
 
-const DURABLE_DATA: [&str; 5] = [
+const DURABLE_DATA: [&str; 4] = [
     "settings.json",
     "stats.json",
-    "shares.json",
     "mounts.json",
     "canvases.json",
 ];
@@ -850,12 +836,6 @@ impl Config {
         if let Ok(v) = env::var("AUTH_SECURE_COOKIES") {
             auth.secure_cookies = Some(v == "true" || v == "1");
         }
-        let share_link_domain = env::var("SHARE_LINK_DOMAIN")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .or(raw.share_link_domain)
-            .filter(|value| !value.trim().is_empty())
-            .map(normalize_share_domain);
         let image_optimization = image_optimization(raw.image_optimization)?;
         let raw_search = raw.file_search.unwrap_or_default();
         let file_search = FileSearchConfig {
@@ -947,7 +927,6 @@ impl Config {
             port,
             roots,
             library_key,
-            share_link_domain,
             auth,
             data_path,
             file_search,

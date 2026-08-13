@@ -5,7 +5,6 @@ use crate::{
     image_variants, routes, state_db, thumbnails,
 };
 use axum::{Router, extract::DefaultBodyLimit, middleware};
-use std::sync::atomic::AtomicU64;
 use std::{
     collections::{HashMap, HashSet},
     process::Stdio,
@@ -122,11 +121,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::hermes_chat::router(state.clone()))
         .merge(routes::settings::router())
         .merge(routes::mounts::router())
-        .merge(routes::shares::router())
-        .merge(routes::share_access::router())
-        .merge(routes::share_media::router())
         .merge(routes::search::router())
-        .merge(routes::share_search::router())
         .merge(routes::stats::router())
         .merge(routes::media::router())
         .merge(routes::reader_state::router())
@@ -198,13 +193,7 @@ pub(crate) async fn run() {
         events,
         admin_events,
         hermes_events,
-        image_grants: Mutex::new(HashMap::new()),
-        share_images: Mutex::new(HashMap::new()),
-        image_operations: Mutex::new(()),
-        preview_sequence: AtomicU64::new(0),
         login_attempts: Mutex::new(HashMap::new()),
-        share_verify_attempts: Mutex::new(HashMap::new()),
-        reader_state_writes: Mutex::new(HashMap::new()),
         reader_state_db: Mutex::new(()),
         thumbnails: thumbnails::Thumbnailer::new(config.data_path.join("thumbnails")),
         image_variants: image_variants::ImageVariants::new(

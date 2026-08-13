@@ -13,7 +13,6 @@ type Mount = {
   createdAt: number
   readOnly: true
   status: 'online' | 'offline'
-  shareCount: number
 }
 
 export function MountsDialog(props: { open: boolean; onClose: () => void }) {
@@ -57,7 +56,6 @@ export function MountsDialog(props: { open: boolean; onClose: () => void }) {
         queryClient.invalidateQueries({ queryKey: queryKeys.mounts() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.authConfig() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.files() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.shares() }),
       ])
     },
   }))
@@ -173,11 +171,6 @@ export function MountsDialog(props: { open: boolean; onClose: () => void }) {
                     <p class='truncate text-sm text-muted-foreground' title={mount.path}>
                       {mount.path}
                     </p>
-                    <Show when={mount.shareCount > 0}>
-                      <p class='text-xs text-muted-foreground'>
-                        {mount.shareCount} active share{mount.shareCount === 1 ? '' : 's'}
-                      </p>
-                    </Show>
                   </div>
                   <button
                     type='button'
@@ -196,12 +189,7 @@ export function MountsDialog(props: { open: boolean; onClose: () => void }) {
                     title='Remove media directory'
                     class='rounded-md p-2 text-destructive hover:bg-muted'
                     onClick={() => {
-                      const warning =
-                        mount.shareCount > 0
-                          ? ` ${mount.shareCount} share(s) will become unavailable.`
-                          : ''
-                      if (window.confirm(`Remove ${mount.name}?${warning}`))
-                        deleteMutation.mutate(mount)
+                      if (window.confirm(`Remove ${mount.name}?`)) deleteMutation.mutate(mount)
                     }}
                   >
                     <Trash class='size-4' />

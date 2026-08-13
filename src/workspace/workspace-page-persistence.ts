@@ -12,12 +12,10 @@ import { createDefaultBounds, createWindowLayout } from '@/lib/workspace-geometr
 export const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 
 export function isWorkspaceRoute(pathname: string) {
-  return pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(pathname)
+  return pathname === '/workspace'
 }
 
-/** First browser tab label when opening workspace (share root → folder name, e.g. "Work"). */
-export function defaultInitialBrowserTitle(source: WorkspaceSource): string {
-  if (source.kind === 'share') return workspaceBrowserDirTitle(source.sharePath ?? '')
+export function defaultInitialBrowserTitle(): string {
   return 'Browser 1'
 }
 
@@ -27,7 +25,7 @@ export function defaultPersistedState(source: WorkspaceSource): PersistedWorkspa
       {
         id: 'workspace-window-1',
         type: 'browser',
-        title: defaultInitialBrowserTitle(source),
+        title: defaultInitialBrowserTitle(),
         iconName: null,
         iconPath: '',
         iconType: MediaType.FOLDER,

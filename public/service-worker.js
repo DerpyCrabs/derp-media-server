@@ -104,11 +104,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   if (url.origin !== self.location.origin || event.request.method !== 'GET') return
-  if (
-    event.request.mode === 'navigate' &&
-    (url.pathname === '/workspace' || /^\/share\/[^/]+\/workspace\/?$/.test(url.pathname))
-  )
-    return
+  if (event.request.mode === 'navigate' && url.pathname === '/workspace') return
 
   if (url.pathname === '/__offline/files') {
     if (event.request.headers.get('x-derp-native-offline') === '1') {
@@ -127,18 +123,13 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  if (
-    url.pathname.startsWith('/api/media/') ||
-    /^\/api\/share\/[^/]+\/(?:media|knowledge-base-image)\//.test(url.pathname)
-  ) {
-    const adminPath = url.pathname.startsWith('/api/media/')
-      ? decodeURIComponent(url.pathname.slice('/api/media/'.length)).replace(/^\/+|\/+$/g, '')
-      : null
+  if (url.pathname.startsWith('/api/media/')) {
+    const adminPath = decodeURIComponent(url.pathname.slice('/api/media/'.length)).replace(
+      /^\/+|\/+$/g,
+      '',
+    )
     event.respondWith(
-      (adminPath
-        ? entry(adminPath)
-        : entries().then((all) => all.find((item) => item.mediaUrl === url.pathname))
-      ).then(async (saved) => {
+      entry(adminPath).then(async (saved) => {
         const bodyFile = await storedBody(saved)
         if (!bodyFile) return fetch(event.request)
         const range = event.request.headers.get('range')
@@ -178,19 +169,6 @@ self.addEventListener('fetch', (event) => {
     )
     event.respondWith(
       entry(path).then(async (saved) => {
-        const bodyFile =
-          saved?.thumbnailBlob || (saved?.type === 'image' ? await storedBody(saved) : null)
-        if (!bodyFile) return fetch(event.request)
-        return new Response(bodyFile, { headers: { 'Content-Type': bodyFile.type || 'image/*' } })
-      }),
-    )
-    return
-  }
-
-  if (/^\/api\/share\/[^/]+\/thumbnail\//.test(url.pathname)) {
-    event.respondWith(
-      entries().then(async (all) => {
-        const saved = all.find((item) => item.thumbnailUrl === url.pathname)
         const bodyFile =
           saved?.thumbnailBlob || (saved?.type === 'image' ? await storedBody(saved) : null)
         if (!bodyFile) return fetch(event.request)

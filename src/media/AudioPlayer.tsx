@@ -3,7 +3,6 @@ import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { api, post } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { MediaType, type FileItem } from '@/lib/types'
-import { stripSharePrefix } from '@/lib/source-context'
 import { useQuery } from '@tanstack/solid-query'
 import Monitor from 'lucide-solid/icons/monitor'
 import Pause from 'lucide-solid/icons/pause'
@@ -21,14 +20,8 @@ import {
   buildAudioMetadataUrl,
   buildMediaUrl,
   buildThumbnailUrl,
-  type MediaShareContext,
 } from '../lib/build-media-url'
 import { playFile as urlPlayFile, setAudioOnly } from '../lib/url-state-actions'
-import type { TextViewerShareContext } from './TextViewerDialog'
-
-type Props = {
-  shareContext?: TextViewerShareContext | null
-}
 
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
 const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
@@ -45,15 +38,9 @@ async function fetchAudioMetadata(url: string): Promise<{
   return response.json()
 }
 
-export function AudioPlayer(props: Props) {
+export function AudioPlayer() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
-
-  const shareCtx = createMemo((): MediaShareContext => {
-    const c = props.shareContext
-    if (!c) return null
-    return { token: c.token, sharePath: c.sharePath }
-  })
 
   const playingPath = createMemo(() => urlSearchParams().get('playing'))
 
@@ -75,24 +62,14 @@ export function AudioPlayer(props: Props) {
       pathParts.pop()
       dir = pathParts.join('/')
     }
-    const ctx = props.shareContext
-    if (ctx) {
-      return stripSharePrefix(dir, ctx.sharePath)
-    }
     return dir
   })
 
   const filesQuery = useQuery(() => {
     const dir = dirToFetch()
-    const ctx = props.shareContext
     return {
-      queryKey: ctx ? queryKeys.shareFiles(ctx.token, dir) : queryKeys.files(dir),
-      queryFn: () =>
-        ctx
-          ? api<{ files: FileItem[] }>(
-              `/api/share/${ctx.token}/files?dir=${encodeURIComponent(dir)}`,
-            )
-          : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
+      queryKey: queryKeys.files(dir),
+      queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
     }
   })
 
@@ -102,7 +79,7 @@ export function AudioPlayer(props: Props) {
     allFiles().filter((f) => f.type === MediaType.AUDIO || f.type === MediaType.VIDEO),
   )
 
-  const getMediaUrl = (filePath: string) => buildMediaUrl(filePath, shareCtx())
+  const getMediaUrl = (filePath: string) => buildMediaUrl(filePath)
 
   const coverArtUrl = createMemo(() => {
     const coverFile = allFiles().find((file) => {
@@ -117,7 +94,7 @@ export function AudioPlayer(props: Props) {
   const metadataUrl = createMemo(() => {
     const path = playingPath()
     if (!path) return null
-    return buildAudioMetadataUrl(path, shareCtx())
+    return buildAudioMetadataUrl(path)
   })
 
   const needMetadata = createMemo(() => !!(isAudioFile() || (isVideoFile() && audioOnly())))
@@ -134,7 +111,7 @@ export function AudioPlayer(props: Props) {
   const displayImageUrl = createMemo(() => {
     const path = playingPath()
     if (isVideoFile() && audioOnly() && path) {
-      return buildThumbnailUrl(path, shareCtx())
+      return buildThumbnailUrl(path)
     }
     return audioMetadata()?.coverArt || coverArtUrl()
   })
@@ -208,13 +185,7 @@ export function AudioPlayer(props: Props) {
   })
 
   function incrementView(filePath: string) {
-    const ctx = props.shareContext
-    if (ctx) {
-      const rel = stripSharePrefix(filePath, ctx.sharePath)
-      void post(`/api/share/${ctx.token}/view`, { filePath: rel || '.' }).catch(() => {})
-    } else {
-      void post('/api/stats/views', { filePath }).catch(() => {})
-    }
+    void post('/api/stats/views', { filePath }).catch(() => {})
   }
 
   const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
@@ -434,9 +405,7 @@ export function AudioPlayer(props: Props) {
     if (!el || !path || !shouldHandleAudio()) return
     if (useMediaPlayer.getState().mediaType === 'video') return
 
-    const mediaUrl = isVideoFile()
-      ? buildAudioExtractUrl(path, shareCtx())
-      : buildMediaUrl(path, shareCtx())
+    const mediaUrl = isVideoFile() ? buildAudioExtractUrl(path) : buildMediaUrl(path)
     const fullUrl = new URL(mediaUrl, window.location.origin).href
 
     const mp = useMediaPlayer.getState()

@@ -59,7 +59,6 @@ yarn-error.log*
 .image-variants/
 settings.json
 stats.json
-shares.json
 mounts.json
 canvases.json
 .search-index/

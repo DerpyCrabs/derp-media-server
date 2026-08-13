@@ -2,16 +2,15 @@ use crate::{
     config::{Config, MediaRoot},
     error::AppResult,
     file_search::FileSearch,
-    image_variants, media, shares, store, thumbnails,
+    image_variants, media, store, thumbnails,
 };
-use axum::http::{HeaderMap, header};
 use base64::Engine;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, atomic::AtomicU64},
+    sync::Arc,
     time::UNIX_EPOCH,
 };
 use tokio::sync::{Mutex, RwLock};
@@ -25,13 +24,7 @@ pub(crate) struct AppState {
     pub events: tokio::sync::broadcast::Sender<FileEvent>,
     pub admin_events: tokio::sync::broadcast::Sender<Value>,
     pub hermes_events: tokio::sync::broadcast::Sender<Value>,
-    pub image_grants: Mutex<HashMap<String, ImageGrant>>,
-    pub share_images: Mutex<HashMap<(String, String, String), ImagePreview>>,
-    pub image_operations: Mutex<()>,
-    pub preview_sequence: AtomicU64,
     pub login_attempts: Mutex<HashMap<String, (u32, u128)>>,
-    pub share_verify_attempts: Mutex<HashMap<String, (u32, u128)>>,
-    pub reader_state_writes: Mutex<HashMap<String, (u32, u128)>>,
     pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,
@@ -40,22 +33,6 @@ pub(crate) struct AppState {
     pub hermes_project_operations: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
     pub hermes_active_ids: Mutex<HashSet<String>>,
-}
-
-#[derive(Clone)]
-pub(crate) struct ImageGrant {
-    pub token: String,
-    pub share_path: String,
-    pub image_path: String,
-    pub accounted_bytes: u64,
-    pub expires_at: u128,
-    pub recorded_at: u64,
-}
-
-pub(crate) struct ImagePreview {
-    pub expires_at: u128,
-    pub finalized_at: Option<u64>,
-    pub recorded_at: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -177,23 +154,6 @@ pub(crate) fn default_settings() -> Value {
     json!({"viewModes":{},"favorites":[],"knowledgeBases":[],"customIcons":{},"autoSave":{},"workspaceTaskbarPins":[],"workspaceLayoutPresets":[]})
 }
 
-pub(crate) fn cookies(headers: &HeaderMap) -> HashMap<String, String> {
-    headers
-        .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(';')
-                .filter_map(|part| {
-                    part.trim()
-                        .split_once('=')
-                        .map(|(key, value)| (key.into(), value.into()))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 pub(crate) fn parent_logical(path: &str) -> String {
     path.replace('\\', "/")
         .rsplit_once('/')
@@ -229,37 +189,12 @@ pub(crate) fn knowledge_base_root(state: &AppState, path: &str) -> Option<String
         .find(|root| normalized == *root || normalized.starts_with(&format!("{root}/")))
 }
 
-pub(crate) fn find_share(state: &AppState, token: &str) -> AppResult<shares::Share> {
-    shares::read(&state.config, &roots(state))
-        .into_iter()
-        .find(|share| share.token == token)
-        .ok_or_else(|| crate::error::AppError::not_found("Share not found"))
-}
-
 pub(crate) fn safe_upload_name(name: &str) -> String {
     name.replace('\\', "/")
         .rsplit('/')
         .next()
         .unwrap_or("")
         .to_string()
-}
-
-pub(crate) async fn rate_limit(
-    attempts: &Mutex<HashMap<String, (u32, u128)>>,
-    key: String,
-) -> bool {
-    let now = timestamp_ms();
-    let mut attempts = attempts.lock().await;
-    let entry = attempts.entry(key).or_insert((0, now + 15 * 60 * 1000));
-    if now > entry.1 {
-        *entry = (1, now + 15 * 60 * 1000);
-        return true;
-    }
-    if entry.0 >= 10 {
-        return false;
-    }
-    entry.0 += 1;
-    true
 }
 
 pub(crate) fn search_snippet(content: &str, query: &str) -> String {
