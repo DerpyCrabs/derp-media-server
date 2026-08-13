@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { openBrowserWindow, getWindowGroups } from '../e2e/workspace-layout-helpers'
-import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
 const batch = process.env.BATCH_ID ?? 'local'
 

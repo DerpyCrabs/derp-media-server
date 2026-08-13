@@ -30,7 +30,6 @@ enum Request {
         mode: String,
         root_id: Option<String>,
     },
-    Sync(Vec<MediaRoot>),
     ChangeLogical(String),
     ChangeRoot {
         root_id: String,
@@ -115,12 +114,6 @@ impl FileSearch {
     pub fn changed(&self, directory: &str) {
         if self.config.enabled {
             let _ = self.sender.send(Request::ChangeLogical(directory.into()));
-        }
-    }
-
-    pub fn sync_roots(&self, roots: Vec<MediaRoot>) {
-        if self.config.enabled {
-            let _ = self.sender.send(Request::Sync(roots));
         }
     }
 
@@ -219,10 +212,10 @@ impl FileSearch {
             .ok_or_else(|| AppError::internal("File search unavailable"))?;
         let rows = db.search_rows(&phrase).map_err(AppError::internal)?;
         let status = db.status(watcher_count).map_err(AppError::internal)?;
-        let offline = status
+        let failed_roots = status
             .roots
             .iter()
-            .filter(|root| root.state == "offline")
+            .filter(|root| root.state == "error")
             .map(|root| root.id.as_str())
             .collect::<HashSet<_>>();
         let mut results = Vec::new();
@@ -249,7 +242,7 @@ impl FileSearch {
             });
         }
         for root in roots {
-            if offline.contains(root.id.as_str()) || !normalize(&root.name).contains(query) {
+            if failed_roots.contains(root.id.as_str()) || !normalize(&root.name).contains(query) {
                 continue;
             }
             results.push(ResultEntry {
@@ -422,7 +415,6 @@ impl FileSearch {
                 }
                 self.refresh_watchers();
             }
-            Request::Sync(next) => self.sync(next),
             Request::ReconcileAll(complete) => {
                 let roots = self.roots.blocking_read().clone();
                 for root in &roots {
@@ -461,25 +453,6 @@ impl FileSearch {
         }
     }
 
-    fn sync(&self, next: Vec<MediaRoot>) {
-        let roots = next.into_iter().map(root_from_media).collect::<Vec<_>>();
-        let old = self.roots.blocking_read().clone();
-        for root in &old {
-            if !roots.iter().any(|next| next.id == root.id) {
-                self.close_watcher(&root.id)
-            }
-        }
-        let rebuild = self.with_db(|db| db.sync_roots(&roots)).unwrap_or_default();
-        *self.roots.blocking_write() = roots.clone();
-        for root in &roots {
-            if rebuild.contains(&root.id) {
-                self.close_watcher(&root.id);
-                let _ = self.with_db(|db| indexer::full_scan(db, root));
-            }
-        }
-        self.refresh_watchers();
-    }
-
     fn reconcile_one(&self, db: &mut IndexDb, root: &Root) -> Result<(), String> {
         let close_before = match (db.root_row(&root.id)?, std::fs::metadata(&root.path)) {
             (Some(row), Ok(metadata)) => {
@@ -499,7 +472,7 @@ impl FileSearch {
         let result = indexer::reconcile(db, root, &self.config, &mut token);
         if db
             .root_row(&root.id)?
-            .is_some_and(|row| row.state == "offline")
+            .is_some_and(|row| row.state == "error")
         {
             self.close_watcher(&root.id);
         }
@@ -568,7 +541,7 @@ impl FileSearch {
                     .any(|root| &root.id == id && watch_eligible(root))
                     && states
                         .get(id)
-                        .is_some_and(|state| state != "offline" && state != "building")
+                        .is_some_and(|state| state != "error" && state != "building")
             });
             for root in &roots {
                 if watchers.len() >= self.config.max_recursive_watchers as usize {
@@ -579,7 +552,7 @@ impl FileSearch {
                 }
                 if states
                     .get(&root.id)
-                    .is_none_or(|state| state == "offline" || state == "building")
+                    .is_none_or(|state| state == "error" || state == "building")
                 {
                     continue;
                 }
@@ -655,7 +628,7 @@ impl FileSearch {
                 if !watchers.contains_key(&root.id)
                     && states
                         .get(&root.id)
-                        .is_some_and(|state| state != "offline" && state != "building")
+                        .is_some_and(|state| state != "error" && state != "building")
                 {
                     let _ = self.with_db(|db| {
                         db.set_refresh_mode(
@@ -687,7 +660,7 @@ fn root_from_media(root: MediaRoot) -> Root {
         id: root.id,
         name: root.name,
         path: root.path,
-        source: root.source,
+        source: "config".into(),
     }
 }
 fn queue_change(

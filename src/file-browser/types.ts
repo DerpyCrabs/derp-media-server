@@ -1,13 +1,9 @@
-export type AuthConfig = {
-  enabled: boolean
-  shareLinkDomain?: string
+export type ServerConfig = {
   editableFolders: string[]
   mediaRoots?: {
     id: string
     name: string
     editableFolders: string[]
-    readOnly: boolean
-    source: 'config' | 'mount'
   }[]
 }
 
@@ -16,8 +12,6 @@ export type UploadToastState =
   | { kind: 'uploading'; fileCount: number }
   | { kind: 'success' }
   | { kind: 'error'; message: string }
-  | { kind: 'copied'; label?: string; warning?: string | null }
-  | { kind: 'clipboardError'; message: string; url?: string; warning?: string | null }
 
 export type UploadToastAnchor = 'viewport' | 'window'
 

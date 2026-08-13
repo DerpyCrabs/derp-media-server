@@ -38,19 +38,11 @@ export const BATCHES = [
   },
   {
     id: '4',
-    tests: [
-      'editable-folders',
-      'share-security',
-      'url-state',
-      'login',
-      'share-workspace',
-      'share-browser-parity',
-      'multiple-media-dirs',
-    ],
+    tests: ['editable-folders', 'url-state', 'multiple-media-dirs'],
   },
   {
     id: '5',
-    tests: ['audio-player', 'shares-manage', 'shares-use', 'share-audio-api', 'sse-live-updates'],
+    tests: ['audio-player', 'sse-live-updates'],
   },
   {
     id: '6',
@@ -63,9 +55,6 @@ export const BATCHES = [
       'text-editor',
       'knowledge-base',
       'drag-drop',
-      'passcode-shares',
-      'share-viewers',
-      'offline-mode',
       'mobile-media-management',
     ],
   },
@@ -80,9 +69,7 @@ function generateBatchConfig(batchId: string, port: number): string {
     port,
     mediaDir: `test-media-${batchId}`,
     dataPath: `../../test-data-${batchId}`,
-    editableFolders: ['Notes', 'SharedContent'],
-    shareLinkDomain: `http://localhost:${port}`,
-    auth: { enabled: true, password: 'test-password' },
+    editableFolders: ['Notes', 'MediaContent'],
   }
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
   return configPath
@@ -148,10 +135,7 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<{
   const port = 9200 + parseInt(batch.id)
   generateBatchConfig(batch.id, port)
 
-  const hasLoginTests = batch.tests.includes('login')
-  const projects = hasLoginTests
-    ? ['--project=auth-setup', '--project=login', '--project=chromium']
-    : ['--project=auth-setup', '--project=chromium']
+  const projects = ['--project=chromium']
 
   const testFiles = batch.tests.map((t) => `tests/e2e/${t}.spec.ts`)
 
@@ -223,8 +207,7 @@ async function main() {
       const { code, elapsedMs, fileTimes } = results[i]
       const status = code === 0 ? 'PASS' : 'FAIL'
       if (code !== 0) allPassed = false
-      const names =
-        fileTimes['auth-setup'] != null ? ['auth-setup', ...BATCHES[i].tests] : BATCHES[i].tests
+      const names = BATCHES[i].tests
       const testListWithTimes = names
         .map((t) => {
           const sec = fileTimes[t] != null ? (fileTimes[t] / 1000).toFixed(1) : '?'

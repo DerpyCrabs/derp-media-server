@@ -62,7 +62,7 @@ export async function runReaderAi(input: {
   detail: ReaderAiDetail
 }): Promise<string> {
   if (!(await readerAiAvailable())) {
-    throw new Error('Reader AI is disabled until Hermes can enforce tool-free sessions')
+    throw new Error('Reader AI is unavailable')
   }
 
   const events = new EventSource('/api/hermes/events')
@@ -131,7 +131,7 @@ export async function runReaderAi(input: {
       ]
     : []
   try {
-    const response = await fetch('/api/hermes/reader-turn', {
+    const response = await fetch('/api/hermes/turn', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -151,7 +151,7 @@ export async function runReaderAi(input: {
     window.clearTimeout(timeout)
     events.close()
     if (sessionId) {
-      void fetch('/api/hermes/reader-archive', {
+      void fetch('/api/hermes/archive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),

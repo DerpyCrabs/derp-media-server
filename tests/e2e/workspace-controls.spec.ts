@@ -10,7 +10,7 @@ import {
   dragFromTo,
   WORKSPACE_VISIBLE_WINDOW_GROUP,
 } from '../e2e/workspace-layout-helpers'
-import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
 let sharedContext: BrowserContext
 let page: Page

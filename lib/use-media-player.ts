@@ -13,8 +13,6 @@ interface MediaPlayerData {
   volume: number
   isMuted: boolean
   isRepeat: boolean
-  shareToken: string | null
-  sharePath: string | null
 }
 
 const listeners = createStoreListeners()
@@ -32,8 +30,6 @@ const [store, setStore] = createStore<MediaPlayerData>({
   volume: 1,
   isMuted: false,
   isRepeat: false,
-  shareToken: null,
-  sharePath: null,
 })
 
 function playFile(path: string, type: 'audio' | 'video') {
@@ -129,22 +125,6 @@ function toggleRepeat() {
   listeners.notify()
 }
 
-function setShareContext(token: string, path: string) {
-  batch(() => {
-    setStore('shareToken', token)
-    setStore('sharePath', path)
-  })
-  listeners.notify()
-}
-
-function clearShareContext() {
-  batch(() => {
-    setStore('shareToken', null)
-    setStore('sharePath', null)
-  })
-  listeners.notify()
-}
-
 function reset() {
   batch(() => {
     setStore('currentFile', null)
@@ -183,12 +163,6 @@ const api = {
   get isRepeat() {
     return store.isRepeat
   },
-  get shareToken() {
-    return store.shareToken
-  },
-  get sharePath() {
-    return store.sharePath
-  },
   playFile,
   startOrResumePlayback,
   setCurrentFile,
@@ -198,8 +172,6 @@ const api = {
   setVolume,
   setMuted,
   toggleRepeat,
-  setShareContext,
-  clearShareContext,
   reset,
 }
 

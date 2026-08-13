@@ -34,7 +34,7 @@ pub(crate) fn sanitized(state: &AppState) -> Value {
     );
     result.insert(
         "workspaceLayoutPresets".into(),
-        workspace_persistence::presets(&value["workspaceLayoutPresets"], None),
+        workspace_persistence::presets(&value["workspaceLayoutPresets"]),
     );
     Value::Object(result)
 }
@@ -165,7 +165,7 @@ async fn generic(
         }
         "workspaceLayoutPresets" => {
             value["workspaceLayoutPresets"] =
-                workspace_persistence::presets(body.get("presets").unwrap_or(&Value::Null), None);
+                workspace_persistence::presets(body.get("presets").unwrap_or(&Value::Null));
             Ok(json!({"success":true,"workspaceLayoutPresets":value["workspaceLayoutPresets"]}))
         }
         _ => Err(AppError::not_found("Not found")),

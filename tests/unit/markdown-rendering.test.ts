@@ -3,7 +3,7 @@ import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 
 import type { MarkdownEditorRuntime } from '@/src/media/markdown/types'
 
-const testWindow = new HappyWindow({ url: 'https://localhost/' })
+const testWindow = new HappyWindow({ url: 'http://localhost/' })
 const installedGlobals = [
   'window',
   'document',

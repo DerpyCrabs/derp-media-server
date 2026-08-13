@@ -3,20 +3,13 @@ import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 import { MediaType, type FileItem } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
-import { stripSharePrefix } from '@/lib/source-context'
 import FileQuestion from 'lucide-solid/icons/file-question'
 import FileText from 'lucide-solid/icons/file-text'
 import X from 'lucide-solid/icons/x'
 import { Show, createMemo, type JSX } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
-import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
+import { buildAdminMediaUrl } from '../lib/build-media-url'
 import { closeViewer } from '../lib/url-state-actions'
-
-type Props = {
-  shareContext?: { token: string; sharePath: string } | null
-}
-
-type ShareCtx = { token: string; sharePath: string }
 
 function useDirFromUrl() {
   const history = useBrowserHistory()
@@ -41,11 +34,7 @@ function useDirToFetch(viewingPath: () => string, dirFromUrl: () => string) {
   return dirToFetchMemo
 }
 
-function Inner(props: {
-  viewingPath: string
-  shareContext: ShareCtx | null
-  allFiles: () => FileItem[]
-}): JSX.Element {
+function Inner(props: { viewingPath: string; allFiles: () => FileItem[] }): JSX.Element {
   const fileInfo = createMemo(() => {
     const vp = props.viewingPath
     const f = props.allFiles().find((x) => x.path === vp)
@@ -56,8 +45,7 @@ function Inner(props: {
   const mediaHref = createMemo(() => {
     const f = fileInfo()
     if (!f) return ''
-    const ctx = props.shareContext
-    return ctx ? buildShareMediaUrl(ctx.token, ctx.sharePath, f.path) : buildAdminMediaUrl(f.path)
+    return buildAdminMediaUrl(f.path)
   })
 
   return (
@@ -132,40 +120,13 @@ function BodyAdmin(props: { viewingPath: string }): JSX.Element {
     queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dirToFetch())}`),
   }))
   const allFiles = () => filesQuery.data?.files ?? []
-  return <Inner viewingPath={props.viewingPath} shareContext={null} allFiles={allFiles} />
+  return <Inner viewingPath={props.viewingPath} allFiles={allFiles} />
 }
 
-function BodyShare(props: { viewingPath: string; shareContext: ShareCtx }): JSX.Element {
-  const dirFromUrl = useDirFromUrl()
-  const dirToFetch = useDirToFetch(() => props.viewingPath, dirFromUrl)
-  const filesQuery = useQuery(() => {
-    const qDir = stripSharePrefix(dirToFetch(), props.shareContext.sharePath)
-    return {
-      queryKey: queryKeys.shareFiles(props.shareContext.token, qDir),
-      queryFn: () =>
-        api<{ files: FileItem[] }>(
-          `/api/share/${props.shareContext.token}/files?dir=${encodeURIComponent(qDir)}`,
-        ),
-    }
-  })
-  const allFiles = () => filesQuery.data?.files ?? []
-  return (
-    <Inner viewingPath={props.viewingPath} shareContext={props.shareContext} allFiles={allFiles} />
-  )
-}
-
-export function UnsupportedFileViewerDialog(props: Props): JSX.Element {
+export function UnsupportedFileViewerDialog(): JSX.Element {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const viewingPath = createMemo(() => urlSearchParams().get('viewing'))
 
-  return (
-    <Show when={viewingPath()}>
-      {(vp) => (
-        <Show when={props.shareContext} fallback={<BodyAdmin viewingPath={vp()} />}>
-          {(ctx) => <BodyShare viewingPath={vp()} shareContext={ctx()!} />}
-        </Show>
-      )}
-    </Show>
-  )
+  return <Show when={viewingPath()}>{(vp) => <BodyAdmin viewingPath={vp()} />}</Show>
 }

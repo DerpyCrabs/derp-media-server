@@ -4,80 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthConfig {
-    #[serde(default, deserialize_with = "deserialize_js_bool")]
-    pub enabled: bool,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
-    pub password: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_domains")]
-    pub admin_access_domains: Option<Vec<String>>,
-    #[serde(default, deserialize_with = "deserialize_positive_seconds")]
-    pub session_max_age_seconds: Option<u64>,
-    #[serde(default, deserialize_with = "deserialize_optional_bool")]
-    pub secure_cookies: Option<bool>,
-}
-
-fn deserialize_js_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(match value {
-        None | Some(serde_json::Value::Null) => false,
-        Some(serde_json::Value::Bool(value)) => value,
-        Some(serde_json::Value::Number(value)) => value.as_f64().is_some_and(|value| value != 0.0),
-        Some(serde_json::Value::String(value)) => !value.is_empty(),
-        Some(serde_json::Value::Array(_) | serde_json::Value::Object(_)) => true,
-    })
-}
-
-fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|value| value.as_str().map(str::to_string)))
-}
-
-fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|value| value.as_bool()))
-}
-
-fn deserialize_domains<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|value| {
-        value.as_array().map(|values| {
-            values
-                .iter()
-                .cloned()
-                .map(js_string)
-                .map(|value| value.trim().to_ascii_lowercase())
-                .filter(|value| !value.is_empty())
-                .collect()
-        })
-    }))
-}
-
-fn deserialize_positive_seconds<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value
-        .and_then(|value| value.as_f64())
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .map(|value| value.floor().min(u64::MAX as f64) as u64))
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileSearchConfig {
@@ -87,19 +13,6 @@ pub struct FileSearchConfig {
     pub max_recursive_watchers: u32,
     pub max_fs_concurrency: u32,
     pub reconcile_directories_per_second: u32,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct TlsConfig {
-    #[serde(default, deserialize_with = "deserialize_optional_path")]
-    pub cert_path: Option<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_optional_path")]
-    pub key_path: Option<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_optional_path")]
-    pub pfx_path: Option<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
-    pub passphrase: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -119,11 +32,6 @@ pub struct MediaRoot {
     pub path: PathBuf,
     #[serde(default)]
     pub editable_folders: Vec<String>,
-    #[serde(default)]
-    pub read_only: bool,
-    pub source: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<u128>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -135,17 +43,11 @@ struct RawConfig {
     editable_folders: Vec<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_media_dirs")]
     media_dirs: Option<Vec<MediaDirConfig>>,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
-    share_link_domain: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_auth")]
-    auth: Option<AuthConfig>,
     #[serde(default, deserialize_with = "deserialize_optional_path")]
     data_path: Option<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_file_search")]
     file_search: Option<RawFileSearchConfig>,
     image_optimization: Option<serde_json::Value>,
-    #[serde(default, deserialize_with = "deserialize_tls")]
-    tls: Option<TlsConfig>,
     hermes: Option<RawHermesConfig>,
 }
 
@@ -228,12 +130,9 @@ pub struct Config {
     pub port: u16,
     pub roots: Vec<MediaRoot>,
     pub library_key: String,
-    pub share_link_domain: Option<String>,
-    pub auth: AuthConfig,
     pub data_path: PathBuf,
     pub file_search: FileSearchConfig,
     pub image_optimization: ImageOptimizationConfig,
-    pub tls: Option<TlsConfig>,
     pub hermes: Option<HermesConfig>,
 }
 
@@ -243,9 +142,9 @@ fn hermes_config(raw: Option<RawHermesConfig>) -> Result<Option<HermesConfig>, S
         return Err("hermes.token and hermes.tokenEnv cannot both be configured".into());
     }
     let mut gateway_url = url::Url::parse(raw.gateway_url.trim())
-        .map_err(|_| "hermes.gatewayUrl must be a valid HTTP or HTTPS URL".to_string())?;
-    if !matches!(gateway_url.scheme(), "http" | "https") || gateway_url.host_str().is_none() {
-        return Err("hermes.gatewayUrl must be a valid HTTP or HTTPS URL".into());
+        .map_err(|_| "hermes.gatewayUrl must be a valid HTTP URL".to_string())?;
+    if gateway_url.scheme() != "http" || gateway_url.host_str().is_none() {
+        return Err("hermes.gatewayUrl must be a valid HTTP URL".into());
     }
     gateway_url.set_query(None);
     gateway_url.set_fragment(None);
@@ -381,7 +280,7 @@ fn root_name(path: &Path, explicit: Option<serde_json::Value>) -> Result<String,
             "mediaDirs name \"{name}\" must not contain path separators"
         ));
     }
-    if ["favorites", "most played", "shares"].contains(&name.to_lowercase().as_str()) {
+    if ["favorites", "most played"].contains(&name.to_lowercase().as_str()) {
         return Err(format!(
             "mediaDirs name \"{name}\" conflicts with a virtual folder"
         ));
@@ -398,37 +297,6 @@ where
         .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
         .filter(|value| !value.is_empty())
         .map(PathBuf::from))
-}
-
-fn deserialize_auth<'de, D>(deserializer: D) -> Result<Option<AuthConfig>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    match value {
-        Some(serde_json::Value::Object(object)) => {
-            serde_json::from_value(serde_json::Value::Object(object))
-                .map(Some)
-                .map_err(serde::de::Error::custom)
-        }
-        Some(serde_json::Value::Array(_)) => Ok(Some(AuthConfig::default())),
-        _ => Ok(None),
-    }
-}
-
-fn deserialize_tls<'de, D>(deserializer: D) -> Result<Option<TlsConfig>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    match value {
-        Some(serde_json::Value::Object(object)) => {
-            serde_json::from_value(serde_json::Value::Object(object))
-                .map(Some)
-                .map_err(serde::de::Error::custom)
-        }
-        _ => Ok(None),
-    }
 }
 
 fn deserialize_media_dirs<'de, D>(deserializer: D) -> Result<Option<Vec<MediaDirConfig>>, D::Error>
@@ -525,16 +393,6 @@ fn editable_folders(values: Vec<serde_json::Value>) -> Vec<String> {
         .collect()
 }
 
-fn normalize_share_domain(value: String) -> String {
-    let trimmed = value.trim();
-    let s = trimmed.strip_suffix('/').unwrap_or(trimmed);
-    if s.starts_with("http://") || s.starts_with("https://") {
-        s.into()
-    } else {
-        format!("https://{s}")
-    }
-}
-
 fn clamped_integer(
     value: Option<&serde_json::Value>,
     fallback: u32,
@@ -550,30 +408,7 @@ fn clamped_integer(
     (number as i64).clamp(minimum as i64, maximum as i64) as u32
 }
 
-fn parse_js_positive_integer(value: &str) -> Option<u64> {
-    let value = value.trim_start();
-    let (negative, value) = match value.as_bytes().first() {
-        Some(b'+') => (false, &value[1..]),
-        Some(b'-') => (true, &value[1..]),
-        _ => (false, value),
-    };
-    let digits = value
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect::<String>();
-    if negative {
-        return None;
-    }
-    digits.parse::<u64>().ok().filter(|seconds| *seconds > 0)
-}
-
-const DURABLE_DATA: [&str; 5] = [
-    "settings.json",
-    "stats.json",
-    "shares.json",
-    "mounts.json",
-    "canvases.json",
-];
+const DURABLE_DATA: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
 const REBUILDABLE_DATA: [(&str, &str); 3] = [
     (".search-index", "search-index"),
     (".thumbnails", "thumbnails"),
@@ -752,9 +587,6 @@ impl Config {
                     name,
                     path: entry.path,
                     editable_folders: editable_folders(entry.editable_folders),
-                    read_only: false,
-                    source: "config".into(),
-                    created_at: None,
                 });
             }
         } else {
@@ -764,9 +596,6 @@ impl Config {
                 name,
                 path: primary.clone(),
                 editable_folders: editable,
-                read_only: false,
-                source: "config".into(),
-                created_at: None,
             });
         }
         let mut names = std::collections::HashSet::new();
@@ -819,43 +648,6 @@ impl Config {
                 )
             })?;
         }
-        let mut auth = raw.auth.unwrap_or_default();
-        if let Ok(v) = env::var("AUTH_ENABLED") {
-            auth.enabled = v == "true" || v == "1";
-        }
-        if let Ok(v) = env::var("AUTH_PASSWORD") {
-            auth.password = if v.is_empty() { None } else { Some(v) };
-        }
-        if let Ok(v) = env::var("AUTH_ADMIN_ACCESS_DOMAINS")
-            && !v.is_empty()
-        {
-            auth.admin_access_domains = Some(
-                v.split(',')
-                    .map(|domain| domain.trim().to_ascii_lowercase())
-                    .filter(|domain| !domain.is_empty())
-                    .collect(),
-            );
-        } else if let Some(domains) = &mut auth.admin_access_domains {
-            *domains = domains
-                .drain(..)
-                .map(|domain| domain.trim().to_ascii_lowercase())
-                .filter(|domain| !domain.is_empty())
-                .collect();
-        }
-        if let Ok(v) = env::var("AUTH_SESSION_MAX_AGE")
-            && let Some(seconds) = parse_js_positive_integer(&v)
-        {
-            auth.session_max_age_seconds = Some(seconds);
-        }
-        if let Ok(v) = env::var("AUTH_SECURE_COOKIES") {
-            auth.secure_cookies = Some(v == "true" || v == "1");
-        }
-        let share_link_domain = env::var("SHARE_LINK_DOMAIN")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .or(raw.share_link_domain)
-            .filter(|value| !value.trim().is_empty())
-            .map(normalize_share_domain);
         let image_optimization = image_optimization(raw.image_optimization)?;
         let raw_search = raw.file_search.unwrap_or_default();
         let file_search = FileSearchConfig {
@@ -889,70 +681,14 @@ impl Config {
                 4096,
             ),
         };
-        let mut tls = raw.tls;
-        if let Ok(path) = env::var("TLS_PFX_PATH")
-            && !path.is_empty()
-        {
-            tls = Some(TlsConfig {
-                pfx_path: Some(std::path::absolute(path).map_err(|error| error.to_string())?),
-                passphrase: env::var("TLS_PFX_PASSPHRASE").ok(),
-                ..Default::default()
-            });
-        } else {
-            let cert = env::var("TLS_CERT_PATH")
-                .ok()
-                .filter(|value| !value.is_empty());
-            let key = env::var("TLS_KEY_PATH")
-                .ok()
-                .filter(|value| !value.is_empty());
-            if cert.is_some() != key.is_some() {
-                return Err("TLS_CERT_PATH and TLS_KEY_PATH must be set together".into());
-            }
-            if let (Some(cert), Some(key)) = (cert, key) {
-                tls = Some(TlsConfig {
-                    cert_path: Some(std::path::absolute(cert).map_err(|error| error.to_string())?),
-                    key_path: Some(std::path::absolute(key).map_err(|error| error.to_string())?),
-                    ..Default::default()
-                });
-            }
-        }
-        if let Some(value) = &mut tls {
-            for path in [
-                &mut value.cert_path,
-                &mut value.key_path,
-                &mut value.pfx_path,
-            ] {
-                if let Some(current) = path.take() {
-                    *path = Some(if current.is_absolute() {
-                        current
-                    } else {
-                        config_dir.join(current)
-                    });
-                }
-            }
-            if value.pfx_path.is_some() && (value.cert_path.is_some() || value.key_path.is_some()) {
-                return Err("TLS config must use either pfxPath or certPath/keyPath".into());
-            }
-            if value.cert_path.is_some() != value.key_path.is_some() {
-                return Err("TLS certPath and keyPath must be configured together".into());
-            }
-        }
-        if tls.as_ref().is_some_and(|value| {
-            value.pfx_path.is_none() && value.cert_path.is_none() && value.key_path.is_none()
-        }) {
-            tls = None;
-        }
         let hermes = hermes_config(raw.hermes)?;
         Ok(Self {
             port,
             roots,
             library_key,
-            share_link_domain,
-            auth,
             data_path,
             file_search,
             image_optimization,
-            tls,
             hermes,
         })
     }
@@ -991,31 +727,6 @@ mod tests {
     }
 
     #[test]
-    fn auth_config_matches_javascript_coercion_and_sanitizing() {
-        let raw: RawConfig = json5::from_str(
-            r#"{ auth: { enabled: "yes", password: 42, adminAccessDomains: [" Example.COM ", 7], sessionMaxAgeSeconds: 12.9, secureCookies: "yes" } }"#,
-        )
-        .unwrap();
-        let auth = raw.auth.unwrap();
-        assert!(auth.enabled);
-        assert_eq!(auth.password, None);
-        assert_eq!(
-            auth.admin_access_domains,
-            Some(vec!["example.com".into(), "7".into()])
-        );
-        assert_eq!(auth.session_max_age_seconds, Some(12));
-        assert_eq!(auth.secure_cookies, None);
-    }
-
-    #[test]
-    fn empty_or_malformed_tls_does_not_require_certificates() {
-        let empty: RawConfig = json5::from_str(r#"{ tls: {} }"#).unwrap();
-        assert!(empty.tls.is_some_and(|tls| tls.cert_path.is_none()));
-        let array: RawConfig = json5::from_str(r#"{ tls: [] }"#).unwrap();
-        assert!(array.tls.is_none());
-    }
-
-    #[test]
     fn malformed_optional_collections_fall_back_like_javascript() {
         let raw: RawConfig =
             json5::from_str(r#"{ editableFolders: "not-an-array", fileSearch: "not-an-object" }"#)
@@ -1033,9 +744,6 @@ mod tests {
             editable_folders(vec![serde_json::json!([null, "x"])]),
             vec![",x"]
         );
-        assert_eq!(parse_js_positive_integer("  +12seconds"), Some(12));
-        assert_eq!(parse_js_positive_integer("-12"), None);
-        assert_eq!(parse_js_positive_integer("words"), None);
     }
 
     #[test]

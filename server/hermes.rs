@@ -140,7 +140,7 @@ impl HermesHub {
 
     fn ws_url(&self) -> AppResult<url::Url> {
         let mut url = self.http_url("api/ws")?;
-        url.set_scheme(if url.scheme() == "https" { "wss" } else { "ws" })
+        url.set_scheme("ws")
             .map_err(|_| AppError::internal("Hermes gateway URL is invalid"))?;
         if let Some(token) = &self.config.token {
             url.query_pairs_mut().append_pair("token", token);

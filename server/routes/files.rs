@@ -1,22 +1,22 @@
 use crate::{
     app::{
-        AppState, Shared, emit, list_directory, parent_logical, roots, safe_upload_name,
-        settings_path, stats_path,
+        AppState, Shared, emit, list_directory, parent_logical, safe_upload_name, settings_path,
+        stats_path,
     },
     error::{AppError, AppResult},
-    media, shares, store,
+    media, store,
 };
 use axum::{
     Json, Router,
     body::Body,
-    extract::{ConnectInfo, DefaultBodyLimit, Multipart, Query, State},
-    http::{HeaderMap, HeaderValue, header},
+    extract::{DefaultBodyLimit, Multipart, Query, State},
+    http::{HeaderValue, header},
     response::Response,
     routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{io::Write, net::SocketAddr, path::Path, time::UNIX_EPOCH};
+use std::{io::Write, path::Path, time::UNIX_EPOCH};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 
@@ -43,8 +43,6 @@ fn report_metadata_failure(operation: &str, path: &str, error: AppError) {
 
 async fn list(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<DirQuery>,
 ) -> AppResult<Json<Value>> {
     if query.dir == crate::virtual_directory::HERMES_ROOT
@@ -52,7 +50,6 @@ async fn list(
             .dir
             .starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
     {
-        crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
         if query.surface.as_deref() != Some("workspace") {
             return Err(AppError::not_found("Directory not found"));
         }
@@ -68,11 +65,6 @@ async fn list(
     if query.dir.is_empty()
         && query.surface.as_deref() == Some("workspace")
         && state.hermes.is_some()
-        && crate::routes::hermes_chat::hermes_access_allowed(
-            state.config.auth.enabled,
-            Some(peer),
-            &headers,
-        )
     {
         let path = crate::virtual_directory::HERMES_ROOT.to_string();
         files.push(media::FileItem {
@@ -84,7 +76,6 @@ async fn list(
             is_directory: true,
             is_virtual: Some(true),
             view_count: None,
-            share_token: None,
             thumbnail_generated: None,
             version: None,
         });
@@ -105,21 +96,15 @@ async fn list(
 
 async fn virtual_action(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Json(body): Json<crate::virtual_directory::ActionBody>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     Ok(Json(crate::virtual_directory::action(&state, body).await?))
 }
 
 async fn virtual_open(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     Ok(Json(
         crate::virtual_directory::session_detail(&state, &query.path).await?,
     ))
@@ -127,11 +112,8 @@ async fn virtual_open(
 
 async fn virtual_export(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     let id = crate::virtual_directory::session_id_from_path(&query.path)?;
     let hub = state
         .hermes
@@ -147,11 +129,8 @@ async fn virtual_export(
 
 async fn virtual_fs(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     let hub = state
         .hermes
         .as_ref()
@@ -170,48 +149,6 @@ pub(crate) fn legacy_virtual_items(
     state: &AppState,
     dir: &str,
 ) -> Option<AppResult<Vec<media::FileItem>>> {
-    if dir == "Shares" {
-        let runtime = roots(state);
-        let mut items = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        let mut all = shares::read(&state.config, &runtime);
-        all.sort_by_key(|item| std::cmp::Reverse(item.created_at));
-        for share in all {
-            if !seen.insert(share.path.replace('\\', "/")) {
-                continue;
-            }
-            let Ok(resolved) = media::resolve(&state.config, &runtime, &share.path) else {
-                continue;
-            };
-            let Ok(metadata) = std::fs::metadata(&resolved.full) else {
-                continue;
-            };
-            let name = shares::name(&share.path);
-            let extension = Path::new(&name)
-                .extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_ascii_lowercase();
-            items.push(media::FileItem {
-                name,
-                path: share.path,
-                media_type: if metadata.is_dir() {
-                    "folder".into()
-                } else {
-                    media::media_type(&extension).into()
-                },
-                size: if metadata.is_dir() { 0 } else { metadata.len() },
-                extension,
-                is_directory: share.is_directory,
-                is_virtual: None,
-                view_count: None,
-                share_token: Some(share.token),
-                thumbnail_generated: None,
-                version: None,
-            });
-        }
-        return Some(Ok(items));
-    }
     if dir == "Favorites" || dir == "Most Played" {
         let section = if dir == "Favorites" {
             store::section(
@@ -244,10 +181,9 @@ pub(crate) fn legacy_virtual_items(
             values.truncate(50);
             values
         };
-        let runtime = roots(state);
         let mut items = Vec::new();
         for (path, view_count) in paths {
-            let Ok(resolved) = media::resolve(&state.config, &runtime, &path) else {
+            let Ok(resolved) = media::resolve(&state.config, &path) else {
                 continue;
             };
             let Ok(metadata) = std::fs::metadata(&resolved.full) else {
@@ -256,7 +192,7 @@ pub(crate) fn legacy_virtual_items(
             if dir == "Most Played" && metadata.is_dir() {
                 continue;
             }
-            let name = shares::name(&path);
+            let name = media::name(&path);
             let extension = Path::new(&name)
                 .extension()
                 .unwrap_or_default()
@@ -285,7 +221,6 @@ pub(crate) fn legacy_virtual_items(
                 is_directory: metadata.is_dir(),
                 is_virtual: None,
                 view_count,
-                share_token: None,
                 thumbnail_generated,
                 version: None,
             });
@@ -312,13 +247,12 @@ async fn create(
     if body.path.is_empty() {
         return Err(AppError::bad("Path is required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &parent_logical(&body.path))
-        && !media::editable(&state.config, &runtime, &body.path)
+    if !media::editable(&state.config, &parent_logical(&body.path))
+        && !media::editable(&state.config, &body.path)
     {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
+    let full = media::resolve(&state.config, &body.path)?.full;
     if full.exists() {
         return Err(AppError::conflict(format!(
             "A {} with this name already exists",
@@ -367,14 +301,13 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
     if body.path.is_empty() {
         return Err(AppError::bad("Path is required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.path) {
+    if !media::editable(&state.config, &body.path) {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
     if body.content.is_none() && body.base64_content.is_none() {
         return Err(AppError::bad("Content is required"));
     }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
+    let full = media::resolve(&state.config, &body.path)?.full;
     let metadata = fs::metadata(&full).await.map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             AppError::not_found("File not found")
@@ -424,11 +357,10 @@ async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppR
     if body.path.is_empty() {
         return Err(AppError::bad("Path is required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.path) {
+    if !media::editable(&state.config, &body.path) {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
-    let full = media::resolve(&state.config, &runtime, &body.path)?.full;
+    let full = media::resolve(&state.config, &body.path)?.full;
     let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
     if metadata.is_dir() {
         fs::remove_dir_all(full).await.map_err(AppError::io)?;
@@ -458,19 +390,18 @@ async fn rename(
     if body.old_path.is_empty() || body.new_path.is_empty() {
         return Err(AppError::bad("Both oldPath and newPath are required"));
     }
-    let runtime = roots(&state);
-    if !media::editable(&state.config, &runtime, &body.old_path) {
+    if !media::editable(&state.config, &body.old_path) {
         return Err(AppError::forbidden(
             "Cannot rename: Source path is not in an editable folder",
         ));
     }
-    if !media::editable(&state.config, &runtime, &body.new_path) {
+    if !media::editable(&state.config, &body.new_path) {
         return Err(AppError::forbidden(
             "Cannot rename: Destination path is not in an editable folder",
         ));
     }
-    let old = media::resolve(&state.config, &runtime, &body.old_path)?.full;
-    let new = media::resolve(&state.config, &runtime, &body.new_path)?.full;
+    let old = media::resolve(&state.config, &body.old_path)?.full;
+    let new = media::resolve(&state.config, &body.new_path)?.full;
     if new.exists() {
         return Err(AppError::conflict(
             "Destination file or directory already exists",
@@ -500,8 +431,7 @@ async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppRes
     if body.source_path.is_empty() {
         return Err(AppError::bad("sourcePath is required"));
     }
-    let runtime = roots(&state);
-    let source = media::resolve(&state.config, &runtime, &body.source_path)?.full;
+    let source = media::resolve(&state.config, &body.source_path)?.full;
     let name = source
         .file_name()
         .ok_or_else(|| AppError::bad("Invalid source path"))?
@@ -511,12 +441,12 @@ async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppRes
     } else {
         format!("{}/{}", body.destination_dir, name.to_string_lossy())
     };
-    if !media::editable(&state.config, &runtime, &logical) {
+    if !media::editable(&state.config, &logical) {
         return Err(AppError::forbidden(
             "Cannot copy: Destination is not in an editable folder",
         ));
     }
-    let destination = media::resolve(&state.config, &runtime, &logical)?.full;
+    let destination = media::resolve(&state.config, &logical)?.full;
     if destination.exists() {
         return Err(AppError::conflict(
             "Destination file or directory already exists",
@@ -580,7 +510,6 @@ async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppRes
     if files.is_empty() {
         return Err(AppError::bad("No files provided"));
     }
-    let runtime = roots(&state);
     let mut count = 0;
     let mut broadcasts = std::collections::HashMap::new();
     for (name, data) in files {
@@ -589,12 +518,12 @@ async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppRes
         } else {
             format!("{target}/{name}")
         };
-        if !media::editable(&state.config, &runtime, &logical)
-            && !media::editable(&state.config, &runtime, &parent_logical(&logical))
+        if !media::editable(&state.config, &logical)
+            && !media::editable(&state.config, &parent_logical(&logical))
         {
             continue;
         }
-        let full = media::resolve(&state.config, &runtime, &logical)?.full;
+        let full = media::resolve(&state.config, &logical)?.full;
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent).await.map_err(AppError::io)?;
         }
@@ -631,7 +560,7 @@ pub(crate) async fn download_logical(
     state: &crate::app::AppState,
     logical: &str,
 ) -> AppResult<Response> {
-    let full = media::resolve(&state.config, &roots(state), logical)?.full;
+    let full = media::resolve(&state.config, logical)?.full;
     let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
     if metadata.is_dir() {
         let name = full.file_name().unwrap_or_default().to_string_lossy();

@@ -9,7 +9,7 @@ import type {
 } from '@/lib/use-workspace'
 
 export function getSourceLabel(source: WorkspaceSource): string {
-  return source.kind === 'share' ? 'Share' : 'Browser'
+  return source.kind === 'local' ? 'Browser' : 'Browser'
 }
 
 export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {

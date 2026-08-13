@@ -49,16 +49,15 @@ describe('workspace path mutations', () => {
     expect(parseWorkspacePathMutation({ type: 'files-changed', path: 'Old' })).toBeNull()
   })
 
-  test('moves live local paths and pins without changing share paths', () => {
+  test('moves live local paths and pins', () => {
     const local = window(
       'local',
       'viewer',
       { dir: 'Media/Old', viewing: 'Media/Old/movie.mp4' },
       'Media/Old/movie.mp4',
     )
-    const share = { ...local, id: 'share', source: { kind: 'share' as const, token: 's' } }
     const before = {
-      ...state([local, share]),
+      ...state([local]),
       pinnedTaskbarItems: [
         {
           id: 'pin',
@@ -82,7 +81,6 @@ describe('workspace path mutations', () => {
       viewing: 'Archive/New/movie.mp4',
     })
     expect(next.windows[0]?.iconPath).toBe('Archive/New/movie.mp4')
-    expect(next.windows[1]).toBe(share)
     expect(next.pinnedTaskbarItems[0]?.path).toBe('Archive/New/sub')
   })
 

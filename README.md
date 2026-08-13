@@ -2,15 +2,13 @@
 
 > Mostly vibe-coded; treat it as a personal tool, not a hardened product.
 
-Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** server. Browse, play, and edit files; optional password auth; token-based shares; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
+Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** server. Browse, play, and edit files; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
 
 ## Features (high level)
 
-- Workspaces: snap zones, viewers (image, video, PDF, text), audio player, persisted layout (admin and share views).
-- Shares: tokens, optional passcodes, editable shares with per-permission toggles and upload quota.
+- Workspaces: snap zones, viewers (image, video, PDF, text), audio player, and persisted layouts.
 - Knowledge bases: full-text search, recent files, `![[image]]` from `images/`.
 - File ops in editable folders: upload, move/copy, rename, delete, inline text edit; grid/list, thumbnails (FFmpeg optional), drag-and-drop.
-- Auth: session cookies, rate-limited login, optional admin hostname allowlist; shares stay reachable regardless.
 
 ## Quick start
 
@@ -26,11 +24,6 @@ Create `config.jsonc` (JSON with comments; falls back to `config.json`):
 {
   "mediaDir": "/path/to/your/media",
   "editableFolders": ["notes", "documents"],
-  "auth": {
-    "enabled": true,
-    "password": "your-secret",
-    "adminAccessDomains": ["127.0.0.1"],
-  },
 }
 ```
 
@@ -44,25 +37,18 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environment variables (and `.env`).
 
-| Config                    | Env                         | Purpose                                                                     |
-| ------------------------- | --------------------------- | --------------------------------------------------------------------------- |
-| `mediaDir`                | `MEDIA_DIR`                 | Media root for legacy/single-root configs                                   |
-| `port`                    | `PORT`                      | App port; Workspace is served at `/workspace` (default `3000`)              |
-| `mediaDirs`               |                             | Multiple named media roots, each with optional editable folders             |
-| `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under single-root `mediaDir` where writes are allowed |
-| `fileSearch`              |                             | Persistent filename/path search index settings                              |
-| `imageOptimization`       |                             | Responsive viewer variants and disk-cache settings                          |
-| `hermes`                  |                             | Optional Hermes gateway, profile, and filesystem integration                |
-| `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                                 |
-| `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                                |
-| `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
-| `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                                  |
-| `auth.secureCookies`      | `AUTH_SECURE_COOKIES`       | Require HTTPS for login cookies; defaults to production only                |
-|                           | `TLS_CERT_PATH`             | PEM certificate used to serve HTTPS                                         |
-|                           | `TLS_KEY_PATH`              | PEM private key used to serve HTTPS                                         |
+| Config              | Env                | Purpose                                                                     |
+| ------------------- | ------------------ | --------------------------------------------------------------------------- |
+| `mediaDir`          | `MEDIA_DIR`        | Media root for legacy/single-root configs                                   |
+| `port`              | `PORT`             | App port; Workspace is served at `/workspace` (default `3000`)              |
+| `mediaDirs`         |                    | Multiple named media roots, each with optional editable folders             |
+| `editableFolders`   | `EDITABLE_FOLDERS` | Comma-separated paths under single-root `mediaDir` where writes are allowed |
+| `fileSearch`        |                    | Persistent filename/path search index settings                              |
+| `imageOptimization` |                    | Responsive viewer variants and disk-cache settings                          |
+| `hermes`            |                    | Optional Hermes gateway, profile, and filesystem integration                |
 
-`dataPath` is config-file only and contains app-created settings, stats, shares, mounts, search
-index, thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
+`dataPath` is config-file only and contains app-created settings, stats, search index,
+thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
 On first startup with the default path, legacy data beside the config and legacy caches in the
 working directory are migrated automatically.
 
@@ -102,9 +88,7 @@ and cache size remain configurable; omitted fields use these defaults:
 Variants live under `<dataPath>/image-variants`; changing widths or quality creates distinct cache
 entries. Generated thumbnails live under `<dataPath>/thumbnails`.
 
-Hermes chat is optional. Without app authentication, its agent-control routes are available only
-from a direct loopback connection. Reader AI is disabled because current Hermes sessions cannot
-enforce a no-tools policy for untrusted document content.
+Hermes chat and Reader AI are optional and use the configured Hermes gateway.
 
 ```jsonc
 {
@@ -130,13 +114,7 @@ When more than one media root is configured, the browser root shows each media d
 as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 `name` is derived from the directory basename when possible, but must be set explicitly
 if the basename is empty, duplicates another media root, or conflicts with a virtual
-folder such as `Favorites`, `Most Played`, or `Shares`.
-
-Additional media roots can be added without restarting from **Settings → Media directories**.
-They are persisted in `mounts.json` under `dataPath` and are always read only. Runtime roots
-appear alongside configured `mediaDirs`; their names can be changed and their server paths can
-be reconnected without invalidating shares. Removing a runtime root leaves its shares recorded
-but unavailable; reconnect an offline root by editing its path instead of removing it.
+folder such as `Favorites` or `Most Played`.
 
 ## Production
 
@@ -146,15 +124,6 @@ bun run start
 ```
 
 Listens on `0.0.0.0` by default.
-
-### HTTPS and offline mode
-
-The web app registers a service worker that precaches the application shell and serves files
-saved with **Make available offline** from IndexedDB. Service workers require HTTPS except on
-`localhost`, so remote web access must use an HTTPS server URL.
-
-Use `TLS_CERT_PATH` plus `TLS_KEY_PATH`. The certificate must be trusted by the browser/device.
-Plain HTTP remains available for local browser development at `http://localhost`.
 
 ## Development
 

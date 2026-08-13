@@ -56,9 +56,9 @@ export async function dragToEdge(page: Page, handle: Locator, target: 'left' | '
   await page.waitForTimeout(30)
 }
 
-export async function navigateToSharedContent(content: Locator) {
-  await expect(content.getByText('SharedContent', { exact: true })).toBeVisible()
-  await content.getByText('SharedContent', { exact: true }).click()
+export async function navigateToMediaContent(content: Locator) {
+  await expect(content.getByText('MediaContent', { exact: true })).toBeVisible()
+  await content.getByText('MediaContent', { exact: true }).click()
   await expect(content.getByText('public-doc.txt')).toBeVisible({ timeout: 5_000 })
 }
 

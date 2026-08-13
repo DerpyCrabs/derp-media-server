@@ -23,8 +23,6 @@ export const DEFAULT_READER_POSITION: ReaderPosition = {
   defaultAction: 'define',
 }
 
-const storageKey = (path: string) => `derp.reader.position.v2:${path.replace(/\\/g, '/')}`
-
 export function normalizeReaderPosition(value: unknown): ReaderPosition {
   const input = (value && typeof value === 'object' ? value : {}) as Partial<ReaderPosition>
   return {
@@ -39,25 +37,4 @@ export function normalizeReaderPosition(value: unknown): ReaderPosition {
         ? input.defaultAction
         : 'define',
   }
-}
-
-export function parseReaderPosition(value: string | null): ReaderPosition {
-  if (!value) return { ...DEFAULT_READER_POSITION }
-  try {
-    return normalizeReaderPosition(JSON.parse(value))
-  } catch {
-    return { ...DEFAULT_READER_POSITION }
-  }
-}
-
-export function loadReaderPosition(path: string): ReaderPosition {
-  return parseReaderPosition(localStorage.getItem(storageKey(path)))
-}
-
-export function saveReaderPosition(path: string, position: ReaderPosition): void {
-  localStorage.setItem(storageKey(path), JSON.stringify(position))
-}
-
-export function clearReaderPosition(path: string): void {
-  localStorage.removeItem(storageKey(path))
 }

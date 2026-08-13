@@ -16,17 +16,12 @@ import { For, Show, createEffect, createSignal } from 'solid-js'
 import { navigateSearchParams } from '../browser-history'
 import { WorkspaceLayoutHoverPreview } from '@/src/workspace/WorkspaceLayoutHoverPreview'
 
-function snapshotForLayoutPreset(
-  s: PersistedWorkspaceState,
-  share = false,
-): PersistedWorkspaceState {
+function snapshotForLayoutPreset(s: PersistedWorkspaceState): PersistedWorkspaceState {
   const plain = structuredClone(s)
   return {
     ...plain,
-    windows: persistentWorkspaceWindows(plain.windows).filter(
-      (window) => !share || window.type !== 'hermes',
-    ),
-    pinnedTaskbarItems: plain.pinnedTaskbarItems.filter((pin) => !share || !pin.isVirtual),
+    windows: persistentWorkspaceWindows(plain.windows),
+    pinnedTaskbarItems: plain.pinnedTaskbarItems,
     browserTabTitle: undefined,
     browserTabIcon: undefined,
     browserTabIconColor: undefined,
@@ -35,7 +30,6 @@ function snapshotForLayoutPreset(
 
 type Props = {
   scope: WorkspaceLayoutScope
-  shareToken: string | null
   presets: WorkspaceLayoutPreset[]
   presetsReady: boolean
   collectLayoutSnapshot: () => PersistedWorkspaceState
@@ -66,24 +60,13 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
   })
 
   const persistPresetsMutation = useMutation(() => ({
-    mutationFn: async (next: WorkspaceLayoutPreset[]) => {
-      if (props.shareToken) {
-        return post<{ workspaceLayoutPresets: WorkspaceLayoutPreset[] }>(
-          `/api/share/${props.shareToken}/workspaceLayoutPresets`,
-          { presets: next },
-        )
-      }
-      return post<{ workspaceLayoutPresets: WorkspaceLayoutPreset[] }>(
+    mutationFn: async (next: WorkspaceLayoutPreset[]) =>
+      post<{ workspaceLayoutPresets: WorkspaceLayoutPreset[] }>(
         '/api/settings/workspaceLayoutPresets',
         { presets: next },
-      )
-    },
+      ),
     onSettled: () => {
-      if (props.shareToken) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(props.shareToken) })
-      } else {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   }))
 
@@ -108,7 +91,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     const name = saveName().trim()
     if (!name || !props.presetsReady) return
     const now = new Date().toISOString()
-    const snapshot = snapshotForLayoutPreset(props.collectLayoutSnapshot(), !!props.shareToken)
+    const snapshot = snapshotForLayoutPreset(props.collectLayoutSnapshot())
     const id = makeWorkspaceLayoutPresetId()
     const next: WorkspaceLayoutPreset = {
       id,
@@ -125,11 +108,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     }
     setSaveName('')
     setSaveOpen(false)
-    if (props.shareToken) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shareInfo(props.shareToken) })
-    } else {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    }
+    void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     props.syncLayoutBaselineToCurrent()
     props.declareBaselinePresetId(id)
     clearPresetQueryParam()
@@ -139,7 +118,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     if (!props.presetsReady) return
     const found = props.presets.find((x) => x.id === id)
     if (!found) return
-    const snapshot = snapshotForLayoutPreset(props.collectLayoutSnapshot(), !!props.shareToken)
+    const snapshot = snapshotForLayoutPreset(props.collectLayoutSnapshot())
     const now = new Date().toISOString()
     persistPresets(props.presets.map((p) => (p.id === id ? { ...p, snapshot, updatedAt: now } : p)))
     if (props.layoutBaselinePresetId === id) {
@@ -154,7 +133,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     if (!baselineId || !props.presetsReady) return
     const found = props.presets.find((x) => x.id === baselineId)
     if (!found) return
-    const snapshot = snapshotForLayoutPreset(props.collectLayoutSnapshot(), !!props.shareToken)
+    const snapshot = snapshotForLayoutPreset(props.collectLayoutSnapshot())
     const now = new Date().toISOString()
     persistPresets(
       props.presets.map((p) => (p.id === baselineId ? { ...p, snapshot, updatedAt: now } : p)),

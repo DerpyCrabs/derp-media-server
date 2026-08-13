@@ -86,7 +86,6 @@ import { TaskbarGroupRow } from './workspace/WorkspaceTaskbarRows'
 import type { WorkspaceVideoListenOnlyDetail } from './workspace/WorkspaceViewerPane'
 import {
   DEFAULT_WORKSPACE_SOURCE,
-  defaultInitialBrowserTitle,
   isWorkspaceRoute,
   loadPersisted,
 } from './workspace/workspace-page-persistence'
@@ -98,27 +97,17 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
 
-  const shareConfig = () => props.shareConfig ?? null
-  const server = useWorkspacePageServerData(props, shareConfig)
-  const browserSource = createMemo(
-    (): WorkspaceSource =>
-      shareConfig()
-        ? {
-            kind: 'share',
-            token: shareConfig()!.token,
-            sharePath: shareConfig()!.sharePath,
-          }
-        : DEFAULT_WORKSPACE_SOURCE,
-  )
+  const server = useWorkspacePageServerData(props)
+  const browserSource = () => DEFAULT_WORKSPACE_SOURCE
 
   const storageSessionKeyFull = createMemo(() => {
     const sid = urlSearchParams().get('ws') ?? ''
-    const base = workspaceStorageBaseKey(shareConfig()?.token ?? null)
+    const base = workspaceStorageBaseKey()
     return { sid, key: sid ? workspaceStorageSessionKey(base, sid) : '' }
   })
 
   const [workspace, setWorkspace] = createSignal<PersistedWorkspaceState | null>(null)
-  useAdminEventsStream(!props.shareConfig, (mutation) => {
+  useAdminEventsStream(true, (mutation) => {
     setWorkspace((current) => (current ? applyWorkspacePathMutation(current, mutation) : current))
   })
 
@@ -142,7 +131,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   useWorkspacePageLocalPersistence({
     storageSessionKeyFull,
     workspace,
-    isShareSession: () => !!shareConfig(),
   })
 
   createEffect(() => {
@@ -180,13 +168,13 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       sid = crypto.randomUUID()
       navigateSearchParams({ ws: sid }, 'replace')
     }
-    const base = workspaceStorageBaseKey(shareConfig()?.token ?? null)
+    const base = workspaceStorageBaseKey()
     const key = workspaceStorageSessionKey(base, sid)
     const dirParam = sp.get('dir')
     const presetParam = sp.get('preset')
     void server.settingsQuery.isSuccess
     void server.serverLayoutPresets()
-    const presetsReadyNow = shareConfig() ? true : server.settingsQuery.isSuccess
+    const presetsReadyNow = server.settingsQuery.isSuccess
     // Always prefer session draft in localStorage over a named preset in the URL.
     const loaded = loadPersisted(key)
     const src = browserSource()
@@ -794,15 +782,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       )
       return
     }
-    const sc = shareConfig()
-    const source: WorkspaceSource =
-      data.sourceKind === 'share'
-        ? {
-            kind: 'share',
-            token: data.sourceToken ?? '',
-            sharePath: sc?.sharePath ?? '',
-          }
-        : { kind: 'local', rootPath: null }
+    const source: WorkspaceSource = DEFAULT_WORKSPACE_SOURCE
     const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
     setWorkspace((prev) =>
       prev
@@ -828,11 +808,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const initialState = dirOpt != null ? { dir: dirOpt } : {}
     const effectiveDir = dirOpt ?? ''
     const browserTitle =
-      effectiveDir !== ''
-        ? workspaceBrowserDirTitle(effectiveDir)
-        : source.kind === 'share'
-          ? defaultInitialBrowserTitle(source)
-          : workspaceBrowserDirTitle('')
+      effectiveDir !== '' ? workspaceBrowserDirTitle(effectiveDir) : workspaceBrowserDirTitle('')
     const newWin: WorkspaceWindowDefinition = {
       id,
       type: 'browser',
@@ -896,7 +872,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     target: VirtualOpenTarget,
     forceTab = false,
   ) {
-    if (props.shareConfig) return
     const w = workspace()
     if (!w) return
     if (target.sessionId) {
@@ -1135,8 +1110,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const w = workspace()
     if (!w) return
     const source = browserSource()
-    const pinKey = (p: PinnedTaskbarItem) => `${p.path}:${p.source.kind}:${p.source.token ?? ''}`
-    const newKey = `${file.path}:${source.kind}:${source.token ?? ''}`
+    const pinKey = (p: PinnedTaskbarItem) => `${p.path}:${p.source.kind}`
+    const newKey = `${file.path}:${source.kind}`
     if ((w.pinnedTaskbarItems ?? []).some((p) => pinKey(p) === newKey)) return
     const customIcons = server.settingsQuery.data?.customIcons ?? {}
     const item: PinnedTaskbarItem = {
@@ -1163,7 +1138,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   async function selectPinned(pin: PinnedTaskbarItem) {
     if (pin.isVirtual) {
-      if (props.shareConfig) return
       const response = await fetch(
         `/api/virtual-directory/open?path=${encodeURIComponent(pin.path)}`,
       )
@@ -1239,7 +1213,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const key = storageSessionKeyFull().key
     const slice = key ? useWorkspaceAudio.getState().byKey[key] : undefined
     const tm = useWorkspaceAudio.getState()
-    const sp = server.sharePanel()
     const playing = slice?.playing ?? null
     const audioOnly = slice?.audioOnly ?? false
     const audioMode = !!(playing && (!isVideoPath(playing) || audioOnly))
@@ -1254,7 +1227,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       currentFile: audioMode ? playing : null,
       mediaPlayerIsPlaying: taskbarDrivesIcon ? tm.isPlaying : false,
       mediaType: audioMode ? 'audio' : null,
-      mediaShare: sp ? { token: sp.token, sharePath: sp.sharePath } : undefined,
     }
   }
 
@@ -1405,8 +1377,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           onTilingPick={handleWorkspaceTilingPick}
           setTilingPickerHoverPreview={snap.setTilingPickerHoverPreview}
           openLayoutPicker={(windowId, anchor) => setLayoutPicker({ windowId, anchor })}
-          pageProps={props}
-          sharePanel={server.sharePanel}
           editableFolders={server.editableFolders}
           knowledgeBases={() => server.settingsQuery.data?.knowledgeBases ?? []}
           storageKey={() => storageSessionKeyFull().key}
@@ -1464,7 +1434,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         </Show>
       </div>
       <WorkspacePageTaskbar
-        pageProps={props}
         onOpenBrowser={() => openBrowser()}
         onOpenSearchResult={openGlobalSearchResult}
         hasAnyTaskbarItems={hasAnyTaskbarItems}

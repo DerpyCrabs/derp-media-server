@@ -1,15 +1,12 @@
-import { navigateShareWorkspaceToClassicPage } from '@/lib/navigate-share-classic-from-workspace'
 import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
 import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import {
-  workspaceLayoutScopeFromShareToken,
   type WorkspaceLayoutPreset,
+  type WorkspaceLayoutScope,
 } from '@/lib/workspace-layout-presets'
-import { workspaceSourceToMediaContext } from '@/lib/use-workspace'
-import ArrowLeftFromLine from 'lucide-solid/icons/arrow-left-from-line'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import { For, Show, type JSX } from 'solid-js'
 import { FloatingContextMenu } from '@/src/file-browser/FloatingContextMenu'
@@ -18,13 +15,11 @@ import type { GlobalSettings } from '@/lib/use-settings'
 import { WorkspaceNamedLayoutMenu } from '@/src/workspace/WorkspaceNamedLayoutMenu'
 import { WorkspaceTaskbarAudio } from '@/src/workspace/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from '@/src/workspace/WorkspaceTaskbarSettings'
-import type { WorkspacePageProps } from './workspace-page-types'
 import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
 import { FileSearchButton } from '@/src/FileSearchPalette'
 import type { FileSearchResult } from '@/lib/file-search'
 
 export type WorkspacePageTaskbarProps = {
-  pageProps: WorkspacePageProps
   onOpenBrowser: () => void
   hasAnyTaskbarItems: () => boolean
   pinnedItems: () => PinnedTaskbarItem[]
@@ -37,7 +32,7 @@ export type WorkspacePageTaskbarProps = {
     fn: (prev: PersistedWorkspaceState | null) => PersistedWorkspaceState | null,
   ) => void
   settingsData: () => GlobalSettings | undefined
-  layoutScope: () => ReturnType<typeof workspaceLayoutScopeFromShareToken>
+  layoutScope: () => WorkspaceLayoutScope
   serverLayoutPresets: () => WorkspaceLayoutPreset[]
   presetsReady: () => boolean
   collectLayoutSnapshot: () => PersistedWorkspaceState
@@ -94,8 +89,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                             const d: FileDragData = {
                               path: pin.path,
                               isDirectory: pin.isDirectory,
-                              sourceKind: pin.source.kind,
-                              sourceToken: pin.source.token,
+                              sourceKind: 'local',
                             }
                             setFileDragData(dt, d)
                             dt.effectAllowed = 'copy'
@@ -146,38 +140,15 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
           </div>
 
           <div class='flex shrink-0 items-center gap-1 pl-2'>
-            <Show when={!props.pageProps.shareConfig}>
-              <FileSearchButton
-                title='Search library and open a new window'
-                testId='workspace-global-file-search-trigger'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
-                onSelect={props.onOpenSearchResult}
-              />
-            </Show>
-            <Show when={props.pageProps.shareConfig}>
-              <button
-                type='button'
-                data-testid='workspace-exit-to-share'
-                title='Standard share page — exit workspace layout'
-                aria-label='Exit workspace: open standard share page'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
-                onClick={() => {
-                  const t = props.pageProps.shareConfig?.token
-                  if (!t) return
-                  navigateShareWorkspaceToClassicPage(t)
-                }}
-              >
-                <ArrowLeftFromLine class='h-4 w-4' stroke-width={2} />
-              </button>
-            </Show>
+            <FileSearchButton
+              title='Search library and open a new window'
+              testId='workspace-global-file-search-trigger'
+              class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+              onSelect={props.onOpenSearchResult}
+            />
             <WorkspaceTaskbarAudio
               suppressTaskbarAudioChrome={props.suppressTaskbarAudioChrome}
               storageKey={() => props.storageSessionKey()}
-              shareCtx={() => {
-                const c = workspaceSourceToMediaContext(props.browserSource())
-                if (!c?.shareToken || !c.sharePath) return null
-                return { token: c.shareToken, sharePath: c.sharePath }
-              }}
               onShowVideo={() => {
                 const key = props.storageSessionKey()
                 const path = key ? (useWorkspaceAudio.getState().byKey[key]?.playing ?? null) : null
@@ -197,7 +168,6 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
             />
             <WorkspaceNamedLayoutMenu
               scope={props.layoutScope()}
-              shareToken={props.pageProps.shareConfig?.token ?? null}
               presets={props.serverLayoutPresets()}
               presetsReady={props.presetsReady()}
               collectLayoutSnapshot={props.collectLayoutSnapshot}
@@ -209,7 +179,6 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
               layoutBaselinePresetId={props.layoutBaselinePresetId()}
             />
             <WorkspaceTaskbarSettings
-              showAdminSettings={!props.pageProps.shareConfig}
               browserTabTitle={() => props.workspace()?.browserTabTitle ?? ''}
               browserTabIcon={() => props.workspace()?.browserTabIcon ?? ''}
               browserTabIconColor={() => props.workspace()?.browserTabIconColor ?? ''}

@@ -29,8 +29,6 @@ function formatRelativeTime(dateStr: string): string {
 type Props = {
   scopePath: string
   onFileClick: (path: string) => void
-  shareToken?: string
-  dir?: string
   /** Tighter strip + chips (workspace window chrome). */
   mode?: 'MediaServer' | 'Workspace'
   /** When set, recent chips use copyMove when true for this path; otherwise copy only (e.g. tab bar). */
@@ -50,27 +48,12 @@ export function KbDashboard(props: Props) {
     queryKey: queryKeys.kbRecent(props.scopePath),
     queryFn: () =>
       api<{ results: RecentFile[] }>(`/api/kb/recent?root=${encodeURIComponent(props.scopePath)}`),
-    enabled: !props.shareToken && !!props.scopePath,
+    enabled: !!props.scopePath,
   }))
 
-  const shareQuery = useQuery(() => ({
-    queryKey: queryKeys.shareKbRecent(props.shareToken!, props.dir),
-    queryFn: () => {
-      const params = new URLSearchParams()
-      if (props.dir) params.set('dir', props.dir)
-      return api<{ results: RecentFile[] }>(`/api/share/${props.shareToken}/kb/recent?${params}`)
-    },
-    enabled: !!props.shareToken,
-  }))
+  const recent = createMemo(() => (directQuery.data?.results ?? []) as RecentFile[])
 
-  const recent = createMemo(() => {
-    const data = props.shareToken ? shareQuery.data : directQuery.data
-    return (data?.results ?? []) as RecentFile[]
-  })
-
-  const isLoading = createMemo(() =>
-    props.shareToken ? shareQuery.isLoading : directQuery.isLoading,
-  )
+  const isLoading = createMemo(() => directQuery.isLoading)
 
   const [scrollEl, setScrollEl] = createSignal<HTMLDivElement | null>(null)
 
@@ -91,13 +74,11 @@ export function KbDashboard(props: Props) {
   function onRecentDragStart(file: RecentFile, e: globalThis.DragEvent) {
     const dtr = e.dataTransfer
     if (!dtr || !enableDrag()) return
-    const token = props.shareToken
     const canMove = props.recentDragCanMove?.(file.path) ?? false
     setFileDragData(dtr, {
       path: file.path,
       isDirectory: false,
-      sourceKind: token ? 'share' : 'local',
-      ...(token ? { sourceToken: token } : {}),
+      sourceKind: 'local',
     })
     dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
   }

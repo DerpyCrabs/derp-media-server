@@ -1,4 +1,4 @@
-import { buildThumbnailUrl, type MediaShareContext } from './build-media-url'
+import { buildThumbnailUrl } from './build-media-url'
 import { thumbnailLoadQueue, type ThumbnailLoadTicket } from './thumbnail-load-queue'
 import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { getMediaType } from '@/lib/media-utils'
@@ -13,7 +13,6 @@ import FileQuestion from 'lucide-solid/icons/file-question-mark'
 import FileText from 'lucide-solid/icons/file-text'
 import Folder from 'lucide-solid/icons/folder'
 import ImageIcon from 'lucide-solid/icons/image'
-import Link from 'lucide-solid/icons/link'
 import Music from 'lucide-solid/icons/music'
 import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
@@ -34,7 +33,6 @@ export type FileIconContext = {
   currentFile: string | null
   mediaPlayerIsPlaying: boolean
   mediaType: 'audio' | 'video' | null
-  mediaShare?: MediaShareContext
 }
 
 export const EMPTY_FILE_ICON_CONTEXT: FileIconContext = {
@@ -141,17 +139,6 @@ function renderFileIcon(
     }
     return <Star class={`${cls} text-blue-500`} size={sz} stroke-width={sw} />
   }
-  if (isVirtual && fp === norm(VIRTUAL_FOLDERS.SHARES)) {
-    const customIconName = customIcons[filePath] ?? customIcons[fp]
-    if (customIconName) {
-      const CustomIcon = getSolidIconComponent(customIconName)
-      if (CustomIcon) {
-        return <CustomIcon class={`${cls} text-blue-500`} size={sz} />
-      }
-    }
-    return <Link class={`${cls} text-blue-500`} size={sz} stroke-width={sw} />
-  }
-
   const customIconName = customIcons[filePath] ?? customIcons[fp]
   if (customIconName) {
     const CustomIcon = getSolidIconComponent(customIconName)
@@ -221,7 +208,7 @@ export function fileItemIcon(
   )
 }
 
-/** Standalone file browser / share browser without settings or player context. */
+/** Standalone file browser without settings or player context. */
 export function fileIcon(file: FileItem): JSX.Element {
   return fileItemIcon(file, EMPTY_FILE_ICON_CONTEXT)
 }
@@ -235,7 +222,7 @@ function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
   let loadTicket: ThumbnailLoadTicket | undefined
   const [imgFailed, setImgFailed] = createSignal(false)
   const [queuedSrc, setQueuedSrc] = createSignal<string | undefined>()
-  const src = () => buildThumbnailUrl(props.file.path, props.ctx.mediaShare ?? null)
+  const src = () => buildThumbnailUrl(props.file.path)
   const testId = () =>
     props.file.type === MediaType.IMAGE
       ? 'file-browser-image-thumbnail'

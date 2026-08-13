@@ -4,8 +4,7 @@ const DIRECTORY_MIME = 'application/x-derp-file-drag-directory'
 export interface FileDragData {
   path: string
   isDirectory: boolean
-  sourceKind: 'local' | 'share'
-  sourceToken?: string
+  sourceKind: 'local'
   virtualOpenTarget?: import('./virtual-directory').VirtualOpenTarget
 }
 
@@ -42,11 +41,6 @@ export function isDirectoryFileDragData(dt: DataTransfer): boolean {
   return data?.isDirectory ?? dt.types.includes(DIRECTORY_MIME)
 }
 
-export function isCompatibleSource(
-  target: { sourceKind: string; sourceToken?: string },
-  dragged: FileDragData,
-): boolean {
-  if (target.sourceKind !== dragged.sourceKind) return false
-  if (dragged.sourceKind === 'share' && target.sourceToken !== dragged.sourceToken) return false
-  return true
+export function isCompatibleSource(target: { sourceKind: string }, dragged: FileDragData): boolean {
+  return target.sourceKind === dragged.sourceKind
 }

@@ -8,48 +8,30 @@ import {
   getWindowGroups,
   gotoWorkspace as gotoWorkspaceDnd,
   html5DragDrop,
-  navigateToSharedContent,
+  navigateToMediaContent,
   openBrowserWindow,
 } from '../e2e/workspace-cross-dnd-helpers'
 import { WORKSPACE_VISIBLE_WINDOW_GROUP } from './workspace-layout-helpers'
-import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
-let sharedContext: BrowserContext
+let browserContext: BrowserContext
 let page: Page
 
 test.beforeAll(async ({ browser }) => {
-  sharedContext = await createWorkspaceE2EContext(browser)
+  browserContext = await createWorkspaceE2EContext(browser)
 })
 
 test.afterAll(async () => {
-  await sharedContext.close()
+  await browserContext.close()
 })
 
 test.beforeEach(async () => {
-  page = await sharedContext.newPage()
+  page = await browserContext.newPage()
 })
 
 test.afterEach(async () => {
   await page.close()
 })
-
-async function createShare(page: Page, body: Record<string, unknown>) {
-  const res = await page.request.post('/api/shares', { data: body })
-  const json = (await res.json()) as {
-    share: { token: string; passcode?: string }
-  }
-  const base = `/share/${json.share.token}`
-  const url = json.share.passcode ? `${base}?p=${encodeURIComponent(json.share.passcode)}` : base
-  return url
-}
-
-function toShareWorkspaceUrl(shareUrl: string) {
-  const url = new URL(shareUrl, 'http://localhost')
-  const parts = url.pathname.split('/')
-  parts.splice(3, 0, 'workspace')
-  url.pathname = parts.join('/')
-  return `${url.pathname}${url.search}`
-}
 
 async function gotoWorkspace(page: Page) {
   await page.goto('/workspace')
@@ -176,35 +158,6 @@ test.describe('Workspace taskbar pins', () => {
     await expect(page.locator('[title="Folder: Documents"]')).toBeVisible()
   })
 
-  test('share workspace: pins persist on share after reload', async () => {
-    const shareUrl = await createShare(page, {
-      path: 'SharedContent',
-      isDirectory: true,
-    })
-    await page.goto(toShareWorkspaceUrl(shareUrl))
-    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
-
-    const content = getBrowserContent(page)
-    await expect(content.getByText('subfolder', { exact: true })).toBeVisible()
-    const savePinned = page.waitForResponse(
-      (resp) =>
-        resp.request().method() === 'POST' &&
-        /\/api\/share\/[^/]+\/workspaceTaskbarPins/.test(new URL(resp.url()).pathname),
-    )
-    await content
-      .locator('table tr')
-      .filter({ hasText: 'subfolder' })
-      .first()
-      .click({ button: 'right' })
-    await page.locator('[data-slot="context-menu-item"]').getByText('Add to taskbar').click()
-    await expect(page.locator('[title="Folder: SharedContent/subfolder"]')).toBeVisible()
-    await savePinned
-
-    await page.reload()
-    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
-    await expect(page.locator('[title="Folder: SharedContent/subfolder"]')).toBeVisible()
-  })
-
   test('dragging pinned file to folder in another browser moves the file', async () => {
     await gotoWorkspaceDnd(page)
     await openBrowserWindow(page)
@@ -218,8 +171,8 @@ test.describe('Workspace taskbar pins', () => {
     const contentA = getVisibleContent(groups.first())
     const contentB = getVisibleContent(groups.nth(1))
 
-    await navigateToSharedContent(contentA)
-    await navigateToSharedContent(contentB)
+    await navigateToMediaContent(contentA)
+    await navigateToMediaContent(contentB)
 
     const tempFile = 'pin-cross-dnd-test.txt'
     await createTempFile(page, contentA, tempFile)
@@ -228,7 +181,7 @@ test.describe('Workspace taskbar pins', () => {
     await fileRow.dispatchEvent('contextmenu')
     await page.locator('[data-slot="context-menu-item"]').getByText('Add to taskbar').click()
 
-    const pinTitle = `File: SharedContent/${tempFile}`
+    const pinTitle = `File: MediaContent/${tempFile}`
     const pinSource = page
       .locator('[data-taskbar-pin]')
       .filter({ has: page.locator(`[title="${pinTitle}"]`) })

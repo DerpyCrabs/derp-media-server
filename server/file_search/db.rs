@@ -308,10 +308,7 @@ impl IndexDb {
             "building"
         } else if roots.iter().any(|root| root.state == "refreshing") {
             "refreshing"
-        } else if roots
-            .iter()
-            .any(|root| root.state == "partial" || root.state == "offline")
-        {
+        } else if roots.iter().any(|root| root.state == "partial") {
             "partial"
         } else if roots.iter().any(|root| root.state == "error") {
             "error"
@@ -332,7 +329,7 @@ impl IndexDb {
 
     pub fn search_rows(&self, phrase: &str) -> Result<Vec<SearchRow>, String> {
         let mut stmt = self.connection.prepare(
-            "SELECT e.root_id,e.relative_path,e.parent_path,e.is_directory,e.name,e.extension||char(0)||e.media_type FROM entries_fts JOIN entries e ON e.id=entries_fts.rowid JOIN roots r ON r.root_id=e.root_id WHERE entries_fts MATCH ? AND r.state<>'offline' ORDER BY bm25(entries_fts,10.0,1.0) LIMIT ?"
+            "SELECT e.root_id,e.relative_path,e.parent_path,e.is_directory,e.name,e.extension||char(0)||e.media_type FROM entries_fts JOIN entries e ON e.id=entries_fts.rowid JOIN roots r ON r.root_id=e.root_id WHERE entries_fts MATCH ? AND r.state<>'error' ORDER BY bm25(entries_fts,10.0,1.0) LIMIT ?"
         ).map_err(err)?;
         stmt.query_map(params![phrase, SEARCH_CANDIDATE_LIMIT as i64], |row| {
             Ok((

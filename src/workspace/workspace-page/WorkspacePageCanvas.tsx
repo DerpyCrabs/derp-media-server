@@ -24,8 +24,6 @@ import type { Setter } from 'solid-js'
 import { For, Show, createMemo } from 'solid-js'
 import type { MergeTarget } from '@/src/workspace/merge-target'
 import type { FileDragData } from '@/lib/file-drag-data'
-import type { WorkspaceShareConfig } from '@/src/workspace/WorkspaceBrowserPane'
-import type { WorkspacePageProps } from './workspace-page-types'
 import type { FileIconContext } from '@/src/lib/use-file-icon'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
@@ -51,8 +49,6 @@ export type WorkspacePageCanvasProps = {
   onTilingPick: (windowId: string, span: AssistGridSpan) => void
   setTilingPickerHoverPreview: (span: AssistGridSpan | null) => void
   openLayoutPicker: (windowId: string, anchor: DOMRect) => void
-  pageProps: WorkspacePageProps
-  sharePanel: () => WorkspaceShareConfig | null
   editableFolders: () => string[]
   knowledgeBases: () => string[]
   storageKey: () => string
@@ -227,19 +223,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               <WorkspaceBrowserPane
                                 windowId={tabId}
                                 workspace={props.workspace}
-                                sharePanel={props.sharePanel}
-                                shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanDelete={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanDelete ?? false)
-                                    : false
-                                }
-                                shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
                                 editableFolders={props.editableFolders()}
                                 fileIconContext={props.workspaceFileIconContext}
                                 onNavigateDir={props.navigateDir}
@@ -264,19 +247,8 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 storageKey={props.storageKey()}
                                 contentVisible={() => tabId === visibleTabId()}
                                 workspace={props.workspace}
-                                sharePanel={props.sharePanel}
                                 editableFolders={props.editableFolders()}
                                 knowledgeBases={props.knowledgeBases()}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanUpload={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareAllowUpload ?? false)
-                                    : false
-                                }
                                 onUpdateViewing={props.updateWindowViewing}
                                 onVideoMetadataLoaded={(vw, vh) =>
                                   props.resizeViewerWindowForVideoMetadata(tabId, vw, vh)
@@ -326,19 +298,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             <WorkspaceBrowserPane
                               windowId={leftTabId()}
                               workspace={props.workspace}
-                              sharePanel={props.sharePanel}
-                              shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
-                              shareCanEdit={
-                                props.pageProps.shareConfig
-                                  ? (props.pageProps.shareCanEdit ?? false)
-                                  : false
-                              }
-                              shareCanDelete={
-                                props.pageProps.shareConfig
-                                  ? (props.pageProps.shareCanDelete ?? false)
-                                  : false
-                              }
-                              shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
                               editableFolders={props.editableFolders()}
                               fileIconContext={props.workspaceFileIconContext}
                               onNavigateDir={props.navigateDir}
@@ -363,19 +322,8 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               storageKey={props.storageKey()}
                               contentVisible={() => true}
                               workspace={props.workspace}
-                              sharePanel={props.sharePanel}
                               editableFolders={props.editableFolders()}
                               knowledgeBases={props.knowledgeBases()}
-                              shareCanEdit={
-                                props.pageProps.shareConfig
-                                  ? (props.pageProps.shareCanEdit ?? false)
-                                  : false
-                              }
-                              shareCanUpload={
-                                props.pageProps.shareConfig
-                                  ? (props.pageProps.shareAllowUpload ?? false)
-                                  : false
-                              }
                               onUpdateViewing={props.updateWindowViewing}
                               onVideoMetadataLoaded={(vw, vh) =>
                                 props.resizeViewerWindowForVideoMetadata(leftTabId(), vw, vh)
@@ -422,19 +370,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               <WorkspaceBrowserPane
                                 windowId={visibleTabId()}
                                 workspace={props.workspace}
-                                sharePanel={props.sharePanel}
-                                shareAllowUpload={props.pageProps.shareAllowUpload ?? false}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanDelete={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanDelete ?? false)
-                                    : false
-                                }
-                                shareIsKnowledgeBase={props.pageProps.shareIsKnowledgeBase ?? false}
                                 editableFolders={props.editableFolders()}
                                 fileIconContext={props.workspaceFileIconContext}
                                 onNavigateDir={props.navigateDir}
@@ -459,19 +394,8 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 storageKey={props.storageKey()}
                                 contentVisible={() => true}
                                 workspace={props.workspace}
-                                sharePanel={props.sharePanel}
                                 editableFolders={props.editableFolders()}
                                 knowledgeBases={props.knowledgeBases()}
-                                shareCanEdit={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareCanEdit ?? false)
-                                    : false
-                                }
-                                shareCanUpload={
-                                  props.pageProps.shareConfig
-                                    ? (props.pageProps.shareAllowUpload ?? false)
-                                    : false
-                                }
                                 onUpdateViewing={props.updateWindowViewing}
                                 onVideoMetadataLoaded={(vw, vh) =>
                                   props.resizeViewerWindowForVideoMetadata(visibleTabId(), vw, vh)

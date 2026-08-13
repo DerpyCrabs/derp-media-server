@@ -286,17 +286,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_local_window_sources() {
-        let mut invalid = record(1, "Canvas", false);
-        invalid["state"]["windows"] = json!([{
-            "id":"window-1",
-            "bounds":{"x":0,"y":0,"width":320,"height":224},
-            "definition":{"type":"viewer","source":{"kind":"share","token":"secret"}}
-        }]);
-        assert_eq!(merge(&json!([]), &json!([invalid])), json!([]));
-    }
-
-    #[test]
     fn tie_breaks_same_timestamp_by_writer() {
         let first = record(1, "First", false);
         let mut second = record(1, "Second", false);

@@ -11,10 +11,7 @@ import { MediaType } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
 import { queryKeys } from '@/lib/query-keys'
 import type { GlobalSettings } from '@/lib/use-settings'
-import {
-  buildResolveMarkdownImageUrl,
-  type MarkdownImageShareContext,
-} from '@/lib/resolve-markdown-image-url'
+import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from '@/lib/handle-kb-image-paste'
 import { isPathEditable } from '@/lib/utils'
 import {
@@ -30,103 +27,36 @@ import Zap from 'lucide-solid/icons/zap'
 import ZapOff from 'lucide-solid/icons/zap-off'
 import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
-import {
-  getShareTextViewerSettings,
-  migrateLegacyShareTextViewerKey,
-  setShareTextViewerSettings,
-  type ShareTextViewerSettings,
-} from '../lib/share-text-viewer-settings'
 import { closeViewer } from '../lib/url-state-actions'
-import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
+import { buildAdminMediaUrl } from '../lib/build-media-url'
+import { fileDownloadHref } from '@/lib/download-urls'
 import { LazyMarkdownDocument } from './LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from './markdown/paste-completion'
 
-export type TextViewerShareContext = MarkdownImageShareContext
-
-type TextSaveQueryKey =
-  | ReturnType<typeof queryKeys.textContent>
-  | ReturnType<typeof queryKeys.shareText>
+type TextSaveQueryKey = ReturnType<typeof queryKeys.textContent>
 
 type TextSaveVariables = {
   content: string
   target: TextDocumentTarget
-  shareContext: TextViewerShareContext | null
   queryKey: TextSaveQueryKey
 }
 
 type Props = {
-  shareContext?: TextViewerShareContext | null
-  /** When browsing as admin; ignored if shareContext is set. */
   editableFolders?: string[]
-  /** For Obsidian-style image embeds in knowledge bases (admin). */
   knowledgeBases?: string[]
-  /** Share link allows editing (editable + allowEdit). */
-  shareCanEdit?: boolean
-  /** Share link allows attachment uploads (editable + allowUpload). */
-  shareCanUpload?: boolean
-}
-
-function shareEditRelativePath(viewingPath: string, ctx: TextViewerShareContext): string {
-  const sp = ctx.sharePath.replace(/\\/g, '/')
-  const fileFwd = viewingPath.replace(/\\/g, '/')
-  if (!ctx.isDirectory) {
-    return fileFwd === sp ? '.' : fileFwd
-  }
-  return fileFwd.startsWith(sp + '/') ? fileFwd.slice(sp.length + 1) : fileFwd
-}
-
-function shareDownloadHref(
-  token: string,
-  viewingPath: string,
-  ctx: TextViewerShareContext,
-): string {
-  if (!ctx.isDirectory) {
-    return `/api/share/${encodeURIComponent(token)}/download`
-  }
-  const rel = shareEditRelativePath(viewingPath, ctx)
-  if (!rel || rel === '.') {
-    return `/api/share/${encodeURIComponent(token)}/download`
-  }
-  return `/api/share/${encodeURIComponent(token)}/download?path=${encodeURIComponent(rel)}`
 }
 
 export function TextViewerBody(props: {
   viewingPath: string
-  shareContext?: TextViewerShareContext | null
   editableFolders: string[]
-  shareCanEdit: boolean
-  shareCanUpload: boolean
   knowledgeBases?: string[]
 }): JSX.Element {
   const queryClient = useQueryClient()
-
-  const sharePrefsKey = createMemo(() => {
-    const ctx = props.shareContext
-    if (!ctx) return ''
-    if (!ctx.isDirectory) return `share-autosave-${ctx.token}`
-    return `share-autosave-${ctx.token}-${props.viewingPath.replace(/[/\\]/g, '_')}`
-  })
-
-  const shareTextDefaults = createMemo((): ShareTextViewerSettings => {
-    if (!props.shareContext) return { enabled: true, readOnly: false }
-    return { enabled: true, readOnly: !props.shareCanEdit }
-  })
-
-  const [sharePrefsTick, setSharePrefsTick] = createSignal(0)
-  const sharePrefs = createMemo(() => {
-    void sharePrefsTick()
-    return getShareTextViewerSettings(sharePrefsKey(), shareTextDefaults())
-  })
-
-  createEffect(() => {
-    migrateLegacyShareTextViewerKey(sharePrefsKey(), shareTextDefaults())
-  })
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
     queryFn: () => api<GlobalSettings>('/api/settings'),
     staleTime: Infinity,
-    enabled: !props.shareContext,
   }))
 
   const autoSaveMutation = useMutation(() => ({
@@ -170,22 +100,13 @@ export function TextViewerBody(props: {
     },
   }))
 
-  const mediaUrl = createMemo(() => {
-    const path = props.viewingPath
-    const ctx = props.shareContext
-    return ctx ? buildShareMediaUrl(ctx.token, ctx.sharePath, path) : buildAdminMediaUrl(path)
-  })
+  const mediaUrl = createMemo(() => buildAdminMediaUrl(props.viewingPath))
 
-  const currentTextTarget = createMemo(() =>
-    createTextDocumentTarget(props.viewingPath, props.shareContext),
-  )
+  const currentTextTarget = createMemo(() => createTextDocumentTarget(props.viewingPath))
   const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
 
   const queryKey = createMemo(() => {
-    const target = currentTextTarget()
-    return target.kind === 'share'
-      ? queryKeys.shareText(target.token, target.sharePath, target.viewingPath)
-      : queryKeys.textContent(target.viewingPath)
+    return queryKeys.textContent(currentTextTarget().viewingPath)
   })
 
   const textQuery = useQuery(() => ({
@@ -199,18 +120,15 @@ export function TextViewerBody(props: {
   }))
 
   const fileEditable = createMemo(() => {
-    if (props.shareContext) return props.shareCanEdit
     return isPathEditable(props.viewingPath, props.editableFolders)
   })
 
   const autoSaveEnabled = createMemo(() => {
-    if (props.shareContext) return sharePrefs().enabled
     const s = settingsQuery.data?.autoSave?.[props.viewingPath]
     return s?.enabled ?? true
   })
 
   const persistedReadOnly = createMemo(() => {
-    if (props.shareContext) return sharePrefs().readOnly
     return settingsQuery.data?.autoSave?.[props.viewingPath]?.readOnly ?? false
   })
 
@@ -251,13 +169,9 @@ export function TextViewerBody(props: {
   }
 
   const textSaveVariables = (): TextSaveVariables => {
-    const ctx = props.shareContext
     return {
       content: editContent(),
       target: currentTextTarget(),
-      shareContext: ctx
-        ? { token: ctx.token, sharePath: ctx.sharePath, isDirectory: ctx.isDirectory }
-        : null,
       queryKey: queryKey(),
     }
   }
@@ -267,13 +181,8 @@ export function TextViewerBody(props: {
       updatePendingSaveCount(variables.target, 1)
       try {
         return await enqueueTextDocumentSave(variables.target, async () => {
-          const { content, target, shareContext: ctx } = variables
-          if (ctx) {
-            const rel = shareEditRelativePath(target.viewingPath, ctx)
-            await post(`/api/share/${ctx.token}/edit`, { path: rel, content })
-          } else {
-            await post('/api/files/edit', { path: target.viewingPath, content })
-          }
+          const { content, target } = variables
+          await post('/api/files/edit', { path: target.viewingPath, content })
           return content
         })
       } finally {
@@ -396,46 +305,25 @@ export function TextViewerBody(props: {
   }
 
   function toggleAutoSave() {
-    if (props.shareContext) {
-      const key = sharePrefsKey()
-      const p = sharePrefs()
-      setShareTextViewerSettings(key, { enabled: !p.enabled, readOnly: p.readOnly })
-      setSharePrefsTick((n) => n + 1)
-    } else {
-      autoSaveMutation.mutate({ filePath: props.viewingPath, enabled: !autoSaveEnabled() })
-    }
+    autoSaveMutation.mutate({ filePath: props.viewingPath, enabled: !autoSaveEnabled() })
   }
 
   function toggleReadOnlyFromEditor() {
     setReadOnlyView(true)
-    if (props.shareContext) {
-      const key = sharePrefsKey()
-      const p = sharePrefs()
-      setShareTextViewerSettings(key, { enabled: p.enabled, readOnly: true })
-      setSharePrefsTick((n) => n + 1)
-    } else {
-      autoSaveMutation.mutate({
-        filePath: props.viewingPath,
-        enabled: autoSaveEnabled(),
-        readOnly: true,
-      })
-    }
+    autoSaveMutation.mutate({
+      filePath: props.viewingPath,
+      enabled: autoSaveEnabled(),
+      readOnly: true,
+    })
   }
 
   function enterEditMode() {
     setReadOnlyView(false)
-    if (props.shareContext) {
-      const key = sharePrefsKey()
-      const p = sharePrefs()
-      setShareTextViewerSettings(key, { enabled: p.enabled, readOnly: false })
-      setSharePrefsTick((n) => n + 1)
-    } else {
-      autoSaveMutation.mutate({
-        filePath: props.viewingPath,
-        enabled: autoSaveEnabled(),
-        readOnly: false,
-      })
-    }
+    autoSaveMutation.mutate({
+      filePath: props.viewingPath,
+      enabled: autoSaveEnabled(),
+      readOnly: false,
+    })
   }
 
   async function handleCopy() {
@@ -452,17 +340,13 @@ export function TextViewerBody(props: {
 
   const kbList = () => props.knowledgeBases ?? []
   const resolveImageUrl = createMemo(() =>
-    buildResolveMarkdownImageUrl(props.viewingPath, props.shareContext ?? null, kbList()),
+    buildResolveMarkdownImageUrl(props.viewingPath, kbList()),
   )
 
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
   const showEditor = createMemo(() => fileEditable() && !readOnlyView())
   const lineCount = createMemo(() => (textQuery.data ?? '').split('\n').length)
-  const shareDownload = createMemo(() => {
-    const ctx = props.shareContext
-    if (!ctx) return null
-    return shareDownloadHref(ctx.token, props.viewingPath, ctx)
-  })
+  const downloadHref = createMemo(() => fileDownloadHref(props.viewingPath))
 
   return (
     <div
@@ -563,24 +447,20 @@ export function TextViewerBody(props: {
               {copied() ? '✓' : '⎘'}
             </button>
           </Show>
-          <Show when={shareDownload()}>
-            <button
-              type='button'
-              title='Download'
-              aria-label='Download'
-              class='hover:bg-muted inline-flex h-8 w-8 items-center justify-center rounded-md'
-              onClick={() => {
-                const h = shareDownload()
-                if (!h) return
-                const a = document.createElement('a')
-                a.href = h
-                a.download = fileName()
-                a.click()
-              }}
-            >
-              <Download class='h-5 w-5' stroke-width={2} aria-hidden='true' />
-            </button>
-          </Show>
+          <button
+            type='button'
+            title='Download'
+            aria-label='Download'
+            class='hover:bg-muted inline-flex h-8 w-8 items-center justify-center rounded-md'
+            onClick={() => {
+              const a = document.createElement('a')
+              a.href = downloadHref()
+              a.download = fileName()
+              a.click()
+            }}
+          >
+            <Download class='h-5 w-5' stroke-width={2} aria-hidden='true' />
+          </button>
           <button
             type='button'
             title='Close'
@@ -674,9 +554,6 @@ export function TextViewerBody(props: {
                       viewingPath: props.viewingPath,
                       knowledgeBases: kbList(),
                       editableFolders: props.editableFolders,
-                      shareContext: props.shareContext ?? null,
-                      shareCanEdit: props.shareCanEdit,
-                      shareCanUpload: props.shareCanUpload,
                       completeCodeMirrorPaste: (markdown) =>
                         completeMarkdownImagePaste(
                           markdown,
@@ -715,18 +592,12 @@ export function TextViewerDialog(props: Props) {
 
   const folders = () => props.editableFolders ?? []
   const kb = () => props.knowledgeBases ?? []
-  const shareEdit = () => props.shareCanEdit ?? false
-  const shareUpload = () => props.shareCanUpload ?? false
-
   return (
     <Show when={viewingPath() && isText()}>
       <TextViewerBody
         viewingPath={viewingPath()!}
-        shareContext={props.shareContext ?? null}
         editableFolders={folders()}
         knowledgeBases={kb()}
-        shareCanEdit={shareEdit()}
-        shareCanUpload={shareUpload()}
       />
     </Show>
   )

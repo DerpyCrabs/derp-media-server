@@ -26,8 +26,6 @@ import {
 } from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
-import type { ShareLink } from '@/lib/shares'
-import { buildShareUrl, copyShareUrl, getShareUrlWarning } from '@/src/lib/share-url'
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
@@ -41,8 +39,6 @@ import BookOpenText from 'lucide-solid/icons/book-open-text'
 import Star from 'lucide-solid/icons/star'
 import Upload from 'lucide-solid/icons/upload'
 import Eye from 'lucide-solid/icons/eye'
-import Share2 from 'lucide-solid/icons/share-2'
-import LinkIcon from 'lucide-solid/icons/link'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import {
   batch,
@@ -63,14 +59,6 @@ import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
 import type { BreadcrumbMenuTarget } from './file-browser/BreadcrumbContextMenu'
 import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { FileBrowserModalLayer } from './file-browser/FileBrowserModalLayer'
-import { OfflineBadge } from './OfflineBadge'
-import {
-  fetchOfflineFiles,
-  isPathAvailableOffline,
-  isOfflineFeatureAvailable,
-  makeAvailableOffline,
-  removeOfflineFile,
-} from './lib/offline-files'
 import { DirectoryBackgroundContextMenu } from './file-browser/DirectoryBackgroundContextMenu'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
@@ -78,7 +66,7 @@ import { KbSearchResults } from './file-browser/KbSearchResults'
 import { navigateToFolder } from './file-browser/navigate-folder'
 import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
 import { UploadMenu } from './file-browser/UploadMenu'
-import type { AuthConfig, UploadToastState } from './file-browser/types'
+import type { ServerConfig, UploadToastState } from './file-browser/types'
 import {
   DirectoryListingEmpty,
   DirectoryListingEmptyTableRow,
@@ -113,12 +101,6 @@ export function FileBrowser() {
   useAdminEventsStream()
 
   const currentPath = createMemo(() => urlSearchParams().get('dir') ?? '')
-  const [offlineFallback, setOfflineFallback] = createSignal(
-    !navigator.onLine && isOfflineFeatureAvailable(),
-  )
-  const isOfflineBrowser = createMemo(
-    () => urlSearchParams().get('offline') === '1' || offlineFallback(),
-  )
 
   const playingParam = createMemo(() => urlSearchParams().get('playing'))
 
@@ -130,104 +112,23 @@ export function FileBrowser() {
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
   )
 
-  const authQuery = useQuery(() => ({
-    queryKey: queryKeys.authConfig(),
-    queryFn: () => api<AuthConfig>('/api/auth/config'),
+  const serverConfigQuery = useQuery(() => ({
+    queryKey: queryKeys.serverConfig(),
+    queryFn: () => api<ServerConfig>('/api/config'),
     staleTime: Infinity,
   }))
 
-  const editableFolders = createMemo(() => authQuery.data?.editableFolders ?? [])
-  const mediaRoots = createMemo(() => authQuery.data?.mediaRoots ?? [])
+  const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
+  const mediaRoots = createMemo(() => serverConfigQuery.data?.mediaRoots ?? [])
   const isEditable = createMemo(
     () => !isVirtualFolder() && isPathEditable(currentPath(), editableFolders(), mediaRoots()),
   )
 
-  const sharesQuery = useQuery(() => ({
-    queryKey: queryKeys.shares(),
-    queryFn: () => api<{ shares: ShareLink[] }>('/api/shares'),
-  }))
-
-  const shares = createMemo(() => sharesQuery.data?.shares ?? [])
-
-  const sharedPathSet = createMemo(() => {
-    const set = new Set<string>()
-    for (const s of shares()) {
-      set.add(s.path.replace(/\\/g, '/'))
-    }
-    return set
-  })
-
-  const shareLinkBase = createMemo(() => {
-    const d = authQuery.data?.shareLinkDomain
-    if (typeof d === 'string' && d.trim()) return d.trim().replace(/\/$/, '')
-    if (typeof window !== 'undefined') return window.location.origin
-    return ''
-  })
-
   const filesQuery = useQuery(() => ({
-    queryKey: isOfflineBrowser()
-      ? ['offline-files', currentPath()]
-      : queryKeys.files(currentPath()),
-    queryFn: async () => {
-      if (isOfflineBrowser()) return fetchOfflineFiles(currentPath())
-      try {
-        return await api<{ files: FileItem[] }>(
-          `/api/files?dir=${encodeURIComponent(currentPath())}`,
-        )
-      } catch (onlineError) {
-        if (!isOfflineFeatureAvailable()) throw onlineError
-        try {
-          const offline = await fetchOfflineFiles(currentPath())
-          if (offline.files.length === 0 && !isPathAvailableOffline(currentPath())) {
-            throw onlineError
-          }
-          setOfflineFallback(true)
-          return offline
-        } catch {
-          throw onlineError
-        }
-      }
-    },
+    queryKey: queryKeys.files(currentPath()),
+    queryFn: () =>
+      api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentPath())}`),
   }))
-
-  async function tryReturnOnline() {
-    if (!offlineFallback() || urlSearchParams().get('offline') === '1') return
-    try {
-      const online = await api<{ files: FileItem[] }>(
-        `/api/files?dir=${encodeURIComponent(currentPath())}`,
-      )
-      queryClient.setQueryData(queryKeys.files(currentPath()), online)
-      setOfflineFallback(false)
-    } catch {
-      // Connectivity can return before the configured media server does.
-    }
-  }
-
-  createEffect(() => {
-    if (!offlineFallback() || urlSearchParams().get('offline') === '1') return
-    const interval = window.setInterval(() => void tryReturnOnline(), 5_000)
-    onCleanup(() => window.clearInterval(interval))
-  })
-
-  onMount(() => {
-    const handleOnline = () => void tryReturnOnline()
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('focus', handleOnline)
-    onCleanup(() => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('focus', handleOnline)
-    })
-  })
-
-  onMount(() => {
-    const refreshOffline = () => {
-      if (isOfflineBrowser()) {
-        void queryClient.invalidateQueries({ queryKey: ['offline-files'] })
-      }
-    }
-    window.addEventListener('derp-offline-catalog', refreshOffline)
-    onCleanup(() => window.removeEventListener('derp-offline-catalog', refreshOffline))
-  })
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
@@ -287,7 +188,6 @@ export function FileBrowser() {
       currentFile: st.currentFile,
       mediaPlayerIsPlaying: st.isPlaying,
       mediaType: st.mediaType,
-      mediaShare: null,
     }
   })
 
@@ -371,7 +271,6 @@ export function FileBrowser() {
 
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
-  const [shareTarget, setShareTarget] = createSignal<FileItem | null>(null)
   const [showCreateFolder, setShowCreateFolder] = createSignal(false)
   const [showCreateFile, setShowCreateFile] = createSignal(false)
   const [showRename, setShowRename] = createSignal(false)
@@ -425,15 +324,6 @@ export function FileBrowser() {
   const deleteMutation = useMutation(() => ({
     mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
-
-  const revokeShareMutation = useMutation(() => ({
-    mutationFn: (vars: { token: string }) => post('/api/shares/delete', vars),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.shares() })
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
       invalidateContent()
     },
@@ -601,11 +491,7 @@ export function FileBrowser() {
     const dtr = e.dataTransfer
     if (!dtr) return
     const data = getFileDragData(dtr)
-    if (
-      data &&
-      isCompatibleSource({ sourceKind: 'local', sourceToken: undefined }, data) &&
-      canDropOn(dest, data.path)
-    ) {
+    if (data && isCompatibleSource({ sourceKind: 'local' }, data) && canDropOn(dest, data.path)) {
       mv(data.path, dest)
     }
   }
@@ -683,7 +569,7 @@ export function FileBrowser() {
       const data = getFileDragData(dtr)
       if (
         data &&
-        isCompatibleSource({ sourceKind: 'local', sourceToken: undefined }, data) &&
+        isCompatibleSource({ sourceKind: 'local' }, data) &&
         canDropOn(file.path, data.path)
       ) {
         mv(data.path, file.path)
@@ -719,23 +605,6 @@ export function FileBrowser() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   }))
-
-  function normPath(p: string) {
-    return p.replace(/\\/g, '/')
-  }
-
-  const shareDialogExistingShares = createMemo(() => {
-    const t = shareTarget()
-    if (!t) return [] as ShareLink[]
-    const np = normPath(t.path)
-    return shares().filter((s) => normPath(s.path) === np)
-  })
-
-  const shareDialogIsEditable = createMemo(() => {
-    const t = shareTarget()
-    if (!t) return false
-    return isPathEditable(t.path, editableFolders())
-  })
 
   const folderExists = createMemo(() => {
     const n = newItemName().trim()
@@ -834,36 +703,6 @@ export function FileBrowser() {
 
   const moveDialogTarget = createMemo(() => (showMoveDialog() ? moveTarget() : null))
   const copyDialogTarget = createMemo(() => (showCopyDialog() ? copyTarget() : null))
-
-  function handleContextShare(file: FileItem) {
-    setShareTarget(file)
-  }
-
-  async function handleCopyShareLink(file: FileItem) {
-    if (!file.shareToken) return
-    const share = shares().find((candidate) => candidate.token === file.shareToken)
-    if (!share) return
-    const url = buildShareUrl(share, shareLinkBase())
-    const warning = getShareUrlWarning(url)
-    try {
-      await copyShareUrl(url)
-      setUploadToast({ kind: 'copied', label: 'Share link copied', warning })
-      window.setTimeout(() => {
-        setUploadToast((prev) => (prev.kind === 'copied' ? { kind: 'hidden' } : prev))
-      }, 2000)
-    } catch (err) {
-      setUploadToast({
-        kind: 'clipboardError',
-        message: err instanceof Error ? err.message : 'Clipboard denied or unavailable',
-        url,
-        warning,
-      })
-    }
-  }
-
-  function getPathHasShare(file: FileItem) {
-    return sharedPathSet().has(normPath(file.path))
-  }
 
   async function uploadFilesToServer(files: File[], targetDir: string) {
     if (files.length === 0) return
@@ -1025,11 +864,6 @@ export function FileBrowser() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-  }
-
-  function handleContextMakeAvailableOffline(file: FileItem) {
-    if (isPathAvailableOffline(file.path)) removeOfflineFile(file)
-    else makeAvailableOffline(file)
   }
 
   function handleContextOpenInNewTab(file: FileItem) {
@@ -1200,7 +1034,6 @@ export function FileBrowser() {
 
   function setViewMode(mode: 'list' | 'grid') {
     useBrowserViewModeStore.getState().setViewMode(`admin-viewmode-${currentPath()}`, mode)
-    if (isOfflineBrowser()) return
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
   }
 
@@ -1274,7 +1107,6 @@ export function FileBrowser() {
                   >
                     <Breadcrumbs
                       currentPath={currentPath()}
-                      homeLabel={isOfflineBrowser() ? 'Offline' : undefined}
                       onNavigate={handleBreadcrumbNavigate}
                       onCrumbContextMenu={handleBreadcrumbCrumbContextMenu}
                     />
@@ -1329,13 +1161,11 @@ export function FileBrowser() {
                         onUpload={(files) => void uploadFilesToServer(files, currentPath())}
                       />
                     </Show>
-                    <Show when={!isOfflineBrowser()}>
-                      <FileSearchButton
-                        title='Search library'
-                        testId='classic-file-search-trigger'
-                        onSelect={handleLibrarySearchResult}
-                      />
-                    </Show>
+                    <FileSearchButton
+                      title='Search library'
+                      testId='classic-file-search-trigger'
+                      onSelect={handleLibrarySearchResult}
+                    />
                     <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
                     <ThemeSwitcher />
                   </div>
@@ -1502,8 +1332,7 @@ export function FileBrowser() {
                                               <div
                                                 class={cn(
                                                   'absolute top-1.5 right-1.5 z-10 flex items-center gap-1',
-                                                  viewStats.getViewCount(file.path) > 0 ||
-                                                    viewStats.getShareViewCount(file.path) > 0
+                                                  viewStats.getViewCount(file.path) > 0
                                                     ? ''
                                                     : 'hidden',
                                                 )}
@@ -1519,22 +1348,6 @@ export function FileBrowser() {
                                                     />
                                                     <span class='text-xs font-medium text-muted-foreground'>
                                                       {viewStats.getViewCount(file.path)}
-                                                    </span>
-                                                  </div>
-                                                </Show>
-                                                <Show
-                                                  when={viewStats.getShareViewCount(file.path) > 0}
-                                                >
-                                                  <div
-                                                    class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
-                                                    title={`${viewStats.getShareViewCount(file.path)} shared views`}
-                                                  >
-                                                    <Share2
-                                                      class='h-3 w-3 text-primary/70'
-                                                      stroke-width={2}
-                                                    />
-                                                    <span class='text-xs font-medium text-primary/70'>
-                                                      {viewStats.getShareViewCount(file.path)}
                                                     </span>
                                                   </div>
                                                 </Show>
@@ -1555,14 +1368,6 @@ export function FileBrowser() {
                                               title={file.name}
                                             >
                                               {file.name}
-                                              <OfflineBadge path={file.path} />
-                                              <Show when={sharedPathSet().has(file.path)}>
-                                                <LinkIcon
-                                                  class='ml-1 inline h-3 w-3 text-primary opacity-70'
-                                                  aria-hidden='true'
-                                                  stroke-width={2}
-                                                />
-                                              </Show>
                                             </p>
                                             <Show
                                               when={isVirtualFolder() && !file.isDirectory}
@@ -1734,17 +1539,7 @@ export function FileBrowser() {
                                                 </button>
                                               </Show>
                                               <div class='min-w-0 flex-1'>
-                                                <span class='block truncate'>
-                                                  {file.name}
-                                                  <OfflineBadge path={file.path} />
-                                                  <Show when={sharedPathSet().has(file.path)}>
-                                                    <LinkIcon
-                                                      class='ml-1.5 inline h-3 w-3 text-primary opacity-70'
-                                                      aria-hidden='true'
-                                                      stroke-width={2}
-                                                    />
-                                                  </Show>
-                                                </span>
+                                                <span class='block truncate'>{file.name}</span>
                                                 <Show when={isVirtualFolder() && !file.isDirectory}>
                                                   <span class='block truncate text-xs text-muted-foreground'>
                                                     {file.path
@@ -1770,22 +1565,6 @@ export function FileBrowser() {
                                                       stroke-width={2}
                                                     />
                                                     <span>{viewStats.getViewCount(file.path)}</span>
-                                                  </div>
-                                                </Show>
-                                                <Show
-                                                  when={viewStats.getShareViewCount(file.path) > 0}
-                                                >
-                                                  <div
-                                                    class='flex items-center gap-1 text-xs text-primary/70'
-                                                    title={`${viewStats.getShareViewCount(file.path)} shared views`}
-                                                  >
-                                                    <Share2
-                                                      class='h-3 w-3 shrink-0'
-                                                      stroke-width={2}
-                                                    />
-                                                    <span>
-                                                      {viewStats.getShareViewCount(file.path)}
-                                                    </span>
                                                   </div>
                                                 </Show>
                                               </Show>
@@ -1897,10 +1676,6 @@ export function FileBrowser() {
             isEditable={isEditable}
             hasEditableFolders={hasEditableFolders}
             onContextDownload={handleContextDownload}
-            onContextMakeAvailableOffline={handleContextMakeAvailableOffline}
-            onContextShare={handleContextShare}
-            onCopyShareLink={handleCopyShareLink}
-            getPathHasShare={getPathHasShare}
             onContextOpenInNewTab={handleContextOpenInNewTab}
             onContextOpenInWorkspace={handleContextOpenInWorkspace}
             onContextOpenWithBrowser={handleFileClick}
@@ -1913,25 +1688,13 @@ export function FileBrowser() {
             onContextSetIcon={handleContextSetIcon}
             onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
             isRowKnowledgeBase={isRowKnowledgeBase}
-            shareTarget={shareTarget}
-            setShareTarget={setShareTarget}
-            shareDialogIsEditable={shareDialogIsEditable}
-            shareDialogExistingShares={shareDialogExistingShares}
-            shareLinkBase={shareLinkBase}
             deleteTarget={deleteTarget}
             setDeleteTarget={setDeleteTarget}
             deletePending={deleteMutation.isPending}
-            revokeSharePending={revokeShareMutation.isPending}
             onConfirmDelete={() => {
               const it = deleteTarget()
               if (!it) return
-              if (it.shareToken) {
-                void revokeShareMutation
-                  .mutateAsync({ token: it.shareToken })
-                  .then(() => setDeleteTarget(null))
-              } else {
-                void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
-              }
+              void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
             }}
             showCreateFolder={showCreateFolder}
             newItemName={newItemName}

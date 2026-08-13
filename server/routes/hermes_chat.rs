@@ -6,9 +6,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, DefaultBodyLimit, Path, Query, Request, State},
-    http::{HeaderMap, header, uri::Authority},
-    middleware::{self, Next},
+    extract::{DefaultBodyLimit, Path, Query, State},
     response::{
         IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
@@ -18,59 +16,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{collections::HashMap, net::SocketAddr, time::Duration};
-
-fn loopback_host(headers: &HeaderMap) -> bool {
-    headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<Authority>().ok())
-        .is_some_and(|authority| {
-            let host = authority.host().trim_matches(['[', ']']);
-            host.eq_ignore_ascii_case("localhost")
-                || host
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|address| address.is_loopback())
-        })
-}
-
-pub(crate) fn hermes_access_allowed(
-    auth_enabled: bool,
-    peer: Option<SocketAddr>,
-    headers: &HeaderMap,
-) -> bool {
-    auth_enabled
-        || (peer.is_some_and(|address| address.ip().is_loopback()) && loopback_host(headers))
-}
-
-pub(crate) fn require_hermes_access(
-    state: &crate::app::AppState,
-    peer: Option<SocketAddr>,
-    headers: &HeaderMap,
-) -> AppResult<()> {
-    if hermes_access_allowed(state.config.auth.enabled, peer, headers) {
-        Ok(())
-    } else {
-        Err(AppError::forbidden(
-            "Hermes integration is only available locally unless authentication is enabled",
-        ))
-    }
-}
-
-async fn hermes_access_middleware(
-    State(state): State<Shared>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let peer = request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|value| value.0);
-    match require_hermes_access(&state, peer, request.headers()) {
-        Ok(()) => next.run(request).await,
-        Err(error) => error.into_response(),
-    }
-}
+use std::{collections::HashMap, time::Duration};
 
 fn hub(state: &Shared) -> AppResult<&dyn crate::hermes::HermesTransport> {
     state
@@ -204,7 +150,7 @@ async fn capabilities(State(state): State<Shared>) -> AppResult<Json<Value>> {
         .unwrap_or(120)
         .clamp(5, 600);
     Ok(Json(
-        json!({"compatible":true,"transcription":transcription,"playback":playback,"readerAi":false,"maxRecordingSeconds":max_recording_seconds}),
+        json!({"compatible":true,"transcription":transcription,"playback":playback,"readerAi":true,"maxRecordingSeconds":max_recording_seconds}),
     ))
 }
 
@@ -653,22 +599,6 @@ mod tests {
     }
 
     #[test]
-    fn optional_auth_only_allows_direct_loopback_peers() {
-        let local_v4 = Some("127.0.0.1:4000".parse().unwrap());
-        let local_v6 = Some("[::1]:4000".parse().unwrap());
-        let remote = Some("192.0.2.10:4000".parse().unwrap());
-        let localhost = HeaderMap::from_iter([(header::HOST, "localhost:3000".parse().unwrap())]);
-        let loopback_v6 = HeaderMap::from_iter([(header::HOST, "[::1]:3000".parse().unwrap())]);
-        let public_host = HeaderMap::from_iter([(header::HOST, "media.example".parse().unwrap())]);
-        assert!(hermes_access_allowed(false, local_v4, &localhost));
-        assert!(hermes_access_allowed(false, local_v6, &loopback_v6));
-        assert!(!hermes_access_allowed(false, remote, &localhost));
-        assert!(!hermes_access_allowed(false, local_v4, &public_host));
-        assert!(!hermes_access_allowed(false, None, &localhost));
-        assert!(hermes_access_allowed(true, remote, &public_host));
-    }
-
-    #[test]
     fn timeout_is_not_treated_as_safe_to_retry() {
         assert!(!prompt_error_allows_resume(&AppError::internal(
             "Hermes gateway RPC timed out"
@@ -882,7 +812,7 @@ async fn reference(
         .hermes
         .as_ref()
         .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))?;
-    let resolved = media::resolve(&state.config, &crate::app::roots(&state), &body.path)?;
+    let resolved = media::resolve(&state.config, &body.path)?;
     let metadata = tokio::fs::metadata(&resolved.full)
         .await
         .map_err(AppError::io)?;
@@ -1130,7 +1060,7 @@ async fn events(State(state): State<Shared>) -> Response {
         .into_response()
 }
 
-pub fn router(state: Shared) -> Router<Shared> {
+pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/hermes/sessions/{id}/messages", get(messages))
         .route("/api/hermes/sessions/{id}", get(session))
@@ -1153,8 +1083,4 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/hermes/decision", post(decision))
         .route("/api/hermes/events", get(events))
         .layer(DefaultBodyLimit::max(128 * 1024 * 1024))
-        .route_layer(middleware::from_fn_with_state(
-            state,
-            hermes_access_middleware,
-        ))
 }

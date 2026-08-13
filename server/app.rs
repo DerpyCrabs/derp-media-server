@@ -1,37 +1,28 @@
 use crate::{
-    config::{Config, MediaRoot},
+    config::Config,
     error::AppResult,
     file_search::FileSearch,
-    image_variants, media, shares, store, thumbnails,
+    image_variants, media, store, thumbnails,
 };
-use axum::http::{HeaderMap, header};
 use base64::Engine;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, atomic::AtomicU64},
+    sync::Arc,
     time::UNIX_EPOCH,
 };
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 pub(crate) struct AppState {
     pub config: Config,
-    pub runtime_roots: RwLock<Vec<MediaRoot>>,
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
     pub events: tokio::sync::broadcast::Sender<FileEvent>,
     pub admin_events: tokio::sync::broadcast::Sender<Value>,
     pub hermes_events: tokio::sync::broadcast::Sender<Value>,
-    pub image_grants: Mutex<HashMap<String, ImageGrant>>,
-    pub share_images: Mutex<HashMap<(String, String, String), ImagePreview>>,
-    pub image_operations: Mutex<()>,
-    pub preview_sequence: AtomicU64,
-    pub login_attempts: Mutex<HashMap<String, (u32, u128)>>,
-    pub share_verify_attempts: Mutex<HashMap<String, (u32, u128)>>,
-    pub reader_state_writes: Mutex<HashMap<String, (u32, u128)>>,
     pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,
@@ -40,22 +31,6 @@ pub(crate) struct AppState {
     pub hermes_project_operations: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
     pub hermes_active_ids: Mutex<HashSet<String>>,
-}
-
-#[derive(Clone)]
-pub(crate) struct ImageGrant {
-    pub token: String,
-    pub share_path: String,
-    pub image_path: String,
-    pub accounted_bytes: u64,
-    pub expires_at: u128,
-    pub recorded_at: u64,
-}
-
-pub(crate) struct ImagePreview {
-    pub expires_at: u128,
-    pub finalized_at: Option<u64>,
-    pub recorded_at: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -128,28 +103,13 @@ pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) 
     }));
 }
 
-pub(crate) fn roots(state: &AppState) -> Vec<MediaRoot> {
-    state
-        .runtime_roots
-        .try_read()
-        .map(|roots| roots.clone())
-        .unwrap_or_default()
-}
-
-pub(crate) fn all_roots(state: &AppState) -> Vec<MediaRoot> {
-    let mut result = state.config.roots.clone();
-    result.extend(roots(state));
-    result
-}
-
 pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<media::FileItem>> {
-    let runtime = roots(state);
-    let mut files = media::list(&state.config, &runtime, path)?;
+    let mut files = media::list(&state.config, path)?;
     for file in &mut files {
         if !matches!(file.media_type.as_str(), "image" | "video") {
             continue;
         }
-        if let Ok(resolved) = media::resolve(&state.config, &runtime, &file.path)
+        if let Ok(resolved) = media::resolve(&state.config, &file.path)
             && let Ok(metadata) = std::fs::metadata(&resolved.full)
         {
             file.thumbnail_generated = metadata
@@ -175,23 +135,6 @@ pub(crate) fn stats_path(state: &AppState) -> PathBuf {
 
 pub(crate) fn default_settings() -> Value {
     json!({"viewModes":{},"favorites":[],"knowledgeBases":[],"customIcons":{},"autoSave":{},"workspaceTaskbarPins":[],"workspaceLayoutPresets":[]})
-}
-
-pub(crate) fn cookies(headers: &HeaderMap) -> HashMap<String, String> {
-    headers
-        .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(';')
-                .filter_map(|part| {
-                    part.trim()
-                        .split_once('=')
-                        .map(|(key, value)| (key.into(), value.into()))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 pub(crate) fn parent_logical(path: &str) -> String {
@@ -229,37 +172,12 @@ pub(crate) fn knowledge_base_root(state: &AppState, path: &str) -> Option<String
         .find(|root| normalized == *root || normalized.starts_with(&format!("{root}/")))
 }
 
-pub(crate) fn find_share(state: &AppState, token: &str) -> AppResult<shares::Share> {
-    shares::read(&state.config, &roots(state))
-        .into_iter()
-        .find(|share| share.token == token)
-        .ok_or_else(|| crate::error::AppError::not_found("Share not found"))
-}
-
 pub(crate) fn safe_upload_name(name: &str) -> String {
     name.replace('\\', "/")
         .rsplit('/')
         .next()
         .unwrap_or("")
         .to_string()
-}
-
-pub(crate) async fn rate_limit(
-    attempts: &Mutex<HashMap<String, (u32, u128)>>,
-    key: String,
-) -> bool {
-    let now = timestamp_ms();
-    let mut attempts = attempts.lock().await;
-    let entry = attempts.entry(key).or_insert((0, now + 15 * 60 * 1000));
-    if now > entry.1 {
-        *entry = (1, now + 15 * 60 * 1000);
-        return true;
-    }
-    if entry.0 >= 10 {
-        return false;
-    }
-    entry.0 += 1;
-    true
 }
 
 pub(crate) fn search_snippet(content: &str, query: &str) -> String {

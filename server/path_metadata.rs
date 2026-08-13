@@ -211,7 +211,7 @@ pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResul
     if let Err(error) = store::mutate_section(
         &stats_path(state),
         &state.config.library_key,
-        json!({"views":{},"shareViews":{}}),
+        json!({"views":{}}),
         |stats| {
             move_map(&mut stats["views"], old_path, new_path);
             Ok(())
@@ -265,7 +265,7 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
     if let Err(error) = store::mutate_section(
         &stats_path(state),
         &state.config.library_key,
-        json!({"views":{},"shareViews":{}}),
+        json!({"views":{}}),
         |stats| {
             remove_map(&mut stats["views"], path);
             Ok(())
@@ -285,13 +285,6 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
 
 pub fn content_replaced(state: &AppState, path: &str) -> AppResult<()> {
     reader_state::remove_exact_all(&state.config.data_path.join("app.sqlite3"), path)
-}
-
-pub fn cleanup_share(state: &AppState, token: &str) -> AppResult<()> {
-    reader_state::remove_scope(
-        &state.config.data_path.join("app.sqlite3"),
-        &format!("share:{token}"),
-    )
 }
 
 #[cfg(test)]

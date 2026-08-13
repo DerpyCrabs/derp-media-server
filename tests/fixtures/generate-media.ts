@@ -221,7 +221,7 @@ export function generateTestMedia(baseDir: string) {
     path.join(docsDir, 'readme.txt'),
     'This is a test readme file.\nIt has multiple lines.\nLine three.\n',
   )
-  fs.writeFileSync(path.join(docsDir, 'résumé 日本.txt'), 'Unicode offline content.\n')
+  fs.writeFileSync(path.join(docsDir, 'résumé 日本.txt'), 'Unicode local content.\n')
   fs.writeFileSync(
     path.join(docsDir, 'notes.md'),
     '# Test Notes\n\nThis is a **markdown** file with [a link](https://example.com).\n\n## Section Two\n\nMore content here.\n',
@@ -273,28 +273,28 @@ export function generateTestMedia(baseDir: string) {
   )
   fs.writeFileSync(path.join(notesDir, 'images', 'diagram.png'), MINIMAL_PNG)
 
-  // --- SharedContent (editable, for share tests) ---
-  const sharedDir = path.join(baseDir, 'SharedContent')
-  ensureDir(path.join(sharedDir, 'subfolder'))
+  // --- MediaContent (editable media fixture) ---
+  const mediaDir = path.join(baseDir, 'MediaContent')
+  ensureDir(path.join(mediaDir, 'subfolder'))
   fs.writeFileSync(
-    path.join(sharedDir, 'public-doc.txt'),
-    'This is a public document for share testing.\n',
+    path.join(mediaDir, 'public-doc.txt'),
+    'This is a public document for media browser testing.\n',
   )
   fs.writeFileSync(
-    path.join(sharedDir, 'subfolder', 'nested.txt'),
-    'Nested file in shared content.\n',
+    path.join(mediaDir, 'subfolder', 'nested.txt'),
+    'Nested file in media content.\n',
   )
-  fs.writeFileSync(path.join(sharedDir, 'photo.jpg'), MINIMAL_JPEG)
-  fs.writeFileSync(path.join(sharedDir, 'photo.png'), MINIMAL_PNG)
-  fs.writeFileSync(path.join(sharedDir, 'sample.pdf'), MINIMAL_PDF)
-  writeBookFixtures(sharedDir)
-  fs.writeFileSync(path.join(sharedDir, 'cover.jpg'), MINIMAL_JPEG)
+  fs.writeFileSync(path.join(mediaDir, 'photo.jpg'), MINIMAL_JPEG)
+  fs.writeFileSync(path.join(mediaDir, 'photo.png'), MINIMAL_PNG)
+  fs.writeFileSync(path.join(mediaDir, 'sample.pdf'), MINIMAL_PDF)
+  writeBookFixtures(mediaDir)
+  fs.writeFileSync(path.join(mediaDir, 'cover.jpg'), MINIMAL_JPEG)
   if (ff) {
     run(
       'ffmpeg -y -f lavfi -i color=black:s=320x240:d=2 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac public-video.mp4',
-      sharedDir,
+      mediaDir,
     )
-    run('ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 2 -c:a libmp3lame track.mp3', sharedDir)
+    run('ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 2 -c:a libmp3lame track.mp3', mediaDir)
   }
 
   // --- EmptyFolder ---

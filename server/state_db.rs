@@ -1,24 +1,16 @@
 use crate::{
     config::Config,
     error::{AppError, AppResult},
-    shares::Share,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-const LEGACY_FILES: [&str; 5] = [
-    "settings.json",
-    "stats.json",
-    "shares.json",
-    "mounts.json",
-    "canvases.json",
-];
+const LEGACY_FILES: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
 
 pub fn database(config: &Config) -> PathBuf {
     config.data_path.join("app.sqlite3")
@@ -74,28 +66,6 @@ pub fn initialize(config: &Config) -> Result<(), String> {
                    updated_at INTEGER NOT NULL,
                    PRIMARY KEY(kind, library_key)
                  );
-                 CREATE TABLE IF NOT EXISTS shares (
-                   library_key TEXT NOT NULL,
-                   token TEXT NOT NULL,
-                   path TEXT NOT NULL,
-                   is_directory INTEGER NOT NULL,
-                   editable INTEGER NOT NULL,
-                   passcode TEXT,
-                   created_at INTEGER NOT NULL,
-                   root_id TEXT,
-                   root_relative_path TEXT,
-                   restrictions_json TEXT,
-                   used_bytes INTEGER,
-                   workspace_taskbar_pins_json TEXT,
-                   workspace_layout_presets_json TEXT,
-                   PRIMARY KEY(library_key, token)
-                 );
-                 CREATE TABLE IF NOT EXISTS mounts (
-                   id TEXT PRIMARY KEY,
-                   name TEXT NOT NULL,
-                   path TEXT NOT NULL,
-                   created_at INTEGER
-                 );
                  CREATE TABLE IF NOT EXISTS legacy_state_import (
                    version INTEGER PRIMARY KEY,
                    imported_at INTEGER NOT NULL
@@ -125,6 +95,37 @@ pub fn initialize(config: &Config) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())?;
     }
+    if version < 2 {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute_batch("DROP TABLE IF EXISTS shares;")
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES(2, ?1)",
+                [now_ms()],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
+    if version < 3 {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute_batch("DROP TABLE IF EXISTS mounts;")
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES(3, ?1)",
+                [now_ms()],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
+    let _ = fs::remove_file(config.data_path.join("shares.json"));
     import_legacy(config, &mut connection)?;
     Ok(())
 }
@@ -178,14 +179,7 @@ fn import_legacy(config: &Config, connection: &mut Connection) -> Result<(), Str
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
     let populated: i64 = transaction
-        .query_row(
-            "SELECT
-               (SELECT COUNT(*) FROM state_documents) +
-               (SELECT COUNT(*) FROM shares) +
-               (SELECT COUNT(*) FROM mounts)",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT COUNT(*) FROM state_documents", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
     if populated != 0 {
         return Err("Cannot import legacy JSON: SQLite state tables are not empty".into());
@@ -201,8 +195,6 @@ fn import_legacy(config: &Config, connection: &mut Connection) -> Result<(), Str
             "settings.json" => import_documents(&transaction, path, "settings", value)?,
             "stats.json" => import_documents(&transaction, path, "stats", value)?,
             "canvases.json" => import_documents(&transaction, path, "canvases", value)?,
-            "shares.json" => import_shares(&transaction, path, value)?,
-            "mounts.json" => import_mounts(&transaction, path, value)?,
             _ => {}
         }
     }
@@ -274,7 +266,7 @@ fn validate_document(
         }
         "stats" => {
             let value = document.as_object().ok_or_else(invalid)?;
-            if ["views", "shareViews"]
+            if ["views"]
                 .iter()
                 .any(|key| value.get(*key).is_some_and(|field| !field.is_object()))
             {
@@ -285,75 +277,6 @@ fn validate_document(
         }
         _ => Ok(()),
     }
-}
-
-fn import_shares(transaction: &Transaction<'_>, path: &Path, value: &Value) -> Result<(), String> {
-    let mut identities = HashSet::new();
-    for (library_key, section) in object(path, value)? {
-        let items = section
-            .as_object()
-            .and_then(|section| section.get("shares"))
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                format!(
-                    "Invalid {} section {library_key}: expected shares array",
-                    path.display()
-                )
-            })?;
-        for (index, item) in items.iter().enumerate() {
-            let share: Share = serde_json::from_value(item.clone()).map_err(|error| {
-                format!(
-                    "Invalid {} section {library_key} share {index}: {error}",
-                    path.display()
-                )
-            })?;
-            if share.token.is_empty() || share.path.is_empty() {
-                return Err(format!(
-                    "Invalid {} section {library_key} share {index}: token and path are required",
-                    path.display()
-                ));
-            }
-            if !identities.insert((library_key.clone(), share.token.clone())) {
-                return Err(format!(
-                    "Invalid {}: duplicate share token {} in {library_key}",
-                    path.display(),
-                    share.token
-                ));
-            }
-            insert_share(transaction, library_key, &share).map_err(|error| error.1)?;
-        }
-    }
-    Ok(())
-}
-
-fn import_mounts(transaction: &Transaction<'_>, path: &Path, value: &Value) -> Result<(), String> {
-    let items = object(path, value)?
-        .get("mounts")
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("Invalid {}: expected mounts array", path.display()))?;
-    let mut ids = HashSet::new();
-    for (index, item) in items.iter().enumerate() {
-        let id = item.get("id").and_then(Value::as_str).unwrap_or("");
-        let name = item.get("name").and_then(Value::as_str).unwrap_or("");
-        let mount_path = item.get("path").and_then(Value::as_str).unwrap_or("");
-        if id.is_empty() || name.is_empty() || mount_path.is_empty() || !ids.insert(id) {
-            return Err(format!(
-                "Invalid {} mount {index}: unique id, name, and path are required",
-                path.display()
-            ));
-        }
-        let created_at = item
-            .get("createdAt")
-            .and_then(Value::as_u64)
-            .map(|v| v as i64);
-        transaction
-            .execute(
-                "INSERT INTO mounts(id, name, path, created_at) VALUES(?1, ?2, ?3, ?4)",
-                params![id, name, mount_path, created_at],
-            )
-            .map_err(|error| format!("Invalid {} mount {index}: {error}", path.display()))?;
-    }
-    Ok(())
 }
 
 fn archive_legacy(data_path: &Path, loaded: &[(PathBuf, Option<Value>)]) {
@@ -441,198 +364,16 @@ pub fn update_document<T>(
     Ok(result)
 }
 
-fn json_column(value: &Option<Value>) -> AppResult<Option<String>> {
-    value
-        .as_ref()
-        .map(|value| serde_json::to_string(value).map_err(error))
-        .transpose()
-}
-
-fn insert_share(transaction: &Transaction<'_>, library_key: &str, share: &Share) -> AppResult<()> {
-    let restrictions = share
-        .restrictions
-        .as_ref()
-        .map(|value| serde_json::to_string(value).map_err(error))
-        .transpose()?;
-    transaction
-        .execute(
-            "INSERT INTO shares(
-               library_key, token, path, is_directory, editable, passcode, created_at,
-               root_id, root_relative_path, restrictions_json, used_bytes,
-               workspace_taskbar_pins_json, workspace_layout_presets_json
-             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
-            params![
-                library_key,
-                share.token,
-                share.path,
-                share.is_directory,
-                share.editable,
-                share.passcode,
-                share.created_at as i64,
-                share.root_id,
-                share.root_relative_path,
-                restrictions,
-                share.used_bytes.map(|value| value as i64),
-                json_column(&share.workspace_taskbar_pins)?,
-                json_column(&share.workspace_layout_presets)?,
-            ],
-        )
-        .map_err(error)?;
-    Ok(())
-}
-
-fn shares_in(transaction: &Transaction<'_>, library_key: &str) -> AppResult<Vec<Share>> {
-    let mut statement = transaction
-        .prepare(
-            "SELECT token,path,is_directory,editable,passcode,created_at,root_id,
-                    root_relative_path,restrictions_json,used_bytes,
-                    workspace_taskbar_pins_json,workspace_layout_presets_json
-             FROM shares WHERE library_key=?1 ORDER BY created_at, token",
-        )
-        .map_err(error)?;
-    let rows = statement
-        .query_map([library_key], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, bool>(2)?,
-                row.get::<_, bool>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<String>>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<i64>>(9)?,
-                row.get::<_, Option<String>>(10)?,
-                row.get::<_, Option<String>>(11)?,
-            ))
-        })
-        .map_err(error)?;
-    rows.map(|row| {
-        let (
-            token,
-            path,
-            is_directory,
-            editable,
-            passcode,
-            created_at,
-            root_id,
-            root_relative_path,
-            restrictions,
-            used_bytes,
-            pins,
-            presets,
-        ) = row.map_err(error)?;
-        Ok(Share {
-            token,
-            path,
-            is_directory,
-            editable,
-            passcode,
-            created_at: created_at as u64,
-            root_id,
-            root_relative_path,
-            unavailable: None,
-            restrictions: restrictions
-                .map(|raw| serde_json::from_str(&raw).map_err(error))
-                .transpose()?,
-            used_bytes: used_bytes.map(|value| value as u64),
-            workspace_taskbar_pins: pins
-                .map(|raw| serde_json::from_str(&raw).map_err(error))
-                .transpose()?,
-            workspace_layout_presets: presets
-                .map(|raw| serde_json::from_str(&raw).map_err(error))
-                .transpose()?,
-        })
-    })
-    .collect()
-}
-
-pub fn shares(database: &Path, library_key: &str) -> AppResult<Vec<Share>> {
-    let mut connection = connection(database)?;
-    let transaction = connection.transaction().map_err(error)?;
-    shares_in(&transaction, library_key)
-}
-
-pub fn mutate_shares<T>(
-    database: &Path,
-    library_key: &str,
-    update: impl FnOnce(&mut Vec<Share>) -> AppResult<T>,
-) -> AppResult<T> {
-    let mut connection = connection(database)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(error)?;
-    let mut list = shares_in(&transaction, library_key)?;
-    let result = update(&mut list)?;
-    transaction
-        .execute("DELETE FROM shares WHERE library_key=?1", [library_key])
-        .map_err(error)?;
-    for share in &list {
-        insert_share(&transaction, library_key, share)?;
-    }
-    transaction.commit().map_err(error)?;
-    Ok(result)
-}
-
-pub fn mounts(database: &Path) -> AppResult<Vec<(String, String, PathBuf, Option<u128>)>> {
-    let connection = connection(database)?;
-    let mut statement = connection
-        .prepare("SELECT id,name,path,created_at FROM mounts ORDER BY created_at,id")
-        .map_err(error)?;
-    statement
-        .query_map([], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                PathBuf::from(row.get::<_, String>(2)?),
-                row.get::<_, Option<i64>>(3)?.map(|value| value as u128),
-            ))
-        })
-        .map_err(error)?
-        .map(|row| row.map_err(error))
-        .collect()
-}
-
-pub fn replace_mounts(
-    database: &Path,
-    mounts: &[(String, String, PathBuf, Option<u128>)],
-) -> AppResult<()> {
-    let mut connection = connection(database)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(error)?;
-    transaction
-        .execute("DELETE FROM mounts", [])
-        .map_err(error)?;
-    for (id, name, path, created_at) in mounts {
-        transaction
-            .execute(
-                "INSERT INTO mounts(id,name,path,created_at) VALUES(?1,?2,?3,?4)",
-                params![
-                    id,
-                    name,
-                    path.to_string_lossy(),
-                    created_at.map(|value| value as i64)
-                ],
-            )
-            .map_err(error)?;
-    }
-    transaction.commit().map_err(error)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AuthConfig, FileSearchConfig, ImageOptimizationConfig};
+    use crate::config::{FileSearchConfig, ImageOptimizationConfig};
 
     fn test_config(data_path: PathBuf) -> Config {
         Config {
             port: 3000,
             roots: vec![],
             library_key: "library".into(),
-            share_link_domain: None,
-            auth: AuthConfig::default(),
             file_search: FileSearchConfig {
                 enabled: false,
                 index_path: data_path.join("search.sqlite"),
@@ -643,7 +384,6 @@ mod tests {
             },
             image_optimization: ImageOptimizationConfig::default(),
             data_path,
-            tls: None,
             hermes: None,
         }
     }
@@ -663,20 +403,10 @@ mod tests {
         .unwrap();
         fs::write(
             data_path.join("stats.json"),
-            r#"{"library":{"views":{"one.jpg":3},"shareViews":{}}}"#,
+            r#"{"library":{"views":{"one.jpg":3}}}"#,
         )
         .unwrap();
         fs::write(data_path.join("canvases.json"), r#"{"library":[]}"#).unwrap();
-        fs::write(
-            data_path.join("shares.json"),
-            r#"{"library":{"shares":[{"token":"token","path":"one.jpg","isDirectory":false,"editable":false,"passcode":"ciphertext","createdAt":7,"ignored":"value"}]}}"#,
-        )
-        .unwrap();
-        fs::write(
-            data_path.join("mounts.json"),
-            r#"{"version":1,"mounts":[{"id":"mount","name":"Archive","path":"C:\\\\Archive","createdAt":9,"ignored":true}]}"#,
-        )
-        .unwrap();
         let config = test_config(data_path.clone());
 
         initialize(&config).unwrap();
@@ -685,20 +415,15 @@ mod tests {
             document(&database(&config), "settings", "library", Value::Null).unwrap()["future"],
             true
         );
-        let imported_shares = shares(&database(&config), "library").unwrap();
-        assert_eq!(imported_shares.len(), 1);
-        assert_eq!(imported_shares[0].passcode.as_deref(), Some("ciphertext"));
-        assert_eq!(mounts(&database(&config)).unwrap().len(), 1);
         for name in LEGACY_FILES {
             assert!(!data_path.join(name).exists());
         }
-        let archived = fs::read_dir(data_path.join("legacy-json-backup"))
-            .unwrap()
-            .next()
-            .unwrap()
-            .unwrap()
-            .path();
-        assert!(archived.join("shares.json").exists());
+        assert!(
+            fs::read_dir(data_path.join("legacy-json-backup"))
+                .unwrap()
+                .next()
+                .is_some()
+        );
         fs::remove_dir_all(data_path).unwrap();
     }
 

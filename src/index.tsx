@@ -10,7 +10,6 @@ import {
 } from '@tanstack/solid-query'
 import { render } from 'solid-js/web'
 import { App } from './App'
-import { initializeWebOfflineCatalog } from './lib/web-offline-storage'
 
 declare global {
   interface Window {
@@ -30,16 +29,6 @@ const queryClient = new QueryClient({
 const dehydrated = window.__DEHYDRATED_STATE__
 if (dehydrated) {
   hydrate(queryClient, dehydrated)
-}
-
-void initializeWebOfflineCatalog()
-
-if ('serviceWorker' in navigator && (window.isSecureContext || location.hostname === 'localhost')) {
-  window.addEventListener('load', () => {
-    void navigator.serviceWorker
-      .register('/service-worker.js', { updateViaCache: 'none' })
-      .then(() => navigator.serviceWorker.ready)
-  })
 }
 
 const root = document.getElementById('root')

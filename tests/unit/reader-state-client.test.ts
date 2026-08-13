@@ -1,31 +1,16 @@
-import { Window as HappyWindow } from 'happy-dom'
-import { afterAll, afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 
-const testWindow = new HappyWindow({ url: 'https://localhost/' })
-const previousLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
 const originalFetch = globalThis.fetch
-
-Object.defineProperty(globalThis, 'localStorage', {
-  configurable: true,
-  value: testWindow.localStorage,
-})
 
 const { mergeReaderPreferenceChanges, saveSyncedReaderState } =
   await import('@/src/reader/reader-state-client')
 
 afterEach(() => {
-  testWindow.localStorage.clear()
   globalThis.fetch = originalFetch
 })
 
-afterAll(() => {
-  testWindow.close()
-  if (previousLocalStorage) Object.defineProperty(globalThis, 'localStorage', previousLocalStorage)
-  else Reflect.deleteProperty(globalThis, 'localStorage')
-})
-
 describe('reader state client', () => {
-  test('journals queued state before network save completes', async () => {
+  test('serializes state save until network request completes', async () => {
     let completeRequest!: () => void
     globalThis.fetch = (() =>
       new Promise<Response>((resolve) => {
@@ -40,7 +25,6 @@ describe('reader state client', () => {
 
     const saving = saveSyncedReaderState(
       'Documents/reader.pdf',
-      undefined,
       {
         pageIndex: 2,
         scrollTop: 1_809,
@@ -54,15 +38,9 @@ describe('reader state client', () => {
       'pdf:1',
     )
 
-    const pending = JSON.parse(
-      localStorage.getItem('derp.reader.pending.v1:admin:Documents/reader.pdf') ?? 'null',
-    ) as { state?: { scrollTop?: number } } | null
-    expect(pending?.state?.scrollTop).toBe(1_809)
-
     await Promise.resolve()
     completeRequest()
     await saving
-    expect(localStorage.getItem('derp.reader.pending.v1:admin:Documents/reader.pdf')).toBeNull()
   })
 
   test('merges only locally changed preference fields after a revision conflict', () => {

@@ -5,7 +5,7 @@ test.describe('Folder Navigation', () => {
     await page.goto('/')
     const table = page.locator('table')
     await Promise.all(
-      ['Videos', 'Music', 'Images', 'Documents', 'Notes', 'SharedContent', 'EmptyFolder'].map(
+      ['Videos', 'Music', 'Images', 'Documents', 'Notes', 'MediaContent', 'EmptyFolder'].map(
         (folder) => expect(table.getByText(folder, { exact: true })).toBeVisible(),
       ),
     )

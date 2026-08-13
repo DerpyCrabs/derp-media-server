@@ -1,7 +1,7 @@
 import { Window as HappyWindow } from 'happy-dom'
 import { afterAll, describe, expect, test } from 'bun:test'
 
-const testWindow = new HappyWindow({ url: 'https://localhost/' })
+const testWindow = new HappyWindow({ url: 'http://localhost/' })
 const installedGlobals = ['window', 'document', 'MutationObserver', 'HTMLElement', 'Event'] as const
 const previousGlobals = new Map<string, PropertyDescriptor | undefined>()
 

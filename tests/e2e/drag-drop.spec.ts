@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Drag and Drop File Moving', () => {
   test('drags a file into a folder', async ({ page }) => {
-    await page.goto('/?dir=SharedContent')
+    await page.goto('/?dir=MediaContent')
 
     // Create a temp file to drag
     await page.locator('button[title="Create new file"]').click()
@@ -23,7 +23,7 @@ test.describe('Drag and Drop File Moving', () => {
 
     // File should be in the subfolder
     await page.locator('table').getByText('subfolder').first().click()
-    await page.waitForURL(/dir=SharedContent.*subfolder/)
+    await page.waitForURL(/dir=MediaContent.*subfolder/)
     await expect(page.locator('table').getByText('drag-test.txt')).toBeVisible()
 
     // Cleanup: delete the file

@@ -1,7 +1,6 @@
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import {
   filterAdminWorkspaceTaskbarPins,
-  filterShareWorkspaceTaskbarPins,
   parseWorkspaceTaskbarPins,
 } from '@/lib/workspace-taskbar-pins'
 import type {
@@ -20,19 +19,9 @@ function norm(p: string): string {
   return p.replace(/\\/g, '/')
 }
 
-function isUnderShareRoot(pathNorm: string, root: string): boolean {
-  return pathNorm === root || pathNorm.startsWith(`${root}/`)
-}
-
 function isValidSourceAdmin(s: unknown): boolean {
   if (!s || typeof s !== 'object' || !('kind' in s)) return false
   return (s as { kind: string }).kind === 'local'
-}
-
-function isValidSourceShare(s: unknown, token: string): boolean {
-  if (!s || typeof s !== 'object' || !('kind' in s)) return false
-  const k = s as { kind: string; token?: string }
-  return k.kind === 'share' && k.token === token
 }
 
 function windowPaths(w: unknown): string[] {
@@ -72,30 +61,8 @@ function snapshotAllowedForAdminSnapshot(snapshot: unknown): boolean {
   return filterAdminWorkspaceTaskbarPins(pins).length === pins.length
 }
 
-function snapshotAllowedForShareSnapshot(
-  snapshot: unknown,
-  sharePath: string,
-  token: string,
-): boolean {
-  if (!snapshotStructurallyOk(snapshot)) return false
-  const root = norm(sharePath)
-  for (const w of snapshot.windows) {
-    if (typeof w !== 'object' || !w) return false
-    const src = (w as { source?: unknown }).source
-    if (!isValidSourceShare(src, token)) return false
-    for (const p of windowPaths(w)) {
-      const n = norm(p)
-      if (pathHasDotDot(n)) return false
-      if (n.length > 0 && !isUnderShareRoot(n, root)) return false
-    }
-  }
-  const pins = parseWorkspaceTaskbarPins((snapshot as PersistedWorkspaceState).pinnedTaskbarItems)
-  const filtered = filterShareWorkspaceTaskbarPins(sharePath, token, pins)
-  return filtered.length === pins.length
-}
-
 function isLayoutScope(s: unknown): s is WorkspaceLayoutScope {
-  return s === 'admin' || (typeof s === 'string' && s.startsWith('share:'))
+  return s === 'admin'
 }
 
 export function parseWorkspaceLayoutPresetsList(raw: unknown): WorkspaceLayoutPreset[] {
@@ -128,21 +95,6 @@ export function sanitizeAdminWorkspaceLayoutPresets(
 ): WorkspaceLayoutPreset[] {
   const filtered = presets.filter(
     (p) => p.scope === 'admin' && p.name.length > 0 && snapshotAllowedForAdminSnapshot(p.snapshot),
-  )
-  return filtered.slice(0, MAX_WORKSPACE_LAYOUT_PRESETS)
-}
-
-export function sanitizeShareWorkspaceLayoutPresets(
-  sharePath: string,
-  token: string,
-  presets: WorkspaceLayoutPreset[],
-): WorkspaceLayoutPreset[] {
-  const scope: WorkspaceLayoutScope = `share:${token}`
-  const filtered = presets.filter(
-    (p) =>
-      p.scope === scope &&
-      p.name.length > 0 &&
-      snapshotAllowedForShareSnapshot(p.snapshot, sharePath, token),
   )
   return filtered.slice(0, MAX_WORKSPACE_LAYOUT_PRESETS)
 }

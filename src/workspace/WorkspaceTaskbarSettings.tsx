@@ -19,8 +19,6 @@ import { WORKSPACE_TAB_ICON_SWATCHES } from '@/lib/workspace-tab-icon-colors'
 import { SOLID_AVAILABLE_ICONS } from '../lib/solid-available-icons'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { cn } from '@/lib/utils'
-import FolderCog from 'lucide-solid/icons/folder-cog'
-import { MountsDialog } from '../MountsDialog'
 
 const MODES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -55,7 +53,6 @@ const triggerClass =
   'h-8 w-8 shrink-0 inline-flex cursor-pointer items-center justify-center rounded-none border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
 
 export type WorkspaceTaskbarSettingsProps = {
-  showAdminSettings?: boolean
   reopenClosedTab?: () => void
   canReopenClosed?: Accessor<boolean>
   browserTabTitle: Accessor<string>
@@ -69,7 +66,6 @@ export type WorkspaceTaskbarSettingsProps = {
 
 export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
   const [open, setOpen] = createSignal(false)
-  const [mountsOpen, setMountsOpen] = createSignal(false)
   const targetTick = useStoreSync(useWorkspaceFileOpenTargetStore)
   const themeTick = useStoreSync(useThemeStore)
   const prefSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
@@ -146,19 +142,6 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
           <h2 id='workspace-settings-title' class='text-lg font-semibold'>
             Settings
           </h2>
-          <Show when={props.showAdminSettings}>
-            <button
-              type='button'
-              class='mt-4 flex h-9 w-full items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-muted'
-              onClick={() => {
-                setOpen(false)
-                setMountsOpen(true)
-              }}
-            >
-              <FolderCog class='size-4' />
-              Media directories
-            </button>
-          </Show>
           <div class='mt-6 grid gap-6'>
             <div>
               <div class='mb-2 text-xs font-medium text-muted-foreground'>Browser tab</div>
@@ -385,7 +368,6 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
           </div>
         </div>
       </Show>
-      <MountsDialog open={mountsOpen()} onClose={() => setMountsOpen(false)} />
     </div>
   )
 }

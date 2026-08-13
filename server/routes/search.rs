@@ -1,7 +1,7 @@
 use crate::{
-    app::{Shared, knowledge_bases, roots, search_snippet},
+    app::{Shared, knowledge_bases, search_snippet},
     error::{AppError, AppResult},
-    media, shares,
+    media,
 };
 use axum::{
     Json, Router,
@@ -129,7 +129,7 @@ fn logical_path(
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/");
-    if state.config.roots.len() + roots(state).len() > 1 {
+    if state.config.roots.len() > 1 {
         format!("{}/{}", resolved.root.name, relative)
     } else {
         relative
@@ -165,7 +165,7 @@ async fn kb_search(
         return Ok(Json(json!({"results":[]})));
     }
     validate_root(&state, &root, true)?;
-    let resolved = media::resolve(&state.config, &roots(&state), &root)?;
+    let resolved = media::resolve(&state.config, &root)?;
     let mut results = Vec::new();
     for entry in walkdir::WalkDir::new(&resolved.full)
         .into_iter()
@@ -208,7 +208,7 @@ async fn kb_recent(
         return Ok(Json(json!({"results":[]})));
     }
     validate_root(&state, &root, false)?;
-    let resolved = media::resolve(&state.config, &roots(&state), &root)?;
+    let resolved = media::resolve(&state.config, &root)?;
     let mut files = Vec::new();
     for entry in walkdir::WalkDir::new(&resolved.full)
         .into_iter()
@@ -238,7 +238,7 @@ async fn kb_recent(
     files.sort_by_key(|item| std::cmp::Reverse(item.0));
     files.truncate(10);
     Ok(Json(
-        json!({"results":files.into_iter().map(|(modified,path)|json!({"name":shares::name(&path),"path":path,"modifiedAt":chrono::DateTime::from_timestamp_millis(modified as i64).map(|date|date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))})).collect::<Vec<_>>() }),
+        json!({"results":files.into_iter().map(|(modified,path)|json!({"name":media::name(&path),"path":path,"modifiedAt":chrono::DateTime::from_timestamp_millis(modified as i64).map(|date|date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))})).collect::<Vec<_>>() }),
     ))
 }
 

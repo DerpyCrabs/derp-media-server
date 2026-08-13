@@ -375,9 +375,7 @@ export function CanvasPage() {
   const [noteDirectory, setNoteDirectory] = createSignal('')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
   const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
-  const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'offline' | 'error'>(
-    'saved',
-  )
+  const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'error'>('saved')
   const readOnlyMode = () => false
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let importInputEl: HTMLInputElement | undefined
@@ -402,12 +400,12 @@ export function CanvasPage() {
     queryFn: () => api<GlobalSettings>('/api/settings'),
     staleTime: Infinity,
   }))
-  const authQuery = useQuery(() => ({
-    queryKey: queryKeys.authConfig(),
-    queryFn: () => api<{ enabled: boolean; editableFolders: string[] }>('/api/auth/config'),
+  const serverConfigQuery = useQuery(() => ({
+    queryKey: queryKeys.serverConfig(),
+    queryFn: () => api<{ editableFolders: string[] }>('/api/config'),
     staleTime: Infinity,
   }))
-  const editableFolders = createMemo(() => authQuery.data?.editableFolders ?? [])
+  const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const writableDirectories = createMemo(() =>
     [...new Set([...knowledgeBases(), ...editableFolders()])].map((path) =>
@@ -567,7 +565,7 @@ export function CanvasPage() {
 
   function scheduleSync(delay = 700) {
     if (readOnlyMode()) return
-    setSyncStatus(navigator.onLine === false ? 'offline' : 'saving')
+    setSyncStatus('saving')
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     syncTimer = window.setTimeout(() => {
       syncTimer = undefined
@@ -576,10 +574,6 @@ export function CanvasPage() {
   }
 
   async function syncCanvases(pullFirst = false) {
-    if (navigator.onLine === false) {
-      setSyncStatus('offline')
-      return
-    }
     if (syncRunning) {
       syncQueued = true
       return
@@ -711,8 +705,6 @@ export function CanvasPage() {
     const clearFileDropPreview = () => setFileDropPreview(null)
     const clearFileDropPreviewAfterDrop = () => queueMicrotask(clearFileDropPreview)
     const persistBeforePageTeardown = () => persistActiveState()
-    const syncWhenOnline = () => void syncCanvases()
-    const markOffline = () => setSyncStatus('offline')
     const updateFileDropPreview = (event: DragEvent) => {
       const transfer = event.dataTransfer
       const rect = viewport?.getBoundingClientRect()
@@ -748,8 +740,6 @@ export function CanvasPage() {
     document.addEventListener('drop', clearFileDropPreviewAfterDrop, true)
     window.addEventListener('blur', clearFileDropPreview)
     window.addEventListener('pagehide', persistBeforePageTeardown)
-    window.addEventListener('online', syncWhenOnline)
-    window.addEventListener('offline', markOffline)
     syncInterval = window.setInterval(() => void syncCanvases(), 30_000)
     void syncCanvases(true)
     onCleanup(() => {
@@ -761,8 +751,6 @@ export function CanvasPage() {
       document.removeEventListener('drop', clearFileDropPreviewAfterDrop, true)
       window.removeEventListener('blur', clearFileDropPreview)
       window.removeEventListener('pagehide', persistBeforePageTeardown)
-      window.removeEventListener('online', syncWhenOnline)
-      window.removeEventListener('offline', markOffline)
       if (syncInterval !== undefined) window.clearInterval(syncInterval)
       document.documentElement.style.overflow = oldHtmlOverflow
       document.body.style.overflow = oldBodyOverflow
@@ -2531,12 +2519,7 @@ export function CanvasPage() {
                         <WorkspaceBrowserPane
                           windowId={windowId}
                           workspace={workspace}
-                          sharePanel={() => null}
                           fileIconContext={fileIconContext}
-                          shareAllowUpload={false}
-                          shareCanEdit={false}
-                          shareCanDelete={false}
-                          shareIsKnowledgeBase={false}
                           editableFolders={readOnlyMode() ? [] : editableFolders()}
                           onNavigateDir={navigateDir}
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
@@ -2564,11 +2547,8 @@ export function CanvasPage() {
                           storageKey={CANVAS_STORAGE_KEY}
                           contentVisible={() => true}
                           workspace={workspace}
-                          sharePanel={() => null}
                           editableFolders={readOnlyMode() ? [] : editableFolders()}
                           knowledgeBases={knowledgeBases()}
-                          shareCanEdit={false}
-                          shareCanUpload={false}
                           autoPlayVideo={false}
                           onUpdateViewing={updateViewing}
                           onVideoMetadataLoaded={(width, height) =>

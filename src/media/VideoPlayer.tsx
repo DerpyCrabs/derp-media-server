@@ -12,15 +12,11 @@ import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { closePlayer, setAudioOnly } from '../lib/url-state-actions'
-import { buildAdminMediaUrl, buildShareMediaUrl } from '../lib/build-media-url'
-
-type Props = {
-  shareContext?: { token: string; sharePath: string } | null
-}
+import { buildAdminMediaUrl } from '../lib/build-media-url'
 
 const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 
-export function VideoPlayer(props: Props) {
+export function VideoPlayer() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
 
@@ -36,8 +32,7 @@ export function VideoPlayer(props: Props) {
   const mediaUrl = createMemo(() => {
     const path = playingPath()
     if (!path) return ''
-    const ctx = props.shareContext
-    return ctx ? buildShareMediaUrl(ctx.token, ctx.sharePath, path) : buildAdminMediaUrl(path)
+    return buildAdminMediaUrl(path)
   })
 
   const fileName = createMemo(() => (playingPath() || '').split('/').pop() || '')

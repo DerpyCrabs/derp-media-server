@@ -1,11 +1,5 @@
 import { api, ApiError, post } from '@/lib/api'
-import {
-  clearReaderPosition,
-  loadReaderPosition,
-  normalizeReaderPosition,
-  type ReaderPosition,
-} from '@/lib/reader-position'
-import type { MediaShareContext } from '../lib/build-media-url'
+import { normalizeReaderPosition, type ReaderPosition } from './reader-position'
 
 export type BookAppearance = {
   fontFamily: 'publisher' | 'serif' | 'sans'
@@ -82,65 +76,10 @@ function parseSyncedState(value: unknown): ReaderSyncedState | null {
   }
 }
 
-const shareRelativePath = (path: string, share: NonNullable<MediaShareContext>) => {
-  const normalized = path.replace(/\\/g, '/')
-  const base = share.sharePath.replace(/\\/g, '/').replace(/\/$/, '')
-  return normalized === base
-    ? ''
-    : normalized.startsWith(`${base}/`)
-      ? normalized.slice(base.length + 1)
-      : normalized
-}
+const stateEndpoint = '/api/reader-state'
 
-const stateEndpoint = (share: MediaShareContext) =>
-  share ? `/api/share/${encodeURIComponent(share.token)}/reader-state` : '/api/reader-state'
-
-const pendingKey = (path: string, share: MediaShareContext) =>
-  `derp.reader.pending.v1:${share ? `share:${share.token}:` : 'admin:'}${path.replace(/\\/g, '/')}`
-
-type ReaderStateSaveResult = { revision: number; fingerprint: string; queued?: boolean } | null
+type ReaderStateSaveResult = { revision: number; fingerprint: string } | null
 const readerStateSaveQueues = new Map<string, Promise<ReaderStateSaveResult>>()
-let readerStateSaveSequence = 0
-
-type PendingReaderState = {
-  state: ReaderSyncedState
-  revision: number
-  fingerprint: string
-  saveId?: number
-}
-
-const writePendingState = (
-  path: string,
-  share: MediaShareContext,
-  state: ReaderSyncedState,
-  revision: number,
-  fingerprint: string,
-  saveId: number,
-  currentOnly = false,
-) => {
-  try {
-    if (currentOnly) {
-      const pending = JSON.parse(
-        localStorage.getItem(pendingKey(path, share)) ?? 'null',
-      ) as PendingReaderState | null
-      if (pending?.saveId !== saveId) return
-    }
-    localStorage.setItem(
-      pendingKey(path, share),
-      JSON.stringify({ state, revision, fingerprint, saveId } satisfies PendingReaderState),
-    )
-  } catch {}
-}
-
-const removePendingState = (path: string, share: MediaShareContext, saveId: number) => {
-  const key = pendingKey(path, share)
-  try {
-    const pending = JSON.parse(localStorage.getItem(key) ?? 'null') as PendingReaderState | null
-    if (!pending || pending.saveId === saveId) localStorage.removeItem(key)
-  } catch {
-    localStorage.removeItem(key)
-  }
-}
 
 const retryTransient = async <T>(request: () => Promise<T>): Promise<T> => {
   let failure: unknown
@@ -156,83 +95,48 @@ const retryTransient = async <T>(request: () => Promise<T>): Promise<T> => {
   throw failure
 }
 
-export async function loadSyncedReaderState(
-  path: string,
-  share: MediaShareContext,
-): Promise<ReaderStateEnvelope> {
-  const requestPath = share ? shareRelativePath(path, share) : path
+export async function loadSyncedReaderState(path: string): Promise<ReaderStateEnvelope> {
   const result = await retryTransient(() =>
-    api<ReaderStateEnvelope>(`${stateEndpoint(share)}?path=${encodeURIComponent(requestPath)}`),
+    api<ReaderStateEnvelope>(`${stateEndpoint}?path=${encodeURIComponent(path)}`),
   )
   result.state = parseSyncedState(result.state)
-  try {
-    const pending = JSON.parse(localStorage.getItem(pendingKey(path, share)) ?? 'null') as {
-      state: ReaderSyncedState
-      revision: number
-      fingerprint: string
-    } | null
-    if (
-      pending &&
-      pending.revision === result.revision &&
-      pending.fingerprint === result.fingerprint
-    ) {
-      result.state = parseSyncedState(pending.state)
-    } else if (pending) localStorage.removeItem(pendingKey(path, share))
-  } catch {
-    localStorage.removeItem(pendingKey(path, share))
-  }
-  if (!result.state && !share) result.state = loadReaderPosition(path)
   return result
 }
 
 async function saveSyncedReaderStateNow(
   path: string,
-  share: MediaShareContext,
   state: ReaderSyncedState,
   revision: number,
   fingerprint: string,
-  saveId: number,
 ): Promise<ReaderStateSaveResult> {
-  const requestPath = share ? shareRelativePath(path, share) : path
   try {
     const saved = await retryTransient(() =>
-      post<{ revision: number; fingerprint: string }>(stateEndpoint(share), {
-        path: requestPath,
+      post<{ revision: number; fingerprint: string }>(stateEndpoint, {
+        path,
         state,
         baseRevision: revision,
         fingerprint,
       }),
     )
-    if (!share) clearReaderPosition(path)
-    removePendingState(path, share, saveId)
     return saved
   } catch (error) {
-    if (error instanceof ApiError && error.status === 409) {
-      removePendingState(path, share, saveId)
-      return null
-    }
-    writePendingState(path, share, state, revision, fingerprint, saveId, true)
-    return { revision, fingerprint, queued: true }
+    if (error instanceof ApiError && error.status === 409) return null
+    throw error
   }
 }
 
 export function saveSyncedReaderState(
   path: string,
-  share: MediaShareContext,
   state: ReaderSyncedState,
   revision: number,
   fingerprint: string,
 ): Promise<ReaderStateSaveResult> {
-  const key = pendingKey(path, share)
-  const saveId = ++readerStateSaveSequence
-  writePendingState(path, share, state, revision, fingerprint, saveId)
+  const key = path.replace(/\\/g, '/')
   const previous = readerStateSaveQueues.get(key)
   const queued = (async () => {
     const prior = await previous?.catch(() => null)
-    const effectiveRevision =
-      prior && !prior.queued && prior.fingerprint === fingerprint ? prior.revision : revision
-    writePendingState(path, share, state, effectiveRevision, fingerprint, saveId, true)
-    return saveSyncedReaderStateNow(path, share, state, effectiveRevision, fingerprint, saveId)
+    const effectiveRevision = prior && prior.fingerprint === fingerprint ? prior.revision : revision
+    return saveSyncedReaderStateNow(path, state, effectiveRevision, fingerprint)
   })()
   readerStateSaveQueues.set(key, queued)
   const cleanup = () => {
@@ -241,8 +145,6 @@ export function saveSyncedReaderState(
   void queued.then(cleanup, cleanup)
   return queued
 }
-
-const SHARE_PREFERENCES_KEY = 'derp.reader.share-preferences.v1'
 
 function parsePreferences(value: unknown): ReaderPreferences {
   const input = (value && typeof value === 'object' ? value : {}) as Partial<ReaderPreferences>
@@ -273,21 +175,7 @@ function parsePreferences(value: unknown): ReaderPreferences {
   }
 }
 
-export async function loadReaderPreferences(
-  share: MediaShareContext,
-): Promise<ReaderPreferencesEnvelope> {
-  if (share) {
-    try {
-      return {
-        preferences: parsePreferences(
-          JSON.parse(localStorage.getItem(SHARE_PREFERENCES_KEY) ?? 'null'),
-        ),
-        revision: 0,
-      }
-    } catch {
-      return { preferences: { ...DEFAULT_READER_PREFERENCES }, revision: 0 }
-    }
-  }
+export async function loadReaderPreferences(): Promise<ReaderPreferencesEnvelope> {
   const result = await api<{ preferences: unknown; revision: number }>('/api/reader-preferences')
   return {
     preferences: parsePreferences(result.preferences),
@@ -296,14 +184,9 @@ export async function loadReaderPreferences(
 }
 
 export async function saveReaderPreferences(
-  share: MediaShareContext,
   preferences: ReaderPreferences,
   baseRevision: number,
 ): Promise<number> {
-  if (share) {
-    localStorage.setItem(SHARE_PREFERENCES_KEY, JSON.stringify(preferences))
-    return 0
-  }
   const result = await post<{ revision: number }>('/api/reader-preferences', {
     preferences,
     baseRevision,
