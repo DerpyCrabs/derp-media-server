@@ -1,6 +1,6 @@
 use crate::{
     app::{AppState, Shared},
-    config::{Config, TlsConfig},
+    config::Config,
     file_search::FileSearch,
     image_variants, routes, state_db, thumbnails,
 };
@@ -11,51 +11,10 @@ use std::{
     sync::Arc,
 };
 use tokio::{
-    fs,
     process::{Child, Command},
     sync::{Mutex, RwLock},
 };
 use tower_http::compression::CompressionLayer;
-
-async fn rustls_config(tls: &TlsConfig) -> Result<axum_server::tls_rustls::RustlsConfig, String> {
-    if let Some(path) = &tls.pfx_path {
-        let data = fs::read(path)
-            .await
-            .map_err(|error| format!("Failed to read TLS PFX: {error}"))?;
-        let bundle =
-            p12::PFX::parse(&data).map_err(|error| format!("Invalid TLS PFX: {error:?}"))?;
-        let password = tls.passphrase.as_deref().unwrap_or("");
-        if !bundle.verify_mac(password) {
-            return Err("Failed to decrypt TLS PFX".into());
-        }
-        let certificates = bundle
-            .cert_x509_bags(password)
-            .map_err(|error| format!("Failed to read TLS PFX certificates: {error:?}"))?;
-        let key = bundle
-            .key_bags(password)
-            .map_err(|error| format!("Failed to read TLS PFX private key: {error:?}"))?
-            .into_iter()
-            .next()
-            .ok_or_else(|| "TLS PFX has no private key".to_string())?;
-        if certificates.is_empty() {
-            return Err("TLS PFX has no certificate".into());
-        }
-        return axum_server::tls_rustls::RustlsConfig::from_der(certificates, key)
-            .await
-            .map_err(|error| error.to_string());
-    }
-    let certificate = tls
-        .cert_path
-        .as_ref()
-        .ok_or_else(|| "TLS certPath is required".to_string())?;
-    let key = tls
-        .key_path
-        .as_ref()
-        .ok_or_else(|| "TLS keyPath is required".to_string())?;
-    axum_server::tls_rustls::RustlsConfig::from_pem_file(certificate, key)
-        .await
-        .map_err(|error| error.to_string())
-}
 
 fn start_vite(port: u16, client_port: u16) -> Child {
     let mut command = if cfg!(windows) {
@@ -208,39 +167,21 @@ pub(crate) async fn run() {
     });
     routes::hermes_chat::start_event_bridge(&state, hermes_transport_events.subscribe());
     let address = format!("0.0.0.0:{}", config.port);
-    if let Some(tls) = &config.tls {
-        let tls = rustls_config(tls)
-            .await
-            .unwrap_or_else(|error| panic!("Failed to configure TLS: {error}"));
-        println!(
-            "Media server listening on https://localhost:{}",
-            config.port
-        );
-        println!(
-            "Workspace available at https://localhost:{}/workspace",
-            config.port
-        );
-        axum_server::bind_rustls(address.parse::<std::net::SocketAddr>().unwrap(), tls)
-            .serve(router(state).into_make_service_with_connect_info::<std::net::SocketAddr>())
-            .await
-            .unwrap();
-    } else {
-        let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
-        println!("Media server listening on http://localhost:{}", config.port);
-        println!(
-            "Workspace available at http://localhost:{}/workspace",
-            config.port
-        );
-        axum::serve(
-            listener,
-            router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .unwrap();
-    }
+    let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
+    println!("Media server listening on http://localhost:{}", config.port);
+    println!(
+        "Workspace available at http://localhost:{}/workspace",
+        config.port
+    );
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await
+    .unwrap();
     if let Some(child) = vite.as_mut() {
         let _ = child.kill().await;
     }

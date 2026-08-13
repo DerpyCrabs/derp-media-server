@@ -92,13 +92,11 @@ pub async fn middleware(State(state): State<Shared>, request: Request, next: Nex
         }
         let mut response = next.run(request).await;
         if let Some(value) = auth::session(&state.config) {
-            let secure = state.config.auth.secure_cookies.unwrap_or(!state.dev);
             let cookie = format!(
-                "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
+                "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
                 auth::COOKIE,
                 value,
                 state.config.auth.session_max_age_seconds.unwrap_or(604800),
-                if secure { "; Secure" } else { "" }
             );
             if let Ok(value) = HeaderValue::from_str(&cookie) {
                 response.headers_mut().append(header::SET_COOKIE, value);
@@ -181,13 +179,11 @@ async fn login(
         ));
     }
     let value = auth::session(&state.config).unwrap();
-    let secure = state.config.auth.secure_cookies.unwrap_or(!state.dev);
     let cookie = format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
+        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
         auth::COOKIE,
         value,
         state.config.auth.session_max_age_seconds.unwrap_or(604800),
-        if secure { "; Secure" } else { "" }
     );
     let mut response = Json(json!({"success":true})).into_response();
     response

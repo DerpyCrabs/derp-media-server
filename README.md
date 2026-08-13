@@ -55,9 +55,6 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                                |
 | `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
 | `auth.adminAccessDomains` | `AUTH_ADMIN_ACCESS_DOMAINS` | Comma-separated hostnames for admin UI/API                                  |
-| `auth.secureCookies`      | `AUTH_SECURE_COOKIES`       | Require HTTPS for login cookies; defaults to production only                |
-|                           | `TLS_CERT_PATH`             | PEM certificate used to serve HTTPS                                         |
-|                           | `TLS_KEY_PATH`              | PEM private key used to serve HTTPS                                         |
 
 `dataPath` is config-file only and contains app-created settings, stats, mounts, search index,
 thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
@@ -132,8 +129,8 @@ folder such as `Favorites` or `Most Played`.
 
 Additional media roots can be added without restarting from **Settings → Media directories**.
 They are persisted in `mounts.json` under `dataPath` and are always read only. Runtime roots
-appear alongside configured `mediaDirs`; their names can be changed and their server paths can
-be reconnected. Reconnect an offline root by editing its path instead of removing it.
+appear alongside configured `mediaDirs`. Their names and server paths can be changed from the
+settings dialog.
 
 ## Production
 
@@ -143,15 +140,6 @@ bun run start
 ```
 
 Listens on `0.0.0.0` by default.
-
-### HTTPS and offline mode
-
-The web app registers a service worker that precaches the application shell and serves files
-saved with **Make available offline** from IndexedDB. Service workers require HTTPS except on
-`localhost`, so remote web access must use an HTTPS server URL.
-
-Use `TLS_CERT_PATH` plus `TLS_KEY_PATH`. The certificate must be trusted by the browser/device.
-Plain HTTP remains available for local browser development at `http://localhost`.
 
 ## Development
 

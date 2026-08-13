@@ -219,10 +219,10 @@ impl FileSearch {
             .ok_or_else(|| AppError::internal("File search unavailable"))?;
         let rows = db.search_rows(&phrase).map_err(AppError::internal)?;
         let status = db.status(watcher_count).map_err(AppError::internal)?;
-        let offline = status
+        let failed_roots = status
             .roots
             .iter()
-            .filter(|root| root.state == "offline")
+            .filter(|root| root.state == "error")
             .map(|root| root.id.as_str())
             .collect::<HashSet<_>>();
         let mut results = Vec::new();
@@ -249,7 +249,7 @@ impl FileSearch {
             });
         }
         for root in roots {
-            if offline.contains(root.id.as_str()) || !normalize(&root.name).contains(query) {
+            if failed_roots.contains(root.id.as_str()) || !normalize(&root.name).contains(query) {
                 continue;
             }
             results.push(ResultEntry {
@@ -499,7 +499,7 @@ impl FileSearch {
         let result = indexer::reconcile(db, root, &self.config, &mut token);
         if db
             .root_row(&root.id)?
-            .is_some_and(|row| row.state == "offline")
+            .is_some_and(|row| row.state == "error")
         {
             self.close_watcher(&root.id);
         }
@@ -568,7 +568,7 @@ impl FileSearch {
                     .any(|root| &root.id == id && watch_eligible(root))
                     && states
                         .get(id)
-                        .is_some_and(|state| state != "offline" && state != "building")
+                        .is_some_and(|state| state != "error" && state != "building")
             });
             for root in &roots {
                 if watchers.len() >= self.config.max_recursive_watchers as usize {
@@ -579,7 +579,7 @@ impl FileSearch {
                 }
                 if states
                     .get(&root.id)
-                    .is_none_or(|state| state == "offline" || state == "building")
+                    .is_none_or(|state| state == "error" || state == "building")
                 {
                     continue;
                 }
@@ -655,7 +655,7 @@ impl FileSearch {
                 if !watchers.contains_key(&root.id)
                     && states
                         .get(&root.id)
-                        .is_some_and(|state| state != "offline" && state != "building")
+                        .is_some_and(|state| state != "error" && state != "building")
                 {
                     let _ = self.with_db(|db| {
                         db.set_refresh_mode(

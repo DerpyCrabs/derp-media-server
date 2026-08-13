@@ -1,10 +1,5 @@
 import { api, ApiError, post } from '@/lib/api'
-import {
-  clearReaderPosition,
-  loadReaderPosition,
-  normalizeReaderPosition,
-  type ReaderPosition,
-} from '@/lib/reader-position'
+import { normalizeReaderPosition, type ReaderPosition } from './reader-position'
 
 export type BookAppearance = {
   fontFamily: 'publisher' | 'serif' | 'sans'
@@ -83,50 +78,8 @@ function parseSyncedState(value: unknown): ReaderSyncedState | null {
 
 const stateEndpoint = '/api/reader-state'
 
-const pendingKey = (path: string) => `derp.reader.pending.v1:admin:${path.replace(/\\/g, '/')}`
-
-type ReaderStateSaveResult = { revision: number; fingerprint: string; queued?: boolean } | null
+type ReaderStateSaveResult = { revision: number; fingerprint: string } | null
 const readerStateSaveQueues = new Map<string, Promise<ReaderStateSaveResult>>()
-let readerStateSaveSequence = 0
-
-type PendingReaderState = {
-  state: ReaderSyncedState
-  revision: number
-  fingerprint: string
-  saveId?: number
-}
-
-const writePendingState = (
-  path: string,
-  state: ReaderSyncedState,
-  revision: number,
-  fingerprint: string,
-  saveId: number,
-  currentOnly = false,
-) => {
-  try {
-    if (currentOnly) {
-      const pending = JSON.parse(
-        localStorage.getItem(pendingKey(path)) ?? 'null',
-      ) as PendingReaderState | null
-      if (pending?.saveId !== saveId) return
-    }
-    localStorage.setItem(
-      pendingKey(path),
-      JSON.stringify({ state, revision, fingerprint, saveId } satisfies PendingReaderState),
-    )
-  } catch {}
-}
-
-const removePendingState = (path: string, saveId: number) => {
-  const key = pendingKey(path)
-  try {
-    const pending = JSON.parse(localStorage.getItem(key) ?? 'null') as PendingReaderState | null
-    if (!pending || pending.saveId === saveId) localStorage.removeItem(key)
-  } catch {
-    localStorage.removeItem(key)
-  }
-}
 
 const retryTransient = async <T>(request: () => Promise<T>): Promise<T> => {
   let failure: unknown
@@ -147,23 +100,6 @@ export async function loadSyncedReaderState(path: string): Promise<ReaderStateEn
     api<ReaderStateEnvelope>(`${stateEndpoint}?path=${encodeURIComponent(path)}`),
   )
   result.state = parseSyncedState(result.state)
-  try {
-    const pending = JSON.parse(localStorage.getItem(pendingKey(path)) ?? 'null') as {
-      state: ReaderSyncedState
-      revision: number
-      fingerprint: string
-    } | null
-    if (
-      pending &&
-      pending.revision === result.revision &&
-      pending.fingerprint === result.fingerprint
-    ) {
-      result.state = parseSyncedState(pending.state)
-    } else if (pending) localStorage.removeItem(pendingKey(path))
-  } catch {
-    localStorage.removeItem(pendingKey(path))
-  }
-  if (!result.state) result.state = loadReaderPosition(path)
   return result
 }
 
@@ -172,7 +108,6 @@ async function saveSyncedReaderStateNow(
   state: ReaderSyncedState,
   revision: number,
   fingerprint: string,
-  saveId: number,
 ): Promise<ReaderStateSaveResult> {
   try {
     const saved = await retryTransient(() =>
@@ -183,16 +118,10 @@ async function saveSyncedReaderStateNow(
         fingerprint,
       }),
     )
-    clearReaderPosition(path)
-    removePendingState(path, saveId)
     return saved
   } catch (error) {
-    if (error instanceof ApiError && error.status === 409) {
-      removePendingState(path, saveId)
-      return null
-    }
-    writePendingState(path, state, revision, fingerprint, saveId, true)
-    return { revision, fingerprint, queued: true }
+    if (error instanceof ApiError && error.status === 409) return null
+    throw error
   }
 }
 
@@ -202,16 +131,12 @@ export function saveSyncedReaderState(
   revision: number,
   fingerprint: string,
 ): Promise<ReaderStateSaveResult> {
-  const key = pendingKey(path)
-  const saveId = ++readerStateSaveSequence
-  writePendingState(path, state, revision, fingerprint, saveId)
+  const key = path.replace(/\\/g, '/')
   const previous = readerStateSaveQueues.get(key)
   const queued = (async () => {
     const prior = await previous?.catch(() => null)
-    const effectiveRevision =
-      prior && !prior.queued && prior.fingerprint === fingerprint ? prior.revision : revision
-    writePendingState(path, state, effectiveRevision, fingerprint, saveId, true)
-    return saveSyncedReaderStateNow(path, state, effectiveRevision, fingerprint, saveId)
+    const effectiveRevision = prior && prior.fingerprint === fingerprint ? prior.revision : revision
+    return saveSyncedReaderStateNow(path, state, effectiveRevision, fingerprint)
   })()
   readerStateSaveQueues.set(key, queued)
   const cleanup = () => {

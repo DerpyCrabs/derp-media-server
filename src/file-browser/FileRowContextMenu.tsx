@@ -15,7 +15,6 @@ import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createSignal } from 'solid-js'
 import type { VirtualCapability, VirtualEntry } from '@/lib/virtual-directory'
-import { isOfflineFeatureAvailable, isPathAvailableOffline } from '../lib/offline-files'
 
 type MenuState = { x: number; y: number; file: FileItem }
 
@@ -26,7 +25,6 @@ type FileRowContextMenuProps = {
   hasEditableFolders: Accessor<boolean>
   onDismiss: () => void
   onDownload: (file: FileItem) => void
-  onMakeAvailableOffline?: (file: FileItem) => void
   onDelete: (file: FileItem) => void
   onAddToTaskbar?: (file: FileItem) => void
   onOpenInNewTab?: (file: FileItem) => void
@@ -495,22 +493,6 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 }}
               >
                 {downloadLabel()}
-              </button>
-            </Show>
-            <Show when={isOfflineFeatureAvailable() && props.onMakeAvailableOffline}>
-              <button
-                type='button'
-                data-slot='context-menu-item'
-                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                role='menuitem'
-                onClick={() => {
-                  props.onMakeAvailableOffline?.(ctx.file)
-                  props.onDismiss()
-                }}
-              >
-                {isPathAvailableOffline(ctx.file.path)
-                  ? 'Remove from offline'
-                  : 'Make available offline'}
               </button>
             </Show>
             <Show when={showCopyTo()}>

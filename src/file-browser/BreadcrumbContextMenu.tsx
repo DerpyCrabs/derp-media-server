@@ -5,7 +5,6 @@ import ExternalLink from 'lucide-solid/icons/external-link'
 import Pencil from 'lucide-solid/icons/pencil'
 import type { Accessor } from 'solid-js'
 import { Show } from 'solid-js'
-import { isOfflineFeatureAvailable, isPathAvailableOffline } from '../lib/offline-files'
 
 export type BreadcrumbMenuTarget = BreadcrumbFolderMenuTarget
 
@@ -21,7 +20,6 @@ type Props = {
   onSetIcon?: () => void
   showDownloadAsZip?: boolean
   onDownloadAsZip?: () => void
-  onMakeAvailableOffline?: () => void
 }
 
 export function BreadcrumbContextMenu(props: Props) {
@@ -97,22 +95,6 @@ export function BreadcrumbContextMenu(props: Props) {
             >
               Download as ZIP
             </button>
-            <Show when={isOfflineFeatureAvailable() && props.onMakeAvailableOffline}>
-              <button
-                type='button'
-                data-slot='context-menu-item'
-                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                role='menuitem'
-                onClick={() => {
-                  props.onMakeAvailableOffline?.()
-                  props.onDismiss()
-                }}
-              >
-                {isPathAvailableOffline(ctx.serverPath)
-                  ? 'Remove from offline'
-                  : 'Make available offline'}
-              </button>
-            </Show>
           </Show>
         </>
       )}

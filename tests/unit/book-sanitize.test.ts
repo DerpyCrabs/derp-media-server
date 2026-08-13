@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import type { BookDocument } from '@/src/reader/book-types'
 
 beforeAll(() => {
-  const window = new HappyWindow({ url: 'https://localhost/' })
+  const window = new HappyWindow({ url: 'http://localhost/' })
   Object.defineProperty(globalThis, 'DOMParser', {
     configurable: true,
     value: window.DOMParser,

@@ -55,7 +55,6 @@ export const BATCHES = [
       'text-editor',
       'knowledge-base',
       'drag-drop',
-      'offline-mode',
       'mobile-media-management',
     ],
   },

@@ -5,13 +5,7 @@ export const FILE_SEARCH_MAX_QUERY_LENGTH = 200
 export const FILE_SEARCH_DEFAULT_LIMIT = 50
 export const FILE_SEARCH_MAX_LIMIT = 100
 
-export type FileSearchRootState =
-  | 'building'
-  | 'ready'
-  | 'refreshing'
-  | 'partial'
-  | 'offline'
-  | 'error'
+export type FileSearchRootState = 'building' | 'ready' | 'refreshing' | 'partial' | 'error'
 export type FileSearchRefreshMode = 'recursive-watch' | 'polling' | 'degraded'
 
 export interface FileSearchRootStatus {

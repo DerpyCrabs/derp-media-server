@@ -33,13 +33,8 @@ function imageOptimizationEnabled(): Promise<boolean> {
   return request
 }
 
-function offlineNow(): boolean {
-  return new URLSearchParams(window.location.search).get('offline') === '1' || !navigator.onLine
-}
-
 export function createResponsiveImage(options: Options) {
   const [dimensions, setDimensions] = createSignal<Dimensions>({ width: 0, height: 0 })
-  const [offline, setOffline] = createSignal(offlineNow())
   const [enabled, setEnabled] = createSignal(true)
   const [request, setRequest] = createSignal<ResponsiveImageRequest | null>(null)
   const [forcedOriginal, setForcedOriginal] = createSignal(false)
@@ -57,18 +52,6 @@ export function createResponsiveImage(options: Options) {
     priority: 'active',
   }
   let demandPath = ''
-
-  onMount(() => {
-    const updateOffline = () => setOffline(offlineNow())
-    window.addEventListener('online', updateOffline)
-    window.addEventListener('offline', updateOffline)
-    window.addEventListener('popstate', updateOffline)
-    onCleanup(() => {
-      window.removeEventListener('online', updateOffline)
-      window.removeEventListener('offline', updateOffline)
-      window.removeEventListener('popstate', updateOffline)
-    })
-  })
 
   createEffect(() => {
     const viewport = options.viewport()
@@ -120,7 +103,7 @@ export function createResponsiveImage(options: Options) {
       setError(false)
       setLoadedPath('')
     }
-    if (!path || width <= 0 || height <= 0 || offline() || !enabled()) return
+    if (!path || width <= 0 || height <= 0 || !enabled()) return
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     const scale = zoom === 'fit' ? 1 : zoom / 100
     const next = {
@@ -153,7 +136,7 @@ export function createResponsiveImage(options: Options) {
   const desiredSrc = createMemo(() => {
     const retry = retryNonce()
     if (!options.path()) return ''
-    const url = offline() || !enabled() || forcedOriginal() ? originalUrl() : optimizedUrl()
+    const url = !enabled() || forcedOriginal() ? originalUrl() : optimizedUrl()
     if (!url || retry === 0) return url
     return `${url}${url.includes('?') ? '&' : '?'}retry=${retry}`
   })
@@ -190,7 +173,7 @@ export function createResponsiveImage(options: Options) {
     }
     image.onerror = () => {
       if (cancelled) return
-      if (!forcedOriginal() && !offline() && enabled()) {
+      if (!forcedOriginal() && enabled()) {
         setForcedOriginal(true)
         return
       }
@@ -221,7 +204,6 @@ export function createResponsiveImage(options: Options) {
     if (
       loadedPath() !== path ||
       !activeRequest ||
-      offline() ||
       !enabled() ||
       forcedOriginal() ||
       paths.length === 0

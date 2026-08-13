@@ -131,7 +131,7 @@ fn validate(
 async fn list(State(state): State<Shared>) -> Json<Value> {
     let runtime = roots(&state);
     Json(
-        json!({"mounts":runtime.iter().map(|root| json!({"id":root.id,"name":root.name,"path":root.path,"createdAt":root.created_at.unwrap_or(0),"readOnly":true,"status":if root.path.is_dir(){"online"}else{"offline"}})).collect::<Vec<_>>() }),
+        json!({"mounts":runtime.iter().map(|root| json!({"id":root.id,"name":root.name,"path":root.path,"createdAt":root.created_at.unwrap_or(0),"readOnly":true})).collect::<Vec<_>>() }),
     )
 }
 

@@ -59,14 +59,6 @@ import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
 import type { BreadcrumbMenuTarget } from './file-browser/BreadcrumbContextMenu'
 import { Breadcrumbs } from './file-browser/Breadcrumbs'
 import { FileBrowserModalLayer } from './file-browser/FileBrowserModalLayer'
-import { OfflineBadge } from './OfflineBadge'
-import {
-  fetchOfflineFiles,
-  isPathAvailableOffline,
-  isOfflineFeatureAvailable,
-  makeAvailableOffline,
-  removeOfflineFile,
-} from './lib/offline-files'
 import { DirectoryBackgroundContextMenu } from './file-browser/DirectoryBackgroundContextMenu'
 import { KbDashboard } from './file-browser/KbDashboard'
 import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
@@ -109,12 +101,6 @@ export function FileBrowser() {
   useAdminEventsStream()
 
   const currentPath = createMemo(() => urlSearchParams().get('dir') ?? '')
-  const [offlineFallback, setOfflineFallback] = createSignal(
-    !navigator.onLine && isOfflineFeatureAvailable(),
-  )
-  const isOfflineBrowser = createMemo(
-    () => urlSearchParams().get('offline') === '1' || offlineFallback(),
-  )
 
   const playingParam = createMemo(() => urlSearchParams().get('playing'))
 
@@ -139,69 +125,10 @@ export function FileBrowser() {
   )
 
   const filesQuery = useQuery(() => ({
-    queryKey: isOfflineBrowser()
-      ? ['offline-files', currentPath()]
-      : queryKeys.files(currentPath()),
-    queryFn: async () => {
-      if (isOfflineBrowser()) return fetchOfflineFiles(currentPath())
-      try {
-        return await api<{ files: FileItem[] }>(
-          `/api/files?dir=${encodeURIComponent(currentPath())}`,
-        )
-      } catch (onlineError) {
-        if (!isOfflineFeatureAvailable()) throw onlineError
-        try {
-          const offline = await fetchOfflineFiles(currentPath())
-          if (offline.files.length === 0 && !isPathAvailableOffline(currentPath())) {
-            throw onlineError
-          }
-          setOfflineFallback(true)
-          return offline
-        } catch {
-          throw onlineError
-        }
-      }
-    },
+    queryKey: queryKeys.files(currentPath()),
+    queryFn: () =>
+      api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentPath())}`),
   }))
-
-  async function tryReturnOnline() {
-    if (!offlineFallback() || urlSearchParams().get('offline') === '1') return
-    try {
-      const online = await api<{ files: FileItem[] }>(
-        `/api/files?dir=${encodeURIComponent(currentPath())}`,
-      )
-      queryClient.setQueryData(queryKeys.files(currentPath()), online)
-      setOfflineFallback(false)
-    } catch {
-      // Connectivity can return before the configured media server does.
-    }
-  }
-
-  createEffect(() => {
-    if (!offlineFallback() || urlSearchParams().get('offline') === '1') return
-    const interval = window.setInterval(() => void tryReturnOnline(), 5_000)
-    onCleanup(() => window.clearInterval(interval))
-  })
-
-  onMount(() => {
-    const handleOnline = () => void tryReturnOnline()
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('focus', handleOnline)
-    onCleanup(() => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('focus', handleOnline)
-    })
-  })
-
-  onMount(() => {
-    const refreshOffline = () => {
-      if (isOfflineBrowser()) {
-        void queryClient.invalidateQueries({ queryKey: ['offline-files'] })
-      }
-    }
-    window.addEventListener('derp-offline-catalog', refreshOffline)
-    onCleanup(() => window.removeEventListener('derp-offline-catalog', refreshOffline))
-  })
 
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
@@ -939,11 +866,6 @@ export function FileBrowser() {
     document.body.removeChild(link)
   }
 
-  function handleContextMakeAvailableOffline(file: FileItem) {
-    if (isPathAvailableOffline(file.path)) removeOfflineFile(file)
-    else makeAvailableOffline(file)
-  }
-
   function handleContextOpenInNewTab(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
     const params = new URLSearchParams()
@@ -1112,7 +1034,6 @@ export function FileBrowser() {
 
   function setViewMode(mode: 'list' | 'grid') {
     useBrowserViewModeStore.getState().setViewMode(`admin-viewmode-${currentPath()}`, mode)
-    if (isOfflineBrowser()) return
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
   }
 
@@ -1186,7 +1107,6 @@ export function FileBrowser() {
                   >
                     <Breadcrumbs
                       currentPath={currentPath()}
-                      homeLabel={isOfflineBrowser() ? 'Offline' : undefined}
                       onNavigate={handleBreadcrumbNavigate}
                       onCrumbContextMenu={handleBreadcrumbCrumbContextMenu}
                     />
@@ -1241,13 +1161,11 @@ export function FileBrowser() {
                         onUpload={(files) => void uploadFilesToServer(files, currentPath())}
                       />
                     </Show>
-                    <Show when={!isOfflineBrowser()}>
-                      <FileSearchButton
-                        title='Search library'
-                        testId='classic-file-search-trigger'
-                        onSelect={handleLibrarySearchResult}
-                      />
-                    </Show>
+                    <FileSearchButton
+                      title='Search library'
+                      testId='classic-file-search-trigger'
+                      onSelect={handleLibrarySearchResult}
+                    />
                     <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
                     <ThemeSwitcher />
                   </div>
@@ -1450,7 +1368,6 @@ export function FileBrowser() {
                                               title={file.name}
                                             >
                                               {file.name}
-                                              <OfflineBadge path={file.path} />
                                             </p>
                                             <Show
                                               when={isVirtualFolder() && !file.isDirectory}
@@ -1622,10 +1539,7 @@ export function FileBrowser() {
                                                 </button>
                                               </Show>
                                               <div class='min-w-0 flex-1'>
-                                                <span class='block truncate'>
-                                                  {file.name}
-                                                  <OfflineBadge path={file.path} />
-                                                </span>
+                                                <span class='block truncate'>{file.name}</span>
                                                 <Show when={isVirtualFolder() && !file.isDirectory}>
                                                   <span class='block truncate text-xs text-muted-foreground'>
                                                     {file.path
@@ -1762,7 +1676,6 @@ export function FileBrowser() {
             isEditable={isEditable}
             hasEditableFolders={hasEditableFolders}
             onContextDownload={handleContextDownload}
-            onContextMakeAvailableOffline={handleContextMakeAvailableOffline}
             onContextOpenInNewTab={handleContextOpenInNewTab}
             onContextOpenInWorkspace={handleContextOpenInWorkspace}
             onContextOpenWithBrowser={handleFileClick}

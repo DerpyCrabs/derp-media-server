@@ -8,7 +8,6 @@ import { WorkspacePage } from './WorkspacePage'
 import { CanvasPage } from './CanvasPage'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { post } from '@/lib/api'
-import { OfflineStatus } from './OfflineStatus'
 
 const ReaderDialog = lazy(() =>
   import('./reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
@@ -79,7 +78,6 @@ export function App() {
   return (
     <>
       <GlobalForbiddenToast />
-      <OfflineStatus />
       <Switch
         fallback={
           <>

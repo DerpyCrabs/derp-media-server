@@ -1,8 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { READER_PDF } from '../fixtures/generate-media'
 
-test.use({ serviceWorkers: 'block' })
-
 async function openSamplePdf(page: Page) {
   await page.context().route('**/api/media/Documents/reader.pdf', async (route) => {
     await route.fulfill({ body: READER_PDF, contentType: 'application/pdf' })

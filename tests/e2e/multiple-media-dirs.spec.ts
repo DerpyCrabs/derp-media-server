@@ -13,7 +13,6 @@ let tempDir: string
 let moviesDir: string
 let showsDir: string
 let archiveDir: string
-let reconnectedArchiveDir: string
 let serverOutput = ''
 
 async function getFreePort(): Promise<number> {
@@ -74,7 +73,6 @@ test.describe.serial('Multiple media directories', () => {
     moviesDir = path.join(tempDir, 'movies-root')
     showsDir = path.join(tempDir, 'shows-root')
     archiveDir = path.join(tempDir, 'archive-root')
-    reconnectedArchiveDir = path.join(tempDir, 'reconnected-archive-root')
     const dataDir = path.join(tempDir, 'data')
     const configPath = path.join(tempDir, 'config.jsonc')
 
@@ -83,7 +81,6 @@ test.describe.serial('Multiple media directories', () => {
     writeFile(path.join(showsDir, 'Downloads', 'episode-note.md'), '# Episode note')
     writeFile(path.join(showsDir, 'ReadOnly', 'show-info.txt'), 'show info')
     writeFile(path.join(archiveDir, 'history.txt'), 'archived history')
-    writeFile(path.join(reconnectedArchiveDir, 'reconnected.txt'), 'reconnected archive')
     fs.mkdirSync(dataDir, { recursive: true })
 
     const port = await getFreePort()
@@ -219,17 +216,6 @@ test.describe.serial('Multiple media directories', () => {
     await page.goto(baseUrl)
     await page.getByText('Cold Storage', { exact: true }).click()
     await expect(page.getByText('history.txt')).toBeVisible()
-
-    fs.renameSync(archiveDir, `${archiveDir}-offline`)
-    const offlineMounts = await page.request.get(`${baseUrl}/api/admin/mounts`)
-    expect((await offlineMounts.json()).mounts[0].status).toBe('offline')
-    const reconnectResponse = await page.request.patch(`${baseUrl}/api/admin/mounts/${mount.id}`, {
-      data: { name: 'Cold Storage', path: reconnectedArchiveDir },
-    })
-    expect(reconnectResponse.ok()).toBe(true)
-    await page.goto(baseUrl)
-    await page.getByText('Cold Storage', { exact: true }).click()
-    await expect(page.getByText('reconnected.txt')).toBeVisible()
 
     const persistedMounts = await page.request.get(`${baseUrl}/api/admin/mounts`)
     expect((await persistedMounts.json()).mounts[0]).toMatchObject({

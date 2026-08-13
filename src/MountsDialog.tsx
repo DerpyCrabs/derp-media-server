@@ -12,7 +12,6 @@ type Mount = {
   path: string
   createdAt: number
   readOnly: true
-  status: 'online' | 'offline'
 }
 
 export function MountsDialog(props: { open: boolean; onClose: () => void }) {
@@ -157,15 +156,6 @@ export function MountsDialog(props: { open: boolean; onClose: () => void }) {
                       <span class='font-medium'>{mount.name}</span>
                       <span class='rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground'>
                         Read only
-                      </span>
-                      <span
-                        class={
-                          mount.status === 'online'
-                            ? 'text-xs text-emerald-600'
-                            : 'text-xs text-destructive'
-                        }
-                      >
-                        {mount.status}
                       </span>
                     </div>
                     <p class='truncate text-sm text-muted-foreground' title={mount.path}>

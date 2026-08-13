@@ -1,4 +1,4 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# See GitHub's ignore-file documentation for more information.
 
 # dependencies
 /node_modules
@@ -36,8 +36,6 @@ tests/fixtures/test-config-*.jsonc
 
 # misc
 .DS_Store
-*.pem
-.certs/
 
 # debug
 npm-debug.log*

@@ -447,9 +447,9 @@
   --sidebar-accent-foreground: #2a2a4a;
   --sidebar-border: #e0e0f0;
   --sidebar-ring: #6e56cf;
-  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --font-serif: Georgia, ui-serif, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
 }
 
 [data-theme='cosmic-night-dark'] {
@@ -486,9 +486,9 @@
   --sidebar-accent-foreground: #e8e8f8;
   --sidebar-border: #454568;
   --sidebar-ring: #a48fff;
-  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --font-serif: Georgia, ui-serif, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
 }
 
 html,

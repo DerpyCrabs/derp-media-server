@@ -4,7 +4,7 @@ import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 import type { MarkdownEditorController } from '@/src/media/markdown/create-editor'
 import type { MarkdownEditorRuntime } from '@/src/media/markdown/types'
 
-const testWindow = new HappyWindow({ url: 'https://localhost/' })
+const testWindow = new HappyWindow({ url: 'http://localhost/' })
 const installedGlobals = [
   'window',
   'document',
@@ -627,7 +627,7 @@ describe('Markdown editor mode and external synchronization', () => {
     const { controller, parent } = mountEditor({
       doc: source,
       runtime: {
-        resolveImageUrl: (src) => `https://localhost/${src}`,
+        resolveImageUrl: (src) => `http://localhost/${src}`,
         openImage: (src, alt) => opened.push({ src, alt }),
       },
     })
@@ -648,7 +648,7 @@ describe('Markdown editor mode and external synchronization', () => {
     controller.view.contentDOM.dispatchEvent(doubleClick)
 
     expect(doubleClick.defaultPrevented).toBe(true)
-    expect(opened).toEqual([{ src: 'https://localhost/photo.png', alt: 'preview' }])
+    expect(opened).toEqual([{ src: 'http://localhost/photo.png', alt: 'preview' }])
   })
 
   test('clears editable image activation across content and mode changes', () => {
@@ -657,7 +657,7 @@ describe('Markdown editor mode and external synchronization', () => {
       const { controller, parent } = mountEditor({
         doc: 'before\n\n![preview](photo.png)',
         runtime: {
-          resolveImageUrl: (src) => `https://localhost/${src}`,
+          resolveImageUrl: (src) => `http://localhost/${src}`,
           openImage: (src) => opened.push(src),
         },
       })
@@ -714,12 +714,12 @@ describe('Markdown reference preview', () => {
     const { parent } = mountEditor({
       doc: source,
       mode: 'read',
-      runtime: { resolveImageUrl: (src) => `https://localhost/${src}` },
+      runtime: { resolveImageUrl: (src) => `http://localhost/${src}` },
     })
     const image = parent.querySelector<HTMLImageElement>('img.cm-md-image')
 
     expect(image?.alt).toBe('preview')
-    expect(image?.src).toBe('https://localhost/folder/photo.png')
+    expect(image?.src).toBe('http://localhost/folder/photo.png')
     expect(parent.textContent).not.toContain('[asset]: folder/photo.png')
   })
 })

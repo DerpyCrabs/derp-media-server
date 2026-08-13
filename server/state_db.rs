@@ -465,7 +465,6 @@ mod tests {
             },
             image_optimization: ImageOptimizationConfig::default(),
             data_path,
-            tls: None,
             hermes: None,
         }
     }

@@ -54,7 +54,7 @@ pub(super) fn full_scan(db: &mut IndexDb, root: &Root) -> Result<(), String> {
     })();
     if let Err(error) = &result {
         db.execute(
-            "UPDATE roots SET state='offline',error=?,refresh_mode='degraded' WHERE root_id=?",
+            "UPDATE roots SET state='error',error=?,refresh_mode='degraded' WHERE root_id=?",
             params![error, root.id],
         )?;
     }
@@ -232,7 +232,7 @@ pub(super) fn rescan_directory(
     if let Err(error) = &scan {
         if !absolute.exists() {
             if relative.is_empty() {
-                db.execute("UPDATE roots SET state='offline',refresh_mode='degraded',error=? WHERE root_id=?",params![error,root.id])?;
+                db.execute("UPDATE roots SET state='error',refresh_mode='degraded',error=? WHERE root_id=?",params![error,root.id])?;
             } else {
                 delete_subtree(db, &root.id, &relative)?;
             }
@@ -264,7 +264,7 @@ pub(super) fn reconcile(
         Err(error) => {
             let error = error.to_string();
             db.execute(
-                "UPDATE roots SET state='offline',refresh_mode='degraded',error=? WHERE root_id=?",
+                "UPDATE roots SET state='error',refresh_mode='degraded',error=? WHERE root_id=?",
                 params![error, root.id],
             )?;
             return Err(error);

@@ -227,44 +227,6 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
   await expect(page.getByText('Stale remote chat', { exact: true })).toHaveCount(0)
 })
 
-test('keeps edits offline and syncs them after reconnect', async ({ page, context }) => {
-  let syncedNames: string[] = []
-  await page.unroute('**/api/canvases**')
-  await page.route('**/api/canvases**', async (route) => {
-    const body =
-      route.request().method() === 'POST'
-        ? (route.request().postDataJSON() as {
-            canvases?: Array<{ name?: string; deleted?: boolean }>
-          })
-        : null
-    if (body?.canvases) {
-      syncedNames = body.canvases
-        .filter((canvas) => !canvas.deleted)
-        .map((canvas) => canvas.name ?? '')
-    }
-    await route.fulfill({ json: { canvases: body?.canvases ?? [] } })
-  })
-
-  await context.setOffline(true)
-  await page.getByTestId('canvas-name-trigger').click()
-  await page.getByRole('button', { name: 'New canvas' }).click()
-  await page.getByLabel('Name').fill('Offline plan')
-  await page.getByRole('button', { name: 'Save' }).click()
-
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const saved = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
-          canvases?: Array<{ name?: string }>
-        }
-        return saved.canvases?.some((canvas) => canvas.name === 'Offline plan') ?? false
-      }),
-    )
-    .toBe(true)
-  await context.setOffline(false)
-  await expect.poll(() => syncedNames).toContain('Offline plan')
-})
-
 test('persists canvas records through server sync API', async ({ request }) => {
   const id = `canvas-e2e-${Date.now()}`
   const record = {

@@ -15,8 +15,6 @@ pub struct AuthConfig {
     pub admin_access_domains: Option<Vec<String>>,
     #[serde(default, deserialize_with = "deserialize_positive_seconds")]
     pub session_max_age_seconds: Option<u64>,
-    #[serde(default, deserialize_with = "deserialize_optional_bool")]
-    pub secure_cookies: Option<bool>,
 }
 
 fn deserialize_js_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
@@ -39,14 +37,6 @@ where
 {
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
     Ok(value.and_then(|value| value.as_str().map(str::to_string)))
-}
-
-fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|value| value.as_bool()))
 }
 
 fn deserialize_domains<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
@@ -89,19 +79,6 @@ pub struct FileSearchConfig {
     pub reconcile_directories_per_second: u32,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct TlsConfig {
-    #[serde(default, deserialize_with = "deserialize_optional_path")]
-    pub cert_path: Option<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_optional_path")]
-    pub key_path: Option<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_optional_path")]
-    pub pfx_path: Option<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
-    pub passphrase: Option<String>,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaDirConfig {
@@ -142,8 +119,6 @@ struct RawConfig {
     #[serde(default, deserialize_with = "deserialize_file_search")]
     file_search: Option<RawFileSearchConfig>,
     image_optimization: Option<serde_json::Value>,
-    #[serde(default, deserialize_with = "deserialize_tls")]
-    tls: Option<TlsConfig>,
     hermes: Option<RawHermesConfig>,
 }
 
@@ -230,7 +205,6 @@ pub struct Config {
     pub data_path: PathBuf,
     pub file_search: FileSearchConfig,
     pub image_optimization: ImageOptimizationConfig,
-    pub tls: Option<TlsConfig>,
     pub hermes: Option<HermesConfig>,
 }
 
@@ -240,9 +214,9 @@ fn hermes_config(raw: Option<RawHermesConfig>) -> Result<Option<HermesConfig>, S
         return Err("hermes.token and hermes.tokenEnv cannot both be configured".into());
     }
     let mut gateway_url = url::Url::parse(raw.gateway_url.trim())
-        .map_err(|_| "hermes.gatewayUrl must be a valid HTTP or HTTPS URL".to_string())?;
-    if !matches!(gateway_url.scheme(), "http" | "https") || gateway_url.host_str().is_none() {
-        return Err("hermes.gatewayUrl must be a valid HTTP or HTTPS URL".into());
+        .map_err(|_| "hermes.gatewayUrl must be a valid HTTP URL".to_string())?;
+    if gateway_url.scheme() != "http" || gateway_url.host_str().is_none() {
+        return Err("hermes.gatewayUrl must be a valid HTTP URL".into());
     }
     gateway_url.set_query(None);
     gateway_url.set_fragment(None);
@@ -409,21 +383,6 @@ where
                 .map_err(serde::de::Error::custom)
         }
         Some(serde_json::Value::Array(_)) => Ok(Some(AuthConfig::default())),
-        _ => Ok(None),
-    }
-}
-
-fn deserialize_tls<'de, D>(deserializer: D) -> Result<Option<TlsConfig>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    match value {
-        Some(serde_json::Value::Object(object)) => {
-            serde_json::from_value(serde_json::Value::Object(object))
-                .map(Some)
-                .map_err(serde::de::Error::custom)
-        }
         _ => Ok(None),
     }
 }
@@ -833,9 +792,6 @@ impl Config {
         {
             auth.session_max_age_seconds = Some(seconds);
         }
-        if let Ok(v) = env::var("AUTH_SECURE_COOKIES") {
-            auth.secure_cookies = Some(v == "true" || v == "1");
-        }
         let image_optimization = image_optimization(raw.image_optimization)?;
         let raw_search = raw.file_search.unwrap_or_default();
         let file_search = FileSearchConfig {
@@ -869,59 +825,6 @@ impl Config {
                 4096,
             ),
         };
-        let mut tls = raw.tls;
-        if let Ok(path) = env::var("TLS_PFX_PATH")
-            && !path.is_empty()
-        {
-            tls = Some(TlsConfig {
-                pfx_path: Some(std::path::absolute(path).map_err(|error| error.to_string())?),
-                passphrase: env::var("TLS_PFX_PASSPHRASE").ok(),
-                ..Default::default()
-            });
-        } else {
-            let cert = env::var("TLS_CERT_PATH")
-                .ok()
-                .filter(|value| !value.is_empty());
-            let key = env::var("TLS_KEY_PATH")
-                .ok()
-                .filter(|value| !value.is_empty());
-            if cert.is_some() != key.is_some() {
-                return Err("TLS_CERT_PATH and TLS_KEY_PATH must be set together".into());
-            }
-            if let (Some(cert), Some(key)) = (cert, key) {
-                tls = Some(TlsConfig {
-                    cert_path: Some(std::path::absolute(cert).map_err(|error| error.to_string())?),
-                    key_path: Some(std::path::absolute(key).map_err(|error| error.to_string())?),
-                    ..Default::default()
-                });
-            }
-        }
-        if let Some(value) = &mut tls {
-            for path in [
-                &mut value.cert_path,
-                &mut value.key_path,
-                &mut value.pfx_path,
-            ] {
-                if let Some(current) = path.take() {
-                    *path = Some(if current.is_absolute() {
-                        current
-                    } else {
-                        config_dir.join(current)
-                    });
-                }
-            }
-            if value.pfx_path.is_some() && (value.cert_path.is_some() || value.key_path.is_some()) {
-                return Err("TLS config must use either pfxPath or certPath/keyPath".into());
-            }
-            if value.cert_path.is_some() != value.key_path.is_some() {
-                return Err("TLS certPath and keyPath must be configured together".into());
-            }
-        }
-        if tls.as_ref().is_some_and(|value| {
-            value.pfx_path.is_none() && value.cert_path.is_none() && value.key_path.is_none()
-        }) {
-            tls = None;
-        }
         let hermes = hermes_config(raw.hermes)?;
         Ok(Self {
             port,
@@ -931,7 +834,6 @@ impl Config {
             data_path,
             file_search,
             image_optimization,
-            tls,
             hermes,
         })
     }
@@ -972,7 +874,7 @@ mod tests {
     #[test]
     fn auth_config_matches_javascript_coercion_and_sanitizing() {
         let raw: RawConfig = json5::from_str(
-            r#"{ auth: { enabled: "yes", password: 42, adminAccessDomains: [" Example.COM ", 7], sessionMaxAgeSeconds: 12.9, secureCookies: "yes" } }"#,
+            r#"{ auth: { enabled: "yes", password: 42, adminAccessDomains: [" Example.COM ", 7], sessionMaxAgeSeconds: 12.9 } }"#,
         )
         .unwrap();
         let auth = raw.auth.unwrap();
@@ -983,15 +885,6 @@ mod tests {
             Some(vec!["example.com".into(), "7".into()])
         );
         assert_eq!(auth.session_max_age_seconds, Some(12));
-        assert_eq!(auth.secure_cookies, None);
-    }
-
-    #[test]
-    fn empty_or_malformed_tls_does_not_require_certificates() {
-        let empty: RawConfig = json5::from_str(r#"{ tls: {} }"#).unwrap();
-        assert!(empty.tls.is_some_and(|tls| tls.cert_path.is_none()));
-        let array: RawConfig = json5::from_str(r#"{ tls: [] }"#).unwrap();
-        assert!(array.tls.is_none());
     }
 
     #[test]

@@ -6,7 +6,7 @@ import {
   type ReaderPosition,
   type ReaderSelectionMode,
   type ReaderViewMode,
-} from '@/lib/reader-position'
+} from './reader-position'
 import { MediaType, type FileItem } from '@/lib/types'
 import { ApiError } from '@/lib/api'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
@@ -1105,7 +1105,6 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       if (active) readerRoot.append(menuHost)
       else if (menuHost.isConnected) document.body.append(menuHost)
     }
-    const retryPendingSave = () => void persist()
     let selectionCaptureFrame = 0
     const captureFromRelease = (event: MouseEvent | PointerEvent) => {
       const target = event.target
@@ -1120,7 +1119,6 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     document.addEventListener('fullscreenchange', fullscreenChange)
     document.addEventListener('pointerup', captureFromRelease)
     document.addEventListener('mouseup', captureFromRelease)
-    window.addEventListener('online', retryPendingSave)
     onCleanup(() => {
       window.clearTimeout(saveTimer)
       window.clearTimeout(preferenceTimer)
@@ -1132,7 +1130,6 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       document.removeEventListener('fullscreenchange', fullscreenChange)
       document.removeEventListener('pointerup', captureFromRelease)
       document.removeEventListener('mouseup', captureFromRelease)
-      window.removeEventListener('online', retryPendingSave)
       menuHost.remove()
       if (activeReaderRoot === readerRoot) activeReaderRoot = null
     })
