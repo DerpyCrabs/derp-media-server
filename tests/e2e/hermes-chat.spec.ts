@@ -367,12 +367,22 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
   await expect(chat.getByText('Immediate optimistic prompt', { exact: true })).toBeVisible()
   await expect(chat.getByTestId('hermes-awaiting-response')).toBeVisible()
 
+  await page.evaluate(() =>
+    (window as any).__emitHermesEvent({
+      params: {
+        durable_session_id: 'session-rotated',
+        previous_durable_session_id: 'session-stable',
+        type: 'session.info',
+        payload: { running: true },
+      },
+    }),
+  )
   releaseTurn()
   const emit = (type: string, payload: Record<string, unknown> = {}) =>
     page.evaluate(
       ({ type, payload }) =>
         (window as any).__emitHermesEvent({
-          params: { durable_session_id: 'session-stable', type, payload },
+          params: { durable_session_id: 'session-rotated', type, payload },
         }),
       { type, payload },
     )
@@ -420,6 +430,15 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
   await expect(streamMessage.getByLabel('Hermes is working')).toHaveCount(0)
   await expect(chat.getByText('Immediate optimistic prompt', { exact: true })).toBeVisible()
   expect(historyRequests).toBe(historyRequestsAfterRefresh)
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem('workspace-state-ws-hermes-stable') ?? 'null')
+        return saved?.windows?.[0]?.hermes?.sessionId
+      }),
+    )
+    .toBe('session-rotated')
 })
 
 test('pages older history and opens externally active sessions in observer mode', async () => {

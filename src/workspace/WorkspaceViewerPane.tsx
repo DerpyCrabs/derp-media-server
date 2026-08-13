@@ -135,6 +135,7 @@ function formatMediaTime(time: number): string {
 export function WorkspaceViewerPane(props: Props) {
   const queryClient = useQueryClient()
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
+  let paneEl: HTMLDivElement | undefined
 
   const share = createMemo((): WorkspaceShareConfig | null => {
     const w = win()
@@ -501,20 +502,26 @@ export function WorkspaceViewerPane(props: Props) {
   createEffect(() => {
     if (mediaType() !== MediaType.IMAGE || !viewingPath()) return
     const handler = (e: KeyboardEvent) => {
+      if (!props.contentVisible()) return
+      const active = props.workspace()?.activeWindowId === props.windowId
+      const focused = !!paneEl?.contains(document.activeElement)
+      if (!active && !focused) return
       const t = e.target as HTMLElement | null
       if (t?.closest?.('input, textarea, select, [contenteditable="true"]') != null) {
         return
       }
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
+        e.stopImmediatePropagation()
         goPrevImage()
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
+        e.stopImmediatePropagation()
         goNextImage()
       }
     }
-    window.addEventListener('keydown', handler)
-    onCleanup(() => window.removeEventListener('keydown', handler))
+    window.addEventListener('keydown', handler, true)
+    onCleanup(() => window.removeEventListener('keydown', handler, true))
   })
 
   const imgStyle = createMemo((): JSX.CSSProperties => {
@@ -921,6 +928,7 @@ export function WorkspaceViewerPane(props: Props) {
 
   return (
     <div
+      ref={paneEl}
       data-no-window-drag
       class='absolute inset-0 flex min-h-0 flex-col overflow-hidden bg-background'
     >

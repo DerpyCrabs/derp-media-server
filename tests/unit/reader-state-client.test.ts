@@ -10,7 +10,8 @@ Object.defineProperty(globalThis, 'localStorage', {
   value: testWindow.localStorage,
 })
 
-const { saveSyncedReaderState } = await import('@/src/reader/reader-state-client')
+const { mergeReaderPreferenceChanges, saveSyncedReaderState } =
+  await import('@/src/reader/reader-state-client')
 
 afterEach(() => {
   testWindow.localStorage.clear()
@@ -62,5 +63,31 @@ describe('reader state client', () => {
     completeRequest()
     await saving
     expect(localStorage.getItem('derp.reader.pending.v1:admin:Documents/reader.pdf')).toBeNull()
+  })
+
+  test('merges only locally changed preference fields after a revision conflict', () => {
+    const base = {
+      bookAppearance: {
+        fontFamily: 'publisher' as const,
+        fontScale: null,
+        lineHeight: null,
+        contentWidth: null,
+        theme: 'publisher' as const,
+      },
+      selectionMode: 'text' as const,
+      defaultAction: 'define' as const,
+      aiDetail: 'compact' as const,
+      outlineOpen: true,
+    }
+    const latest = {
+      ...base,
+      bookAppearance: { ...base.bookAppearance, theme: 'dark' as const },
+    }
+    const desired = { ...base, defaultAction: 'translate' as const }
+
+    expect(mergeReaderPreferenceChanges(latest, base, desired)).toEqual({
+      ...latest,
+      defaultAction: 'translate',
+    })
   })
 })

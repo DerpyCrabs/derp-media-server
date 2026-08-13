@@ -10,6 +10,7 @@ import {
   parseCanvasRecords,
   serializeCanvasCollection,
   type CanvasCollection,
+  type PersistedCanvas,
 } from '@/lib/canvas-persistence'
 import { getFileDragData, hasFileDragData, isDirectoryFileDragData } from '@/lib/file-drag-data'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
@@ -21,9 +22,9 @@ import {
   CANVAS_MIN_ZOOM,
   CANVAS_STORAGE_KEY,
   canvasWindowVisualBounds,
-  createEmptyCanvasState,
+  cloneInfiniteCanvasState,
+  equalInfiniteCanvasState,
   findNearestFreeCanvasRect,
-  parseInfiniteCanvasState,
   reconcileInfiniteCanvasState,
   serializeInfiniteCanvasState,
   snapCanvasRect,
@@ -44,8 +45,9 @@ import type {
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
+import { applyCanvasPathMutation, type WorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
-import { canCloseHermesWindow } from '@/lib/hermes-session-store'
+import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
@@ -119,14 +121,36 @@ type CanvasDialogState =
 type FileDropPreview = { bounds: CanvasRect }
 
 function cloneState(state: InfiniteCanvasState): InfiniteCanvasState {
-  return (
-    parseInfiniteCanvasState(JSON.parse(serializeInfiniteCanvasState(state))) ??
-    createEmptyCanvasState()
-  )
+  return cloneInfiniteCanvasState(state)
 }
 
 function sameState(a: InfiniteCanvasState, b: InfiniteCanvasState): boolean {
-  return serializeInfiniteCanvasState(a) === serializeInfiniteCanvasState(b)
+  return equalInfiniteCanvasState(a, b)
+}
+
+function persistentCanvasRecords(collection: CanvasCollection): PersistedCanvas[] {
+  return (JSON.parse(serializeCanvasCollection(collection)) as CanvasCollection).canvases
+}
+
+function persistenceSafeCanvasRecords(canvases: PersistedCanvas[]): PersistedCanvas[] {
+  return canvases.map((canvas) =>
+    canvas.state
+      ? { ...canvas, state: JSON.parse(serializeInfiniteCanvasState(canvas.state)) }
+      : canvas,
+  )
+}
+
+function mergeCanvasRecordsWithRuntime(
+  local: PersistedCanvas[],
+  remote: PersistedCanvas[],
+): PersistedCanvas[] {
+  const localById = new Map(local.map((canvas) => [canvas.id, canvas]))
+  return mergeCanvasRecords(persistenceSafeCanvasRecords(local), remote).map((canvas) => {
+    const runtime = localById.get(canvas.id)?.state
+    return runtime && canvas.state
+      ? { ...canvas, state: reconcileInfiniteCanvasState(runtime, canvas.state) }
+      : canvas
+  })
 }
 
 function parentPath(path: string): string {
@@ -314,7 +338,6 @@ function canvasDialogLabel(dialog: CanvasDialogState): string {
 }
 
 export function CanvasPage() {
-  useAdminEventsStream()
   const browserStorage =
     typeof localStorage === 'undefined'
       ? ({ getItem: () => null } as Pick<Storage, 'getItem'>)
@@ -329,7 +352,8 @@ export function CanvasPage() {
     (item) => item.id === initialCollection.activeId && !item.deleted,
   )!
   const [collection, setCollection] = createSignal<CanvasCollection>(initialCollection)
-  const [state, setState] = createSignal<InfiniteCanvasState>(initialCanvas.state!)
+  const [state, setState] = createSignal<InfiniteCanvasState>(cloneState(initialCanvas.state!))
+  useAdminEventsStream(true, applyPathMutation)
   const maximizedWindowId = () => state().maximizedWindowId
   const [undoStack, setUndoStack] = createSignal<InfiniteCanvasState[]>([])
   const [redoStack, setRedoStack] = createSignal<InfiniteCanvasState[]>([])
@@ -365,6 +389,7 @@ export function CanvasPage() {
   let syncTimer: number | undefined
   let syncInterval: number | undefined
   let syncRunning = false
+  let syncQueued = false
   const panController = createCanvasPanController({
     camera: () => state().camera,
     viewport: () => viewportEl,
@@ -473,21 +498,28 @@ export function CanvasPage() {
 
   function persistActiveState(): CanvasCollection {
     if (readOnlyMode()) return collection()
-    const serialized = serializeInfiniteCanvasState(state())
+    const liveState = state()
     let result = collection()
     setCollection((current) => {
       const active = current.canvases.find((item) => item.id === current.activeId && !item.deleted)
-      if (!active || (active.state && serializeInfiniteCanvasState(active.state) === serialized)) {
+      if (!active || (active.state && sameState(active.state, liveState))) {
         result = current
         return current
       }
-      const updatedAt = nextCanvasTimestamp(current)
+      const persistentChanged =
+        !active.state ||
+        serializeInfiniteCanvasState(active.state) !== serializeInfiniteCanvasState(liveState)
+      const updatedAt = persistentChanged ? nextCanvasTimestamp(current) : active.updatedAt
       result = {
         ...current,
-        lastTimestamp: updatedAt,
+        lastTimestamp: persistentChanged ? updatedAt : current.lastTimestamp,
         canvases: current.canvases.map((item) =>
           item.id === current.activeId
-            ? { ...item, state: cloneState(state()), updatedAt, writerId: current.writerId }
+            ? {
+                ...item,
+                state: cloneState(liveState),
+                ...(persistentChanged ? { updatedAt, writerId: current.writerId } : {}),
+              }
             : item,
         ),
       }
@@ -495,6 +527,42 @@ export function CanvasPage() {
     })
     storeCollection(result)
     return result
+  }
+
+  function applyPathMutation(mutation: WorkspacePathMutation) {
+    const current = collection()
+    const currentState = state()
+    const activeState = applyCanvasPathMutation(currentState, mutation)
+    let lastTimestamp = current.lastTimestamp
+    let changed = false
+    const canvases = current.canvases.map((canvas) => {
+      if (!canvas.state || canvas.deleted) return canvas
+      const source = canvas.id === current.activeId ? currentState : canvas.state
+      const nextState =
+        canvas.id === current.activeId ? activeState : applyCanvasPathMutation(source, mutation)
+      if (nextState === source) return canvas
+      changed = true
+      const updatedAt = nextCanvasTimestamp({ ...current, lastTimestamp })
+      lastTimestamp = updatedAt
+      return { ...canvas, state: nextState, updatedAt, writerId: current.writerId }
+    })
+    if (!changed) return
+    const next = { ...current, lastTimestamp, canvases }
+    setState(activeState)
+    setCollection(next)
+    setUndoStack([])
+    setRedoStack([])
+    setSelection((selection) =>
+      selection?.kind === 'window' &&
+      !activeState.windows.some((window) => window.id === selection.id)
+        ? null
+        : selection,
+    )
+    setSelectedIds((ids) =>
+      ids.filter((id) => activeState.windows.some((window) => window.id === id)),
+    )
+    storeCollection(next)
+    scheduleSync(50)
   }
 
   function scheduleSync(delay = 700) {
@@ -513,6 +581,7 @@ export function CanvasPage() {
       return
     }
     if (syncRunning) {
+      syncQueued = true
       return
     }
     syncRunning = true
@@ -526,18 +595,24 @@ export function CanvasPage() {
           .filter((item) => !item.deleted)
           .sort((a, b) => compareCanvasRecords(b, a))[0]
         if (!hadLocalCanvas && remoteActive) {
+          const nextActiveState = reconcileInfiniteCanvasState(state(), remoteActive.state!)
           current = {
             ...current,
             activeId: remoteActive.id,
             lastTimestamp: Math.max(current.lastTimestamp, remoteActive.updatedAt),
-            canvases: remote,
+            canvases: remote.map((canvas) =>
+              canvas.id === remoteActive.id ? { ...canvas, state: nextActiveState } : canvas,
+            ),
           }
           setCollection(current)
-          setState((activeState) => reconcileInfiniteCanvasState(activeState, remoteActive.state!))
+          setState(nextActiveState)
           setUndoStack([])
           setRedoStack([])
         } else {
-          current = { ...current, canvases: mergeCanvasRecords(current.canvases, remote) }
+          current = {
+            ...current,
+            canvases: mergeCanvasRecordsWithRuntime(current.canvases, remote),
+          }
           setCollection(current)
         }
       }
@@ -547,10 +622,13 @@ export function CanvasPage() {
       }
       const response = await api<{ canvases: unknown[] }>('/api/canvases/sync', {
         method: 'POST',
-        body: JSON.stringify({ canvases: current.canvases }),
+        body: JSON.stringify({ canvases: persistentCanvasRecords(current) }),
       })
       const latest = collection()
-      const canvases = mergeCanvasRecords(latest.canvases, parseCanvasRecords(response.canvases))
+      const canvases = mergeCanvasRecordsWithRuntime(
+        latest.canvases,
+        parseCanvasRecords(response.canvases),
+      )
       const previousActive = latest.canvases.find(
         (item) => item.id === latest.activeId && !item.deleted,
       )
@@ -568,9 +646,14 @@ export function CanvasPage() {
           fallback.id !== latest.activeId || fallback.updatedAt > (previousActive?.updatedAt ?? 0)
         if (
           remoteStateWins &&
-          serializeInfiniteCanvasState(fallback.state!) !== serializeInfiniteCanvasState(state())
+          (fallback.id !== latest.activeId ||
+            serializeInfiniteCanvasState(fallback.state!) !== serializeInfiniteCanvasState(state()))
         ) {
-          setState((activeState) => reconcileInfiniteCanvasState(activeState, fallback.state!))
+          setState((activeState) =>
+            fallback.id === latest.activeId
+              ? reconcileInfiniteCanvasState(activeState, fallback.state!)
+              : cloneState(fallback.state!),
+          )
           setUndoStack([])
           setRedoStack([])
         }
@@ -593,6 +676,10 @@ export function CanvasPage() {
       setSyncStatus('error')
     } finally {
       syncRunning = false
+      if (syncQueued) {
+        syncQueued = false
+        scheduleSync(50)
+      }
     }
   }
 
@@ -1160,6 +1247,8 @@ export function CanvasPage() {
   function deleteSelected() {
     const ids = new Set(selectedIds())
     if (!ids.size) return
+    const targets = state().windows.filter((item) => ids.has(item.id))
+    if (targets.some((item) => !canCloseHermesWindow(item.definition.hermes))) return
     commit((current) => {
       const removed = new Set(
         current.windows.filter((item) => ids.has(item.id)).map((item) => item.id),
@@ -1167,6 +1256,7 @@ export function CanvasPage() {
       const windows = current.windows.filter((item) => !removed.has(item.id))
       return { ...current, windows }
     })
+    for (const target of targets) discardHermesDraft(target.definition.hermes)
     clearSelection()
   }
 
@@ -1374,10 +1464,13 @@ export function CanvasPage() {
     update: (definition: WorkspaceWindowDefinition) => WorkspaceWindowDefinition,
   ) {
     setState((current) => {
-      const window = current.windows.find((candidate) => candidate.id === windowId)
-      if (!window) return current
-      window.definition = update(window.definition)
-      return { ...current, windows: [...current.windows] }
+      let changed = false
+      const windows = current.windows.map((window) => {
+        if (window.id !== windowId) return window
+        changed = true
+        return { ...window, definition: update(window.definition) }
+      })
+      return changed ? { ...current, windows } : current
     })
   }
 
@@ -1439,6 +1532,7 @@ export function CanvasPage() {
       ...current,
       windows: current.windows.filter((window) => window.id !== windowId),
     }))
+    discardHermesDraft(target?.definition.hermes)
     setSelectedIds((ids) => ids.filter((id) => id !== windowId))
     if (selection()?.id === windowId) setSelection(null)
   }
@@ -1640,6 +1734,7 @@ export function CanvasPage() {
 
   createEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         openSearch(null)
@@ -2486,6 +2581,7 @@ export function CanvasPage() {
                       <Show when={item()!.definition.type === 'hermes'}>
                         <HermesChatPane
                           window={() => item()!.definition}
+                          active={() => selection()?.id === windowId}
                           onSessionCreated={(id) => bindHermesSession(windowId, id)}
                           onTitleChanged={(title) =>
                             updateDefinition(windowId, (definition) => ({ ...definition, title }))

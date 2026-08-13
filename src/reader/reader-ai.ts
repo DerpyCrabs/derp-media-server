@@ -2,6 +2,18 @@ import type { ReaderAiDetail } from './reader-state-client'
 
 type ReaderAiTask = 'define' | 'translate'
 
+let readerAiCapability: Promise<boolean> | undefined
+
+export function readerAiAvailable(): Promise<boolean> {
+  readerAiCapability ??= fetch('/api/hermes/capabilities')
+    .then(async (response) => {
+      const capabilities = await response.json().catch(() => null)
+      return response.ok && capabilities?.readerAi === true
+    })
+    .catch(() => false)
+  return readerAiCapability
+}
+
 export function readerAiPrompt(
   task: ReaderAiTask,
   kind: 'text' | 'image',
@@ -49,6 +61,10 @@ export async function runReaderAi(input: {
   imageData?: string
   detail: ReaderAiDetail
 }): Promise<string> {
+  if (!(await readerAiAvailable())) {
+    throw new Error('Reader AI is disabled until Hermes can enforce tool-free sessions')
+  }
+
   const events = new EventSource('/api/hermes/events')
   let sessionId = ''
   let streamed = ''
@@ -65,12 +81,14 @@ export async function runReaderAi(input: {
 
     const consume = (raw: any) => {
       const params = raw?.params ?? raw
-      const durableId = params?.durable_session_id ?? params?.previous_durable_session_id
+      const durableId = params?.durable_session_id
+      const previousDurableId = params?.previous_durable_session_id
       if (!sessionId) {
         pendingEvents.push(raw)
         return
       }
-      if (durableId !== sessionId) return
+      if (durableId !== sessionId && previousDurableId !== sessionId) return
+      if (previousDurableId === sessionId && typeof durableId === 'string') sessionId = durableId
       const payload = params?.payload ?? {}
       if (params?.type === 'message.delta') {
         streamed += eventText(payload.text ?? payload.delta ?? payload.content)
@@ -112,30 +130,28 @@ export async function runReaderAi(input: {
         },
       ]
     : []
-  const response = await fetch('/api/hermes/turn', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: readerAiPrompt(input.task, input.kind, input.text, input.detail),
-      attachments: attachment,
-    }),
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
+  try {
+    const response = await fetch('/api/hermes/reader-turn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: readerAiPrompt(input.task, input.kind, input.text, input.detail),
+        attachments: attachment,
+      }),
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok)
+      throw new Error(payload?.error ?? payload?.message ?? `Reader AI failed (${response.status})`)
+    sessionId = String(payload.sessionId)
+    const consume = (events as EventSource & { consume?: (raw: any) => void }).consume
+    pendingEvents.splice(0).forEach((event) => consume?.(event))
+    return await completion
+  } finally {
     settled = true
     window.clearTimeout(timeout)
     events.close()
-    throw new Error(payload?.error ?? payload?.message ?? `Reader AI failed (${response.status})`)
-  }
-  sessionId = String(payload.sessionId)
-  const consume = (events as EventSource & { consume?: (raw: any) => void }).consume
-  pendingEvents.splice(0).forEach((event) => consume?.(event))
-
-  try {
-    return await completion
-  } finally {
     if (sessionId) {
-      void fetch('/api/hermes/archive', {
+      void fetch('/api/hermes/reader-archive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),

@@ -20,6 +20,7 @@ import type {
   WorkspaceSource,
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
+import { applyWorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import {
   resolveNewTabAnchorWindowId,
   serializeWorkspaceLayoutState,
@@ -91,7 +92,7 @@ import {
 } from './workspace/workspace-page-persistence'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
-import { canCloseHermesWindow } from '@/lib/hermes-session-store'
+import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
   const history = useBrowserHistory()
@@ -99,8 +100,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const shareConfig = () => props.shareConfig ?? null
   const server = useWorkspacePageServerData(props, shareConfig)
-  useAdminEventsStream(!props.shareConfig)
-
   const browserSource = createMemo(
     (): WorkspaceSource =>
       shareConfig()
@@ -119,6 +118,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   })
 
   const [workspace, setWorkspace] = createSignal<PersistedWorkspaceState | null>(null)
+  useAdminEventsStream(!props.shareConfig, (mutation) => {
+    setWorkspace((current) => (current ? applyWorkspacePathMutation(current, mutation) : current))
+  })
 
   const [layoutPicker, setLayoutPicker] = createSignal<{
     windowId: string
@@ -314,7 +316,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const t = w.windows.find((x) => x.id === windowId)
     const gid = t ? groupIdForWindow(t) : windowId
     const toRemove = new Set(w.windows.filter((x) => groupIdForWindow(x) === gid).map((x) => x.id))
-    if (w.windows.some((x) => toRemove.has(x.id) && !canCloseHermesWindow(x.hermes))) return
+    const removed = w.windows.filter((x) => toRemove.has(x.id))
+    if (removed.some((x) => !canCloseHermesWindow(x.hermes))) return
     const next = w.windows.filter((x) => !toRemove.has(x.id))
     let active = w.activeWindowId
     if (active != null && toRemove.has(active)) {
@@ -323,6 +326,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const nextTabMap = { ...w.activeTabMap }
     delete nextTabMap[gid]
     setWorkspace({ ...w, windows: next, activeWindowId: active, activeTabMap: nextTabMap })
+    for (const window of removed) discardHermesDraft(window.hermes)
   }
 
   function setActiveTab(groupId: string, tabId: string) {
@@ -364,14 +368,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       let work = prev
       const v0 = work.windows.find((w) => w.id === tabId)
       if (!v0) return prev
+      if (v0.tabPinned && !opts?.ignoreTabPinForListenOnlyDismiss) return prev
+      if (!canCloseHermesWindow(v0.hermes)) return prev
       const g0 = groupIdForWindow(v0)
       if (work.tabGroupSplits?.[g0]?.leftTabId === tabId) {
         work = exitSplitViewState(work, g0)
       }
       const victim = work.windows.find((w) => w.id === tabId)
       if (!victim) return pruneTabGroupSplitsState(work)
-      if (!canCloseHermesWindow(victim.hermes)) return work
-      if (victim.tabPinned && !opts?.ignoreTabPinForListenOnlyDismiss) return work
+      discardHermesDraft(victim.hermes)
       const gid = groupIdForWindow(victim)
       const members = work.windows.filter((w) => groupIdForWindow(w) === gid)
       if (members.length <= 1) {

@@ -291,6 +291,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               <HermesChatPane
                                 window={windowDef}
                                 contentVisible={() => tabId === visibleTabId()}
+                                active={() => props.workspace()?.activeWindowId === tabId}
                                 onSessionCreated={(id) => props.bindHermesSession(tabId, id)}
                                 onBranchCreated={(id, title) =>
                                   props.openHermesBranch(tabId, id, title)
@@ -391,6 +392,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             <HermesChatPane
                               window={leftWindowDef}
                               contentVisible={() => true}
+                              active={() => props.workspace()?.activeWindowId === leftTabId()}
                               onSessionCreated={(id) => props.bindHermesSession(leftTabId(), id)}
                               onBranchCreated={(id, title) =>
                                 props.openHermesBranch(leftTabId(), id, title)
@@ -488,6 +490,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               <HermesChatPane
                                 window={rightWindowDef}
                                 contentVisible={() => true}
+                                active={() => props.workspace()?.activeWindowId === visibleTabId()}
                                 onSessionCreated={(id) =>
                                   props.bindHermesSession(visibleTabId(), id)
                                 }

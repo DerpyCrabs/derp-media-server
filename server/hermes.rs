@@ -3,12 +3,13 @@ use crate::{
     error::{AppError, AppResult},
 };
 use futures_util::{SinkExt, StreamExt, future::BoxFuture};
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -16,6 +17,64 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
 type PendingRpc = Arc<Mutex<HashMap<u64, oneshot::Sender<AppResult<Value>>>>>;
+
+struct OutboundRpc {
+    message: Message,
+    canceled: Arc<AtomicBool>,
+}
+
+struct PendingRpcGuard {
+    id: u64,
+    pending: PendingRpc,
+    canceled: Arc<AtomicBool>,
+}
+
+impl Drop for PendingRpcGuard {
+    fn drop(&mut self) {
+        self.canceled.store(true, Ordering::Release);
+        if let Ok(mut pending) = self.pending.try_lock() {
+            pending.remove(&self.id);
+            return;
+        }
+        let pending = self.pending.clone();
+        let id = self.id;
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                pending.lock().await.remove(&id);
+            });
+        }
+    }
+}
+
+async fn next_live_outbound(
+    receiver: &mut mpsc::UnboundedReceiver<OutboundRpc>,
+) -> Option<Message> {
+    while let Some(outbound) = receiver.recv().await {
+        if !outbound.canceled.load(Ordering::Acquire) {
+            return Some(outbound.message);
+        }
+    }
+    None
+}
+
+pub(crate) fn validate_opaque_id(id: &str) -> AppResult<&str> {
+    if id.is_empty()
+        || id.len() > 512
+        || matches!(id, "." | "..")
+        || id
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '/' | '\\' | '%'))
+    {
+        return Err(AppError::bad("Hermes session identifier is invalid"));
+    }
+    Ok(id)
+}
+
+pub(crate) fn session_api_path(id: &str, suffix: &str) -> AppResult<String> {
+    let id = validate_opaque_id(id)?;
+    let encoded = utf8_percent_encode(id, NON_ALPHANUMERIC);
+    Ok(format!("api/sessions/{encoded}{suffix}"))
+}
 
 fn gateway_status_error(status: reqwest::StatusCode) -> AppError {
     let message = format!("Hermes gateway returned {status}");
@@ -46,7 +105,8 @@ pub(crate) struct HermesHub {
     client: reqwest::Client,
     events: tokio::sync::broadcast::Sender<Value>,
     sequence: AtomicU64,
-    outbound: Mutex<Option<mpsc::UnboundedSender<Message>>>,
+    outbound: Mutex<Option<mpsc::UnboundedSender<OutboundRpc>>>,
+    connected: Arc<AtomicBool>,
     pending: PendingRpc,
 }
 
@@ -62,6 +122,7 @@ impl HermesHub {
             events,
             sequence: AtomicU64::new(1),
             outbound: Mutex::new(None),
+            connected: Arc::new(AtomicBool::new(false)),
             pending: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -160,10 +221,16 @@ impl HermesHub {
         }
     }
 
-    async fn ensure_rpc_transport(&self) -> AppResult<mpsc::UnboundedSender<Message>> {
+    async fn ensure_rpc_transport(&self) -> AppResult<mpsc::UnboundedSender<OutboundRpc>> {
         let mut guard = self.outbound.lock().await;
         if let Some(sender) = guard.as_ref().filter(|sender| !sender.is_closed()) {
-            return Ok(sender.clone());
+            return if self.connected.load(Ordering::Acquire) {
+                Ok(sender.clone())
+            } else {
+                Err(AppError::internal(
+                    "Hermes gateway WebSocket is reconnecting",
+                ))
+            };
         }
         let ws_url = self.ws_url()?.to_string();
         let socket = match tokio_tungstenite::connect_async(&ws_url).await {
@@ -177,14 +244,16 @@ impl HermesHub {
                 ));
             }
         };
-        let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
+        let (sender, mut receiver) = mpsc::unbounded_channel::<OutboundRpc>();
         *guard = Some(sender.clone());
+        self.connected.store(true, Ordering::Release);
         let pending = self.pending.clone();
         let events = self.events.clone();
+        let connected = self.connected.clone();
         tokio::spawn(async move {
             let mut next_socket = Some(socket);
             loop {
-                let connected = match next_socket.take() {
+                let socket = match next_socket.take() {
                     Some(socket) => socket,
                     None => match tokio_tungstenite::connect_async(&ws_url).await {
                         Ok((socket, _)) => socket,
@@ -195,12 +264,13 @@ impl HermesHub {
                         }
                     },
                 };
+                connected.store(true, Ordering::Release);
                 let _ =
                     events.send(json!({"method":"event","params":{"type":"transport.connected"}}));
-                let (mut writer, mut reader) = connected.split();
+                let (mut writer, mut reader) = socket.split();
                 loop {
                     tokio::select! {
-                        outbound = receiver.recv() => match outbound {
+                        outbound = next_live_outbound(&mut receiver) => match outbound {
                             Some(message) => {
                                 if writer.send(message).await.is_err() { break }
                             },
@@ -224,6 +294,7 @@ impl HermesHub {
                         }
                     }
                 }
+                connected.store(false, Ordering::Release);
                 let _ = events
                     .send(json!({"method":"event","params":{"type":"transport.disconnected"}}));
                 for (_, waiter) in pending.lock().await.drain() {
@@ -246,6 +317,12 @@ impl HermesHub {
         );
         let (reply, receiver) = oneshot::channel();
         self.pending.lock().await.insert(id, reply);
+        let canceled = Arc::new(AtomicBool::new(false));
+        let _pending_guard = PendingRpcGuard {
+            id,
+            pending: self.pending.clone(),
+            canceled: canceled.clone(),
+        };
         let sender = match self.ensure_rpc_transport().await {
             Ok(sender) => sender,
             Err(error) => {
@@ -253,7 +330,13 @@ impl HermesHub {
                 return Err(error);
             }
         };
-        if sender.send(request).is_err() {
+        if sender
+            .send(OutboundRpc {
+                message: request,
+                canceled,
+            })
+            .is_err()
+        {
             self.pending.lock().await.remove(&id);
             return Err(AppError::internal("Hermes gateway WebSocket disconnected"));
         }
@@ -383,5 +466,55 @@ mod tests {
         );
         assert_eq!(hub.rpc("second", json!({})).await.unwrap()["index"], 1);
         assert_eq!(accepts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn canceled_queued_rpc_is_skipped() {
+        let pending: PendingRpc = Arc::new(Mutex::new(HashMap::new()));
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let (canceled_reply, _canceled_receiver) = oneshot::channel();
+        pending.lock().await.insert(1, canceled_reply);
+        sender
+            .send(OutboundRpc {
+                message: Message::Text("canceled".into()),
+                canceled: Arc::new(AtomicBool::new(true)),
+            })
+            .unwrap();
+        let (reply, _receiver) = oneshot::channel();
+        pending.lock().await.insert(2, reply);
+        sender
+            .send(OutboundRpc {
+                message: Message::Text("live".into()),
+                canceled: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+
+        assert_eq!(
+            next_live_outbound(&mut receiver)
+                .await
+                .unwrap()
+                .into_text()
+                .unwrap(),
+            "live"
+        );
+    }
+
+    #[test]
+    fn opaque_session_ids_cannot_change_gateway_route() {
+        for invalid in ["", ".", "..", "../config", r"a\b", "a%2fb", "a\nb"] {
+            assert!(validate_opaque_id(invalid).is_err(), "accepted {invalid:?}");
+        }
+
+        let path = session_api_path("opaque?query#fragment", "/messages").unwrap();
+        let url = url::Url::parse("http://localhost:4000/base/")
+            .unwrap()
+            .join(&path)
+            .unwrap();
+        assert_eq!(
+            url.path(),
+            "/base/api/sessions/opaque%3Fquery%23fragment/messages"
+        );
+        assert!(url.query().is_none());
+        assert!(url.fragment().is_none());
     }
 }

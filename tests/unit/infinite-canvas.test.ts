@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   CANVAS_GRID_SIZE,
   canvasWindowVisualBounds,
+  cloneInfiniteCanvasState,
   createEmptyCanvasState,
   findNearestFreeCanvasRect,
   parseInfiniteCanvasState,
@@ -54,6 +55,81 @@ describe('infinite canvas geometry', () => {
 })
 
 describe('infinite canvas persistence', () => {
+  test('clones live Hermes drafts without applying persistence filtering', () => {
+    const state = createEmptyCanvasState()
+    state.windows = [
+      {
+        id: 'canvas-window-1',
+        definition: {
+          id: 'canvas-window-1',
+          type: 'hermes',
+          title: 'Hermes',
+          source: { kind: 'local' },
+          initialState: {},
+          hermes: { draftId: 'draft-1', cwd: 'C:/repo' },
+        },
+        bounds: { x: 0, y: 0, width: 640, height: 480 },
+        zIndex: 1,
+      },
+    ]
+
+    const cloned = cloneInfiniteCanvasState(state)
+
+    expect(cloned).not.toBe(state)
+    expect(cloned.windows[0]).not.toBe(state.windows[0])
+    expect(cloned.windows[0]?.definition.hermes).toEqual({
+      draftId: 'draft-1',
+      cwd: 'C:/repo',
+    })
+    expect(JSON.parse(serializeInfiniteCanvasState(cloned)).windows).toEqual([])
+  })
+
+  test('keeps live Hermes drafts while reconciling persisted state', () => {
+    const current = createEmptyCanvasState()
+    const draft: CanvasWindow = {
+      id: 'draft',
+      definition: {
+        id: 'draft',
+        type: 'hermes',
+        title: 'Hermes',
+        source: { kind: 'local' },
+        initialState: {},
+        hermes: { draftId: 'draft-1', cwd: 'C:/repo' },
+      },
+      bounds: { x: 0, y: 0, width: 640, height: 480 },
+      zIndex: 1,
+    }
+    const durable: CanvasWindow = {
+      ...draft,
+      id: 'durable',
+      definition: {
+        ...draft.definition,
+        id: 'durable',
+        hermes: { sessionId: 'session-1', cwd: 'C:/repo' },
+      },
+      bounds: { x: 640, y: 0, width: 640, height: 480 },
+      zIndex: 2,
+    }
+    current.windows = [draft, durable]
+    const incoming = parseInfiniteCanvasState(JSON.parse(serializeInfiniteCanvasState(current)))
+    expect(incoming).not.toBeNull()
+
+    const reconciled = reconcileInfiniteCanvasState(current, incoming!)
+
+    expect(reconciled.windows.find((window) => window.id === 'draft')).toBe(draft)
+    expect(reconciled.windows.find((window) => window.id === 'draft')?.definition.hermes).toEqual({
+      draftId: 'draft-1',
+      cwd: 'C:/repo',
+    })
+    expect(reconciled.windows.find((window) => window.id === 'durable')?.definition.hermes).toEqual(
+      {
+        sessionId: 'session-1',
+        readOnly: false,
+        cwd: 'C:/repo',
+      },
+    )
+  })
+
   test('reconciles remote state without replacing unchanged canvas branches', () => {
     const current = createEmptyCanvasState()
     const stable = canvasWindow('canvas-window-1', { x: 0, y: 0, width: 320, height: 224 })

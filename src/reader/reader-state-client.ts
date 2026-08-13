@@ -39,12 +39,17 @@ export type ReaderStateEnvelope = {
   fingerprint: string
 }
 
-type ReaderPreferences = {
+export type ReaderPreferences = {
   bookAppearance: BookAppearance
   selectionMode: 'text' | 'image'
   defaultAction: 'define' | 'translate' | 'none'
   aiDetail: ReaderAiDetail
   outlineOpen: boolean
+}
+
+export type ReaderPreferencesEnvelope = {
+  preferences: ReaderPreferences
+  revision: number
 }
 
 export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
@@ -268,25 +273,82 @@ function parsePreferences(value: unknown): ReaderPreferences {
   }
 }
 
-export async function loadReaderPreferences(share: MediaShareContext): Promise<ReaderPreferences> {
+export async function loadReaderPreferences(
+  share: MediaShareContext,
+): Promise<ReaderPreferencesEnvelope> {
   if (share) {
     try {
-      return parsePreferences(JSON.parse(localStorage.getItem(SHARE_PREFERENCES_KEY) ?? 'null'))
+      return {
+        preferences: parsePreferences(
+          JSON.parse(localStorage.getItem(SHARE_PREFERENCES_KEY) ?? 'null'),
+        ),
+        revision: 0,
+      }
     } catch {
-      return { ...DEFAULT_READER_PREFERENCES }
+      return { preferences: { ...DEFAULT_READER_PREFERENCES }, revision: 0 }
     }
   }
-  const result = await api<{ preferences: unknown }>('/api/reader-preferences')
-  return parsePreferences(result.preferences)
+  const result = await api<{ preferences: unknown; revision: number }>('/api/reader-preferences')
+  return {
+    preferences: parsePreferences(result.preferences),
+    revision: Number.isFinite(result.revision) ? result.revision : 0,
+  }
 }
 
 export async function saveReaderPreferences(
   share: MediaShareContext,
   preferences: ReaderPreferences,
-): Promise<void> {
+  baseRevision: number,
+): Promise<number> {
   if (share) {
     localStorage.setItem(SHARE_PREFERENCES_KEY, JSON.stringify(preferences))
-    return
+    return 0
   }
-  await post('/api/reader-preferences', { preferences })
+  const result = await post<{ revision: number }>('/api/reader-preferences', {
+    preferences,
+    baseRevision,
+  })
+  return result.revision
+}
+
+export function mergeReaderPreferenceChanges(
+  latest: ReaderPreferences,
+  base: ReaderPreferences,
+  desired: ReaderPreferences,
+): ReaderPreferences {
+  const pick = <T>(current: T, original: T, incoming: T) =>
+    JSON.stringify(incoming) === JSON.stringify(original) ? current : incoming
+  return {
+    bookAppearance: {
+      fontFamily: pick(
+        latest.bookAppearance.fontFamily,
+        base.bookAppearance.fontFamily,
+        desired.bookAppearance.fontFamily,
+      ),
+      fontScale: pick(
+        latest.bookAppearance.fontScale,
+        base.bookAppearance.fontScale,
+        desired.bookAppearance.fontScale,
+      ),
+      lineHeight: pick(
+        latest.bookAppearance.lineHeight,
+        base.bookAppearance.lineHeight,
+        desired.bookAppearance.lineHeight,
+      ),
+      contentWidth: pick(
+        latest.bookAppearance.contentWidth,
+        base.bookAppearance.contentWidth,
+        desired.bookAppearance.contentWidth,
+      ),
+      theme: pick(
+        latest.bookAppearance.theme,
+        base.bookAppearance.theme,
+        desired.bookAppearance.theme,
+      ),
+    },
+    selectionMode: pick(latest.selectionMode, base.selectionMode, desired.selectionMode),
+    defaultAction: pick(latest.defaultAction, base.defaultAction, desired.defaultAction),
+    aiDetail: pick(latest.aiDetail, base.aiDetail, desired.aiDetail),
+    outlineOpen: pick(latest.outlineOpen, base.outlineOpen, desired.outlineOpen),
+  }
 }

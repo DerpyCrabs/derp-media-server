@@ -49,15 +49,16 @@ fn item(name: String, path: String, folder: bool) -> media::FileItem {
 }
 
 fn hermes_path(kind: &str, id: &str) -> AppResult<String> {
-    if id.is_empty() || id.contains(['/', '\\']) {
-        return Err(AppError::internal("Hermes returned an invalid identifier"));
-    }
+    crate::hermes::validate_opaque_id(id)
+        .map_err(|_| AppError::internal("Hermes returned an invalid identifier"))?;
     Ok(format!("{HERMES_ROOT}/{kind}/{id}"))
 }
 
 fn path_parts(path: &str) -> Option<(&str, &str)> {
     let rest = path.strip_prefix(&format!("{HERMES_ROOT}/"))?;
-    rest.split_once('/')
+    let (kind, id) = rest.split_once('/')?;
+    crate::hermes::validate_opaque_id(id).ok()?;
+    Some((kind, id))
 }
 
 pub(crate) fn session_id_from_path(path: &str) -> AppResult<&str> {
@@ -77,18 +78,16 @@ pub(crate) async fn session_detail(state: &AppState, path: &str) -> AppResult<Va
     if let Some(profile) = hub.profile() {
         profile_query.push(("profile", profile.into()));
     }
-    let session = hub
-        .get(&format!("api/sessions/{id}"), &profile_query)
-        .await?;
+    let session_path = crate::hermes::session_api_path(id, "")?;
+    let session = hub.get(&session_path, &profile_query).await?;
     let mut query = vec![
         ("limit", "200".into()),
         ("offset", "0".into()),
         ("order", "oldest".into()),
     ];
     query.extend(profile_query);
-    let messages = hub
-        .get(&format!("api/sessions/{id}/messages"), &query)
-        .await?;
+    let messages_path = crate::hermes::session_api_path(id, "/messages")?;
+    let messages = hub.get(&messages_path, &query).await?;
     Ok(json!({"session":session,"messages":messages}))
 }
 
@@ -313,7 +312,7 @@ async fn list_hermes_with(
                 Some((name, id, project))
             })
             .collect::<Vec<_>>();
-        named.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+        named.sort_by_key(|value| value.0.to_lowercase());
         for (name, id, project) in named {
             let path = hermes_path("project", &id)?;
             files.push(item(name, path.clone(), true));
@@ -499,11 +498,9 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| AppError::bad("Session title is required"))?;
-            hub.patch(
-                &format!("api/sessions/{id}"),
-                json!({"title":name,"profile":hub.profile()}),
-            )
-            .await
+            let path = crate::hermes::session_api_path(id, "")?;
+            hub.patch(&path, json!({"title":name,"profile":hub.profile()}))
+                .await
         }
         ("rename", Some(("project", id))) => {
             let _operation = state.hermes_project_operations.lock().await;
@@ -537,11 +534,9 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty());
+            let path = crate::hermes::session_api_path(id, "/fork")?;
             let result = hub
-                .post(
-                    &format!("api/sessions/{id}/fork"),
-                    json!({"title":title,"profile":hub.profile()}),
-                )
+                .post(&path, json!({"title":title,"profile":hub.profile()}))
                 .await?;
             let session = result.get("session").unwrap_or(&result);
             let fork_id = session
@@ -549,6 +544,8 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                 .or_else(|| session.get("session_id"))
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::internal("Hermes fork omitted session id"))?;
+            crate::hermes::validate_opaque_id(fork_id)
+                .map_err(|_| AppError::internal("Hermes returned an invalid session id"))?;
             Ok(json!({"openTarget":{"type":"hermesSession","sessionId":fork_id,"readOnly":false}}))
         }
         ("moveToProject", Some(("session", id))) => {
@@ -647,11 +644,9 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                     "Busy Hermes sessions cannot be archived",
                 ));
             }
-            hub.patch(
-                &format!("api/sessions/{id}"),
-                json!({"archived":true,"profile":hub.profile()}),
-            )
-            .await
+            let path = crate::hermes::session_api_path(id, "")?;
+            hub.patch(&path, json!({"archived":true,"profile":hub.profile()}))
+                .await
         }
         ("restore", Some(("session", id))) => {
             if !flat_sessions(hub.as_ref(), true)
@@ -663,11 +658,9 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                     "Only archived Hermes sessions can be restored",
                 ));
             }
-            hub.patch(
-                &format!("api/sessions/{id}"),
-                json!({"archived":false,"profile":hub.profile()}),
-            )
-            .await
+            let path = crate::hermes::session_api_path(id, "")?;
+            hub.patch(&path, json!({"archived":false,"profile":hub.profile()}))
+                .await
         }
         ("deletePermanently", Some(("session", id))) => {
             if !flat_sessions(hub.as_ref(), true)
@@ -679,7 +672,8 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                     "Only archived Hermes sessions can be permanently deleted",
                 ));
             }
-            hub.delete(&format!("api/sessions/{id}")).await?;
+            let path = crate::hermes::session_api_path(id, "")?;
+            hub.delete(&path).await?;
             Ok(json!({"ok":true}))
         }
         ("deleteProject", Some(("project", id))) => {

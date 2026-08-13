@@ -9,7 +9,7 @@ use base64::Engine;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, atomic::AtomicU64},
     time::UNIX_EPOCH,
@@ -39,6 +39,7 @@ pub(crate) struct AppState {
     pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
     pub hermes_project_operations: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
+    pub hermes_active_ids: Mutex<HashSet<String>>,
 }
 
 #[derive(Clone)]
@@ -108,6 +109,23 @@ pub(crate) fn emit_admin(state: &AppState, kind: &str) {
     let _ = state
         .admin_events
         .send(json!({"type":kind,"timestamp":timestamp_ms()}));
+}
+
+pub(crate) fn emit_path_removed(state: &AppState, path: &str) {
+    let _ = state.admin_events.send(json!({
+        "type":"path-removed",
+        "path":path.replace('\\', "/"),
+        "timestamp":timestamp_ms(),
+    }));
+}
+
+pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) {
+    let _ = state.admin_events.send(json!({
+        "type":"path-moved",
+        "oldPath":old_path.replace('\\', "/"),
+        "newPath":new_path.replace('\\', "/"),
+        "timestamp":timestamp_ms(),
+    }));
 }
 
 pub(crate) fn roots(state: &AppState) -> Vec<MediaRoot> {

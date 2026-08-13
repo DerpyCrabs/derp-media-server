@@ -52,6 +52,55 @@ export function createEmptyCanvasState(): InfiniteCanvasState {
   }
 }
 
+/** Clone live canvas state without applying persistence-only filtering. */
+export function cloneInfiniteCanvasState(state: InfiniteCanvasState): InfiniteCanvasState {
+  return {
+    ...state,
+    camera: { ...state.camera },
+    windowSizeByType: Object.fromEntries(
+      Object.entries(state.windowSizeByType).map(([key, size]) => [key, { ...size }]),
+    ),
+    windows: state.windows.map((window) => ({
+      ...window,
+      bounds: { ...window.bounds },
+      definition: {
+        ...window.definition,
+        source: { ...window.definition.source },
+        initialState: { ...window.definition.initialState },
+        ...(window.definition.layout
+          ? {
+              layout: {
+                ...window.definition.layout,
+                bounds: window.definition.layout.bounds
+                  ? { ...window.definition.layout.bounds }
+                  : window.definition.layout.bounds,
+                restoreBounds: window.definition.layout.restoreBounds
+                  ? { ...window.definition.layout.restoreBounds }
+                  : window.definition.layout.restoreBounds,
+                tiling: window.definition.layout.tiling
+                  ? {
+                      ...window.definition.layout.tiling,
+                      colLines: [...window.definition.layout.tiling.colLines],
+                      rowLines: [...window.definition.layout.tiling.rowLines],
+                    }
+                  : window.definition.layout.tiling,
+              },
+            }
+          : {}),
+        ...(window.definition.hermes ? { hermes: { ...window.definition.hermes } } : {}),
+      },
+    })),
+  }
+}
+
+/** Compare live canvas state, including unsaved Hermes drafts. */
+export function equalInfiniteCanvasState(
+  left: InfiniteCanvasState,
+  right: InfiniteCanvasState,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
@@ -70,17 +119,23 @@ export function reconcileInfiniteCanvasState(
   if (sameValue(current, incoming)) return current
 
   const currentWindows = new Map(current.windows.map((window) => [window.id, window]))
-  const windows = preserveArray(
-    current.windows,
-    incoming.windows.map((window) => {
-      const existing = currentWindows.get(window.id)
-      if (!existing) return window
-      if (sameValue(existing, window)) return existing
-      return sameValue(existing.definition, window.definition)
-        ? { ...window, definition: existing.definition }
-        : window
-    }),
+  const incomingWindows = incoming.windows.map((window) => {
+    const existing = currentWindows.get(window.id)
+    if (!existing) return window
+    if (sameValue(existing, window)) return existing
+    return sameValue(existing.definition, window.definition)
+      ? { ...window, definition: existing.definition }
+      : window
+  })
+  const incomingIds = new Set(incomingWindows.map((window) => window.id))
+  const liveDrafts = current.windows.filter(
+    (window) =>
+      window.definition.type === 'hermes' &&
+      !!window.definition.hermes?.draftId &&
+      !window.definition.hermes.sessionId &&
+      !incomingIds.has(window.id),
   )
+  const windows = preserveArray(current.windows, [...incomingWindows, ...liveDrafts])
   return {
     ...incoming,
     windows,
@@ -239,6 +294,9 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
               hermes: {
                 sessionId: definition.hermes.sessionId,
                 readOnly: !!definition.hermes.readOnly,
+                ...(typeof definition.hermes.cwd === 'string' || definition.hermes.cwd === null
+                  ? { cwd: definition.hermes.cwd }
+                  : {}),
               },
             }
           : {}),

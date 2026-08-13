@@ -29,6 +29,13 @@ struct StateBody {
     fingerprint: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreferencesBody {
+    preferences: Value,
+    base_revision: i64,
+}
+
 fn database(state: &crate::app::AppState) -> std::path::PathBuf {
     state.config.data_path.join("app.sqlite3")
 }
@@ -52,7 +59,7 @@ fn response(state: &crate::app::AppState, scope: &str, logical: &str) -> AppResu
         .as_ref()
         .is_some_and(|value| value.fingerprint != current_fingerprint)
     {
-        reader_state::remove_prefix(&database(state), Some(scope), logical)?;
+        reader_state::remove_exact(&database(state), scope, logical)?;
         return Ok(Json(
             json!({"state":null,"revision":0,"fingerprint":current_fingerprint}),
         ));
@@ -152,12 +159,16 @@ async fn preferences_get(State(state): State<Shared>) -> AppResult<Json<Value>> 
 
 async fn preferences_save(
     State(state): State<Shared>,
-    Json(value): Json<Value>,
+    Json(body): Json<PreferencesBody>,
 ) -> AppResult<Json<Value>> {
-    let preferences = value.get("preferences").cloned().unwrap_or(Value::Null);
     let _database = state.reader_state_db.lock().await;
-    let revision =
-        reader_state::put_preferences(&database(&state), "admin", &preferences, timestamp_ms())?;
+    let revision = reader_state::put_preferences(
+        &database(&state),
+        "admin",
+        &body.preferences,
+        body.base_revision,
+        timestamp_ms(),
+    )?;
     Ok(Json(json!({"success":true,"revision":revision})))
 }
 

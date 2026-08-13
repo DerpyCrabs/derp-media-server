@@ -77,6 +77,7 @@ export type HermesChatState = {
   decision?: {
     kind: 'approval' | 'clarify' | 'secret' | 'sudo'
     requestId?: string
+    dedupeId: string
     prompt: string
     choices: string[]
   }
@@ -88,6 +89,7 @@ export type HermesQueuedPrompt = { text: string; attachments: HermesAttachment[]
 
 const [sessions, setSessions] = createStore<Record<string, HermesChatState>>({})
 let eventSource: EventSource | null = null
+const activeHermesSends = new Set<string>()
 
 export function hermesChatKey(target: { sessionId?: string; draftId?: string }): string {
   return target.sessionId
@@ -358,7 +360,7 @@ export async function refreshHermesChat(key: string) {
   if (!state?.sessionId) return
   try {
     const encoded = encodeURIComponent(state.sessionId)
-    const historyLimit = Math.max(100, state.messages.length)
+    const historyLimit = Math.min(500, Math.max(100, state.messages.length))
     const [payload, detail] = await Promise.all([
       jsonRequest(`/api/hermes/sessions/${encoded}/messages?limit=${historyLimit}&offset=0`),
       jsonRequest(`/api/hermes/sessions/${encoded}`),
@@ -367,19 +369,18 @@ export async function refreshHermesChat(key: string) {
     const externallyActive = detail.externallyActive === true
     const refreshed = normalizeMessages(payload.messages ?? payload.data)
     const current = sessions[key]?.messages ?? []
-    const messages =
-      current.length > historyLimit
-        ? [...current.slice(0, current.length - historyLimit), ...refreshed]
-        : refreshed
+    const retainedCount = Math.max(0, current.length - historyLimit)
+    const messages = retainedCount ? [...current.slice(0, retainedCount), ...refreshed] : refreshed
     if (!sameHermesMessages(current, messages))
       setSessions(key, 'messages', reconcile(messages, { key: 'id' }))
     setSessions(key, {
-      hasOlderMessages:
-        (Array.isArray(payload.messages)
-          ? payload.messages.length
-          : Array.isArray(payload.data)
-            ? payload.data.length
-            : 0) >= historyLimit,
+      hasOlderMessages: retainedCount
+        ? state.hasOlderMessages
+        : (Array.isArray(payload.messages)
+            ? payload.messages.length
+            : Array.isArray(payload.data)
+              ? payload.data.length
+              : 0) >= historyLimit,
       archived,
       readOnly: archived || externallyActive,
       externallyActive,
@@ -537,7 +538,7 @@ function connectEvents() {
         sessions[candidate]?.status === 'sending' ||
         sessions[candidate]?.status === 'streaming',
     )
-    const key = routedKey ?? (activeCandidates.length === 1 ? activeCandidates[0] : undefined)
+    let key = routedKey ?? (activeCandidates.length === 1 ? activeCandidates[0] : undefined)
     const payload = (event?.payload ?? {}) as Record<string, unknown>
 
     if (kind === 'transport.disconnected' || kind === 'transport.connected') {
@@ -559,7 +560,21 @@ function connectEvents() {
       typeof previousSessionId === 'string' &&
       sessionId !== previousSessionId
     ) {
-      setSessions(key, 'sessionId', sessionId)
+      const nextKey = `session:${sessionId}`
+      if (nextKey !== key) {
+        const previousKey = key
+        setSessions(nextKey, {
+          ...sessions[key]!,
+          sessionId,
+          draftId: undefined,
+        })
+        // Keep the old entry long enough for mounted panes to persist the new durable id.
+        setSessions(key, 'sessionId', sessionId)
+        key = nextKey
+        queueMicrotask(() => cleanupHermesAlias(previousKey))
+      } else {
+        setSessions(key, 'sessionId', sessionId)
+      }
     }
     if (kind === 'message.start') {
       setSessions(key, { status: 'streaming', awaitingResponse: true })
@@ -606,7 +621,8 @@ function connectEvents() {
     } else if (kind === 'approval.request') {
       setSessions(key, 'decision', {
         kind: 'approval',
-        requestId: String(
+        requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
+        dedupeId: String(
           payload.request_id ?? payload.tool_id ?? payload.tool_call_id ?? crypto.randomUUID(),
         ),
         prompt: messageText(payload.command ?? payload.description) || 'Hermes requests approval',
@@ -615,7 +631,8 @@ function connectEvents() {
     } else if (kind === 'clarify.request') {
       setSessions(key, 'decision', {
         kind: 'clarify',
-        requestId: String(payload.request_id ?? ''),
+        requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
+        dedupeId: String(payload.request_id ?? crypto.randomUUID()),
         prompt: messageText(payload.question),
         choices: Array.isArray(payload.choices)
           ? payload.choices.map((choice: unknown) =>
@@ -628,7 +645,8 @@ function connectEvents() {
     } else if (kind === 'sudo.request' || kind === 'secret.request') {
       setSessions(key, 'decision', {
         kind: kind === 'sudo.request' ? 'sudo' : 'secret',
-        requestId: String(payload.request_id ?? ''),
+        requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
+        dedupeId: String(payload.request_id ?? crypto.randomUUID()),
         prompt:
           kind === 'sudo.request'
             ? 'Hermes needs administrator credentials'
@@ -680,12 +698,24 @@ export function setHermesError(key: string, error: unknown) {
     setSessions(key, 'error', error instanceof Error ? error.message : String(error))
 }
 
-let completionSequence = 0
+const completionSequences = new Map<string, number>()
+
+function cleanupHermesAlias(key: string) {
+  if (activeHermesSends.has(key)) return
+  const state = sessions[key]
+  if (!state?.sessionId) return
+  const canonicalKey = `session:${state.sessionId}`
+  if (canonicalKey === key || !sessions[canonicalKey]) return
+  setSessions(key, undefined!)
+  completionSequences.delete(key)
+}
+
 async function refreshHermesCompletions(key: string, value: string) {
   const word = value.split(/\s/).at(-1) ?? ''
   const kind =
     value.startsWith('/') && !value.includes('\n') ? 'slash' : word.startsWith('@') ? 'path' : ''
-  const sequence = ++completionSequence
+  const sequence = (completionSequences.get(key) ?? 0) + 1
+  completionSequences.set(key, sequence)
   if (!kind) {
     setSessions(key, 'completions', [])
     return
@@ -695,11 +725,12 @@ async function refreshHermesCompletions(key: string, value: string) {
     const cwd = sessions[key]?.cwd
     if (cwd) params.set('cwd', cwd)
     const payload = await jsonRequest(`/api/hermes/completions?${params}`)
-    if (sequence !== completionSequence || !sessions[key]) return
+    if (sequence !== completionSequences.get(key) || !sessions[key]) return
     const items = Array.isArray(payload.items) ? payload.items : []
     setSessions(key, 'completions', filterHermesCompletions(value, items).slice(0, 8))
   } catch {
-    if (sequence === completionSequence && sessions[key]) setSessions(key, 'completions', [])
+    if (sequence === completionSequences.get(key) && sessions[key])
+      setSessions(key, 'completions', [])
   }
 }
 
@@ -813,6 +844,7 @@ function readFileBase64(file: File): Promise<string> {
 }
 
 export async function addHermesAttachments(key: string, files: Iterable<File>) {
+  if (!sessions[key]) return
   for (const file of files) {
     const id = crypto.randomUUID()
     if (file.size > HERMES_ATTACHMENT_LIMIT) {
@@ -821,6 +853,7 @@ export async function addHermesAttachments(key: string, files: Iterable<File>) {
     }
     try {
       const contentBase64 = await readFileBase64(file)
+      if (!sessions[key]) return
       setSessions(key, 'attachments', (items) => [
         ...items,
         {
@@ -833,7 +866,8 @@ export async function addHermesAttachments(key: string, files: Iterable<File>) {
         },
       ])
     } catch (error) {
-      setSessions(key, 'error', error instanceof Error ? error.message : String(error))
+      if (sessions[key])
+        setSessions(key, 'error', error instanceof Error ? error.message : String(error))
     }
   }
 }
@@ -850,6 +884,7 @@ export async function addHermesDraggedPath(key: string, dragged: FileDragData) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: dragged.path, isDirectory: dragged.isDirectory }),
     })
+    if (!sessions[key]) return
     if (payload.mode === 'shared' && typeof payload.text === 'string') {
       const prefix = sessions[key]!.composer && !/\s$/.test(sessions[key]!.composer) ? ' ' : ''
       setSessions(key, 'composer', `${sessions[key]!.composer}${prefix}${payload.text} `)
@@ -902,7 +937,7 @@ async function drainHermesQueue(key: string) {
   try {
     await sendHermesPrompt(key)
   } catch {
-    setSessions(key, 'queuedPrompts', (items) => [next, ...items])
+    // sendHermesPrompt restores the failed item in the composer.
   }
 }
 
@@ -959,10 +994,15 @@ export function claimHermesEditor(key: string, owner: string): boolean {
   return true
 }
 
+export function releaseHermesEditor(key: string, owner: string) {
+  if (sessions[key]?.editorOwner === owner) setSessions(key, 'editorOwner', undefined)
+}
+
 export async function sendHermesPrompt(key: string, takeover = false): Promise<string | undefined> {
   const state = sessions[key]
   const text = state?.composer.trim()
   if (!state || !text || (state.readOnly && !state.takeoverPending)) return state?.sessionId
+  const requestedSessionId = state.sessionId
   setSessions(key, {
     composer: '',
     status: 'sending',
@@ -983,12 +1023,13 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       .map((attachment) => `data:${attachment.mimeType};base64,${attachment.contentBase64}`),
   }
   setSessions(key, 'messages', (messages) => [...messages, optimistic])
+  activeHermesSends.add(key)
   try {
     const payload = await jsonRequest('/api/hermes/turn', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        sessionId: state.sessionId,
+        sessionId: requestedSessionId,
         cwd: state.cwd,
         text,
         takeover: takeover || state.takeoverPending === true,
@@ -999,7 +1040,13 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
         })),
       }),
     })
-    const sessionId = String(payload.sessionId)
+    const responseSessionId = String(payload.sessionId)
+    const currentSessionId = sessions[key]?.sessionId
+    // SSE can rotate a durable id while /turn is in flight; its newer id wins the race.
+    const sessionId =
+      currentSessionId && currentSessionId !== requestedSessionId
+        ? currentSessionId
+        : responseSessionId
     setSessions(key, {
       sessionId,
       lineageRootId: state.lineageRootId ?? sessionId,
@@ -1009,14 +1056,19 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       takeoverPending: false,
       readOnly: false,
     })
-    if (key.startsWith('draft:')) {
-      setSessions(`session:${sessionId}`, { ...sessions[key]!, sessionId, draftId: undefined })
-    }
+    const canonicalKey = `session:${sessionId}`
+    if (canonicalKey !== key)
+      setSessions(canonicalKey, { ...sessions[key]!, sessionId, draftId: undefined })
     return sessionId
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    setSessions(key, 'messages', (messages) => messages.filter((item) => item.id !== optimistic.id))
-    setSessions(key, {
+    const currentSessionId = sessions[key]?.sessionId
+    const canonicalKey = currentSessionId ? `session:${currentSessionId}` : key
+    const targetKey = canonicalKey !== key && sessions[canonicalKey] ? canonicalKey : key
+    setSessions(targetKey, 'messages', (messages) =>
+      messages.filter((item) => item.id !== optimistic.id),
+    )
+    setSessions(targetKey, {
       composer: text,
       status: 'error',
       awaitingResponse: false,
@@ -1024,6 +1076,9 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       attachments: state.attachments.map((item) => ({ ...item, status: 'error', error: message })),
     })
     throw error
+  } finally {
+    activeHermesSends.delete(key)
+    cleanupHermesAlias(key)
   }
 }
 
@@ -1084,7 +1139,7 @@ export async function answerHermesDecision(key: string, answer: string) {
   const state = sessions[key]
   const decision = state?.decision
   if (!state?.sessionId || !decision) return
-  const decisionKey = `${state.sessionId}:${decision.kind}:${decision.requestId ?? 'approval'}`
+  const decisionKey = `${state.sessionId}:${decision.kind}:${decision.dedupeId}`
   if (answeredDecisions.has(decisionKey)) return
   answeredDecisions.add(decisionKey)
   setSessions(key, 'decision', undefined)
@@ -1108,7 +1163,14 @@ export async function answerHermesDecision(key: string, answer: string) {
 export function canCloseHermesWindow(target?: { draftId?: string; sessionId?: string }): boolean {
   if (!target?.draftId || target.sessionId) return true
   const state = sessions[`draft:${target.draftId}`]
-  return !state?.composer.trim() || window.confirm('Discard unsent Hermes draft?')
+  const hasDraft =
+    !!state?.composer.trim() || !!state?.attachments.length || !!state?.queuedPrompts.length
+  return !hasDraft || window.confirm('Discard unsent Hermes draft?')
+}
+
+export function discardHermesDraft(target?: { draftId?: string; sessionId?: string }) {
+  if (!target?.draftId || target.sessionId) return
+  setSessions(`draft:${target.draftId}`, undefined!)
 }
 
 export { sessions as hermesSessions }

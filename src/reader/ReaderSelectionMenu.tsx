@@ -1,10 +1,10 @@
 import Languages from 'lucide-solid/icons/languages'
 import RefreshCw from 'lucide-solid/icons/refresh-cw'
 import Sparkles from 'lucide-solid/icons/sparkles'
-import { Show, createEffect, createSignal, onCleanup, untrack } from 'solid-js'
+import { Show, createEffect, createResource, createSignal, onCleanup, untrack } from 'solid-js'
 import type { ReaderDefaultAction } from '@/lib/reader-position'
 import { MarkdownContent } from './MarkdownContent'
-import { runReaderAi } from './reader-ai'
+import { readerAiAvailable, runReaderAi } from './reader-ai'
 import type { ReaderAiDetail } from './reader-state-client'
 
 export type ReaderSelection = {
@@ -33,6 +33,7 @@ export function ReaderSelectionMenu(props: {
   const [busy, setBusy] = createSignal(false)
   const [result, setResult] = createSignal('')
   const [error, setError] = createSignal('')
+  const [readerAiEnabled] = createResource(readerAiAvailable)
 
   const run = async (nextTask: 'define' | 'translate') => {
     const currentRequest = ++requestId
@@ -61,6 +62,7 @@ export function ReaderSelectionMenu(props: {
   createEffect(() => {
     const id = props.selection.id
     const action = props.defaultAction
+    if (readerAiEnabled() !== true) return
     const key = `${id}:${action}:${props.aiDetail}`
     if (!id || action === 'none' || key === lastAutomaticKey) return
     lastAutomaticKey = key
@@ -139,6 +141,7 @@ export function ReaderSelectionMenu(props: {
             <SelectionActionButton
               kind='translate'
               busy={busy() && task() === 'translate'}
+              available={readerAiEnabled()}
               regenerate={shouldRegenerate('translate')}
               onPointerDown={runAction}
               onKeyDown={runActionFromKey}
@@ -146,6 +149,7 @@ export function ReaderSelectionMenu(props: {
             <SelectionActionButton
               kind='define'
               busy={busy() && task() === 'define'}
+              available={readerAiEnabled()}
               regenerate={shouldRegenerate('define')}
               onPointerDown={runAction}
               onKeyDown={runActionFromKey}
@@ -158,6 +162,7 @@ export function ReaderSelectionMenu(props: {
           <SelectionActionButton
             kind='translate'
             busy={busy() && task() === 'translate'}
+            available={readerAiEnabled()}
             regenerate={shouldRegenerate('translate')}
             onPointerDown={runAction}
             onKeyDown={runActionFromKey}
@@ -165,6 +170,7 @@ export function ReaderSelectionMenu(props: {
           <SelectionActionButton
             kind='define'
             busy={busy() && task() === 'define'}
+            available={readerAiEnabled()}
             regenerate={shouldRegenerate('define')}
             onPointerDown={runAction}
             onKeyDown={runActionFromKey}
@@ -206,6 +212,7 @@ export function ReaderSelectionMenu(props: {
 function SelectionActionButton(props: {
   kind: 'define' | 'translate'
   busy: boolean
+  available: boolean | undefined
   regenerate: boolean
   onPointerDown: (event: Event, task: 'define' | 'translate') => void
   onKeyDown: (event: KeyboardEvent, task: 'define' | 'translate') => void
@@ -218,14 +225,20 @@ function SelectionActionButton(props: {
       : props.kind === 'translate'
         ? 'Translate'
         : 'Define'
+  const title = () =>
+    props.available === false
+      ? 'Reader AI unavailable'
+      : props.available === undefined
+        ? 'Checking Reader AI availability'
+        : label()
   return (
     <button
       type='button'
       data-testid={`reader-${props.kind}`}
-      title={label()}
+      title={title()}
       aria-label={label()}
       class='flex size-[30px] shrink-0 items-center justify-center rounded-md text-[#cfcfcf] transition-colors hover:bg-[#363636] hover:text-white disabled:opacity-40'
-      disabled={props.busy}
+      disabled={props.busy || props.available !== true}
       onPointerDown={(event) => props.onPointerDown(event, props.kind)}
       onKeyDown={(event) => props.onKeyDown(event, props.kind)}
     >

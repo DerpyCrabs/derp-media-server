@@ -3,10 +3,9 @@ import fs from 'fs'
 import path from 'path'
 
 /**
- * Batches aim for similar wall time (~35–45s each with 4 workers): slowest spec per batch dominates.
- * Workspace layout is split into two files so they run in parallel in batch 1.
+ * Batches aim for similar wall time and run concurrently with one Playwright worker each.
  */
-const BATCHES = [
+export const BATCHES = [
   {
     id: '1',
     tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome'],
@@ -74,11 +73,6 @@ const BATCHES = [
 
 const ROOT = path.resolve(__dirname, '..')
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
-const requestedConcurrency = Number.parseInt(process.env.E2E_BATCH_CONCURRENCY ?? '3', 10)
-const batchConcurrency = Math.min(
-  BATCHES.length,
-  Number.isFinite(requestedConcurrency) ? Math.max(1, requestedConcurrency) : 3,
-)
 
 function generateBatchConfig(batchId: string, port: number): string {
   const configPath = path.join(FIXTURES_DIR, `test-config-${batchId}.jsonc`)
@@ -209,29 +203,16 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<{
   })
 }
 
-async function runBatches() {
-  const results = new Array<Awaited<ReturnType<typeof runBatch>>>(BATCHES.length)
-  let nextBatchIndex = 0
-
-  async function runNext() {
-    while (nextBatchIndex < BATCHES.length) {
-      const batchIndex = nextBatchIndex++
-      results[batchIndex] = await runBatch(BATCHES[batchIndex])
-    }
-  }
-
-  await Promise.all(Array.from({ length: batchConcurrency }, runNext))
-  return results
+export function runBatches<T>(run: (batch: (typeof BATCHES)[number]) => Promise<T>): Promise<T[]> {
+  return Promise.all(BATCHES.map(run))
 }
 
 async function main() {
-  console.log(
-    `Starting ${BATCHES.length} test batches (${batchConcurrency} concurrent, 4 workers each)...\n`,
-  )
+  console.log(`Starting ${BATCHES.length} test batches in parallel (1 worker each)...\n`)
   const startTime = Date.now()
 
   try {
-    const results = await runBatches()
+    const results = await runBatches(runBatch)
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     console.log(`\n${'─'.repeat(60)}`)
@@ -264,4 +245,4 @@ async function main() {
   }
 }
 
-void main()
+if (import.meta.main) void main()

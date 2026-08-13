@@ -7,7 +7,7 @@
 - Prefer explicit reactivity: signals, memos, `<Show>` / `<For>`; use `class` for CSS. Avoid breaking prop reactivity when spreading props.
 - Shared view must not use admin-only routes; share flows stay scoped by `shareToken`.
 - When adding e2e tests, keep files independent so they can run in parallel without ordering assumptions.
-- `test:batch` sets `BATCH_ID`; Playwright uses **4 workers** (parallel **files**; `fullyParallel: false` keeps tests inside a file ordered). Local `bun run test` uses **1 worker** for easier debugging.
+- `test:batch` runs **6 batches in parallel** with **1 Playwright worker each** (`fullyParallel: false` keeps tests inside a file ordered). Local `bun run test` also uses **1 worker** for easier debugging.
 
 ## Commands
 

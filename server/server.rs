@@ -6,7 +6,11 @@ use crate::{
 };
 use axum::{Router, extract::DefaultBodyLimit, middleware};
 use std::sync::atomic::AtomicU64;
-use std::{collections::HashMap, process::Stdio, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    process::Stdio,
+    sync::Arc,
+};
 use tokio::{
     fs,
     process::{Child, Command},
@@ -115,7 +119,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::auth::router())
         .merge(routes::canvases::router())
         .merge(routes::files::router())
-        .merge(routes::hermes_chat::router())
+        .merge(routes::hermes_chat::router(state.clone()))
         .merge(routes::settings::router())
         .merge(routes::mounts::router())
         .merge(routes::shares::router())
@@ -150,12 +154,14 @@ pub(crate) async fn run() {
             .await
             .unwrap_or_else(|error| panic!("Failed to start Vite: {error}"));
     }
-    let runtime_roots = routes::mounts::load(&config);
+    let runtime_roots = routes::mounts::load(&config)
+        .unwrap_or_else(|error| panic!("Failed to load configured mounts: {}", error.1));
     let mut search_roots = config.roots.clone();
     search_roots.extend(runtime_roots.clone());
     let (events, _) = tokio::sync::broadcast::channel(256);
     let (admin_events, _) = tokio::sync::broadcast::channel(256);
     let (hermes_events, _) = tokio::sync::broadcast::channel(1024);
+    let (hermes_transport_events, _) = tokio::sync::broadcast::channel(1024);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
@@ -180,7 +186,7 @@ pub(crate) async fn run() {
         Arc::new(crate::hermes::HermesHub::new(
             value,
             client.clone(),
-            hermes_events.clone(),
+            hermes_transport_events.clone(),
         )) as Arc<dyn crate::hermes::HermesTransport>
     });
     let state = Arc::new(AppState {
@@ -209,7 +215,9 @@ pub(crate) async fn run() {
         hermes,
         hermes_project_operations: Mutex::new(()),
         hermes_runtime_ids: Mutex::new(HashMap::new()),
+        hermes_active_ids: Mutex::new(HashSet::new()),
     });
+    routes::hermes_chat::start_event_bridge(&state, hermes_transport_events.subscribe());
     let address = format!("0.0.0.0:{}", config.port);
     if let Some(tls) = &config.tls {
         let tls = rustls_config(tls)
@@ -224,7 +232,7 @@ pub(crate) async fn run() {
             config.port
         );
         axum_server::bind_rustls(address.parse::<std::net::SocketAddr>().unwrap(), tls)
-            .serve(router(state).into_make_service())
+            .serve(router(state).into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await
             .unwrap();
     } else {
@@ -234,12 +242,15 @@ pub(crate) async fn run() {
             "Workspace available at http://localhost:{}/workspace",
             config.port
         );
-        axum::serve(listener, router(state))
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
-            })
-            .await
-            .unwrap();
+        axum::serve(
+            listener,
+            router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await
+        .unwrap();
     }
     if let Some(child) = vite.as_mut() {
         let _ = child.kill().await;

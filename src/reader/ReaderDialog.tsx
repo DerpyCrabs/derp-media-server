@@ -1,5 +1,6 @@
 import { useBrowserHistory } from '../browser-history'
 import {
+  DEFAULT_READER_POSITION,
   type ReaderDefaultAction,
   type ReaderFitMode,
   type ReaderPosition,
@@ -7,6 +8,7 @@ import {
   type ReaderViewMode,
 } from '@/lib/reader-position'
 import { MediaType, type FileItem } from '@/lib/types'
+import { ApiError } from '@/lib/api'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Settings from 'lucide-solid/icons/settings'
@@ -28,6 +30,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type Setter,
 } from 'solid-js'
 import { Portal } from 'solid-js/web'
@@ -44,10 +47,12 @@ import {
   DEFAULT_READER_PREFERENCES,
   loadReaderPreferences,
   loadSyncedReaderState,
+  mergeReaderPreferenceChanges,
   saveReaderPreferences,
   saveSyncedReaderState,
   type BookAppearance,
   type ReaderAiDetail,
+  type ReaderPreferences,
   type ReaderSyncedState,
 } from './reader-state-client'
 
@@ -68,7 +73,10 @@ type ReaderPage = {
 const basename = (path: string) => path.split(/[/\\]/).filter(Boolean).at(-1) ?? path
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
 const naturalCompare = (left: FileItem, right: FileItem) =>
-  left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' })
+  left.name.localeCompare(right.name, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  })
 const estimatedPageBlockHeight = (page: ReaderPage | undefined, zoom: number) =>
   (page?.height ?? 900) * zoom + 44
 const estimateOffsetForPage = (pages: ReaderPage[], pageIndex: number, zoom: number) =>
@@ -88,7 +96,10 @@ const loadImageSize = (source: string) =>
   new Promise<{ width: number; height: number }>((resolve) => {
     const image = new Image()
     image.onload = () =>
-      resolve({ width: image.naturalWidth || 900, height: image.naturalHeight || 1200 })
+      resolve({
+        width: image.naturalWidth || 900,
+        height: image.naturalHeight || 1200,
+      })
     image.onerror = () => resolve({ width: 900, height: 1200 })
     image.src = source
   })
@@ -104,7 +115,10 @@ function PdfPage(props: {
   let host!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   const [near, setNear] = createSignal(false)
-  const [size, setSize] = createSignal({ width: props.page.width, height: props.page.height })
+  const [size, setSize] = createSignal({
+    width: props.page.width,
+    height: props.page.height,
+  })
 
   onMount(() => {
     const observer = new IntersectionObserver(
@@ -330,13 +344,21 @@ function RegionLayer(props: {
       data-testid='region-layer'
       class='absolute inset-0'
       classList={{ 'cursor-crosshair': props.active }}
-      style={{ 'pointer-events': props.active ? 'auto' : 'none', 'z-index': props.active ? 5 : 2 }}
+      style={{
+        'pointer-events': props.active ? 'auto' : 'none',
+        'z-index': props.active ? 5 : 2,
+      }}
       onPointerDown={(event) => {
         if (!props.active) return
         const next = point(event)
         event.currentTarget.setPointerCapture(event.pointerId)
         setCommittedRegion(null)
-        setDrag({ pointerId: event.pointerId, startX: next.x, startY: next.y, ...next })
+        setDrag({
+          pointerId: event.pointerId,
+          startX: next.x,
+          startY: next.y,
+          ...next,
+        })
       }}
       onPointerMove={(event) => {
         if (!drag()) return
@@ -384,6 +406,11 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   let preferenceTimer: number | undefined
   let saveQueue: Promise<void> = Promise.resolve()
   let preferenceQueue: Promise<void> = Promise.resolve()
+  let preferenceBase: ReaderPreferences = {
+    ...DEFAULT_READER_PREFERENCES,
+    bookAppearance: { ...DEFAULT_READER_PREFERENCES.bookAppearance },
+  }
+  let preferenceGeneration = 0
   let closePersisted = false
   let selectionId = 0
   let pendingScrollTop = 0
@@ -417,6 +444,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     ...DEFAULT_BOOK_APPEARANCE,
   })
   const [preferencesReady, setPreferencesReady] = createSignal(false)
+  const [preferencesRevision, setPreferencesRevision] = createSignal(0)
   const [stateRevision, setStateRevision] = createSignal(0)
   const [stateFingerprint, setStateFingerprint] = createSignal('')
   const [syncBlocked, setSyncBlocked] = createSignal(false)
@@ -471,18 +499,53 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   const renderedPages = createMemo(() =>
     viewMode() === 'page' ? pages().slice(currentPage(), currentPage() + 1) : pages(),
   )
-  const persistPreferences = () => {
-    const preferences = {
-      bookAppearance: bookAppearance(),
-      selectionMode: preferredSelectionMode(),
-      defaultAction: defaultAction(),
-      aiDetail: aiDetail(),
-      outlineOpen: outlineOpen(),
+  const readPreferences = (): ReaderPreferences => ({
+    bookAppearance: { ...bookAppearance() },
+    selectionMode: preferredSelectionMode(),
+    defaultAction: defaultAction(),
+    aiDetail: aiDetail(),
+    outlineOpen: outlineOpen(),
+  })
+  const capturePreferences = () => ({
+    desired: readPreferences(),
+    generation: ++preferenceGeneration,
+  })
+  const persistPreferences = (snapshot = capturePreferences()) => {
+    const { desired, generation } = snapshot
+    const save = async () => {
+      if (generation !== preferenceGeneration) return
+      if (JSON.stringify(desired) === JSON.stringify(preferenceBase)) return
+      const base = preferenceBase
+      let preferences = desired
+      let baseRevision = preferencesRevision()
+      try {
+        const revision = await saveReaderPreferences(props.shareContext, preferences, baseRevision)
+        setPreferencesRevision(revision)
+        preferenceBase = preferences
+        return
+      } catch (reason) {
+        if (!(reason instanceof ApiError) || reason.status !== 409 || props.shareContext)
+          throw reason
+      }
+
+      const latest = await loadReaderPreferences(props.shareContext)
+      preferences = mergeReaderPreferenceChanges(latest.preferences, base, desired)
+      baseRevision = latest.revision
+      const revision = await saveReaderPreferences(props.shareContext, preferences, baseRevision)
+      setPreferencesRevision(revision)
+      preferenceBase = preferences
+      if (
+        generation === preferenceGeneration &&
+        JSON.stringify(preferences) !== JSON.stringify(desired)
+      ) {
+        setBookAppearance(preferences.bookAppearance)
+        setPreferredSelectionMode(preferences.selectionMode)
+        setDefaultAction(preferences.defaultAction)
+        setAiDetail(preferences.aiDetail)
+        setOutlineOpen(preferences.outlineOpen)
+      }
     }
-    const queued = preferenceQueue.then(
-      () => saveReaderPreferences(props.shareContext, preferences),
-      () => saveReaderPreferences(props.shareContext, preferences),
-    )
+    const queued = preferenceQueue.then(save, save)
     preferenceQueue = queued.catch(() => {})
     return queued
   }
@@ -573,6 +636,10 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   createEffect(() => {
     const activePath = path()
     const kind = sourceKind()
+    if (untrack(preferencesReady)) {
+      window.clearTimeout(preferenceTimer)
+      void persistPreferences(untrack(capturePreferences)).catch(() => {})
+    }
     setPages([])
     setPdfDocument(undefined)
     setBookDocument((current) => {
@@ -592,17 +659,29 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     pendingBookProgress = 0
     pendingOutlineExpanded = undefined
     setSyncBlocked(false)
+    pendingScrollTop = DEFAULT_READER_POSITION.scrollTop
+    applyPosition(DEFAULT_READER_POSITION)
     setPreferencesReady(false)
+    setStateRevision(0)
+    setStateFingerprint('')
     if (!activePath) return
     setLoading(true)
     let cancelled = false
     let pdfTask: ReturnType<typeof pdfjs.getDocument> | undefined
     void Promise.all([
       loadSyncedReaderState(activePath, props.shareContext).catch(() => null),
-      loadReaderPreferences(props.shareContext).catch(() => ({ ...DEFAULT_READER_PREFERENCES })),
+      preferenceQueue
+        .then(() => loadReaderPreferences(props.shareContext))
+        .catch(() => ({
+          preferences: preferenceBase,
+          revision: preferencesRevision(),
+        })),
     ])
-      .then(async ([saved, preferences]) => {
+      .then(async ([saved, preferenceEnvelope]) => {
         if (cancelled) return
+        const preferences = preferenceEnvelope.preferences
+        setPreferencesRevision(preferenceEnvelope.revision)
+        preferenceBase = preferences
         if (saved) {
           setStateRevision(saved.revision)
           setStateFingerprint(saved.fingerprint)
@@ -665,7 +744,9 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         }
 
         if (kind === 'book') {
-          const response = await fetch(mediaUrl(activePath), { credentials: 'include' })
+          const response = await fetch(mediaUrl(activePath), {
+            credentials: 'include',
+          })
           if (!response.ok) throw new Error(`Could not open book (${response.status})`)
           const parsed = await parseBook(await response.arrayBuffer(), basename(activePath))
           if (cancelled) return
@@ -711,7 +792,10 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
           return
         }
 
-        pdfTask = pdfjs.getDocument({ url: mediaUrl(activePath), withCredentials: true })
+        pdfTask = pdfjs.getDocument({
+          url: mediaUrl(activePath),
+          withCredentials: true,
+        })
         const loadedPdf = await pdfTask.promise
         const loaded = await Promise.all(
           Array.from({ length: loadedPdf.numPages }, async (_, index) => {
@@ -865,13 +949,9 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
 
   createEffect(() => {
     if (!preferencesReady()) return
-    bookAppearance()
-    preferredSelectionMode()
-    defaultAction()
-    aiDetail()
-    outlineOpen()
+    const snapshot = capturePreferences()
     window.clearTimeout(preferenceTimer)
-    preferenceTimer = window.setTimeout(() => void persistPreferences(), 350)
+    preferenceTimer = window.setTimeout(() => void persistPreferences(snapshot), 350)
     onCleanup(() => window.clearTimeout(preferenceTimer))
   })
 
@@ -1117,7 +1197,10 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         aria-modal='true'
         aria-label={`Reader: ${title()}`}
         class='inset-0 flex flex-col bg-neutral-900 text-white'
-        classList={{ 'fixed z-[70]': !props.embedded, 'absolute z-20': !!props.embedded }}
+        classList={{
+          'fixed z-[70]': !props.embedded,
+          'absolute z-20': !!props.embedded,
+        }}
         data-testid='reader-dialog'
         onPointerDown={() => (activeReaderRoot = readerRoot)}
         onFocusIn={() => (activeReaderRoot = readerRoot)}

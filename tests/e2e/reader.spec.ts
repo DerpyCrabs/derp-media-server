@@ -576,6 +576,10 @@ test.describe('Reader', () => {
 
   test('ports Define Markdown and plain Translate selection actions', async ({ page }) => {
     let turnRequests = 0
+    const archivedSessions: string[] = []
+    await page.route('**/api/hermes/capabilities', async (route) => {
+      await route.fulfill({ json: { compatible: true, readerAi: true } })
+    })
     await page.addInitScript(() => {
       class MockEventSource {
         static latest: MockEventSource | undefined
@@ -595,11 +599,13 @@ test.describe('Reader', () => {
           new MessageEvent('message', { data: JSON.stringify(payload) }),
         )
     })
-    await page.route('**/api/hermes/turn', async (route) => {
+    await page.route('**/api/hermes/reader-turn', async (route) => {
       turnRequests += 1
       await route.fulfill({ json: { sessionId: `reader-e2e-${turnRequests}` } })
     })
-    await page.route('**/api/hermes/archive', async (route) => {
+    await page.route('**/api/hermes/reader-archive', async (route) => {
+      const body = route.request().postDataJSON() as { sessionId?: string }
+      if (body.sessionId) archivedSessions.push(body.sessionId)
       await route.fulfill({ json: { archived: true } })
     })
 
@@ -612,7 +618,8 @@ test.describe('Reader', () => {
       const target = window as typeof window & { __emitReaderAi?: (payload: unknown) => void }
       target.__emitReaderAi?.({
         params: {
-          durable_session_id: 'reader-e2e-1',
+          durable_session_id: 'reader-e2e-1-rotated',
+          previous_durable_session_id: 'reader-e2e-1',
           type: 'message.complete',
           payload: { text: '**Meaning:** definition result' },
         },
@@ -621,6 +628,7 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('reader-ai-result').locator('.cm-md-strong')).toHaveText(
       'Meaning:',
     )
+    await expect.poll(() => archivedSessions).toContain('reader-e2e-1-rotated')
 
     await page.getByTestId('reader-translate').click()
     await expect.poll(() => turnRequests).toBe(2)
@@ -640,6 +648,9 @@ test.describe('Reader', () => {
 
   test('ignores stale AI output when selection changes during a request', async ({ page }) => {
     let turnRequests = 0
+    await page.route('**/api/hermes/capabilities', async (route) => {
+      await route.fulfill({ json: { compatible: true, readerAi: true } })
+    })
     await page.addInitScript(() => {
       class MockEventSource {
         static instances: MockEventSource[] = []
@@ -661,15 +672,17 @@ test.describe('Reader', () => {
           new MessageEvent('message', { data: JSON.stringify(payload) }),
         )
     })
-    await page.route('**/api/hermes/turn', async (route) => {
+    await page.route('**/api/hermes/reader-turn', async (route) => {
       turnRequests += 1
       await route.fulfill({ json: { sessionId: `reader-stale-${turnRequests}` } })
     })
-    await page.route('**/api/hermes/archive', async (route) => {
+    await page.route('**/api/hermes/reader-archive', async (route) => {
       await route.fulfill({ json: { archived: true } })
     })
 
     await openSamplePdf(page)
+    await page.getByTestId('reader-settings-button').click()
+    await page.getByRole('button', { name: 'define', exact: true }).click()
     await selectPdfLines(page, 'Selectable reader text')
     await expect.poll(() => turnRequests).toBe(1)
     await selectPdfLines(page, 'Second selected line')

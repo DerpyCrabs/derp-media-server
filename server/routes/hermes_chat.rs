@@ -6,8 +6,9 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::DefaultBodyLimit,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Path, Query, Request, State},
+    http::{HeaderMap, header, uri::Authority},
+    middleware::{self, Next},
     response::{
         IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
@@ -17,7 +18,59 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::time::Duration;
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
+
+fn loopback_host(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<Authority>().ok())
+        .is_some_and(|authority| {
+            let host = authority.host().trim_matches(['[', ']']);
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|address| address.is_loopback())
+        })
+}
+
+pub(crate) fn hermes_access_allowed(
+    auth_enabled: bool,
+    peer: Option<SocketAddr>,
+    headers: &HeaderMap,
+) -> bool {
+    auth_enabled
+        || (peer.is_some_and(|address| address.ip().is_loopback()) && loopback_host(headers))
+}
+
+pub(crate) fn require_hermes_access(
+    state: &crate::app::AppState,
+    peer: Option<SocketAddr>,
+    headers: &HeaderMap,
+) -> AppResult<()> {
+    if hermes_access_allowed(state.config.auth.enabled, peer, headers) {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "Hermes integration is only available locally unless authentication is enabled",
+        ))
+    }
+}
+
+async fn hermes_access_middleware(
+    State(state): State<Shared>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|value| value.0);
+    match require_hermes_access(&state, peer, request.headers()) {
+        Ok(()) => next.run(request).await,
+        Err(error) => error.into_response(),
+    }
+}
 
 fn hub(state: &Shared) -> AppResult<&dyn crate::hermes::HermesTransport> {
     state
@@ -44,6 +97,7 @@ async fn messages(
     Query(input): Query<MessagesQuery>,
 ) -> AppResult<Json<Value>> {
     let hub = hub(&state)?;
+    let path = crate::hermes::session_api_path(&id, "/messages")?;
     let mut query = profile_query(hub);
     query.extend([
         (
@@ -53,18 +107,14 @@ async fn messages(
         ("offset", input.offset.unwrap_or(0).to_string()),
         ("order", "latest".into()),
     ]);
-    Ok(Json(
-        hub.get(&format!("api/sessions/{id}/messages"), &query)
-            .await?,
-    ))
+    Ok(Json(hub.get(&path, &query).await?))
 }
 
 async fn session(State(state): State<Shared>, Path(id): Path<String>) -> AppResult<Json<Value>> {
     let gateway = hub(&state)?;
-    let mut detail = gateway
-        .get(&format!("api/sessions/{id}"), &profile_query(gateway))
-        .await?;
-    let owned = state.hermes_runtime_ids.lock().await.contains_key(&id);
+    let path = crate::hermes::session_api_path(&id, "")?;
+    let mut detail = gateway.get(&path, &profile_query(gateway)).await?;
+    let owned = state.hermes_active_ids.lock().await.contains(&id);
     let active = detail
         .get("is_active")
         .or_else(|| detail.get("active"))
@@ -120,14 +170,8 @@ async fn export_session(
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
     let gateway = hub(&state)?;
-    Ok(Json(
-        gateway
-            .get(
-                &format!("api/sessions/{id}/export"),
-                &profile_query(gateway),
-            )
-            .await?,
-    ))
+    let path = crate::hermes::session_api_path(&id, "/export")?;
+    Ok(Json(gateway.get(&path, &profile_query(gateway)).await?))
 }
 
 async fn model_options(State(state): State<Shared>) -> AppResult<Json<Value>> {
@@ -160,7 +204,7 @@ async fn capabilities(State(state): State<Shared>) -> AppResult<Json<Value>> {
         .unwrap_or(120)
         .clamp(5, 600);
     Ok(Json(
-        json!({"compatible":true,"transcription":transcription,"playback":playback,"maxRecordingSeconds":max_recording_seconds}),
+        json!({"compatible":true,"transcription":transcription,"playback":playback,"readerAi":false,"maxRecordingSeconds":max_recording_seconds}),
     ))
 }
 
@@ -239,19 +283,150 @@ fn decode_attachment(value: &str) -> AppResult<Vec<u8>> {
     Ok(bytes)
 }
 
-async fn is_externally_active(state: &Shared, stored_id: &str) -> AppResult<bool> {
-    if state
-        .hermes_runtime_ids
-        .lock()
-        .await
-        .contains_key(stored_id)
+fn gateway_session_id(value: Option<&str>, missing: &'static str) -> AppResult<String> {
+    let id = value.ok_or_else(|| AppError::internal(missing))?;
+    crate::hermes::validate_opaque_id(id)
+        .map_err(|_| AppError::internal("Hermes returned an invalid session id"))?;
+    Ok(id.to_string())
+}
+
+fn prompt_error_allows_resume(error: &AppError) -> bool {
+    error.1.to_ascii_lowercase().contains("session not found")
+}
+
+fn valid_event_id(value: Option<&str>) -> Option<String> {
+    value
+        .filter(|id| crate::hermes::validate_opaque_id(id).is_ok())
+        .map(str::to_string)
+}
+
+async fn normalize_hermes_event(
+    runtime_ids: &tokio::sync::Mutex<HashMap<String, String>>,
+    active_ids: &tokio::sync::Mutex<std::collections::HashSet<String>>,
+    mut value: Value,
+) -> Value {
+    let kind = value
+        .pointer("/params/type")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    if kind.as_deref() == Some("transport.disconnected") {
+        runtime_ids.lock().await.clear();
+        active_ids.lock().await.clear();
+        return value;
+    }
+
+    let runtime = valid_event_id(value.pointer("/params/session_id").and_then(Value::as_str));
+    let supplied_durable = valid_event_id(
+        value
+            .pointer("/params/durable_session_id")
+            .and_then(Value::as_str),
+    );
+    let continuation = valid_event_id(
+        value
+            .pointer("/params/payload/stored_session_id")
+            .or_else(|| value.pointer("/params/stored_session_id"))
+            .and_then(Value::as_str),
+    );
+    let terminal = matches!(kind.as_deref(), Some("message.complete" | "error"))
+        || (kind.as_deref() == Some("session.info")
+            && value
+                .pointer("/params/payload/running")
+                .and_then(Value::as_bool)
+                == Some(false));
+
+    let mut ids = runtime_ids.lock().await;
+    let previous = runtime.as_ref().and_then(|runtime| {
+        ids.iter()
+            .find_map(|(durable, live)| (live == runtime).then(|| durable.clone()))
+    });
+    let durable = continuation
+        .clone()
+        .or(supplied_durable)
+        .or_else(|| previous.clone());
+    if let (Some(runtime), Some(next)) = (&runtime, &continuation)
+        && previous.as_ref() != Some(next)
     {
+        ids.retain(|_, live| live != runtime);
+        ids.insert(next.clone(), runtime.clone());
+        let mut active = active_ids.lock().await;
+        if previous.as_ref().is_some_and(|old| active.remove(old)) {
+            active.insert(next.clone());
+        }
+    }
+    if terminal {
+        let mut active = active_ids.lock().await;
+        if let Some(durable) = durable.as_ref() {
+            active.remove(durable);
+        }
+        if let Some(runtime) = runtime.as_ref() {
+            let owned = ids
+                .iter()
+                .filter(|(_, live)| *live == runtime)
+                .map(|(durable, _)| durable.clone())
+                .collect::<Vec<_>>();
+            for durable in owned {
+                active.remove(&durable);
+            }
+        }
+    }
+    drop(ids);
+
+    if let Some(params) = value.get_mut("params").and_then(Value::as_object_mut) {
+        if let Some(previous) = previous {
+            params.insert(
+                "previous_durable_session_id".into(),
+                Value::String(previous),
+            );
+        }
+        if let Some(durable) = durable {
+            params.insert("durable_session_id".into(), Value::String(durable));
+        }
+    }
+    value
+}
+
+async fn publish_hermes_event(state: &Shared, value: Value) {
+    let value =
+        normalize_hermes_event(&state.hermes_runtime_ids, &state.hermes_active_ids, value).await;
+    let _ = state.hermes_events.send(value);
+}
+
+pub(crate) fn start_event_bridge(
+    state: &Shared,
+    mut receiver: tokio::sync::broadcast::Receiver<Value>,
+) {
+    let state = std::sync::Arc::downgrade(state);
+    tokio::spawn(async move {
+        loop {
+            match receiver.recv().await {
+                Ok(value) => {
+                    let Some(state) = state.upgrade() else {
+                        break;
+                    };
+                    publish_hermes_event(&state, value).await;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    if let Some(state) = state.upgrade() {
+                        state.hermes_runtime_ids.lock().await.clear();
+                        state.hermes_active_ids.lock().await.clear();
+                    } else {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+async fn is_externally_active(state: &Shared, stored_id: &str) -> AppResult<bool> {
+    crate::hermes::validate_opaque_id(stored_id)?;
+    if state.hermes_active_ids.lock().await.contains(stored_id) {
         return Ok(false);
     }
     let hub = hub(state)?;
-    let detail = hub
-        .get(&format!("api/sessions/{stored_id}"), &profile_query(hub))
-        .await?;
+    let path = crate::hermes::session_api_path(stored_id, "")?;
+    let detail = hub.get(&path, &profile_query(hub)).await?;
     Ok(detail
         .get("is_active")
         .or_else(|| detail.get("active"))
@@ -264,16 +439,17 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
     if text.is_empty() {
         return Err(AppError::bad("Prompt is required"));
     }
-    if let Some(stored_id) = body.session_id.as_deref()
-        && !body.takeover
-        && is_externally_active(&state, stored_id).await?
-    {
-        return Err(AppError::conflict(
-            "Hermes session is active elsewhere; confirm takeover",
-        ));
+    if let Some(stored_id) = body.session_id.as_deref() {
+        crate::hermes::validate_opaque_id(stored_id)?;
+        if !body.takeover && is_externally_active(&state, stored_id).await? {
+            return Err(AppError::conflict(
+                "Hermes session is active elsewhere; confirm takeover",
+            ));
+        }
     }
     let hub = hub(&state)?;
     let profile = hub.profile().map(str::to_string);
+    let source = "derp-media-server";
     let (runtime_id, stored_id) = if let Some(stored_id) = body.session_id {
         if let Some(runtime) = state
             .hermes_runtime_ids
@@ -288,22 +464,23 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
                 .rpc(
                     "session.resume",
                     json!({
-                        "session_id":stored_id, "cols":96, "source":"derp-media-server",
+                        "session_id":stored_id, "cols":96, "source":source,
                         "omit_messages":true, "profile":profile,
                     }),
                 )
                 .await?;
-            let runtime = resumed
-                .get("session_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| AppError::internal("Hermes resume omitted runtime session id"))?
-                .to_string();
-            let durable = resumed
-                .get("session_key")
-                .or_else(|| resumed.get("resumed"))
-                .and_then(Value::as_str)
-                .unwrap_or(&stored_id)
-                .to_string();
+            let runtime = gateway_session_id(
+                resumed.get("session_id").and_then(Value::as_str),
+                "Hermes resume omitted runtime session id",
+            )?;
+            let durable = gateway_session_id(
+                resumed
+                    .get("session_key")
+                    .or_else(|| resumed.get("resumed"))
+                    .and_then(Value::as_str)
+                    .or(Some(stored_id.as_str())),
+                "Hermes resume omitted durable session id",
+            )?;
             state
                 .hermes_runtime_ids
                 .lock()
@@ -316,22 +493,23 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
             .rpc(
                 "session.create",
                 json!({
-                    "cols":96, "source":"derp-media-server", "cwd":body.cwd.unwrap_or_default(),
+                    "cols":96, "source":source, "cwd":body.cwd.unwrap_or_default(),
                     "profile":profile,
                 }),
             )
             .await?;
-        let runtime = created
-            .get("session_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::internal("Hermes create omitted runtime session id"))?
-            .to_string();
-        let durable = created
-            .get("stored_session_id")
-            .or_else(|| created.get("session_key"))
-            .and_then(Value::as_str)
-            .unwrap_or(&runtime)
-            .to_string();
+        let runtime = gateway_session_id(
+            created.get("session_id").and_then(Value::as_str),
+            "Hermes create omitted runtime session id",
+        )?;
+        let durable = gateway_session_id(
+            created
+                .get("stored_session_id")
+                .or_else(|| created.get("session_key"))
+                .and_then(Value::as_str)
+                .or(Some(runtime.as_str())),
+            "Hermes create omitted durable session id",
+        )?;
         state
             .hermes_runtime_ids
             .lock()
@@ -381,8 +559,12 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
             prompt_text.push_str(reference);
         }
     }
+    state
+        .hermes_active_ids
+        .lock()
+        .await
+        .insert(stored_id.clone());
     let gateway = state.hermes.as_ref().expect("checked above").clone();
-    let events = state.hermes_events.clone();
     let durable_for_event = stored_id.clone();
     let runtime_ids = state.clone();
     let text = prompt_text;
@@ -393,17 +575,14 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
                 json!({"session_id":runtime_id,"text":text.clone()}),
             )
             .await;
-        let result = if first.as_ref().err().is_some_and(|error| {
-            error.1.to_ascii_lowercase().contains("session not found")
-                || error.1.to_ascii_lowercase().contains("timed out")
-        }) {
+        let result = if first.as_ref().err().is_some_and(prompt_error_allows_resume) {
             match gateway
                 .rpc(
                     "session.resume",
                     json!({
                         "session_id":durable_for_event,
                         "cols":96,
-                        "source":"derp-media-server",
+                        "source":source,
                         "omit_messages":true,
                         "profile":profile,
                     }),
@@ -411,12 +590,11 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
                 .await
             {
                 Ok(resumed) => {
-                    let runtime = resumed
-                        .get("session_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
-                    if !runtime.is_empty() {
+                    let runtime = gateway_session_id(
+                        resumed.get("session_id").and_then(Value::as_str),
+                        "Hermes resume omitted runtime session id",
+                    );
+                    if let Ok(runtime) = runtime {
                         runtime_ids
                             .hermes_runtime_ids
                             .lock()
@@ -435,12 +613,16 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
             first
         };
         if let Err(error) = result {
-            let _ = events.send(json!({
-                "jsonrpc":"2.0", "method":"event", "params":{
-                    "type":"error", "durable_session_id":durable_for_event,
-                    "payload":{"message":error.1},
-                },
-            }));
+            publish_hermes_event(
+                &runtime_ids,
+                json!({
+                    "jsonrpc":"2.0", "method":"event", "params":{
+                        "type":"error", "durable_session_id":durable_for_event,
+                        "payload":{"message":error.1},
+                    },
+                }),
+            )
+            .await;
         }
     });
     Ok(Json(json!({"sessionId":stored_id,"accepted":true})))
@@ -449,6 +631,7 @@ async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
 
     #[test]
     fn attachment_limit_is_exactly_sixteen_mib() {
@@ -467,6 +650,104 @@ mod tests {
         let file = quoted_reference("file", std::path::Path::new("C:/Media/a file.txt")).unwrap();
         assert_eq!(file, "@file:`C:/Media/a file.txt`");
         assert!(quoted_reference("folder", std::path::Path::new("C:/bad`name")).is_err());
+    }
+
+    #[test]
+    fn optional_auth_only_allows_direct_loopback_peers() {
+        let local_v4 = Some("127.0.0.1:4000".parse().unwrap());
+        let local_v6 = Some("[::1]:4000".parse().unwrap());
+        let remote = Some("192.0.2.10:4000".parse().unwrap());
+        let localhost = HeaderMap::from_iter([(header::HOST, "localhost:3000".parse().unwrap())]);
+        let loopback_v6 = HeaderMap::from_iter([(header::HOST, "[::1]:3000".parse().unwrap())]);
+        let public_host = HeaderMap::from_iter([(header::HOST, "media.example".parse().unwrap())]);
+        assert!(hermes_access_allowed(false, local_v4, &localhost));
+        assert!(hermes_access_allowed(false, local_v6, &loopback_v6));
+        assert!(!hermes_access_allowed(false, remote, &localhost));
+        assert!(!hermes_access_allowed(false, local_v4, &public_host));
+        assert!(!hermes_access_allowed(false, None, &localhost));
+        assert!(hermes_access_allowed(true, remote, &public_host));
+    }
+
+    #[test]
+    fn timeout_is_not_treated_as_safe_to_retry() {
+        assert!(!prompt_error_allows_resume(&AppError::internal(
+            "Hermes gateway RPC timed out"
+        )));
+        assert!(prompt_error_allows_resume(&AppError(
+            StatusCode::BAD_REQUEST,
+            "Session not found".into()
+        )));
+    }
+
+    #[tokio::test]
+    async fn event_mapping_rotates_once_then_expires_on_completion() {
+        let ids =
+            tokio::sync::Mutex::new(HashMap::from([("durable-old".into(), "runtime-1".into())]));
+        let active =
+            tokio::sync::Mutex::new(std::collections::HashSet::from(["durable-old".to_string()]));
+        let rotated = normalize_hermes_event(
+            &ids,
+            &active,
+            json!({"method":"event","params":{
+                "type":"message.delta","session_id":"runtime-1",
+                "payload":{"stored_session_id":"durable-new","text":"a"}
+            }}),
+        )
+        .await;
+        assert_eq!(
+            rotated.pointer("/params/previous_durable_session_id"),
+            Some(&Value::String("durable-old".into()))
+        );
+        assert_eq!(
+            rotated.pointer("/params/durable_session_id"),
+            Some(&Value::String("durable-new".into()))
+        );
+        assert_eq!(
+            ids.lock().await.get("durable-new").map(String::as_str),
+            Some("runtime-1")
+        );
+        assert_eq!(
+            active.lock().await.iter().next().map(String::as_str),
+            Some("durable-new")
+        );
+
+        let completed = normalize_hermes_event(
+            &ids,
+            &active,
+            json!({"method":"event","params":{
+                "type":"message.complete","session_id":"runtime-1","payload":{}
+            }}),
+        )
+        .await;
+        assert_eq!(
+            completed.pointer("/params/durable_session_id"),
+            Some(&Value::String("durable-new".into()))
+        );
+        assert_eq!(
+            ids.lock().await.get("durable-new").map(String::as_str),
+            Some("runtime-1")
+        );
+        assert!(active.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn disconnect_expires_all_owned_sessions() {
+        let ids = tokio::sync::Mutex::new(HashMap::from([
+            ("one".into(), "runtime-1".into()),
+            ("two".into(), "runtime-2".into()),
+        ]));
+        let active = tokio::sync::Mutex::new(std::collections::HashSet::from([
+            "one".to_string(),
+            "two".to_string(),
+        ]));
+        normalize_hermes_event(
+            &ids,
+            &active,
+            json!({"method":"event","params":{"type":"transport.disconnected"}}),
+        )
+        .await;
+        assert!(ids.lock().await.is_empty());
+        assert!(active.lock().await.is_empty());
     }
 }
 
@@ -491,17 +772,31 @@ struct BranchBody {
     count: Option<usize>,
 }
 
+async fn attached_runtime_id(
+    state: &Shared,
+    durable: &str,
+    missing: &'static str,
+) -> AppResult<String> {
+    crate::hermes::validate_opaque_id(durable)?;
+    state
+        .hermes_runtime_ids
+        .lock()
+        .await
+        .get(durable)
+        .cloned()
+        .ok_or_else(|| AppError::conflict(missing))
+}
+
 async fn branch(
     State(state): State<Shared>,
     Json(body): Json<BranchBody>,
 ) -> AppResult<Json<Value>> {
-    let runtime = state
-        .hermes_runtime_ids
-        .lock()
-        .await
-        .get(&body.session_id)
-        .cloned()
-        .ok_or_else(|| AppError::conflict("Open the Hermes session before branching it"))?;
+    let runtime = attached_runtime_id(
+        &state,
+        &body.session_id,
+        "Open the Hermes session before branching it",
+    )
+    .await?;
     let result = hub(&state)?
         .rpc(
             "session.branch",
@@ -512,11 +807,14 @@ async fn branch(
         result.get("stored_session_id").and_then(Value::as_str),
         result.get("session_id").and_then(Value::as_str),
     ) {
+        let stored = gateway_session_id(Some(stored), "Hermes branch omitted durable session id")?;
+        let runtime =
+            gateway_session_id(Some(runtime), "Hermes branch omitted runtime session id")?;
         state
             .hermes_runtime_ids
             .lock()
             .await
-            .insert(stored.to_string(), runtime.to_string());
+            .insert(stored, runtime);
     }
     Ok(Json(result))
 }
@@ -640,14 +938,19 @@ async fn rewind(
     if text.is_empty() {
         return Err(AppError::bad("Replacement prompt is required"));
     }
-    let runtime = state
-        .hermes_runtime_ids
+    let runtime = attached_runtime_id(
+        &state,
+        &body.session_id,
+        "Open the Hermes session before rewinding it",
+    )
+    .await?;
+    let gateway = hub(&state)?;
+    state
+        .hermes_active_ids
         .lock()
         .await
-        .get(&body.session_id)
-        .cloned()
-        .ok_or_else(|| AppError::conflict("Open the Hermes session before rewinding it"))?;
-    let result = hub(&state)?
+        .insert(body.session_id.clone());
+    let result = gateway
         .rpc(
             "prompt.submit",
             json!({
@@ -658,8 +961,18 @@ async fn rewind(
                 "confirm_empty_truncate":body.user_ordinal == 0,
             }),
         )
-        .await?;
-    Ok(Json(result))
+        .await;
+    match result {
+        Ok(result) => Ok(Json(result)),
+        Err(error) => {
+            state
+                .hermes_active_ids
+                .lock()
+                .await
+                .remove(&body.session_id);
+            Err(error)
+        }
+    }
 }
 
 async fn rename(
@@ -671,12 +984,10 @@ async fn rename(
         return Err(AppError::bad("Session title is required"));
     }
     let gateway = hub(&state)?;
+    let path = crate::hermes::session_api_path(&body.session_id, "")?;
     Ok(Json(
         gateway
-            .patch(
-                &format!("api/sessions/{}", body.session_id),
-                json!({"title":title,"profile":gateway.profile()}),
-            )
+            .patch(&path, json!({"title":title,"profile":gateway.profile()}))
             .await?,
     ))
 }
@@ -686,13 +997,12 @@ async fn steer(State(state): State<Shared>, Json(body): Json<SteerBody>) -> AppR
     if text.is_empty() {
         return Err(AppError::bad("Steer text is required"));
     }
-    let runtime = state
-        .hermes_runtime_ids
-        .lock()
-        .await
-        .get(&body.session_id)
-        .cloned()
-        .ok_or_else(|| AppError::conflict("Hermes session is not attached in this server"))?;
+    let runtime = attached_runtime_id(
+        &state,
+        &body.session_id,
+        "Hermes session is not attached in this server",
+    )
+    .await?;
     Ok(Json(
         hub(&state)?
             .rpc("session.steer", json!({"session_id":runtime,"text":text}))
@@ -704,13 +1014,12 @@ async fn stop(
     State(state): State<Shared>,
     Json(body): Json<SessionBody>,
 ) -> AppResult<Json<Value>> {
-    let runtime = state
-        .hermes_runtime_ids
-        .lock()
-        .await
-        .get(&body.session_id)
-        .cloned()
-        .ok_or_else(|| AppError::conflict("Hermes session is not attached in this server"))?;
+    let runtime = attached_runtime_id(
+        &state,
+        &body.session_id,
+        "Hermes session is not attached in this server",
+    )
+    .await?;
     Ok(Json(
         hub(&state)?
             .rpc("session.interrupt", json!({"session_id":runtime}))
@@ -723,12 +1032,10 @@ async fn restore(
     Json(body): Json<SessionBody>,
 ) -> AppResult<Json<Value>> {
     let gateway = hub(&state)?;
+    let path = crate::hermes::session_api_path(&body.session_id, "")?;
     Ok(Json(
         gateway
-            .patch(
-                &format!("api/sessions/{}", body.session_id),
-                json!({"archived":false,"profile":gateway.profile()}),
-            )
+            .patch(&path, json!({"archived":false,"profile":gateway.profile()}))
             .await?,
     ))
 }
@@ -738,12 +1045,8 @@ async fn archive(
     Json(body): Json<SessionBody>,
 ) -> AppResult<Json<Value>> {
     let gateway = hub(&state)?;
-    let detail = gateway
-        .get(
-            &format!("api/sessions/{}", body.session_id),
-            &profile_query(gateway),
-        )
-        .await?;
+    let path = crate::hermes::session_api_path(&body.session_id, "")?;
+    let detail = gateway.get(&path, &profile_query(gateway)).await?;
     if detail.get("is_active").and_then(Value::as_bool) == Some(true)
         || detail
             .get("queued_prompt_count")
@@ -757,10 +1060,7 @@ async fn archive(
     }
     Ok(Json(
         gateway
-            .patch(
-                &format!("api/sessions/{}", body.session_id),
-                json!({"archived":true,"profile":gateway.profile()}),
-            )
+            .patch(&path, json!({"archived":true,"profile":gateway.profile()}))
             .await?,
     ))
 }
@@ -780,15 +1080,12 @@ async fn decision(
 ) -> AppResult<Json<Value>> {
     let (method, params) = match body.kind.as_str() {
         "approval" => {
-            let runtime = state
-                .hermes_runtime_ids
-                .lock()
-                .await
-                .get(&body.session_id)
-                .cloned()
-                .ok_or_else(|| {
-                    AppError::conflict("Hermes session is not attached in this server")
-                })?;
+            let runtime = attached_runtime_id(
+                &state,
+                &body.session_id,
+                "Hermes session is not attached in this server",
+            )
+            .await?;
             (
                 "approval.respond",
                 json!({"session_id":runtime,"choice":body.choice}),
@@ -819,28 +1116,7 @@ async fn events(State(state): State<Shared>) -> Response {
     let stream = async_stream::stream! {
         yield Ok::<Event, std::convert::Infallible>(Event::default().json_data(json!({"type":"connected","timestamp":timestamp_ms()})).unwrap());
         loop { match receiver.recv().await {
-            Ok(mut value) => {
-                let runtime = value.get("params").and_then(|p| p.get("session_id"))
-                    .and_then(Value::as_str).map(str::to_string);
-                if let Some(runtime) = runtime {
-                    let previous = state.hermes_runtime_ids.lock().await.iter()
-                        .find_map(|(durable, live)| (live == &runtime).then(|| durable.clone()));
-                    let continuation = value.pointer("/params/payload/stored_session_id")
-                        .or_else(|| value.pointer("/params/stored_session_id"))
-                        .and_then(Value::as_str).map(str::to_string);
-                    let durable = continuation.clone().or_else(|| previous.clone());
-                    if let Some(next) = continuation.filter(|next| previous.as_ref() != Some(next)) {
-                        let mut ids = state.hermes_runtime_ids.lock().await;
-                        if let Some(old) = &previous { ids.remove(old); }
-                        ids.insert(next, runtime);
-                    }
-                    if let Some(params) = value.get_mut("params").and_then(Value::as_object_mut) {
-                        if let Some(previous) = previous { params.insert("previous_durable_session_id".into(), Value::String(previous)); }
-                        if let Some(durable) = durable { params.insert("durable_session_id".into(), Value::String(durable)); }
-                    }
-                }
-                yield Ok(Event::default().json_data(value).unwrap())
-            },
+            Ok(value) => yield Ok(Event::default().json_data(value).unwrap()),
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
             Err(_) => break,
         }}
@@ -854,7 +1130,7 @@ async fn events(State(state): State<Shared>) -> Response {
         .into_response()
 }
 
-pub fn router() -> Router<Shared> {
+pub fn router(state: Shared) -> Router<Shared> {
     Router::new()
         .route("/api/hermes/sessions/{id}/messages", get(messages))
         .route("/api/hermes/sessions/{id}", get(session))
@@ -877,4 +1153,8 @@ pub fn router() -> Router<Shared> {
         .route("/api/hermes/decision", post(decision))
         .route("/api/hermes/events", get(events))
         .layer(DefaultBodyLimit::max(128 * 1024 * 1024))
+        .route_layer(middleware::from_fn_with_state(
+            state,
+            hermes_access_middleware,
+        ))
 }

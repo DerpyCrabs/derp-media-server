@@ -9,14 +9,14 @@ use crate::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Multipart, Query, State},
-    http::{HeaderValue, header},
+    extract::{ConnectInfo, DefaultBodyLimit, Multipart, Query, State},
+    http::{HeaderMap, HeaderValue, header},
     response::Response,
     routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{io::Write, path::Path, time::UNIX_EPOCH};
+use std::{io::Write, net::SocketAddr, path::Path, time::UNIX_EPOCH};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 
@@ -34,8 +34,17 @@ struct VirtualPathQuery {
     path: String,
 }
 
+fn report_metadata_failure(operation: &str, path: &str, error: AppError) {
+    eprintln!(
+        "File {operation} completed, but metadata cleanup failed for {path}: {}",
+        error.1
+    );
+}
+
 async fn list(
     State(state): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Query(query): Query<DirQuery>,
 ) -> AppResult<Json<Value>> {
     if query.dir == crate::virtual_directory::HERMES_ROOT
@@ -43,6 +52,7 @@ async fn list(
             .dir
             .starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
     {
+        crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
         if query.surface.as_deref() != Some("workspace") {
             return Err(AppError::not_found("Directory not found"));
         }
@@ -58,6 +68,11 @@ async fn list(
     if query.dir.is_empty()
         && query.surface.as_deref() == Some("workspace")
         && state.hermes.is_some()
+        && crate::routes::hermes_chat::hermes_access_allowed(
+            state.config.auth.enabled,
+            Some(peer),
+            &headers,
+        )
     {
         let path = crate::virtual_directory::HERMES_ROOT.to_string();
         files.push(media::FileItem {
@@ -90,15 +105,21 @@ async fn list(
 
 async fn virtual_action(
     State(state): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<crate::virtual_directory::ActionBody>,
 ) -> AppResult<Json<Value>> {
+    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     Ok(Json(crate::virtual_directory::action(&state, body).await?))
 }
 
 async fn virtual_open(
     State(state): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
+    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     Ok(Json(
         crate::virtual_directory::session_detail(&state, &query.path).await?,
     ))
@@ -106,8 +127,11 @@ async fn virtual_open(
 
 async fn virtual_export(
     State(state): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
+    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     let id = crate::virtual_directory::session_id_from_path(&query.path)?;
     let hub = state
         .hermes
@@ -117,16 +141,17 @@ async fn virtual_export(
         .profile()
         .map(|profile| vec![("profile", profile.to_string())])
         .unwrap_or_default();
-    Ok(Json(
-        hub.get(&format!("api/sessions/{id}/export"), &query)
-            .await?,
-    ))
+    let path = crate::hermes::session_api_path(id, "/export")?;
+    Ok(Json(hub.get(&path, &query).await?))
 }
 
 async fn virtual_fs(
     State(state): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
+    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     let hub = state
         .hermes
         .as_ref()
@@ -322,7 +347,9 @@ async fn create(
         (None, None) => unreachable!(),
     };
     fs::write(full, data).await.map_err(AppError::io)?;
-    crate::path_metadata::content_replaced(&state, &body.path)?;
+    if let Err(error) = crate::path_metadata::content_replaced(&state, &body.path) {
+        report_metadata_failure("create", &body.path, error);
+    }
     emit(&state, &body.path);
     Ok(Json(json!({"success":true,"message":"File saved"})))
 }
@@ -382,7 +409,9 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
         (None, None) => unreachable!(),
     };
     fs::write(full, data).await.map_err(AppError::io)?;
-    crate::path_metadata::content_replaced(&state, &body.path)?;
+    if let Err(error) = crate::path_metadata::content_replaced(&state, &body.path) {
+        report_metadata_failure("edit", &body.path, error);
+    }
     emit(&state, &body.path);
     Ok(Json(json!({"success":true,"message":"File saved"})))
 }
@@ -406,7 +435,10 @@ async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppR
     } else {
         fs::remove_file(full).await.map_err(AppError::io)?;
     }
-    crate::path_metadata::removed(&state, &body.path).await?;
+    if let Err(error) = crate::path_metadata::removed(&state, &body.path).await {
+        report_metadata_failure("delete", &body.path, error);
+    }
+    crate::app::emit_path_removed(&state, &body.path);
     emit(&state, &body.path);
     Ok(Json(
         json!({"success":true,"message":if metadata.is_dir(){"Folder deleted"}else{"File deleted"}}),
@@ -445,7 +477,10 @@ async fn rename(
         ));
     }
     fs::rename(old, new).await.map_err(AppError::io)?;
-    crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await?;
+    if let Err(error) = crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await {
+        report_metadata_failure("rename", &body.old_path, error);
+    }
+    crate::app::emit_path_moved(&state, &body.old_path, &body.new_path);
     emit(&state, &body.old_path);
     if parent_logical(&body.old_path) != parent_logical(&body.new_path) {
         emit(&state, &body.new_path);

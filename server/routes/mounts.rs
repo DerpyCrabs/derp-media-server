@@ -13,9 +13,8 @@ use axum::{
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-pub(crate) fn load(config: &Config) -> Vec<MediaRoot> {
-    state_db::mounts(&state_db::database(config))
-        .unwrap_or_default()
+pub(crate) fn load(config: &Config) -> AppResult<Vec<MediaRoot>> {
+    Ok(state_db::mounts(&state_db::database(config))?
         .into_iter()
         .map(|(id, name, path, created_at)| MediaRoot {
             id,
@@ -26,7 +25,7 @@ pub(crate) fn load(config: &Config) -> Vec<MediaRoot> {
             source: "mount".into(),
             created_at,
         })
-        .collect()
+        .collect())
 }
 
 fn persist(state: &AppState, mounts: &[MediaRoot]) -> AppResult<()> {

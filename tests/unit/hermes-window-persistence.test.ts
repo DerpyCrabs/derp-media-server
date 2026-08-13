@@ -41,6 +41,29 @@ describe('Hermes window persistence boundary', () => {
     expect(restored?.windows.map((window) => window.hermes?.sessionId)).toEqual(['durable-1'])
   })
 
+  test('workspace repairs focus after filtering active Hermes draft', () => {
+    const durable = { ...hermesWindow('saved', 'durable-1'), tabGroupId: 'group-1' }
+    const draft = { ...hermesWindow('draft'), tabGroupId: 'group-1' }
+    const state: PersistedWorkspaceState = {
+      windows: [durable, draft],
+      activeWindowId: 'draft',
+      activeTabMap: { 'group-1': 'draft' },
+      nextWindowId: 3,
+      pinnedTaskbarItems: [],
+    }
+
+    const persisted = JSON.parse(serializeWorkspacePersistedState(state)) as PersistedWorkspaceState
+
+    expect(persisted.windows.map((window) => window.id)).toEqual(['saved'])
+    expect(persisted.activeWindowId).toBe('saved')
+    expect(persisted.activeTabMap).toEqual({})
+    const restored = normalizePersistedWorkspaceState(persisted, {
+      reconcileSnapZones: false,
+    })
+    expect(restored?.activeWindowId).toBe('saved')
+    expect(restored?.activeTabMap).toEqual({})
+  })
+
   test('canvas drops drafts and restores durable Hermes windows', () => {
     const state = createEmptyCanvasState()
     state.windows = [
@@ -62,5 +85,6 @@ describe('Hermes window persistence boundary', () => {
     const restored = parseInfiniteCanvasState(JSON.parse(encoded))
     expect(restored?.windows).toHaveLength(1)
     expect(restored?.windows[0]?.definition.hermes?.sessionId).toBe('durable-2')
+    expect(restored?.windows[0]?.definition.hermes?.cwd).toBe('C:/repo')
   })
 })

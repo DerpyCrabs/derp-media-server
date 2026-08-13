@@ -13,6 +13,7 @@ import {
   loadOlderHermesMessages,
   exportHermesSession,
   queueHermesPrompt,
+  releaseHermesEditor,
   editHermesQueuedPrompt,
   moveHermesQueuedPrompt,
   removeHermesQueuedPrompt,
@@ -31,7 +32,16 @@ import {
   takeOverHermesSession,
   transcribeHermesAudio,
 } from '@/lib/hermes-session-store'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  untrack,
+} from 'solid-js'
 import Paperclip from 'lucide-solid/icons/paperclip'
 import X from 'lucide-solid/icons/x'
 import Mic from 'lucide-solid/icons/mic'
@@ -50,6 +60,7 @@ export function HermesChatPane(props: {
   window: () => WorkspaceWindowDefinition | undefined
   onSessionCreated?: (sessionId: string) => void
   contentVisible?: () => boolean
+  active?: () => boolean
   onBranchCreated?: (sessionId: string, title: string) => void
   onTitleChanged?: (title: string) => void
 }) {
@@ -78,8 +89,13 @@ export function HermesChatPane(props: {
   let recordingTimer: number | undefined
   let transcriptEl: HTMLDivElement | undefined
   let transcriptContentEl: HTMLDivElement | undefined
+  let paneEl: HTMLDivElement | undefined
   let followLatest = true
   let scrollFrame: number | undefined
+  let disposed = false
+  let microphoneRequest = 0
+  let paneActive = false
+  let activeDecisionKey: string | undefined
 
   function scrollTranscriptToBottom() {
     if (!followLatest) return
@@ -133,8 +149,15 @@ export function HermesChatPane(props: {
     })
 
   onCleanup(() => {
+    disposed = true
+    microphoneRequest++
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
     if (recordingTimer !== undefined) window.clearTimeout(recordingTimer)
+    if (mediaRecorder) {
+      mediaRecorder.ondataavailable = null
+      mediaRecorder.onstop = null
+      if (mediaRecorder.state !== 'inactive') mediaRecorder.stop()
+    }
     recordingStream?.getTracks().forEach((track) => track.stop())
   })
 
@@ -144,13 +167,26 @@ export function HermesChatPane(props: {
     onCleanup(() => transcriptObserver.disconnect())
 
     const handleFind = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+      if (
+        (props.contentVisible?.() ?? true) &&
+        ((props.active?.() ?? false) || paneActive || !!paneEl?.contains(document.activeElement)) &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'f'
+      ) {
         event.preventDefault()
+        event.stopImmediatePropagation()
         setShowFind(true)
       }
     }
+    const handlePointer = (event: PointerEvent) => {
+      paneActive = !!paneEl?.contains(event.target as Node)
+    }
     window.addEventListener('keydown', handleFind)
-    onCleanup(() => window.removeEventListener('keydown', handleFind))
+    window.addEventListener('pointerdown', handlePointer)
+    onCleanup(() => {
+      window.removeEventListener('keydown', handleFind)
+      window.removeEventListener('pointerdown', handlePointer)
+    })
   })
 
   async function toggleRecording() {
@@ -158,38 +194,68 @@ export function HermesChatPane(props: {
       mediaRecorder?.stop()
       return
     }
+    const request = ++microphoneRequest
     try {
-      recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (disposed || request !== microphoneRequest || !(props.contentVisible?.() ?? true)) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      recordingStream = stream
       const chunks: Blob[] = []
-      mediaRecorder = new MediaRecorder(recordingStream)
-      mediaRecorder.ondataavailable = (event) => {
+      const recorder = new MediaRecorder(stream)
+      const recordingKey = key()
+      mediaRecorder = recorder
+      recorder.ondataavailable = (event) => {
         if (event.data.size) chunks.push(event.data)
       }
-      mediaRecorder.onstop = () => {
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop())
+        if (recordingStream === stream) recordingStream = undefined
+        if (disposed) return
         setRecording(false)
-        recordingStream?.getTracks().forEach((track) => track.stop())
         if (recordingTimer !== undefined) window.clearTimeout(recordingTimer)
-        const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
         if (blob.size)
-          void transcribeHermesAudio(key(), blob).catch((error) => setHermesError(key(), error))
+          void transcribeHermesAudio(recordingKey, blob).catch((error) =>
+            setHermesError(recordingKey, error),
+          )
       }
-      mediaRecorder.start()
+      recorder.start()
       setRecording(true)
       recordingTimer = window.setTimeout(
-        () => mediaRecorder?.stop(),
+        () => recorder.state !== 'inactive' && recorder.stop(),
         (state()?.voice.maxRecordingSeconds ?? 120) * 1000,
       )
     } catch (error) {
+      if (disposed || request !== microphoneRequest) return
       setMicrophoneDenied(true)
       setHermesError(key(), error)
     }
   }
 
-  onMount(() => {
-    if (!state()?.editorOwner) claimHermesEditor(key(), owner())
+  createEffect(() => {
+    const currentKey = key()
+    const currentOwner = owner()
+    untrack(() => {
+      if (!hermesSessions[currentKey]?.editorOwner) claimHermesEditor(currentKey, currentOwner)
+    })
+    onCleanup(() => releaseHermesEditor(currentKey, currentOwner))
   })
   createEffect(() => {
     if (props.contentVisible?.() ?? true) markHermesRead(key())
+  })
+  createEffect(() => {
+    const sessionId = state()?.sessionId
+    if (sessionId && sessionId !== props.window()?.hermes?.sessionId)
+      props.onSessionCreated?.(sessionId)
+  })
+  createEffect(() => {
+    const decision = state()?.decision
+    const nextKey = decision ? `${key()}:${decision.kind}:${decision.dedupeId}` : undefined
+    if (nextKey === activeDecisionKey) return
+    activeDecisionKey = nextKey
+    setDecisionAnswer('')
   })
   createEffect(() => {
     const title = state()?.title?.trim()
@@ -250,9 +316,7 @@ export function HermesChatPane(props: {
           [...items.filter((item) => item !== command), command].slice(-100),
         )
       setPromptHistoryIndex(-1)
-      const wasDraft = !state()?.sessionId
-      const sessionId = await sendHermesPrompt(key(), takeover)
-      if (wasDraft && sessionId) props.onSessionCreated?.(sessionId)
+      await sendHermesPrompt(key(), takeover)
     } catch (error) {
       if (String(error).toLowerCase().includes('takeover')) setTakeoverConfirmOpen(true)
     }
@@ -260,6 +324,7 @@ export function HermesChatPane(props: {
 
   return (
     <div
+      ref={paneEl}
       class='relative flex h-full min-h-0 flex-col bg-background text-[13px] text-foreground'
       data-testid='hermes-chat-pane'
     >
@@ -480,8 +545,13 @@ export function HermesChatPane(props: {
                 />
                 <button
                   class='rounded-md border border-amber-500/40 px-3 py-1.5 text-xs disabled:opacity-50'
-                  disabled={!decisionAnswer().trim()}
-                  onClick={() => void answerHermesDecision(key(), decisionAnswer().trim())}
+                  disabled={!decisionAnswer()}
+                  onClick={() => {
+                    const answer = decisionAnswer()
+                    if (!answer) return
+                    setDecisionAnswer('')
+                    void answerHermesDecision(key(), answer)
+                  }}
                 >
                   Answer
                 </button>

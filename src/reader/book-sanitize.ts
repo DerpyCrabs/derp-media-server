@@ -190,9 +190,9 @@ function safeStylesheets(
           return ''
         },
       )
-      const sanitizedRules = rules.replace(
-        /([^{}]+)\{([^{}]*)\}/g,
-        (_match, rawSelectors: string, rawBody: string) => {
+      const sanitizedRules = [...rules.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .map((match) => {
+          const [, rawSelectors = '', rawBody = ''] = match
           if (rawSelectors.includes('@')) return ''
           const body = safeDeclarations(rawBody)
           if (!body) return ''
@@ -206,8 +206,9 @@ function safeStylesheets(
                 : `.book-document ${selector.replace(/\b(html|body|:root)\b/gi, '.book-document')}`,
             )
           return selectors.length ? `${selectors.join(',')} {${body}}` : ''
-        },
-      )
+        })
+        .filter(Boolean)
+        .join('\n')
       return [...fonts, sanitizedRules].join('\n')
     })
     .join('\n')
@@ -312,7 +313,13 @@ export function renderBook(document: BookDocument): RenderedBook {
           const [rawPath, anchor] = raw.split('#', 2)
           const resolved = rawPath ? resolveBookPath(chapter.href, rawPath) : chapter.href
           ;(node as HTMLElement).dataset.chapterId = chapterByPath.get(resolved) ?? chapter.id
-          if (anchor) (node as HTMLElement).dataset.anchor = decodeURIComponent(anchor)
+          if (anchor) {
+            let decoded = anchor
+            try {
+              decoded = decodeURIComponent(anchor)
+            } catch {}
+            ;(node as HTMLElement).dataset.anchor = decoded
+          }
           node.setAttribute('href', '#')
         }
       }

@@ -217,8 +217,14 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
 
   await page.getByTestId('canvas-add-trigger').click()
   await page.getByRole('button', { name: 'AI chat' }).click()
+  const chat = page.getByTestId('hermes-chat-pane')
+  await chat.getByPlaceholder('Message Hermes…').fill('Keep this unsent draft')
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('button', { name: 'File browser' }).click()
+  await expect(chat.getByPlaceholder('Message Hermes…')).toHaveValue('Keep this unsent draft')
+  await expect(page.getByTestId('canvas-window')).toHaveCount(2)
   await expect.poll(() => syncResponses).toBeGreaterThan(0)
-  await expect(page.getByTestId('canvas-window')).not.toContainText('Stale remote chat')
+  await expect(page.getByText('Stale remote chat', { exact: true })).toHaveCount(0)
 })
 
 test('keeps edits offline and syncs them after reconnect', async ({ page, context }) => {
@@ -470,6 +476,33 @@ test('keeps browser panes mounted through every zoom level', async ({ page }) =>
   await expect(page.getByTestId('canvas-window-summary')).toBeHidden()
   await expect(content).toHaveAttribute('data-zoom-mount-sentinel', 'stable')
   await expect(note).toBeVisible()
+})
+
+test('uses image arrow navigation without nudging the selected canvas window', async ({ page }) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window').first()
+  await browserWindow.locator('[data-file-path="Images"]').click()
+  await browserWindow.locator('[data-file-path="Images/photo.jpg"]').click()
+
+  const initialImageWindow = page.getByTestId('canvas-window').filter({
+    has: page.locator('img[alt="photo.jpg"]'),
+  })
+  await expect(initialImageWindow).toBeVisible()
+  const windowId = await initialImageWindow.getAttribute('data-window-id')
+  if (!windowId) throw new Error('Image window has no stable id')
+  const imageWindow = page.locator(`[data-testid="canvas-window"][data-window-id="${windowId}"]`)
+  await expect(imageWindow).toBeVisible()
+  await imageWindow.click()
+  const before = await imageWindow.boundingBox()
+  if (!before) throw new Error('Image window not laid out')
+
+  await page.keyboard.press('ArrowRight')
+  await expect(imageWindow.locator('img[alt="photo.png"]')).toBeVisible()
+  const after = await imageWindow.boundingBox()
+  expect(after?.x).toBeCloseTo(before.x, 1)
+  expect(after?.y).toBeCloseTo(before.y, 1)
 })
 
 test('keeps canvas camera fixed when a book changes chapter or reopens', async ({ page }) => {
