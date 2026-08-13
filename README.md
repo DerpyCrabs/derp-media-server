@@ -88,8 +88,7 @@ and cache size remain configurable; omitted fields use these defaults:
 Variants live under `<dataPath>/image-variants`; changing widths or quality creates distinct cache
 entries. Generated thumbnails live under `<dataPath>/thumbnails`.
 
-Hermes chat is optional. Reader AI is disabled because current Hermes sessions cannot enforce a
-no-tools policy for untrusted document content.
+Hermes chat and Reader AI are optional and use the configured Hermes gateway.
 
 ```jsonc
 {

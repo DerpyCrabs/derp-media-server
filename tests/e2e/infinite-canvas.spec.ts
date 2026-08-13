@@ -1,9 +1,28 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
+
+async function waitForReaderScrollToSettle(page: Page) {
+  await page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>('[data-testid="reader-viewport"]')
+    if (!viewport) throw new Error('Expected reader viewport')
+    return new Promise<void>((resolve) => {
+      let previous = viewport.scrollTop
+      let stableFrames = 0
+      const check = () => {
+        const current = viewport.scrollTop
+        stableFrames = current === previous ? stableFrames + 1 : 0
+        previous = current
+        if (stableFrames >= 4) resolve()
+        else window.requestAnimationFrame(check)
+      }
+      window.requestAnimationFrame(check)
+    })
+  })
+}
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/canvases**', async (route) => {
@@ -478,6 +497,7 @@ test('keeps canvas camera fixed when a book changes chapter or reopens', async (
   await expect(page.getByTestId('reader-book')).toBeVisible()
   await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
   await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
+  await waitForReaderScrollToSettle(page)
 
   const selectableText = page
     .getByTestId('reader-book')

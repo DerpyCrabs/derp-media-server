@@ -11,10 +11,30 @@ async function openSamplePdf(page: Page) {
   await page.getByTestId('reader-page-indicator').click()
   await page.getByTestId('reader-page-input').fill('1')
   await page.getByTestId('reader-page-input').press('Enter')
+  await waitForReaderScrollToSettle(page)
   await expect(page.getByTestId('reader-page-indicator')).toContainText('Page 1 / 4')
   await expect(
     page.getByTestId('pdf-text-layer').filter({ hasText: 'Selectable reader text' }),
   ).toBeVisible()
+}
+
+async function waitForReaderScrollToSettle(page: Page) {
+  await page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>('[data-testid="reader-viewport"]')
+    if (!viewport) throw new Error('Expected reader viewport')
+    return new Promise<void>((resolve) => {
+      let previous = viewport.scrollTop
+      let stableFrames = 0
+      const check = () => {
+        const current = viewport.scrollTop
+        stableFrames = current === previous ? stableFrames + 1 : 0
+        previous = current
+        if (stableFrames >= 4) resolve()
+        else window.requestAnimationFrame(check)
+      }
+      window.requestAnimationFrame(check)
+    })
+  })
 }
 
 async function disableAutomaticSelectionAction(page: Page) {
@@ -272,6 +292,7 @@ test.describe('Reader', () => {
       await page.getByTestId('reader-outline-button').click()
     }
     await page.getByTestId('reader-outline').getByText('Opening', { exact: true }).click()
+    await waitForReaderScrollToSettle(page)
     const viewport = page.getByTestId('reader-viewport')
     await expect
       .poll(() =>
@@ -453,6 +474,7 @@ test.describe('Reader', () => {
     await expect
       .poll(() => page.getByTestId('reader-viewport').evaluate((viewport) => viewport.scrollTop))
       .toBeGreaterThan(1_000)
+    await waitForReaderScrollToSettle(page)
 
     const savedTop = await page.getByTestId('reader-viewport').evaluate((viewport) => {
       viewport.scrollTop += 137
@@ -574,11 +596,11 @@ test.describe('Reader', () => {
           new MessageEvent('message', { data: JSON.stringify(payload) }),
         )
     })
-    await page.route('**/api/hermes/reader-turn', async (route) => {
+    await page.route('**/api/hermes/turn', async (route) => {
       turnRequests += 1
       await route.fulfill({ json: { sessionId: `reader-e2e-${turnRequests}` } })
     })
-    await page.route('**/api/hermes/reader-archive', async (route) => {
+    await page.route('**/api/hermes/archive', async (route) => {
       const body = route.request().postDataJSON() as { sessionId?: string }
       if (body.sessionId) archivedSessions.push(body.sessionId)
       await route.fulfill({ json: { archived: true } })
@@ -647,11 +669,11 @@ test.describe('Reader', () => {
           new MessageEvent('message', { data: JSON.stringify(payload) }),
         )
     })
-    await page.route('**/api/hermes/reader-turn', async (route) => {
+    await page.route('**/api/hermes/turn', async (route) => {
       turnRequests += 1
       await route.fulfill({ json: { sessionId: `reader-stale-${turnRequests}` } })
     })
-    await page.route('**/api/hermes/reader-archive', async (route) => {
+    await page.route('**/api/hermes/archive', async (route) => {
       await route.fulfill({ json: { archived: true } })
     })
 

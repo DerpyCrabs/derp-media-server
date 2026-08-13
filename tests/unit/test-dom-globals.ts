@@ -1,6 +1,32 @@
 import { Window as HappyWindow } from 'happy-dom'
 
-if (typeof globalThis.DOMParser === 'undefined') {
-  const window = new HappyWindow({ url: 'http://localhost/' })
-  ;(globalThis as unknown as { DOMParser: typeof window.DOMParser }).DOMParser = window.DOMParser
+const testWindow = new HappyWindow({ url: 'http://localhost/' })
+const installedGlobals = [
+  'document',
+  'MutationObserver',
+  'ResizeObserver',
+  'Element',
+  'HTMLElement',
+  'HTMLInputElement',
+  'HTMLImageElement',
+  'Node',
+  'Text',
+  'Document',
+  'DOMParser',
+  'Window',
+  'Event',
+  'KeyboardEvent',
+  'MouseEvent',
+  'ClipboardEvent',
+  'DataTransfer',
+  'File',
+  'getComputedStyle',
+] as const
+
+for (const name of installedGlobals) {
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    writable: true,
+    value: testWindow[name],
+  })
 }

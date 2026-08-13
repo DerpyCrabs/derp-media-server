@@ -150,7 +150,7 @@ async fn capabilities(State(state): State<Shared>) -> AppResult<Json<Value>> {
         .unwrap_or(120)
         .clamp(5, 600);
     Ok(Json(
-        json!({"compatible":true,"transcription":transcription,"playback":playback,"readerAi":false,"maxRecordingSeconds":max_recording_seconds}),
+        json!({"compatible":true,"transcription":transcription,"playback":playback,"readerAi":true,"maxRecordingSeconds":max_recording_seconds}),
     ))
 }
 
