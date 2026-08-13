@@ -28,6 +28,7 @@ export default defineConfig({
         '**/playwright-report/**',
         '**/tests/**',
         '**/mounts.json',
+        '**/canvases.json',
         '**/shares.json',
         '**/settings.json',
         '**/stats.json',

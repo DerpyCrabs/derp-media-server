@@ -20,6 +20,7 @@ import type {
   WorkspaceSource,
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
+import { applyWorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import {
   resolveNewTabAnchorWindowId,
   serializeWorkspaceLayoutState,
@@ -90,6 +91,8 @@ import {
   loadPersisted,
 } from './workspace/workspace-page-persistence'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
+import type { VirtualOpenTarget } from '@/lib/virtual-directory'
+import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
 
 export function WorkspacePage(props: WorkspacePageProps = {}) {
   const history = useBrowserHistory()
@@ -97,8 +100,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
 
   const shareConfig = () => props.shareConfig ?? null
   const server = useWorkspacePageServerData(props, shareConfig)
-  useAdminEventsStream(!props.shareConfig)
-
   const browserSource = createMemo(
     (): WorkspaceSource =>
       shareConfig()
@@ -117,6 +118,9 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
   })
 
   const [workspace, setWorkspace] = createSignal<PersistedWorkspaceState | null>(null)
+  useAdminEventsStream(!props.shareConfig, (mutation) => {
+    setWorkspace((current) => (current ? applyWorkspacePathMutation(current, mutation) : current))
+  })
 
   const [layoutPicker, setLayoutPicker] = createSignal<{
     windowId: string
@@ -312,6 +316,8 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const t = w.windows.find((x) => x.id === windowId)
     const gid = t ? groupIdForWindow(t) : windowId
     const toRemove = new Set(w.windows.filter((x) => groupIdForWindow(x) === gid).map((x) => x.id))
+    const removed = w.windows.filter((x) => toRemove.has(x.id))
+    if (removed.some((x) => !canCloseHermesWindow(x.hermes))) return
     const next = w.windows.filter((x) => !toRemove.has(x.id))
     let active = w.activeWindowId
     if (active != null && toRemove.has(active)) {
@@ -320,6 +326,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     const nextTabMap = { ...w.activeTabMap }
     delete nextTabMap[gid]
     setWorkspace({ ...w, windows: next, activeWindowId: active, activeTabMap: nextTabMap })
+    for (const window of removed) discardHermesDraft(window.hermes)
   }
 
   function setActiveTab(groupId: string, tabId: string) {
@@ -361,13 +368,15 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       let work = prev
       const v0 = work.windows.find((w) => w.id === tabId)
       if (!v0) return prev
+      if (v0.tabPinned && !opts?.ignoreTabPinForListenOnlyDismiss) return prev
+      if (!canCloseHermesWindow(v0.hermes)) return prev
       const g0 = groupIdForWindow(v0)
       if (work.tabGroupSplits?.[g0]?.leftTabId === tabId) {
         work = exitSplitViewState(work, g0)
       }
       const victim = work.windows.find((w) => w.id === tabId)
       if (!victim) return pruneTabGroupSplitsState(work)
-      if (victim.tabPinned && !opts?.ignoreTabPinForListenOnlyDismiss) return work
+      discardHermesDraft(victim.hermes)
       const gid = groupIdForWindow(victim)
       const members = work.windows.filter((w) => groupIdForWindow(w) === gid)
       if (members.length <= 1) {
@@ -768,6 +777,23 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     data: FileDragData,
     insertIndex?: number,
   ) {
+    if (data.virtualOpenTarget) {
+      openHermesFromBrowser(
+        targetLeaderWindowId,
+        {
+          path: data.path,
+          name: data.path.split('/').at(-1) ?? 'Hermes session',
+          isDirectory: false,
+          isVirtual: true,
+          size: 0,
+          type: MediaType.OTHER,
+          extension: '',
+        },
+        data.virtualOpenTarget,
+        true,
+      )
+      return
+    }
     const sc = shareConfig()
     const source: WorkspaceSource =
       data.sourceKind === 'share'
@@ -864,6 +890,112 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     openViewer(windowId, file, winDef.source)
   }
 
+  function openHermesFromBrowser(
+    windowId: string,
+    file: FileItem,
+    target: VirtualOpenTarget,
+    forceTab = false,
+  ) {
+    if (props.shareConfig) return
+    const w = workspace()
+    if (!w) return
+    if (target.sessionId) {
+      const existing = w.windows.find(
+        (win) => win.type === 'hermes' && win.hermes?.sessionId === target.sessionId,
+      )
+      if (existing) {
+        focusWindow(existing.id)
+        return
+      }
+    }
+    const id = `workspace-window-${w.nextWindowId}`
+    const sourceWindow = w.windows.find((win) => win.id === windowId)
+    const attachToTab = (forceTab || getWorkspaceFileOpenTarget() === 'new-tab') && sourceWindow
+    const gid = attachToTab ? groupIdForWindow(sourceWindow) : null
+    const newWin: WorkspaceWindowDefinition = {
+      id,
+      type: 'hermes',
+      title: target.type === 'hermesDraft' ? 'New Hermes session' : file.name,
+      iconName: null,
+      iconPath: file.path,
+      iconIsVirtual: true,
+      source: { kind: 'local', rootPath: null },
+      initialState: {},
+      tabGroupId: gid,
+      hermes: {
+        sessionId: target.sessionId,
+        draftId: target.type === 'hermesDraft' ? crypto.randomUUID() : undefined,
+        cwd: target.projectPath,
+        readOnly: target.readOnly,
+      },
+      layout:
+        attachToTab && sourceWindow?.layout
+          ? { ...sourceWindow.layout, minimized: false }
+          : createWindowLayout(
+              undefined,
+              createDefaultBounds(w.windows.length, 'viewer'),
+              maxWorkspaceWindowZ(w.windows) + 1,
+            ),
+    }
+    setWorkspace({
+      ...w,
+      windows: [...w.windows, newWin],
+      nextWindowId: w.nextWindowId + 1,
+      activeWindowId: id,
+      activeTabMap: gid ? { ...w.activeTabMap, [gid]: id } : w.activeTabMap,
+    })
+  }
+
+  function bindHermesSession(windowId: string, sessionId: string) {
+    setWorkspace((prev) =>
+      prev
+        ? {
+            ...prev,
+            windows: prev.windows.map((win) =>
+              win.id === windowId
+                ? {
+                    ...win,
+                    title: win.title === 'New Hermes session' ? 'Hermes session' : win.title,
+                    iconPath: `Hermes Sessions/session/${sessionId}`,
+                    hermes: { ...win.hermes, sessionId, draftId: undefined },
+                  }
+                : win,
+            ),
+          }
+        : prev,
+    )
+  }
+
+  function openHermesBranch(windowId: string, sessionId: string, title: string) {
+    openHermesFromBrowser(
+      windowId,
+      {
+        name: title,
+        path: `Hermes Sessions/session/${sessionId}`,
+        type: MediaType.OTHER,
+        size: 0,
+        extension: '',
+        isDirectory: false,
+        isVirtual: true,
+      },
+      { type: 'hermesSession', sessionId, readOnly: false },
+      true,
+    )
+  }
+
+  function renameHermesWindow(windowId: string, title: string) {
+    setWorkspace((current) =>
+      current
+        ? {
+            ...current,
+            windows: current.windows.map((window) =>
+              window.id === windowId ? { ...window, title } : window,
+            ),
+          }
+        : current,
+    )
+  }
+
   function openInSplitViewFromBrowserPane(windowId: string, file: FileItem) {
     const w = workspace()
     const winDef = w?.windows.find((x) => x.id === windowId)
@@ -952,6 +1084,39 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     })
   }
 
+  function openReaderFromBrowser(fromWindowId: string, file: FileItem) {
+    const w = workspace()
+    const sourceWindow = w?.windows.find((window) => window.id === fromWindowId)
+    if (!w || !sourceWindow || !file.isDirectory) return
+    const n = w.nextWindowId
+    const id = `workspace-window-${n}`
+    const parentDir = file.path.split(/[/\\]/).slice(0, -1).join('/') || ''
+    const newWin: WorkspaceWindowDefinition = {
+      id,
+      type: 'viewer',
+      title: file.name,
+      iconName: null,
+      iconPath: file.path,
+      iconType: file.type,
+      iconIsVirtual: false,
+      source: sourceWindow.source,
+      initialState: {
+        dir: parentDir,
+        viewing: file.path,
+        readerKind: 'folder',
+      },
+      tabGroupId: null,
+      layout: createWindowLayout(undefined, createDefaultBounds(w.windows.length, 'viewer'), n),
+    }
+    newWin.layout = { ...newWin.layout, zIndex: maxWorkspaceWindowZ(w.windows) + 1 }
+    setWorkspace({
+      ...w,
+      windows: [...w.windows, newWin],
+      nextWindowId: n + 1,
+      activeWindowId: id,
+    })
+  }
+
   function openGlobalSearchResult(result: FileSearchResult) {
     const file = fileSearchResultToFileItem(result)
     const source = browserSource()
@@ -980,6 +1145,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       isDirectory: file.isDirectory,
       title: file.name,
       customIconName: customIcons[file.path] ?? null,
+      isVirtual: file.isVirtual,
       source,
     }
     const next = [...(w.pinnedTaskbarItems ?? []), item]
@@ -995,7 +1161,29 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     void server.persistPinsMutation.mutateAsync(next)
   }
 
-  function selectPinned(pin: PinnedTaskbarItem) {
+  async function selectPinned(pin: PinnedTaskbarItem) {
+    if (pin.isVirtual) {
+      if (props.shareConfig) return
+      const response = await fetch(
+        `/api/virtual-directory/open?path=${encodeURIComponent(pin.path)}`,
+      )
+      if (!response.ok) return
+      const payload = await response.json()
+      const target = payload.openTarget as VirtualOpenTarget | undefined
+      if (target) {
+        const synthetic: FileItem = {
+          path: pin.path,
+          name: pin.title,
+          isDirectory: false,
+          isVirtual: true,
+          size: 0,
+          type: MediaType.OTHER,
+          extension: '',
+        }
+        openHermesFromBrowser(workspace()?.activeWindowId ?? '', synthetic, target)
+      }
+      return
+    }
     if (pin.isDirectory) {
       openBrowser({ source: pin.source, initialState: { dir: pin.path } })
       return
@@ -1240,6 +1428,11 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
           startSplitPaneDrag={startSplitPaneDrag}
           navigateDir={navigateDir}
           openViewerFromBrowser={openViewerFromBrowser}
+          openReaderFromBrowser={openReaderFromBrowser}
+          openHermesFromBrowser={openHermesFromBrowser}
+          bindHermesSession={bindHermesSession}
+          openHermesBranch={openHermesBranch}
+          renameHermesWindow={renameHermesWindow}
           addPinnedItem={addPinnedItem}
           openInNewTabInSameWindow={openInNewTabInSameWindow}
           openInSplitViewFromBrowserPane={openInSplitViewFromBrowserPane}

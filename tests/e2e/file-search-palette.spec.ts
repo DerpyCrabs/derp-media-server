@@ -6,10 +6,20 @@ const workspaceContent = (page: Page) =>
   page.locator('[data-testid="workspace-window-visible-content"]:visible')
 
 test.describe('File search palette', () => {
-  test.describe.configure({ timeout: 30_000 })
+  test.describe.configure({ timeout: 45_000 })
 
   test('searches and navigates the classic browser', async ({ page }) => {
     await page.goto('/')
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get('/api/files/search?q=Videos&limit=20')
+          const payload = (await response.json()) as { results?: Array<{ name: string }> }
+          return payload.results?.map((result) => result.name) ?? []
+        },
+        { timeout: 30_000 },
+      )
+      .toContain('Videos')
     await page.getByTestId('classic-file-search-trigger').click()
     const palette = page.getByTestId('file-search-palette')
     await expect(palette).toBeVisible()

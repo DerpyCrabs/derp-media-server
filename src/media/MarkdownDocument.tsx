@@ -18,6 +18,10 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
   const runtime: MarkdownEditorRuntime = {
     resolveImageUrl: (src) => props.resolveImageUrl(src),
     openImage: (src, alt) => {
+      if (props.onOpenImage) {
+        props.onOpenImage(src, alt)
+        return
+      }
       imageReturnFocus =
         document.activeElement instanceof HTMLElement ? document.activeElement : null
       setExpandedImage({ src, alt: alt ?? '' })

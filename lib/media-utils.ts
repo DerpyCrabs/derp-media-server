@@ -4,6 +4,7 @@ const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico']
 const PDF_EXTENSIONS = ['pdf']
+const BOOK_EXTENSIONS = ['epub', 'fb2', 'fb2.zip']
 const TEXT_EXTENSIONS = [
   'txt',
   'md',
@@ -70,6 +71,9 @@ const MIME_TYPES: Record<string, string> = {
 
   // PDF
   pdf: 'application/pdf',
+  epub: 'application/epub+zip',
+  fb2: 'application/x-fictionbook+xml',
+  'fb2.zip': 'application/zip',
 
   // Text
   txt: 'text/plain',
@@ -126,11 +130,20 @@ export function getMediaType(extension: string): MediaType {
     return MediaType.PDF
   }
 
+  if (BOOK_EXTENSIONS.includes(ext)) {
+    return MediaType.BOOK
+  }
+
   if (TEXT_EXTENSIONS.includes(ext)) {
     return MediaType.TEXT
   }
 
   return MediaType.OTHER
+}
+
+export function getMediaTypeFromPath(path: string): MediaType {
+  const lower = path.toLowerCase()
+  return getMediaType(lower.endsWith('.fb2.zip') ? 'fb2.zip' : (lower.split('.').at(-1) ?? ''))
 }
 
 export function getMimeType(extension: string): string {

@@ -418,11 +418,7 @@ pub(crate) async fn media_path(
         return Err(AppError::bad("Not a file"));
     }
     let size = metadata.len();
-    let extension = resolved
-        .full
-        .extension()
-        .unwrap_or_default()
-        .to_string_lossy();
+    let extension = media::extension(&resolved.full);
     let mime = media::mime_type(&extension);
     if size == 0 {
         if headers.contains_key(header::RANGE) {

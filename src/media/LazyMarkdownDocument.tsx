@@ -14,6 +14,7 @@ export function LazyMarkdownDocument(props: MarkdownDocumentProps): JSX.Element 
         onBlur={props.onBlur}
         onSave={props.onSave}
         resolveImageUrl={props.resolveImageUrl}
+        onOpenImage={props.onOpenImage}
         onPasteImage={props.onPasteImage}
         ariaLabel={props.ariaLabel}
         compact={props.compact}

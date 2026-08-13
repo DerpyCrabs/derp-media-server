@@ -52,7 +52,6 @@ async fn create(
     } else {
         None
     };
-    let _guard = state.store_lock.lock().await;
     let share = shares::create(
         &state.config,
         &runtime,
@@ -97,7 +96,6 @@ async fn update(State(state): State<Shared>, Json(body): Json<Value>) -> AppResu
     if restrictions.is_none() && editable.is_none() {
         return Err(AppError::bad("No valid updates provided"));
     }
-    let _guard = state.store_lock.lock().await;
     let runtime = roots(&state);
     let existing = shares::read(&state.config, &runtime)
         .into_iter()
@@ -116,10 +114,10 @@ async fn remove(State(state): State<Shared>, Json(body): Json<Value>) -> AppResu
     if token.is_empty() {
         return Err(AppError::bad("Token is required"));
     }
-    let _guard = state.store_lock.lock().await;
     if !shares::delete(&state.config, token)? {
         return Err(AppError::not_found("Share not found"));
     }
+    crate::path_metadata::cleanup_share(&state, token)?;
     Ok(Json(json!({"success":true})))
 }
 

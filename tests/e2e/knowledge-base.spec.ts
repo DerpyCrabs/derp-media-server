@@ -51,8 +51,11 @@ test.describe('Knowledge Base', () => {
   test('defaults to .md extension when creating files in KB', async ({ page }) => {
     await page.goto('/?dir=Notes')
     await page.locator('button[title="Create new file"]').click()
-    // Dialog description mentions .md extension
     await expect(page.getByText('.md extension will be added')).toBeVisible()
+    const stem = `kb.${Date.now()}.08.08`
+    await page.locator('input[placeholder*="File name"]').fill(stem)
+    await page.getByRole('button', { name: 'Create' }).click()
+    await expect(page.locator('table').getByText(`${stem}.md`, { exact: true })).toBeVisible()
   })
 
   test('empty-space context menu offers new file and new folder', async ({ page }) => {

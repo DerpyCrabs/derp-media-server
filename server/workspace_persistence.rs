@@ -5,6 +5,12 @@ fn has_dot_dot(path: &str) -> bool {
     path.split(['/', '\\']).any(|segment| segment == "..")
 }
 
+fn is_private_virtual_path(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    path == crate::virtual_directory::HERMES_ROOT
+        || path.starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
+}
+
 fn valid_source(source: &Value, kind: &str, token: Option<&str>) -> bool {
     source.get("kind").and_then(Value::as_str) == Some(kind)
         && token
@@ -54,7 +60,9 @@ pub fn share_pins(raw: &Value, share_path: &str, token: &str) -> Value {
                 }
                 pin["path"].as_str().is_some_and(|path| {
                     let path = path.replace('\\', "/");
-                    !has_dot_dot(&path) && (path == root || path.starts_with(&(root.clone() + "/")))
+                    !has_dot_dot(&path)
+                        && !is_private_virtual_path(&path)
+                        && (path == root || path.starts_with(&(root.clone() + "/")))
                 })
             })
             .cloned()
@@ -107,6 +115,7 @@ fn valid_snapshot(snapshot: &Value, share: Option<(&str, &str)>) -> bool {
         for path in window_paths(window) {
             let path = path.replace('\\', "/");
             if has_dot_dot(&path)
+                || (share.is_some() && is_private_virtual_path(&path))
                 || root.as_ref().is_some_and(|root| {
                     !path.is_empty() && path != *root && !path.starts_with(&(root.clone() + "/"))
                 })
@@ -177,4 +186,26 @@ pub fn presets(raw: &Value, share: Option<(&str, &str)>) -> Value {
         }
     }
     Value::Array(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn share_presets_strip_private_virtual_paths_even_for_matching_share_root() {
+        let raw = json!([{
+            "id":"preset", "name":"Unsafe", "scope":"share:token",
+            "snapshot":{
+                "windows":[{
+                    "source":{"kind":"share","token":"token"},
+                    "initialState":{"dir":"Hermes Sessions/session/secret"}
+                }],
+                "pinnedTaskbarItems":[]
+            }
+        }]);
+        let filtered = presets(&raw, Some(("Hermes Sessions", "token")));
+        assert_eq!(filtered, json!([]));
+    }
 }

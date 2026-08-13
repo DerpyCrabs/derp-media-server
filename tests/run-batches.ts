@@ -3,10 +3,9 @@ import fs from 'fs'
 import path from 'path'
 
 /**
- * Batches aim for similar wall time (~35–45s each with 4 workers): slowest spec per batch dominates.
- * Workspace layout is split into two files so they run in parallel in batch 1.
+ * Batches aim for similar wall time and run concurrently with one Playwright worker each.
  */
-const BATCHES = [
+export const BATCHES = [
   {
     id: '1',
     tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome'],
@@ -20,6 +19,7 @@ const BATCHES = [
       'upload',
       'file-browser-misc',
       'file-search-palette',
+      'infinite-canvas',
     ],
   },
   {
@@ -33,6 +33,7 @@ const BATCHES = [
       'workspace-layout-sessions',
       'workspace-named-layouts',
       'workspace-file-open-target',
+      'hermes-chat',
     ],
   },
   {
@@ -57,6 +58,7 @@ const BATCHES = [
       'video-player',
       'image-viewer',
       'pdf-viewer',
+      'reader',
       'download',
       'text-editor',
       'knowledge-base',
@@ -201,12 +203,16 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<{
   })
 }
 
+export function runBatches<T>(run: (batch: (typeof BATCHES)[number]) => Promise<T>): Promise<T[]> {
+  return Promise.all(BATCHES.map(run))
+}
+
 async function main() {
-  console.log(`Starting ${BATCHES.length} test batches in parallel...\n`)
+  console.log(`Starting ${BATCHES.length} test batches in parallel (1 worker each)...\n`)
   const startTime = Date.now()
 
   try {
-    const results = await Promise.all(BATCHES.map(runBatch))
+    const results = await runBatches(runBatch)
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     console.log(`\n${'─'.repeat(60)}`)
@@ -239,4 +245,4 @@ async function main() {
   }
 }
 
-void main()
+if (import.meta.main) void main()

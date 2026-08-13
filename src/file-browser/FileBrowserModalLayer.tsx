@@ -55,6 +55,8 @@ export type FileBrowserModalLayerProps = {
   getPathHasShare: (file: FileItem) => boolean
   onContextOpenInNewTab: (file: FileItem) => void
   onContextOpenInWorkspace: (file: FileItem) => void
+  onContextOpenWithBrowser: (file: FileItem) => void
+  onContextOpenWithReader: (file: FileItem) => void
   onContextToggleFavorite: (file: FileItem) => void
   isRowFavorite: (file: FileItem) => boolean
   onContextRename: (file: FileItem) => void
@@ -164,6 +166,8 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
         getPathHasShare={props.getPathHasShare}
         onOpenInNewTab={props.onContextOpenInNewTab}
         onOpenInWorkspace={props.onContextOpenInWorkspace}
+        onOpenWithBrowser={props.onContextOpenWithBrowser}
+        onOpenWithReader={props.onContextOpenWithReader}
         onToggleFavorite={props.onContextToggleFavorite}
         isFavorite={props.isRowFavorite}
         onRename={props.onContextRename}

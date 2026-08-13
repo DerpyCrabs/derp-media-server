@@ -33,8 +33,9 @@ export function CreateFileDialog(props: CreateFileDialogProps) {
         >
           <h2 class='text-lg font-semibold'>Create New File</h2>
           <p class='text-sm text-muted-foreground mt-1'>
-            Enter a name for the new file. .{props.defaultExtension} extension will be added if no
-            extension is provided.
+            {props.defaultExtension === 'md'
+              ? 'Enter a note name. A .md extension will be added unless it already ends in .md.'
+              : 'Enter a name for the new file. A .txt extension will be added if no extension is provided.'}
           </p>
           <input
             type='text'

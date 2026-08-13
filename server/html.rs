@@ -160,11 +160,7 @@ fn share_info(state: &AppState, token: &str, headers: &axum::http::HeaderMap) ->
     let extension = if share.is_directory {
         String::new()
     } else {
-        Path::new(&share.path)
-            .extension()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_ascii_lowercase()
+        media::extension(Path::new(&share.path))
     };
     let kb_root = authorized
         .then(|| knowledge_base_root(state, &share.path))
@@ -199,7 +195,7 @@ async fn dehydrated(
         .into_owned()
         .collect::<HashMap<_, _>>();
     let mut queries = Vec::new();
-    if path == "/" || path == "/workspace" {
+    if path == "/" || path == "/workspace" || path == "/canvas" {
         let dir = params.get("dir").cloned().unwrap_or_default();
         if path == "/"
             && dir != "Favorites"

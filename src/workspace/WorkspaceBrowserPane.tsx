@@ -33,9 +33,20 @@ import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
 import { stripSharePrefix, type SourceContext } from '@/lib/source-context'
 import type { FileItem } from '@/lib/types'
+import {
+  hasVirtualCapability,
+  virtualAppearanceForPath,
+  virtualFileSizeVisible,
+  virtualEntrySubtitle,
+  type DirectoryListing,
+  type VirtualEntry,
+  type VirtualOpenTarget,
+} from '@/lib/virtual-directory'
 import { MediaType } from '@/lib/types'
+import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
+import { persistViewMode } from '@/lib/view-mode-persistence'
 import { useWorkspaceFileOpenTargetStore } from '@/lib/workspace-file-open-target'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -72,6 +83,8 @@ import {
 import { UploadMenu } from '../file-browser/UploadMenu'
 import { DEFAULT_WORKSPACE_SOURCE } from './workspace-page-persistence'
 import { WorkspaceBrowserModalLayer } from './WorkspaceBrowserModalLayer'
+import { modalDialogBackdropClass } from '../file-browser/modal-overlay-scope'
+import { SOLID_AVAILABLE_ICONS } from '../lib/solid-available-icons'
 import { ViewModeToggle } from '../file-browser/ViewModeToggle'
 import { VirtualDirectoryGrid } from '../file-browser/VirtualDirectoryGrid'
 import { VirtualDirectoryList } from '../file-browser/VirtualDirectoryList'
@@ -124,6 +137,36 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const [showPasteDialog, setShowPasteDialog] = createSignal(false)
   const [pasteData, setPasteData] = createSignal<PasteData | null>(null)
   const [shareDialogTarget, setShareDialogTarget] = createSignal<FileItem | null>(null)
+  const [virtualOffset, setVirtualOffset] = createSignal(0)
+  const [virtualRefreshEnabled, setVirtualRefreshEnabled] = createSignal(false)
+  const [virtualPages, setVirtualPages] = createSignal<DirectoryListing[]>([])
+  const [projectPrimaryPath, setProjectPrimaryPath] = createSignal('')
+  const [projectAdditionalPaths, setProjectAdditionalPaths] = createSignal('')
+  const [gatewayPickerPath, setGatewayPickerPath] = createSignal('')
+  const [virtualDetail, setVirtualDetail] = createSignal<{
+    file: FileItem
+    entry: VirtualEntry
+  } | null>(null)
+  const [virtualDeleteAction, setVirtualDeleteAction] = createSignal<
+    'deletePermanently' | 'deleteProject' | null
+  >(null)
+  const [virtualActionDialog, setVirtualActionDialog] = createSignal<{
+    action:
+      | 'moveToProject'
+      | 'addProjectFolder'
+      | 'removeProjectFolder'
+      | 'setPrimaryFolder'
+      | 'setAppearance'
+    file: FileItem
+    entry?: VirtualEntry
+  } | null>(null)
+  const [virtualActionValue, setVirtualActionValue] = createSignal('')
+  const [virtualAppearanceIcon, setVirtualAppearanceIcon] = createSignal('Folder')
+  const [virtualAppearanceColor, setVirtualAppearanceColor] = createSignal('')
+  const [virtualProjectChoices, setVirtualProjectChoices] = createSignal<
+    { name: string; path: string }[]
+  >([])
+  const [virtualProjectChoicesLoading, setVirtualProjectChoicesLoading] = createSignal(false)
   const breadcrumbMenu = () => breadcrumbFloating.folderMenu
   const shareViewModeTick = useStoreSync(useBrowserViewModeStore)
   let inlineFileInputEl: HTMLInputElement | undefined
@@ -187,17 +230,56 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const filesQuery = useQuery(() => {
     const sh = share()
     return {
-      queryKey: sh ? queryKeys.shareFiles(sh.token, listDir()) : queryKeys.files(listDir()),
+      queryKey: sh
+        ? queryKeys.shareFiles(sh.token, listDir())
+        : [...queryKeys.files(listDir()), virtualOffset()],
       queryFn: () =>
         sh
-          ? api<{ files: FileItem[] }>(
+          ? api<DirectoryListing>(
               `/api/share/${sh.token}/files?dir=${encodeURIComponent(listDir())}`,
             )
-          : api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(listDir())}`),
+          : api<DirectoryListing>(
+              `/api/files?surface=workspace&dir=${encodeURIComponent(listDir())}&offset=${virtualOffset()}`,
+            ),
+      refetchInterval: virtualRefreshEnabled() ? 5_000 : false,
     }
   })
 
-  const files = createMemo(() => filesQuery.data?.files ?? [])
+  createEffect(
+    on(currentPath, () => {
+      setVirtualOffset(0)
+      setVirtualPages([])
+      setVirtualRefreshEnabled(false)
+    }),
+  )
+  createEffect(() => {
+    const page = filesQuery.data
+    if (!page) return
+    setVirtualRefreshEnabled(!!page.virtualDirectory)
+    setVirtualPages((current) =>
+      virtualOffset() === 0
+        ? [page]
+        : [...current.filter((value) => value.virtualDirectory?.offset !== virtualOffset()), page],
+    )
+  })
+  const listing = createMemo(() => filesQuery.data)
+  const files = createMemo(() => {
+    const pages = virtualPages()
+    if (pages.length <= 1) return listing()?.files ?? []
+    const seen = new Set<string>()
+    return pages
+      .flatMap((page) => page.files)
+      .filter((file) => !seen.has(file.path) && !!seen.add(file.path))
+  })
+  const virtualDirectory = createMemo(() => listing()?.virtualDirectory)
+  const virtualEntries = createMemo(
+    () =>
+      Object.assign({}, ...virtualPages().map((page) => page.virtualEntries ?? {})) as Record<
+        string,
+        VirtualEntry
+      >,
+  )
+  const virtualEntry = (file: FileItem) => virtualEntries()[file.path]
   const isFilesLoadingInitial = createMemo(
     () => filesQuery.isPending && filesQuery.data === undefined,
   )
@@ -210,7 +292,11 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   )
 
   const isAdminPaneEditable = createMemo(
-    () => !share() && !isVirtualFolder() && isPathEditable(currentPath(), props.editableFolders),
+    () =>
+      !share() &&
+      !isVirtualFolder() &&
+      !virtualDirectory() &&
+      isPathEditable(currentPath(), props.editableFolders),
   )
   const isContextDirEditable = createMemo(() =>
     share() ? !!props.shareCanEdit : isAdminPaneEditable(),
@@ -325,6 +411,24 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     enabled: !share(),
   }))
 
+  const gatewayDirectoryQuery = useQuery(() => ({
+    queryKey: ['virtual-directory', 'gateway-fs', gatewayPickerPath()],
+    queryFn: () =>
+      api<{ entries: { name: string; path: string; isDirectory: boolean }[]; error?: string }>(
+        `/api/virtual-directory/fs?path=${encodeURIComponent(gatewayPickerPath())}`,
+      ),
+    enabled: showCreateFolder() && hasVirtualCapability(virtualDirectory(), 'createFolder'),
+  }))
+
+  const virtualDetailQuery = useQuery(() => ({
+    queryKey: ['virtual-directory', 'open', virtualDetail()?.file.path],
+    queryFn: () =>
+      api<{ session: Record<string, unknown>; messages: unknown }>(
+        `/api/virtual-directory/open?path=${encodeURIComponent(virtualDetail()!.file.path)}`,
+      ),
+    enabled: virtualDetail()?.entry.kind === 'session',
+  }))
+
   const shares = createMemo(() => sharesQuery.data?.shares ?? [])
 
   const sharedPathSet = createMemo(() => {
@@ -408,6 +512,20 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     },
   }))
 
+  const virtualActionMutation = useMutation(() => ({
+    mutationFn: (body: {
+      action: string
+      path: string
+      name?: string
+      metadata?: Record<string, unknown>
+    }) => post<{ openTarget?: VirtualOpenTarget }>('/api/virtual-directory/action', body),
+    onSettled: () => {
+      setVirtualOffset(0)
+      setVirtualPages([])
+      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+    },
+  }))
+
   const pasteMutation = useMutation(() => ({
     mutationFn: (vars: {
       path: string
@@ -468,7 +586,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   const viewModeMutation = useMutation(() => ({
     mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
-      post('/api/settings/viewMode', vars),
+      persistViewMode(vars.path, vars.viewMode),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
@@ -587,6 +705,11 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   )
 
   const showAdminCreateToolbar = createMemo(() => isAdminPaneEditable() && !share())
+  const showVirtualCreateToolbar = createMemo(
+    () =>
+      hasVirtualCapability(virtualDirectory(), 'createFile') ||
+      hasVirtualCapability(virtualDirectory(), 'createFolder'),
+  )
 
   const allowWorkspaceUpload = createMemo(
     () => showShareCreateToolbar() || showAdminCreateToolbar(),
@@ -645,6 +768,17 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const item = renamingItem()
     const name = renameNewName().trim()
     if (!item || !name || renameItemMutation.isPending) return false
+    const entry = virtualEntry(item)
+    if (entry?.kind === 'session') return false
+    if (entry?.kind === 'project') {
+      if (name.toLowerCase() === 'archived') return true
+      return files().some(
+        (file) =>
+          file.path !== item.path &&
+          virtualEntry(file)?.kind === 'project' &&
+          file.name.toLowerCase() === name.toLowerCase(),
+      )
+    }
     return files().some((f) => f.path !== item.path && f.name.toLowerCase() === name.toLowerCase())
   })
 
@@ -652,6 +786,125 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     setRenamingItem(file)
     setRenameNewName(file.name)
     setShowRename(true)
+  }
+
+  function handleVirtualAction(
+    action: import('@/lib/virtual-directory').VirtualCapability,
+    file: FileItem,
+  ) {
+    if (action === 'rename') {
+      openContextRename(file)
+      return
+    }
+    const entry = virtualEntry(file)
+    if (action === 'copyId') {
+      if (entry?.id) void navigator.clipboard.writeText(entry.id)
+      return
+    }
+    if (action === 'moveToProject') {
+      setVirtualActionDialog({ action, file, entry })
+      setVirtualActionValue('')
+      setVirtualProjectChoices([])
+      setVirtualProjectChoicesLoading(true)
+      virtualActionMutation.reset()
+      const virtualRoot = currentPath().split(/[/\\]/).filter(Boolean)[0] ?? ''
+      void api<DirectoryListing>(
+        `/api/files?surface=workspace&dir=${encodeURIComponent(virtualRoot)}&offset=0`,
+      )
+        .then((result) => {
+          const choices = result.files
+            .filter((candidate) => result.virtualEntries?.[candidate.path]?.kind === 'project')
+            .map((candidate) => ({ name: candidate.name, path: candidate.path }))
+          setVirtualProjectChoices(choices)
+          if (choices[0]) setVirtualActionValue(choices[0].name)
+        })
+        .catch((error) =>
+          setUploadToast({
+            kind: 'clipboardError',
+            message: error instanceof Error ? error.message : 'Could not load Hermes projects',
+            url: '',
+          }),
+        )
+        .finally(() => setVirtualProjectChoicesLoading(false))
+      return
+    }
+    if (action === 'addProjectFolder') {
+      setVirtualActionDialog({ action, file, entry })
+      setVirtualActionValue('')
+      virtualActionMutation.reset()
+      return
+    }
+    if (action === 'removeProjectFolder' || action === 'setPrimaryFolder') {
+      const folders = virtualProjectFolders(entry)
+      setVirtualActionDialog({ action, file, entry })
+      setVirtualActionValue(folders[0] ?? '')
+      virtualActionMutation.reset()
+      return
+    }
+    if (action === 'setAppearance') {
+      setVirtualActionDialog({ action, file, entry })
+      setVirtualAppearanceIcon(String(entry?.metadata?.icon || 'Folder'))
+      setVirtualAppearanceColor(String(entry?.metadata?.color || ''))
+      virtualActionMutation.reset()
+      return
+    }
+    if (action === 'branch') {
+      void virtualActionMutation.mutateAsync({ action, path: file.path }).then((result) => {
+        if (!result.openTarget) return
+        const branch: FileItem = {
+          ...file,
+          name: `${file.name} branch`,
+          path: `virtual-branch-${Date.now()}`,
+        }
+        props.onOpenVirtualTarget?.(props.windowId, branch, result.openTarget)
+      })
+      return
+    }
+    if (action === 'deletePermanently' || action === 'deleteProject') {
+      setVirtualDeleteAction(action)
+      setDeleteTarget(file)
+      return
+    }
+    void virtualActionMutation.mutateAsync({ action, path: file.path })
+  }
+
+  function virtualProjectFolders(entry?: VirtualEntry): string[] {
+    const metadata = entry?.metadata ?? {}
+    const folders = Array.isArray(metadata.folders) ? metadata.folders : []
+    const paths = folders.flatMap((folder) => {
+      if (typeof folder === 'string') return [folder]
+      if (
+        folder &&
+        typeof folder === 'object' &&
+        typeof (folder as { path?: unknown }).path === 'string'
+      ) {
+        return [(folder as { path: string }).path]
+      }
+      return []
+    })
+    const primary =
+      typeof metadata.primary_path === 'string'
+        ? metadata.primary_path
+        : typeof metadata.primaryPath === 'string'
+          ? metadata.primaryPath
+          : ''
+    return [...new Set([primary, ...paths].filter(Boolean))]
+  }
+
+  function submitVirtualActionDialog() {
+    const dialog = virtualActionDialog()
+    if (!dialog) return
+    const value = virtualActionValue().trim()
+    const body =
+      dialog.action === 'setAppearance'
+        ? {
+            action: dialog.action,
+            path: dialog.file.path,
+            metadata: { icon: virtualAppearanceIcon(), color: virtualAppearanceColor() },
+          }
+        : { action: dialog.action, path: dialog.file.path, name: value }
+    if (dialog.action !== 'setAppearance' && !value) return
+    void virtualActionMutation.mutateAsync(body).then(() => setVirtualActionDialog(null))
   }
 
   function cancelRename() {
@@ -665,6 +918,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const item = renamingItem()
     const newName = renameNewName().trim()
     if (!item || !newName || newName === item.name || renameTargetExists()) return
+    const entry = virtualEntry(item)
+    if (entry && hasVirtualCapability(entry, 'rename')) {
+      void virtualActionMutation
+        .mutateAsync({ action: 'rename', path: item.path, name: newName })
+        .then(cancelRename)
+      return
+    }
     const sh = share()
     const shareNorm = sh?.sharePath.replace(/\\/g, '/') ?? ''
     if (sh) {
@@ -748,6 +1008,14 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   function handleContextDownload(file: FileItem) {
+    const entry = virtualEntry(file)
+    if (entry && hasVirtualCapability(entry, 'download')) {
+      const link = document.createElement('a')
+      link.href = `/api/virtual-directory/export?path=${encodeURIComponent(file.path)}`
+      link.download = `${file.name}.json`
+      link.click()
+      return
+    }
     const link = document.createElement('a')
     const sh = share()
     link.href = fileDownloadHref(
@@ -935,12 +1203,53 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     props.onOpenInSplitView?.(props.windowId, file)
   }
 
+  function openWithBrowser(file: FileItem) {
+    if (file.isDirectory) props.onNavigateDir(props.windowId, file.path)
+    else props.onOpenViewer(props.windowId, file)
+  }
+
+  function openWithReader(file: FileItem) {
+    props.onOpenReader(props.windowId, file)
+  }
+
   function openCreateFileDialog() {
+    if (hasVirtualCapability(virtualDirectory(), 'createFile')) {
+      void virtualActionMutation
+        .mutateAsync({ action: 'createFile', path: currentPath() })
+        .then((result) => {
+          if (!result.openTarget) return
+          const draft: FileItem = {
+            name: 'Untitled session',
+            path: `virtual-draft-${Date.now()}`,
+            type: MediaType.OTHER,
+            size: 0,
+            extension: '',
+            isDirectory: false,
+            isVirtual: true,
+          }
+          props.onOpenVirtualTarget?.(props.windowId, draft, result.openTarget)
+          if (!props.onOpenVirtualTarget) {
+            setVirtualDetail({
+              file: draft,
+              entry: {
+                provider: 'hermes',
+                kind: 'draft',
+                capabilities: [],
+                openTarget: result.openTarget,
+              },
+            })
+          }
+        })
+      return
+    }
     setNewFileName('')
     setShowCreateFile(true)
   }
 
   function openCreateFolderDialog() {
+    setProjectPrimaryPath('')
+    setProjectAdditionalPaths('')
+    setGatewayPickerPath('')
     setNewFolderName('')
     setShowCreateFolder(true)
   }
@@ -949,9 +1258,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const name = newFileName().trim()
     if (!name || fileExists()) return
     const sh = share()
-    const addExt = inKb() ? '.md' : '.txt'
     if (sh) {
-      const stem = name.includes('.') ? name : `${name}${addExt}`
+      const stem = normalizeNewFilePath(name, inKb())
       const rel = listDir() ? `${listDir()}/${stem}` : stem
       void createFileMutation
         .mutateAsync({ path: rel, content: '', shareToken: sh.token })
@@ -962,7 +1270,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       return
     }
     const base = currentPath() ? `${currentPath()}/${name}` : name
-    const finalPath = base.includes('.') ? base : `${base}${addExt}`
+    const finalPath = normalizeNewFilePath(base, inKb())
     void createFileMutation.mutateAsync({ path: finalPath, content: '' }).then(() => {
       setShowCreateFile(false)
       setNewFileName('')
@@ -972,6 +1280,26 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   function submitCreateFolder() {
     const name = newFolderName().trim()
     if (!name || folderExists()) return
+    if (hasVirtualCapability(virtualDirectory(), 'createFolder')) {
+      const primaryPath = projectPrimaryPath().trim()
+      if (!primaryPath) return
+      const folders = [
+        primaryPath,
+        ...projectAdditionalPaths()
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ]
+      void virtualActionMutation
+        .mutateAsync({
+          action: 'createFolder',
+          path: currentPath(),
+          name,
+          metadata: { primaryPath, folders },
+        })
+        .then(() => setShowCreateFolder(false))
+      return
+    }
     const sh = share()
     if (sh) {
       const rel = listDir() ? `${listDir()}/${name}` : name
@@ -1072,8 +1400,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const fileExists = createMemo(() => {
     const stem = newFileName().trim()
     if (!stem) return false
-    const addExt = inKb() ? '.md' : '.txt'
-    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    const finalName = normalizeNewFilePath(stem, inKb())
     const fl = finalName.toLowerCase()
     const st = stem.toLowerCase()
     return files().some(
@@ -1117,8 +1444,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (inlineMode() !== 'file') return false
     const stem = inlineName().trim()
     if (!stem) return false
-    const addExt = inKb() ? '.md' : '.txt'
-    const finalName = stem.includes('.') ? stem : `${stem}${addExt}`
+    const finalName = normalizeNewFilePath(stem, inKb())
     return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
   })
 
@@ -1133,8 +1459,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const stem = inlineName().trim()
     if (!stem || inlineFileExists() || !showInlineCreate()) return
     const sh = share()
-    const addExt = inKb() ? '.md' : '.txt'
-    const fileStem = stem.includes('.') ? stem : `${stem}${addExt}`
+    const fileStem = normalizeNewFilePath(stem, inKb())
     try {
       if (sh) {
         const rel = listDir() ? `${listDir()}/${fileStem}` : fileStem
@@ -1151,7 +1476,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         return
       }
       const base = currentPath() ? `${currentPath()}/${stem}` : stem
-      const finalPath = base.includes('.') ? base : `${base}${addExt}`
+      const finalPath = normalizeNewFilePath(base, inKb())
       await createFileMutation.mutateAsync({ path: finalPath, content: '' })
       setInlineMode(null)
       setInlineName('')
@@ -1234,6 +1559,14 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (file.isDirectory) {
       setUnsupportedFile(null)
       props.onNavigateDir(props.windowId, file.path)
+      return
+    }
+    const entry = virtualEntry(file)
+    if (entry?.openTarget) {
+      setUnsupportedFile(null)
+      if (props.onOpenVirtualTarget)
+        props.onOpenVirtualTarget(props.windowId, file, entry.openTarget)
+      else setVirtualDetail({ file, entry })
       return
     }
     viewStats.incrementView(file.path)
@@ -1320,6 +1653,9 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       isDirectory: file.isDirectory,
       sourceKind: kind,
       ...(kind === 'share' && tok ? { sourceToken: tok } : {}),
+      ...(virtualEntry(file)?.openTarget
+        ? { virtualOpenTarget: virtualEntry(file)!.openTarget }
+        : {}),
     })
     dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
     setDraggedPath(file.path)
@@ -1554,6 +1890,31 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               />
               <div class='bg-border mx-1 h-5 w-px shrink-0' />
             </Show>
+            <Show when={showVirtualCreateToolbar()}>
+              <Show when={hasVirtualCapability(virtualDirectory(), 'createFolder')}>
+                <button
+                  type='button'
+                  title='Create new project'
+                  aria-label='Create new project'
+                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground'
+                  onClick={openCreateFolderDialog}
+                >
+                  <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+                </button>
+              </Show>
+              <Show when={hasVirtualCapability(virtualDirectory(), 'createFile')}>
+                <button
+                  type='button'
+                  title='Create new session'
+                  aria-label='Create new session'
+                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground'
+                  onClick={openCreateFileDialog}
+                >
+                  <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+                </button>
+              </Show>
+              <div class='bg-border mx-1 h-5 w-px shrink-0' />
+            </Show>
             <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} mode='Workspace' />
           </div>
         </div>
@@ -1620,6 +1981,12 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               setDirectoryScrollEl(el)
             }}
             class='min-h-0 flex-1 overflow-auto'
+            onScroll={(event) => {
+              const el = event.currentTarget
+              const next = listing()?.virtualDirectory?.nextOffset
+              if (next === undefined || filesQuery.isFetching) return
+              if (el.scrollHeight - el.scrollTop - el.clientHeight < 320) setVirtualOffset(next)
+            }}
           >
             <Show
               when={showKbSearchResults()}
@@ -1724,15 +2091,27 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                                       ? { 'data-kb-root-icon': '' }
                                       : {})}
                                   >
-                                    {gridHeroIcon(file, props.fileIconContext())}
+                                    {gridHeroIcon(
+                                      file,
+                                      props.fileIconContext(),
+                                      virtualEntry(file)?.appearance ??
+                                        virtualAppearanceForPath(file.path),
+                                    )}
                                   </div>
                                 </div>
                                 <div class='flex flex-col gap-1 p-3'>
                                   <p class='truncate text-sm font-medium' title={file.name}>
                                     {file.name}
                                   </p>
-                                  <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                    <span>{file.isDirectory ? '' : formatFileSize(file.size)}</span>
+                                  <div class='flex items-center justify-between gap-2 text-xs text-muted-foreground'>
+                                    <span class='truncate'>
+                                      {virtualEntrySubtitle(virtualEntry(file))}
+                                    </span>
+                                    <span>
+                                      {virtualFileSizeVisible(file, virtualEntry(file))
+                                        ? formatFileSize(file.size)
+                                        : ''}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
@@ -1823,15 +2202,30 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                                   {...(isRowKnowledgeBase(file) ? { 'data-kb-root-icon': '' } : {})}
                                 >
                                   <div class='flex items-center justify-center'>
-                                    {fileItemIcon(file, props.fileIconContext())}
+                                    {fileItemIcon(
+                                      file,
+                                      props.fileIconContext(),
+                                      'md',
+                                      virtualEntry(file)?.appearance ??
+                                        virtualAppearanceForPath(file.path),
+                                    )}
                                   </div>
                                 </td>
                                 <td class='min-w-0 p-2 align-middle font-medium'>
-                                  <span class='truncate'>{file.name}</span>
+                                  <div class='min-w-0'>
+                                    <div class='truncate'>{file.name}</div>
+                                    <Show when={virtualEntrySubtitle(virtualEntry(file))}>
+                                      <div class='truncate text-[11px] font-normal text-muted-foreground'>
+                                        {virtualEntrySubtitle(virtualEntry(file))}
+                                      </div>
+                                    </Show>
+                                  </div>
                                 </td>
                                 <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
                                   <span class='inline-block w-20 tabular-nums'>
-                                    {file.isDirectory ? '' : formatFileSize(file.size)}
+                                    {virtualFileSizeVisible(file, virtualEntry(file))
+                                      ? formatFileSize(file.size)
+                                      : ''}
                                   </span>
                                 </td>
                               </tr>
@@ -1932,6 +2326,216 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             onNewFolder={openCreateFolderDialog}
           />
 
+          <Show when={virtualDetail()}>
+            {(getDetail) => (
+              <div
+                data-no-window-drag
+                class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-4'
+                role='presentation'
+                onClick={() => setVirtualDetail(null)}
+              >
+                <div
+                  role='dialog'
+                  aria-modal='true'
+                  class='max-h-[85%] w-full max-w-2xl overflow-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl'
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div class='flex items-start justify-between gap-3'>
+                    <div>
+                      <h2 class='text-lg font-semibold'>{getDetail().file.name}</h2>
+                      <p class='text-xs text-muted-foreground'>
+                        {getDetail().entry.archived
+                          ? 'Archived · read-only'
+                          : 'Read-only Stage 1 session detail'}
+                      </p>
+                    </div>
+                    <button
+                      type='button'
+                      class='rounded border border-input px-3 py-1 text-sm'
+                      onClick={() => setVirtualDetail(null)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <Show when={getDetail().entry.kind === 'draft'}>
+                    <p class='mt-5 text-sm text-muted-foreground'>
+                      Untouched draft. Interactive composer arrives in Stage 2.
+                    </p>
+                  </Show>
+                  <Show when={virtualDetailQuery.isPending}>
+                    <p class='mt-5 text-sm text-muted-foreground'>Loading transcript…</p>
+                  </Show>
+                  <Show when={virtualDetailQuery.isError}>
+                    <p class='text-destructive mt-5 text-sm'>
+                      {(virtualDetailQuery.error as Error)?.message}
+                    </p>
+                  </Show>
+                  <Show when={virtualDetailQuery.data}>
+                    {(data) => (
+                      <pre class='mt-5 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs'>
+                        {JSON.stringify(data().messages, null, 2)}
+                      </pre>
+                    )}
+                  </Show>
+                </div>
+              </div>
+            )}
+          </Show>
+
+          <Show when={virtualActionDialog()}>
+            {(dialog) => (
+              <div
+                data-no-window-drag
+                class={modalDialogBackdropClass('window')}
+                role='presentation'
+                onClick={() => setVirtualActionDialog(null)}
+              >
+                <div
+                  role='dialog'
+                  aria-modal='true'
+                  aria-labelledby='hermes-virtual-action-title'
+                  class='w-full max-w-sm rounded-lg border border-border bg-card p-4 shadow-lg'
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <h2 id='hermes-virtual-action-title' class='text-base font-semibold'>
+                    {dialog().action === 'moveToProject'
+                      ? 'Move to Hermes project'
+                      : dialog().action === 'addProjectFolder'
+                        ? 'Add gateway directory'
+                        : dialog().action === 'removeProjectFolder'
+                          ? 'Remove gateway directory'
+                          : dialog().action === 'setPrimaryFolder'
+                            ? 'Set primary directory'
+                            : 'Project appearance'}
+                  </h2>
+                  <Show when={dialog().action === 'moveToProject'}>
+                    <p class='mt-1 truncate text-xs text-muted-foreground'>
+                      {dialog().file.name} will use destination project cwd.
+                    </p>
+                    <select
+                      class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
+                      value={virtualActionValue()}
+                      disabled={virtualProjectChoicesLoading() || !virtualProjectChoices().length}
+                      onChange={(event) => setVirtualActionValue(event.currentTarget.value)}
+                    >
+                      <For each={virtualProjectChoices()}>
+                        {(project) => <option value={project.name}>{project.name}</option>}
+                      </For>
+                    </select>
+                    <Show when={!virtualProjectChoicesLoading() && !virtualProjectChoices().length}>
+                      <p class='mt-2 text-xs text-muted-foreground'>
+                        No destination projects available.
+                      </p>
+                    </Show>
+                  </Show>
+                  <Show when={dialog().action === 'addProjectFolder'}>
+                    <input
+                      autofocus
+                      class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm'
+                      placeholder='Existing gateway directory path'
+                      value={virtualActionValue()}
+                      onInput={(event) => setVirtualActionValue(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') submitVirtualActionDialog()
+                      }}
+                    />
+                  </Show>
+                  <Show
+                    when={
+                      dialog().action === 'removeProjectFolder' ||
+                      dialog().action === 'setPrimaryFolder'
+                    }
+                  >
+                    <select
+                      class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
+                      value={virtualActionValue()}
+                      onChange={(event) => setVirtualActionValue(event.currentTarget.value)}
+                    >
+                      <For each={virtualProjectFolders(dialog().entry)}>
+                        {(folder) => <option value={folder}>{folder}</option>}
+                      </For>
+                    </select>
+                    <Show when={!virtualProjectFolders(dialog().entry).length}>
+                      <p class='mt-2 text-xs text-muted-foreground'>
+                        Project has no gateway directories.
+                      </p>
+                    </Show>
+                  </Show>
+                  <Show when={dialog().action === 'setAppearance'}>
+                    <div class='mt-3 grid max-h-36 grid-cols-8 gap-1 overflow-y-auto'>
+                      <For each={SOLID_AVAILABLE_ICONS}>
+                        {(item) => (
+                          <button
+                            type='button'
+                            title={item.name}
+                            aria-label={item.name}
+                            class={cn(
+                              'flex h-8 w-8 items-center justify-center rounded-md border',
+                              virtualAppearanceIcon() === item.name
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'border-transparent text-muted-foreground hover:bg-muted',
+                            )}
+                            onClick={() => setVirtualAppearanceIcon(item.name)}
+                          >
+                            <item.Icon class='h-4 w-4' />
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                    <label class='mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground'>
+                      <span>Accent color</span>
+                      <span class='flex items-center gap-2'>
+                        <input
+                          type='color'
+                          aria-label='Project accent color'
+                          class='h-8 w-10 cursor-pointer rounded border border-input bg-background p-1'
+                          value={virtualAppearanceColor() || '#8b5cf6'}
+                          onInput={(event) => setVirtualAppearanceColor(event.currentTarget.value)}
+                        />
+                        <button
+                          type='button'
+                          class='rounded border border-input px-2 py-1 text-foreground'
+                          onClick={() => setVirtualAppearanceColor('')}
+                        >
+                          Default
+                        </button>
+                      </span>
+                    </label>
+                  </Show>
+                  <Show when={virtualActionMutation.isError}>
+                    <p class='mt-2 text-xs text-destructive'>
+                      {(virtualActionMutation.error as Error)?.message ?? 'Hermes action failed'}
+                    </p>
+                  </Show>
+                  <div class='mt-4 flex justify-end gap-2'>
+                    <button
+                      type='button'
+                      class='h-8 rounded-md border border-input px-3 text-sm'
+                      onClick={() => setVirtualActionDialog(null)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type='button'
+                      class='h-8 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50'
+                      disabled={
+                        virtualActionMutation.isPending ||
+                        (dialog().action !== 'setAppearance' && !virtualActionValue().trim())
+                      }
+                      onClick={submitVirtualActionDialog}
+                    >
+                      {virtualActionMutation.isPending
+                        ? 'Savingâ€¦'
+                        : dialog().action === 'moveToProject'
+                          ? 'Move'
+                          : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Show>
+
           <WorkspaceBrowserModalLayer
             iconEditTarget={iconEditTarget}
             setIconEditTarget={setIconEditTarget}
@@ -1955,10 +2559,15 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             onFileRowMove={isContextDirEditable() ? openContextMove : undefined}
             onSetRowIcon={!share() ? (f) => setIconEditTarget(f) : undefined}
             onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
+            openInNewTabLabel={props.openInNewTabLabel}
             showOpenInNewTabForFiles={!!props.onOpenInNewTab}
             onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
             onOpenInMediaServer={openDirectoryInMediaServer}
+            onOpenWithBrowser={share() ? undefined : openWithBrowser}
+            onOpenWithReader={share() ? undefined : openWithReader}
             onContextDownload={handleContextDownload}
+            getVirtualEntry={virtualEntry}
+            onVirtualAction={handleVirtualAction}
             onContextShare={share() ? undefined : handleContextShare}
             shareDialogTarget={shareDialogTarget}
             setShareDialogTarget={setShareDialogTarget}
@@ -1975,8 +2584,10 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             setRenameNewName={setRenameNewName}
             submitRename={submitRename}
             cancelRename={cancelRename}
-            renamePending={renameItemMutation.isPending}
-            renameError={renameItemMutation.error as Error | undefined}
+            renamePending={renameItemMutation.isPending || virtualActionMutation.isPending}
+            renameError={
+              (renameItemMutation.error ?? virtualActionMutation.error) as Error | undefined
+            }
             renameTargetExists={renameTargetExists}
             moveTarget={moveTarget}
             closeMoveDialog={closeMoveDialog}
@@ -1996,12 +2607,46 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               props.onOpenFileInNewFloatingWindow ? openFileInNewWindowFromRow : undefined
             }
             deleteTarget={deleteTarget}
-            setDeleteTarget={setDeleteTarget}
-            deletePending={deleteMutation.isPending}
+            setDeleteTarget={(value) => {
+              setDeleteTarget(value)
+              if (!value) setVirtualDeleteAction(null)
+            }}
+            deletePending={deleteMutation.isPending || virtualActionMutation.isPending}
+            deleteTitle={
+              virtualDeleteAction() === 'deletePermanently'
+                ? 'Delete Session Permanently?'
+                : virtualDeleteAction() === 'deleteProject'
+                  ? 'Delete Project?'
+                  : undefined
+            }
+            deleteDescription={
+              virtualDeleteAction() === 'deletePermanently'
+                ? 'This permanently deletes the archived Hermes session and cannot be undone.'
+                : virtualDeleteAction() === 'deleteProject'
+                  ? 'This removes project metadata only. Directories and sessions are not deleted.'
+                  : undefined
+            }
+            deleteConfirmLabel={
+              virtualDeleteAction() === 'deletePermanently'
+                ? 'Delete Permanently'
+                : virtualDeleteAction() === 'deleteProject'
+                  ? 'Delete Project'
+                  : undefined
+            }
             revokeSharePending={share() ? false : revokeShareMutation.isPending}
             onConfirmDelete={() => {
               const it = deleteTarget()
               if (!it) return
+              const virtualAction = virtualDeleteAction()
+              if (virtualAction) {
+                void virtualActionMutation
+                  .mutateAsync({ action: virtualAction, path: it.path })
+                  .then(() => {
+                    setDeleteTarget(null)
+                    setVirtualDeleteAction(null)
+                  })
+                return
+              }
               if (!share() && it.shareToken) {
                 void revokeShareMutation
                   .mutateAsync({ token: it.shareToken })
@@ -2015,10 +2660,21 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             newFolderName={newFolderName}
             setNewFolderName={setNewFolderName}
             submitCreateFolder={submitCreateFolder}
-            createFolderPending={createFolderMutation.isPending}
-            createFolderIsError={createFolderMutation.isError}
-            createFolderError={createFolderMutation.error as Error | undefined}
+            createFolderPending={createFolderMutation.isPending || virtualActionMutation.isPending}
+            createFolderIsError={createFolderMutation.isError || virtualActionMutation.isError}
+            createFolderError={
+              (createFolderMutation.error ?? virtualActionMutation.error) as Error | undefined
+            }
             folderExists={folderExists}
+            virtualProjectForm={() => hasVirtualCapability(virtualDirectory(), 'createFolder')}
+            projectPrimaryPath={projectPrimaryPath}
+            setProjectPrimaryPath={setProjectPrimaryPath}
+            projectAdditionalPaths={projectAdditionalPaths}
+            setProjectAdditionalPaths={setProjectAdditionalPaths}
+            gatewayPickerPath={gatewayPickerPath}
+            setGatewayPickerPath={setGatewayPickerPath}
+            gatewayDirectoryEntries={() => gatewayDirectoryQuery.data?.entries ?? []}
+            gatewayDirectoryError={() => gatewayDirectoryQuery.data?.error}
             showCreateFile={showCreateFile}
             setShowCreateFile={setShowCreateFile}
             newFileName={newFileName}

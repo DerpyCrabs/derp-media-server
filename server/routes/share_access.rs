@@ -69,7 +69,6 @@ pub(crate) fn ensure_quota(share: &shares::Share, requested: u64) -> AppResult<(
 }
 
 pub(crate) async fn account_bytes(state: &AppState, token: &str, delta: i64) -> AppResult<()> {
-    let _guard = state.store_lock.lock().await;
     shares::add_used_bytes(&state.config, token, delta)?;
     Ok(())
 }
@@ -100,11 +99,7 @@ async fn info(
     let extension = if share.is_directory {
         String::new()
     } else {
-        FsPath::new(&share.path)
-            .extension()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_ascii_lowercase()
+        media::extension(FsPath::new(&share.path))
     };
     let mut result = json!({"name":shares::name(&share.path),"isDirectory":share.is_directory,"editable":share.editable,"mediaType":if share.is_directory{"folder"}else{media::media_type(&extension)},"extension":extension,"needsPasscode":share.passcode.is_some(),"authorized":authorized});
     if authorized {
@@ -199,7 +194,6 @@ async fn pins(
         &share.path,
         &token,
     );
-    let _guard = state.store_lock.lock().await;
     shares::update_workspace(
         &state.config,
         &roots(&state),
@@ -225,7 +219,6 @@ async fn presets(
         body.get("presets").unwrap_or(&Value::Null),
         Some((&share.path, &token)),
     );
-    let _guard = state.store_lock.lock().await;
     shares::update_workspace(
         &state.config,
         &roots(&state),
@@ -251,14 +244,16 @@ async fn view(
     } else {
         share.path
     };
-    let _guard = state.store_lock.lock().await;
-    let mut stats = store::section(
+    store::mutate_section(
         &stats_path(&state),
         &state.config.library_key,
         json!({"views":{},"shareViews":{}}),
-    );
-    stats["shareViews"][&logical] = json!(stats["shareViews"][&logical].as_u64().unwrap_or(0) + 1);
-    store::update_section(&stats_path(&state), &state.config.library_key, stats)?;
+        |stats| {
+            stats["shareViews"][&logical] =
+                json!(stats["shareViews"][&logical].as_u64().unwrap_or(0) + 1);
+            Ok(())
+        },
+    )?;
     Ok(Json(json!({"success":true})))
 }
 
@@ -407,6 +402,7 @@ async fn edit(
     ensure_quota(&share, size)?;
     require_editable_path(&state, &logical, "write file")?;
     fs::write(full, data).await.map_err(AppError::io)?;
+    crate::path_metadata::content_replaced(&state, &logical)?;
     if !share.is_directory
         && share.path.to_ascii_lowercase().ends_with(".md")
         && let Some(content) = text
@@ -469,6 +465,7 @@ async fn delete(
     } else {
         fs::remove_file(full).await.map_err(AppError::io)?
     }
+    crate::path_metadata::removed(&state, &logical).await?;
     emit(&state, &logical);
     Ok(Json(
         json!({"success":true,"message":if metadata.is_dir(){"Folder deleted"}else{"File deleted"}}),
@@ -501,6 +498,7 @@ async fn rename(
         ));
     }
     fs::rename(old, new).await.map_err(AppError::io)?;
+    crate::path_metadata::moved(&state, &old_logical, &new_logical).await?;
     emit(&state, &old_logical);
     if crate::app::parent_logical(&old_logical) != crate::app::parent_logical(&new_logical) {
         emit(&state, &new_logical);

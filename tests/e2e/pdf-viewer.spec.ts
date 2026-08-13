@@ -7,20 +7,27 @@ test.describe('PDF Viewer', () => {
     await expect(page.getByTestId('pdf-canvas')).toBeVisible()
   })
 
-  test('shows PDF filename in header', async ({ page }) => {
+  test('does not duplicate PDF filename in reader toolbar', async ({ page }) => {
     await page.goto('/?dir=Documents&viewing=Documents%2Fsample.pdf')
-    await expect(page.getByText('sample.pdf').first()).toBeVisible()
+    await expect(page.getByTestId('reader-dialog').locator('header')).not.toContainText(
+      'sample.pdf',
+    )
   })
 
-  test('shows download button', async ({ page }) => {
+  test('uses compact derp-reader toolbar controls', async ({ page }) => {
     await page.goto('/?dir=Documents&viewing=Documents%2Fsample.pdf')
-    await expect(page.locator('[title="Download"]')).toBeVisible()
+    await expect(page.getByTestId('reader-page-indicator')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Enter fullscreen' })).toBeVisible()
+    await expect(page.locator('[title="Download"]')).not.toBeVisible()
   })
 
-  test('shows page navigation and zoom controls', async ({ page }) => {
+  test('shows page jump and zoom controls', async ({ page }) => {
     await page.goto('/?dir=Documents&viewing=Documents%2Fsample.pdf')
-    await expect(page.getByRole('button', { name: 'Next page' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    await page.getByTestId('reader-page-indicator').click()
+    await expect(page.getByTestId('reader-page-input')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByTestId('reader-settings-button').click()
+    await expect(page.getByRole('button', { name: 'Reader zoom in' })).toBeVisible()
   })
 
   test('closing viewer returns to file list', async ({ page }) => {

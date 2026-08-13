@@ -52,6 +52,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `editableFolders`         | `EDITABLE_FOLDERS`          | Comma-separated paths under single-root `mediaDir` where writes are allowed |
 | `fileSearch`              |                             | Persistent filename/path search index settings                              |
 | `imageOptimization`       |                             | Responsive viewer variants and disk-cache settings                          |
+| `hermes`                  |                             | Optional Hermes gateway, profile, and filesystem integration                |
 | `shareLinkDomain`         | `SHARE_LINK_DOMAIN`         | Base URL for share links (host or full URL)                                 |
 | `auth.enabled`            | `AUTH_ENABLED`              | `true` / `1`                                                                |
 | `auth.password`           | `AUTH_PASSWORD`             | Login password                                                              |
@@ -100,6 +101,19 @@ and cache size remain configurable; omitted fields use these defaults:
 `maxCacheSize` accepts `KB`, `MB`, `GB`, `KiB`, `MiB`, and `GiB` suffixes case-insensitively.
 Variants live under `<dataPath>/image-variants`; changing widths or quality creates distinct cache
 entries. Generated thumbnails live under `<dataPath>/thumbnails`.
+
+Hermes chat is optional. Without app authentication, its agent-control routes are available only
+from a direct loopback connection. Reader AI is disabled because current Hermes sessions cannot
+enforce a no-tools policy for untrusted document content.
+
+```jsonc
+{
+  "hermes": {
+    "gatewayUrl": "http://127.0.0.1:4000",
+    "profile": "default",
+  },
+}
+```
 
 Use `mediaDirs` when serving multiple media roots:
 

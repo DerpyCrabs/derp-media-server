@@ -12,6 +12,7 @@ export interface WorkspaceTaskbarPin {
   isDirectory: boolean
   title: string
   customIconName?: string | null
+  isVirtual?: boolean
   source: WorkspaceTaskbarPinSource
 }
 
@@ -65,7 +66,7 @@ export function filterShareWorkspaceTaskbarPins(
 ): WorkspaceTaskbarPin[] {
   const root = sharePath.replace(/\\/g, '/')
   return items.filter((p) => {
-    if (p.source.kind !== 'share' || p.source.token !== token) return false
+    if (p.isVirtual || p.source.kind !== 'share' || p.source.token !== token) return false
     const pathNorm = p.path.replace(/\\/g, '/')
     if (pathHasDotDot(pathNorm)) return false
     return pathNorm === root || pathNorm.startsWith(`${root}/`)

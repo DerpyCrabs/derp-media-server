@@ -1,6 +1,11 @@
 import { createReconnectScheduler } from '@/lib/sse-reconnect'
 
-export type SseEventPayload = { type?: string }
+export type SseEventPayload = {
+  type?: string
+  path?: string
+  oldPath?: string
+  newPath?: string
+}
 
 const useSharedWorker = typeof SharedWorker !== 'undefined'
 

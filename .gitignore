@@ -61,5 +61,6 @@ settings.json
 stats.json
 shares.json
 mounts.json
+canvases.json
 .search-index/
 config.json*

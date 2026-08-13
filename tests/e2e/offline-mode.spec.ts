@@ -1,4 +1,9 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+
+async function useListView(page: Page) {
+  await page.getByRole('button', { name: 'List view' }).click()
+  await expect(page.locator('table')).toBeVisible()
+}
 
 test.describe('Offline mode', () => {
   test('generates image and video thumbnails locally without thumbnail APIs', async ({
@@ -23,6 +28,7 @@ test.describe('Offline mode', () => {
       ['Videos', 'sample.mp4'],
     ] as const) {
       await page.goto(`/?dir=${encodeURIComponent(`${prefix}${directory}`)}`)
+      await useListView(page)
       await page.locator('table tr').filter({ hasText: name }).click({ button: 'right' })
       await page.getByText('Make available offline', { exact: true }).click()
       await expect(page.getByText(`${name} is available offline`, { exact: true })).toBeVisible()
@@ -312,11 +318,13 @@ test.describe('Offline mode', () => {
     const prefix = root ? `${root}/` : ''
 
     await page.goto(`/?dir=${encodeURIComponent(`${prefix}Videos`)}`)
+    await useListView(page)
     await page.locator('table tr').filter({ hasText: 'sample.mp4' }).click({ button: 'right' })
     await page.getByText('Make available offline', { exact: true }).click()
     await expect(page.getByText('sample.mp4 is available offline', { exact: true })).toBeVisible()
 
     await page.goto(`/?dir=${encodeURIComponent(`${prefix}Music`)}`)
+    await useListView(page)
     await page.locator('table tr').filter({ hasText: 'track.mp3' }).click({ button: 'right' })
     await page.getByText('Make available offline', { exact: true }).click()
     await expect(page.getByText('track.mp3 is available offline', { exact: true })).toBeVisible()

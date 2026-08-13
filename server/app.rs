@@ -9,7 +9,7 @@ use base64::Engine;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, atomic::AtomicU64},
     time::UNIX_EPOCH,
@@ -19,21 +19,27 @@ use tokio::sync::{Mutex, RwLock};
 pub(crate) struct AppState {
     pub config: Config,
     pub runtime_roots: RwLock<Vec<MediaRoot>>,
-    pub store_lock: Mutex<()>,
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
     pub events: tokio::sync::broadcast::Sender<FileEvent>,
     pub admin_events: tokio::sync::broadcast::Sender<Value>,
+    pub hermes_events: tokio::sync::broadcast::Sender<Value>,
     pub image_grants: Mutex<HashMap<String, ImageGrant>>,
     pub share_images: Mutex<HashMap<(String, String, String), ImagePreview>>,
     pub image_operations: Mutex<()>,
     pub preview_sequence: AtomicU64,
     pub login_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub share_verify_attempts: Mutex<HashMap<String, (u32, u128)>>,
+    pub reader_state_writes: Mutex<HashMap<String, (u32, u128)>>,
+    pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,
     pub file_search: Arc<FileSearch>,
+    pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
+    pub hermes_project_operations: Mutex<()>,
+    pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
+    pub hermes_active_ids: Mutex<HashSet<String>>,
 }
 
 #[derive(Clone)]
@@ -105,6 +111,23 @@ pub(crate) fn emit_admin(state: &AppState, kind: &str) {
         .send(json!({"type":kind,"timestamp":timestamp_ms()}));
 }
 
+pub(crate) fn emit_path_removed(state: &AppState, path: &str) {
+    let _ = state.admin_events.send(json!({
+        "type":"path-removed",
+        "path":path.replace('\\', "/"),
+        "timestamp":timestamp_ms(),
+    }));
+}
+
+pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) {
+    let _ = state.admin_events.send(json!({
+        "type":"path-moved",
+        "oldPath":old_path.replace('\\', "/"),
+        "newPath":new_path.replace('\\', "/"),
+        "timestamp":timestamp_ms(),
+    }));
+}
+
 pub(crate) fn roots(state: &AppState) -> Vec<MediaRoot> {
     state
         .runtime_roots
@@ -140,6 +163,10 @@ pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<medi
 
 pub(crate) fn settings_path(state: &AppState) -> PathBuf {
     state.config.data_path.join("settings.json")
+}
+
+pub(crate) fn canvases_path(state: &AppState) -> PathBuf {
+    state.config.data_path.join("canvases.json")
 }
 
 pub(crate) fn stats_path(state: &AppState) -> PathBuf {

@@ -18,6 +18,7 @@ export type MarkdownDocumentProps = {
   onBlur?: () => void
   onSave?: () => void | Promise<void>
   resolveImageUrl: (src: string) => string | null
+  onOpenImage?: (src: string, alt?: string) => void
   onPasteImage?: MarkdownImagePasteHandler
   ariaLabel?: string
   compact?: boolean

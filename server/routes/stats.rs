@@ -23,15 +23,16 @@ async fn add_view(State(state): State<Shared>, Json(body): Json<Value>) -> AppRe
     if path.is_empty() {
         return Err(AppError::bad("File path is required"));
     }
-    let _guard = state.store_lock.lock().await;
-    let mut value = store::section(
+    let count = store::mutate_section(
         &stats_path(&state),
         &state.config.library_key,
         json!({"views":{},"shareViews":{}}),
-    );
-    let count = value["views"][path].as_u64().unwrap_or(0) + 1;
-    value["views"][path] = json!(count);
-    store::update_section(&stats_path(&state), &state.config.library_key, value)?;
+        |value| {
+            let count = value["views"][path].as_u64().unwrap_or(0) + 1;
+            value["views"][path] = json!(count);
+            Ok(count)
+        },
+    )?;
     Ok(Json(json!({"success":true,"viewCount":count})))
 }
 

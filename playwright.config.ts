@@ -17,6 +17,7 @@ const releaseServer =
   process.platform === 'win32'
     ? 'target\\release\\derp-media-server.exe --production'
     : 'target/release/derp-media-server --production'
+const seededReleaseServer = `bun tests/fixtures/seed-state.ts && ${releaseServer}`
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -24,8 +25,8 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  // Batches use isolated ports + media dirs; parallelize by file (not within-file).
-  workers: batchId ? 4 : 1,
+  // Batch runner parallelizes isolated servers; keep each server on one browser worker.
+  workers: 1,
   reporter: [['line'], ['html', { open: 'never', outputFolder: htmlReportDir }]],
   timeout: 15_000,
   expect: { timeout: 10_000 },
@@ -59,7 +60,7 @@ export default defineConfig({
   globalSetup: './tests/fixtures/setup.ts',
   globalTeardown: './tests/fixtures/teardown.ts',
   webServer: {
-    command: releaseServer,
+    command: seededReleaseServer,
     url: `http://localhost:${port}`,
     reuseExistingServer: false,
     timeout: 120_000,

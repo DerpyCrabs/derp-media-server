@@ -37,7 +37,12 @@ p12 = "0.6"
 percent-encoding = "2"
 pulldown-cmark = "0.13"
 rand = "0.10"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls",
+  "stream",
+  "json",
+  "query",
+] }
 resvg = "0.48"
 rusqlite = { version = "0.40", features = ["bundled"] }
 scrypt = "0.12"

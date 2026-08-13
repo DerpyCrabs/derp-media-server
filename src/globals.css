@@ -1,4 +1,150 @@
 @import 'tailwindcss';
+
+.book-document {
+  background: #fffdf8;
+  color: #24211d;
+  user-select: text;
+}
+
+.book-document.book-custom-font-size {
+  font-size: calc(1rem * var(--book-font-scale));
+}
+.book-document.book-custom-line-height {
+  line-height: var(--book-line-height);
+}
+.book-document.font-serif .book-chapter,
+.book-document.font-serif .book-chapter * {
+  font-family: ui-serif, Georgia, serif !important;
+}
+.book-document.font-sans .book-chapter,
+.book-document.font-sans .book-chapter * {
+  font-family: ui-sans-serif, system-ui, sans-serif !important;
+}
+.book-document.book-custom-line-height .book-chapter,
+.book-document.book-custom-line-height .book-chapter * {
+  line-height: var(--book-line-height) !important;
+}
+
+.book-document.book-theme-dark {
+  background: #171717;
+  color: #e7e2da;
+}
+
+.book-document.book-theme-sepia {
+  background: #f1e5c8;
+  color: #3f3323;
+}
+
+.book-document.book-theme-light {
+  background: #fffdf8;
+  color: #24211d;
+}
+
+.book-document.book-custom-width .book-chapter {
+  max-width: var(--book-content-width);
+}
+.book-chapter :is(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.4em 0.65em;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.book-chapter h1 {
+  font-size: 1.9em;
+}
+.book-chapter h2 {
+  font-size: 1.55em;
+}
+.book-chapter h3 {
+  font-size: 1.25em;
+}
+.book-chapter p {
+  margin-block: 0.65em;
+}
+.book-chapter blockquote {
+  margin: 1em 1.5em;
+  opacity: 0.88;
+}
+.book-chapter img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2em auto;
+}
+.book-chapter [data-book-cover] img {
+  max-height: calc(100vh - 110px);
+}
+.book-chapter a {
+  color: #3273dc;
+  text-decoration: underline;
+}
+.book-chapter table {
+  max-width: 100%;
+  border-collapse: collapse;
+}
+.book-chapter :is(td, th) {
+  border: 1px solid currentColor;
+  padding: 0.35em;
+}
+
+.reader-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: inherit;
+}
+
+.reader-markdown .markdown-document,
+.reader-markdown .markdown-document .cm-editor,
+.reader-markdown .markdown-document .cm-scroller,
+.reader-markdown .markdown-document .cm-content {
+  height: auto;
+  min-height: 0;
+  color: inherit;
+}
+
+.reader-markdown .markdown-document .cm-scroller {
+  overflow: visible;
+}
+
+.reader-markdown .markdown-document-compact .cm-content {
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.reader-viewport::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.reader-viewport::-webkit-scrollbar-track,
+.reader-selection-preview::-webkit-scrollbar-track,
+.reader-selection-result::-webkit-scrollbar-track {
+  background: #181818;
+}
+
+.reader-viewport::-webkit-scrollbar-thumb {
+  border: 3px solid #181818;
+  border-radius: 999px;
+  background: #555555;
+}
+
+.reader-selection-preview::-webkit-scrollbar,
+.reader-selection-result::-webkit-scrollbar {
+  width: 10px;
+}
+
+.reader-selection-preview::-webkit-scrollbar-thumb,
+.reader-selection-result::-webkit-scrollbar-thumb {
+  border: 2px solid #181818;
+  border-radius: 999px;
+  background: #555555;
+}
+
+@media (max-width: 820px) {
+  .reader-viewport {
+    padding: 14px;
+  }
+}
 @import 'tw-animate-css';
 
 @custom-variant dark (&:is([data-theme$='-dark'] *));
@@ -643,6 +789,42 @@ body {
   max-height: 8rem;
 }
 
+.hermes-markdown .markdown-document,
+.hermes-markdown .markdown-document .cm-editor,
+.hermes-markdown .markdown-document .cm-scroller,
+.hermes-markdown .markdown-document .cm-content {
+  height: auto;
+  min-height: 0;
+}
+
+.hermes-markdown .markdown-document .cm-scroller {
+  overflow: visible;
+}
+
+.hermes-markdown .markdown-document-compact .cm-content {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.hermes-markdown .markdown-document .cm-scroller {
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.hermes-markdown .cm-line:has(> br:only-child) {
+  min-height: 0.4rem;
+  height: 0.4rem;
+  line-height: 0.4rem;
+}
+
+.hermes-markdown .cm-md-heading-1,
+.hermes-markdown .cm-md-heading-2,
+.hermes-markdown .cm-md-heading-3 {
+  font-size: 1.08em;
+  padding-top: 0.2em !important;
+}
+
 .cm-md-image:focus-visible {
   border-radius: 0.25rem;
   outline: 2px solid var(--ring);
@@ -664,5 +846,14 @@ body {
 .workspace-layout .markdown-document .cm-editor,
 .workspace-layout .markdown-document .cm-content,
 .workspace-layout [data-slot='input'] {
+  user-select: text;
+}
+
+.canvas-layout input,
+.canvas-layout textarea,
+.canvas-layout .markdown-document,
+.canvas-layout .markdown-document .cm-editor,
+.canvas-layout .markdown-document .cm-content,
+.canvas-layout [data-slot='input'] {
   user-select: text;
 }

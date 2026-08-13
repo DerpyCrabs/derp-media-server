@@ -27,6 +27,8 @@ import type { FileDragData } from '@/lib/file-drag-data'
 import type { WorkspaceShareConfig } from '@/src/workspace/WorkspaceBrowserPane'
 import type { WorkspacePageProps } from './workspace-page-types'
 import type { FileIconContext } from '@/src/lib/use-file-icon'
+import type { VirtualOpenTarget } from '@/lib/virtual-directory'
+import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 
 export type WorkspacePageCanvasProps = {
   hasWorkspaceWindows: () => boolean
@@ -77,6 +79,11 @@ export type WorkspacePageCanvasProps = {
   startSplitPaneDrag: (groupId: string, e: PointerEvent) => void
   navigateDir: (windowId: string, dir: string) => void
   openViewerFromBrowser: (windowId: string, file: FileItem) => void
+  openReaderFromBrowser: (windowId: string, file: FileItem) => void
+  openHermesFromBrowser: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
+  bindHermesSession: (windowId: string, sessionId: string) => void
+  openHermesBranch: (windowId: string, sessionId: string, title: string) => void
+  renameHermesWindow: (windowId: string, title: string) => void
   addPinnedItem: (file: FileItem) => void
   openInNewTabInSameWindow: (
     sourceWindowId: string,
@@ -237,6 +244,8 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 fileIconContext={props.workspaceFileIconContext}
                                 onNavigateDir={props.navigateDir}
                                 onOpenViewer={props.openViewerFromBrowser}
+                                onOpenReader={props.openReaderFromBrowser}
+                                onOpenVirtualTarget={props.openHermesFromBrowser}
                                 onAddToTaskbar={props.addPinnedItem}
                                 onOpenInNewTab={(wid, file, path) =>
                                   props.openInNewTabInSameWindow(wid, file, path)
@@ -276,6 +285,18 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 onListenOnlyDismissViewer={() =>
                                   props.closeTab(tabId, { ignoreTabPinForListenOnlyDismiss: true })
                                 }
+                              />
+                            </Show>
+                            <Show when={windowDef()?.type === 'hermes'}>
+                              <HermesChatPane
+                                window={windowDef}
+                                contentVisible={() => tabId === visibleTabId()}
+                                active={() => props.workspace()?.activeWindowId === tabId}
+                                onSessionCreated={(id) => props.bindHermesSession(tabId, id)}
+                                onBranchCreated={(id, title) =>
+                                  props.openHermesBranch(tabId, id, title)
+                                }
+                                onTitleChanged={(title) => props.renameHermesWindow(tabId, title)}
                               />
                             </Show>
                           </div>
@@ -322,6 +343,8 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               fileIconContext={props.workspaceFileIconContext}
                               onNavigateDir={props.navigateDir}
                               onOpenViewer={props.openViewerFromBrowser}
+                              onOpenReader={props.openReaderFromBrowser}
+                              onOpenVirtualTarget={props.openHermesFromBrowser}
                               onAddToTaskbar={props.addPinnedItem}
                               onOpenInNewTab={(wid, file, path) =>
                                 props.openInNewTabInSameWindow(wid, file, path)
@@ -365,6 +388,20 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               }
                             />
                           </Show>
+                          <Show when={leftWindowDef()?.type === 'hermes'}>
+                            <HermesChatPane
+                              window={leftWindowDef}
+                              contentVisible={() => true}
+                              active={() => props.workspace()?.activeWindowId === leftTabId()}
+                              onSessionCreated={(id) => props.bindHermesSession(leftTabId(), id)}
+                              onBranchCreated={(id, title) =>
+                                props.openHermesBranch(leftTabId(), id, title)
+                              }
+                              onTitleChanged={(title) =>
+                                props.renameHermesWindow(leftTabId(), title)
+                              }
+                            />
+                          </Show>
                         </div>
                         <div
                           data-testid='workspace-split-divider'
@@ -402,6 +439,8 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 fileIconContext={props.workspaceFileIconContext}
                                 onNavigateDir={props.navigateDir}
                                 onOpenViewer={props.openViewerFromBrowser}
+                                onOpenReader={props.openReaderFromBrowser}
+                                onOpenVirtualTarget={props.openHermesFromBrowser}
                                 onAddToTaskbar={props.addPinnedItem}
                                 onOpenInNewTab={(wid, file, path) =>
                                   props.openInNewTabInSameWindow(wid, file, path)
@@ -444,6 +483,22 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                   props.closeTab(visibleTabId(), {
                                     ignoreTabPinForListenOnlyDismiss: true,
                                   })
+                                }
+                              />
+                            </Show>
+                            <Show when={rightWindowDef()?.type === 'hermes'}>
+                              <HermesChatPane
+                                window={rightWindowDef}
+                                contentVisible={() => true}
+                                active={() => props.workspace()?.activeWindowId === visibleTabId()}
+                                onSessionCreated={(id) =>
+                                  props.bindHermesSession(visibleTabId(), id)
+                                }
+                                onBranchCreated={(id, title) =>
+                                  props.openHermesBranch(visibleTabId(), id, title)
+                                }
+                                onTitleChanged={(title) =>
+                                  props.renameHermesWindow(visibleTabId(), title)
                                 }
                               />
                             </Show>

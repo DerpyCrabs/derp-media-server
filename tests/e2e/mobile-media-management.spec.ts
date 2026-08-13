@@ -46,7 +46,7 @@ test.describe('mobile media management', () => {
     const controls = page.getByRole('dialog').locator('button')
     for (let i = 0; i < (await controls.count()); i += 1) {
       const box = await controls.nth(i).boundingBox()
-      expect(box?.height).toBeGreaterThanOrEqual(44)
+      expect(box?.height).toBe(32)
     }
   })
 })

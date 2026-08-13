@@ -100,6 +100,28 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
   const count = () => props.files().length + (props.includeParent() ? 1 : 0)
   const virtualizer = makeVirtualizer(props, count, scrollMargin)
 
+  createEffect(() => {
+    const itemCount = count()
+    const scrollElement =
+      props.scrollTarget.kind === 'element'
+        ? props.scrollTarget.getScrollElement()
+        : document.documentElement
+    if (!itemCount || !scrollElement) return
+
+    let cancelled = false
+    const measure = () => {
+      if (cancelled) return
+      virtualizer._willUpdate()
+      virtualizer.measure()
+    }
+    queueMicrotask(measure)
+    const frame = window.requestAnimationFrame(measure)
+    onCleanup(() => {
+      cancelled = true
+      window.cancelAnimationFrame(frame)
+    })
+  })
+
   function updateScrollMargin() {
     if (props.scrollTarget.kind !== 'window' || !containerEl) {
       setScrollMargin(0)
@@ -165,52 +187,55 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
           <col class='w-[40px]' />
           <col />
           <col class={props.sizeColumnClass ?? 'w-24'} />
-          <col class='w-[52px]' />
+          <Show when={props.colSpan >= 4}>
+            <col class='w-[52px]' />
+          </Show>
         </colgroup>
         <tbody class='[&_tr:last-child]:border-0'>{children}</tbody>
       </table>
     </div>
   )
 
+  const unvirtualizedRows = () => (
+    <>
+      <Show when={props.includeParent()}>{props.renderParentRow()}</Show>
+      <For each={props.files()}>{(file) => props.renderFileRow(file)}</For>
+      {props.renderEmptyRow?.()}
+    </>
+  )
+
   return (
-    <Show
-      when={count() > VIRTUALIZE_THRESHOLD}
-      fallback={table(
-        <>
-          <Show when={props.includeParent()}>{props.renderParentRow()}</Show>
-          <For each={props.files()}>{(file) => props.renderFileRow(file)}</For>
-          {props.renderEmptyRow?.()}
-        </>,
-      )}
-    >
+    <Show when={count() > VIRTUALIZE_THRESHOLD} fallback={table(unvirtualizedRows())}>
       {table(
-        <>
-          <Show when={topPadding() > 0}>
-            <tr aria-hidden='true'>
-              <td colSpan={props.colSpan} style={{ height: `${topPadding()}px`, padding: '0' }} />
-            </tr>
-          </Show>
-          <For each={virtualizer.getVirtualItems()}>
-            {(item) => (
-              <VirtualDirectoryListItem
-                item={item}
-                files={props.files}
-                parentCount={() => (props.includeParent() ? 1 : 0)}
-                renderParentRow={props.renderParentRow}
-                renderFileRow={props.renderFileRow}
-              />
-            )}
-          </For>
-          {props.renderEmptyRow?.()}
-          <Show when={bottomPadding() > 0}>
-            <tr aria-hidden='true'>
-              <td
-                colSpan={props.colSpan}
-                style={{ height: `${bottomPadding()}px`, padding: '0' }}
-              />
-            </tr>
-          </Show>
-        </>,
+        <Show when={virtualizer.getVirtualItems().length > 0} fallback={unvirtualizedRows()}>
+          <>
+            <Show when={topPadding() > 0}>
+              <tr aria-hidden='true'>
+                <td colSpan={props.colSpan} style={{ height: `${topPadding()}px`, padding: '0' }} />
+              </tr>
+            </Show>
+            <For each={virtualizer.getVirtualItems()}>
+              {(item) => (
+                <VirtualDirectoryListItem
+                  item={item}
+                  files={props.files}
+                  parentCount={() => (props.includeParent() ? 1 : 0)}
+                  renderParentRow={props.renderParentRow}
+                  renderFileRow={props.renderFileRow}
+                />
+              )}
+            </For>
+            {props.renderEmptyRow?.()}
+            <Show when={bottomPadding() > 0}>
+              <tr aria-hidden='true'>
+                <td
+                  colSpan={props.colSpan}
+                  style={{ height: `${bottomPadding()}px`, padding: '0' }}
+                />
+              </tr>
+            </Show>
+          </>
+        </Show>,
       )}
     </Show>
   )
