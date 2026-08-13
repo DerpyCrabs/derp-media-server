@@ -22,7 +22,6 @@ export default defineConfig({
         '**/test-media/**',
         '**/test-media-*/**',
         '**/test-data-*/**',
-        '**/tests/fixtures/.auth/**',
         '**/tests/fixtures/test-config-*',
         '**/test-results/**',
         '**/playwright-report/**',

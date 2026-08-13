@@ -2,8 +2,4 @@
   "mediaDir": "test-media",
   "dataPath": "../../test-data-local",
   "editableFolders": ["Notes", "MediaContent"],
-  "auth": {
-    "enabled": true,
-    "password": "test-password",
-  },
 }

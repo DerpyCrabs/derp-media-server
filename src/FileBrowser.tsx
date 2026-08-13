@@ -66,7 +66,7 @@ import { KbSearchResults } from './file-browser/KbSearchResults'
 import { navigateToFolder } from './file-browser/navigate-folder'
 import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
 import { UploadMenu } from './file-browser/UploadMenu'
-import type { AuthConfig, UploadToastState } from './file-browser/types'
+import type { ServerConfig, UploadToastState } from './file-browser/types'
 import {
   DirectoryListingEmpty,
   DirectoryListingEmptyTableRow,
@@ -112,14 +112,14 @@ export function FileBrowser() {
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
   )
 
-  const authQuery = useQuery(() => ({
-    queryKey: queryKeys.authConfig(),
-    queryFn: () => api<AuthConfig>('/api/auth/config'),
+  const serverConfigQuery = useQuery(() => ({
+    queryKey: queryKeys.serverConfig(),
+    queryFn: () => api<ServerConfig>('/api/config'),
     staleTime: Infinity,
   }))
 
-  const editableFolders = createMemo(() => authQuery.data?.editableFolders ?? [])
-  const mediaRoots = createMemo(() => authQuery.data?.mediaRoots ?? [])
+  const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
+  const mediaRoots = createMemo(() => serverConfigQuery.data?.mediaRoots ?? [])
   const isEditable = createMemo(
     () => !isVirtualFolder() && isPathEditable(currentPath(), editableFolders(), mediaRoots()),
   )

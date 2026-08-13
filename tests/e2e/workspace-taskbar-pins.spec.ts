@@ -12,7 +12,7 @@ import {
   openBrowserWindow,
 } from '../e2e/workspace-cross-dnd-helpers'
 import { WORKSPACE_VISIBLE_WINDOW_GROUP } from './workspace-layout-helpers'
-import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
 let browserContext: BrowserContext
 let page: Page

@@ -14,7 +14,6 @@ base64 = "0.23"
 bytes = "1"
 chrono = "0.4"
 futures-util = "0.3"
-hmac = "0.13"
 image = { version = "0.25", default-features = false, features = [
   "bmp",
   "gif",
@@ -34,14 +33,12 @@ percent-encoding = "2"
 reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "query"] }
 resvg = "0.48"
 rusqlite = { version = "0.40", features = ["bundled"] }
-scrypt = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 filetime = "0.2"
 fast_image_resize = { version = "6", features = ["image"] }
 webp = "0.3"
-subtle = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.30"

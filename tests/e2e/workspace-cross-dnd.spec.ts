@@ -12,7 +12,7 @@ import {
   navigateToMediaContent,
   openBrowserWindow,
 } from '../e2e/workspace-cross-dnd-helpers'
-import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
 let sharedContext: BrowserContext
 let page: Page

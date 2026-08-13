@@ -7,7 +7,7 @@ import {
   type Response,
 } from '@playwright/test'
 import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
-import { createWorkspaceE2EContext, workspaceE2EOrigin } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext, workspaceE2EOrigin } from './workspace-e2e-context'
 
 let sharedContext: BrowserContext
 let page: Page

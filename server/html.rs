@@ -34,7 +34,7 @@ fn query(key: Value, data: Value) -> Value {
     json!({"dehydratedAt":now,"queryKey":key,"queryHash":serde_json::to_string(&key).unwrap(),"state":{"data":data,"dataUpdateCount":1,"dataUpdatedAt":now,"error":null,"errorUpdateCount":0,"errorUpdatedAt":0,"fetchFailureCount":0,"fetchFailureReason":null,"fetchMeta":null,"isInvalidated":false,"status":"success","fetchStatus":"idle"}})
 }
 
-fn auth_config(state: &AppState) -> Value {
+fn server_config(state: &AppState) -> Value {
     let runtime = roots(state);
     let mut all = state.config.roots.clone();
     all.extend(runtime);
@@ -49,7 +49,7 @@ fn auth_config(state: &AppState) -> Value {
         }));
         values
     };
-    json!({"enabled":state.config.auth.enabled,"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
+    json!({"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
 }
 
 fn parent(path: &str) -> String {
@@ -141,7 +141,7 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
             json!(["stats"]),
             json!({"views":stats["views"].as_object().cloned().unwrap_or_default()}),
         ));
-        queries.push(query(json!(["auth-config"]), auth_config(state)));
+        queries.push(query(json!(["server-config"]), server_config(state)));
         if path == "/" && knowledge_base_root(state, &dir).is_some() {
             queries.push(query(
                 json!(["content", "admin", "kb-recent", dir]),

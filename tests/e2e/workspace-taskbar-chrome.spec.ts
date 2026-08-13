@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { WORKSPACE_VISIBLE_WINDOW_GROUP, gotoWorkspace } from './workspace-layout-helpers'
-import { createWorkspaceE2EContext } from './workspace-e2e-auth'
+import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
 let sharedContext: BrowserContext
 let page: Page

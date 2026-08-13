@@ -400,12 +400,12 @@ export function CanvasPage() {
     queryFn: () => api<GlobalSettings>('/api/settings'),
     staleTime: Infinity,
   }))
-  const authQuery = useQuery(() => ({
-    queryKey: queryKeys.authConfig(),
-    queryFn: () => api<{ enabled: boolean; editableFolders: string[] }>('/api/auth/config'),
+  const serverConfigQuery = useQuery(() => ({
+    queryKey: queryKeys.serverConfig(),
+    queryFn: () => api<{ editableFolders: string[] }>('/api/config'),
     staleTime: Infinity,
   }))
-  const editableFolders = createMemo(() => authQuery.data?.editableFolders ?? [])
+  const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const writableDirectories = createMemo(() =>
     [...new Set([...knowledgeBases(), ...editableFolders()])].map((path) =>

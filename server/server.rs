@@ -4,7 +4,7 @@ use crate::{
     file_search::FileSearch,
     image_variants, routes, state_db, thumbnails,
 };
-use axum::{Router, extract::DefaultBodyLimit, middleware};
+use axum::{Router, extract::DefaultBodyLimit};
 use std::{
     collections::{HashMap, HashSet},
     process::Stdio,
@@ -74,10 +74,10 @@ fn vite_port(server_port: u16) -> u16 {
 
 fn router(state: Shared) -> Router {
     Router::new()
-        .merge(routes::auth::router())
+        .merge(routes::config::router())
         .merge(routes::canvases::router())
         .merge(routes::files::router())
-        .merge(routes::hermes_chat::router(state.clone()))
+        .merge(routes::hermes_chat::router())
         .merge(routes::settings::router())
         .merge(routes::mounts::router())
         .merge(routes::search::router())
@@ -87,10 +87,6 @@ fn router(state: Shared) -> Router {
         .merge(routes::sse::router())
         .fallback(crate::html::fallback)
         .layer(DefaultBodyLimit::max(1_048_576))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            routes::auth::middleware,
-        ))
         .layer(CompressionLayer::new())
         .with_state(state)
 }
@@ -152,7 +148,6 @@ pub(crate) async fn run() {
         events,
         admin_events,
         hermes_events,
-        login_attempts: Mutex::new(HashMap::new()),
         reader_state_db: Mutex::new(()),
         thumbnails: thumbnails::Thumbnailer::new(config.data_path.join("thumbnails")),
         image_variants: image_variants::ImageVariants::new(
@@ -173,10 +168,7 @@ pub(crate) async fn run() {
         "Workspace available at http://localhost:{}/workspace",
         config.port
     );
-    axum::serve(
-        listener,
-        router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
+    axum::serve(listener, router(state))
     .with_graceful_shutdown(async {
         let _ = tokio::signal::ctrl_c().await;
     })

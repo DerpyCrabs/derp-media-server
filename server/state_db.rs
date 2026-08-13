@@ -447,14 +447,13 @@ pub fn replace_mounts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AuthConfig, FileSearchConfig, ImageOptimizationConfig};
+    use crate::config::{FileSearchConfig, ImageOptimizationConfig};
 
     fn test_config(data_path: PathBuf) -> Config {
         Config {
             port: 3000,
             roots: vec![],
             library_key: "library".into(),
-            auth: AuthConfig::default(),
             file_search: FileSearchConfig {
                 enabled: false,
                 index_path: data_path.join("search.sqlite"),

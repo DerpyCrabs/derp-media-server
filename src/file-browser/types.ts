@@ -1,5 +1,4 @@
-export type AuthConfig = {
-  enabled: boolean
+export type ServerConfig = {
   editableFolders: string[]
   mediaRoots?: {
     id: string

@@ -95,7 +95,6 @@ test.describe.serial('Multiple media directories', () => {
           ],
           dataPath: dataDir,
           port,
-          auth: { enabled: false },
         },
         null,
         2,

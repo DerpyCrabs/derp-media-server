@@ -1,12 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import path from 'path'
-
-const sessionFile = process.env.BATCH_ID ? `session-${process.env.BATCH_ID}.json` : 'session.json'
-const authStoragePath = path.resolve(__dirname, '../fixtures/.auth', sessionFile)
 
 async function createAdminContext(browser: Browser): Promise<BrowserContext> {
-  return browser.newContext({ storageState: authStoragePath })
+  return browser.newContext()
 }
 
 async function gotoWithSSE(page: Page, url: string) {

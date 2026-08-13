@@ -4,7 +4,7 @@ export const queryKeys = {
     return ['files', path] as const
   },
   settings: () => ['settings'] as const,
-  authConfig: () => ['auth-config'] as const,
+  serverConfig: () => ['server-config'] as const,
   mounts: () => ['mounts'] as const,
   stats: () => ['stats'] as const,
   kb: () => ['kb'] as const,

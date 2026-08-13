@@ -8,7 +8,7 @@ function decodeUrlPath(value: string): string | null {
   }
 }
 
-/** Resolve markdown image references through the authenticated media API. */
+/** Resolve markdown image references through the media API. */
 export function buildResolveMarkdownImageUrl(
   viewingPath: string,
   knowledgeBases: string[],

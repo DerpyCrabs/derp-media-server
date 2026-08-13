@@ -42,7 +42,7 @@ export function MountsDialog(props: { open: boolean; onClose: () => void }) {
       setMountPath('')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.mounts() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.authConfig() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.serverConfig() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.files() }),
       ])
     },
@@ -53,7 +53,7 @@ export function MountsDialog(props: { open: boolean; onClose: () => void }) {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.mounts() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.authConfig() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.serverConfig() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.files() }),
       ])
     },

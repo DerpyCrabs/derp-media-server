@@ -24,7 +24,6 @@ pub(crate) struct AppState {
     pub events: tokio::sync::broadcast::Sender<FileEvent>,
     pub admin_events: tokio::sync::broadcast::Sender<Value>,
     pub hermes_events: tokio::sync::broadcast::Sender<Value>,
-    pub login_attempts: Mutex<HashMap<String, (u32, u128)>>,
     pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,

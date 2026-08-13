@@ -34,7 +34,7 @@ export function useAdminEventsStream(
           })
         } else if (data.type === 'mounts-changed') {
           void queryClient.invalidateQueries({ queryKey: queryKeys.mounts() })
-          void queryClient.invalidateQueries({ queryKey: queryKeys.authConfig() })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.serverConfig() })
           void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
         }
       } catch (error) {

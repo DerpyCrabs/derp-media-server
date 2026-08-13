@@ -8,7 +8,7 @@ import { createMemo } from 'solid-js'
 import { unwrap } from 'solid-js/store'
 import type { WorkspacePageProps } from './workspace-page-types'
 
-type AuthConfig = { enabled: boolean; editableFolders: string[] }
+type ServerConfig = { editableFolders: string[] }
 
 function fromQueryData<T>(value: T): T {
   return structuredClone(unwrap(value))
@@ -23,14 +23,14 @@ export function useWorkspacePageServerData(props: WorkspacePageProps) {
     staleTime: Infinity,
   }))
 
-  const authQuery = useQuery(() => ({
-    queryKey: queryKeys.authConfig(),
-    queryFn: () => api<AuthConfig>('/api/auth/config'),
+  const serverConfigQuery = useQuery(() => ({
+    queryKey: queryKeys.serverConfig(),
+    queryFn: () => api<ServerConfig>('/api/config'),
     staleTime: Infinity,
   }))
 
   const editableFolders = createMemo((): string[] => {
-    const folders = authQuery.data?.editableFolders
+    const folders = serverConfigQuery.data?.editableFolders
     return folders ? fromQueryData(folders) : []
   })
 
@@ -60,7 +60,6 @@ export function useWorkspacePageServerData(props: WorkspacePageProps) {
   return {
     queryClient,
     settingsQuery,
-    authQuery,
     editableFolders,
     serverPinsReady,
     serverPinsList,

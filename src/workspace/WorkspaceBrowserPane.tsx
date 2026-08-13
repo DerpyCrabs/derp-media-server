@@ -70,7 +70,7 @@ import { DirectoryBackgroundContextMenu } from '../file-browser/DirectoryBackgro
 import { KbDashboard } from '../file-browser/KbDashboard'
 import { KbInlineCreateFooter } from '../file-browser/KbInlineCreateFooter'
 import { KbSearchResults } from '../file-browser/KbSearchResults'
-import type { AuthConfig, UploadToastState } from '../file-browser/types'
+import type { UploadToastState } from '../file-browser/types'
 import {
   DirectoryListingEmpty,
   DirectoryListingEmptyTableRow,
@@ -305,12 +305,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const settingsQuery = useQuery(() => ({
     queryKey: queryKeys.settings(),
     queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
-
-  const authQuery = useQuery(() => ({
-    queryKey: queryKeys.authConfig(),
-    queryFn: () => api<AuthConfig>('/api/auth/config'),
     staleTime: Infinity,
   }))
 

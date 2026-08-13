@@ -4,70 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthConfig {
-    #[serde(default, deserialize_with = "deserialize_js_bool")]
-    pub enabled: bool,
-    #[serde(default, deserialize_with = "deserialize_optional_string")]
-    pub password: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_domains")]
-    pub admin_access_domains: Option<Vec<String>>,
-    #[serde(default, deserialize_with = "deserialize_positive_seconds")]
-    pub session_max_age_seconds: Option<u64>,
-}
-
-fn deserialize_js_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(match value {
-        None | Some(serde_json::Value::Null) => false,
-        Some(serde_json::Value::Bool(value)) => value,
-        Some(serde_json::Value::Number(value)) => value.as_f64().is_some_and(|value| value != 0.0),
-        Some(serde_json::Value::String(value)) => !value.is_empty(),
-        Some(serde_json::Value::Array(_) | serde_json::Value::Object(_)) => true,
-    })
-}
-
-fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|value| value.as_str().map(str::to_string)))
-}
-
-fn deserialize_domains<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value.and_then(|value| {
-        value.as_array().map(|values| {
-            values
-                .iter()
-                .cloned()
-                .map(js_string)
-                .map(|value| value.trim().to_ascii_lowercase())
-                .filter(|value| !value.is_empty())
-                .collect()
-        })
-    }))
-}
-
-fn deserialize_positive_seconds<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(value
-        .and_then(|value| value.as_f64())
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .map(|value| value.floor().min(u64::MAX as f64) as u64))
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileSearchConfig {
@@ -112,8 +48,6 @@ struct RawConfig {
     editable_folders: Vec<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_media_dirs")]
     media_dirs: Option<Vec<MediaDirConfig>>,
-    #[serde(default, deserialize_with = "deserialize_auth")]
-    auth: Option<AuthConfig>,
     #[serde(default, deserialize_with = "deserialize_optional_path")]
     data_path: Option<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_file_search")]
@@ -201,7 +135,6 @@ pub struct Config {
     pub port: u16,
     pub roots: Vec<MediaRoot>,
     pub library_key: String,
-    pub auth: AuthConfig,
     pub data_path: PathBuf,
     pub file_search: FileSearchConfig,
     pub image_optimization: ImageOptimizationConfig,
@@ -371,22 +304,6 @@ where
         .map(PathBuf::from))
 }
 
-fn deserialize_auth<'de, D>(deserializer: D) -> Result<Option<AuthConfig>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    match value {
-        Some(serde_json::Value::Object(object)) => {
-            serde_json::from_value(serde_json::Value::Object(object))
-                .map(Some)
-                .map_err(serde::de::Error::custom)
-        }
-        Some(serde_json::Value::Array(_)) => Ok(Some(AuthConfig::default())),
-        _ => Ok(None),
-    }
-}
-
 fn deserialize_media_dirs<'de, D>(deserializer: D) -> Result<Option<Vec<MediaDirConfig>>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -494,23 +411,6 @@ fn clamped_integer(
         return fallback;
     }
     (number as i64).clamp(minimum as i64, maximum as i64) as u32
-}
-
-fn parse_js_positive_integer(value: &str) -> Option<u64> {
-    let value = value.trim_start();
-    let (negative, value) = match value.as_bytes().first() {
-        Some(b'+') => (false, &value[1..]),
-        Some(b'-') => (true, &value[1..]),
-        _ => (false, value),
-    };
-    let digits = value
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect::<String>();
-    if negative {
-        return None;
-    }
-    digits.parse::<u64>().ok().filter(|seconds| *seconds > 0)
 }
 
 const DURABLE_DATA: [&str; 4] = [
@@ -764,34 +664,6 @@ impl Config {
                 )
             })?;
         }
-        let mut auth = raw.auth.unwrap_or_default();
-        if let Ok(v) = env::var("AUTH_ENABLED") {
-            auth.enabled = v == "true" || v == "1";
-        }
-        if let Ok(v) = env::var("AUTH_PASSWORD") {
-            auth.password = if v.is_empty() { None } else { Some(v) };
-        }
-        if let Ok(v) = env::var("AUTH_ADMIN_ACCESS_DOMAINS")
-            && !v.is_empty()
-        {
-            auth.admin_access_domains = Some(
-                v.split(',')
-                    .map(|domain| domain.trim().to_ascii_lowercase())
-                    .filter(|domain| !domain.is_empty())
-                    .collect(),
-            );
-        } else if let Some(domains) = &mut auth.admin_access_domains {
-            *domains = domains
-                .drain(..)
-                .map(|domain| domain.trim().to_ascii_lowercase())
-                .filter(|domain| !domain.is_empty())
-                .collect();
-        }
-        if let Ok(v) = env::var("AUTH_SESSION_MAX_AGE")
-            && let Some(seconds) = parse_js_positive_integer(&v)
-        {
-            auth.session_max_age_seconds = Some(seconds);
-        }
         let image_optimization = image_optimization(raw.image_optimization)?;
         let raw_search = raw.file_search.unwrap_or_default();
         let file_search = FileSearchConfig {
@@ -830,7 +702,6 @@ impl Config {
             port,
             roots,
             library_key,
-            auth,
             data_path,
             file_search,
             image_optimization,
@@ -872,22 +743,6 @@ mod tests {
     }
 
     #[test]
-    fn auth_config_matches_javascript_coercion_and_sanitizing() {
-        let raw: RawConfig = json5::from_str(
-            r#"{ auth: { enabled: "yes", password: 42, adminAccessDomains: [" Example.COM ", 7], sessionMaxAgeSeconds: 12.9 } }"#,
-        )
-        .unwrap();
-        let auth = raw.auth.unwrap();
-        assert!(auth.enabled);
-        assert_eq!(auth.password, None);
-        assert_eq!(
-            auth.admin_access_domains,
-            Some(vec!["example.com".into(), "7".into()])
-        );
-        assert_eq!(auth.session_max_age_seconds, Some(12));
-    }
-
-    #[test]
     fn malformed_optional_collections_fall_back_like_javascript() {
         let raw: RawConfig =
             json5::from_str(r#"{ editableFolders: "not-an-array", fileSearch: "not-an-object" }"#)
@@ -905,9 +760,6 @@ mod tests {
             editable_folders(vec![serde_json::json!([null, "x"])]),
             vec![",x"]
         );
-        assert_eq!(parse_js_positive_integer("  +12seconds"), Some(12));
-        assert_eq!(parse_js_positive_integer("-12"), None);
-        assert_eq!(parse_js_positive_integer("words"), None);
     }
 
     #[test]

@@ -9,14 +9,14 @@ use crate::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::{ConnectInfo, DefaultBodyLimit, Multipart, Query, State},
-    http::{HeaderMap, HeaderValue, header},
+    extract::{DefaultBodyLimit, Multipart, Query, State},
+    http::{HeaderValue, header},
     response::Response,
     routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{io::Write, net::SocketAddr, path::Path, time::UNIX_EPOCH};
+use std::{io::Write, path::Path, time::UNIX_EPOCH};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 
@@ -43,8 +43,6 @@ fn report_metadata_failure(operation: &str, path: &str, error: AppError) {
 
 async fn list(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<DirQuery>,
 ) -> AppResult<Json<Value>> {
     if query.dir == crate::virtual_directory::HERMES_ROOT
@@ -52,7 +50,6 @@ async fn list(
             .dir
             .starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
     {
-        crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
         if query.surface.as_deref() != Some("workspace") {
             return Err(AppError::not_found("Directory not found"));
         }
@@ -68,11 +65,6 @@ async fn list(
     if query.dir.is_empty()
         && query.surface.as_deref() == Some("workspace")
         && state.hermes.is_some()
-        && crate::routes::hermes_chat::hermes_access_allowed(
-            state.config.auth.enabled,
-            Some(peer),
-            &headers,
-        )
     {
         let path = crate::virtual_directory::HERMES_ROOT.to_string();
         files.push(media::FileItem {
@@ -104,21 +96,15 @@ async fn list(
 
 async fn virtual_action(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Json(body): Json<crate::virtual_directory::ActionBody>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     Ok(Json(crate::virtual_directory::action(&state, body).await?))
 }
 
 async fn virtual_open(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     Ok(Json(
         crate::virtual_directory::session_detail(&state, &query.path).await?,
     ))
@@ -126,11 +112,8 @@ async fn virtual_open(
 
 async fn virtual_export(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     let id = crate::virtual_directory::session_id_from_path(&query.path)?;
     let hub = state
         .hermes
@@ -146,11 +129,8 @@ async fn virtual_export(
 
 async fn virtual_fs(
     State(state): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
     Query(query): Query<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
-    crate::routes::hermes_chat::require_hermes_access(&state, Some(peer), &headers)?;
     let hub = state
         .hermes
         .as_ref()

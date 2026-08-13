@@ -39,7 +39,7 @@ async function createKbImageWithUniqueName(
   throw new Error('Could not find a free image file name')
 }
 
-/** Upload an authorized clipboard image and complete insertion with Obsidian syntax. */
+/** Upload a clipboard image and complete insertion with Obsidian syntax. */
 export async function tryPasteKnowledgeBaseImage(
   e: ClipboardEvent,
   ctx: KbImagePasteContext,
