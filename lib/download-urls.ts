@@ -1,3 +1,5 @@
+import { apiEndpoints } from './api-endpoints'
+
 export function fileDownloadHref(path: string): string {
-  return `/api/files/download?path=${encodeURIComponent(path)}`
+  return apiEndpoints.files.downloadUrl(path)
 }

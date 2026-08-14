@@ -1,5 +1,6 @@
 use crate::{
     app::{Shared, knowledge_bases, search_snippet},
+    application_queries,
     error::{AppError, AppResult},
     media,
 };
@@ -11,7 +12,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::time::UNIX_EPOCH;
 
 #[derive(Deserialize)]
 struct SearchQuery {
@@ -38,7 +38,7 @@ async fn files(
             .file_search
             .search(term.trim(), limit)
             .await
-            .map_err(|error| AppError(StatusCode::SERVICE_UNAVAILABLE, error.1))?,
+            .map_err(|error| AppError::with_status(StatusCode::SERVICE_UNAVAILABLE, error.1))?,
     ))
 }
 
@@ -73,7 +73,7 @@ fn javascript_number(value: &str) -> Option<f64> {
 
 async fn status(State(state): State<Shared>) -> AppResult<Json<Value>> {
     Ok(Json(state.file_search.status().await.map_err(|error| {
-        AppError(StatusCode::SERVICE_UNAVAILABLE, error.1)
+        AppError::with_status(StatusCode::SERVICE_UNAVAILABLE, error.1)
     })?))
 }
 
@@ -92,7 +92,7 @@ async fn reindex(
         .file_search
         .reindex(body["mode"].as_str().unwrap(), root)
         .await
-        .map_err(|error| AppError(StatusCode::SERVICE_UNAVAILABLE, error.1))?;
+        .map_err(|error| AppError::with_status(StatusCode::SERVICE_UNAVAILABLE, error.1))?;
     Ok((StatusCode::ACCEPTED, Json(json!({"accepted":true}))))
 }
 
@@ -208,38 +208,7 @@ async fn kb_recent(
         return Ok(Json(json!({"results":[]})));
     }
     validate_root(&state, &root, false)?;
-    let resolved = media::resolve(&state.config, &root)?;
-    let mut files = Vec::new();
-    for entry in walkdir::WalkDir::new(&resolved.full)
-        .into_iter()
-        .filter_entry(visible)
-        .filter_map(Result::ok)
-    {
-        if !entry.file_type().is_file()
-            || entry
-                .path()
-                .extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_ascii_lowercase()
-                != "md"
-        {
-            continue;
-        }
-        let modified = entry
-            .metadata()
-            .ok()
-            .and_then(|value| value.modified().ok())
-            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-            .map(|value| value.as_millis() as u64)
-            .unwrap_or(0);
-        files.push((modified, logical_path(&state, &resolved, entry.path())));
-    }
-    files.sort_by_key(|item| std::cmp::Reverse(item.0));
-    files.truncate(10);
-    Ok(Json(
-        json!({"results":files.into_iter().map(|(modified,path)|json!({"name":media::name(&path),"path":path,"modifiedAt":chrono::DateTime::from_timestamp_millis(modified as i64).map(|date|date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))})).collect::<Vec<_>>() }),
-    ))
+    Ok(Json(application_queries::kb_recent(&state, &root)?))
 }
 
 pub fn router() -> Router<Shared> {

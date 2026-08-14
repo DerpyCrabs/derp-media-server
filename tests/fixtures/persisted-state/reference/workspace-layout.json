@@ -1,0 +1,156 @@
+{
+  "windows": [
+    {
+      "id": "reference-browser",
+      "type": "browser",
+      "title": "Notes",
+      "iconName": "NotebookTabs",
+      "iconPath": "Notes",
+      "iconType": "folder",
+      "iconIsVirtual": false,
+      "source": {
+        "kind": "local",
+        "rootPath": null
+      },
+      "initialState": {
+        "dir": "Notes"
+      },
+      "tabGroupId": "reference-main-group",
+      "tabPinned": true,
+      "fileOpenTargetWindowId": "reference-viewer",
+      "layout": {
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 640,
+          "height": 720
+        },
+        "fullscreen": false,
+        "snapZone": "left",
+        "minimized": false,
+        "zIndex": 1,
+        "tiling": {
+          "cols": 2,
+          "rows": 1,
+          "colStart": 0,
+          "colEnd": 1,
+          "rowStart": 0,
+          "rowEnd": 1,
+          "colLines": [0, 0.5, 1],
+          "rowLines": [0, 1]
+        }
+      }
+    },
+    {
+      "id": "reference-viewer",
+      "type": "viewer",
+      "title": "todo.md",
+      "iconName": null,
+      "iconPath": "Notes/todo.md",
+      "iconType": "text",
+      "iconIsVirtual": false,
+      "source": {
+        "kind": "local",
+        "rootPath": null
+      },
+      "initialState": {
+        "dir": "Notes",
+        "viewing": "Notes/todo.md"
+      },
+      "tabGroupId": "reference-main-group",
+      "openedFromWindowId": "reference-browser",
+      "layout": {
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 640,
+          "height": 720
+        },
+        "fullscreen": false,
+        "snapZone": "left",
+        "minimized": false,
+        "zIndex": 2,
+        "tiling": {
+          "cols": 2,
+          "rows": 1,
+          "colStart": 0,
+          "colEnd": 1,
+          "rowStart": 0,
+          "rowEnd": 1,
+          "colLines": [0, 0.5, 1],
+          "rowLines": [0, 1]
+        }
+      }
+    },
+    {
+      "id": "reference-hermes",
+      "type": "hermes",
+      "title": "Reference Hermes session",
+      "iconName": null,
+      "iconPath": "Hermes Sessions/session/reference-session",
+      "iconType": "other",
+      "iconIsVirtual": true,
+      "source": {
+        "kind": "local",
+        "rootPath": null
+      },
+      "initialState": {},
+      "tabGroupId": null,
+      "layout": {
+        "bounds": {
+          "x": 640,
+          "y": 0,
+          "width": 640,
+          "height": 720
+        },
+        "fullscreen": false,
+        "snapZone": "right",
+        "minimized": false,
+        "zIndex": 3,
+        "tiling": {
+          "cols": 2,
+          "rows": 1,
+          "colStart": 1,
+          "colEnd": 2,
+          "rowStart": 0,
+          "rowEnd": 1,
+          "colLines": [0, 0.5, 1],
+          "rowLines": [0, 1]
+        }
+      },
+      "hermes": {
+        "sessionId": "reference-session",
+        "cwd": "/srv/media",
+        "readOnly": false
+      }
+    }
+  ],
+  "activeWindowId": "reference-viewer",
+  "activeTabMap": {
+    "reference-main-group": "reference-viewer",
+    "reference-hermes": "reference-hermes"
+  },
+  "nextWindowId": 4,
+  "pinnedTaskbarItems": [
+    {
+      "id": "reference-pin-notes",
+      "path": "Notes",
+      "isDirectory": true,
+      "title": "Notes",
+      "source": {
+        "kind": "local",
+        "rootPath": null
+      }
+    }
+  ],
+  "browserTabTitle": "Media workspace",
+  "browserTabIcon": "LayoutDashboard",
+  "browserTabIconColor": "violet-500",
+  "tabGroupSplits": {
+    "reference-main-group": {
+      "leftTabId": "reference-browser",
+      "leftPaneFraction": 0.42
+    }
+  },
+  "fileOpenTarget": "new-tab"
+}

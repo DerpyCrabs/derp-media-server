@@ -20,20 +20,21 @@ test.describe('Audio Player', () => {
   test('shows play/pause controls', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
     await expect(page.locator('audio')).toBeAttached()
-    const playPause = page.locator('button:has(.lucide-play), button:has(.lucide-pause)')
-    await expect(playPause.first()).toBeVisible()
+    await expect(page.getByRole('button', { name: /^(Play|Pause)$/ })).toBeVisible()
   })
 
   test('shows next/previous buttons', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
-    await expect(page.locator('button:has(.lucide-step-back)')).toBeVisible()
-    await expect(page.locator('button:has(.lucide-step-forward)')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Previous track' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Next track' })).toBeVisible()
   })
 
   test('shows volume control on desktop', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
     await expect(page.locator('audio')).toBeAttached()
-    await expect(page.locator('button:has(.lucide-volume-2)')).toBeVisible()
+    await expect(page.getByRole('button', { name: /^(Mute|Unmute)$/ })).toBeVisible()
+    await expect(page.getByRole('slider', { name: 'Volume' })).toBeVisible()
+    await expect(page.getByRole('slider', { name: 'Playback position' })).toBeVisible()
   })
 
   test('displays cover art from folder', async ({ page }) => {
@@ -108,11 +109,13 @@ test.describe('Audio Player', () => {
 
   test('repeat button toggles', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
-    const repeatBtn = page.locator('button:has(.lucide-repeat)')
+    const repeatBtn = page.getByRole('button', { name: 'Enable repeat' })
     await expect(repeatBtn).toBeVisible()
     await repeatBtn.click()
-    // After click the button should still exist (toggled state)
-    await expect(repeatBtn).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Disable repeat' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
   test('repeat keeps playing after track ends', async ({ page }) => {

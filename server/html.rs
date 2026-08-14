@@ -1,8 +1,7 @@
 use crate::{
-    app::{AppState, Shared, knowledge_base_root, stats_path, timestamp_ms},
-    media,
-    routes::{media as media_routes, settings},
-    store,
+    app::{AppState, Shared, knowledge_base_root, timestamp_ms},
+    application_queries, media,
+    routes::media as media_routes,
 };
 use axum::{
     body::Body,
@@ -32,22 +31,6 @@ fn query(key: Value, data: Value) -> Value {
     json!({"dehydratedAt":now,"queryKey":key,"queryHash":serde_json::to_string(&key).unwrap(),"state":{"data":data,"dataUpdateCount":1,"dataUpdatedAt":now,"error":null,"errorUpdateCount":0,"errorUpdatedAt":0,"fetchFailureCount":0,"fetchFailureReason":null,"fetchMeta":null,"isInvalidated":false,"status":"success","fetchStatus":"idle"}})
 }
 
-fn server_config(state: &AppState) -> Value {
-    let all = &state.config.roots;
-    let editable = if all.len() == 1 {
-        all[0].editable_folders.clone()
-    } else {
-        let mut values = state.config.roots[0].editable_folders.clone();
-        values.extend(all.iter().flat_map(|root| {
-            root.editable_folders
-                .iter()
-                .map(move |folder| format!("{}/{}", root.name, folder.replace('\\', "/")))
-        }));
-        values
-    };
-    json!({"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
-}
-
 fn parent(path: &str) -> String {
     path.replace('\\', "/")
         .rsplit_once('/')
@@ -55,64 +38,7 @@ fn parent(path: &str) -> String {
         .unwrap_or_default()
 }
 
-fn visible(entry: &walkdir::DirEntry) -> bool {
-    entry.depth() == 0
-        || !entry.file_type().is_dir()
-        || !entry.file_name().to_string_lossy().starts_with('.')
-            && ![
-                "node_modules",
-                "$RECYCLE.BIN",
-                "System Volume Information",
-                ".git",
-                ".svn",
-                ".hg",
-                "__pycache__",
-                ".DS_Store",
-            ]
-            .contains(&entry.file_name().to_string_lossy().as_ref())
-}
-
-fn kb_recent(state: &AppState, scope: &str) -> Value {
-    let Ok(resolved) = media::resolve(&state.config, scope) else {
-        return json!({"results":[]});
-    };
-    let mut files = walkdir::WalkDir::new(&resolved.full)
-        .into_iter()
-        .filter_entry(visible)
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry.file_type().is_file()
-                && entry
-                    .path()
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
-        })
-        .filter_map(|entry| {
-            let modified = entry.metadata().ok()?.modified().ok()?;
-            let relative = entry
-                .path()
-                .strip_prefix(&resolved.root.path)
-                .ok()?
-                .to_string_lossy()
-                .replace('\\', "/");
-            let path = if state.config.roots.len() > 1 {
-                format!("{}/{}", resolved.root.name, relative)
-            } else {
-                relative
-            };
-            Some((modified, path))
-        })
-        .collect::<Vec<_>>();
-    files.sort_by_key(|item| std::cmp::Reverse(item.0));
-    json!({"results":files.into_iter().take(10).map(|(modified,path)|json!({
-        "name":media::name(&path),
-        "path":path,
-        "modifiedAt":chrono::DateTime::<chrono::Utc>::from(modified)
-            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-    })).collect::<Vec<_>>()})
-}
-
-async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
+pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
     let path = uri.path();
     let params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
         .into_owned()
@@ -121,28 +47,34 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
     if path == "/" || path == "/workspace" || path == "/canvas" {
         let dir = params.get("dir").cloned().unwrap_or_default();
         if path == "/"
-            && dir != "Favorites"
-            && dir != "Most Played"
-            && let Ok(files) = crate::routes::files::list_items(state, &dir)
+            && let Ok(listing) = application_queries::file_listing(state, &dir, false, 0).await
         {
-            queries.push(query(json!(["files", dir]), json!({"files":files})));
-        }
-        queries.push(query(json!(["settings"]), settings::sanitized(state)));
-        let stats = store::section(
-            &stats_path(state),
-            &state.config.library_key,
-            json!({"views":{}}),
-        );
-        queries.push(query(
-            json!(["stats"]),
-            json!({"views":stats["views"].as_object().cloned().unwrap_or_default()}),
-        ));
-        queries.push(query(json!(["server-config"]), server_config(state)));
-        if path == "/" && knowledge_base_root(state, &dir).is_some() {
             queries.push(query(
-                json!(["content", "admin", "kb-recent", dir]),
-                kb_recent(state, &dir),
+                application_queries::files_query_key(&dir, false, 0),
+                json!(listing),
             ));
+        }
+        if let Ok(settings) = application_queries::settings(state) {
+            queries.push(query(
+                application_queries::settings_query_key(),
+                json!(settings),
+            ));
+        }
+        queries.push(query(
+            application_queries::stats_query_key(),
+            application_queries::stats(state),
+        ));
+        queries.push(query(
+            application_queries::server_config_query_key(),
+            json!(application_queries::server_config(state)),
+        ));
+        if path == "/" && knowledge_base_root(state, &dir).is_some() {
+            if let Ok(recent) = application_queries::kb_recent(state, &dir) {
+                queries.push(query(
+                    application_queries::kb_recent_query_key(&dir),
+                    recent,
+                ));
+            }
         }
         if let Some(viewing) = params.get("viewing") {
             let extension = Path::new(viewing)
@@ -150,11 +82,9 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
                 .unwrap_or_default()
                 .to_string_lossy();
             if media::media_type(&extension) == "text" {
-                if let Ok(resolved) = media::resolve(&state.config, viewing)
-                    && let Ok(content) = std::fs::read_to_string(resolved.full)
-                {
+                if let Ok(content) = application_queries::text_content(state, viewing) {
                     queries.push(query(
-                        json!(["content", "admin", "text", viewing]),
+                        application_queries::text_content_query_key(viewing),
                         json!(content),
                     ));
                 }
@@ -163,8 +93,13 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
                     .get("dir")
                     .cloned()
                     .unwrap_or_else(|| parent(viewing));
-                if let Ok(files) = crate::routes::files::list_items(state, &listing) {
-                    queries.push(query(json!(["files", listing]), json!({"files":files})));
+                if let Ok(files) =
+                    application_queries::file_listing(state, &listing, false, 0).await
+                {
+                    queries.push(query(
+                        application_queries::files_query_key(&listing, false, 0),
+                        json!(files),
+                    ));
                 }
             }
         }
@@ -178,15 +113,23 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
                 && let Ok(resolved) = media::resolve(&state.config, playing)
                 && let Ok(metadata) = media_routes::audio_metadata_path(&resolved.full).await
             {
-                queries.push(query(json!(["audio-metadata", "v2", playing]), metadata.0));
+                queries.push(query(
+                    application_queries::audio_metadata_query_key(playing),
+                    metadata.0,
+                ));
             }
             if matches!(kind, "audio" | "video") {
                 let listing = params
                     .get("dir")
                     .cloned()
                     .unwrap_or_else(|| parent(playing));
-                if let Ok(files) = crate::routes::files::list_items(state, &listing) {
-                    queries.push(query(json!(["files", listing]), json!({"files":files})));
+                if let Ok(files) =
+                    application_queries::file_listing(state, &listing, false, 0).await
+                {
+                    queries.push(query(
+                        application_queries::files_query_key(&listing, false, 0),
+                        json!(files),
+                    ));
                 }
             }
         }

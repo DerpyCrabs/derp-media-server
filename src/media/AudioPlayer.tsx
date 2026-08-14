@@ -1,7 +1,9 @@
 import { useMediaPlayer } from '@/lib/use-media-player'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
-import { api, post } from '@/lib/api'
+import { api } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import { queryKeys } from '@/lib/query-keys'
+import { filesQueryOptions } from '@/lib/query-options'
 import { MediaType, type FileItem } from '@/lib/types'
 import { useQuery } from '@tanstack/solid-query'
 import Monitor from 'lucide-solid/icons/monitor'
@@ -68,8 +70,7 @@ export function AudioPlayer() {
   const filesQuery = useQuery(() => {
     const dir = dirToFetch()
     return {
-      queryKey: queryKeys.files(dir),
-      queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
+      ...filesQueryOptions({ dir }),
     }
   })
 
@@ -185,7 +186,7 @@ export function AudioPlayer() {
   })
 
   function incrementView(filePath: string) {
-    void post('/api/stats/views', { filePath }).catch(() => {})
+    void apiEndpoints.stats.addView(filePath).catch(() => {})
   }
 
   const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
@@ -649,6 +650,8 @@ export function AudioPlayer() {
             />
             <input
               type='range'
+              aria-label='Playback position'
+              aria-valuetext={`${formatTime(scrubTime())} of ${formatTime(displayDuration())}`}
               min={0}
               max={displayDuration() || 0}
               value={scrubTime()}
@@ -663,6 +666,7 @@ export function AudioPlayer() {
               <div class='flex shrink-0 items-center gap-0.5 min-[650px]:gap-2'>
                 <button
                   type='button'
+                  aria-label='Previous track'
                   disabled={!hasPreviousAudio()}
                   onClick={() => playPrevRef.current()}
                   class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
@@ -671,6 +675,13 @@ export function AudioPlayer() {
                 </button>
                 <button
                   type='button'
+                  aria-label={
+                    storeSlice().isPlaying &&
+                    storeSlice().mediaType === 'audio' &&
+                    storeSlice().currentFile === playingPath()
+                      ? 'Pause'
+                      : 'Play'
+                  }
                   disabled={!playingPath()}
                   onClick={handleTogglePlayPause}
                   class='inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 min-[650px]:size-10'
@@ -688,6 +699,7 @@ export function AudioPlayer() {
                 </button>
                 <button
                   type='button'
+                  aria-label='Next track'
                   disabled={!hasNextAudio()}
                   onClick={() => playNextRef.current()}
                   class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
@@ -696,6 +708,8 @@ export function AudioPlayer() {
                 </button>
                 <button
                   type='button'
+                  aria-label={isRepeat() ? 'Disable repeat' : 'Enable repeat'}
+                  aria-pressed={isRepeat()}
                   disabled={!playingPath()}
                   onClick={toggleRepeat}
                   class={
@@ -725,6 +739,8 @@ export function AudioPlayer() {
                 <span class='text-sm tabular-nums'>{formatTime(scrubTime())}</span>
                 <input
                   type='range'
+                  aria-label='Playback position'
+                  aria-valuetext={`${formatTime(scrubTime())} of ${formatTime(displayDuration())}`}
                   min={0}
                   max={displayDuration() || 0}
                   value={scrubTime()}
@@ -740,6 +756,7 @@ export function AudioPlayer() {
               <div class='hidden lg:flex items-center gap-2 min-w-[140px]'>
                 <button
                   type='button'
+                  aria-label={isMuted() ? 'Unmute' : 'Mute'}
                   onClick={toggleMute}
                   class='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent'
                 >
@@ -749,6 +766,8 @@ export function AudioPlayer() {
                 </button>
                 <input
                   type='range'
+                  aria-label='Volume'
+                  aria-valuetext={`${Math.round((isMuted() ? 0 : volume()) * 100)} percent`}
                   min={0}
                   max={1}
                   step={0.01}

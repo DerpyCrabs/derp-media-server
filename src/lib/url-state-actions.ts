@@ -1,4 +1,5 @@
 import { navigateSearchParams } from '../browser-history'
+import type { RouteQueryUpdates } from './routes'
 
 type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly'
 
@@ -8,7 +9,7 @@ function applyUpdates(updates: ParamUpdates, mode: 'push' | 'replace') {
   navigateSearchParams(
     Object.fromEntries(
       Object.entries(updates).map(([k, v]) => [k, v === undefined ? null : v]),
-    ) as Record<string, string | null>,
+    ) as RouteQueryUpdates,
     mode,
   )
 }

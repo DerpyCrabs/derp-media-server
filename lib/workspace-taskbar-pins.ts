@@ -1,18 +1,12 @@
-export interface WorkspaceTaskbarPinSource {
-  kind: 'local'
-  rootPath?: string | null
-}
+import type {
+  WorkspaceTaskbarPinDto,
+  WorkspaceTaskbarPinSourceDto,
+} from './generated/api-contracts'
+
+export type WorkspaceTaskbarPinSource = WorkspaceTaskbarPinSourceDto
 
 /** Serializable pinned taskbar target. */
-export interface WorkspaceTaskbarPin {
-  id: string
-  path: string
-  isDirectory: boolean
-  title: string
-  customIconName?: string | null
-  isVirtual?: boolean
-  source: WorkspaceTaskbarPinSource
-}
+export type WorkspaceTaskbarPin = WorkspaceTaskbarPinDto
 
 function isValidSource(s: unknown): s is WorkspaceTaskbarPinSource {
   if (!s || typeof s !== 'object' || !('kind' in s)) return false
@@ -36,21 +30,4 @@ function isValidPin(p: unknown): p is WorkspaceTaskbarPin {
 export function parseWorkspaceTaskbarPins(raw: unknown): WorkspaceTaskbarPin[] {
   if (!Array.isArray(raw)) return []
   return raw.filter(isValidPin)
-}
-
-function pathHasDotDot(p: string): boolean {
-  return p.split(/[/\\]/).some((s) => s === '..')
-}
-
-/** Pins for /workspace: local source only, safe paths. */
-export function filterAdminWorkspaceTaskbarPins(
-  items: WorkspaceTaskbarPin[],
-): WorkspaceTaskbarPin[] {
-  return items.filter(
-    (p) =>
-      p.source.kind === 'local' &&
-      typeof p.path === 'string' &&
-      p.path.length > 0 &&
-      !pathHasDotDot(p.path),
-  )
 }

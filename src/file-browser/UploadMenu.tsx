@@ -52,6 +52,7 @@ export function UploadMenu(props: UploadMenuProps) {
       <button
         type='button'
         title='Upload'
+        aria-label='Upload'
         disabled={props.disabled}
         aria-expanded={open()}
         class={cn(

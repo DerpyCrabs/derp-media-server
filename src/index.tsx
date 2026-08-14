@@ -2,14 +2,10 @@
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import './globals.css'
-import {
-  QueryClient,
-  QueryClientProvider,
-  hydrate,
-  type DehydratedState,
-} from '@tanstack/solid-query'
+import type { DehydratedState } from '@tanstack/solid-query'
 import { render } from 'solid-js/web'
 import { App } from './App'
+import { AppProviders, createAppQueryClient } from './AppProviders'
 
 declare global {
   interface Window {
@@ -17,27 +13,15 @@ declare global {
   }
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: Infinity,
-      refetchOnWindowFocus: true,
-    },
-  },
-})
-
-const dehydrated = window.__DEHYDRATED_STATE__
-if (dehydrated) {
-  hydrate(queryClient, dehydrated)
-}
+const queryClient = createAppQueryClient(window.__DEHYDRATED_STATE__)
 
 const root = document.getElementById('root')
 if (root) {
   render(
     () => (
-      <QueryClientProvider client={queryClient}>
+      <AppProviders queryClient={queryClient}>
         <App />
-      </QueryClientProvider>
+      </AppProviders>
     ),
     root,
   )

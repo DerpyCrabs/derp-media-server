@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import type { FileItem } from '@/lib/types'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
@@ -52,7 +52,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
   const listSource = createMemo(() => browsePath())
 
   const [dirFiles] = createResource(listSource, async (src) => {
-    const { files } = await api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(src)}`)
+    const { files } = await apiEndpoints.files.list({ dir: src })
     return files
   })
 

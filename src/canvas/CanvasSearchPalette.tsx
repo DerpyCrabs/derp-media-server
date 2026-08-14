@@ -1,11 +1,10 @@
-import { api } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import {
   FILE_SEARCH_DEFAULT_LIMIT,
   FILE_SEARCH_MIN_QUERY_LENGTH,
   fileSearchCodePointLength,
   fileSearchResultToFileItem,
   normalizeFileSearchText,
-  type FileSearchResponse,
   type FileSearchResult,
 } from '@/lib/file-search'
 import type { CanvasWindow } from '@/lib/infinite-canvas'
@@ -88,10 +87,7 @@ export function CanvasSearchPalette(props: Props) {
   const fileQuery = useQuery(() => ({
     queryKey: queryKeys.fileSearch(normalized()),
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      api<FileSearchResponse>(
-        `/api/files/search?q=${encodeURIComponent(debounced())}&limit=${FILE_SEARCH_DEFAULT_LIMIT}`,
-        { signal },
-      ),
+      apiEndpoints.fileSearch.search(debounced(), FILE_SEARCH_DEFAULT_LIMIT, signal),
     enabled: canSearchFiles(),
     staleTime: 0,
     gcTime: 30_000,

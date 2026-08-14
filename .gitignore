@@ -55,6 +55,7 @@ yarn-error.log*
 .thumbnails
 .image-variants/
 settings.json
+!tests/fixtures/persisted-state/reference/settings.json
 stats.json
 mounts.json
 canvases.json

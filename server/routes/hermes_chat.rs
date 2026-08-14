@@ -603,9 +603,9 @@ mod tests {
         assert!(!prompt_error_allows_resume(&AppError::internal(
             "Hermes gateway RPC timed out"
         )));
-        assert!(prompt_error_allows_resume(&AppError(
+        assert!(prompt_error_allows_resume(&AppError::with_status(
             StatusCode::BAD_REQUEST,
-            "Session not found".into()
+            "Session not found"
         )));
     }
 

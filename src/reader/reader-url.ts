@@ -1,22 +1,18 @@
 import type { FileItem } from '@/lib/types'
+import { navigateSearchParams } from '../browser-history'
 
 export type ReaderSourceKind = 'pdf' | 'folder' | 'book'
 
 export function openInReader(file: Pick<FileItem, 'path' | 'isDirectory' | 'type'>): void {
-  const url = new URL(window.location.href)
-  url.searchParams.set('reader', file.path)
-  url.searchParams.set(
-    'readerKind',
-    file.isDirectory ? 'folder' : file.type === 'book' ? 'book' : 'pdf',
+  navigateSearchParams(
+    {
+      reader: file.path,
+      readerKind: file.isDirectory ? 'folder' : file.type === 'book' ? 'book' : 'pdf',
+    },
+    'push',
   )
-  window.history.pushState({}, '', url)
-  window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
 export function closeReader(): void {
-  const url = new URL(window.location.href)
-  url.searchParams.delete('reader')
-  url.searchParams.delete('readerKind')
-  window.history.pushState({}, '', url)
-  window.dispatchEvent(new PopStateEvent('popstate'))
+  navigateSearchParams({ reader: null, readerKind: null }, 'push')
 }

@@ -1,4 +1,4 @@
-import { post } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import { blobToBase64, formatObsidianPastedImageFileName } from '@/lib/pasted-kb-image'
 import { getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 
@@ -23,7 +23,7 @@ async function createKbImageWithUniqueName(
     const name = n === 0 ? baseName : `${stem}_${n}.${ext}`
     const fullPath = `${dir}/${name}`
     try {
-      await post('/api/files/create', {
+      await apiEndpoints.files.create({
         type: 'file',
         path: fullPath,
         base64Content: base64,
@@ -66,7 +66,7 @@ export async function tryPasteKnowledgeBaseImage(
     const insert = `![[${usedName}]]`
     if (!ctx.completeCodeMirrorPaste(insert)) {
       try {
-        await post('/api/files/delete', { path: `${kbRoot}/images/${usedName}` })
+        await apiEndpoints.files.delete({ path: `${kbRoot}/images/${usedName}` })
       } catch (error) {
         console.error('Failed to roll back unused pasted image:', error)
       }

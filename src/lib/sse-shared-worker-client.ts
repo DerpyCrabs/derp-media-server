@@ -1,11 +1,8 @@
 import { createReconnectScheduler } from '@/lib/sse-reconnect'
+import { apiEndpoints } from '@/lib/api-endpoints'
+import type { AppEvent } from '@/lib/generated/api-contracts'
 
-export type SseEventPayload = {
-  type?: string
-  path?: string
-  oldPath?: string
-  newPath?: string
-}
+export type SseEventPayload = AppEvent
 
 const useSharedWorker = typeof SharedWorker !== 'undefined'
 let sharedWorker: SharedWorker | null = null
@@ -54,7 +51,7 @@ function connectFallbackAdmin() {
   })
   fallbackAdminReconnectCleanup = cleanup
 
-  fallbackAdminEs = new EventSource('/api/events/stream')
+  fallbackAdminEs = new EventSource(apiEndpoints.events.streamUrl)
   fallbackAdminEs.onmessage = (event) => {
     try {
       dispatchAdmin(JSON.parse(event.data) as SseEventPayload)

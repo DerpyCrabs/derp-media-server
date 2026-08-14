@@ -3,10 +3,7 @@ import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
-import {
-  type WorkspaceLayoutPreset,
-  type WorkspaceLayoutScope,
-} from '@/lib/workspace-layout-presets'
+import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import { For, Show, type JSX } from 'solid-js'
 import { FloatingContextMenu } from '@/src/file-browser/FloatingContextMenu'
@@ -32,7 +29,6 @@ export type WorkspacePageTaskbarProps = {
     fn: (prev: PersistedWorkspaceState | null) => PersistedWorkspaceState | null,
   ) => void
   settingsData: () => GlobalSettings | undefined
-  layoutScope: () => WorkspaceLayoutScope
   serverLayoutPresets: () => WorkspaceLayoutPreset[]
   presetsReady: () => boolean
   collectLayoutSnapshot: () => PersistedWorkspaceState
@@ -65,6 +61,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
           <button
             type='button'
             title='Open browser window'
+            aria-label='Open browser window'
             class='flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-amber-500 hover:bg-amber-500/15 hover:text-amber-400'
             onClick={() => props.onOpenBrowser()}
           >
@@ -167,7 +164,6 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
               onStopPlayback={props.stopWorkspacePlaybackFromTaskbar}
             />
             <WorkspaceNamedLayoutMenu
-              scope={props.layoutScope()}
               presets={props.serverLayoutPresets()}
               presetsReady={props.presetsReady()}
               collectLayoutSnapshot={props.collectLayoutSnapshot}

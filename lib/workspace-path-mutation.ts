@@ -74,7 +74,7 @@ function moveWindow(
   oldPath: string,
   newPath: string,
 ): WorkspaceWindowDefinition {
-  if (window.source.kind !== 'local' || window.type === 'hermes') return window
+  if (window.type === 'hermes') return window
   let changed = false
   const initialState = { ...window.initialState }
   for (const key of ['dir', 'viewing', 'playing'] as const) {
@@ -104,7 +104,7 @@ export function applyWorkspaceWindowPathMutation(
   mutation: WorkspacePathMutation,
 ): WorkspaceWindowDefinition | null {
   if (mutation.type === 'path-moved') return moveWindow(window, mutation.oldPath, mutation.newPath)
-  if (window.source.kind !== 'local' || window.type === 'hermes') return window
+  if (window.type === 'hermes') return window
   const authoritativePath = authoritativeWindowPath(window)
   const shouldRemove =
     authoritativePath === undefined
@@ -139,7 +139,7 @@ function clearRemovedSecondaryPaths(
   window: WorkspaceWindowDefinition,
   removedPath: string,
 ): WorkspaceWindowDefinition {
-  if (window.source.kind !== 'local' || window.type === 'hermes') return window
+  if (window.type === 'hermes') return window
   let changed = false
   const initialState = { ...window.initialState }
   for (const key of ['dir', 'viewing', 'playing'] as const) {
@@ -238,7 +238,7 @@ export function applyWorkspacePathMutation(
       return next
     })
     const pinnedTaskbarItems = state.pinnedTaskbarItems.map((pin) => {
-      if (pin.source.kind !== 'local' || !pathIsWithin(pin.path, mutation.oldPath)) return pin
+      if (!pathIsWithin(pin.path, mutation.oldPath)) return pin
       changed = true
       return { ...pin, path: movePath(pin.path, mutation.oldPath, mutation.newPath) }
     })
@@ -259,7 +259,7 @@ export function applyWorkspacePathMutation(
   })
 
   const pinnedTaskbarItems = state.pinnedTaskbarItems.filter((pin) => {
-    const remove = pin.source.kind === 'local' && pathIsWithin(pin.path, mutation.path)
+    const remove = pathIsWithin(pin.path, mutation.path)
     if (remove) changed = true
     return !remove
   })

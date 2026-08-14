@@ -8,11 +8,12 @@ import {
 } from '@/lib/use-workspace'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import { createDefaultBounds, createWindowLayout } from '@/lib/workspace-geometry'
+import { parseRoute } from '../lib/routes'
 
 export const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 
 export function isWorkspaceRoute(pathname: string) {
-  return pathname === '/workspace'
+  return parseRoute({ pathname }).kind === 'workspace'
 }
 
 export function defaultInitialBrowserTitle(): string {

@@ -17,8 +17,10 @@ export const BATCHES = [
       'navigation',
       'breadcrumbs-adaptive',
       'upload',
+      'file-browser-directory-ux',
       'file-browser-misc',
       'file-search-palette',
+      'folder-virtualization',
       'infinite-canvas',
     ],
   },
@@ -33,6 +35,7 @@ export const BATCHES = [
       'workspace-layout-sessions',
       'workspace-named-layouts',
       'workspace-file-open-target',
+      'workspace-split-view',
       'hermes-chat',
     ],
   },
@@ -42,7 +45,7 @@ export const BATCHES = [
   },
   {
     id: '5',
-    tests: ['audio-player', 'sse-live-updates'],
+    tests: ['audio-player', 'video-audio-mode-switch', 'media-range', 'sse-live-updates'],
   },
   {
     id: '6',

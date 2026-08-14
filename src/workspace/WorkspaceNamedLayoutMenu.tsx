@@ -1,11 +1,9 @@
-import { post } from '@/lib/api'
 import { computeLayoutPreviewDetail } from '@/lib/workspace-layout-preview'
-import { queryKeys } from '@/lib/query-keys'
+import { settingsMutationOptions } from '@/lib/query-options'
 import { persistentWorkspaceWindows, type PersistedWorkspaceState } from '@/lib/use-workspace'
 import {
   makeWorkspaceLayoutPresetId,
   type WorkspaceLayoutPreset,
-  type WorkspaceLayoutScope,
 } from '@/lib/workspace-layout-presets'
 import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import LayoutGrid from 'lucide-solid/icons/layout-grid'
@@ -29,7 +27,6 @@ function snapshotForLayoutPreset(s: PersistedWorkspaceState): PersistedWorkspace
 }
 
 type Props = {
-  scope: WorkspaceLayoutScope
   presets: WorkspaceLayoutPreset[]
   presetsReady: boolean
   collectLayoutSnapshot: () => PersistedWorkspaceState
@@ -59,19 +56,12 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     if (!menuOpen()) setLayoutHoverPreview(null)
   })
 
-  const persistPresetsMutation = useMutation(() => ({
-    mutationFn: async (next: WorkspaceLayoutPreset[]) =>
-      post<{ workspaceLayoutPresets: WorkspaceLayoutPreset[] }>(
-        '/api/settings/workspaceLayoutPresets',
-        { presets: next },
-      ),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const persistPresetsMutation = useMutation(() =>
+    settingsMutationOptions.workspaceLayoutPresets(queryClient),
+  )
 
   function persistPresets(next: WorkspaceLayoutPreset[]) {
-    void persistPresetsMutation.mutateAsync(next)
+    void persistPresetsMutation.mutateAsync({ presets: next })
   }
 
   function clearPresetQueryParam() {
@@ -96,19 +86,18 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     const next: WorkspaceLayoutPreset = {
       id,
       name,
-      scope: props.scope,
+      scope: 'admin',
       snapshot,
       createdAt: now,
       updatedAt: now,
     }
     try {
-      await persistPresetsMutation.mutateAsync([...props.presets, next])
+      await persistPresetsMutation.mutateAsync({ presets: [...props.presets, next] })
     } catch {
       return
     }
     setSaveName('')
     setSaveOpen(false)
-    void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     props.syncLayoutBaselineToCurrent()
     props.declareBaselinePresetId(id)
     clearPresetQueryParam()
@@ -167,6 +156,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
         type='button'
         data-testid='workspace-named-layout-trigger'
         title='Layouts — save or restore'
+        aria-label='Layouts — save or restore'
         disabled={!props.presetsReady}
         class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40'
         onClick={(e) => {

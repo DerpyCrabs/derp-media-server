@@ -5,7 +5,6 @@ import {
   setFileDragData,
 } from '@/lib/file-drag-data'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import type { GlobalSettings } from '@/lib/use-settings'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import {
   finePointerDragEnabled,
@@ -18,13 +17,23 @@ import {
   resetBreadcrumbFloating,
   setBreadcrumbFolderMenu,
 } from '@/lib/breadcrumb-floating-store'
-import { api, post } from '@/lib/api'
+import { api } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
+import { fileDownloadHref } from '@/lib/download-urls'
 import {
   prefetchFolderContentsOnHover,
   prefetchParentDirectoryHover,
   type PrefetchFolderHoverContext,
 } from '@/lib/prefetch-folder-hover'
 import { queryKeys } from '@/lib/query-keys'
+import {
+  fileMutationOptions,
+  filesQueryOptions,
+  invalidateFileQueries,
+  serverConfigQueryOptions,
+  settingsMutationOptions,
+  settingsQueryOptions,
+} from '@/lib/query-options'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
@@ -66,7 +75,7 @@ import { KbSearchResults } from './file-browser/KbSearchResults'
 import { navigateToFolder } from './file-browser/navigate-folder'
 import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
 import { UploadMenu } from './file-browser/UploadMenu'
-import type { ServerConfig, UploadToastState } from './file-browser/types'
+import type { UploadToastState } from './file-browser/types'
 import {
   DirectoryListingEmpty,
   DirectoryListingEmptyTableRow,
@@ -86,13 +95,13 @@ import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { useStoreSync } from './lib/solid-store-sync'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
 import { openInReader } from './reader/reader-url'
-import { persistViewMode } from '@/lib/view-mode-persistence'
 import { useViewStats } from './lib/use-view-stats'
 import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
 import { useDeferredLoading } from './lib/use-deferred-loading'
 import { playFile, viewFile } from './lib/url-state-actions'
 import { FileSearchButton } from './FileSearchPalette'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
+import { hrefFor } from './lib/routes'
 
 export function FileBrowser() {
   const history = useBrowserHistory()
@@ -112,11 +121,7 @@ export function FileBrowser() {
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
   )
 
-  const serverConfigQuery = useQuery(() => ({
-    queryKey: queryKeys.serverConfig(),
-    queryFn: () => api<ServerConfig>('/api/config'),
-    staleTime: Infinity,
-  }))
+  const serverConfigQuery = useQuery(serverConfigQueryOptions)
 
   const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
   const mediaRoots = createMemo(() => serverConfigQuery.data?.mediaRoots ?? [])
@@ -124,17 +129,9 @@ export function FileBrowser() {
     () => !isVirtualFolder() && isPathEditable(currentPath(), editableFolders(), mediaRoots()),
   )
 
-  const filesQuery = useQuery(() => ({
-    queryKey: queryKeys.files(currentPath()),
-    queryFn: () =>
-      api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentPath())}`),
-  }))
+  const filesQuery = useQuery(() => filesQueryOptions({ dir: currentPath() }))
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useQuery(settingsQueryOptions)
 
   const files = createMemo(() => filesQuery.data?.files ?? [])
   const fileBrowserScrollScope = () => 'main-file-browser'
@@ -253,21 +250,10 @@ export function FileBrowser() {
   const favorites = createMemo(() => settingsQuery.data?.favorites ?? [])
   const favoriteSet = createMemo(() => new Set(favorites()))
 
-  const viewModeMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
-      persistViewMode(vars.path, vars.viewMode),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const viewModeMutation = useMutation(() => settingsMutationOptions.viewMode(queryClient))
 
-  const favoriteMutation = useMutation(() => ({
-    mutationFn: (vars: { filePath: string }) => post('/api/settings/favorite', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES) })
-    },
-  }))
+  const favoriteMutation = useMutation(() => settingsMutationOptions.favorite(queryClient))
+  const uploadMutation = useMutation(() => fileMutationOptions.upload(queryClient))
 
   const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
   const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
@@ -318,50 +304,20 @@ export function FileBrowser() {
   })
 
   const isUploading = createMemo(() => uploadToast().kind === 'uploading')
-  const invalidateContent = () =>
-    void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
+  const deleteMutation = useMutation(() => fileMutationOptions.delete(queryClient))
 
-  const deleteMutation = useMutation(() => ({
-    mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
-
-  const createFolderMutation = useMutation(() => ({
-    mutationFn: (vars: { type: 'folder'; path: string }) => post('/api/files/create', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
+  const createFolderMutation = useMutation(() => fileMutationOptions.create(queryClient))
 
   const createFileMutation = useMutation(() => ({
-    mutationFn: (vars: { type: 'file'; path: string; content: string }) =>
-      post('/api/files/create', vars),
+    ...fileMutationOptions.create(queryClient),
     onSuccess: (_d, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
       viewFile(variables.path, currentPath())
     },
   }))
 
-  const renameMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
+  const renameMutation = useMutation(() => fileMutationOptions.rename(queryClient))
 
-  const moveMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
+  const moveMutation = useMutation(() => fileMutationOptions.rename(queryClient))
 
   const pasteMutation = useMutation(() => ({
     mutationFn: (vars: {
@@ -371,20 +327,25 @@ export function FileBrowser() {
       mode: 'create' | 'replace'
       expectedVersion?: number
     }) =>
-      post(vars.mode === 'replace' ? '/api/files/edit' : '/api/files/create', {
-        ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
-        path: vars.path,
-        content: vars.content,
-        base64Content: vars.base64Content,
-        expectedVersion: vars.expectedVersion,
-      }),
+      vars.mode === 'replace'
+        ? apiEndpoints.files.edit({
+            path: vars.path,
+            content: vars.content,
+            base64Content: vars.base64Content,
+            expectedVersion: vars.expectedVersion,
+          })
+        : apiEndpoints.files.create({
+            type: 'file',
+            path: vars.path,
+            content: vars.content,
+            base64Content: vars.base64Content,
+          }),
     onSuccess: (_d, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
       setShowPasteDialog(false)
       setPasteData(null)
       viewFile(variables.path, currentPath())
     },
+    onSettled: () => invalidateFileQueries(queryClient),
   }))
 
   function closePasteDialog() {
@@ -577,34 +538,17 @@ export function FileBrowser() {
     }
   }
 
-  const copyMutation = useMutation(() => ({
-    mutationFn: (vars: { sourcePath: string; destinationDir: string }) =>
-      post('/api/files/copy', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-    },
-  }))
+  const copyMutation = useMutation(() => fileMutationOptions.copy(queryClient))
 
-  const knowledgeBaseMutation = useMutation(() => ({
-    mutationFn: (filePath: string) => post('/api/settings/knowledgeBase', { filePath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const knowledgeBaseMutation = useMutation(() =>
+    settingsMutationOptions.knowledgeBase(queryClient),
+  )
 
-  const setCustomIconMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; iconName: string }) => post('/api/settings/icon', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const setCustomIconMutation = useMutation(() => settingsMutationOptions.customIcon(queryClient))
 
-  const removeCustomIconMutation = useMutation(() => ({
-    mutationFn: (path: string) => post('/api/settings/icon/remove', { path }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const removeCustomIconMutation = useMutation(() =>
+    settingsMutationOptions.removeCustomIcon(queryClient),
+  )
 
   const folderExists = createMemo(() => {
     const n = newItemName().trim()
@@ -713,14 +657,7 @@ export function FileBrowser() {
       for (const file of files) {
         formData.append('files', file, file.name)
       }
-      const res = await fetch('/api/files/upload', { method: 'POST', body: formData })
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null
-        const message = data?.error || `Upload failed (${res.status})`
-        setUploadToast({ kind: 'error', message })
-        return
-      }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      await uploadMutation.mutateAsync(formData)
       setUploadToast({ kind: 'success' })
       window.setTimeout(() => {
         setUploadToast({ kind: 'hidden' })
@@ -835,7 +772,7 @@ export function FileBrowser() {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
-      window.open(`${window.location.origin}${window.location.pathname || '/'}`, '_blank')
+      window.open(new URL(hrefFor({ kind: 'library' }), window.location.origin).href, '_blank')
       return
     }
     handleContextOpenInNewTab(breadcrumbAsFolderItem(m))
@@ -845,7 +782,7 @@ export function FileBrowser() {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
-      window.open('/workspace', '_blank')
+      window.open(hrefFor({ kind: 'workspace' }), '_blank')
       return
     }
     handleContextOpenInWorkspace(breadcrumbAsFolderItem(m))
@@ -859,7 +796,7 @@ export function FileBrowser() {
 
   function handleContextDownload(file: FileItem) {
     const link = document.createElement('a')
-    link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`
+    link.href = fileDownloadHref(file.path)
     link.download = file.isDirectory ? `${file.name}.zip` : file.name
     document.body.appendChild(link)
     link.click()
@@ -868,18 +805,19 @@ export function FileBrowser() {
 
   function handleContextOpenInNewTab(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
-    const params = new URLSearchParams()
-    if (file.path) params.set('dir', file.path)
-    const url = `${window.location.origin}${window.location.pathname || '/'}?${params.toString()}`
+    const url = new URL(
+      hrefFor({ kind: 'library' }, file.path ? { dir: file.path } : undefined),
+      window.location.origin,
+    ).href
     window.open(url, '_blank')
   }
 
   function handleContextOpenInWorkspace(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
-    const params = new URLSearchParams()
-    if (file.path) params.set('dir', file.path)
-    const query = params.toString()
-    window.open(query ? `/workspace?${query}` : '/workspace', '_blank')
+    window.open(
+      hrefFor({ kind: 'workspace' }, file.path ? { dir: file.path } : undefined),
+      '_blank',
+    )
   }
 
   function handleContextToggleFavorite(file: FileItem) {
@@ -1044,7 +982,7 @@ export function FileBrowser() {
   }
 
   function handleContextToggleKnowledgeBase(file: FileItem) {
-    knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/'))
+    knowledgeBaseMutation.mutate({ filePath: file.path.replace(/\\/g, '/') })
   }
 
   function handleContextSetIcon(file: FileItem) {
@@ -1058,7 +996,7 @@ export function FileBrowser() {
     if (iconName) {
       void setCustomIconMutation.mutateAsync({ path: p, iconName })
     } else {
-      void removeCustomIconMutation.mutateAsync(p)
+      void removeCustomIconMutation.mutateAsync({ path: p })
     }
   }
 
@@ -1311,6 +1249,11 @@ export function FileBrowser() {
                                                     ? 'Remove from favorites'
                                                     : 'Add to favorites'
                                                 }
+                                                aria-label={
+                                                  isFav()
+                                                    ? `Remove ${file.name} from favorites`
+                                                    : `Add ${file.name} to favorites`
+                                                }
                                                 onClick={(e) => {
                                                   e.stopPropagation()
                                                   favoriteMutation.mutate({ filePath: file.path })
@@ -1518,6 +1461,11 @@ export function FileBrowser() {
                                                       ? 'Remove from favorites'
                                                       : 'Add to favorites'
                                                   }
+                                                  aria-label={
+                                                    isFav()
+                                                      ? `Remove ${file.name} from favorites`
+                                                      : `Add ${file.name} to favorites`
+                                                  }
                                                   onClick={(e) => {
                                                     e.stopPropagation()
                                                     favoriteMutation.mutate({
@@ -1694,7 +1642,7 @@ export function FileBrowser() {
             onConfirmDelete={() => {
               const it = deleteTarget()
               if (!it) return
-              void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+              void deleteMutation.mutateAsync({ path: it.path }).then(() => setDeleteTarget(null))
             }}
             showCreateFolder={showCreateFolder}
             newItemName={newItemName}

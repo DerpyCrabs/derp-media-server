@@ -1,5 +1,6 @@
 use crate::{
     app::{Shared, timestamp_ms},
+    contracts::{API_EVENTS_PATH, AppEvent},
 };
 use axum::{
     Router,
@@ -10,12 +11,26 @@ use axum::{
     },
     routing::get,
 };
-use serde_json::json;
 use std::time::Duration;
 
 async fn events(State(state): State<Shared>) -> Response {
     let mut receiver = state.admin_events.subscribe();
-    let stream = async_stream::stream! { yield Ok::<Event,std::convert::Infallible>(Event::default().json_data(json!({"type":"connected","timestamp":timestamp_ms()})).unwrap()); loop { match receiver.recv().await { Ok(event)=>yield Ok(Event::default().json_data(event).unwrap()), Err(tokio::sync::broadcast::error::RecvError::Lagged(_))=>continue, Err(_)=>break } } };
+    let stream = async_stream::stream! {
+        yield Ok::<Event, std::convert::Infallible>(
+            Event::default()
+                .json_data(AppEvent::Connected { timestamp: timestamp_ms() })
+                .expect("connected event serializes"),
+        );
+        loop {
+            match receiver.recv().await {
+                Ok(event) => yield Ok(
+                    Event::default().json_data(event).expect("app event serializes"),
+                ),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break,
+            }
+        }
+    };
     Sse::new(stream)
         .keep_alive(
             KeepAlive::default()
@@ -26,5 +41,5 @@ async fn events(State(state): State<Shared>) -> Response {
 }
 
 pub fn router() -> Router<Shared> {
-    Router::new().route("/api/events/stream", get(events))
+    Router::new().route(API_EVENTS_PATH, get(events))
 }

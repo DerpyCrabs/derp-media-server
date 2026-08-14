@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { filesQueryOptions } from '@/lib/query-options'
 import { MediaType, type FileItem } from '@/lib/types'
 import { formatFileSize } from '@/lib/media-utils'
 import FileQuestion from 'lucide-solid/icons/file-question'
@@ -80,6 +81,7 @@ function Inner(props: { viewingPath: string; allFiles: () => FileItem[] }): JSX.
               <button
                 type='button'
                 title='Close'
+                aria-label='Close'
                 class='hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md'
                 onClick={() => closeViewer()}
               >
@@ -115,10 +117,7 @@ function Inner(props: { viewingPath: string; allFiles: () => FileItem[] }): JSX.
 function BodyAdmin(props: { viewingPath: string }): JSX.Element {
   const dirFromUrl = useDirFromUrl()
   const dirToFetch = useDirToFetch(() => props.viewingPath, dirFromUrl)
-  const filesQuery = useQuery(() => ({
-    queryKey: queryKeys.files(dirToFetch()),
-    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dirToFetch())}`),
-  }))
+  const filesQuery = useQuery(() => filesQueryOptions({ dir: dirToFetch() }))
   const allFiles = () => filesQuery.data?.files ?? []
   return <Inner viewingPath={props.viewingPath} allFiles={allFiles} />
 }

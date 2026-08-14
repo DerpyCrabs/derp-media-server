@@ -1,4 +1,5 @@
 import { getMediaType } from '@/lib/media-utils'
+import { fileDownloadHref as buildFileDownloadHref } from '@/lib/download-urls'
 import { MediaType } from '@/lib/types'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -32,7 +33,7 @@ export function PdfViewerDialog() {
   const downloadHref = createMemo(() => {
     const path = viewingPath()
     if (!path) return ''
-    return `/api/files/download?path=${encodeURIComponent(path)}`
+    return buildFileDownloadHref(path)
   })
   const [document, setDocument] = createSignal<pdfjs.PDFDocumentProxy>()
   const [page, setPage] = createSignal(1)

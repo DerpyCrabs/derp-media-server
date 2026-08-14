@@ -2,7 +2,7 @@ import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/solid-query'
-import { api, post } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import {
   createTextDocumentTarget,
   enqueueTextDocumentSave,
@@ -11,6 +11,7 @@ import {
   type TextDocumentTarget,
 } from '@/lib/text-document-target'
 import { queryKeys } from '@/lib/query-keys'
+import { filesQueryOptions, invalidateFileQueries } from '@/lib/query-options'
 import { fileDownloadHref } from '@/lib/download-urls'
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
 import type { FileItem } from '@/lib/types'
@@ -83,6 +84,7 @@ type Props = {
   showListenOnly?: boolean
   onAudioPlay?: (element: HTMLAudioElement) => void
   onAudioPause?: (element: HTMLAudioElement) => void
+  onAudioReady?: () => void
 }
 
 type WorkspaceTextSaveQueryKey = ReturnType<typeof queryKeys.textContent>
@@ -251,7 +253,10 @@ export function WorkspaceViewerPane(props: Props) {
     const element = audioEl()
     if (!element) return
     if (element.paused) void element.play().catch(() => {})
-    else element.pause()
+    else {
+      element.pause()
+      props.onAudioPause?.(element)
+    }
   }
 
   function seekAudio(time: number) {
@@ -293,9 +298,7 @@ export function WorkspaceViewerPane(props: Props) {
 
   const filesQuery = useQuery(() => {
     return {
-      queryKey: queryKeys.files(listDirForFiles()),
-      queryFn: () =>
-        api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(listDirForFiles())}`),
+      ...filesQueryOptions({ dir: listDirForFiles() }),
       enabled:
         (mediaType() === MediaType.IMAGE || mediaType() === MediaType.AUDIO) &&
         Boolean(viewingPath()),
@@ -580,7 +583,7 @@ export function WorkspaceViewerPane(props: Props) {
     mutationFn: async (variables: WorkspaceTextSaveVariables) => {
       return enqueueTextDocumentSave(variables.target, async () => {
         const { content, target } = variables
-        await post('/api/files/edit', { path: target.viewingPath, content })
+        await apiEndpoints.files.edit({ path: target.viewingPath, content })
         return content
       })
     },
@@ -589,6 +592,7 @@ export function WorkspaceViewerPane(props: Props) {
       queryClient.setQueryData(variables.queryKey, content)
       void queryClient.invalidateQueries({ queryKey: variables.queryKey })
     },
+    onSettled: () => invalidateFileQueries(queryClient),
   }))
 
   async function saveText(quiet: boolean) {
@@ -889,6 +893,7 @@ export function WorkspaceViewerPane(props: Props) {
             <div class='flex flex-1 items-center justify-end gap-1'>
               <button
                 type='button'
+                aria-label='Zoom out'
                 class='inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
                 onClick={() => {
                   setZoom((prev) => {
@@ -904,6 +909,7 @@ export function WorkspaceViewerPane(props: Props) {
               </span>
               <button
                 type='button'
+                aria-label='Zoom in'
                 class='inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
                 onClick={() => {
                   setZoom((prev) => {
@@ -917,6 +923,7 @@ export function WorkspaceViewerPane(props: Props) {
               <button
                 type='button'
                 title='Fit to screen'
+                aria-label='Fit to screen'
                 class='inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
                 onClick={() => {
                   setZoom('fit')
@@ -927,6 +934,7 @@ export function WorkspaceViewerPane(props: Props) {
               </button>
               <button
                 type='button'
+                aria-label='Rotate clockwise'
                 class='inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
                 onClick={() => setRotation((r) => (r + 90) % 360)}
               >
@@ -934,6 +942,7 @@ export function WorkspaceViewerPane(props: Props) {
               </button>
               <button
                 type='button'
+                aria-label='Download image'
                 class='inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
                 onClick={handleImageDownload}
               >
@@ -1015,6 +1024,7 @@ export function WorkspaceViewerPane(props: Props) {
                 <button
                   type='button'
                   title='Listen only'
+                  aria-label='Listen only'
                   class='bg-secondary inline-flex h-7 w-7 items-center justify-center rounded-md'
                   onClick={() => {
                     const handoff = props.onListenOnlyHandoff
@@ -1105,7 +1115,10 @@ export function WorkspaceViewerPane(props: Props) {
             title={fileName()}
             data-canvas-audio-player={props.windowId}
             onLoadStart={() => setMediaLoading(true)}
-            onCanPlay={() => setMediaLoading(false)}
+            onCanPlay={() => {
+              setMediaLoading(false)
+              props.onAudioReady?.()
+            }}
             onLoadedMetadata={(event) => setAudioDuration(event.currentTarget.duration || 0)}
             onDurationChange={(event) => setAudioDuration(event.currentTarget.duration || 0)}
             onTimeUpdate={(event) => setAudioCurrentTime(event.currentTarget.currentTime)}
@@ -1113,10 +1126,7 @@ export function WorkspaceViewerPane(props: Props) {
               setAudioPlaying(true)
               props.onAudioPlay?.(event.currentTarget)
             }}
-            onPause={(event) => {
-              setAudioPlaying(false)
-              props.onAudioPause?.(event.currentTarget)
-            }}
+            onPause={() => setAudioPlaying(false)}
             onEnded={(event) => {
               setAudioPlaying(false)
               props.onAudioPause?.(event.currentTarget)
@@ -1213,6 +1223,7 @@ export function WorkspaceViewerPane(props: Props) {
                 <button
                   type='button'
                   title='Copy to clipboard'
+                  aria-label='Copy to clipboard'
                   class='hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md text-sm'
                   onClick={() => void handleCopy()}
                 >
@@ -1222,6 +1233,7 @@ export function WorkspaceViewerPane(props: Props) {
               <button
                 type='button'
                 title='Download'
+                aria-label='Download'
                 class='hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
                 onClick={() => {
                   const link = document.createElement('a')

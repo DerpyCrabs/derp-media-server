@@ -86,7 +86,7 @@ fn save(
         &body.state,
         &current_fingerprint,
         body.base_revision,
-        timestamp_ms(),
+        timestamp_ms().into(),
     )?;
     Ok(Json(
         json!({"success":true,"revision":revision,"fingerprint":current_fingerprint}),
@@ -126,7 +126,7 @@ async fn preferences_save(
         "admin",
         &body.preferences,
         body.base_revision,
-        timestamp_ms(),
+        timestamp_ms().into(),
     )?;
     Ok(Json(json!({"success":true,"revision":revision})))
 }

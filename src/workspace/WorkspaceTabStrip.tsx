@@ -417,6 +417,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                   type='button'
                   data-no-window-drag
                   data-testid='workspace-tab-close'
+                  aria-label={`Close ${getWorkspaceWindowTitle(tab)}`}
                   class='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                   onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
@@ -491,6 +492,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                           type='button'
                           data-no-window-drag
                           data-testid='workspace-tab-close'
+                          aria-label={`Close ${getWorkspaceWindowTitle(tab)}`}
                           class='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                           onPointerDown={(e) => e.stopPropagation()}
                           onMouseDown={(e) => e.stopPropagation()}
@@ -611,6 +613,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                           type='button'
                           data-no-window-drag
                           data-testid='workspace-tab-close'
+                          aria-label={`Close ${getWorkspaceWindowTitle(tab)}`}
                           class='ml-auto shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                           onPointerDown={(e) => e.stopPropagation()}
                           onMouseDown={(e) => e.stopPropagation()}

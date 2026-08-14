@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { filesQueryOptions } from '@/lib/query-options'
+import { fileDownloadHref as buildFileDownloadHref } from '@/lib/download-urls'
 import { MediaType, type FileItem } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
 import Download from 'lucide-solid/icons/download'
@@ -74,7 +76,7 @@ function ImageViewerInner(props: {
 
   const downloadHref = createMemo(() => {
     const path = props.viewingPath
-    return `/api/files/download?path=${encodeURIComponent(path)}`
+    return buildFileDownloadHref(path)
   })
 
   const currentIndex = createMemo(() => imageFiles().findIndex((f) => f.path === props.viewingPath))
@@ -301,6 +303,7 @@ function ImageViewerInner(props: {
         <div class='flex shrink-0 items-center justify-end gap-1 sm:gap-2'>
           <button
             type='button'
+            aria-label='Zoom out'
             class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleZoomOut}
           >
@@ -311,6 +314,7 @@ function ImageViewerInner(props: {
           </span>
           <button
             type='button'
+            aria-label='Zoom in'
             class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleZoomIn}
           >
@@ -319,6 +323,7 @@ function ImageViewerInner(props: {
           <button
             type='button'
             title='Fit to screen'
+            aria-label='Fit to screen'
             class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleFitToScreen}
           >
@@ -326,6 +331,7 @@ function ImageViewerInner(props: {
           </button>
           <button
             type='button'
+            aria-label='Rotate clockwise'
             class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleRotate}
           >
@@ -334,6 +340,7 @@ function ImageViewerInner(props: {
           <div class='mx-1 h-6 w-px bg-white/20 sm:mx-2' />
           <button
             type='button'
+            aria-label='Download'
             class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleDownload}
           >
@@ -341,6 +348,7 @@ function ImageViewerInner(props: {
           </button>
           <button
             type='button'
+            aria-label='Close'
             class='inline-flex h-11 w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
             onClick={handleClose}
           >
@@ -405,10 +413,7 @@ function ImageViewerInner(props: {
 function ImageViewerBodyAdmin(props: { viewingPath: string }): JSX.Element {
   const dirFromUrl = useDirFromUrl()
   const dirToFetch = useDirToFetch(() => props.viewingPath, dirFromUrl)
-  const filesQuery = useQuery(() => ({
-    queryKey: queryKeys.files(dirToFetch()),
-    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dirToFetch())}`),
-  }))
+  const filesQuery = useQuery(() => filesQueryOptions({ dir: dirToFetch() }))
   const allFiles = () => filesQuery.data?.files ?? []
   return <ImageViewerInner viewingPath={props.viewingPath} allFiles={allFiles} />
 }

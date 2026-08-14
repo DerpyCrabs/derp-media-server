@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import { createCanvasExport, parseCanvasExport } from '@/lib/canvas-features'
 import {
   CANVAS_COLLECTION_STORAGE_KEY,
@@ -36,9 +37,8 @@ import {
   type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
-import { queryKeys } from '@/lib/query-keys'
+import { serverConfigQueryOptions, settingsQueryOptions } from '@/lib/query-options'
 import { MediaType, type FileItem } from '@/lib/types'
-import type { GlobalSettings } from '@/lib/use-settings'
 import type {
   PersistedWorkspaceState,
   WorkspaceSource,
@@ -369,42 +369,45 @@ export function CanvasPage() {
   const [canvasMenuOpen, setCanvasMenuOpen] = createSignal(false)
   const [canvasQuery, setCanvasQuery] = createSignal('')
   const [geometryActive, setGeometryActive] = createSignal(false)
-  const [cameraAnimating, setCameraAnimating] = createSignal(false)
   const [dialog, setDialog] = createSignal<CanvasDialogState | null>(null)
   const [dialogInput, setDialogInput] = createSignal('')
   const [noteDirectory, setNoteDirectory] = createSignal('')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
   const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
+  let activeCanvasAudio: { windowId: string; element: HTMLAudioElement } | null = null
   const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'error'>('saved')
-  const readOnlyMode = () => false
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let importInputEl: HTMLInputElement | undefined
   let dialogEl: HTMLDivElement | undefined
   let viewportEl: HTMLDivElement | undefined
   let worldEl: HTMLDivElement | undefined
-  let animationTimer: number | undefined
   let persistenceTimer: number | undefined
   let syncTimer: number | undefined
   let syncInterval: number | undefined
   let syncRunning = false
   let syncQueued = false
+
+  function liveViewportElement() {
+    if (viewportEl?.isConnected && viewportEl.clientWidth > 0 && viewportEl.clientHeight > 0) {
+      return viewportEl
+    }
+    if (typeof document === 'undefined') return viewportEl
+    const mounted = [
+      ...document.querySelectorAll<HTMLDivElement>('[data-testid="infinite-canvas"]'),
+    ].find((element) => element.clientWidth > 0 && element.clientHeight > 0)
+    if (mounted) viewportEl = mounted
+    return mounted ?? viewportEl
+  }
+
   const panController = createCanvasPanController({
     camera: () => state().camera,
-    viewport: () => viewportEl,
+    viewport: liveViewportElement,
     world: () => worldEl,
     commit: (camera) => setState((current) => ({ ...current, camera })),
   })
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
-  const serverConfigQuery = useQuery(() => ({
-    queryKey: queryKeys.serverConfig(),
-    queryFn: () => api<{ editableFolders: string[] }>('/api/config'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useQuery(settingsQueryOptions)
+  const serverConfigQuery = useQuery(serverConfigQueryOptions)
   const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const writableDirectories = createMemo(() =>
@@ -495,7 +498,6 @@ export function CanvasPage() {
   }
 
   function persistActiveState(): CanvasCollection {
-    if (readOnlyMode()) return collection()
     const liveState = state()
     let result = collection()
     setCollection((current) => {
@@ -564,7 +566,6 @@ export function CanvasPage() {
   }
 
   function scheduleSync(delay = 700) {
-    if (readOnlyMode()) return
     setSyncStatus('saving')
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     syncTimer = window.setTimeout(() => {
@@ -609,10 +610,6 @@ export function CanvasPage() {
           }
           setCollection(current)
         }
-      }
-      if (readOnlyMode()) {
-        setSyncStatus('saved')
-        return
       }
       const response = await api<{ canvases: unknown[] }>('/api/canvases/sync', {
         method: 'POST',
@@ -682,7 +679,7 @@ export function CanvasPage() {
     const oldBodyOverflow = document.body.style.overflow
     document.documentElement.style.overflow = 'hidden'
     document.body.style.overflow = 'hidden'
-    const viewport = viewportEl
+    const viewport = liveViewportElement()
     const viewportObserver = new ResizeObserver(() => {
       setViewportSize({
         width: viewport?.clientWidth ?? 1,
@@ -768,7 +765,6 @@ export function CanvasPage() {
   })
 
   onCleanup(() => {
-    if (animationTimer !== undefined) window.clearTimeout(animationTimer)
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
     persistActiveState()
@@ -920,7 +916,7 @@ export function CanvasPage() {
   }
 
   function screenToWorld(clientX: number, clientY: number) {
-    const rect = viewportEl?.getBoundingClientRect()
+    const rect = liveViewportElement()?.getBoundingClientRect()
     const camera = state().camera
     return {
       x: (clientX - (rect?.left ?? 0) - camera.x) / camera.zoom,
@@ -929,22 +925,27 @@ export function CanvasPage() {
   }
 
   function viewportCenterWorld() {
-    const rect = viewportEl?.getBoundingClientRect()
+    const rect = liveViewportElement()?.getBoundingClientRect()
     if (!rect) return { x: 0, y: 0 }
     return screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2)
   }
 
-  function animateCamera(camera: InfiniteCanvasState['camera']) {
-    setCameraAnimating(true)
-    if (animationTimer !== undefined) window.clearTimeout(animationTimer)
+  function setCamera(camera: InfiniteCanvasState['camera']) {
     setState((current) => ({ ...current, camera }))
-    animationTimer = window.setTimeout(() => setCameraAnimating(false), 240)
   }
 
   function fitBounds(bounds: CanvasRect, maxZoom = CANVAS_MAX_ZOOM) {
-    const viewport = viewportEl?.getBoundingClientRect()
+    const viewport = liveViewportElement()?.getBoundingClientRect()
     if (!viewport) return
     const padding = 72
+    if (
+      viewport.width <= padding * 2 ||
+      viewport.height <= padding * 2 ||
+      bounds.width <= 0 ||
+      bounds.height <= 0
+    ) {
+      return
+    }
     const zoom = Math.min(
       Math.min(maxZoom, CANVAS_MAX_ZOOM),
       Math.max(
@@ -955,20 +956,18 @@ export function CanvasPage() {
         ),
       ),
     )
-    animateCamera({
+    const camera = {
       zoom,
       x: viewport.width / 2 - (bounds.x + bounds.width / 2) * zoom,
       y: viewport.height / 2 - (bounds.y + bounds.height / 2) * zoom,
-    })
+    }
+    setCamera(camera)
   }
 
-  function ensureWindowsVisible(windowIds: string[]) {
-    const viewport = viewportEl?.getBoundingClientRect()
+  function ensureBoundsVisible(bounds: CanvasRect[]) {
+    const viewport = liveViewportElement()?.getBoundingClientRect()
     if (!viewport) return
     const current = state()
-    const bounds = current.windows
-      .filter((window) => windowIds.includes(window.id))
-      .map((window) => window.bounds)
     if (bounds.length === 0) return
     const padding = 24
     const visible = bounds.every((rect) => {
@@ -984,6 +983,14 @@ export function CanvasPage() {
       )
     })
     if (!visible) fitBounds(unionRects(bounds), 1)
+  }
+
+  function ensureWindowsVisible(windowIds: string[]) {
+    ensureBoundsVisible(
+      state()
+        .windows.filter((window) => windowIds.includes(window.id))
+        .map((window) => window.bounds),
+    )
   }
 
   function clearSelection() {
@@ -1031,6 +1038,31 @@ export function CanvasPage() {
 
   function placementObstacles(current: InfiniteCanvasState) {
     return [...current.windows.map((window) => window.bounds)]
+  }
+
+  function clampWindowBoundsToViewport(
+    bounds: CanvasRect,
+    camera: InfiniteCanvasState['camera'],
+  ): CanvasRect {
+    const viewport = liveViewportElement()?.getBoundingClientRect()
+    if (!viewport || camera.zoom <= 0) return bounds
+    const margin = 24
+    const minX = Math.ceil((margin - camera.x) / camera.zoom / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE
+    const minY = Math.ceil((margin - camera.y) / camera.zoom / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE
+    const maxX =
+      Math.floor(
+        ((viewport.width - margin - camera.x) / camera.zoom - bounds.width) / CANVAS_GRID_SIZE,
+      ) * CANVAS_GRID_SIZE
+    const maxY =
+      Math.floor(
+        ((viewport.height - margin - camera.y) / camera.zoom - bounds.height) / CANVAS_GRID_SIZE,
+      ) * CANVAS_GRID_SIZE
+    if (maxX < minX || maxY < minY) return bounds
+    return {
+      ...bounds,
+      x: Math.min(maxX, Math.max(minX, bounds.x)),
+      y: Math.min(maxY, Math.max(minY, bounds.y)),
+    }
   }
 
   function fileWindowPlacement(
@@ -1109,32 +1141,32 @@ export function CanvasPage() {
       const existing = existingWindowForFile(file)
       if (existing) {
         focusWindow(existing.id)
-        return existing.id
+        return existing
       }
     }
-    let createdId = ''
+    let created: CanvasWindow | undefined
     commit((current) => {
       const id = `canvas-window-${current.nextItemId}`
-      createdId = id
       const definition = makeDefinition(id, file ?? undefined, '', options.readerKind)
       const sizeKey = windowSizeKey(definition)
+      const requestedBounds = findNearestFreeCanvasRect(
+        {
+          ...point,
+          ...(current.windowSizeByType[sizeKey] ??
+            (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
+            DEFAULT_WINDOW_SIZE[sizeKey]),
+        },
+        placementObstacles(current),
+      )
       const worldBounds =
-        options.worldBounds ??
-        findNearestFreeCanvasRect(
-          {
-            ...point,
-            ...(current.windowSizeByType[sizeKey] ??
-              (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
-              DEFAULT_WINDOW_SIZE[sizeKey]),
-          },
-          placementObstacles(current),
-        )
+        options.worldBounds ?? clampWindowBoundsToViewport(requestedBounds, current.camera)
       const base: CanvasWindow = {
         id,
         definition,
         bounds: worldBounds,
         zIndex: current.nextZIndex,
       }
+      created = base
       return {
         ...current,
         windows: [...current.windows, base],
@@ -1142,8 +1174,20 @@ export function CanvasPage() {
         nextZIndex: current.nextZIndex + 1,
       }
     })
-    if (createdId) selectWindow(createdId)
-    return createdId
+    if (created) selectWindow(created.id)
+    return created
+  }
+
+  function resumeActiveAudioAfterWindowChange() {
+    const active = activeCanvasAudio
+    if (!active || !active.element.isConnected || !active.element.paused) return
+    void active.element.play().catch(() => {})
+  }
+
+  function settleCanvasWindows(bounds: CanvasRect[]) {
+    ensureBoundsVisible(bounds)
+    queueMicrotask(resumeActiveAudioAfterWindowChange)
+    requestAnimationFrame(resumeActiveAudioAfterWindowChange)
   }
 
   async function addTextEditor(
@@ -1168,10 +1212,7 @@ export function CanvasPage() {
     const name = `${safeTitle} ${timestamp}.md`
     const path = `${directory}/${name}`
     try {
-      await api('/api/files/create', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'file', path, content }),
-      })
+      await apiEndpoints.files.create({ type: 'file', path, content })
       addFileWindow(
         {
           name,
@@ -1315,23 +1356,23 @@ export function CanvasPage() {
       }
     }
     const bounds = source.bounds
-    const createdId = addFileWindow(
+    const created = addFileWindow(
       file,
       { x: bounds.x + bounds.width + CANVAS_GRID_SIZE, y: bounds.y },
       { duplicate },
     )
-    if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
+    if (created) settleCanvasWindows([source.bounds, created.bounds])
   }
 
   function openReaderFromBrowser(sourceWindowId: string, file: FileItem) {
     const source = state().windows.find((window) => window.id === sourceWindowId)
     if (!source || !file.isDirectory) return
-    const createdId = addFileWindow(
+    const created = addFileWindow(
       file,
       { x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE, y: source.bounds.y },
       { duplicate: true, readerKind: 'folder' },
     )
-    if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
+    if (created) settleCanvasWindows([source.bounds, created.bounds])
   }
 
   function openHermesFromBrowser(
@@ -1501,19 +1542,26 @@ export function CanvasPage() {
         ),
       }
     })
-    queueMicrotask(() => ensureWindowsVisible([windowId]))
+    ensureWindowsVisible([windowId])
   }
 
   function handleAudioPlay(windowId: string, element: HTMLAudioElement) {
     document.querySelectorAll<HTMLAudioElement>('[data-canvas-audio-player]').forEach((audio) => {
       if (audio !== element && !audio.paused) audio.pause()
     })
+    activeCanvasAudio = { windowId, element }
     setLastAudioWindowId(windowId)
+  }
+
+  function handleAudioPause(windowId: string, element: HTMLAudioElement) {
+    const active = activeCanvasAudio
+    if (active?.windowId === windowId && active.element === element) activeCanvasAudio = null
   }
 
   function closeWindow(windowId: string) {
     const target = state().windows.find((window) => window.id === windowId)
     if (!canCloseHermesWindow(target?.definition.hermes)) return
+    if (activeCanvasAudio?.windowId === windowId) activeCanvasAudio = null
     if (lastAudioWindowId() === windowId) setLastAudioWindowId(null)
     if (maximizedWindowId() === windowId) setMaximizedWindowId(null)
     commit((current) => ({
@@ -1526,7 +1574,6 @@ export function CanvasPage() {
   }
 
   function startWindowMove(windowId: string, event: PointerEvent) {
-    if (readOnlyMode()) return
     if (event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
@@ -1573,7 +1620,7 @@ export function CanvasPage() {
     const tick = (time: number) => {
       const elapsed = previousFrameTime === undefined ? 0 : Math.min(32, time - previousFrameTime)
       previousFrameTime = time
-      const rect = viewportEl?.getBoundingClientRect()
+      const rect = liveViewportElement()?.getBoundingClientRect()
       if (rect && elapsed > 0) {
         const velocity = canvasEdgeAutoPanVelocity(latestX, latestY, rect)
         if (velocity.x || velocity.y) {
@@ -1610,7 +1657,6 @@ export function CanvasPage() {
   }
 
   function startWindowResize(windowId: string, direction: ResizeDirection, event: PointerEvent) {
-    if (readOnlyMode()) return
     if (event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
@@ -1658,14 +1704,14 @@ export function CanvasPage() {
   }
 
   function beginPan(event: PointerEvent) {
-    const allowPrimary = spaceHeld() || event.target === viewportEl
+    const allowPrimary = spaceHeld() || event.target === liveViewportElement()
     if (event.button !== 1 && !(allowPrimary && event.button === 0)) return
     setMenu(null)
     panController.begin(event, allowPrimary)
   }
 
   function zoomAt(clientX: number, clientY: number, nextZoom: number) {
-    const rect = viewportEl?.getBoundingClientRect()
+    const rect = liveViewportElement()?.getBoundingClientRect()
     if (!rect) return
     const current = state().camera
     const zoom = Math.min(CANVAS_MAX_ZOOM, Math.max(CANVAS_MIN_ZOOM, nextZoom))
@@ -1680,20 +1726,19 @@ export function CanvasPage() {
   }
 
   function zoomBy(factor: number) {
-    const rect = viewportEl?.getBoundingClientRect()
+    const rect = liveViewportElement()?.getBoundingClientRect()
     if (!rect) return
     zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, state().camera.zoom * factor)
   }
 
   function setZoomFromControl(nextZoom: number) {
-    const rect = viewportEl?.getBoundingClientRect()
+    const rect = liveViewportElement()?.getBoundingClientRect()
     if (!rect) return
     zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, nextZoom)
   }
 
   function onCanvasContextMenu(event: MouseEvent) {
     event.preventDefault()
-    if (readOnlyMode()) return
     const world = screenToWorld(event.clientX, event.clientY)
     setMenu({
       kind: 'canvas',
@@ -1757,7 +1802,7 @@ export function CanvasPage() {
         event.preventDefault()
         setDialog({ kind: 'shortcuts' })
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (!readOnlyMode() && selectedIds().length) {
+        if (selectedIds().length) {
           event.preventDefault()
           deleteSelected()
         }
@@ -1933,49 +1978,47 @@ export function CanvasPage() {
             </button>
           </Show>
           <div data-testid='canvas-create-tools' class='flex items-center gap-2'>
-            <Show when={!readOnlyMode()}>
-              <div class='relative' data-canvas-add>
-                <button
-                  type='button'
-                  data-testid='canvas-add-trigger'
-                  class='inline-flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
-                  aria-label='Add to canvas'
-                  title='Add to canvas'
-                  aria-expanded={addMenuOpen()}
-                  onClick={() => setAddMenuOpen((open) => !open)}
-                >
-                  <Plus class='size-4' />
-                </button>
-                <Show when={addMenuOpen()}>
-                  <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
-                    <MenuButton
-                      onClick={() => {
-                        openNoteComposer()
-                        setAddMenuOpen(false)
-                      }}
-                    >
-                      <FileText class='size-4' /> New document
-                    </MenuButton>
-                    <MenuButton
-                      onClick={() => {
-                        addFileWindow(null, viewportCenterWorld())
-                        setAddMenuOpen(false)
-                      }}
-                    >
-                      <FolderOpen class='size-4' /> File browser
-                    </MenuButton>
-                    <MenuButton
-                      onClick={() => {
-                        addBlankHermesWindow()
-                        setAddMenuOpen(false)
-                      }}
-                    >
-                      <MessageSquare class='size-4' /> AI chat
-                    </MenuButton>
-                  </div>
-                </Show>
-              </div>
-            </Show>
+            <div class='relative' data-canvas-add>
+              <button
+                type='button'
+                data-testid='canvas-add-trigger'
+                class='inline-flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
+                aria-label='Add to canvas'
+                title='Add to canvas'
+                aria-expanded={addMenuOpen()}
+                onClick={() => setAddMenuOpen((open) => !open)}
+              >
+                <Plus class='size-4' />
+              </button>
+              <Show when={addMenuOpen()}>
+                <div class='absolute top-10 right-0 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl'>
+                  <MenuButton
+                    onClick={() => {
+                      openNoteComposer()
+                      setAddMenuOpen(false)
+                    }}
+                  >
+                    <FileText class='size-4' /> New document
+                  </MenuButton>
+                  <MenuButton
+                    onClick={() => {
+                      addFileWindow(null, viewportCenterWorld())
+                      setAddMenuOpen(false)
+                    }}
+                  >
+                    <FolderOpen class='size-4' /> File browser
+                  </MenuButton>
+                  <MenuButton
+                    onClick={() => {
+                      addBlankHermesWindow()
+                      setAddMenuOpen(false)
+                    }}
+                  >
+                    <MessageSquare class='size-4' /> AI chat
+                  </MenuButton>
+                </div>
+              </Show>
+            </div>
             <Show when={lastAudioWindow()}>
               {(item) => (
                 <button
@@ -2180,7 +2223,7 @@ export function CanvasPage() {
       <div
         ref={(element) => (viewportEl = element)}
         data-testid='infinite-canvas'
-        class='relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none'
+        class='relative min-h-0 flex-1 overflow-clip bg-muted/20 outline-none'
         classList={{ 'cursor-grab': spaceHeld(), 'cursor-grabbing': geometryActive() }}
         style={{
           'background-image':
@@ -2215,7 +2258,6 @@ export function CanvasPage() {
         }}
         onContextMenu={onCanvasContextMenu}
         onDragOver={(event) => {
-          if (readOnlyMode()) return
           if (!event.dataTransfer || !hasFileDragData(event.dataTransfer)) return
           if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
           event.preventDefault()
@@ -2227,7 +2269,6 @@ export function CanvasPage() {
         }}
         onDragEnd={() => setFileDropPreview(null)}
         onDrop={(event) => {
-          if (readOnlyMode()) return
           const transfer = event.dataTransfer
           if (!transfer) return
           if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
@@ -2262,7 +2303,7 @@ export function CanvasPage() {
           })
         }}
       >
-        <Show when={!readOnlyMode() && !state().windows.length}>
+        <Show when={!state().windows.length}>
           <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-8'>
             <div class='pointer-events-auto max-w-lg rounded-2xl border border-border bg-card/90 p-7 text-center shadow-xl backdrop-blur'>
               <h1 class='text-lg font-semibold'>Build your knowledge canvas</h1>
@@ -2306,7 +2347,6 @@ export function CanvasPage() {
           ref={(element) => (worldEl = element)}
           data-testid='canvas-world'
           class='absolute top-0 left-0 origin-top-left will-change-transform'
-          classList={{ 'transition-transform duration-200 ease-out': cameraAnimating() }}
           style={{
             transform: `translate3d(${state().camera.x}px, ${state().camera.y}px, 0) scale(${state().camera.zoom})`,
           }}
@@ -2477,27 +2517,25 @@ export function CanvasPage() {
                           </Show>
                         </button>
                       </Show>
-                      <Show when={!readOnlyMode()}>
-                        <button
-                          type='button'
-                          class='inline-flex h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
-                          style={{ width: `${titlebarHeight()}px` }}
-                          aria-label={`Close ${item()!.definition.title}`}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={() => closeWindow(windowId)}
+                      <button
+                        type='button'
+                        class='inline-flex h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                        style={{ width: `${titlebarHeight()}px` }}
+                        aria-label={`Close ${item()!.definition.title}`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => closeWindow(windowId)}
+                      >
+                        <Show
+                          when={liveWindowChrome()}
+                          fallback={
+                            <span style={{ transform: `scale(${actionIconScale()})` }}>
+                              <X class='size-5' stroke-width={2} />
+                            </span>
+                          }
                         >
-                          <Show
-                            when={liveWindowChrome()}
-                            fallback={
-                              <span style={{ transform: `scale(${actionIconScale()})` }}>
-                                <X class='size-5' stroke-width={2} />
-                              </span>
-                            }
-                          >
-                            <X class='size-3.5' stroke-width={2} />
-                          </Show>
-                        </button>
-                      </Show>
+                          <X class='size-3.5' stroke-width={2} />
+                        </Show>
+                      </button>
                     </div>
                   </div>
                   <div
@@ -2520,7 +2558,7 @@ export function CanvasPage() {
                           windowId={windowId}
                           workspace={workspace}
                           fileIconContext={fileIconContext}
-                          editableFolders={readOnlyMode() ? [] : editableFolders()}
+                          editableFolders={editableFolders()}
                           onNavigateDir={navigateDir}
                           onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
                           onOpenReader={openReaderFromBrowser}
@@ -2547,7 +2585,7 @@ export function CanvasPage() {
                           storageKey={CANVAS_STORAGE_KEY}
                           contentVisible={() => true}
                           workspace={workspace}
-                          editableFolders={readOnlyMode() ? [] : editableFolders()}
+                          editableFolders={editableFolders()}
                           knowledgeBases={knowledgeBases()}
                           autoPlayVideo={false}
                           onUpdateViewing={updateViewing}
@@ -2555,6 +2593,8 @@ export function CanvasPage() {
                             sizeVideoWindow(windowId, width, height)
                           }
                           onAudioPlay={(element) => handleAudioPlay(windowId, element)}
+                          onAudioPause={(element) => handleAudioPause(windowId, element)}
+                          onAudioReady={resumeActiveAudioAfterWindowChange}
                           showListenOnly={false}
                         />
                       </Show>
@@ -2610,7 +2650,7 @@ export function CanvasPage() {
                       </div>
                     </Show>
                   </div>
-                  <Show when={selected() && !readOnlyMode() && !maximized()}>
+                  <Show when={selected() && !maximized()}>
                     <ResizeHandles
                       onStart={(direction, event) => startWindowResize(windowId, direction, event)}
                     />

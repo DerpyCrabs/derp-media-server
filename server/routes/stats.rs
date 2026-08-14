@@ -1,5 +1,6 @@
 use crate::{
     app::{Shared, stats_path},
+    application_queries,
     error::{AppError, AppResult},
     store,
 };
@@ -7,12 +8,7 @@ use axum::{Json, Router, extract::State, routing::get};
 use serde_json::{Value, json};
 
 async fn get_stats(State(state): State<Shared>) -> Json<Value> {
-    let value = store::section(
-        &stats_path(&state),
-        &state.config.library_key,
-        json!({"views":{}}),
-    );
-    Json(json!({"views": value["views"].as_object().cloned().unwrap_or_default()}))
+    Json(application_queries::stats(&state))
 }
 
 async fn add_view(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {

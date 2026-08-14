@@ -36,6 +36,21 @@ test.describe('Workspace taskbar chrome', () => {
     await expect(audioControls).toContainText('track.mp3')
   })
 
+  test('taskbar audio controls have accessible names', async () => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    await content.getByText('Music', { exact: true }).click()
+    await content.locator('table').getByText('track.mp3').click()
+    await page.getByRole('button', { name: 'Open audio controls' }).click()
+
+    const audioRoot = page.locator('[data-workspace-taskbar-audio-root]')
+    await expect(audioRoot.getByRole('slider', { name: 'Playback position' })).toBeVisible()
+    await expect(audioRoot.getByRole('slider', { name: 'Volume' })).toBeVisible()
+    await expect(audioRoot.getByRole('button', { name: /^(Play|Pause)$/ })).toBeVisible()
+    await expect(audioRoot.getByRole('button', { name: /repeat$/i })).toBeVisible()
+    await expect(audioRoot.getByRole('button', { name: /^(Mute|Unmute)$/ })).toBeVisible()
+  })
+
   test('persists dark mode from workspace taskbar settings after reload', async () => {
     await gotoWorkspace(page)
     await page.getByRole('button', { name: 'Open settings' }).click()

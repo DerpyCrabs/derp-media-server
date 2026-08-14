@@ -15,7 +15,6 @@ export type WorkspaceHydrationInput = {
   loaded: PersistedWorkspaceState | null
   presetsReadyNow: boolean
   presetsList: WorkspaceLayoutPreset[]
-  layoutScope: string
   source: WorkspaceSource
 }
 
@@ -59,9 +58,8 @@ export function buildWorkspaceFromDirParam(
 function findPresetSnapshot(
   presetsList: WorkspaceLayoutPreset[],
   presetParam: string,
-  layoutScope: string,
 ): PersistedWorkspaceState | null {
-  const found = presetsList.find((p) => p.id === presetParam && p.scope === layoutScope)
+  const found = presetsList.find((p) => p.id === presetParam)
   const normalized = found ? normalizePersistedWorkspaceState(found.snapshot) : null
   if (!normalized?.windows.length) return null
   return normalized
@@ -74,7 +72,7 @@ function findPresetSnapshot(
 export function resolveWorkspaceInitialHydration(
   input: WorkspaceHydrationInput,
 ): WorkspaceHydrationInitialOutcome {
-  const { dirParam, presetParam, loaded, presetsReadyNow, presetsList, layoutScope, source } = input
+  const { dirParam, presetParam, loaded, presetsReadyNow, presetsList, source } = input
 
   if (dirParam != null && dirParam !== '') {
     const workspace = buildWorkspaceFromDirParam(dirParam, source)
@@ -98,7 +96,7 @@ export function resolveWorkspaceInitialHydration(
   }
 
   if (presetParam && presetsReadyNow) {
-    const normalized = findPresetSnapshot(presetsList, presetParam, layoutScope)
+    const normalized = findPresetSnapshot(presetsList, presetParam)
     if (normalized) {
       const workspace = structuredClone(normalized)
       return {
@@ -142,18 +140,17 @@ export type DeferredPresetOutcome =
   | { kind: 'noop'; stripPresetFromUrl: true }
 
 /**
- * When session key is unchanged, admin settings become ready, URL still has `preset`, and no draft exists in storage.
+ * When session key is unchanged, settings become ready, URL still has `preset`, and no draft exists in storage.
  */
 export function resolveWorkspaceDeferredPresetApply(input: {
   presetParam: string | null
   presetsReadyNow: boolean
   hasPersistedDraft: boolean
   presetsList: WorkspaceLayoutPreset[]
-  layoutScope: string
 }): DeferredPresetOutcome | null {
-  const { presetParam, presetsReadyNow, hasPersistedDraft, presetsList, layoutScope } = input
+  const { presetParam, presetsReadyNow, hasPersistedDraft, presetsList } = input
   if (!presetParam || !presetsReadyNow || hasPersistedDraft) return null
-  const normalized = findPresetSnapshot(presetsList, presetParam, layoutScope)
+  const normalized = findPresetSnapshot(presetsList, presetParam)
   if (!normalized) return { kind: 'noop', stripPresetFromUrl: true }
   const workspace = structuredClone(normalized)
   return {

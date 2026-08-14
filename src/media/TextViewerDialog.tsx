@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import { api, post } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import {
   createTextDocumentTarget,
   enqueueTextDocumentSave,
@@ -10,6 +10,11 @@ import {
 import { MediaType } from '@/lib/types'
 import { getMediaType } from '@/lib/media-utils'
 import { queryKeys } from '@/lib/query-keys'
+import {
+  invalidateFileQueries,
+  settingsMutationOptions,
+  settingsQueryOptions,
+} from '@/lib/query-options'
 import type { GlobalSettings } from '@/lib/use-settings'
 import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from '@/lib/handle-kb-image-paste'
@@ -53,15 +58,10 @@ export function TextViewerBody(props: {
 }): JSX.Element {
   const queryClient = useQueryClient()
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useQuery(settingsQueryOptions)
 
   const autoSaveMutation = useMutation(() => ({
-    mutationFn: (vars: { filePath: string; enabled: boolean; readOnly?: boolean }) =>
-      post('/api/settings/autoSave', vars),
+    ...settingsMutationOptions.autoSave(queryClient),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
       const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
@@ -72,6 +72,8 @@ export function TextViewerBody(props: {
             favorites: [],
             knowledgeBases: [],
             customIcons: {},
+            workspaceTaskbarPins: [],
+            workspaceLayoutPresets: [],
             autoSave: {
               [vars.filePath]: {
                 enabled: vars.enabled,
@@ -94,9 +96,6 @@ export function TextViewerBody(props: {
     },
     onError: (_err, _vars, context) => {
       if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   }))
 
@@ -182,7 +181,7 @@ export function TextViewerBody(props: {
       try {
         return await enqueueTextDocumentSave(variables.target, async () => {
           const { content, target } = variables
-          await post('/api/files/edit', { path: target.viewingPath, content })
+          await apiEndpoints.files.edit({ path: target.viewingPath, content })
           return content
         })
       } finally {
@@ -194,6 +193,7 @@ export function TextViewerBody(props: {
       queryClient.setQueryData(variables.queryKey, content)
       void queryClient.invalidateQueries({ queryKey: variables.queryKey })
     },
+    onSettled: () => invalidateFileQueries(queryClient),
   }))
 
   async function saveInternal(quiet: boolean) {

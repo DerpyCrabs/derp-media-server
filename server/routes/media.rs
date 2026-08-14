@@ -277,38 +277,42 @@ pub(crate) fn parse_byte_range(headers: &HeaderMap, size: u64) -> AppResult<Opti
         return Ok(None);
     };
     if size == 0 || range.contains(',') {
-        return Err(AppError(
+        return Err(AppError::with_status(
             StatusCode::RANGE_NOT_SATISFIABLE,
-            "Invalid range".into(),
+            "Invalid range",
         ));
     }
     let (first, last) = range
         .split_once('-')
-        .ok_or_else(|| AppError(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range".into()))?;
+        .ok_or_else(|| AppError::with_status(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range"))?;
     let (start, end) = if first.is_empty() {
         let suffix = last
             .parse::<u64>()
             .ok()
             .filter(|value| *value > 0)
-            .ok_or_else(|| AppError(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range".into()))?;
+            .ok_or_else(|| {
+                AppError::with_status(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range")
+            })?;
         (size.saturating_sub(suffix.min(size)), size - 1)
     } else {
-        let start = first
-            .parse::<u64>()
-            .map_err(|_| AppError(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range".into()))?;
+        let start = first.parse::<u64>().map_err(|_| {
+            AppError::with_status(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range")
+        })?;
         let end = if last.is_empty() {
             size - 1
         } else {
             last.parse::<u64>()
-                .map_err(|_| AppError(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range".into()))?
+                .map_err(|_| {
+                    AppError::with_status(StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range")
+                })?
                 .min(size - 1)
         };
         (start, end)
     };
     if start >= size || start > end {
-        return Err(AppError(
+        return Err(AppError::with_status(
             StatusCode::RANGE_NOT_SATISFIABLE,
-            "Invalid range".into(),
+            "Invalid range",
         ));
     }
     Ok(Some((start, end)))
@@ -333,9 +337,9 @@ pub(crate) async fn extract_audio_path(full: &FsPath, headers: &HeaderMap) -> Ap
         .kill_on_drop(true);
     let output = command.output().await.map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
-            AppError(
+            AppError::with_status(
                 StatusCode::NOT_IMPLEMENTED,
-                "FFmpeg not found. Please install ffmpeg on the server.".into(),
+                "FFmpeg not found. Please install ffmpeg on the server.",
             )
         } else {
             AppError::io(error)
@@ -347,9 +351,9 @@ pub(crate) async fn extract_audio_path(full: &FsPath, headers: &HeaderMap) -> Ap
     let size = output.stdout.len();
     if size == 0 {
         if headers.contains_key(header::RANGE) {
-            return Err(AppError(
+            return Err(AppError::with_status(
                 StatusCode::RANGE_NOT_SATISFIABLE,
-                "Invalid range".into(),
+                "Invalid range",
             ));
         }
         let mut response = Response::new(Body::empty());
@@ -422,9 +426,9 @@ pub(crate) async fn media_path(
     let mime = media::mime_type(&extension);
     if size == 0 {
         if headers.contains_key(header::RANGE) {
-            return Err(AppError(
+            return Err(AppError::with_status(
                 StatusCode::RANGE_NOT_SATISFIABLE,
-                "Invalid range".into(),
+                "Invalid range",
             ));
         }
         let mut response = Response::new(Body::empty());

@@ -9,6 +9,7 @@ import {
 } from './reader-position'
 import { MediaType, type FileItem } from '@/lib/types'
 import { ApiError } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Settings from 'lucide-solid/icons/settings'
@@ -701,11 +702,8 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         if (kind === 'book') setSelectionMode('text')
 
         if (kind === 'folder') {
-          const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
-          const response = await fetch(listUrl)
-          const payload = await response.json()
-          if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
-          const files = ((payload.files ?? []) as FileItem[])
+          const payload = await apiEndpoints.files.list({ dir: activePath })
+          const files = payload.files
             .filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
             .sort(naturalCompare)
           if (files.length === 0) throw new Error('Folder contains no supported images')

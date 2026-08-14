@@ -1,6 +1,6 @@
 # Workspace Refactor Roadmap
 
-Status: active; Stage 1 not started
+Status: active; Stage 1 complete
 Initiative branch: `derp-desk-attempt-2`
 Baseline: `master` at `3695a88`
 Last updated: 2026-08-14
@@ -191,7 +191,7 @@ Every stage exit also requires:
 
 | Stage | Release outcome                                                                                | Status      |
 | ----- | ---------------------------------------------------------------------------------------------- | ----------- |
-| 1     | Safe file operations, stable app lifetime, typed routes/contracts, fast route delivery         | Not started |
+| 1     | Safe file operations, stable app lifetime, typed routes/contracts, fast route delivery         | Complete    |
 | 2     | One resource/open model and one playback session across all surfaces                           | Not started |
 | 3     | One Explorer/Reader/viewer content layer behind three surface hosts                            | Not started |
 | 4     | Filesystem and Hermes use one integration seam; legacy persistence and duplicate paths removed | Not started |
@@ -206,11 +206,11 @@ Current behavior is locked by focused tests. Route delivery becomes correct and 
 
 ### Work packages
 
-- [ ] **1.1 Lock workflow, capability, and storage parity.** Build a compact workflow matrix for Library, Workspace, Canvas, Reader, and Hermes. Add an Explorer/resource capability matrix using Workspace/Canvas as the complete reference and classify each difference as shared-resource capability or legitimate host-only behavior. Add only missing high-value tests. Record current production bundle sizes and representative persisted settings/layout/canvas/Hermes fixtures. Preserve existing path-mutation tests and all fixes from `074675b`.
-- [ ] **1.2 Establish the composition root and typed routes.** Keep app-wide providers above the route switch in `src/index.tsx`; add a small `AppProviders` composition point without a generic service locator. Centralize parsing and generation for `/`, `/workspace`, `/canvas`, and current query/deep-link forms. Lazy-load Workspace and Canvas. Render a real frontend not-found state. Add a small desktop surface switcher without adding a new Home workflow.
-- [ ] **1.3 Fix HTTP and file-command safety.** Nest `/api` so unknown API routes return typed JSON 404 instead of SPA HTML. Expose a testable `build_router(state)`. Stream multipart uploads to bounded temporary files, validate them, then atomically finalize. Introduce a lean owner-only `FileCommandService` for create, edit, rename, move, and delete. Never return success after metadata repair fails; compensate or return typed `needsReconciliation`.
-- [ ] **1.4 Create one typed contract and query path.** Replace untyped response construction for config, file listing/mutations, settings, and events with Rust DTOs. Generate committed TypeScript declarations and fail validation when regeneration changes tracked output. Add a tagged `ApiErrorBody` and `AppEvent`. Centralize endpoint functions, TanStack query options, mutation options, and invalidation rules. Build SSR bootstrap data with the same application query functions and query keys used by HTTP/client code.
-- [ ] **1.5 Remove only obvious dead plumbing and fix baseline accessibility.** Remove empty page props, local-only source branches, admin-only scope wrappers, and unconditional read-only branches when tests prove they have no behavior. Add accessible names to icon-only controls and meaningful slider labels. Do not restructure Explorer, viewers, or panes yet.
+- [x] **1.1 Lock workflow, capability, and storage parity.** Build a compact workflow matrix for Library, Workspace, Canvas, Reader, and Hermes. Add an Explorer/resource capability matrix using Workspace/Canvas as the complete reference and classify each difference as shared-resource capability or legitimate host-only behavior. Add only missing high-value tests. Record current production bundle sizes and representative persisted settings/layout/canvas/Hermes fixtures. Preserve existing path-mutation tests and all fixes from `074675b`.
+- [x] **1.2 Establish the composition root and typed routes.** Keep app-wide providers above the route switch in `src/index.tsx`; add a small `AppProviders` composition point without a generic service locator. Centralize parsing and generation for `/`, `/workspace`, `/canvas`, and current query/deep-link forms. Lazy-load Workspace and Canvas. Render a real frontend not-found state. Add a small desktop surface switcher without adding a new Home workflow.
+- [x] **1.3 Fix HTTP and file-command safety.** Nest `/api` so unknown API routes return typed JSON 404 instead of SPA HTML. Expose a testable `build_router(state)`. Stream multipart uploads to bounded temporary files, validate them, then atomically finalize. Introduce a lean owner-only `FileCommandService` for create, edit, rename, move, and delete. Never return success after metadata repair fails; compensate or return typed `needsReconciliation`.
+- [x] **1.4 Create one typed contract and query path.** Replace untyped response construction for config, file listing/mutations, settings, and events with Rust DTOs. Generate committed TypeScript declarations and fail validation when regeneration changes tracked output. Add a tagged `ApiErrorBody` and `AppEvent`. Centralize endpoint functions, TanStack query options, mutation options, and invalidation rules. Build SSR bootstrap data with the same application query functions and query keys used by HTTP/client code.
+- [x] **1.5 Remove only obvious dead plumbing and fix baseline accessibility.** Remove empty page props, local-only source branches, admin-only scope wrappers, and unconditional read-only branches when tests prove they have no behavior. Add accessible names to icon-only controls and meaningful slider labels. Do not restructure Explorer, viewers, or panes yet.
 
 ### Likely code areas
 
@@ -232,6 +232,18 @@ Current behavior is locked by focused tests. Route delivery becomes correct and 
 - Touched endpoints have typed Rust DTOs, generated TypeScript contracts, canonical query options, and route-level tests.
 - All existing stored layouts, Canvas documents, Reader state, and Hermes windows reopen unchanged.
 - Capability matrix identifies every root omission. No shared resource action is classified as desktop-only merely because current root lacks its implementation.
+
+### Completion record
+
+- Completed: Work packages 1.1 through 1.5, including parity/bundle baselines, persisted-state fixtures, a stable provider composition root, typed lazy routes, safe file commands and uploads, generated API contracts, shared HTTP/SSR application queries, canonical client query/mutation options, dead-plumbing removal, and baseline accessibility fixes.
+- Commits: Baseline is `master` at `3695a88`; roadmap measurement started at `ea0acf3`. Stage 1 implementation remains in the current working tree because no commit was requested.
+- User-visible behavior: `/`, `/workspace`, and `/canvas` retain their existing workflows and deep links. Workspace and Canvas now load lazily, desktop navigation exposes a compact surface switcher, unknown frontend routes show a real 404, and unknown API routes return tagged JSON 404 responses.
+- Data/schema behavior: No persistent-data or schema migration. Existing settings, Workspace layouts, Canvas collections, Reader state, and Hermes windows reopen through representative TypeScript and Rust fixtures. File mutations compensate failed metadata work or return a tagged `needsReconciliation` error.
+- Tests and manual checks: `bun run test:unit` passes 70 Rust and 314 Bun tests; `bun run test:batch` passes all 377 Playwright tests across six batches. Type, generated-contract, lint, format, Rust-format, and diff checks pass. Production direct-navigation smoke checks pass for all three routes at 1440x900 and 390x844 with no console errors, page errors, failed requests, or HTTP error responses.
+- Metrics before/after: Root entry is 762,953/215,327 raw/gzip bytes before and 345,407/98,011 after (-54.7%/-54.5%). The complete eager root closure is 1,018,225/387,000 before and 646,538/287,651 after (-36.5%/-25.7%). Total JavaScript is 3,117,733/940,645 before and 3,141,582/954,044 after (+0.8%/+1.4%); full client output is 3,618,304/1,158,171 before and 3,643,724/1,171,804 after (+0.7%/+1.2%). Workspace (149,194/40,589) and Canvas (73,817/21,778) are now separate raw/gzip dynamic entries; manifest reachability confirms neither they nor the desktop viewer/Hermes code are in the Library eager closure.
+- Compatibility adapters removed: Untyped touched-endpoint response construction, unsafe generic listing casts, scattered touched-surface query/mutation invalidation, raw file-download URL use in components, empty page props, unconditional read-only branches, local-only source branches, and dead admin-scope wrappers.
+- Intentional remaining duplication: Explorer/viewer/playback presentation remains surface-owned for Stages 2 and 3. Existing `FileItem` and path-URL shapes remain until package 2.1. Knowledge-base search and virtual-directory action endpoints remain specialized until their shared resource/integration contracts land.
+- Next stage/package: Stage 2 package 2.1, defining resource address and transport semantics while keeping persisted path references compatible.
 
 ### Recovery
 

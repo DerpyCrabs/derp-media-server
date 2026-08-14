@@ -175,11 +175,24 @@ export function canvasWindowVisualBounds(bounds: CanvasRect): CanvasRect {
 
 function ringOffsets(ring: number): Array<[number, number]> {
   if (ring === 0) return [[0, 0]]
-  const offsets: Array<[number, number]> = []
-  for (let x = -ring; x <= ring; x += 1) offsets.push([x, -ring])
-  for (let y = -ring + 1; y <= ring; y += 1) offsets.push([ring, y])
-  for (let x = ring - 1; x >= -ring; x -= 1) offsets.push([x, ring])
-  for (let y = ring - 1; y > -ring; y -= 1) offsets.push([-ring, y])
+  const offsets: Array<[number, number]> = [
+    [0, ring],
+    [ring, 0],
+    [0, -ring],
+    [-ring, 0],
+  ]
+  for (let x = -ring; x <= ring; x += 1) {
+    if (x !== 0) offsets.push([x, ring])
+  }
+  for (let y = ring - 1; y >= -ring; y -= 1) {
+    if (y !== 0) offsets.push([ring, y])
+  }
+  for (let x = ring - 1; x >= -ring; x -= 1) {
+    if (x !== 0) offsets.push([x, -ring])
+  }
+  for (let y = -ring + 1; y < ring; y += 1) {
+    if (y !== 0) offsets.push([-ring, y])
+  }
   return offsets
 }
 

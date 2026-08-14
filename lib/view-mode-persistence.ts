@@ -1,4 +1,4 @@
-import { post } from './api'
+import { apiEndpoints } from './api-endpoints'
 
 type ViewMode = 'list' | 'grid'
 
@@ -8,7 +8,7 @@ export function persistViewMode(path: string, viewMode: ViewMode): Promise<unkno
   const previous = pendingWrites.get(path) ?? Promise.resolve()
   const next = previous
     .catch(() => undefined)
-    .then(() => post('/api/settings/viewMode', { path, viewMode }))
+    .then(() => apiEndpoints.settings.setViewMode({ path, viewMode }))
   pendingWrites.set(path, next)
   void next.finally(() => {
     if (pendingWrites.get(path) === next) pendingWrites.delete(path)

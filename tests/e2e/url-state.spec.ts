@@ -10,6 +10,7 @@ test.describe('URL State – Main Page', () => {
     await page.locator('table').getByText('readme.txt').click()
     await expect(page).toHaveURL(/viewing=/)
     await expect(page).toHaveURL(/playing=/)
+    await expect(page.getByTestId('surface-switcher')).toBeHidden()
   })
 
   test('navigating to a folder preserves playing param', async ({ page }) => {

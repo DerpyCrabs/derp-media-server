@@ -12,7 +12,6 @@ const localSource: WorkspaceSource = { kind: 'local', rootPath: null }
 
 function minimalPreset(
   id: string,
-  scope: 'admin',
   windows: PersistedWorkspaceState['windows'],
 ): WorkspaceLayoutPreset {
   const snap: PersistedWorkspaceState = {
@@ -25,7 +24,7 @@ function minimalPreset(
   return {
     id,
     name: id,
-    scope,
+    scope: 'admin',
     snapshot: snap,
     createdAt: '',
   }
@@ -57,7 +56,6 @@ describe('workspace-bootstrap', () => {
       loaded: null,
       presetsReadyNow: true,
       presetsList: [],
-      layoutScope: 'admin',
       source: localSource,
     })
     expect(r.kind).toBe('set-workspace')
@@ -81,8 +79,7 @@ describe('workspace-bootstrap', () => {
       presetParam: 'p1',
       loaded,
       presetsReadyNow: true,
-      presetsList: [minimalPreset('p1', 'admin', oneBrowserWin('w-preset', localSource))],
-      layoutScope: 'admin',
+      presetsList: [minimalPreset('p1', oneBrowserWin('w-preset', localSource))],
       source: localSource,
     })
     expect(r.kind).toBe('set-workspace')
@@ -92,14 +89,13 @@ describe('workspace-bootstrap', () => {
   })
 
   test('initial: applies preset when no draft and presets ready', () => {
-    const presetsList = [minimalPreset('p1', 'admin', oneBrowserWin('from-preset', localSource))]
+    const presetsList = [minimalPreset('p1', oneBrowserWin('from-preset', localSource))]
     const r = resolveWorkspaceInitialHydration({
       dirParam: null,
       presetParam: 'p1',
       loaded: null,
       presetsReadyNow: true,
       presetsList,
-      layoutScope: 'admin',
       source: localSource,
     })
     expect(r.kind).toBe('set-workspace')
@@ -118,8 +114,7 @@ describe('workspace-bootstrap', () => {
       presetParam: 'missing',
       loaded: null,
       presetsReadyNow: true,
-      presetsList: [minimalPreset('p1', 'admin', oneBrowserWin('x', localSource))],
-      layoutScope: 'admin',
+      presetsList: [minimalPreset('p1', oneBrowserWin('x', localSource))],
       source: localSource,
     })
     expect(r.kind).toBe('set-workspace')
@@ -135,7 +130,6 @@ describe('workspace-bootstrap', () => {
       loaded: null,
       presetsReadyNow: false,
       presetsList: [],
-      layoutScope: 'admin',
       source: localSource,
     })
     expect(r).toEqual({ kind: 'defer-preset' })
@@ -146,8 +140,7 @@ describe('workspace-bootstrap', () => {
       presetParam: 'p1',
       presetsReadyNow: true,
       hasPersistedDraft: false,
-      presetsList: [minimalPreset('p1', 'admin', oneBrowserWin('late', localSource))],
-      layoutScope: 'admin',
+      presetsList: [minimalPreset('p1', oneBrowserWin('late', localSource))],
     })
     expect(d?.kind).toBe('apply')
     if (!d || d.kind !== 'apply') return
@@ -161,8 +154,7 @@ describe('workspace-bootstrap', () => {
         presetParam: 'p1',
         presetsReadyNow: true,
         hasPersistedDraft: true,
-        presetsList: [minimalPreset('p1', 'admin', oneBrowserWin('late', localSource))],
-        layoutScope: 'admin',
+        presetsList: [minimalPreset('p1', oneBrowserWin('late', localSource))],
       }),
     ).toBeNull()
   })
@@ -172,8 +164,7 @@ describe('workspace-bootstrap', () => {
       presetParam: 'bad',
       presetsReadyNow: true,
       hasPersistedDraft: false,
-      presetsList: [minimalPreset('p1', 'admin', oneBrowserWin('late', localSource))],
-      layoutScope: 'admin',
+      presetsList: [minimalPreset('p1', oneBrowserWin('late', localSource))],
     })
     expect(d).toEqual({ kind: 'noop', stripPresetFromUrl: true })
   })

@@ -286,6 +286,26 @@ mod tests {
     }
 
     #[test]
+    fn accepts_persisted_canvas_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/persisted-state/reference/canvas-collection.json"
+        ))
+        .unwrap();
+
+        let merged = merge(&json!([]), &fixture["canvases"]);
+
+        assert_eq!(merged.as_array().unwrap().len(), 1);
+        assert_eq!(
+            merged[0]["state"]["windows"][2]["definition"]["hermes"]["sessionId"],
+            "reference-session"
+        );
+        assert_eq!(
+            merged[0]["state"]["windows"][1]["definition"]["initialState"]["readerKind"],
+            "folder"
+        );
+    }
+
+    #[test]
     fn tie_breaks_same_timestamp_by_writer() {
         let first = record(1, "First", false);
         let mut second = record(1, "Second", false);

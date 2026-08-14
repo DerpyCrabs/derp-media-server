@@ -58,14 +58,12 @@ import {
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { WorkspacePageCanvas } from './workspace/workspace-page/WorkspacePageCanvas'
 import { WorkspacePageTaskbar } from './workspace/workspace-page/WorkspacePageTaskbar'
-import type { WorkspacePageProps } from './workspace/workspace-page/workspace-page-types'
 import { createWorkspaceSnapDragModel } from './workspace/workspace-page/create-workspace-snap-drag-model'
 import { useWorkspacePageDocumentChrome } from './workspace/workspace-page/use-workspace-page-document-chrome'
 import { useWorkspacePageLayoutBaseline } from './workspace/workspace-page/use-workspace-page-layout-baseline'
 import { useWorkspacePageLocalPersistence } from './workspace/workspace-page/use-workspace-page-local-persistence'
 import { useWorkspacePageServerData } from './workspace/workspace-page/use-workspace-page-server-data'
 
-export type { WorkspacePageProps } from './workspace/workspace-page/workspace-page-types'
 import {
   clampTabInsertIndex,
   ensureSplitActiveNotLeft,
@@ -93,11 +91,11 @@ import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-se
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
 import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
 
-export function WorkspacePage(props: WorkspacePageProps = {}) {
+export function WorkspacePage() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
 
-  const server = useWorkspacePageServerData(props)
+  const server = useWorkspacePageServerData()
   const browserSource = () => DEFAULT_WORKSPACE_SOURCE
 
   const storageSessionKeyFull = createMemo(() => {
@@ -178,7 +176,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     // Always prefer session draft in localStorage over a named preset in the URL.
     const loaded = loadPersisted(key)
     const src = browserSource()
-    const scope = server.layoutScope()
     const presetsList = server.serverLayoutPresets()
 
     if (lastHydratedStorageKey !== key) {
@@ -189,7 +186,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         loaded,
         presetsReadyNow,
         presetsList,
-        layoutScope: scope,
         source: src,
       })
       untrack(() => {
@@ -220,7 +216,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       presetsReadyNow,
       hasPersistedDraft: !!loadPersisted(key),
       presetsList,
-      layoutScope: scope,
     })
     if (!deferred) return
     untrack(() => {
@@ -251,7 +246,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
       if (serverPins.length > 0) {
         setWorkspace((prev) => (prev ? { ...prev, pinnedTaskbarItems: serverPins } : prev))
       } else if ((w.pinnedTaskbarItems?.length ?? 0) > 0) {
-        void server.persistPinsMutation.mutateAsync(w.pinnedTaskbarItems ?? [])
+        void server.persistPinsMutation.mutateAsync({ items: w.pinnedTaskbarItems ?? [] })
       }
     })
     setPinsHydratedFor(key)
@@ -1125,7 +1120,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     }
     const next = [...(w.pinnedTaskbarItems ?? []), item]
     setWorkspace({ ...w, pinnedTaskbarItems: next })
-    void server.persistPinsMutation.mutateAsync(next)
+    void server.persistPinsMutation.mutateAsync({ items: next })
   }
 
   function removePinnedItem(id: string) {
@@ -1133,7 +1128,7 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     if (!w) return
     const next = (w.pinnedTaskbarItems ?? []).filter((p) => p.id !== id)
     setWorkspace({ ...w, pinnedTaskbarItems: next })
-    void server.persistPinsMutation.mutateAsync(next)
+    void server.persistPinsMutation.mutateAsync({ items: next })
   }
 
   async function selectPinned(pin: PinnedTaskbarItem) {
@@ -1445,7 +1440,6 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
         workspace={workspace}
         setWorkspace={setWorkspace}
         settingsData={() => server.settingsQuery.data}
-        layoutScope={server.layoutScope}
         serverLayoutPresets={server.serverLayoutPresets}
         presetsReady={server.presetsReady}
         collectLayoutSnapshot={baseline.collectLayoutSnapshot}

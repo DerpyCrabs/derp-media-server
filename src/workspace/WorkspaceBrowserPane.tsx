@@ -19,6 +19,7 @@ import {
   setBreadcrumbFolderMenu,
 } from '@/lib/breadcrumb-floating-store'
 import { api, post } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import {
   prefetchFolderContentsOnHover,
   prefetchParentDirectoryHover,
@@ -27,6 +28,13 @@ import {
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import type { PasteData } from '@/lib/paste-data'
 import { queryKeys } from '@/lib/query-keys'
+import {
+  fileMutationOptions,
+  filesQueryOptions,
+  invalidateFileQueries,
+  settingsMutationOptions,
+  settingsQueryOptions,
+} from '@/lib/query-options'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/download-urls'
 import type { FileItem } from '@/lib/types'
@@ -43,7 +51,6 @@ import { MediaType } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
 import { formatFileSize, getMediaType } from '@/lib/media-utils'
 import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
-import { persistViewMode } from '@/lib/view-mode-persistence'
 import { useWorkspaceFileOpenTargetStore } from '@/lib/workspace-file-open-target'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -93,6 +100,7 @@ import { useDeferredLoading } from '../lib/use-deferred-loading'
 import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
+import { hrefFor } from '../lib/routes'
 import { workspaceBrowserPaneParentDir } from './workspace-browser-pane-paths'
 import type { WorkspaceBrowserPaneProps } from './workspace-browser-pane-types'
 
@@ -188,11 +196,11 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   const filesQuery = useQuery(() => {
     return {
-      queryKey: [...queryKeys.files(listDir()), virtualOffset()],
-      queryFn: () =>
-        api<DirectoryListing>(
-          `/api/files?surface=workspace&dir=${encodeURIComponent(listDir())}&offset=${virtualOffset()}`,
-        ),
+      ...filesQueryOptions({
+        dir: listDir(),
+        surface: 'workspace',
+        offset: virtualOffset(),
+      }),
       refetchInterval: virtualRefreshEnabled() ? 5_000 : false,
     }
   })
@@ -272,17 +280,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     return true
   }
 
-  function invalidateKbQueries() {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
-  }
-
-  const moveItemMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateKbQueries()
-    },
-  }))
+  const moveItemMutation = useMutation(() => fileMutationOptions.rename(queryClient))
 
   function handleMoveFile(sourcePath: string, destinationDir: string) {
     const fileName = sourcePath.split(/[/\\]/).pop()!
@@ -294,19 +292,9 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     return isAdminPaneEditable() ? handleMoveFile : undefined
   })
 
-  const renameItemMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateKbQueries()
-    },
-  }))
+  const renameItemMutation = useMutation(() => fileMutationOptions.rename(queryClient))
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useQuery(settingsQueryOptions)
 
   const gatewayDirectoryQuery = useQuery(() => ({
     queryKey: ['virtual-directory', 'gateway-fs', gatewayPickerPath()],
@@ -349,23 +337,9 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   const showInlineCreate = createMemo(() => inKb() && isAdminPaneEditable())
 
-  const createFileMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; content: string }) =>
-      post('/api/files/create', { type: 'file', path: vars.path, content: vars.content }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      if (inKb()) invalidateKbQueries()
-    },
-  }))
+  const createFileMutation = useMutation(() => fileMutationOptions.create(queryClient))
 
-  const createFolderMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string }) =>
-      post('/api/files/create', { type: 'folder', path: vars.path }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      if (inKb()) invalidateKbQueries()
-    },
-  }))
+  const createFolderMutation = useMutation(() => fileMutationOptions.create(queryClient))
 
   const virtualActionMutation = useMutation(() => ({
     mutationFn: (body: {
@@ -389,16 +363,20 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       mode: 'create' | 'replace'
       expectedVersion?: number
     }) =>
-      post(vars.mode === 'replace' ? '/api/files/edit' : '/api/files/create', {
-        ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
-        path: vars.path,
-        content: vars.content,
-        base64Content: vars.base64Content,
-        expectedVersion: vars.expectedVersion,
-      }),
+      vars.mode === 'replace'
+        ? apiEndpoints.files.edit({
+            path: vars.path,
+            content: vars.content,
+            base64Content: vars.base64Content,
+            expectedVersion: vars.expectedVersion,
+          })
+        : apiEndpoints.files.create({
+            type: 'file',
+            path: vars.path,
+            content: vars.content,
+            base64Content: vars.base64Content,
+          }),
     onSuccess: (_d, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      if (inKb()) invalidateKbQueries()
       setShowPasteDialog(false)
       setPasteData(null)
       const pathToOpen = variables.path
@@ -414,6 +392,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         type: getMediaType(ext),
       })
     },
+    onSettled: () => invalidateFileQueries(queryClient),
   }))
 
   const viewMode = createMemo(() => {
@@ -421,27 +400,13 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     return s?.viewModes?.[currentPath()] ?? 'list'
   })
 
-  const viewModeMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
-      persistViewMode(vars.path, vars.viewMode),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const viewModeMutation = useMutation(() => settingsMutationOptions.viewMode(queryClient))
 
-  const setCustomIconMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; iconName: string }) => post('/api/settings/icon', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const setCustomIconMutation = useMutation(() => settingsMutationOptions.customIcon(queryClient))
 
-  const removeCustomIconMutation = useMutation(() => ({
-    mutationFn: (path: string) => post('/api/settings/icon/remove', { path }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const removeCustomIconMutation = useMutation(() =>
+    settingsMutationOptions.removeCustomIcon(queryClient),
+  )
 
   const workspaceCustomIcons = createMemo(() => settingsQuery.data?.customIcons ?? {})
 
@@ -523,22 +488,16 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (fileRowMenu.menu()) setDirectoryBackgroundMenu(null)
   })
 
-  const deleteMutation = useMutation(() => ({
-    mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-    },
-  }))
+  const deleteMutation = useMutation(() => fileMutationOptions.delete(queryClient))
 
-  const knowledgeBaseMutation = useMutation(() => ({
-    mutationFn: (filePath: string) => post('/api/settings/knowledgeBase', { filePath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const knowledgeBaseMutation = useMutation(() =>
+    settingsMutationOptions.knowledgeBase(queryClient),
+  )
+
+  const uploadMutation = useMutation(() => fileMutationOptions.upload(queryClient))
 
   function handleContextToggleKnowledgeBase(file: FileItem) {
-    knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/'))
+    knowledgeBaseMutation.mutate({ filePath: file.path.replace(/\\/g, '/') })
   }
 
   const renameTargetExists = createMemo(() => {
@@ -585,9 +544,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setVirtualProjectChoicesLoading(true)
       virtualActionMutation.reset()
       const virtualRoot = currentPath().split(/[/\\]/).filter(Boolean)[0] ?? ''
-      void api<DirectoryListing>(
-        `/api/files?surface=workspace&dir=${encodeURIComponent(virtualRoot)}&offset=0`,
-      )
+      void apiEndpoints.files
+        .list({ dir: virtualRoot, surface: 'workspace', offset: 0 })
         .then((result) => {
           const choices = result.files
             .filter((candidate) => result.virtualEntries?.[candidate.path]?.kind === 'project')
@@ -766,10 +724,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   function openDirectoryInMediaServer(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
-    const params = new URLSearchParams()
-    if (file.path) params.set('dir', file.path)
-    const query = params.toString()
-    window.open(query ? `/?${query}` : '/', '_blank')
+    window.open(hrefFor({ kind: 'library' }, file.path ? { dir: file.path } : undefined), '_blank')
   }
 
   function handleBreadcrumbNavigate(path: string) {
@@ -835,9 +790,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       )
       return
     }
-    const params = new URLSearchParams()
-    if (item.path) params.set('dir', item.path)
-    window.open(`/?${params.toString()}`, '_blank')
+    window.open(hrefFor({ kind: 'library' }, item.path ? { dir: item.path } : undefined), '_blank')
   }
 
   function handleWorkspaceBreadcrumbOpenInWorkspace() {
@@ -849,10 +802,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     }
     const item = workspaceBreadcrumbAsFolderItem(m)
     if (!item.isDirectory || item.isVirtual) return
-    const params = new URLSearchParams()
-    if (item.path) params.set('dir', item.path)
-    const q = params.toString()
-    window.open(q ? `/?${q}` : '/', '_blank')
+    window.open(hrefFor({ kind: 'library' }, item.path ? { dir: item.path } : undefined), '_blank')
   }
 
   function handleWorkspaceBreadcrumbSetIcon() {
@@ -868,7 +818,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (iconName) {
       void setCustomIconMutation.mutateAsync({ path: p, iconName })
     } else {
-      void removeCustomIconMutation.mutateAsync(p)
+      void removeCustomIconMutation.mutateAsync({ path: p })
     }
   }
 
@@ -946,7 +896,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     if (!name || fileExists()) return
     const base = currentPath() ? `${currentPath()}/${name}` : name
     const finalPath = normalizeNewFilePath(base, inKb())
-    void createFileMutation.mutateAsync({ path: finalPath, content: '' }).then(() => {
+    void createFileMutation.mutateAsync({ type: 'file', path: finalPath, content: '' }).then(() => {
       setShowCreateFile(false)
       setNewFileName('')
     })
@@ -976,7 +926,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       return
     }
     const base = currentPath() ? `${currentPath()}/${name}` : name
-    void createFolderMutation.mutateAsync({ path: base }).then(() => {
+    void createFolderMutation.mutateAsync({ type: 'folder', path: base }).then(() => {
       setShowCreateFolder(false)
       setNewFolderName('')
     })
@@ -1086,7 +1036,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     try {
       const base = currentPath() ? `${currentPath()}/${stem}` : stem
       const finalPath = normalizeNewFilePath(base, inKb())
-      await createFileMutation.mutateAsync({ path: finalPath, content: '' })
+      await createFileMutation.mutateAsync({ type: 'file', path: finalPath, content: '' })
       setInlineMode(null)
       setInlineName('')
       createFileMutation.reset()
@@ -1106,7 +1056,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       createFolderMutation.reset()
       props.onNavigateDir(props.windowId, base)
     }
-    void createFolderMutation.mutateAsync({ path: base }).then(afterFolderCreate)
+    void createFolderMutation.mutateAsync({ type: 'folder', path: base }).then(afterFolderCreate)
   }
 
   function resetInlineCreate() {
@@ -1307,7 +1257,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   async function uploadFilesToServer(files: File[]) {
     if (files.length === 0 || !allowWorkspaceUpload()) return
     const targetDir = currentPath()
-    const url = '/api/files/upload'
     setUploadToast({ kind: 'uploading', fileCount: files.length })
     try {
       const formData = new FormData()
@@ -1315,14 +1264,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       for (const file of files) {
         formData.append('files', file, file.name)
       }
-      const res = await fetch(url, { method: 'POST', body: formData })
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null
-        const message = data?.error || `Upload failed (${res.status})`
-        setUploadToast({ kind: 'error', message })
-        return
-      }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+      await uploadMutation.mutateAsync(formData)
       setUploadToast({ kind: 'success' })
       window.setTimeout(() => setUploadToast({ kind: 'hidden' }), 2000)
     } catch (err) {
@@ -1417,6 +1359,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               <button
                 type='button'
                 title='Create new folder'
+                aria-label='Create new folder'
                 class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                 onClick={openCreateFolderDialog}
               >
@@ -1425,6 +1368,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
               <button
                 type='button'
                 title='Create new file'
+                aria-label='Create new file'
                 class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                 onClick={openCreateFileDialog}
               >
@@ -1891,7 +1835,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                       <p class='text-xs text-muted-foreground'>
                         {getDetail().entry.archived
                           ? 'Archived · read-only'
-                          : 'Read-only Stage 1 session detail'}
+                          : 'Read-only session detail'}
                       </p>
                     </div>
                     <button
@@ -2179,7 +2123,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
                   })
                 return
               }
-              void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+              void deleteMutation.mutateAsync({ path: it.path }).then(() => setDeleteTarget(null))
             }}
             showCreateFolder={showCreateFolder}
             setShowCreateFolder={setShowCreateFolder}

@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/solid-query'
 import { api } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
+import { filesQueryOptions } from '@/lib/query-options'
 import type { FileItem } from '@/lib/types'
 import { getKnowledgeBaseRoot } from '@/lib/utils'
 
@@ -21,10 +22,7 @@ function prefetchKbRecentForPath(queryClient: QueryClient, pathWithinKb: string)
 
 function prefetchDirectoryListingAtPath(ctx: PrefetchFolderHoverContext, dirPath: string) {
   const norm = dirPath.replace(/\\/g, '/')
-  void ctx.queryClient.prefetchQuery({
-    queryKey: queryKeys.files(norm),
-    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(norm)}`),
-  })
+  void ctx.queryClient.prefetchQuery(filesQueryOptions({ dir: norm }))
   const kbs = ctx.knowledgeBases
   if (kbs?.length && getKnowledgeBaseRoot(norm, kbs)) {
     prefetchKbRecentForPath(ctx.queryClient, norm)

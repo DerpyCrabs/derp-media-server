@@ -1,6 +1,7 @@
 import { api } from '@/lib/api'
 import { MediaType, type FileItem } from '@/lib/types'
 import { queryKeys } from '@/lib/query-keys'
+import { filesQueryOptions } from '@/lib/query-options'
 import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useQuery } from '@tanstack/solid-query'
@@ -141,8 +142,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const filesQuery = useQuery(() => {
     const dir = listDir()
     return {
-      queryKey: queryKeys.files(dir),
-      queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(dir)}`),
+      ...filesQueryOptions({ dir }),
       enabled: !!dirToFetch(),
     }
   })
@@ -710,6 +710,8 @@ export function WorkspaceTaskbarAudio(props: Props) {
                   </span>
                   <input
                     type='range'
+                    aria-label='Playback position'
+                    aria-valuetext={`${formatTime(currentTimeDisplay())} of ${formatTime(displayDuration())}`}
                     min={0}
                     max={displayDuration() || 0}
                     value={currentTimeDisplay()}
@@ -733,6 +735,13 @@ export function WorkspaceTaskbarAudio(props: Props) {
                     </button>
                     <button
                       type='button'
+                      aria-label={
+                        storeSlice().isPlaying &&
+                        storeSlice().playing === playingPath() &&
+                        shouldHandleAudio()
+                          ? 'Pause'
+                          : 'Play'
+                      }
                       class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-50'
                       disabled={!audioTransportPath()}
                       onClick={handleTogglePlayPause}
@@ -759,6 +768,8 @@ export function WorkspaceTaskbarAudio(props: Props) {
                     </button>
                     <button
                       type='button'
+                      aria-label={storeSlice().isRepeat ? 'Disable repeat' : 'Enable repeat'}
+                      aria-pressed={storeSlice().isRepeat}
                       class={
                         storeSlice().isRepeat
                           ? 'bg-primary text-primary-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-50'
@@ -786,6 +797,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
                     <div class='ml-1 flex min-w-0 max-w-32 flex-1 items-center gap-2'>
                       <button
                         type='button'
+                        aria-label={storeSlice().isMuted ? 'Unmute' : 'Mute'}
                         class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
                         onClick={() => {
                           const st = useWorkspaceAudio.getState()
@@ -803,6 +815,8 @@ export function WorkspaceTaskbarAudio(props: Props) {
                       </button>
                       <input
                         type='range'
+                        aria-label='Volume'
+                        aria-valuetext={`${Math.round((storeSlice().isMuted ? 0 : storeSlice().volume) * 100)} percent`}
                         min={0}
                         max={1}
                         step={0.01}

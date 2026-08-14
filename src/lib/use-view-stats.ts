@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import { api, post } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import { queryKeys } from '@/lib/query-keys'
+import { statsQueryOptions } from '@/lib/query-options'
 import type { Accessor } from 'solid-js'
 
 type Options = {
@@ -12,13 +13,12 @@ export function useViewStats(_sourceContext?: Accessor<unknown>, options?: Optio
   const queryClient = useQueryClient()
 
   const statsQuery = useQuery(() => ({
-    queryKey: queryKeys.stats(),
-    queryFn: () => api<{ views: Record<string, number> }>('/api/stats/views'),
+    ...statsQueryOptions(),
     enabled: includeCounts,
   }))
 
   const incrementMutation = useMutation(() => ({
-    mutationFn: (vars: { filePath: string }) => post('/api/stats/views', vars),
+    mutationFn: (vars: { filePath: string }) => apiEndpoints.stats.addView(vars.filePath),
     onSuccess: () => {
       if (includeCounts) void queryClient.invalidateQueries({ queryKey: queryKeys.stats() })
     },

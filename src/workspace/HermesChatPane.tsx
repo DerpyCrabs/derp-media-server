@@ -656,6 +656,7 @@ export function HermesChatPane(props: {
                       <span class='min-w-0 flex-1 truncate'>{prompt.text}</span>
                       <button
                         title='Move up'
+                        aria-label='Move queued prompt up'
                         disabled={index() === 0}
                         onClick={() => moveHermesQueuedPrompt(key(), index(), -1)}
                       >
@@ -663,6 +664,7 @@ export function HermesChatPane(props: {
                       </button>
                       <button
                         title='Move down'
+                        aria-label='Move queued prompt down'
                         disabled={index() === (state()?.queuedPrompts.length ?? 0) - 1}
                         onClick={() => moveHermesQueuedPrompt(key(), index(), 1)}
                       >
@@ -670,12 +672,14 @@ export function HermesChatPane(props: {
                       </button>
                       <button
                         title='Edit queued prompt'
+                        aria-label='Edit queued prompt'
                         onClick={() => editHermesQueuedPrompt(key(), index())}
                       >
                         <Pencil class='h-3 w-3' />
                       </button>
                       <button
                         title='Remove queued prompt'
+                        aria-label='Remove queued prompt'
                         onClick={() => removeHermesQueuedPrompt(key(), index())}
                       >
                         <X class='h-3 w-3' />

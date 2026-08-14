@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import { apiEndpoints } from '@/lib/api-endpoints'
+
 const INITIAL_DELAY_MS = 5000
 const MAX_DELAY_MS = 60000
 const BACKOFF_MULTIPLIER = 2
@@ -48,7 +50,7 @@ function openAdminStream() {
   cancelAdminReconnect()
   if (adminSource || adminRefTotal <= 0) return
 
-  adminSource = new EventSource('/api/events/stream')
+  adminSource = new EventSource(apiEndpoints.events.streamUrl)
   adminSource.onmessage = (event) => {
     adminRetry = 0
     try {

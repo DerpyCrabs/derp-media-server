@@ -1,63 +1,19 @@
+import type {
+  FileListResponse,
+  VirtualAppearanceDto,
+  VirtualCapabilityDto,
+  VirtualDirectoryDto,
+  VirtualEntryDto,
+  VirtualOpenTargetDto,
+} from './generated/api-contracts'
 import type { FileItem } from './types'
 
-export type VirtualCapability =
-  | 'open'
-  | 'createFile'
-  | 'createFolder'
-  | 'rename'
-  | 'archive'
-  | 'restore'
-  | 'deletePermanently'
-  | 'deleteProject'
-  | 'download'
-  | 'copyId'
-  | 'branch'
-  | 'moveToProject'
-  | 'addProjectFolder'
-  | 'removeProjectFolder'
-  | 'setPrimaryFolder'
-  | 'setAppearance'
-
-export type VirtualOpenTarget = {
-  type: 'hermesSession' | 'hermesDraft'
-  sessionId?: string
-  projectPath?: string | null
-  readOnly: boolean
-}
-
-export type VirtualAppearance = {
-  icon: 'agent-directory' | 'agent-session' | 'project' | 'archive' | string
-  tone: 'violet' | 'indigo' | 'muted'
-  color?: string
-}
-
-export type VirtualEntry = {
-  provider: string
-  kind: string
-  id?: string
-  archived?: boolean
-  capabilities: VirtualCapability[]
-  openTarget?: VirtualOpenTarget
-  metadata?: Record<string, unknown>
-  appearance?: VirtualAppearance
-}
-
-export type VirtualDirectory = {
-  provider: string
-  kind: string
-  path: string
-  capabilities: VirtualCapability[]
-  offset: number
-  pageSize: number
-  total: number
-  nextOffset?: number
-}
-
-export type DirectoryListing = {
-  files: FileItem[]
-  virtualDirectory?: VirtualDirectory
-  virtualEntries?: Record<string, VirtualEntry>
-}
+export type VirtualCapability = VirtualCapabilityDto
+export type VirtualOpenTarget = VirtualOpenTargetDto
+export type VirtualAppearance = VirtualAppearanceDto
+export type VirtualEntry = VirtualEntryDto
+export type VirtualDirectory = VirtualDirectoryDto
+export type DirectoryListing = FileListResponse
 
 export function virtualAppearanceForPath(path: string): VirtualAppearance | undefined {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')

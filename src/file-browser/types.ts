@@ -1,12 +1,3 @@
-export type ServerConfig = {
-  editableFolders: string[]
-  mediaRoots?: {
-    id: string
-    name: string
-    editableFolders: string[]
-  }[]
-}
-
 export type UploadToastState =
   | { kind: 'hidden' }
   | { kind: 'uploading'; fileCount: number }

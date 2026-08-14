@@ -186,3 +186,55 @@ test.describe('Folder Navigation', () => {
     await expect(page.locator('table').getByText('unsupported.xyz')).toBeVisible()
   })
 })
+
+test.describe('Application surface navigation', () => {
+  test('switches surfaces without reloading and restores deep-link state with browser history', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const key = 'surface-navigation-document-loads'
+      const count = Number(sessionStorage.getItem(key) ?? '0') + 1
+      sessionStorage.setItem(key, String(count))
+    })
+    await page.goto('/?dir=Music')
+
+    const switcher = page.getByRole('navigation', { name: 'Application surfaces' })
+    await expect(switcher).toBeVisible()
+    await switcher.getByRole('link', { name: 'Workspace' }).click()
+    await expect(page.locator('.workspace-layout')).toBeVisible()
+    await expect(page).toHaveURL(/\/workspace\?dir=Music&ws=/)
+
+    await switcher.getByRole('link', { name: 'Canvas' }).click()
+    await expect(page.locator('.canvas-layout')).toBeVisible()
+    await expect(page).toHaveURL(/\/canvas$/)
+
+    await page.goBack()
+    await expect(page.locator('.workspace-layout')).toBeVisible()
+    await expect(page).toHaveURL(/\/workspace\?dir=Music&ws=/)
+
+    await page.goBack()
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+    await expect(page).toHaveURL(/\/\?dir=Music$/)
+    await expect
+      .poll(() => page.evaluate(() => sessionStorage.getItem('surface-navigation-document-loads')))
+      .toBe('1')
+  })
+
+  test('shows a frontend not-found state for an unknown path', async ({ page }) => {
+    await page.goto('/missing/path?dir=Music')
+
+    await expect(page.getByTestId('not-found')).toBeVisible()
+    await expect(page.getByTestId('file-browser')).toHaveCount(0)
+    await page.getByRole('link', { name: 'Open Library' }).click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+  })
+
+  test('keeps surface switcher off narrow mobile Library', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+
+    await expect(page.getByTestId('surface-switcher')).toBeHidden()
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+  })
+})

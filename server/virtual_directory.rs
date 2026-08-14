@@ -19,7 +19,7 @@ pub(crate) fn list_builtin(
     state: &AppState,
     path: &str,
 ) -> Option<AppResult<Vec<media::FileItem>>> {
-    crate::routes::files::legacy_virtual_items(state, path)
+    crate::application_queries::legacy_virtual_items(state, path)
 }
 
 #[derive(Clone, Debug, Serialize)]

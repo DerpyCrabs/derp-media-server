@@ -1,10 +1,9 @@
-import { api } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import {
   FILE_SEARCH_DEFAULT_LIMIT,
   FILE_SEARCH_MIN_QUERY_LENGTH,
   fileSearchCodePointLength,
   normalizeFileSearchText,
-  type FileSearchResponse,
   type FileSearchResult,
   type FileSearchStatus,
 } from '@/lib/file-search'
@@ -96,7 +95,7 @@ function FileSearchPalette(props: {
 
   const statusQuery = useQuery(() => ({
     queryKey: queryKeys.fileSearchStatus(),
-    queryFn: () => api<FileSearchStatus>('/api/files/search/status'),
+    queryFn: apiEndpoints.fileSearch.status,
     refetchInterval: 2_000,
     staleTime: 0,
   }))
@@ -104,10 +103,7 @@ function FileSearchPalette(props: {
   const searchQuery = useQuery(() => ({
     queryKey: queryKeys.fileSearch(normalizedQuery()),
     queryFn: ({ signal }: { signal: AbortSignal }) =>
-      api<FileSearchResponse>(
-        `/api/files/search?q=${encodeURIComponent(debouncedQuery())}&limit=${FILE_SEARCH_DEFAULT_LIMIT}`,
-        { signal },
-      ),
+      apiEndpoints.fileSearch.search(debouncedQuery(), FILE_SEARCH_DEFAULT_LIMIT, signal),
     enabled: queryLongEnough(),
     staleTime: 0,
     gcTime: 30_000,
@@ -115,11 +111,7 @@ function FileSearchPalette(props: {
   }))
 
   const reindexMutation = useMutation(() => ({
-    mutationFn: (mode: 'reconcile' | 'full') =>
-      api<{ accepted: true }>('/api/files/search/reindex', {
-        method: 'POST',
-        body: JSON.stringify({ mode }),
-      }),
+    mutationFn: (mode: 'reconcile' | 'full') => apiEndpoints.fileSearch.reindex(mode),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.fileSearchStatus() })
       void queryClient.invalidateQueries({ queryKey: queryKeys.fileSearch() })

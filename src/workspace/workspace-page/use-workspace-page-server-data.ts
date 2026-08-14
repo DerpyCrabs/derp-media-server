@@ -1,33 +1,24 @@
-import { api, post } from '@/lib/api'
-import type { GlobalSettings } from '@/lib/use-settings'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
-import { queryKeys } from '@/lib/query-keys'
+import {
+  serverConfigQueryOptions,
+  settingsMutationOptions,
+  settingsQueryOptions,
+} from '@/lib/query-options'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { createMemo } from 'solid-js'
 import { unwrap } from 'solid-js/store'
-import type { WorkspacePageProps } from './workspace-page-types'
-
-type ServerConfig = { editableFolders: string[] }
 
 function fromQueryData<T>(value: T): T {
   return structuredClone(unwrap(value))
 }
 
-export function useWorkspacePageServerData(props: WorkspacePageProps) {
+export function useWorkspacePageServerData() {
   const queryClient = useQueryClient()
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useQuery(settingsQueryOptions)
 
-  const serverConfigQuery = useQuery(() => ({
-    queryKey: queryKeys.serverConfig(),
-    queryFn: () => api<ServerConfig>('/api/config'),
-    staleTime: Infinity,
-  }))
+  const serverConfigQuery = useQuery(serverConfigQueryOptions)
 
   const editableFolders = createMemo((): string[] => {
     const folders = serverConfigQuery.data?.editableFolders
@@ -47,15 +38,9 @@ export function useWorkspacePageServerData(props: WorkspacePageProps) {
   })
 
   const presetsReady = createMemo(() => settingsQuery.isSuccess)
-  const layoutScope = createMemo(() => 'admin' as const)
-
-  const persistPinsMutation = useMutation(() => ({
-    mutationFn: (items: PinnedTaskbarItem[]) =>
-      post('/api/settings/workspaceTaskbarPins', { items }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
+  const persistPinsMutation = useMutation(() =>
+    settingsMutationOptions.workspaceTaskbarPins(queryClient),
+  )
 
   return {
     queryClient,
@@ -65,7 +50,6 @@ export function useWorkspacePageServerData(props: WorkspacePageProps) {
     serverPinsList,
     serverLayoutPresets,
     presetsReady,
-    layoutScope,
     persistPinsMutation,
   }
 }

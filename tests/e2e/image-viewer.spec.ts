@@ -42,8 +42,11 @@ test.describe('Image Viewer', () => {
 
   test('shows zoom controls', async ({ page }) => {
     await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
-    await expect(page.locator('button:has(.lucide-zoom-in)')).toBeVisible()
-    await expect(page.locator('button:has(.lucide-zoom-out)')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Zoom out' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Rotate clockwise' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Download' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Close' })).toBeVisible()
     await expect(page.getByText('Fit')).toBeVisible()
   })
 

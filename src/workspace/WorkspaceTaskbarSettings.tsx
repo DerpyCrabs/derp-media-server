@@ -164,6 +164,7 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                       <button
                         type='button'
                         title={icon.name}
+                        aria-label={icon.name}
                         class={cn(
                           'flex items-center justify-center rounded-lg border-2 p-3 transition-all hover:bg-muted/50',
                           selected()
@@ -199,6 +200,7 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                       type='button'
                       disabled={!props.browserTabIcon()}
                       title={s.key}
+                      aria-label={`${s.key} icon color`}
                       class={cn(
                         'h-8 w-8 shrink-0 rounded-md border-2 disabled:opacity-40',
                         s.twBg,

@@ -2,15 +2,10 @@ import { getMediaType } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
 import type {
   SnapZone,
-  WorkspaceSource,
   WorkspaceWindowDefinition,
   WorkspaceWindowLayout,
   WorkspaceTilingPlacement,
 } from '@/lib/use-workspace'
-
-export function getSourceLabel(source: WorkspaceSource): string {
-  return source.kind === 'local' ? 'Browser' : 'Browser'
-}
 
 export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
   'assist-custom': {},

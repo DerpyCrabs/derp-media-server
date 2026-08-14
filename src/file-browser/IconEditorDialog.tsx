@@ -94,6 +94,7 @@ export function IconEditorDialog(props: Props) {
                     <button
                       type='button'
                       title={icon.name}
+                      aria-label={icon.name}
                       class={`flex items-center justify-center rounded-lg border-2 p-3 transition-all hover:bg-muted/50 ${
                         selectedIcon() === icon.name
                           ? 'border-primary bg-primary/10'

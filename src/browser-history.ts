@@ -1,7 +1,8 @@
 import type { Accessor } from 'solid-js'
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { updateRouteSearch, type RouteLocation, type RouteQueryUpdates } from './lib/routes'
 
-export type BrowserLocation = { pathname: string; search: string }
+export type BrowserLocation = Required<RouteLocation>
 
 /**
  * Single reactive `URLSearchParams` per location update. Prefer this over repeating
@@ -41,7 +42,7 @@ function patchHistory() {
 patchHistory()
 
 /**
- * Reactive snapshot of pathname + search; updates on popstate and patched history.
+ * Reactive snapshot of pathname, search, and hash; updates on browser and patched history.
  */
 export function useBrowserHistory() {
   const [tick, setTick] = createSignal(0)
@@ -50,8 +51,10 @@ export function useBrowserHistory() {
     const bump = () => setTick((t) => t + 1)
     subscribers.add(bump)
     window.addEventListener('popstate', bump)
+    window.addEventListener('hashchange', bump)
     onCleanup(() => {
       window.removeEventListener('popstate', bump)
+      window.removeEventListener('hashchange', bump)
       subscribers.delete(bump)
     })
   })
@@ -61,22 +64,27 @@ export function useBrowserHistory() {
     return {
       pathname: window.location.pathname,
       search: window.location.search,
+      hash: window.location.hash,
     }
   })
   return locationMemo
 }
 
-export function navigateSearchParams(
-  updates: Record<string, string | null>,
-  mode: 'push' | 'replace',
-) {
-  const params = new URLSearchParams(window.location.search)
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === null) params.delete(key)
-    else params.set(key, value)
-  }
-  const qs = params.toString()
-  const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname
-  if (mode === 'push') history.pushState(null, '', url)
-  else history.replaceState(null, '', url)
+export function navigateSearchParams(updates: RouteQueryUpdates, mode: 'push' | 'replace') {
+  navigateHref(
+    updateRouteSearch(
+      {
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+      },
+      updates,
+    ),
+    mode,
+  )
+}
+
+export function navigateHref(href: string, mode: 'push' | 'replace') {
+  if (mode === 'push') history.pushState(null, '', href)
+  else history.replaceState(null, '', href)
 }

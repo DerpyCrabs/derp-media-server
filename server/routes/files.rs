@@ -1,22 +1,32 @@
 use crate::{
-    app::{
-        AppState, Shared, emit, list_directory, parent_logical, safe_upload_name, settings_path,
-        stats_path,
+    app::{Shared, emit, parent_logical, safe_upload_name},
+    application_queries,
+    contracts::{
+        API_FILES_COPY_PATH, API_FILES_CREATE_PATH, API_FILES_DELETE_PATH, API_FILES_DOWNLOAD_PATH,
+        API_FILES_EDIT_PATH, API_FILES_PATH, API_FILES_RENAME_PATH, API_FILES_UPLOAD_PATH,
+        CopyFileRequest, CreateFileKindDto, CreateFileRequest, EditFileRequest, FileListResponse,
+        FileMutationResponse, FilePathRequest, RenameFileRequest, UploadResponse,
     },
     error::{AppError, AppResult},
-    media, store,
+    extractors::{ApiJson, ApiMultipart, ApiQuery},
+    file_commands::CreateContent,
+    media,
 };
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Multipart, Query, State},
+    extract::{DefaultBodyLimit, State},
     http::{HeaderValue, header},
     response::Response,
     routing::{get, post},
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
-use std::{io::Write, path::Path, time::UNIX_EPOCH};
+use serde_json::Value;
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write,
+    path::Path,
+};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 
@@ -34,76 +44,31 @@ struct VirtualPathQuery {
     path: String,
 }
 
-fn report_metadata_failure(operation: &str, path: &str, error: AppError) {
-    eprintln!(
-        "File {operation} completed, but metadata cleanup failed for {path}: {}",
-        error.1
-    );
-}
-
 async fn list(
     State(state): State<Shared>,
-    Query(query): Query<DirQuery>,
-) -> AppResult<Json<Value>> {
-    if query.dir == crate::virtual_directory::HERMES_ROOT
-        || query
-            .dir
-            .starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
-    {
-        if query.surface.as_deref() != Some("workspace") {
-            return Err(AppError::not_found("Directory not found"));
-        }
-        return Ok(Json(
-            serde_json::to_value(
-                crate::virtual_directory::list_hermes(&state, &query.dir, query.offset).await?,
-            )
-            .map_err(|error| AppError::internal(error.to_string()))?,
-        ));
-    }
-    let mut files = list_items(&state, &query.dir)?;
-    let mut entries = serde_json::Map::new();
-    if query.dir.is_empty()
-        && query.surface.as_deref() == Some("workspace")
-        && state.hermes.is_some()
-    {
-        let path = crate::virtual_directory::HERMES_ROOT.to_string();
-        files.push(media::FileItem {
-            name: path.clone(),
-            path: path.clone(),
-            media_type: "folder".into(),
-            size: 0,
-            extension: String::new(),
-            is_directory: true,
-            is_virtual: Some(true),
-            view_count: None,
-            thumbnail_generated: None,
-            version: None,
-        });
-        entries.insert(
-            path,
-            json!({"provider":"hermes","kind":"root","capabilities":["open"],
-                "appearance":{"icon":"agent-directory","tone":"violet"}}),
-        );
-    }
-    let directory = crate::virtual_directory::is_builtin_path(&query.dir).then(|| {
-        json!({"provider":"builtin","kind":"collection","path":query.dir,"capabilities":[],
-            "offset":0,"pageSize":files.len(),"total":files.len()})
-    });
+    ApiQuery(query): ApiQuery<DirQuery>,
+) -> AppResult<Json<FileListResponse>> {
     Ok(Json(
-        json!({"files":files,"virtualEntries":entries,"virtualDirectory":directory}),
+        application_queries::file_listing(
+            &state,
+            &query.dir,
+            query.surface.as_deref() == Some("workspace"),
+            query.offset,
+        )
+        .await?,
     ))
 }
 
 async fn virtual_action(
     State(state): State<Shared>,
-    Json(body): Json<crate::virtual_directory::ActionBody>,
+    ApiJson(body): ApiJson<crate::virtual_directory::ActionBody>,
 ) -> AppResult<Json<Value>> {
     Ok(Json(crate::virtual_directory::action(&state, body).await?))
 }
 
 async fn virtual_open(
     State(state): State<Shared>,
-    Query(query): Query<VirtualPathQuery>,
+    ApiQuery(query): ApiQuery<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
     Ok(Json(
         crate::virtual_directory::session_detail(&state, &query.path).await?,
@@ -112,7 +77,7 @@ async fn virtual_open(
 
 async fn virtual_export(
     State(state): State<Shared>,
-    Query(query): Query<VirtualPathQuery>,
+    ApiQuery(query): ApiQuery<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
     let id = crate::virtual_directory::session_id_from_path(&query.path)?;
     let hub = state
@@ -129,7 +94,7 @@ async fn virtual_export(
 
 async fn virtual_fs(
     State(state): State<Shared>,
-    Query(query): Query<VirtualPathQuery>,
+    ApiQuery(query): ApiQuery<VirtualPathQuery>,
 ) -> AppResult<Json<Value>> {
     let hub = state
         .hermes
@@ -138,296 +103,106 @@ async fn virtual_fs(
     Ok(Json(hub.get("api/fs/list", &[("path", query.path)]).await?))
 }
 
-pub(crate) fn list_items(state: &AppState, dir: &str) -> AppResult<Vec<media::FileItem>> {
-    if let Some(result) = crate::virtual_directory::list_builtin(state, dir) {
-        return result;
-    }
-    list_directory(state, dir)
-}
-
-pub(crate) fn legacy_virtual_items(
-    state: &AppState,
-    dir: &str,
-) -> Option<AppResult<Vec<media::FileItem>>> {
-    if dir == "Favorites" || dir == "Most Played" {
-        let section = if dir == "Favorites" {
-            store::section(
-                &settings_path(state),
-                &state.config.library_key,
-                crate::app::default_settings(),
-            )
-        } else {
-            store::section(
-                &stats_path(state),
-                &state.config.library_key,
-                json!({"views":{}}),
-            )
-        };
-        let paths: Vec<(String, Option<u64>)> = if dir == "Favorites" {
-            section["favorites"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|value| value.as_str().map(|path| (path.into(), None)))
-                .collect()
-        } else {
-            let mut values = section["views"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .map(|(path, value)| (path.clone(), value.as_u64()))
-                .collect::<Vec<_>>();
-            values.sort_by_key(|item| std::cmp::Reverse(item.1));
-            values.truncate(50);
-            values
-        };
-        let mut items = Vec::new();
-        for (path, view_count) in paths {
-            let Ok(resolved) = media::resolve(&state.config, &path) else {
-                continue;
-            };
-            let Ok(metadata) = std::fs::metadata(&resolved.full) else {
-                continue;
-            };
-            if dir == "Most Played" && metadata.is_dir() {
-                continue;
-            }
-            let name = media::name(&path);
-            let extension = Path::new(&name)
-                .extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_ascii_lowercase();
-            let thumbnail_generated = if !metadata.is_dir()
-                && matches!(media::media_type(&extension), "image" | "video")
-            {
-                metadata
-                    .modified()
-                    .ok()
-                    .map(|modified| state.thumbnails.cached(&resolved.full, modified))
-            } else {
-                None
-            };
-            items.push(media::FileItem {
-                name,
-                path,
-                media_type: if metadata.is_dir() {
-                    "folder".into()
-                } else {
-                    media::media_type(&extension).into()
-                },
-                size: if metadata.is_dir() { 0 } else { metadata.len() },
-                extension,
-                is_directory: metadata.is_dir(),
-                is_virtual: None,
-                view_count,
-                thumbnail_generated,
-                version: None,
-            });
-        }
-        return Some(Ok(items));
-    }
-    None
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateBody {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    path: String,
-    content: Option<String>,
-    base64_content: Option<String>,
-}
-
 async fn create(
     State(state): State<Shared>,
-    Json(body): Json<CreateBody>,
-) -> AppResult<Json<Value>> {
-    if body.path.is_empty() {
-        return Err(AppError::bad("Path is required"));
-    }
-    if !media::editable(&state.config, &parent_logical(&body.path))
-        && !media::editable(&state.config, &body.path)
-    {
-        return Err(AppError::forbidden("Path is not in an editable folder"));
-    }
-    let full = media::resolve(&state.config, &body.path)?.full;
-    if full.exists() {
-        return Err(AppError::conflict(format!(
-            "A {} with this name already exists",
-            if body.kind.as_deref() == Some("folder") {
-                "folder"
-            } else {
-                "file"
-            }
-        )));
-    }
-    if body.kind.as_deref() == Some("folder") {
-        fs::create_dir_all(full).await.map_err(AppError::io)?;
+    ApiJson(body): ApiJson<CreateFileRequest>,
+) -> AppResult<Json<FileMutationResponse>> {
+    if matches!(body.kind, Some(CreateFileKindDto::Folder)) {
+        state
+            .file_commands
+            .create(&body.path, CreateContent::Folder)
+            .await?;
         emit(&state, &body.path);
-        return Ok(Json(json!({"success":true,"message":"Folder created"})));
+        return Ok(Json(FileMutationResponse {
+            success: true,
+            message: "Folder created".into(),
+        }));
     }
     if body.content.is_none() && body.base64_content.is_none() {
         return Err(AppError::bad("Content is required for files"));
     }
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).await.map_err(AppError::io)?;
-    }
     let data = match (body.base64_content, body.content) {
         (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value),
         (_, Some(content)) => content.into_bytes(),
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
     };
-    fs::write(full, data).await.map_err(AppError::io)?;
-    if let Err(error) = crate::path_metadata::content_replaced(&state, &body.path) {
-        report_metadata_failure("create", &body.path, error);
-    }
+    state
+        .file_commands
+        .create(&body.path, CreateContent::File(&data))
+        .await?;
     emit(&state, &body.path);
-    Ok(Json(json!({"success":true,"message":"File saved"})))
+    Ok(Json(FileMutationResponse {
+        success: true,
+        message: "File saved".into(),
+    }))
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EditBody {
-    path: String,
-    content: Option<String>,
-    base64_content: Option<String>,
-    expected_version: Option<f64>,
-}
-
-async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppResult<Json<Value>> {
-    if body.path.is_empty() {
-        return Err(AppError::bad("Path is required"));
-    }
-    if !media::editable(&state.config, &body.path) {
-        return Err(AppError::forbidden("Path is not in an editable folder"));
-    }
+async fn edit(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<EditFileRequest>,
+) -> AppResult<Json<FileMutationResponse>> {
     if body.content.is_none() && body.base64_content.is_none() {
         return Err(AppError::bad("Content is required"));
     }
-    let full = media::resolve(&state.config, &body.path)?.full;
-    let metadata = fs::metadata(&full).await.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            AppError::not_found("File not found")
-        } else {
-            AppError::io(error)
-        }
-    })?;
-    if metadata.is_dir() {
-        return Err(AppError::conflict(
-            "A folder cannot be replaced with a file",
-        ));
-    }
-    if let Some(expected) = body.expected_version {
-        let current = metadata
-            .modified()
-            .ok()
-            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-            .map(|value| value.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
-        // Same NTFS timestamp can round slightly differently across the JSON/client boundary.
-        // A real replacement changes it by at least one millisecond in this API.
-        if (current - expected).abs() >= 1.0 {
-            return Err(AppError::conflict(
-                "File changed since the replacement was prepared",
-            ));
-        }
-    }
     let data = match (body.base64_content, body.content) {
         (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value),
         (_, Some(content)) => content.into_bytes(),
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
     };
-    fs::write(full, data).await.map_err(AppError::io)?;
-    if let Err(error) = crate::path_metadata::content_replaced(&state, &body.path) {
-        report_metadata_failure("edit", &body.path, error);
-    }
+    state
+        .file_commands
+        .edit(&body.path, &data, body.expected_version)
+        .await?;
     emit(&state, &body.path);
-    Ok(Json(json!({"success":true,"message":"File saved"})))
+    Ok(Json(FileMutationResponse {
+        success: true,
+        message: "File saved".into(),
+    }))
 }
 
-#[derive(Deserialize)]
-struct PathBody {
-    path: String,
-}
-async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppResult<Json<Value>> {
-    if body.path.is_empty() {
-        return Err(AppError::bad("Path is required"));
-    }
-    if !media::editable(&state.config, &body.path) {
-        return Err(AppError::forbidden("Path is not in an editable folder"));
-    }
-    let full = media::resolve(&state.config, &body.path)?.full;
-    let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
-    if metadata.is_dir() {
-        fs::remove_dir_all(full).await.map_err(AppError::io)?;
-    } else {
-        fs::remove_file(full).await.map_err(AppError::io)?;
-    }
-    if let Err(error) = crate::path_metadata::removed(&state, &body.path).await {
-        report_metadata_failure("delete", &body.path, error);
-    }
+async fn delete(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<FilePathRequest>,
+) -> AppResult<Json<FileMutationResponse>> {
+    let outcome = state.file_commands.delete(&body.path).await?;
     crate::app::emit_path_removed(&state, &body.path);
     emit(&state, &body.path);
-    Ok(Json(
-        json!({"success":true,"message":if metadata.is_dir(){"Folder deleted"}else{"File deleted"}}),
-    ))
+    Ok(Json(FileMutationResponse {
+        success: true,
+        message: if outcome.is_directory {
+            "Folder deleted"
+        } else {
+            "File deleted"
+        }
+        .into(),
+    }))
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RenameBody {
-    old_path: String,
-    new_path: String,
-}
 async fn rename(
     State(state): State<Shared>,
-    Json(body): Json<RenameBody>,
-) -> AppResult<Json<Value>> {
-    if body.old_path.is_empty() || body.new_path.is_empty() {
-        return Err(AppError::bad("Both oldPath and newPath are required"));
-    }
-    if !media::editable(&state.config, &body.old_path) {
-        return Err(AppError::forbidden(
-            "Cannot rename: Source path is not in an editable folder",
-        ));
-    }
-    if !media::editable(&state.config, &body.new_path) {
-        return Err(AppError::forbidden(
-            "Cannot rename: Destination path is not in an editable folder",
-        ));
-    }
-    let old = media::resolve(&state.config, &body.old_path)?.full;
-    let new = media::resolve(&state.config, &body.new_path)?.full;
-    if new.exists() {
-        return Err(AppError::conflict(
-            "Destination file or directory already exists",
-        ));
-    }
-    fs::rename(old, new).await.map_err(AppError::io)?;
-    if let Err(error) = crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await {
-        report_metadata_failure("rename", &body.old_path, error);
-    }
+    ApiJson(body): ApiJson<RenameFileRequest>,
+) -> AppResult<Json<FileMutationResponse>> {
+    state
+        .file_commands
+        .move_path(&body.old_path, &body.new_path)
+        .await?;
     crate::app::emit_path_moved(&state, &body.old_path, &body.new_path);
     emit(&state, &body.old_path);
     if parent_logical(&body.old_path) != parent_logical(&body.new_path) {
         emit(&state, &body.new_path);
     }
-    Ok(Json(
-        json!({"success":true,"message":"Renamed successfully"}),
-    ))
+    Ok(Json(FileMutationResponse {
+        success: true,
+        message: "Renamed successfully".into(),
+    }))
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CopyBody {
-    source_path: String,
-    destination_dir: String,
-}
-async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppResult<Json<Value>> {
+async fn copy(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<CopyFileRequest>,
+) -> AppResult<Json<FileMutationResponse>> {
     if body.source_path.is_empty() {
         return Err(AppError::bad("sourcePath is required"));
     }
@@ -454,9 +229,10 @@ async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppRes
     }
     copy_recursive(&source, &destination).await?;
     emit(&state, &logical);
-    Ok(Json(
-        json!({"success":true,"message":"Copied successfully"}),
-    ))
+    Ok(Json(FileMutationResponse {
+        success: true,
+        message: "Copied successfully".into(),
+    }))
 }
 
 async fn copy_recursive(source: &Path, destination: &Path) -> AppResult<()> {
@@ -484,62 +260,101 @@ async fn copy_recursive(source: &Path, destination: &Path) -> AppResult<()> {
     Ok(())
 }
 
-async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppResult<Json<Value>> {
-    let mut target = String::new();
-    let mut files = Vec::new();
+async fn upload(
+    State(state): State<Shared>,
+    ApiMultipart(mut multipart): ApiMultipart,
+) -> AppResult<Json<UploadResponse>> {
+    let mut target = None;
+    let mut logical_paths = HashSet::new();
+    let mut total_bytes = 0_u64;
+    let mut count = 0;
+    let mut broadcasts = HashMap::new();
+    let mut staged_uploads = Vec::new();
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|error| AppError::bad(error.to_string()))?
     {
+        let mut field = field;
         if field.name() == Some("targetDir") {
-            target = field
-                .text()
-                .await
-                .map_err(|error| AppError::bad(error.to_string()))?;
-        } else if let Some(name) = field.file_name().map(safe_upload_name) {
-            files.push((
-                name,
+            if count > 0 {
+                return Err(AppError::bad("targetDir must precede uploaded files"));
+            }
+            target = Some(
                 field
-                    .bytes()
+                    .text()
                     .await
                     .map_err(|error| AppError::bad(error.to_string()))?,
-            ));
+            );
+        } else if let Some(name) = field.file_name().map(safe_upload_name) {
+            if count >= crate::file_commands::MAX_UPLOAD_FILES {
+                return Err(AppError::with_status(
+                    axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "Upload exceeds {} file limit",
+                        crate::file_commands::MAX_UPLOAD_FILES
+                    ),
+                ));
+            }
+            if name.is_empty() {
+                return Err(AppError::bad("Uploaded file name is empty"));
+            }
+            let target = target
+                .as_deref()
+                .ok_or_else(|| AppError::bad("targetDir must precede uploaded files"))?;
+            let logical = if target.is_empty() {
+                name
+            } else {
+                format!("{target}/{name}")
+            };
+            if !logical_paths.insert(logical.clone()) {
+                return Err(AppError::conflict("Duplicate uploaded file name"));
+            }
+            let mut staged = state.file_commands.begin_upload(&logical).await?;
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|error| AppError::bad(error.to_string()))?
+            {
+                total_bytes = total_bytes.checked_add(chunk.len() as u64).ok_or_else(|| {
+                    AppError::with_status(
+                        axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                        "Upload is too large",
+                    )
+                })?;
+                if total_bytes > crate::file_commands::MAX_UPLOAD_BYTES {
+                    return Err(AppError::with_status(
+                        axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                        format!(
+                            "Upload exceeds {} byte limit",
+                            crate::file_commands::MAX_UPLOAD_BYTES
+                        ),
+                    ));
+                }
+                staged.write_chunk(&chunk).await?;
+            }
+            staged.finish_staging().await?;
+            broadcasts.insert(parent_logical(&logical), logical);
+            staged_uploads.push(staged);
+            count += 1;
         }
-    }
-    if files.is_empty() {
-        return Err(AppError::bad("No files provided"));
-    }
-    let mut count = 0;
-    let mut broadcasts = std::collections::HashMap::new();
-    for (name, data) in files {
-        let logical = if target.is_empty() {
-            name
-        } else {
-            format!("{target}/{name}")
-        };
-        if !media::editable(&state.config, &logical)
-            && !media::editable(&state.config, &parent_logical(&logical))
-        {
-            continue;
-        }
-        let full = media::resolve(&state.config, &logical)?.full;
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).await.map_err(AppError::io)?;
-        }
-        fs::write(full, data).await.map_err(AppError::io)?;
-        broadcasts.insert(parent_logical(&logical), logical);
-        count += 1;
     }
     if count == 0 {
-        return Err(AppError::forbidden(
-            "No files were uploaded — target path is not editable",
-        ));
+        return Err(AppError::bad("No files provided"));
+    }
+    if let Err(error) = state.file_commands.finalize_uploads(staged_uploads).await {
+        for logical in broadcasts.values() {
+            emit(&state, logical);
+        }
+        return Err(error);
     }
     for logical in broadcasts.values() {
         emit(&state, logical);
     }
-    Ok(Json(json!({"success":true,"uploaded":count})))
+    Ok(Json(UploadResponse {
+        success: true,
+        uploaded: count,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -548,7 +363,7 @@ struct DownloadQuery {
 }
 async fn download(
     State(state): State<Shared>,
-    Query(query): Query<DownloadQuery>,
+    ApiQuery(query): ApiQuery<DownloadQuery>,
 ) -> AppResult<Response> {
     let logical = query
         .path
@@ -663,17 +478,17 @@ fn zip_body(source: std::path::PathBuf) -> Body {
 
 pub fn router() -> Router<Shared> {
     Router::new()
-        .route("/api/files", get(list))
-        .route("/api/files/create", post(create))
-        .route("/api/files/edit", post(edit))
-        .route("/api/files/delete", post(delete))
-        .route("/api/files/rename", post(rename))
-        .route("/api/files/copy", post(copy))
+        .route(API_FILES_PATH, get(list))
+        .route(API_FILES_CREATE_PATH, post(create))
+        .route(API_FILES_EDIT_PATH, post(edit))
+        .route(API_FILES_DELETE_PATH, post(delete))
+        .route(API_FILES_RENAME_PATH, post(rename))
+        .route(API_FILES_COPY_PATH, post(copy))
         .route(
-            "/api/files/upload",
+            API_FILES_UPLOAD_PATH,
             post(upload).layer(DefaultBodyLimit::max(10_000_000_000usize)),
         )
-        .route("/api/files/download", get(download))
+        .route(API_FILES_DOWNLOAD_PATH, get(download))
         .route("/api/virtual-directory/action", post(virtual_action))
         .route("/api/virtual-directory/open", get(virtual_open))
         .route("/api/virtual-directory/export", get(virtual_export))

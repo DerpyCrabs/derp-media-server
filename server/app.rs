@@ -1,8 +1,6 @@
 use crate::{
-    config::Config,
-    error::AppResult,
-    file_search::FileSearch,
-    image_variants, media, store, thumbnails,
+    config::Config, contracts::AppEvent, error::AppResult, file_commands::FileCommandService,
+    file_search::FileSearch, image_variants, media, store, thumbnails,
 };
 use base64::Engine;
 use serde::Serialize;
@@ -17,11 +15,12 @@ use tokio::sync::Mutex;
 
 pub(crate) struct AppState {
     pub config: Config,
+    pub file_commands: FileCommandService,
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
     pub events: tokio::sync::broadcast::Sender<FileEvent>,
-    pub admin_events: tokio::sync::broadcast::Sender<Value>,
+    pub admin_events: tokio::sync::broadcast::Sender<AppEvent>,
     pub hermes_events: tokio::sync::broadcast::Sender<Value>,
     pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
@@ -71,36 +70,31 @@ pub(crate) fn emit(state: &AppState, path: &str) {
         path: Some(path.replace('\\', "/")),
     };
     let _ = state.events.send(event.clone());
-    let _ = state.admin_events.send(json!({
-        "type":"files-changed",
-        "directory":event.directory,
-        "path":event.path,
-        "timestamp":timestamp_ms(),
-    }));
     state.file_search.changed(&event.directory);
+    let _ = state.admin_events.send(AppEvent::FilesChanged {
+        directory: event.directory,
+        path: event.path,
+        timestamp: timestamp_ms(),
+    });
 }
 
-pub(crate) fn emit_admin(state: &AppState, kind: &str) {
-    let _ = state
-        .admin_events
-        .send(json!({"type":kind,"timestamp":timestamp_ms()}));
+pub(crate) fn emit_admin(state: &AppState, event: AppEvent) {
+    let _ = state.admin_events.send(event);
 }
 
 pub(crate) fn emit_path_removed(state: &AppState, path: &str) {
-    let _ = state.admin_events.send(json!({
-        "type":"path-removed",
-        "path":path.replace('\\', "/"),
-        "timestamp":timestamp_ms(),
-    }));
+    let _ = state.admin_events.send(AppEvent::PathRemoved {
+        path: path.replace('\\', "/"),
+        timestamp: timestamp_ms(),
+    });
 }
 
 pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) {
-    let _ = state.admin_events.send(json!({
-        "type":"path-moved",
-        "oldPath":old_path.replace('\\', "/"),
-        "newPath":new_path.replace('\\', "/"),
-        "timestamp":timestamp_ms(),
-    }));
+    let _ = state.admin_events.send(AppEvent::PathMoved {
+        old_path: old_path.replace('\\', "/"),
+        new_path: new_path.replace('\\', "/"),
+        timestamp: timestamp_ms(),
+    });
 }
 
 pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<media::FileItem>> {
@@ -144,11 +138,13 @@ pub(crate) fn parent_logical(path: &str) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) fn timestamp_ms() -> u128 {
+pub(crate) fn timestamp_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 pub(crate) fn knowledge_bases(state: &AppState) -> Vec<String> {

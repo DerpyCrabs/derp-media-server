@@ -428,6 +428,34 @@ mod tests {
     }
 
     #[test]
+    fn imports_persisted_settings_fixture() {
+        let data_path = temp_data("persisted-fixture");
+        fs::create_dir_all(&data_path).unwrap();
+        fs::write(
+            data_path.join("settings.json"),
+            include_str!("../tests/fixtures/persisted-state/reference/settings.json"),
+        )
+        .unwrap();
+        let config = test_config(data_path.clone());
+
+        initialize(&config).unwrap();
+
+        let settings = document(
+            &database(&config),
+            "settings",
+            "reference-library",
+            Value::Null,
+        )
+        .unwrap();
+        assert_eq!(settings["knowledgeBases"], serde_json::json!(["Notes"]));
+        assert_eq!(
+            settings["workspaceLayoutPresets"][0]["snapshot"]["windows"][2]["hermes"]["sessionId"],
+            "reference-session"
+        );
+        fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[test]
     fn malformed_json_rolls_back_import() {
         let data_path = temp_data("malformed");
         fs::create_dir_all(&data_path).unwrap();

@@ -1,6 +1,7 @@
 use crate::{
-    app::{AppState, canvases_path, default_settings, settings_path, stats_path, timestamp_ms},
+    app::{default_settings, timestamp_ms},
     canvas_persistence,
+    config::Config,
     error::AppResult,
     reader_state, store,
 };
@@ -177,11 +178,11 @@ fn remove_workspace_metadata(settings: &mut Value, path: &str) {
     }
 }
 
-pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResult<()> {
+pub async fn moved(config: &Config, old_path: &str, new_path: &str) -> AppResult<()> {
     let mut failure = None;
     if let Err(error) = store::mutate_section(
-        &settings_path(state),
-        &state.config.library_key,
+        &config.data_path.join("settings.json"),
+        &config.library_key,
         default_settings(),
         |settings| {
             for key in ["viewModes", "customIcons", "autoSave"] {
@@ -197,11 +198,11 @@ pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResul
         failure = Some(error);
     }
     if let Err(error) = store::mutate_section(
-        &canvases_path(state),
-        &state.config.library_key,
+        &config.data_path.join("canvases.json"),
+        &config.library_key,
         json!([]),
         |canvases| {
-            canvas_persistence::move_paths(canvases, old_path, new_path, timestamp_ms());
+            canvas_persistence::move_paths(canvases, old_path, new_path, timestamp_ms().into());
             Ok(())
         },
     ) && failure.is_none()
@@ -209,8 +210,8 @@ pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResul
         failure = Some(error);
     }
     if let Err(error) = store::mutate_section(
-        &stats_path(state),
-        &state.config.library_key,
+        &config.data_path.join("stats.json"),
+        &config.library_key,
         json!({"views":{}}),
         |stats| {
             move_map(&mut stats["views"], old_path, new_path);
@@ -220,22 +221,20 @@ pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResul
     {
         failure = Some(error);
     }
-    if let Err(error) = reader_state::move_prefix(
-        &state.config.data_path.join("app.sqlite3"),
-        old_path,
-        new_path,
-    ) && failure.is_none()
+    if let Err(error) =
+        reader_state::move_prefix(&config.data_path.join("app.sqlite3"), old_path, new_path)
+        && failure.is_none()
     {
         failure = Some(error);
     }
     failure.map_or(Ok(()), Err)
 }
 
-pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
+pub async fn removed(config: &Config, path: &str) -> AppResult<()> {
     let mut failure = None;
     if let Err(error) = store::mutate_section(
-        &settings_path(state),
-        &state.config.library_key,
+        &config.data_path.join("settings.json"),
+        &config.library_key,
         default_settings(),
         |settings| {
             for key in ["viewModes", "customIcons", "autoSave"] {
@@ -251,11 +250,11 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
         failure = Some(error);
     }
     if let Err(error) = store::mutate_section(
-        &canvases_path(state),
-        &state.config.library_key,
+        &config.data_path.join("canvases.json"),
+        &config.library_key,
         json!([]),
         |canvases| {
-            canvas_persistence::remove_paths(canvases, path, timestamp_ms());
+            canvas_persistence::remove_paths(canvases, path, timestamp_ms().into());
             Ok(())
         },
     ) && failure.is_none()
@@ -263,8 +262,8 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
         failure = Some(error);
     }
     if let Err(error) = store::mutate_section(
-        &stats_path(state),
-        &state.config.library_key,
+        &config.data_path.join("stats.json"),
+        &config.library_key,
         json!({"views":{}}),
         |stats| {
             remove_map(&mut stats["views"], path);
@@ -275,7 +274,7 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
         failure = Some(error);
     }
     if let Err(error) =
-        reader_state::remove_prefix(&state.config.data_path.join("app.sqlite3"), None, path)
+        reader_state::remove_prefix(&config.data_path.join("app.sqlite3"), None, path)
         && failure.is_none()
     {
         failure = Some(error);
@@ -283,8 +282,8 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
     failure.map_or(Ok(()), Err)
 }
 
-pub fn content_replaced(state: &AppState, path: &str) -> AppResult<()> {
-    reader_state::remove_exact_all(&state.config.data_path.join("app.sqlite3"), path)
+pub fn content_replaced(config: &Config, path: &str) -> AppResult<()> {
+    reader_state::remove_exact_all(&config.data_path.join("app.sqlite3"), path)
 }
 
 #[cfg(test)]

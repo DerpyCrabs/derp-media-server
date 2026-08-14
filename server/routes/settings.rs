@@ -1,73 +1,77 @@
 use crate::{
     app::{AppState, Shared, default_settings, emit_admin, settings_path},
+    application_queries,
+    contracts::{
+        API_SETTINGS_AUTO_SAVE_PATH, API_SETTINGS_FAVORITE_PATH, API_SETTINGS_ICON_PATH,
+        API_SETTINGS_ICON_REMOVE_PATH, API_SETTINGS_KNOWLEDGE_BASE_PATH,
+        API_SETTINGS_LAYOUT_PRESETS_PATH, API_SETTINGS_PATH, API_SETTINGS_TASKBAR_PINS_PATH,
+        API_SETTINGS_VIEW_MODE_PATH, AppEvent, AutoSaveRequest, CustomIconRequest,
+        FileSettingRequest, RemoveCustomIconRequest, SettingsDto, SettingsMutationResponse,
+        ViewModeRequest, WorkspaceLayoutPresetsRequest, WorkspaceTaskbarPinsRequest,
+    },
     error::{AppError, AppResult},
+    extractors::ApiJson,
     store, workspace_persistence,
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::State,
     routing::{get, post},
 };
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-pub(crate) fn sanitized(state: &AppState) -> Value {
-    let value = store::section(
-        &settings_path(state),
-        &state.config.library_key,
-        default_settings(),
-    );
-    let mut result = serde_json::Map::new();
-    for key in [
-        "viewModes",
-        "favorites",
-        "knowledgeBases",
-        "customIcons",
-        "autoSave",
-    ] {
-        if let Some(field) = value.get(key) {
-            result.insert(key.into(), field.clone());
-        }
-    }
-    result.insert(
-        "workspaceTaskbarPins".into(),
-        workspace_persistence::admin_pins(&value["workspaceTaskbarPins"]),
-    );
-    result.insert(
-        "workspaceLayoutPresets".into(),
-        workspace_persistence::presets(&value["workspaceLayoutPresets"]),
-    );
-    Value::Object(result)
+async fn get_settings(State(state): State<Shared>) -> AppResult<Json<SettingsDto>> {
+    Ok(Json(application_queries::settings(&state)?))
 }
 
-async fn get_settings(State(state): State<Shared>) -> Json<Value> {
-    Json(sanitized(&state))
+fn typed<T: DeserializeOwned>(value: Value, field: &str) -> AppResult<T> {
+    serde_json::from_value(value)
+        .map_err(|error| AppError::internal(format!("Invalid {field} settings: {error}")))
+}
+
+fn success() -> SettingsMutationResponse {
+    SettingsMutationResponse {
+        success: true,
+        ..Default::default()
+    }
 }
 
 async fn mutate(
     state: &AppState,
-    update: impl FnOnce(&mut Value) -> AppResult<Value>,
-) -> AppResult<Json<Value>> {
+    update: impl FnOnce(&mut Value) -> AppResult<SettingsMutationResponse>,
+) -> AppResult<Json<SettingsMutationResponse>> {
     let result = store::mutate_section(
         &settings_path(state),
         &state.config.library_key,
         default_settings(),
         update,
     )?;
-    emit_admin(state, "settings-changed");
+    emit_admin(
+        state,
+        AppEvent::SettingsChanged {
+            timestamp: crate::app::timestamp_ms(),
+        },
+    );
     Ok(Json(result))
 }
 
-async fn view_mode(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
+async fn view_mode(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<ViewModeRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
     mutate(&state, |value| {
-        value["viewModes"][body["path"].as_str().unwrap_or("")] = body["viewMode"].clone();
-        Ok(json!({"success":true}))
+        value["viewModes"][body.path] = json!(body.view_mode);
+        Ok(success())
     })
     .await
 }
 
-async fn favorite(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
-    let path = body["filePath"].as_str().unwrap_or("");
-    if path.is_empty() {
+async fn favorite(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<FileSettingRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
+    if body.file_path.is_empty() {
         return Err(AppError::bad("File path is required"));
     }
     mutate(&state, |value| {
@@ -77,23 +81,27 @@ async fn favorite(State(state): State<Shared>, Json(body): Json<Value>) -> AppRe
         let items = value["favorites"]
             .as_array_mut()
             .ok_or_else(|| AppError::internal("Invalid favorites settings"))?;
-        let index = items.iter().position(|item| item == path);
+        let index = items.iter().position(|item| item == &body.file_path);
         if let Some(index) = index {
             items.remove(index);
         } else {
-            items.push(json!(path));
+            items.push(json!(body.file_path));
         }
-        Ok(json!({"success":true,"isFavorite":index.is_none(),"favorites":items}))
+        Ok(SettingsMutationResponse {
+            success: true,
+            is_favorite: Some(index.is_none()),
+            favorites: Some(typed(Value::Array(items.clone()), "favorites")?),
+            ..Default::default()
+        })
     })
     .await
 }
 
 async fn knowledge_base(
     State(state): State<Shared>,
-    Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    let path = body["filePath"].as_str().unwrap_or("");
-    if path.is_empty() {
+    ApiJson(body): ApiJson<FileSettingRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
+    if body.file_path.is_empty() {
         return Err(AppError::bad("File path is required"));
     }
     mutate(&state, |value| {
@@ -103,72 +111,124 @@ async fn knowledge_base(
         let items = value["knowledgeBases"]
             .as_array_mut()
             .ok_or_else(|| AppError::internal("Invalid knowledge base settings"))?;
-        let index = items.iter().position(|item| item == path);
+        let index = items.iter().position(|item| item == &body.file_path);
         if let Some(index) = index {
             items.remove(index);
         } else {
-            items.push(json!(path));
+            items.push(json!(body.file_path));
         }
-        Ok(json!({"success":true,"isKnowledgeBase":index.is_none(),"knowledgeBases":items}))
+        Ok(SettingsMutationResponse {
+            success: true,
+            is_knowledge_base: Some(index.is_none()),
+            knowledge_bases: Some(typed(Value::Array(items.clone()), "knowledge base")?),
+            ..Default::default()
+        })
     })
     .await
 }
 
-async fn generic(
+async fn icon(
     State(state): State<Shared>,
-    Path(kind): Path<String>,
-    Json(body): Json<Value>,
-) -> AppResult<Json<Value>> {
-    mutate(&state, |value| match kind.as_str() {
-        "icon" => {
-            let path = body["path"].as_str().unwrap_or("");
-            let icon = body["iconName"].as_str().unwrap_or("");
-            if icon.is_empty() {
-                return Err(AppError::bad("Valid icon name is required"));
-            }
-            if js_falsy(&value["customIcons"]) {
-                value["customIcons"] = json!({});
-            }
-            value["customIcons"][path] = json!(icon);
-            Ok(json!({"success":true,"customIcons":value["customIcons"]}))
+    ApiJson(body): ApiJson<CustomIconRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
+    if body.icon_name.is_empty() {
+        return Err(AppError::bad("Valid icon name is required"));
+    }
+    mutate(&state, |value| {
+        if js_falsy(&value["customIcons"]) {
+            value["customIcons"] = json!({});
         }
-        "icon/remove" => {
-            if js_falsy(&value["customIcons"]) {
-                value["customIcons"] = json!({});
-            }
-            if let (Some(items), Some(path)) =
-                (value["customIcons"].as_object_mut(), body["path"].as_str())
-            {
-                items.remove(path);
-            }
-            Ok(json!({"success":true,"customIcons":value["customIcons"]}))
+        value["customIcons"][body.path] = json!(body.icon_name);
+        Ok(SettingsMutationResponse {
+            success: true,
+            custom_icons: Some(typed(value["customIcons"].clone(), "custom icon")?),
+            ..Default::default()
+        })
+    })
+    .await
+}
+
+async fn remove_icon(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<RemoveCustomIconRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
+    mutate(&state, |value| {
+        if js_falsy(&value["customIcons"]) {
+            value["customIcons"] = json!({});
         }
-        "autoSave" => {
-            let path = body["filePath"].as_str().unwrap_or("");
-            if path.is_empty() {
-                return Err(AppError::bad("File path is required"));
-            }
-            if js_falsy(&value["autoSave"]) {
-                value["autoSave"] = json!({});
-            }
-            let mut setting = json!({"enabled":body["enabled"]});
-            if let Some(read_only) = body.get("readOnly") {
-                setting["readOnly"] = read_only.clone();
-            }
-            value["autoSave"][path] = setting;
-            Ok(json!({"success":true,"autoSave":value["autoSave"]}))
+        if let Some(items) = value["customIcons"].as_object_mut() {
+            items.remove(&body.path);
         }
-        "workspaceTaskbarPins" => {
-            value["workspaceTaskbarPins"] =
-                workspace_persistence::admin_pins(body.get("items").unwrap_or(&Value::Null));
-            Ok(json!({"success":true,"workspaceTaskbarPins":value["workspaceTaskbarPins"]}))
+        Ok(SettingsMutationResponse {
+            success: true,
+            custom_icons: Some(typed(value["customIcons"].clone(), "custom icon")?),
+            ..Default::default()
+        })
+    })
+    .await
+}
+
+async fn auto_save(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<AutoSaveRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
+    if body.file_path.is_empty() {
+        return Err(AppError::bad("File path is required"));
+    }
+    mutate(&state, |value| {
+        if js_falsy(&value["autoSave"]) {
+            value["autoSave"] = json!({});
         }
-        "workspaceLayoutPresets" => {
-            value["workspaceLayoutPresets"] =
-                workspace_persistence::presets(body.get("presets").unwrap_or(&Value::Null));
-            Ok(json!({"success":true,"workspaceLayoutPresets":value["workspaceLayoutPresets"]}))
+        let mut setting = json!({"enabled": body.enabled});
+        if let Some(read_only) = body.read_only {
+            setting["readOnly"] = json!(read_only);
         }
-        _ => Err(AppError::not_found("Not found")),
+        value["autoSave"][body.file_path] = setting;
+        Ok(SettingsMutationResponse {
+            success: true,
+            auto_save: Some(typed(value["autoSave"].clone(), "auto-save")?),
+            ..Default::default()
+        })
+    })
+    .await
+}
+
+async fn taskbar_pins(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<WorkspaceTaskbarPinsRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
+    mutate(&state, |value| {
+        let raw = serde_json::to_value(body.items)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        value["workspaceTaskbarPins"] = workspace_persistence::admin_pins(&raw);
+        Ok(SettingsMutationResponse {
+            success: true,
+            workspace_taskbar_pins: Some(typed(
+                value["workspaceTaskbarPins"].clone(),
+                "workspace taskbar pin",
+            )?),
+            ..Default::default()
+        })
+    })
+    .await
+}
+
+async fn layout_presets(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<WorkspaceLayoutPresetsRequest>,
+) -> AppResult<Json<SettingsMutationResponse>> {
+    mutate(&state, |value| {
+        let raw = serde_json::to_value(body.presets)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        value["workspaceLayoutPresets"] = workspace_persistence::presets(&raw);
+        Ok(SettingsMutationResponse {
+            success: true,
+            workspace_layout_presets: Some(typed(
+                value["workspaceLayoutPresets"].clone(),
+                "workspace layout preset",
+            )?),
+            ..Default::default()
+        })
     })
     .await
 }
@@ -185,9 +245,13 @@ fn js_falsy(value: &Value) -> bool {
 
 pub fn router() -> Router<Shared> {
     Router::new()
-        .route("/api/settings", get(get_settings))
-        .route("/api/settings/viewMode", post(view_mode))
-        .route("/api/settings/favorite", post(favorite))
-        .route("/api/settings/knowledgeBase", post(knowledge_base))
-        .route("/api/settings/{*kind}", post(generic))
+        .route(API_SETTINGS_PATH, get(get_settings))
+        .route(API_SETTINGS_VIEW_MODE_PATH, post(view_mode))
+        .route(API_SETTINGS_FAVORITE_PATH, post(favorite))
+        .route(API_SETTINGS_KNOWLEDGE_BASE_PATH, post(knowledge_base))
+        .route(API_SETTINGS_ICON_PATH, post(icon))
+        .route(API_SETTINGS_ICON_REMOVE_PATH, post(remove_icon))
+        .route(API_SETTINGS_AUTO_SAVE_PATH, post(auto_save))
+        .route(API_SETTINGS_TASKBAR_PINS_PATH, post(taskbar_pins))
+        .route(API_SETTINGS_LAYOUT_PRESETS_PATH, post(layout_presets))
 }

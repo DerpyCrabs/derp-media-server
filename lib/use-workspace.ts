@@ -2,7 +2,6 @@ import type { NavigationState } from '@/lib/navigation-session'
 import { MediaType } from '@/lib/types'
 import {
   createDefaultBounds,
-  getSourceLabel,
   getViewportSize,
   reconcileLayoutBoundsFromSnapZones,
   WORKSPACE_WINDOW_MIN_VISIBLE_PX,
@@ -435,8 +434,7 @@ export function normalizePersistedWorkspaceState(
         (w.type === 'browser' || w.type === 'viewer' || w.type === 'hermes') &&
         !!w.source &&
         isValidSource(w.source) &&
-        (w.type !== 'hermes' ||
-          (w.source.kind === 'local' && typeof w.hermes?.sessionId === 'string')),
+        (w.type !== 'hermes' || typeof w.hermes?.sessionId === 'string'),
     )
     .map((w, i) => {
       const b = w.layout?.bounds
@@ -513,12 +511,11 @@ function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
 }
 
 export function getWorkspaceWindowTitle(
-  window: Pick<WorkspaceWindowDefinition, 'title' | 'type' | 'source' | 'initialState'>,
+  window: Pick<WorkspaceWindowDefinition, 'title' | 'type'>,
 ): string {
   if (window.title.trim()) {
     return window.title
   }
 
-  if (window.type === 'viewer') return `${getSourceLabel(window.source)} Viewer`
-  return getSourceLabel(window.source)
+  return window.type === 'viewer' ? 'Browser Viewer' : 'Browser'
 }
