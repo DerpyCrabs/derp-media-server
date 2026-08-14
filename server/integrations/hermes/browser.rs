@@ -338,6 +338,15 @@ async fn project_sessions(hub: &dyn HermesTransport, id: &str) -> AppResult<Vec<
     Ok(sessions)
 }
 
+async fn load_session(hub: &dyn HermesTransport, id: &str) -> AppResult<Value> {
+    let path = session_api_path(id, "")?;
+    let mut query = Vec::new();
+    if let Some(profile) = hub.profile() {
+        query.push(("profile", profile.to_string()));
+    }
+    hub.get(&path, &query).await
+}
+
 async fn flat_sessions(hub: &dyn HermesTransport, archived: bool) -> AppResult<Vec<Value>> {
     let mut sessions = Vec::new();
     let mut offset = 0usize;
@@ -423,7 +432,7 @@ async fn browse_typed(
                 Vec::new(),
                 project_items,
                 fixed_count + total_sessions,
-                (offset + limit < total_sessions).then(|| (offset + limit).to_string()),
+                browse_next_cursor(offset, limit, total_sessions),
             )
         }
         HermesResourceAddress::Archived => {
@@ -440,7 +449,7 @@ async fn browse_typed(
                 vec![root.clone()],
                 items,
                 total,
-                (offset + limit < total).then(|| (offset + limit).to_string()),
+                browse_next_cursor(offset, limit, total),
             )
         }
         HermesResourceAddress::Project(id) => {
@@ -463,7 +472,7 @@ async fn browse_typed(
                 vec![root.clone()],
                 items,
                 total,
-                (offset + limit < total).then(|| (offset + limit).to_string()),
+                browse_next_cursor(offset, limit, total),
             )
         }
         HermesResourceAddress::Session(_) => {
@@ -480,6 +489,13 @@ async fn browse_typed(
         next_cursor,
         total,
     })
+}
+
+fn browse_next_cursor(offset: usize, limit: usize, total: usize) -> Option<String> {
+    offset
+        .checked_add(limit)
+        .filter(|next| *next < total)
+        .map(|next| next.to_string())
 }
 
 impl BrowseCapability for HermesRuntime {
@@ -505,12 +521,7 @@ impl InspectCapability for HermesRuntime {
                     project_summary(&project)
                 }
                 HermesResourceAddress::Session(id) => {
-                    let path = session_api_path(&id, "")?;
-                    let mut query = Vec::new();
-                    if let Some(profile) = self.transport.profile() {
-                        query.push(("profile", profile.to_string()));
-                    }
-                    let session = self.transport.get(&path, &query).await?;
+                    let session = load_session(self.transport.as_ref(), &id).await?;
                     let archived = session
                         .get("archived")
                         .and_then(Value::as_bool)
@@ -590,11 +601,11 @@ fn action_open_target(open_target: IntegrationOpenTargetDto) -> IntegrationActio
     }
 }
 
-fn session_open_target(id: &str) -> IntegrationActionOutcomeDto {
+fn session_open_target(id: &str, read_only: bool) -> IntegrationActionOutcomeDto {
     action_open_target(IntegrationOpenTargetDto {
         kind: "hermes-session".into(),
         resource: Some(encode_key(&HermesResourceAddress::Session(id.into()))),
-        read_only: false,
+        read_only,
         payload: None,
     })
 }
@@ -606,7 +617,14 @@ async fn action_target(
 ) -> AppResult<IntegrationActionOutcomeDto> {
     let hub = &runtime.transport;
     match (body.action.as_str(), target.parts()) {
-        ("open", Some(("session", id))) => Ok(session_open_target(id)),
+        ("open", Some(("session", id))) => {
+            let session = load_session(hub.as_ref(), id).await?;
+            let archived = session
+                .get("archived")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            Ok(session_open_target(id, archived))
+        }
         ("download", Some(("session", id))) => {
             Ok(action_data(json!({"url":session_export_url(id)?})))
         }
@@ -767,7 +785,7 @@ async fn action_target(
                 .ok_or_else(|| AppError::internal("Hermes fork omitted session id"))?;
             validate_opaque_id(fork_id)
                 .map_err(|_| AppError::internal("Hermes returned an invalid session id"))?;
-            Ok(session_open_target(fork_id))
+            Ok(session_open_target(fork_id, false))
         }
         ("moveToProject", Some(("session", id))) => {
             let project_name = body
@@ -970,7 +988,10 @@ mod tests {
 
     fn fake_runtime() -> std::sync::Arc<HermesRuntime> {
         let transport: std::sync::Arc<dyn HermesTransport> = std::sync::Arc::new(FakeTransport {
-            gets: Mutex::new(VecDeque::new()),
+            gets: Mutex::new(VecDeque::from([
+                json!({"id":"session-1","archived":false}),
+                json!({"id":"archived-1","archived":true}),
+            ])),
             rpcs: Mutex::new(VecDeque::new()),
             queries: Mutex::new(Vec::new()),
         });
@@ -1049,6 +1070,12 @@ mod tests {
     }
 
     #[test]
+    fn browse_cursor_overflow_has_no_next_page() {
+        assert_eq!(browse_next_cursor(usize::MAX, 500, usize::MAX), None);
+        assert_eq!(browse_next_cursor(20, 10, 31), Some("30".into()));
+    }
+
+    #[test]
     fn tree_session_collection_flattens_and_dedupes_at_boundary() {
         let value = json!({"repos":[{"groups":[{"sessions":[{"id":"one"},{"id":"two"}]}]}]});
         let mut rows = Vec::new();
@@ -1086,12 +1113,26 @@ mod tests {
         assert!(outcome.data.is_none());
         let target = outcome.open_target.unwrap();
         assert_eq!(target.kind, "hermes-session");
+        assert!(!target.read_only);
         assert_eq!(
             target.resource,
             Some(encode_key(&HermesResourceAddress::Session(
                 "session-1".into()
             )))
         );
+
+        let outcome = runtime
+            .perform_action(IntegrationActionRequestDto {
+                key: encode_key(&HermesResourceAddress::Session("archived-1".into())),
+                action: "hermes.open".into(),
+                name: None,
+                metadata: None,
+            })
+            .await
+            .unwrap();
+        let target = outcome.open_target.unwrap();
+        assert_eq!(target.kind, "hermes-session");
+        assert!(target.read_only);
 
         let outcome = runtime
             .perform_action(IntegrationActionRequestDto {

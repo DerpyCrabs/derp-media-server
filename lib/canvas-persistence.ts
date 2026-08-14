@@ -1,33 +1,27 @@
 import {
   createEmptyCanvasState,
   parseInfiniteCanvasState,
-  serializeInfiniteCanvasState,
+  persistedInfiniteCanvasState,
   type InfiniteCanvasState,
 } from './infinite-canvas'
 import type { ContentWindowPersistencePort } from './content-window-persistence'
+import {
+  canvasDocumentSchemaVersion,
+  type CanvasDocumentDto,
+  type CanvasRecordDto,
+  type SaveCanvasDocumentDto,
+} from './generated/api-contracts'
 
-export const CANVAS_DOCUMENT_SCHEMA_VERSION = 2 as const
+export const CANVAS_DOCUMENT_SCHEMA_VERSION = canvasDocumentSchemaVersion
 export const CANVAS_CRASH_DRAFT_SCHEMA_VERSION = 1 as const
 export const CANVAS_CRASH_DRAFT_STORAGE_KEY = 'infinite-canvas-crash-draft-v1'
 export const DEFAULT_CANVAS_NAME = 'Untitled canvas'
 
-export type PersistedCanvas = {
-  id: string
-  name: string
-  state: InfiniteCanvasState
-  updatedAt: number
-}
-
-export type CanvasCollection = {
-  schemaVersion: typeof CANVAS_DOCUMENT_SCHEMA_VERSION
-  revision: number
-  activeId: string | null
+export type PersistedCanvas = Omit<CanvasRecordDto, 'state'> & { state: InfiniteCanvasState }
+export type CanvasCollection = Omit<CanvasDocumentDto, 'canvases'> & {
   canvases: PersistedCanvas[]
 }
-
-export type SaveCanvasCollection = Omit<CanvasCollection, 'revision'> & {
-  expectedRevision: number
-}
+export type SaveCanvasCollection = SaveCanvasDocumentDto
 
 export type CanvasCrashDraft = {
   schemaVersion: typeof CANVAS_CRASH_DRAFT_SCHEMA_VERSION
@@ -70,7 +64,7 @@ function parseCanvasRecord(
   persistence: ContentWindowPersistencePort,
 ): PersistedCanvas | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const raw = value as Partial<PersistedCanvas>
+  const raw = value as Record<string, unknown>
   const state = parseInfiniteCanvasState(raw.state, persistence)
   if (
     !hasOnlyKeys(value, ['id', 'name', 'state', 'updatedAt']) ||
@@ -113,7 +107,7 @@ export function parseCanvasCollection(
   persistence: ContentWindowPersistencePort,
 ): CanvasCollection | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const raw = value as Partial<CanvasCollection>
+  const raw = value as Record<string, unknown>
   const canvases = parseRecords(raw.canvases, persistence)
   if (
     !hasOnlyKeys(value, ['schemaVersion', 'revision', 'activeId', 'canvases']) ||
@@ -132,13 +126,15 @@ export function parseCanvasCollection(
   }
 }
 
-function serializableRecords(
+function persistedRecords(
   canvases: PersistedCanvas[],
   persistence: ContentWindowPersistencePort,
-): unknown[] {
+): CanvasRecordDto[] {
   return canvases.map((canvas) => ({
-    ...canvas,
-    state: JSON.parse(serializeInfiniteCanvasState(canvas.state, persistence)) as unknown,
+    id: canvas.id,
+    name: canvas.name,
+    state: persistedInfiniteCanvasState(canvas.state, persistence),
+    updatedAt: canvas.updatedAt,
   }))
 }
 
@@ -146,10 +142,13 @@ export function serializeCanvasCollection(
   collection: CanvasCollection,
   persistence: ContentWindowPersistencePort,
 ): string {
-  return JSON.stringify({
-    ...collection,
-    canvases: serializableRecords(collection.canvases, persistence),
-  })
+  const document: CanvasDocumentDto = {
+    schemaVersion: collection.schemaVersion,
+    revision: collection.revision,
+    activeId: collection.activeId,
+    canvases: persistedRecords(collection.canvases, persistence),
+  }
+  return JSON.stringify(document)
 }
 
 export function canvasSaveRequest(
@@ -160,9 +159,7 @@ export function canvasSaveRequest(
     schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
     expectedRevision: collection.revision,
     activeId: collection.activeId,
-    canvases: JSON.parse(
-      JSON.stringify(serializableRecords(collection.canvases, persistence)),
-    ) as PersistedCanvas[],
+    canvases: persistedRecords(collection.canvases, persistence),
   }
 }
 
@@ -249,7 +246,7 @@ export function writeCanvasCrashDraft(
     CANVAS_CRASH_DRAFT_STORAGE_KEY,
     JSON.stringify({
       ...draft,
-      canvases: serializableRecords(draft.canvases, persistence),
+      canvases: persistedRecords(draft.canvases, persistence),
     }),
   )
 }

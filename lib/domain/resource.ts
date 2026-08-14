@@ -36,6 +36,7 @@ export const RESOURCE_PRESENTATION = {
 
 export const FILESYSTEM_PROVIDER = 'filesystem'
 export const DEFAULT_FILESYSTEM_ROOT_ID = 'configured-default'
+export const FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID = 'application-collections'
 
 export type ResourceCapability = string
 export type ResourceKind = string
@@ -184,6 +185,13 @@ export function filesystemResourceAddress(key: ResourceKey): FilesystemResourceA
     return null
   }
   return { rootId, path }
+}
+
+export function physicalFilesystemResourceAddress(
+  key: ResourceKey,
+): FilesystemResourceAddress | null {
+  const address = filesystemResourceAddress(key)
+  return address?.rootId === FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID ? null : address
 }
 
 function record(value: unknown): Record<string, unknown> | null {

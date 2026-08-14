@@ -2,7 +2,7 @@ import type { ContentInstance } from '@/lib/domain/content'
 import {
   createUrlSearchParamsMemo,
   navigateSearchParams,
-  useBrowserHistory,
+  type BrowserLocation,
 } from './browser-history'
 import { ContentRuntimeView } from './features/content/ContentRuntimeView'
 import { contentRuntimeIdentity } from './features/content/runtime'
@@ -33,18 +33,16 @@ import {
 } from './integrations/ApplicationExplorerView'
 import { filesystemPathForResourceKey } from './integrations/filesystem/resource'
 import { applicationContentRegistry, applicationContentRuntime } from './integrations/registry'
-import { hrefFor } from './lib/routes'
+import { hrefFor, parseRoute } from './lib/routes'
 import type { FileIconContext } from './lib/use-file-icon'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
-import { closeViewer, playFile, viewFile } from './lib/url-state-actions'
+import { closePlayer, closeViewer, playFile, viewFile } from './lib/url-state-actions'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
-import { openInReader } from './reader/reader-url'
 import { ThemeSwitcher } from './ThemeSwitcher'
-import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onCleanup, type Accessor } from 'solid-js'
 
-export function FileBrowser() {
-  const browserLocation = useBrowserHistory()
-  const params = createUrlSearchParamsMemo(browserLocation)
+export function FileBrowser(props: { location: Accessor<BrowserLocation> }) {
+  const params = createUrlSearchParamsMemo(props.location)
   const currentLocation = createMemo(() => explorerLocationFromQuery(params()))
   const currentPath = createMemo(() => filesystemPathForResourceKey(currentLocation().key) ?? '')
   const playbackSession = usePlaybackSession()
@@ -57,8 +55,10 @@ export function FileBrowser() {
   let playbackResolveVersion = 0
 
   createEffect(() => {
-    const path = params().get('playing')
+    const location = props.location()
     const version = ++playbackResolveVersion
+    if (parseRoute(location).kind !== 'library') return
+    const path = params().get('playing')
     if (!path) {
       if (previousPlayingPath) playbackSession.dispatch({ type: 'stop' })
       previousPlayingPath = null
@@ -72,36 +72,53 @@ export function FileBrowser() {
         path.replace(/\\/g, '/'),
     )?.resource
     const audioOnly = params().get('audioOnly') === 'true'
+    const clearUnavailablePlayback = () => {
+      if (version !== playbackResolveVersion) return
+      previousPlayingPath = null
+      playbackSession.dispatch({ type: 'stop' })
+      closePlayer()
+    }
     void (async () => {
-      const key = filesystemResourceKey(DEFAULT_FILESYSTEM_ROOT_ID, path)
-      const inspector = applicationContentRegistry.inspect(key)
-      const resource = listed ?? (inspector ? await inspector.inspect(key) : null)
-      if (!resource || version !== playbackResolveVersion) return
-      const item = applicationContentRegistry.playbackItem(resource)
-      if (!item) return
-      const mode = item.media === 'video' && audioOnly ? 'audio' : item.media
-      const current = playbackSession.getSnapshot()
-      const sameCurrent =
-        !!current.currentItem && playbackItemKey(current.currentItem) === playbackItemKey(item)
-      const resources = snapshot?.items.map((candidate) => candidate.resource) ?? []
-      const queue = applicationContentRegistry.playbackQueue(resources, item)
-      if (!sameCurrent) {
-        playbackSession.dispatch({
-          type: 'load',
-          item,
-          queue,
-          mode,
-          autoplay: true,
-        })
-        return
-      }
-      if (current.mode !== mode) playbackSession.dispatch({ type: 'setMode', mode })
-      if (item.media === 'audio') {
-        playbackSession.dispatch({
-          type: 'setQueue',
-          queue,
-          current: current.currentItem ?? item,
-        })
+      try {
+        const key = filesystemResourceKey(DEFAULT_FILESYSTEM_ROOT_ID, path)
+        const inspector = applicationContentRegistry.inspect(key)
+        const resource = listed ?? (inspector ? await inspector.inspect(key) : null)
+        if (version !== playbackResolveVersion) return
+        if (!resource) {
+          clearUnavailablePlayback()
+          return
+        }
+        const item = applicationContentRegistry.playbackItem(resource)
+        if (!item) {
+          clearUnavailablePlayback()
+          return
+        }
+        const mode = item.media === 'video' && audioOnly ? 'audio' : item.media
+        const current = playbackSession.getSnapshot()
+        const sameCurrent =
+          !!current.currentItem && playbackItemKey(current.currentItem) === playbackItemKey(item)
+        const resources = snapshot?.items.map((candidate) => candidate.resource) ?? []
+        const queue = applicationContentRegistry.playbackQueue(resources, item)
+        if (!sameCurrent) {
+          playbackSession.dispatch({
+            type: 'load',
+            item,
+            queue,
+            mode,
+            autoplay: true,
+          })
+          return
+        }
+        if (current.mode !== mode) playbackSession.dispatch({ type: 'setMode', mode })
+        if (item.media === 'audio') {
+          playbackSession.dispatch({
+            type: 'setQueue',
+            queue,
+            current: current.currentItem ?? item,
+          })
+        }
+      } catch {
+        clearUnavailablePlayback()
       }
     })()
   })
@@ -235,7 +252,7 @@ export function FileBrowser() {
   function openSearchResult(hit: SearchHit) {
     void executeSearchHit(applicationSearchCoordinator, hit, {
       opener(resource, intent) {
-        const disposition = resource.capabilities.includes('browse')
+        const disposition = resourceIsBrowsable(resource)
           ? 'replace'
           : resource.mime === 'application/pdf' || resource.mime === 'application/epub+zip'
             ? 'fullscreen'
@@ -251,6 +268,29 @@ export function FileBrowser() {
         placeLibraryPlan(plan)
       },
     })
+  }
+
+  function libraryReaderPlan(resource: ResourceSummary) {
+    return openResource(resource, 'read', {
+      surface: 'library',
+      disposition: 'fullscreen',
+    })
+  }
+
+  async function openInLibraryReader(resource: ResourceSummary) {
+    const plan = libraryReaderPlan(resource)
+    if (plan.status !== 'ready') return
+    if (
+      await applicationContentRegistry.openRoute(resource, 'read', {
+        surface: 'library',
+        disposition: 'fullscreen',
+      })
+    ) {
+      return
+    }
+    await replaceIntegrationContent(
+      contentForOpenPlan(plan, `library-reader-${resource.key.provider}-${resource.key.id}`),
+    )
   }
 
   function hostActions(): readonly ApplicationExplorerHostAction[] {
@@ -313,8 +353,8 @@ export function FileBrowser() {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => resourceIsBrowsable(item.resource),
-        run: (item) => openInReader(item.resource),
+        available: (item) => libraryReaderPlan(item.resource).status === 'ready',
+        run: (item) => void openInLibraryReader(item.resource),
       },
     ]
   }

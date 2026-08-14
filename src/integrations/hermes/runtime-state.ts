@@ -8,6 +8,7 @@ export type HermesSessionLiveStatus = Readonly<{
 }>
 
 let sessionLiveStatus: (sessionId: string) => HermesSessionLiveStatus | null = () => null
+let draftHasUnsentContent: (draftId: string) => boolean = () => false
 
 export function registerHermesSessionLiveStatus(
   resolver: (sessionId: string) => HermesSessionLiveStatus | null,
@@ -17,4 +18,12 @@ export function registerHermesSessionLiveStatus(
 
 export function hermesSessionLiveStatus(sessionId: string): HermesSessionLiveStatus | null {
   return sessionLiveStatus(sessionId)
+}
+
+export function registerHermesDraftState(resolver: (draftId: string) => boolean): void {
+  draftHasUnsentContent = resolver
+}
+
+export function hermesDraftHasUnsentContent(draftId: string): boolean {
+  return draftHasUnsentContent(draftId)
 }

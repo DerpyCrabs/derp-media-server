@@ -243,6 +243,7 @@ describe('content runtime', () => {
             {
               id: 'fixture.lifecycle',
               supports: () => true,
+              hasUnsavedChanges: () => true,
               dispose: () => {
                 calls.push('lifecycle')
               },
@@ -251,6 +252,7 @@ describe('content runtime', () => {
         },
       ]),
     )
+    expect(runtime.hasUnsavedChanges(instance)).toBe(true)
     expect(await runtime.release(instance)).toBe(true)
     expect(calls).toEqual(['lifecycle'])
   })

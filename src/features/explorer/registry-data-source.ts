@@ -72,12 +72,13 @@ export function createRegistryExplorerDataSource(
           presentation: 'browse',
         } satisfies ResourceSummary)
       const locationItem = registryExplorerItem(registry, locationResource, 'location')
-      const moduleRoot = registry.module(page.location.provider)?.root
-      const atModuleRoot =
-        moduleRoot?.key.provider === page.location.provider &&
-        moduleRoot.key.id === page.location.id
-      const contributedRoots = atModuleRoot
-        ? registry.roots().filter((root) => root.key.provider !== page.location.provider)
+      const roots = registry.roots()
+      const providerRoot = roots.find((root) => root.key.provider === page.location.provider)
+      const atProviderRoot =
+        providerRoot?.key.provider === page.location.provider &&
+        providerRoot.key.id === page.location.id
+      const contributedRoots = atProviderRoot
+        ? roots.filter((root) => root.key.provider !== page.location.provider)
         : []
       const resources = [...contributedRoots, ...page.items].filter(
         (resource, index, all) =>

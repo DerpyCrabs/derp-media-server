@@ -4,6 +4,7 @@ import { resourceKey, type ResourceSummary } from '@/lib/domain/resource'
 import { defineIntegrationModule } from '@/src/features/content/contracts'
 import { createContentRegistry } from '@/src/features/content/registry'
 import { createContentRuntime } from '@/src/features/content/runtime'
+import { contentForOpenPlan, createResourceOpener } from '@/src/features/open/open-resource'
 import type { PlaybackItem } from '@/src/features/playback'
 import { createSearchCoordinator } from '@/src/features/search/coordinator'
 import { createIntegrationAvailability } from '@/src/integrations/availability'
@@ -49,6 +50,7 @@ function fixtureIntegration() {
       }),
     },
     inspect: { inspect: async () => fixtureItem },
+    routes: { open: (resource) => resource.key.provider === 'fixture' },
     playback: {
       createItem: (resource) =>
         resource.key.provider === 'fixture'
@@ -159,12 +161,36 @@ describe('frontend integration DX gate', () => {
     ).toEqual([fixtureItem])
     expect(await registry.inspect(fixtureItem.key)!.inspect(fixtureItem.key)).toEqual(fixtureItem)
     expect(
+      await registry.openRoute(fixtureItem, 'read', {
+        surface: 'library',
+        disposition: 'fullscreen',
+      }),
+    ).toBe(true)
+    expect(
       registry
         .actions(fixtureItem)!
         .list(fixtureItem)
         .map((action) => action.id),
     ).toEqual(['fixture.open'])
     expect(registry.rendererRegistry.resolve(fixtureItem, 'default')?.id).toBe('fixture.renderer')
+    const opener = createResourceOpener(registry.rendererRegistry)
+    const readerPlan = opener(fixtureItem, 'read', {
+      surface: 'workspace',
+      disposition: 'window',
+    })
+    expect(readerPlan).toMatchObject({
+      status: 'ready',
+      kind: 'render',
+      renderer: 'fixture.renderer',
+      summary: fixtureItem,
+    })
+    if (readerPlan.status !== 'ready') throw new Error('expected fixture reader plan')
+    expect(contentForOpenPlan(readerPlan, 'fixture-reader')).toEqual({
+      id: 'fixture-reader',
+      type: 'resource',
+      resource: fixtureItem.key,
+      renderer: 'fixture.renderer',
+    })
     expect(
       await registry.actions(fixtureItem)!.run({
         actionId: 'fixture.open',
@@ -252,5 +278,25 @@ describe('frontend integration DX gate', () => {
 
     const providers = await Bun.file('src/AppProviders.tsx').text()
     expect(providers).not.toMatch(/integrations\/filesystem\/(?:playback|PlaybackSync)/)
+
+    const workspace = hosts.find(({ path }) => path === 'src/WorkspacePage.tsx')?.source ?? ''
+    expect(workspace).not.toContain('openApplicationResource')
+    expect(workspace).not.toContain('workspaceTaskbarPinPath')
+
+    const genericResourceViews = await Promise.all(
+      [
+        ...hostPaths,
+        'src/features/explorer/ExplorerView.tsx',
+        'src/features/search/SearchPalette.tsx',
+        'src/lib/use-file-icon.tsx',
+      ].map(async (path) => ({ path, source: await Bun.file(path).text() })),
+    )
+    const localBrowsableInference =
+      /capabilities\.includes\(['"]browse['"]\)|presentation\s*===\s*['"]browse['"]|kind\s*===\s*['"](?:root|folder|collection)['"]/
+    expect(
+      genericResourceViews
+        .filter(({ source }) => localBrowsableInference.test(source))
+        .map(({ path }) => path),
+    ).toEqual([])
   })
 })

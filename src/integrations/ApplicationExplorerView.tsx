@@ -21,6 +21,7 @@ import {
 import type { Accessor, JSX } from 'solid-js'
 import {
   createApplicationExplorerDataSource,
+  canMoveApplicationResource,
   moveApplicationResource,
   type ApplicationExplorerPayload,
 } from './explorer-adapter'
@@ -107,6 +108,9 @@ export function ApplicationExplorerView(props: ApplicationExplorerViewProps) {
           : undefined
       }
       onSnapshot={props.onSnapshot}
+      canMoveItem={(source, destination) =>
+        canMoveApplicationResource(source.resource.key, destination.resource.key)
+      }
       onDragStart={(item, event) => {
         if (!event.dataTransfer) return
         setResourceDragData(event.dataTransfer, {
@@ -117,7 +121,7 @@ export function ApplicationExplorerView(props: ApplicationExplorerViewProps) {
       onDropOnItem={(item, event) => {
         if (!resourceIsBrowsable(item.resource)) return
         const dragged = event.dataTransfer ? getResourceDragData(event.dataTransfer) : null
-        if (!dragged) return
+        if (!dragged || !canMoveApplicationResource(dragged.key, item.resource.key)) return
         event.preventDefault()
         void moveApplicationResource(dragged.key, item.resource)
       }}

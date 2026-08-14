@@ -245,5 +245,11 @@ describe('openResource', () => {
       kind: 'render',
       renderer: HERMES_CHAT_RENDERER_ID,
     })
+    for (const surface of ['library', 'workspace', 'canvas'] as const) {
+      expect(openResource(input, 'read', { surface, disposition: 'window' })).toMatchObject({
+        status: 'blocked',
+        reason: 'incompatible-intent',
+      })
+    }
   })
 })

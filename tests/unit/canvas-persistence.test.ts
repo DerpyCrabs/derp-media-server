@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import {
   CANVAS_CRASH_DRAFT_STORAGE_KEY,
+  canvasSaveRequest,
   clearCanvasCrashDraft,
   createDefaultCanvasCollection,
   inspectCanvasCrashDraft as inspectCanvasCrashDraftWithPersistence,
@@ -10,6 +11,7 @@ import {
   writeCanvasCrashDraft as writeCanvasCrashDraftWithPersistence,
   type CanvasCollection,
 } from '@/lib/canvas-persistence'
+import { filesystemResourceKeyForPath } from '@/src/integrations/filesystem/resource'
 
 const serializeCanvasCollection = (collection: CanvasCollection) =>
   serializeCanvasCollectionWithPersistence(collection, currentContentWindowPersistence)
@@ -47,6 +49,59 @@ describe('canvas persistence', () => {
         canvases: [{ ...document.canvases[0], deleted: false }],
       }),
     ).toBeNull()
+  })
+
+  test('projects live Canvas state into the exact generated wire contract', () => {
+    const document = createDefaultCanvasCollection()
+    const state = document.canvases[0]!.state
+    state.windows = [
+      {
+        id: 'window-1',
+        definition: {
+          id: 'window-1',
+          title: 'Notes',
+          contentInstance: {
+            id: 'window-1',
+            type: 'explorer',
+            location: filesystemResourceKeyForPath('Notes'),
+          },
+        },
+        bounds: { x: 1, y: 2, width: 640, height: 480 },
+        zIndex: 1,
+      },
+    ]
+    Object.assign(state, { runtimeOnly: 'must not persist' })
+
+    const request = canvasSaveRequest(document, currentContentWindowPersistence)
+    const wireState = request.canvases[0]!.state
+
+    expect(Object.keys(wireState).sort()).toEqual(
+      [
+        'camera',
+        'maximizedWindowId',
+        'nextItemId',
+        'nextZIndex',
+        'version',
+        'windowSizeByType',
+        'windows',
+      ].sort(),
+    )
+    expect(wireState.windows[0]!.definition).toEqual({
+      id: 'window-1',
+      title: 'Notes',
+      content: {
+        schemaVersion: 1,
+        codec: 'filesystem.content',
+        codecVersion: 1,
+        payload: {
+          kind: 'explorer',
+          id: 'window-1',
+          address: { rootId: 'configured-default', path: 'Notes' },
+        },
+      },
+    })
+    expect(JSON.stringify(request)).not.toContain('contentInstance')
+    expect(JSON.stringify(request)).not.toContain('runtimeOnly')
   })
 
   test('round-trips and explicitly clears a crash draft', () => {

@@ -7,11 +7,23 @@ export function useWorkspacePageLocalPersistence(options: {
   workspace: Accessor<PersistedWorkspaceState | null>
 }) {
   let persistTimer: ReturnType<typeof setTimeout> | null = null
+  let lastStorageKey = ''
+
+  const flush = () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
+    const key = options.storageSessionKeyFull().key || lastStorageKey
+    const workspace = options.workspace()
+    if (key && workspace) persistWorkspaceState(key, workspace)
+  }
 
   createEffect(() => {
     const { key } = options.storageSessionKeyFull()
     const w = options.workspace()
     if (!key || !w) return
+    lastStorageKey = key
     if (persistTimer) clearTimeout(persistTimer)
     persistTimer = setTimeout(() => {
       persistTimer = null
@@ -26,19 +38,17 @@ export function useWorkspacePageLocalPersistence(options: {
   })
 
   onMount(() => {
-    const flushPersist = () => {
-      const k = options.storageSessionKeyFull().key
-      const w = options.workspace()
-      if (k && w) persistWorkspaceState(k, w)
-    }
-    window.addEventListener('beforeunload', flushPersist)
+    window.addEventListener('beforeunload', flush)
     const onVis = () => {
-      if (document.visibilityState === 'hidden') flushPersist()
+      if (document.visibilityState === 'hidden') flush()
     }
     document.addEventListener('visibilitychange', onVis)
     onCleanup(() => {
-      window.removeEventListener('beforeunload', flushPersist)
+      window.removeEventListener('beforeunload', flush)
       document.removeEventListener('visibilitychange', onVis)
     })
   })
+
+  onCleanup(flush)
+  return Object.freeze({ flush })
 }

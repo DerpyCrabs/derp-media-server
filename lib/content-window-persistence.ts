@@ -19,10 +19,18 @@ export type ContentWindowPersistencePort = Readonly<{
   isRuntimeOnly(window: ContentWindowDefinition): boolean
 }>
 
+export type PersistedContentWindowRecord = Readonly<{
+  id: string
+  title: string
+  iconName?: string | null
+  content: PersistedContentEnvelope
+}> &
+  Record<string, unknown>
+
 export function persistedContentWindowRecord<T extends ContentWindowDefinition>(
   persistence: ContentWindowPersistencePort,
   window: T,
-): Record<string, unknown> | null {
+): PersistedContentWindowRecord | null {
   const encoded = persistence.encode(window)
   const live = persistence.contentInstance(window)
   const content =
@@ -34,7 +42,7 @@ export function persistedContentWindowRecord<T extends ContentWindowDefinition>(
     contentRecoveryReason: _contentRecoveryReason,
     ...host
   } = window
-  return { ...host, content }
+  return { ...host, id: window.id, title: window.title, content }
 }
 
 export function restorePersistedContentWindow(

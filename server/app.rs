@@ -1,6 +1,10 @@
 use crate::{
-    config::Config, contracts::AppEvent, file_commands::FileCommandService, image_variants,
-    integrations::registry::IntegrationRegistry, thumbnails,
+    config::Config,
+    contracts::AppEvent,
+    file_commands::{FileCommandService, FileMutationEvents},
+    image_variants,
+    integrations::registry::IntegrationRegistry,
+    thumbnails,
 };
 use base64::Engine;
 use serde_json::{Value, json};
@@ -21,6 +25,50 @@ pub(crate) struct AppState {
 }
 
 pub(crate) type Shared = Arc<AppState>;
+
+pub(crate) struct ApplicationFileMutationEvents {
+    integrations: Arc<IntegrationRegistry>,
+    sender: tokio::sync::broadcast::Sender<AppEvent>,
+}
+
+impl ApplicationFileMutationEvents {
+    pub(crate) fn new(
+        integrations: Arc<IntegrationRegistry>,
+        sender: tokio::sync::broadcast::Sender<AppEvent>,
+    ) -> Self {
+        Self {
+            integrations,
+            sender,
+        }
+    }
+}
+
+impl FileMutationEvents for ApplicationFileMutationEvents {
+    fn changed(&self, path: &str) {
+        let directory = parent_logical(path);
+        self.integrations.changed("filesystem", &directory);
+        let _ = self.sender.send(AppEvent::FilesChanged {
+            directory,
+            path: Some(path.replace('\\', "/")),
+            timestamp: timestamp_ms(),
+        });
+    }
+
+    fn moved(&self, old_path: &str, new_path: &str) {
+        let _ = self.sender.send(AppEvent::PathMoved {
+            old_path: old_path.replace('\\', "/"),
+            new_path: new_path.replace('\\', "/"),
+            timestamp: timestamp_ms(),
+        });
+    }
+
+    fn removed(&self, path: &str) {
+        let _ = self.sender.send(AppEvent::PathRemoved {
+            path: path.replace('\\', "/"),
+            timestamp: timestamp_ms(),
+        });
+    }
+}
 
 pub(crate) fn decode_node_base64(value: &str) -> Vec<u8> {
     let mut normalized = value
@@ -45,34 +93,8 @@ pub(crate) fn decode_node_base64(value: &str) -> Vec<u8> {
     .unwrap_or_default()
 }
 
-pub(crate) fn emit(state: &AppState, path: &str) {
-    let directory = parent_logical(path);
-    let path = path.replace('\\', "/");
-    state.integrations.changed("filesystem", &directory);
-    let _ = state.application_events.send(AppEvent::FilesChanged {
-        directory,
-        path: Some(path),
-        timestamp: timestamp_ms(),
-    });
-}
-
 pub(crate) fn emit_application_event(state: &AppState, event: AppEvent) {
     let _ = state.application_events.send(event);
-}
-
-pub(crate) fn emit_path_removed(state: &AppState, path: &str) {
-    let _ = state.application_events.send(AppEvent::PathRemoved {
-        path: path.replace('\\', "/"),
-        timestamp: timestamp_ms(),
-    });
-}
-
-pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) {
-    let _ = state.application_events.send(AppEvent::PathMoved {
-        old_path: old_path.replace('\\', "/"),
-        new_path: new_path.replace('\\', "/"),
-        timestamp: timestamp_ms(),
-    });
 }
 
 pub(crate) fn default_settings() -> Value {

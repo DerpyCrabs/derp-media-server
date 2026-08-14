@@ -6,6 +6,7 @@ import { For, Show, createEffect, createUniqueId, onCleanup, type JSX } from 'so
 import { Portal } from 'solid-js/web'
 import type { SearchHit } from './contracts'
 import { createSearchController } from './solid-controller'
+import { resourceIsBrowsable } from '@/lib/domain/resource'
 
 export type SearchPaletteProps = {
   search: Parameters<typeof createSearchController>[0]
@@ -185,7 +186,7 @@ export function SearchPalette(props: SearchPaletteProps) {
                     >
                       <span class='shrink-0'>
                         {props.result.icon?.(result) ??
-                          (result.resource?.capabilities.includes('browse') ? (
+                          (result.resource && resourceIsBrowsable(result.resource) ? (
                             <Folder class='size-5 text-amber-500' aria-hidden='true' />
                           ) : (
                             <File class='size-5 text-muted-foreground' aria-hidden='true' />

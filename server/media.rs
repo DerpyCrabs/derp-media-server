@@ -4,6 +4,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::{
+    ffi::OsStr,
     fs,
     path::{Component, Path, PathBuf},
     time::UNIX_EPOCH,
@@ -139,6 +140,36 @@ fn inside(child: &Path, root: &Path) -> bool {
     child.starts_with(root)
 }
 
+fn logical_component_str(value: &str) -> bool {
+    !value.is_empty()
+        && !matches!(value, "." | "..")
+        && !value.contains(['/', '\\', '\n', '\r', '\0'])
+}
+
+pub fn logical_component(value: &OsStr) -> Option<String> {
+    value
+        .to_str()
+        .filter(|value| logical_component_str(value))
+        .map(str::to_owned)
+}
+
+pub fn logical_path_is_safe(value: &str) -> bool {
+    value.is_empty() || value.split('/').all(logical_component_str)
+}
+
+pub fn logical_relative_path(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(value) => parts.push(logical_component(value)?),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    Some(parts.join("/"))
+}
+
 pub fn resolve(config: &Config, input: &str) -> AppResult<ResolvedPath> {
     let logical = clean_logical(input)?;
     let roots = &config.roots;
@@ -238,6 +269,9 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
     let roots = &config.roots;
     if roots.len() > 1 && logical.is_empty() {
         for r in roots {
+            if logical_component(OsStr::new(&r.name)).is_none() {
+                continue;
+            }
             items.push(FileItem {
                 name: r.name.clone(),
                 path: r.name.clone(),
@@ -257,7 +291,9 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
     for entry in fs::read_dir(&resolved.full).map_err(AppError::io)? {
         let Ok(entry) = entry else { continue };
         let Ok(meta) = entry.metadata() else { continue };
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(name) = logical_component(&entry.file_name()) else {
+            continue;
+        };
         if (meta.is_dir() && excluded_dir(&name)) || (!meta.is_dir() && excluded_file(&name)) {
             continue;
         }
@@ -313,4 +349,45 @@ fn sort(v: &mut [FileItem]) {
             .cmp(&a.is_directory)
             .then_with(|| natord::compare_ignore_case(&a.name, &b.name))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logical_paths_require_lossless_provider_safe_components() {
+        for valid in ["", "Notes", "Notes/a b.md", "Notes/   ", "Notes/🦀.md"] {
+            assert!(logical_path_is_safe(valid), "rejected {valid:?}");
+        }
+        for invalid in [
+            ".",
+            "..",
+            "Notes/../secret",
+            "Notes//file",
+            "Notes/bad\\name",
+            "Notes/bad\nname",
+            "Notes/bad\rname",
+            "Notes/bad\0name",
+        ] {
+            assert!(!logical_path_is_safe(invalid), "accepted {invalid:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn logical_relative_paths_reject_non_utf8_components_without_lossy_aliases() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+        let root = Path::new("/media");
+        let valid = root.join("Notes").join("🦀.md");
+        assert_eq!(
+            logical_relative_path(root, &valid).as_deref(),
+            Some("Notes/🦀.md")
+        );
+        let invalid = root
+            .join("Notes")
+            .join(OsString::from_vec(b"bad-\xff.md".to_vec()));
+        assert!(logical_relative_path(root, &invalid).is_none());
+    }
 }

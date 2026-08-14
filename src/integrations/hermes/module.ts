@@ -20,7 +20,11 @@ import {
   type HermesResourceAddress,
   type HermesResourceKind,
 } from './resource-key'
-import { deletedHermesSessionIds, hermesSessionLiveStatus } from './runtime-state'
+import {
+  deletedHermesSessionIds,
+  hermesDraftHasUnsentContent,
+  hermesSessionLiveStatus,
+} from './runtime-state'
 
 export { HERMES_PROVIDER, hermesResourceAddress, hermesResourceKey }
 export type { HermesResourceAddress, HermesResourceKind }
@@ -589,6 +593,11 @@ export function createHermesIntegrationModule(
           if (options.canClose) return options.canClose(state)
           const store = await import('./session-store')
           return store.canCloseHermesWindow(state)
+        },
+        hasUnsavedChanges(instance) {
+          if (instance.type !== 'integration') return false
+          const state = normalizeHermesContentState(instance.state)
+          return !!state?.draftId && !state.sessionId && hermesDraftHasUnsentContent(state.draftId)
         },
         async dispose(instance) {
           if (instance.type === 'resource') return

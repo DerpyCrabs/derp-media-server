@@ -146,6 +146,13 @@ export const serverIntegrationSearchContributor: SearchContributor = {
   async search(request) {
     if (Array.from(request.query).length < 3) return { results: [] }
     const search = new URLSearchParams({ q: request.query, limit: String(request.limit) })
+    if (request.contributorIds?.length) {
+      search.set('contributors', request.contributorIds.join(','))
+    }
+    if (request.scope) {
+      search.set('scopeProvider', request.scope.provider)
+      search.set('scopeResource', request.scope.id)
+    }
     const response = await api<IntegrationSearchResponseDto>(
       `${apiRoutes.integrationSearch}?${search}`,
       {

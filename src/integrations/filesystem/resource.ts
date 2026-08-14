@@ -4,7 +4,7 @@ import {
   RESOURCE_CAPABILITY,
   RESOURCE_KIND,
   RESOURCE_PRESENTATION,
-  filesystemResourceAddress,
+  physicalFilesystemResourceAddress,
   filesystemResourceKey,
   type ResourceKey,
   type ResourceSummary,
@@ -18,7 +18,7 @@ export function filesystemResourceKeyForPath(path: string, rootId = DEFAULT_FILE
 }
 
 export function filesystemPathForResourceKey(key: ResourceKey): string | null {
-  return filesystemResourceAddress(key)?.path ?? null
+  return physicalFilesystemResourceAddress(key)?.path ?? null
 }
 
 export function filesystemResourceIsDirectory(resource: ResourceSummary): boolean {

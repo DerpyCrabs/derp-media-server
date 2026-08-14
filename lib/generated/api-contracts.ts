@@ -16,6 +16,65 @@ export type ReconciliationDetails = { operation: string; path: string }
 export type ApiErrorBody = { code: ApiErrorCode; message: string; details?: ReconciliationDetails }
 export type MediaRootDto = { id: string; name: string; editableFolders: Array<string> }
 export type ServerConfigDto = { editableFolders: Array<string>; mediaRoots: Array<MediaRootDto> }
+export type PersistedContentEnvelopeDto = {
+  schemaVersion: 1
+  codec: string
+  codecVersion: number
+  payload: unknown
+}
+export type PersistedCanvasWindowDefinitionDto = {
+  id: string
+  title: string
+  iconName?: string | null
+  content: PersistedContentEnvelopeDto
+}
+export type CanvasRectDto = { x: number; y: number; width: number; height: number }
+export type PersistedCanvasWindowDto = {
+  id: string
+  definition: PersistedCanvasWindowDefinitionDto
+  bounds: CanvasRectDto
+  zIndex: number
+}
+export type CanvasCameraDto = { x: number; y: number; zoom: number }
+export type CanvasWindowSizeDto = { width: number; height: number }
+export type CanvasWindowSizeMapDto = {
+  browser?: CanvasWindowSizeDto
+  viewer?: CanvasWindowSizeDto
+  integration?: CanvasWindowSizeDto
+  'viewer-audio'?: CanvasWindowSizeDto
+  'viewer-video'?: CanvasWindowSizeDto
+  'viewer-image'?: CanvasWindowSizeDto
+  'viewer-text'?: CanvasWindowSizeDto
+  'viewer-pdf'?: CanvasWindowSizeDto
+  'viewer-other'?: CanvasWindowSizeDto
+}
+export type PersistedCanvasStateDto = {
+  version: 1
+  windows: Array<PersistedCanvasWindowDto>
+  maximizedWindowId: string | null
+  camera: CanvasCameraDto
+  windowSizeByType: CanvasWindowSizeMapDto
+  nextItemId: number
+  nextZIndex: number
+}
+export type CanvasRecordDto = {
+  id: string
+  name: string
+  state: PersistedCanvasStateDto
+  updatedAt: number
+}
+export type CanvasDocumentDto = {
+  schemaVersion: 2
+  revision: number
+  activeId: string | null
+  canvases: Array<CanvasRecordDto>
+}
+export type SaveCanvasDocumentDto = {
+  schemaVersion: 2
+  expectedRevision: number
+  activeId: string | null
+  canvases: Array<CanvasRecordDto>
+}
 export type ResourceKeyDto = { provider: string; id: string }
 export type ResourceAppearanceDto = { icon?: string; tone?: string; color?: string }
 export type ResourceSummaryDto = {
@@ -119,8 +178,10 @@ export type AppEvent =
   | { type: 'settings-changed'; timestamp: number }
   | { type: 'path-removed'; path: string; timestamp: number }
   | { type: 'path-moved'; oldPath: string; newPath: string; timestamp: number }
+export const canvasDocumentSchemaVersion = 2 as const
 export const apiRoutes = {
   config: '/api/config',
+  canvases: '/api/canvases',
   settings: '/api/settings',
   settingsViewMode: '/api/settings/viewMode',
   settingsFavorite: '/api/settings/favorite',

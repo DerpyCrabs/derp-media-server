@@ -13,7 +13,10 @@ use futures_util::future::{BoxFuture, join_all};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
+    time::Duration,
 };
+
+const SEARCH_PROVIDER_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(crate) trait BrowseCapability: Send + Sync {
     fn browse<'a>(&'a self, request: BrowseRequest) -> BoxFuture<'a, AppResult<ResourcePageDto>>;
@@ -207,9 +210,24 @@ impl IntegrationRegistry {
         &self,
         request: IntegrationSearchRequest,
     ) -> IntegrationSearchResponseDto {
+        self.search_with_timeout(request, SEARCH_PROVIDER_TIMEOUT)
+            .await
+    }
+
+    async fn search_with_timeout(
+        &self,
+        request: IntegrationSearchRequest,
+        provider_timeout: Duration,
+    ) -> IntegrationSearchResponseDto {
         let futures = self
             .order
             .iter()
+            .filter(|id| {
+                request
+                    .scope
+                    .as_ref()
+                    .is_none_or(|scope| scope.provider == **id)
+            })
             .filter_map(|id| {
                 self.modules
                     .get(id)
@@ -218,17 +236,24 @@ impl IntegrationRegistry {
             })
             .map(|(id, capability)| {
                 let request = request.clone();
-                async move { (id, capability.search(request).await) }
+                async move {
+                    (
+                        id,
+                        tokio::time::timeout(provider_timeout, capability.search(request)).await,
+                    )
+                }
             });
         let mut results = Vec::new();
         let mut failures = Vec::new();
         let mut truncated = false;
         for (contributor, result) in join_all(futures).await {
             match result {
-                Ok(contribution) => {
+                Ok(Ok(contribution)) => {
                     truncated |= contribution.truncated;
                     for result in contribution.results {
-                        if validate_search_result(&contributor, &result).is_ok() {
+                        if request.includes(&result.contributor)
+                            && validate_search_result(&contributor, &result).is_ok()
+                        {
                             results.push(result);
                         } else {
                             failures.push(IntegrationSearchFailureDto {
@@ -238,9 +263,13 @@ impl IntegrationRegistry {
                         }
                     }
                 }
-                Err(error) => failures.push(IntegrationSearchFailureDto {
+                Ok(Err(error)) => failures.push(IntegrationSearchFailureDto {
                     contributor,
                     message: error.1,
+                }),
+                Err(_) => failures.push(IntegrationSearchFailureDto {
+                    contributor,
+                    message: "search contributor timed out".into(),
                 }),
             }
         }
@@ -301,7 +330,7 @@ fn validate_provider_key(provider: &str, key: &ResourceKeyDto) -> AppResult<()> 
 }
 
 pub(crate) fn validate_key(key: &ResourceKeyDto, provider: &str) -> Result<(), String> {
-    if key.provider != provider || key.id.trim().is_empty() || key.id.contains(['\\', '\n', '\r']) {
+    if key.provider != provider || key.id.is_empty() {
         return Err("resource key is invalid".into());
     }
     Ok(())
@@ -309,7 +338,7 @@ pub(crate) fn validate_key(key: &ResourceKeyDto, provider: &str) -> Result<(), S
 
 pub(crate) fn validate_summary(provider: &str, summary: &ResourceSummaryDto) -> Result<(), String> {
     validate_key(&summary.key, provider)?;
-    if summary.name.trim().is_empty() || summary.kind.trim().is_empty() {
+    if summary.name.is_empty() || summary.kind.trim().is_empty() {
         return Err("resource summary is incomplete".into());
     }
     Ok(())
@@ -382,4 +411,121 @@ fn validate_search_result(
         return Err("integration search result is invalid".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct ImmediateSearch {
+        provider: &'static str,
+    }
+
+    impl SearchCapability for ImmediateSearch {
+        fn search<'a>(
+            &'a self,
+            _request: IntegrationSearchRequest,
+        ) -> BoxFuture<'a, AppResult<SearchContribution>> {
+            Box::pin(async move {
+                Ok(SearchContribution {
+                    results: vec![IntegrationSearchResultDto {
+                        id: format!("{}.result", self.provider),
+                        contributor: self.provider.into(),
+                        resource: ResourceSummaryDto {
+                            key: ResourceKeyDto::new(self.provider, "result"),
+                            name: "Fast result".into(),
+                            kind: "fixture".into(),
+                            mime: None,
+                            capabilities: Vec::new(),
+                            presentation: None,
+                            appearance: None,
+                            size: None,
+                            metadata: None,
+                        },
+                        title: "Fast result".into(),
+                        detail: None,
+                        snippet: None,
+                        score: 1.0,
+                        action: None,
+                    }],
+                    truncated: false,
+                })
+            })
+        }
+    }
+
+    struct FailingSearch;
+
+    impl SearchCapability for FailingSearch {
+        fn search<'a>(
+            &'a self,
+            _request: IntegrationSearchRequest,
+        ) -> BoxFuture<'a, AppResult<SearchContribution>> {
+            Box::pin(async { Err(AppError::internal("provider unavailable")) })
+        }
+    }
+
+    struct PendingSearch;
+
+    impl SearchCapability for PendingSearch {
+        fn search<'a>(
+            &'a self,
+            _request: IntegrationSearchRequest,
+        ) -> BoxFuture<'a, AppResult<SearchContribution>> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    fn search_module(id: &'static str, search: Arc<dyn SearchCapability>) -> IntegrationModule {
+        IntegrationModule {
+            descriptor: IntegrationDescriptorDto {
+                id: id.into(),
+                name: id.into(),
+                capabilities: vec![IntegrationCapabilityDto::Search],
+                root: None,
+            },
+            browse: None,
+            inspect: None,
+            actions: None,
+            search: Some(search),
+            change: None,
+            shutdown: None,
+            routes: Router::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn search_returns_fast_partial_results_when_other_providers_fail_or_stall() {
+        let registry = IntegrationRegistry::new(vec![
+            search_module("fast", Arc::new(ImmediateSearch { provider: "fast" })),
+            search_module("unavailable", Arc::new(FailingSearch)),
+            search_module("slow", Arc::new(PendingSearch)),
+        ])
+        .unwrap();
+
+        let response = tokio::time::timeout(
+            Duration::from_millis(250),
+            registry.search_with_timeout(
+                IntegrationSearchRequest {
+                    query: "result".into(),
+                    limit: 10,
+                    contributors: None,
+                    scope: None,
+                },
+                Duration::from_millis(20),
+            ),
+        )
+        .await
+        .expect("unified search waited for a stalled provider");
+
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].resource.key.provider, "fast");
+        assert_eq!(response.failures.len(), 2);
+        assert!(response.failures.iter().any(|failure| {
+            failure.contributor == "unavailable" && failure.message == "provider unavailable"
+        }));
+        assert!(response.failures.iter().any(|failure| {
+            failure.contributor == "slow" && failure.message == "search contributor timed out"
+        }));
+    }
 }

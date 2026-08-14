@@ -160,6 +160,51 @@ test.describe('Workspace taskbar pins', () => {
     await expect(page.locator('[title="Folder: Documents"]')).toBeVisible()
   })
 
+  test('unavailable provider pin inspection never suspends the Workspace', async () => {
+    const pin = {
+      id: 'pending-hermes-session',
+      resource: { provider: 'hermes', id: 'v1:7:sessionsession-unavailable' },
+      title: 'Unavailable Hermes session',
+    }
+    const seeded = await page.request.post('/api/settings/workspaceTaskbarPins', {
+      data: { items: [pin] },
+    })
+    expect(seeded.ok()).toBe(true)
+
+    let releaseInspect!: () => void
+    const inspectGate = new Promise<void>((resolve) => {
+      releaseInspect = resolve
+    })
+    let inspectStarted = 0
+    let inspectFinished = false
+    await page.route('**/api/integrations/hermes/inspect?*', async (route) => {
+      inspectStarted += 1
+      await inspectGate
+      await route
+        .fulfill({
+          status: 503,
+          json: { code: 'unavailable', message: 'Hermes gateway is unavailable' },
+        })
+        .catch(() => {})
+      inspectFinished = true
+    })
+
+    try {
+      await page.goto(workspacePath)
+      await expect.poll(() => inspectStarted).toBe(1)
+      await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
+      await expect(page.getByTitle('File: Unavailable Hermes session')).toBeVisible()
+
+      releaseInspect()
+      await expect.poll(() => inspectFinished).toBe(true)
+      await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
+      await expect(page.getByTitle('File: Unavailable Hermes session')).toBeVisible()
+    } finally {
+      releaseInspect()
+      await page.request.post('/api/settings/workspaceTaskbarPins', { data: { items: [] } })
+    }
+  })
+
   test('dragging pinned file to folder in another browser moves the file', async () => {
     await page.goto(workspacePath)
     await expect(getWindowGroups(page).first()).toBeVisible()

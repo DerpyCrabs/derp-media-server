@@ -1,4 +1,4 @@
-import type { PinnedTaskbarItem } from '@/lib/use-workspace'
+import type { PersistedWorkspaceState, PinnedTaskbarItem } from '@/lib/use-workspace'
 import { parseWorkspaceTaskbarPins } from '@/lib/workspace-taskbar-pins'
 import {
   serverConfigQueryOptions,
@@ -12,6 +12,13 @@ import { unwrap } from 'solid-js/store'
 
 function fromQueryData<T>(value: T): T {
   return structuredClone(unwrap(value))
+}
+
+export function withAuthoritativeServerPins(
+  workspace: PersistedWorkspaceState,
+  pins: readonly PinnedTaskbarItem[],
+): PersistedWorkspaceState {
+  return { ...workspace, pinnedTaskbarItems: [...pins] }
 }
 
 export function useWorkspacePageServerData() {

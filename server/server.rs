@@ -116,9 +116,16 @@ pub(crate) async fn run() {
     let integrations = integrations::build(&config, client.clone(), file_search.clone())
         .await
         .unwrap_or_else(|error| panic!("Failed to build integration registry: {error}"));
+    let file_mutation_events = Arc::new(crate::app::ApplicationFileMutationEvents::new(
+        integrations.clone(),
+        application_events.clone(),
+    ));
     let state = Arc::new(AppState {
         config: config.clone(),
-        file_commands: crate::file_commands::FileCommandService::new(config.clone()),
+        file_commands: crate::file_commands::FileCommandService::new_with_events(
+            config.clone(),
+            file_mutation_events,
+        ),
         dev,
         vite_port,
         client,
@@ -398,7 +405,7 @@ mod tests {
             json!({
                 "key":key("Editable/Folder/renamed.txt"),
                 "action":"filesystem.move",
-                "metadata":{"destinationDir":"Editable/Destination"}
+                "metadata":{"destination":key("Editable/Destination")}
             }),
         )
         .await;
@@ -407,7 +414,7 @@ mod tests {
             json!({
                 "key":key("Editable/Destination/renamed.txt"),
                 "action":"filesystem.copy",
-                "metadata":{"destinationDir":"Editable"}
+                "metadata":{"destination":key("Editable")}
             }),
         )
         .await;
@@ -445,6 +452,115 @@ mod tests {
         )
         .await;
         assert!(!base.join("media/Editable/renamed.txt").exists());
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[tokio::test]
+    async fn filesystem_move_and_copy_preserve_typed_destination_root() {
+        let base =
+            std::env::temp_dir().join(format!("derp-cross-root-action-{}", uuid::Uuid::new_v4()));
+        let alpha = base.join("alpha");
+        let beta = base.join("beta");
+        let data = base.join("data");
+        std::fs::create_dir_all(alpha.join("Editable/Destination")).unwrap();
+        std::fs::create_dir_all(beta.join("Editable/Destination")).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(alpha.join("Editable/note.txt"), "cross root").unwrap();
+        let config = Config {
+            port: 3000,
+            roots: vec![
+                MediaRoot {
+                    id: "alpha".into(),
+                    name: "Alpha".into(),
+                    path: alpha.clone(),
+                    editable_folders: vec!["Editable".into()],
+                },
+                MediaRoot {
+                    id: "beta".into(),
+                    name: "Beta".into(),
+                    path: beta.clone(),
+                    editable_folders: vec!["Editable".into()],
+                },
+            ],
+            library_key: "library".into(),
+            data_path: data.clone(),
+            file_search: FileSearchConfig {
+                enabled: false,
+                index_path: data.join("search.sqlite"),
+                watch_mode: "off".into(),
+                max_recursive_watchers: 0,
+                max_fs_concurrency: 1,
+                reconcile_directories_per_second: 1,
+            },
+            image_optimization: ImageOptimizationConfig::default(),
+            hermes: None,
+        };
+        state_db::initialize(&config).unwrap();
+        let file_search = FileSearch::new(config.file_search.clone(), config.roots.clone());
+        let integrations = crate::integrations::registry::IntegrationRegistry::new(vec![
+            crate::integrations::filesystem::module(config.clone(), file_search),
+        ])
+        .unwrap();
+        let state = state_with_integrations(config, integrations);
+        let key = |root: &str, path: &str| {
+            json!({
+                "provider":"filesystem",
+                "id":format!("v1:{}:{root}{path}", root.len())
+            })
+        };
+
+        perform_filesystem_action(
+            &state,
+            json!({
+                "key":key("alpha", "Editable/note.txt"),
+                "action":"filesystem.move",
+                "metadata":{"destination":key("beta", "Editable/Destination")}
+            }),
+        )
+        .await;
+        assert!(!alpha.join("Editable/note.txt").exists());
+        assert!(!alpha.join("Editable/Destination/note.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(beta.join("Editable/Destination/note.txt")).unwrap(),
+            "cross root"
+        );
+
+        perform_filesystem_action(
+            &state,
+            json!({
+                "key":key("beta", "Editable/Destination/note.txt"),
+                "action":"filesystem.copy",
+                "metadata":{"destination":key("alpha", "Editable/Destination")}
+            }),
+        )
+        .await;
+        assert_eq!(
+            std::fs::read_to_string(alpha.join("Editable/Destination/note.txt")).unwrap(),
+            "cross root"
+        );
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/integrations/filesystem/actions")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "key":key("beta", "Editable/Destination/note.txt"),
+                            "action":"filesystem.copy",
+                            "metadata":{
+                                "destination":key("application-collections", "favorites")
+                            }
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(beta.join("Editable/Destination/note.txt").exists());
         let _ = std::fs::remove_dir_all(base);
     }
 

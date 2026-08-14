@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, path::Path};
 use ts_rs::{Config, TS};
@@ -11,6 +11,7 @@ pub(crate) use crate::integrations::contracts::{
 };
 
 pub(crate) const API_CONFIG_PATH: &str = "/api/config";
+pub(crate) const API_CANVASES_PATH: &str = "/api/canvases";
 pub(crate) const API_SETTINGS_PATH: &str = "/api/settings";
 pub(crate) const API_SETTINGS_VIEW_MODE_PATH: &str = "/api/settings/viewMode";
 pub(crate) const API_SETTINGS_FAVORITE_PATH: &str = "/api/settings/favorite";
@@ -29,6 +30,55 @@ pub(crate) const QUERY_STATS: &str = "stats";
 pub(crate) const QUERY_CONTENT: &str = "content";
 pub(crate) const QUERY_AUDIO_METADATA: &str = "audio-metadata";
 pub(crate) const QUERY_INTEGRATIONS: &str = "integrations";
+pub(crate) const CANVAS_DOCUMENT_SCHEMA_VERSION: u64 = 2;
+
+fn deserialize_optional_non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+struct RequiredNullableString(Option<String>);
+
+impl<'de> Deserialize<'de> for RequiredNullableString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct RequiredNullableStringVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RequiredNullableStringVisitor {
+            type Value = RequiredNullableString;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a string or null")
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(RequiredNullableString(None))
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E> {
+                Ok(RequiredNullableString(None))
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(RequiredNullableString(Some(value.into())))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+                Ok(RequiredNullableString(Some(value)))
+            }
+        }
+
+        deserializer.deserialize_any(RequiredNullableStringVisitor)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +124,322 @@ pub(crate) struct MediaRootDto {
 pub(crate) struct ServerConfigDto {
     pub editable_folders: Vec<String>,
     pub media_roots: Vec<MediaRootDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PersistedContentEnvelopeDto {
+    #[ts(type = "1")]
+    pub(crate) schema_version: u64,
+    pub(crate) codec: String,
+    pub(crate) codec_version: u64,
+    #[ts(type = "unknown")]
+    pub(crate) payload: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PersistedCanvasWindowDefinitionDto {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string | null")]
+    pub(crate) icon_name: Option<String>,
+    pub(crate) content: PersistedContentEnvelopeDto,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CanvasRectDto {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PersistedCanvasWindowDto {
+    pub(crate) id: String,
+    pub(crate) definition: PersistedCanvasWindowDefinitionDto,
+    pub(crate) bounds: CanvasRectDto,
+    pub(crate) z_index: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CanvasCameraDto {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) zoom: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CanvasWindowSizeDto {
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CanvasWindowSizeMapDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub(crate) browser: Option<CanvasWindowSizeDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub(crate) viewer: Option<CanvasWindowSizeDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub(crate) integration: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-audio",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub(crate) viewer_audio: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-video",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub(crate) viewer_video: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-image",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub(crate) viewer_image: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-text",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub(crate) viewer_text: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-pdf",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub(crate) viewer_pdf: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-other",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    pub(crate) viewer_other: Option<CanvasWindowSizeDto>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CanvasWindowSizeMapWire {
+    #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+    browser: Option<CanvasWindowSizeDto>,
+    #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+    viewer: Option<CanvasWindowSizeDto>,
+    #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+    integration: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-audio",
+        default,
+        deserialize_with = "deserialize_optional_non_null"
+    )]
+    viewer_audio: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-video",
+        default,
+        deserialize_with = "deserialize_optional_non_null"
+    )]
+    viewer_video: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-image",
+        default,
+        deserialize_with = "deserialize_optional_non_null"
+    )]
+    viewer_image: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-text",
+        default,
+        deserialize_with = "deserialize_optional_non_null"
+    )]
+    viewer_text: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-pdf",
+        default,
+        deserialize_with = "deserialize_optional_non_null"
+    )]
+    viewer_pdf: Option<CanvasWindowSizeDto>,
+    #[serde(
+        rename = "viewer-other",
+        default,
+        deserialize_with = "deserialize_optional_non_null"
+    )]
+    viewer_other: Option<CanvasWindowSizeDto>,
+}
+
+impl<'de> Deserialize<'de> for CanvasWindowSizeMapDto {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = CanvasWindowSizeMapWire::deserialize(deserializer)?;
+        Ok(Self {
+            browser: wire.browser,
+            viewer: wire.viewer,
+            integration: wire.integration,
+            viewer_audio: wire.viewer_audio,
+            viewer_video: wire.viewer_video,
+            viewer_image: wire.viewer_image,
+            viewer_text: wire.viewer_text,
+            viewer_pdf: wire.viewer_pdf,
+            viewer_other: wire.viewer_other,
+        })
+    }
+}
+
+impl CanvasWindowSizeMapDto {
+    pub(crate) fn values(&self) -> impl Iterator<Item = &CanvasWindowSizeDto> {
+        [
+            self.browser.as_ref(),
+            self.viewer.as_ref(),
+            self.integration.as_ref(),
+            self.viewer_audio.as_ref(),
+            self.viewer_video.as_ref(),
+            self.viewer_image.as_ref(),
+            self.viewer_text.as_ref(),
+            self.viewer_pdf.as_ref(),
+            self.viewer_other.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PersistedCanvasStateDto {
+    #[ts(type = "1")]
+    pub(crate) version: u64,
+    pub(crate) windows: Vec<PersistedCanvasWindowDto>,
+    pub(crate) maximized_window_id: Option<String>,
+    pub(crate) camera: CanvasCameraDto,
+    pub(crate) window_size_by_type: CanvasWindowSizeMapDto,
+    pub(crate) next_item_id: u64,
+    pub(crate) next_z_index: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PersistedCanvasStateWire {
+    version: u64,
+    windows: Vec<PersistedCanvasWindowDto>,
+    maximized_window_id: RequiredNullableString,
+    camera: CanvasCameraDto,
+    window_size_by_type: CanvasWindowSizeMapDto,
+    next_item_id: u64,
+    next_z_index: u64,
+}
+
+impl<'de> Deserialize<'de> for PersistedCanvasStateDto {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = PersistedCanvasStateWire::deserialize(deserializer)?;
+        Ok(Self {
+            version: wire.version,
+            windows: wire.windows,
+            maximized_window_id: wire.maximized_window_id.0,
+            camera: wire.camera,
+            window_size_by_type: wire.window_size_by_type,
+            next_item_id: wire.next_item_id,
+            next_z_index: wire.next_z_index,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CanvasRecordDto {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) state: PersistedCanvasStateDto,
+    pub(crate) updated_at: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CanvasDocumentDto {
+    #[ts(type = "2")]
+    pub(crate) schema_version: u64,
+    pub(crate) revision: u64,
+    pub(crate) active_id: Option<String>,
+    pub(crate) canvases: Vec<CanvasRecordDto>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CanvasDocumentWire {
+    schema_version: u64,
+    revision: u64,
+    active_id: RequiredNullableString,
+    canvases: Vec<CanvasRecordDto>,
+}
+
+impl<'de> Deserialize<'de> for CanvasDocumentDto {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = CanvasDocumentWire::deserialize(deserializer)?;
+        Ok(Self {
+            schema_version: wire.schema_version,
+            revision: wire.revision,
+            active_id: wire.active_id.0,
+            canvases: wire.canvases,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SaveCanvasDocumentDto {
+    #[ts(type = "2")]
+    pub(crate) schema_version: u64,
+    pub(crate) expected_revision: u64,
+    pub(crate) active_id: Option<String>,
+    pub(crate) canvases: Vec<CanvasRecordDto>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SaveCanvasDocumentWire {
+    schema_version: u64,
+    expected_revision: u64,
+    active_id: RequiredNullableString,
+    canvases: Vec<CanvasRecordDto>,
+}
+
+impl<'de> Deserialize<'de> for SaveCanvasDocumentDto {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = SaveCanvasDocumentWire::deserialize(deserializer)?;
+        Ok(Self {
+            schema_version: wire.schema_version,
+            expected_revision: wire.expected_revision,
+            active_id: wire.active_id.0,
+            canvases: wire.canvases,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -231,6 +597,17 @@ pub(crate) fn typescript() -> String {
         ApiErrorBody,
         MediaRootDto,
         ServerConfigDto,
+        PersistedContentEnvelopeDto,
+        PersistedCanvasWindowDefinitionDto,
+        CanvasRectDto,
+        PersistedCanvasWindowDto,
+        CanvasCameraDto,
+        CanvasWindowSizeDto,
+        CanvasWindowSizeMapDto,
+        PersistedCanvasStateDto,
+        CanvasRecordDto,
+        CanvasDocumentDto,
+        SaveCanvasDocumentDto,
         ResourceKeyDto,
         ResourceAppearanceDto,
         ResourceSummaryDto,
@@ -259,11 +636,14 @@ pub(crate) fn typescript() -> String {
         AppEvent,
     );
     output.push_str(&format!(
-        "export const apiRoutes = {{ config: {}, settings: {}, \
+        "export const canvasDocumentSchemaVersion = {} as const\n\
+         export const apiRoutes = {{ config: {}, canvases: {}, settings: {}, \
          settingsViewMode: {}, settingsFavorite: {}, settingsKnowledgeBase: {}, settingsIcon: {}, \
          settingsIconRemove: {}, settingsAutoSave: {}, settingsTaskbarPins: {}, \
         settingsLayoutPresets: {}, events: {}, integrations: {}, integrationSearch: {} }} as const\n",
+        CANVAS_DOCUMENT_SCHEMA_VERSION,
         serde_json::to_string(API_CONFIG_PATH).unwrap(),
+        serde_json::to_string(API_CANVASES_PATH).unwrap(),
         serde_json::to_string(API_SETTINGS_PATH).unwrap(),
         serde_json::to_string(API_SETTINGS_VIEW_MODE_PATH).unwrap(),
         serde_json::to_string(API_SETTINGS_FAVORITE_PATH).unwrap(),
@@ -328,9 +708,26 @@ mod tests {
             "ResourcePageDto",
             "ServerConfigDto",
             "SettingsDto",
+            "PersistedContentEnvelopeDto",
+            "PersistedCanvasWindowDefinitionDto",
+            "CanvasRectDto",
+            "PersistedCanvasWindowDto",
+            "CanvasCameraDto",
+            "CanvasWindowSizeDto",
+            "CanvasWindowSizeMapDto",
+            "PersistedCanvasStateDto",
+            "CanvasRecordDto",
+            "CanvasDocumentDto",
+            "SaveCanvasDocumentDto",
         ] {
             assert!(output.contains(&format!("type {name} =")), "missing {name}");
         }
         assert!(output.contains("recentItems?: Array<ResourceSummaryDto>"));
+        assert!(output.contains("canvasDocumentSchemaVersion = 2 as const"));
+        assert!(output.contains("canvases: \"/api/canvases\""));
+        assert!(!output.contains("InfiniteCanvasState"));
+        assert!(output.contains("state: PersistedCanvasStateDto"));
+        assert!(output.contains("maximizedWindowId: string | null"));
+        assert!(output.contains("activeId: string | null"));
     }
 }

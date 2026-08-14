@@ -1,4 +1,8 @@
-import { filesystemResourceAddress, isResourceKey, type ResourceKey } from './domain/resource'
+import {
+  isResourceKey,
+  physicalFilesystemResourceAddress,
+  type ResourceKey,
+} from './domain/resource'
 
 type WorkspaceTaskbarPinFields = Readonly<{
   id: string
@@ -52,7 +56,7 @@ export function serializeWorkspaceTaskbarPins(
 }
 
 export function workspaceTaskbarPinPath(pin: WorkspaceTaskbarPin): string | null {
-  return filesystemResourceAddress(pin.resource)?.path ?? null
+  return physicalFilesystemResourceAddress(pin.resource)?.path ?? null
 }
 
 export function workspaceTaskbarPinResource(pin: WorkspaceTaskbarPin): ResourceKey | null {

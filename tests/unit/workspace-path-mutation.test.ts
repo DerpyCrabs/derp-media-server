@@ -7,7 +7,11 @@ import {
 } from '@/lib/workspace-path-mutation'
 import { createEmptyCanvasState } from '@/lib/infinite-canvas'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
-import { filesystemResourceAddress, filesystemResourceKey } from '@/lib/domain/resource'
+import {
+  FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID,
+  filesystemResourceAddress,
+  filesystemResourceKey,
+} from '@/lib/domain/resource'
 
 function explorerWindow(
   id: string,
@@ -177,5 +181,53 @@ describe('workspace path mutations', () => {
     })
     expect(removed.windows).toEqual([])
     expect(removed.maximizedWindowId).toBeNull()
+  })
+
+  test('preserves resource roots and ignores virtual collection path collisions', () => {
+    const physical = resourceWindow('physical', 'favorites/current.jpg')
+    physical.contentInstance = {
+      id: physical.id,
+      type: 'resource',
+      resource: filesystemResourceKey('secondary', 'favorites/current.jpg'),
+      renderer: 'image-viewer',
+    }
+    const favorites: WorkspaceWindowDefinition = {
+      id: 'favorites',
+      title: 'Favorites',
+      contentInstance: {
+        id: 'favorites',
+        type: 'explorer',
+        location: filesystemResourceKey(FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID, 'favorites'),
+      },
+    }
+    const before = {
+      ...state([physical, favorites]),
+      pinnedTaskbarItems: [
+        {
+          id: 'favorites-pin',
+          resource: filesystemResourceKey(FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID, 'favorites'),
+          title: 'Favorites',
+        },
+      ],
+    }
+
+    const moved = applyWorkspacePathMutation(before, {
+      type: 'path-moved',
+      oldPath: 'favorites',
+      newPath: 'Archive/favorites',
+    })
+    const movedContent = moved.windows[0]?.contentInstance
+    expect(
+      movedContent?.type === 'resource' ? filesystemResourceAddress(movedContent.resource) : null,
+    ).toEqual({ rootId: 'secondary', path: 'Archive/favorites/current.jpg' })
+    expect(moved.windows[1]).toBe(favorites)
+    expect(moved.pinnedTaskbarItems).toEqual(before.pinnedTaskbarItems)
+
+    const removed = applyWorkspacePathMutation(moved, {
+      type: 'path-removed',
+      path: 'favorites',
+    })
+    expect(removed.windows.some((window) => window.id === 'favorites')).toBe(true)
+    expect(removed.pinnedTaskbarItems).toEqual(before.pinnedTaskbarItems)
   })
 })

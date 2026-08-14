@@ -1,4 +1,4 @@
-import type { ResourceSummary } from '@/lib/domain/resource'
+import type { ResourceKey, ResourceSummary } from '@/lib/domain/resource'
 
 export const SEARCH_MIN_QUERY_LENGTH = 3
 export const SEARCH_DEFAULT_LIMIT = 50
@@ -7,6 +7,8 @@ export type SearchRequest = Readonly<{
   query: string
   limit: number
   signal?: AbortSignal
+  contributorIds?: readonly string[]
+  scope?: ResourceKey
 }>
 
 export type SearchResult = Readonly<{

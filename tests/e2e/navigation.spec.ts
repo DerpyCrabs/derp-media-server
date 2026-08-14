@@ -221,6 +221,24 @@ test.describe('Application surface navigation', () => {
       .toBe('1')
   })
 
+  test('flushes Workspace state before an immediate surface switch', async ({ page }) => {
+    await page.goto('/workspace?ws=surface-switch-flush')
+    await expect(page.locator('[data-window-group]').first()).toBeVisible()
+    const windows = page.locator('[data-window-group]')
+    const initialCount = await windows.count()
+    await page.getByRole('button', { name: 'Open browser window' }).click()
+    await expect(windows).toHaveCount(initialCount + 1)
+
+    await page
+      .getByRole('navigation', { name: 'Application surfaces' })
+      .getByRole('link', { name: 'Library' })
+      .click()
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+    await page.goBack()
+    await expect(page.locator('.workspace-layout')).toBeVisible()
+    await expect(page.locator('[data-window-group]')).toHaveCount(initialCount + 1)
+  })
+
   test('shows a frontend not-found state for an unknown path', async ({ page }) => {
     await page.goto(libraryUrl('Music').replace(/^\//, '/missing/path'))
 
@@ -236,6 +254,26 @@ test.describe('Application surface navigation', () => {
     await page.goto('/')
 
     await expect(page.getByTestId('surface-switcher')).toBeHidden()
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+  })
+
+  test('clears unavailable Reader, viewer, and playback deep links', async ({ page }) => {
+    const [readerInspect] = await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().includes('/api/integrations/filesystem/inspect?'),
+      ),
+      page.goto('/?reader=Documents%2Fmissing.pdf&readerKind=pdf'),
+    ])
+    expect(readerInspect.status()).toBe(404)
+    await expect.poll(() => new URL(page.url()).searchParams.has('reader')).toBe(false)
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+
+    await page.goto('/?viewing=Documents%2Fmissing.txt')
+    await expect.poll(() => new URL(page.url()).searchParams.has('viewing')).toBe(false)
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+
+    await page.goto('/?playing=Music%2Fmissing.mp3')
+    await expect.poll(() => new URL(page.url()).searchParams.has('playing')).toBe(false)
     await expect(page.getByTestId('file-browser')).toBeVisible()
   })
 })

@@ -7,7 +7,11 @@ import {
   hermesSessionUrl,
   hermesTransportRoutes,
 } from './transport'
-import { deletedHermesSessionIds, registerHermesSessionLiveStatus } from './runtime-state'
+import {
+  deletedHermesSessionIds,
+  registerHermesDraftState,
+  registerHermesSessionLiveStatus,
+} from './runtime-state'
 import { runIntegrationAction } from '../http-client'
 import { hermesResourceKey } from './resource-key'
 import { filesystemPathForResourceKey } from '../filesystem/resource'
@@ -104,6 +108,13 @@ registerHermesSessionLiveStatus((sessionId) => {
     failed: session.status === 'error',
     unread: !!session.unread,
   }
+})
+registerHermesDraftState((draftId) => {
+  const state = sessions[`draft:${draftId}`]
+  return (
+    !!state &&
+    (!!state.composer.trim() || !!state.attachments.length || !!state.queuedPrompts.length)
+  )
 })
 let eventSource: EventSource | null = null
 const activeHermesSends = new Set<string>()

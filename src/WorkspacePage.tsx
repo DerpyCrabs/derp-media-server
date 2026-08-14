@@ -17,7 +17,6 @@ import type {
 import { applyWorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import {
   workspaceTaskbarPinIdentity,
-  workspaceTaskbarPinPath,
   workspaceTaskbarPinResource,
 } from '@/lib/workspace-taskbar-pins'
 import {
@@ -60,7 +59,10 @@ import { createWorkspaceSnapDragModel } from './workspace/workspace-page/create-
 import { useWorkspacePageDocumentChrome } from './workspace/workspace-page/use-workspace-page-document-chrome'
 import { useWorkspacePageLayoutBaseline } from './workspace/workspace-page/use-workspace-page-layout-baseline'
 import { useWorkspacePageLocalPersistence } from './workspace/workspace-page/use-workspace-page-local-persistence'
-import { useWorkspacePageServerData } from './workspace/workspace-page/use-workspace-page-server-data'
+import {
+  useWorkspacePageServerData,
+  withAuthoritativeServerPins,
+} from './workspace/workspace-page/use-workspace-page-server-data'
 
 import {
   clampTabInsertIndex,
@@ -109,13 +111,13 @@ import {
 import { contentRuntimeIdentity } from './features/content/runtime'
 import { confirmContentClose } from './features/content/confirm-content-close'
 import { applicationContentRegistry, applicationContentRuntime } from './integrations/registry'
-import { openApplicationResource } from './integrations/explorer-adapter'
 import { filesystemPathForResourceKey } from './integrations/filesystem/resource'
 import type { SearchHit } from './features/search/contracts'
 import { executeSearchHit } from './features/search/executor'
 import { applicationSearchCoordinator } from './integrations/search'
+import type { SurfaceLifecycleCoordinator } from './features/content/surface-lifecycle'
 
-export function WorkspacePage() {
+export function WorkspacePage(props: { lifecycle: SurfaceLifecycleCoordinator }) {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const playbackSession = usePlaybackSession()
@@ -155,10 +157,51 @@ export function WorkspacePage() {
 
   useWorkspacePageDocumentChrome(workspace, themeTick)
 
-  useWorkspacePageLocalPersistence({
+  const localPersistence = useWorkspacePageLocalPersistence({
     storageSessionKeyFull,
     workspace,
   })
+
+  const unregisterLifecycle = props.lifecycle.register('workspace', {
+    async leave() {
+      const current = workspace()
+      if (!current) {
+        localPersistence.flush()
+        return true
+      }
+      const content = current.windows
+        .map((window) => contentInstanceFromCurrentWindow(window))
+        .filter((instance): instance is ContentInstance => instance !== null)
+      const unique = [
+        ...new Map(
+          content.map((instance) => [contentRuntimeIdentity(instance), instance]),
+        ).values(),
+      ]
+      if (
+        !(await confirmContentClose(
+          applicationContentRuntime,
+          unique,
+          () => workspace() === current,
+        ))
+      ) {
+        return false
+      }
+      localPersistence.flush()
+      await Promise.all(unique.map((instance) => applicationContentRuntime.release(instance)))
+      return true
+    },
+    beforeUnload(event) {
+      localPersistence.flush()
+      const hasUnsaved = workspace()?.windows.some((window) => {
+        const instance = contentInstanceFromCurrentWindow(window)
+        return instance ? applicationContentRuntime.hasUnsavedChanges(instance) : false
+      })
+      if (!hasUnsaved) return
+      event.preventDefault()
+      event.returnValue = ''
+    },
+  })
+  onCleanup(unregisterLifecycle)
 
   createEffect(() => {
     const w = workspace()
@@ -286,13 +329,7 @@ export function WorkspacePage() {
 
     const serverPins = server.serverPinsList()
     untrack(() => {
-      if (serverPins.length > 0) {
-        setWorkspace((prev) => (prev ? { ...prev, pinnedTaskbarItems: serverPins } : prev))
-      } else if ((w.pinnedTaskbarItems?.length ?? 0) > 0) {
-        void server.persistPinsMutation.mutateAsync({
-          items: w.pinnedTaskbarItems ?? [],
-        })
-      }
+      setWorkspace((prev) => (prev ? withAuthoritativeServerPins(prev, serverPins) : prev))
     })
     setPinsHydratedFor(key)
   })
@@ -1169,32 +1206,25 @@ export function WorkspacePage() {
   }
 
   async function selectPinned(pin: PinnedTaskbarItem) {
-    const resource = workspaceTaskbarPinResource(pin)
-    if (!resource) return
-    const summary = await applicationContentRegistry.inspect(resource)?.inspect(resource)
+    const key = workspaceTaskbarPinResource(pin)
+    if (!key) return
+    const summary = await applicationContentRegistry.inspect(key)?.inspect(key)
     if (!summary) return
-    const isDirectory = resourceIsBrowsable(summary)
-    const path = workspaceTaskbarPinPath(pin)
-    if (path === null) {
-      const content = await openApplicationResource(resource, pin.title, {
-        browse: isDirectory,
-      })
-      if (content) openContentWindow(workspace()?.activeWindowId ?? '', content)
-      return
-    }
-    if (isDirectory) {
-      openContentWindow(workspace()?.activeWindowId ?? '', {
-        id: `pinned-${resource.provider}-explorer`,
-        type: 'explorer',
-        location: resource,
-      })
-      return
-    }
-    if (applicationContentRegistry.playbackItem(summary)) {
+    const playable = applicationContentRegistry.playbackItem(summary) !== null
+    const plan = openResource(
+      summary,
+      resourceIsBrowsable(summary) ? 'browse' : playable ? 'play' : 'default',
+      {
+        surface: 'workspace',
+        disposition: 'window',
+      },
+    )
+    if (plan.status !== 'ready') return
+    if (playable && plan.kind === 'render') {
       requestPlay(summary)
       return
     }
-    openViewer('', summary)
+    placeWorkspacePlan(workspace()?.activeWindowId ?? '', plan)
   }
 
   const [pinMenu, setPinMenu] = createSignal<{

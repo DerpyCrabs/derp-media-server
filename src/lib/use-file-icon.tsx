@@ -25,6 +25,7 @@ import MessageSquare from 'lucide-solid/icons/message-square'
 import { applicationContentRegistry } from '@/src/integrations/registry'
 import {
   filesystemResourceAddress,
+  resourceIsBrowsable,
   type ResourceAppearance,
   type ResourceSummary,
 } from '@/lib/domain/resource'
@@ -177,13 +178,7 @@ function renderFileIcon(
 function resourceFallbackType(resource: ResourceSummary): MediaType {
   const metadataType = resource.metadata?.fileType
   if (Object.values(MediaType).includes(metadataType as MediaType)) return metadataType as MediaType
-  if (
-    resource.capabilities.includes('browse') ||
-    resource.presentation === 'browse' ||
-    resource.kind === 'folder' ||
-    resource.kind === 'root' ||
-    resource.kind === 'collection'
-  ) {
+  if (resourceIsBrowsable(resource)) {
     return MediaType.FOLDER
   }
   switch (resource.presentation) {

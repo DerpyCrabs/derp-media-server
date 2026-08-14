@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID,
   filesystemResourceAddress,
   filesystemResourceKey,
+  physicalFilesystemResourceAddress,
   resourceKey,
   type ResourceSummary,
 } from '@/lib/domain/resource'
@@ -68,5 +70,16 @@ describe('filesystem resource semantics', () => {
     ).toBe('zip')
     expect(filesystemResourceExtension(resource('Media/archive.tar', 'unsupported'))).toBe('tar')
     expect(filesystemPathForResourceKey(resourceKey('fixture', 'opaque'))).toBeNull()
+  })
+
+  test('does not project virtual application collections as physical paths', () => {
+    const favorites = filesystemResourceKey(FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID, 'favorites')
+
+    expect(filesystemResourceAddress(favorites)).toEqual({
+      rootId: FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID,
+      path: 'favorites',
+    })
+    expect(physicalFilesystemResourceAddress(favorites)).toBeNull()
+    expect(filesystemPathForResourceKey(favorites)).toBeNull()
   })
 })

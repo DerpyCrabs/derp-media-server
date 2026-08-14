@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { filesystemResourceKey } from '@/lib/domain/resource'
+import {
+  FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID,
+  filesystemResourceKey,
+} from '@/lib/domain/resource'
 import {
   parseWorkspaceTaskbarPins,
   serializeWorkspaceTaskbarPins,
@@ -30,6 +33,17 @@ describe('workspace taskbar pins', () => {
     expect(parseWorkspaceTaskbarPins([pin])).toEqual([pin])
     expect(workspaceTaskbarPinPath(pin)).toBeNull()
     expect(JSON.stringify(serializeWorkspaceTaskbarPins([pin]))).not.toContain('/session/')
+  })
+
+  test('does not expose application collections as physical pin paths', () => {
+    const pin: WorkspaceTaskbarPin = {
+      id: 'favorites',
+      resource: filesystemResourceKey(FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID, 'favorites'),
+      title: 'Favorites',
+    }
+
+    expect(workspaceTaskbarPinPath(pin)).toBeNull()
+    expect(serializeWorkspaceTaskbarPins([pin])).toEqual([pin])
   })
 
   test('rejects absent, path-based, and malformed identities', () => {

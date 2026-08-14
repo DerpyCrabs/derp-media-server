@@ -152,6 +152,16 @@ pub(crate) struct IntegrationActionOutcomeDto {
 pub(crate) struct IntegrationSearchRequest {
     pub query: String,
     pub limit: usize,
+    pub contributors: Option<Vec<String>>,
+    pub scope: Option<ResourceKeyDto>,
+}
+
+impl IntegrationSearchRequest {
+    pub(crate) fn includes(&self, contributor: &str) -> bool {
+        self.contributors
+            .as_ref()
+            .is_none_or(|values| values.iter().any(|value| value == contributor))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

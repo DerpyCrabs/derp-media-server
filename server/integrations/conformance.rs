@@ -201,6 +201,8 @@ mod tests {
                 .search(IntegrationSearchRequest {
                     query: search_query.into(),
                     limit: 10,
+                    contributors: None,
+                    scope: None,
                 })
                 .await;
             assert_eq!(response.schema_version, INTEGRATION_SCHEMA_VERSION);
@@ -375,6 +377,7 @@ mod tests {
                 json!({"sessions":[],"total":0}),
                 json!({"sessions":[session.clone()],"total":1}),
                 json!({"sessions":[],"total":0}),
+                session.clone(),
                 session,
             ])),
             rpcs: Mutex::new(VecDeque::from([json!({"projects":[]})])),

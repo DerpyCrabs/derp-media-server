@@ -1,6 +1,6 @@
 import { getMediaTypeFromPath } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
-import { Show, createMemo, createResource } from 'solid-js'
+import { Show, createEffect, createMemo, createResource } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { ContentRuntimeView } from '../features/content/ContentRuntimeView'
 import {
@@ -39,7 +39,21 @@ export function MainMediaPlayers(_props: Props) {
     } as const
   })
   const [content] = createResource(contentRequest, filesystemContentInstance)
-  const visibleContent = createMemo(() => (contentRequest() ? (content() ?? null) : null))
+  createEffect(() => {
+    if (!contentRequest()) return
+    const resourceState = content.state
+    const unavailable =
+      resourceState === 'errored' || (resourceState === 'ready' && content.latest === null)
+    if (!unavailable) return
+    closeViewer()
+  })
+  const visibleContent = createMemo(() => {
+    if (!contentRequest()) return null
+    const resourceState = content.state
+    return resourceState === 'ready' || resourceState === 'refreshing'
+      ? (content.latest ?? null)
+      : null
+  })
 
   return (
     <>

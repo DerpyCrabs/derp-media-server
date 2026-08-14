@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID,
   filesystemResourceAddress,
   filesystemResourceKey,
   resourceKey,
@@ -22,6 +23,7 @@ import {
 import { createHermesChatRendererModule } from '@/src/integrations/hermes/renderer'
 import type { HermesChatPaneProps } from '@/src/integrations/hermes/HermesChatPane'
 import {
+  canMoveApplicationResource,
   explorerLocationFromQuery,
   explorerLocationQuery,
 } from '@/src/integrations/explorer-adapter'
@@ -124,7 +126,12 @@ describe('filesystem integration module', () => {
     await registry.actions(file)!.run({
       actionId: 'filesystem.move',
       resource: file,
-      input: { destination: filesystemResourceKey('media', 'Archive') },
+      input: { destination: filesystemResourceKey('archive', 'Incoming') },
+    })
+    await registry.actions(file)!.run({
+      actionId: 'filesystem.copy',
+      resource: file,
+      input: { destination: 'Archive' },
     })
     expect(calls).toEqual([
       {
@@ -136,11 +143,54 @@ describe('filesystem integration module', () => {
         key: file.key,
         action: 'filesystem.move',
         input: {
-          destination: filesystemResourceKey('media', 'Archive'),
-          destinationDir: 'Archive',
+          destination: filesystemResourceKey('archive', 'Incoming'),
+        },
+      },
+      {
+        key: file.key,
+        action: 'filesystem.copy',
+        input: {
+          destination: filesystemResourceKey('configured-default', 'Archive'),
         },
       },
     ])
+  })
+
+  test('rejects virtual and foreign move destinations before transport', async () => {
+    const calls: unknown[] = []
+    const transport: FilesystemIntegrationTransport = {
+      browseResource: async (request) => filesystemPage(request.location),
+      inspectResource: async (key) => filesystemPage(key).locationSummary!,
+      runResourceAction: async (key, action, input) => {
+        calls.push({ key, action, input })
+        return { success: true }
+      },
+    }
+    const registry = createContentRegistry([createFilesystemIntegrationModule(transport)])
+    const file: ResourceSummary = {
+      key: filesystemResourceKey('media', 'Docs/notes.md'),
+      name: 'notes.md',
+      kind: 'file',
+      capabilities: ['filesystem.move'],
+    }
+    const action = registry.actions(file)!
+
+    const virtual = await action.run({
+      actionId: 'filesystem.move',
+      resource: file,
+      input: {
+        destination: filesystemResourceKey(FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID, 'favorites'),
+      },
+    })
+    const foreign = await action.run({
+      actionId: 'filesystem.move',
+      resource: file,
+      input: { destination: resourceKey('fixture', 'folder') },
+    })
+
+    expect(virtual).toMatchObject({ schemaVersion: 1, code: 'badRequest' })
+    expect(foreign).toMatchObject({ schemaVersion: 1, code: 'badRequest' })
+    expect(calls).toEqual([])
   })
 })
 
@@ -154,6 +204,23 @@ describe('canonical integration URL identity', () => {
       if (value !== null) params.set(key, value)
     }
     expect(explorerLocationFromQuery(params).key).toEqual(expected)
+  })
+})
+
+describe('application resource drag scope', () => {
+  test('allows typed physical cross-root moves and rejects virtual or foreign destinations', () => {
+    const source = filesystemResourceKey('media', 'Docs/notes.md')
+
+    expect(canMoveApplicationResource(source, filesystemResourceKey('archive', 'Incoming'))).toBe(
+      true,
+    )
+    expect(
+      canMoveApplicationResource(
+        source,
+        filesystemResourceKey(FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID, 'favorites'),
+      ),
+    ).toBe(false)
+    expect(canMoveApplicationResource(source, resourceKey('fixture', 'folder'))).toBe(false)
   })
 })
 

@@ -152,9 +152,21 @@ describe('architecture boundaries', () => {
       })
     }
     const obsolete =
-      /\bLEGACY_[A-Z0-9_]+\b|\b(?:LegacyPathCapability|HermesLegacyPaths|inspectLegacyCanvasCollection|legacyTextEditorDraftKey|readAndMigrateTextEditorDraft|restoreLegacy|upgrade_v1|legacy_is_newer|hermesSession|hermesDraft)\b|legacy_state_import|legacy_paths|theme-palette|theme-mode|video-playback-times|assist-custom/
+      /\bLEGACY_[A-Z0-9_]+\b|\b(?:LegacyPathCapability|HermesLegacyPaths|inspectLegacyCanvasCollection|legacyTextEditorDraftKey|readAndMigrateTextEditorDraft|restoreLegacy|upgrade_v1|legacy_is_newer|hermesSession|hermesDraft)\b|legacy_paths|theme-palette|theme-mode|video-playback-times|assist-custom/
+    const currentMasterUpgrade =
+      files.find(({ path }) => path === 'server/state_db.rs')?.source ?? ''
 
     expect(files.filter(({ source }) => obsolete.test(source)).map(({ path }) => path)).toEqual([])
+    expect(
+      files
+        .filter(({ path }) => path !== 'server/state_db.rs')
+        .filter(({ source }) => source.includes('legacy_state_import'))
+        .map(({ path }) => path),
+    ).toEqual([])
+    expect(currentMasterUpgrade).toContain('const MASTER_SCHEMA_VERSION: i64 = 3')
+    expect(currentMasterUpgrade).toContain('VACUUM INTO ?1')
+    expect(currentMasterUpgrade).toContain('fn migrate_master_canvas_document')
+    expect(currentMasterUpgrade).toContain('legacy_state_import')
   })
 
   test('Hermes export URL has one provider-owned route contract', async () => {

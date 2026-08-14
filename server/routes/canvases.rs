@@ -1,6 +1,7 @@
 use crate::{
     app::Shared,
     canvas_persistence::{self, CanvasDocument, SaveCanvasDocument},
+    contracts::API_CANVASES_PATH,
     error::AppResult,
     extractors::ApiJson,
     state_db,
@@ -26,5 +27,5 @@ async fn save(
 }
 
 pub fn router() -> Router<Shared> {
-    Router::new().route("/api/canvases", get(list).put(save))
+    Router::new().route(API_CANVASES_PATH, get(list).put(save))
 }

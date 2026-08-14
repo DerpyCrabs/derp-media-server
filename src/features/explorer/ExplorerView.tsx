@@ -8,6 +8,7 @@ import { ExplorerBreadcrumbs } from './ExplorerBreadcrumbs'
 import { ExplorerVirtualizedItems } from './ExplorerVirtualizedItems'
 import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
 import type { ContentInstance } from '@/lib/domain/content'
+import { resourceIsBrowsable } from '@/lib/domain/resource'
 import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
 import type { PasteData } from '@/lib/paste-data'
 import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
@@ -65,7 +66,7 @@ type MenuState<TPayload> = Readonly<{
 }>
 
 function browseable<TPayload>(item: ExplorerItem<TPayload>): boolean {
-  return item.resource.capabilities.includes('browse') || item.resource.presentation === 'browse'
+  return resourceIsBrowsable(item.resource)
 }
 
 function actionOperation(action: ExplorerActionDescriptor): string {
@@ -593,9 +594,16 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
   function dragOverItem(item: ExplorerItem<TPayload>, event: DragEvent) {
     const source = draggedItem()
     const move = source?.actions.find((action) => actionOperation(action) === 'move')
-    if (source && move && browseable(item) && source.key !== item.key) {
-      event.preventDefault()
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+    if (source) {
+      if (
+        move &&
+        browseable(item) &&
+        source.key !== item.key &&
+        (props.canMoveItem?.(source, item) ?? true)
+      ) {
+        event.preventDefault()
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+      }
       return
     }
     if (props.onDropOnItem) event.preventDefault()
@@ -604,10 +612,17 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
   function dropOnItem(item: ExplorerItem<TPayload>, event: DragEvent) {
     const source = draggedItem()
     const move = source?.actions.find((action) => actionOperation(action) === 'move')
-    if (source && move && browseable(item) && source.key !== item.key) {
-      event.preventDefault()
-      setDraggedItem(null)
-      void runAction(move, source, { destination: item.resource.key })
+    if (source) {
+      if (
+        move &&
+        browseable(item) &&
+        source.key !== item.key &&
+        (props.canMoveItem?.(source, item) ?? true)
+      ) {
+        event.preventDefault()
+        setDraggedItem(null)
+        void runAction(move, source, { destination: item.resource.key })
+      }
       return
     }
     props.onDropOnItem?.(item, event)
@@ -1418,11 +1433,13 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
                   data-testid={
                     actionOperation(action.descriptor) === 'openInNewTab'
                       ? 'breadcrumb-menu-open-new-tab'
-                      : actionOperation(action.descriptor) === 'openInSplitView'
-                        ? 'workspace-file-menu-open-split-view'
-                        : actionOperation(action.descriptor) === 'openInWorkspace'
-                          ? 'breadcrumb-menu-open-workspace'
-                          : undefined
+                      : actionOperation(action.descriptor) === 'pickNewTabTarget'
+                        ? 'workspace-pick-new-tab-target'
+                        : actionOperation(action.descriptor) === 'openInSplitView'
+                          ? 'workspace-file-menu-open-split-view'
+                          : actionOperation(action.descriptor) === 'openInWorkspace'
+                            ? 'breadcrumb-menu-open-workspace'
+                            : undefined
                   }
                   class='block w-full rounded px-2 py-1.5 text-left hover:bg-muted'
                   onClick={() => {

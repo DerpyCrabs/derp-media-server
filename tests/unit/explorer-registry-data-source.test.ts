@@ -46,6 +46,59 @@ describe('registry Explorer data source', () => {
     expect(page.items.map((item) => item.resource)).toEqual([fixtureRoot])
   })
 
+  test('composes server-authoritative roots when static roots differ or are omitted', async () => {
+    const staticFilesystemRoot: ResourceSummary = {
+      key: resourceKey('filesystem', 'static-root'),
+      name: 'Static library',
+      kind: 'root',
+      capabilities: ['browse'],
+    }
+    const serverFilesystemRoot: ResourceSummary = {
+      ...staticFilesystemRoot,
+      key: resourceKey('filesystem', 'server-root'),
+      name: 'Server library',
+    }
+    const serverFixtureRoot: ResourceSummary = {
+      key: resourceKey('fixture', 'server-fixture-root'),
+      name: 'Server fixture',
+      kind: 'root',
+      capabilities: ['browse'],
+    }
+    const roots = new Map([
+      ['filesystem', serverFilesystemRoot],
+      ['fixture', serverFixtureRoot],
+    ])
+    const registry = createContentRegistry(
+      [
+        {
+          id: 'filesystem',
+          root: staticFilesystemRoot,
+          browse: {
+            async browse() {
+              return {
+                schemaVersion: 1,
+                location: serverFilesystemRoot.key,
+                locationSummary: serverFilesystemRoot,
+                items: [],
+                total: 0,
+              }
+            },
+          },
+        },
+        { id: 'fixture' },
+      ],
+      { root: (id) => roots.get(id) ?? null },
+    )
+
+    const page = await createRegistryExplorerDataSource(registry).browse({
+      location: { key: serverFilesystemRoot.key },
+      signal: new AbortController().signal,
+      reason: 'initialize',
+    })
+
+    expect(page.items.map((item) => item.resource)).toEqual([serverFixtureRoot])
+  })
+
   test('maps provider browse metadata and arbitrary action descriptors', async () => {
     const root: ResourceSummary = {
       key: resourceKey('fixture', 'root'),

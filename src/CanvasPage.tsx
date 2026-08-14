@@ -44,6 +44,7 @@ import type { ContentInstance } from '@/lib/domain/content'
 import {
   DEFAULT_FILESYSTEM_ROOT_ID,
   filesystemResourceKey,
+  resourceIsBrowsable,
   sameResourceKey,
   type ResourceKey,
   type ResourceSummary,
@@ -102,6 +103,7 @@ import { openResource } from './integrations/open-resource'
 import type { SearchHit } from './features/search/contracts'
 import { executeSearchHit } from './features/search/executor'
 import { applicationSearchCoordinator } from './integrations/search'
+import type { SurfaceLifecycleCoordinator } from './features/content/surface-lifecycle'
 
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
   browser: { width: 640, height: 480 },
@@ -377,7 +379,7 @@ function canvasDialogLabel(dialog: CanvasDialogState): string {
   }
 }
 
-export function CanvasPage() {
+export function CanvasPage(props: { lifecycle: SurfaceLifecycleCoordinator }) {
   const playbackSession = usePlaybackSession()
   const playback = usePlaybackSnapshot()
   const browserStorage =
@@ -579,6 +581,39 @@ export function CanvasPage() {
     }
     return result
   }
+
+  const unregisterLifecycle = props.lifecycle.register('canvas', {
+    async leave() {
+      const current = state()
+      const content = current.windows
+        .map((item) => contentInstanceFromCurrentWindow(item.definition))
+        .filter((instance): instance is ContentInstance => instance !== null)
+      const unique = [
+        ...new Map(
+          content.map((instance) => [contentRuntimeIdentity(instance), instance]),
+        ).values(),
+      ]
+      if (
+        !(await confirmContentClose(applicationContentRuntime, unique, () => state() === current))
+      ) {
+        return false
+      }
+      persistActiveState()
+      await Promise.all(unique.map((instance) => applicationContentRuntime.release(instance)))
+      return true
+    },
+    beforeUnload(event) {
+      persistActiveState()
+      const hasUnsaved = state().windows.some((item) => {
+        const instance = contentInstanceFromCurrentWindow(item.definition)
+        return instance ? applicationContentRuntime.hasUnsavedChanges(instance) : false
+      })
+      if (!hasUnsaved) return
+      event.preventDefault()
+      event.returnValue = ''
+    },
+  })
+  onCleanup(unregisterLifecycle)
 
   function sameCanvasContent(left: PersistedCanvas, right: PersistedCanvas): boolean {
     return (
@@ -1381,7 +1416,7 @@ export function CanvasPage() {
     }
     const intent = options.readerKind
       ? 'read'
-      : resource.capabilities.includes('browse')
+      : resourceIsBrowsable(resource)
         ? 'browse'
         : 'default'
     const plan = openResource(resource, intent, {
@@ -1399,9 +1434,7 @@ export function CanvasPage() {
   }
 
   function addBrowsableRootWindow(point: { x: number; y: number }) {
-    const root = applicationContentRegistry
-      .roots()
-      .find((resource) => resource.capabilities.includes('browse'))
+    const root = applicationContentRegistry.roots().find(resourceIsBrowsable)
     return root ? addResourceWindow(root, point, { duplicate: true }) : undefined
   }
 
@@ -1598,7 +1631,7 @@ export function CanvasPage() {
 
   function openReaderFromBrowser(sourceWindowId: string, resource: ResourceSummary) {
     const source = state().windows.find((window) => window.id === sourceWindowId)
-    if (!source || !resource.capabilities.includes('browse')) return
+    if (!source) return
     const created = addResourceWindow(
       resource,
       {
@@ -1634,7 +1667,11 @@ export function CanvasPage() {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => item.resource.capabilities.includes('browse'),
+        available: (item) =>
+          openResource(item.resource, 'read', {
+            surface: 'canvas',
+            disposition: 'window',
+          }).status === 'ready',
         run: (item) => openReaderFromBrowser(sourceWindowId, item.resource),
       },
     ]

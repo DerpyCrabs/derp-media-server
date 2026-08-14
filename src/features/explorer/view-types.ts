@@ -62,6 +62,7 @@ export type ExplorerViewProps<TPayload = unknown> = Readonly<{
     item?: ExplorerItem<TPayload>,
   ) => void
   onSnapshot?: (snapshot: ExplorerSnapshot<TPayload>) => void
+  canMoveItem?: (source: ExplorerItem<TPayload>, destination: ExplorerItem<TPayload>) => boolean
   onDragStart?: (item: ExplorerItem<TPayload>, event: DragEvent) => void
   onDropOnItem?: (item: ExplorerItem<TPayload>, event: DragEvent) => void
   onDropFiles?: (files: readonly File[], location: ExplorerLocation) => void | Promise<void>

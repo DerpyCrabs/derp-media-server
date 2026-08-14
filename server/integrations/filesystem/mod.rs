@@ -20,7 +20,7 @@ use crate::{
 };
 use futures_util::future::BoxFuture;
 use serde_json::{Map, Value, json};
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, io::Read, path::Path, sync::Arc};
 
 pub(crate) mod persisted_content;
 mod routes;
@@ -29,6 +29,152 @@ pub(crate) const PROVIDER_ID: &str = "filesystem";
 const DEFAULT_ROOT_ID: &str = "configured-default";
 const COLLECTION_ROOT_ID: &str = "application-collections";
 const KEY_PREFIX: &str = "v1:";
+const KNOWLEDGE_SEARCH_MAX_FILES: usize = 10_000;
+const KNOWLEDGE_SEARCH_MAX_ENTRIES: usize = 20_000;
+const KNOWLEDGE_SEARCH_MAX_ROOTS: usize = 64;
+const KNOWLEDGE_SEARCH_MAX_FILE_BYTES: u64 = 1024 * 1024;
+const KNOWLEDGE_SEARCH_MAX_TOTAL_BYTES: u64 = 16 * 1024 * 1024;
+const KNOWLEDGE_SEARCH_MAX_CONCURRENCY: usize = 4;
+
+#[derive(Default)]
+struct KnowledgeSearchScan {
+    results: Vec<IntegrationSearchResultDto>,
+    truncated: bool,
+}
+
+fn read_bounded_text(path: &Path, limit: u64) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::with_capacity(limit.min(64 * 1024) as usize);
+    file.take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > limit {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn logical_walk_entry(
+    config: &Config,
+    resolved: &media::ResolvedPath,
+    entry: &walkdir::DirEntry,
+) -> Option<(String, String)> {
+    let relative = media::logical_relative_path(&resolved.root.path, entry.path())?;
+    let name = media::logical_component(entry.file_name())?;
+    let logical = if config.roots.len() > 1 {
+        format!("{}/{relative}", resolved.root.name)
+    } else {
+        relative
+    };
+    media::logical_path_is_safe(&logical).then_some((logical, name))
+}
+
+fn search_knowledge_bases(
+    config: &Config,
+    query: &str,
+    limit: usize,
+    scope: Option<&str>,
+) -> AppResult<KnowledgeSearchScan> {
+    let mut knowledge_roots = store::read(
+        config,
+        store::StateDocument::SettingsV1,
+        crate::app::default_settings(),
+    )?["knowledgeBases"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|root| media::logical_path_is_safe(root))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if let Some(scope) = scope {
+        knowledge_roots.retain(|root| root == scope);
+    }
+    let needle = query.to_lowercase();
+    let mut results = Vec::new();
+    let mut visited_entries = 0usize;
+    let mut scanned_files = 0usize;
+    let mut scanned_bytes = 0u64;
+    let mut truncated = knowledge_roots.len() > KNOWLEDGE_SEARCH_MAX_ROOTS;
+
+    'roots: for root in knowledge_roots.into_iter().take(KNOWLEDGE_SEARCH_MAX_ROOTS) {
+        let Ok(resolved) = media::resolve(config, &root) else {
+            continue;
+        };
+        for entry in walkdir::WalkDir::new(&resolved.full)
+            .into_iter()
+            .filter_entry(visible_search_entry)
+            .filter_map(Result::ok)
+        {
+            visited_entries += 1;
+            if results.len() >= limit
+                || visited_entries > KNOWLEDGE_SEARCH_MAX_ENTRIES
+                || scanned_files >= KNOWLEDGE_SEARCH_MAX_FILES
+            {
+                truncated = true;
+                break 'roots;
+            }
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let Some((path, name)) = logical_walk_entry(config, &resolved, &entry) else {
+                continue;
+            };
+            let extension = media::extension(Path::new(&name));
+            if !matches!(extension.as_str(), "md" | "txt") {
+                continue;
+            }
+            scanned_files += 1;
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            let size = metadata.len();
+            if size > KNOWLEDGE_SEARCH_MAX_FILE_BYTES {
+                truncated = true;
+                continue;
+            }
+            if scanned_bytes.saturating_add(size) > KNOWLEDGE_SEARCH_MAX_TOTAL_BYTES {
+                truncated = true;
+                break 'roots;
+            }
+            let Some(content) = read_bounded_text(entry.path(), KNOWLEDGE_SEARCH_MAX_FILE_BYTES)
+            else {
+                truncated = true;
+                continue;
+            };
+            scanned_bytes = scanned_bytes.saturating_add(content.len() as u64);
+            if !content.to_lowercase().contains(&needle) {
+                continue;
+            }
+            let resource = ResourceSummaryDto {
+                key: encode_key(DEFAULT_ROOT_ID, &path),
+                name: name.clone(),
+                kind: "file".into(),
+                mime: mime_guess::from_path(&path).first_raw().map(str::to_string),
+                capabilities: vec!["read".into()],
+                presentation: Some("text".into()),
+                appearance: None,
+                size: Some(size),
+                metadata: Some(HashMap::from([(
+                    "logicalPath".into(),
+                    Value::String(path.clone()),
+                )])),
+            };
+            results.push(IntegrationSearchResultDto {
+                id: format!("filesystem.knowledge:{path}"),
+                contributor: "filesystem.knowledge".into(),
+                resource,
+                title: name,
+                detail: Some(root.clone()),
+                snippet: Some(crate::app::search_snippet(&content, &needle)),
+                score: 0.75 / (results.len() + 1) as f64,
+                action: None,
+            });
+        }
+    }
+
+    Ok(KnowledgeSearchScan { results, truncated })
+}
 
 fn file_presentation(media_type: &str) -> &'static str {
     match media_type {
@@ -56,11 +202,18 @@ fn file_icon(media_type: &str) -> &'static str {
 pub(crate) struct FilesystemIntegration {
     config: Config,
     pub(crate) search: Arc<FileSearch>,
+    knowledge_searches: Arc<tokio::sync::Semaphore>,
 }
 
 impl FilesystemIntegration {
     fn new(config: Config, search: Arc<FileSearch>) -> Arc<Self> {
-        Arc::new(Self { config, search })
+        Arc::new(Self {
+            config,
+            search,
+            knowledge_searches: Arc::new(tokio::sync::Semaphore::new(
+                KNOWLEDGE_SEARCH_MAX_CONCURRENCY,
+            )),
+        })
     }
 
     fn root_summary(&self) -> ResourceSummaryDto {
@@ -130,7 +283,7 @@ impl FilesystemIntegration {
 
     fn logical_path(&self, root_id: &str, path: &str) -> AppResult<String> {
         let path = normalize_path(path)?;
-        if root_id == DEFAULT_ROOT_ID || self.config.roots.len() == 1 {
+        if root_id == DEFAULT_ROOT_ID {
             return Ok(path);
         }
         let root = self
@@ -139,6 +292,9 @@ impl FilesystemIntegration {
             .iter()
             .find(|root| root.id == root_id)
             .ok_or_else(|| AppError::not_found("Filesystem root not found"))?;
+        if self.config.roots.len() == 1 {
+            return Ok(path);
+        }
         Ok(if path.is_empty() {
             root.name.clone()
         } else {
@@ -203,6 +359,9 @@ impl FilesystemIntegration {
         };
         let mut items = Vec::new();
         for (path, view_count) in paths {
+            if !media::logical_path_is_safe(&path) {
+                continue;
+            }
             let Ok(resolved) = media::resolve(&self.config, &path) else {
                 continue;
             };
@@ -250,9 +409,10 @@ impl FilesystemIntegration {
             .flatten()
             .filter_map(Value::as_str)
         {
-            let Ok(root) = normalize_path(&value.replace('\\', "/")) else {
+            if !media::logical_path_is_safe(value) {
                 continue;
-            };
+            }
+            let root = value.to_string();
             if !root.is_empty()
                 && (logical_path == root
                     || logical_path
@@ -277,15 +437,14 @@ impl FilesystemIntegration {
             .filter_entry(visible_search_entry)
             .filter_map(Result::ok)
         {
-            if !entry.file_type().is_file()
-                || entry
-                    .path()
-                    .extension()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_ascii_lowercase()
-                    != "md"
-            {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let Some((logical_path, name)) = logical_walk_entry(&self.config, &resolved, &entry)
+            else {
+                continue;
+            };
+            if media::extension(Path::new(&name)) != "md" {
                 continue;
             }
             let Ok(metadata) = entry.metadata() else {
@@ -296,18 +455,6 @@ impl FilesystemIntegration {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis();
-            let relative = entry
-                .path()
-                .strip_prefix(&resolved.root.path)
-                .unwrap_or(entry.path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            let logical_path = if self.config.roots.len() > 1 {
-                format!("{}/{relative}", resolved.root.name)
-            } else {
-                relative
-            };
-            let name = entry.file_name().to_string_lossy().to_string();
             let mut resource = self.summary(
                 root_id,
                 &logical_path,
@@ -423,7 +570,7 @@ impl BrowseCapability for FilesystemIntegration {
                     breadcrumbs: vec![self.root_summary(), summary],
                     items: items.into_iter().skip(offset).take(limit).collect(),
                     recent_items: Vec::new(),
-                    next_cursor: (offset + limit < total).then(|| (offset + limit).to_string()),
+                    next_cursor: next_cursor(offset, limit, total),
                     total,
                 });
             }
@@ -437,9 +584,9 @@ impl BrowseCapability for FilesystemIntegration {
             let offset = parse_cursor(request.cursor.as_deref())?;
             let mut summaries = media::list(&self.config, &logical)?
                 .into_iter()
-                .map(|item| {
+                .filter_map(|item| {
                     let path = item.path.clone();
-                    self.summary(&root_id, &path, item)
+                    media::logical_path_is_safe(&path).then(|| self.summary(&root_id, &path, item))
                 })
                 .collect::<Vec<_>>();
             if address_path.is_empty() {
@@ -461,7 +608,7 @@ impl BrowseCapability for FilesystemIntegration {
                 breadcrumbs: self.breadcrumbs(&root_id, &address_path)?,
                 items: summaries,
                 recent_items,
-                next_cursor: (offset + limit < total).then(|| (offset + limit).to_string()),
+                next_cursor: next_cursor(offset, limit, total),
                 total,
             })
         })
@@ -476,7 +623,7 @@ impl InspectCapability for FilesystemIntegration {
                 return self.collection_summary(&address_path);
             }
             if address_path.is_empty() {
-                return Ok(self.root_summary());
+                return self.root_summary_for(&root_id);
             }
             let logical = self.logical_path(&root_id, &address_path)?;
             let parent = Path::new(&logical)
@@ -546,7 +693,6 @@ impl ActionCapability for FilesystemIntegration {
                             .create(&target_logical, CreateContent::File(&content))
                             .await?;
                     }
-                    crate::app::emit(state, &target_logical);
                     let key = encode_key(&root_id, &target_address);
                     let resource = self.inspect(key).await?;
                     Ok(action_outcome(
@@ -577,7 +723,6 @@ impl ActionCapability for FilesystemIntegration {
                             metadata.get("expectedVersion").and_then(Value::as_f64),
                         )
                         .await?;
-                    crate::app::emit(state, &logical);
                     let resource = self.inspect(request.key).await?;
                     Ok(action_outcome(
                         Some(resource),
@@ -615,7 +760,6 @@ impl ActionCapability for FilesystemIntegration {
                             .create(&target_logical, CreateContent::File(&content))
                             .await?;
                     }
-                    crate::app::emit(state, &target_logical);
                     let resource = self.inspect(encode_key(&root_id, &target_address)).await?;
                     Ok(action_outcome(
                         Some(resource),
@@ -626,43 +770,45 @@ impl ActionCapability for FilesystemIntegration {
                     if address_path.is_empty() {
                         return Err(AppError::bad("Filesystem root cannot be moved"));
                     }
-                    let target_address = if let Some(new_path) =
+                    let (target_root_id, target_address) = if let Some(new_path) =
                         metadata.get("newPath").and_then(Value::as_str)
                     {
-                        normalize_path(new_path)?
+                        (root_id.clone(), normalize_path(new_path)?)
                     } else if request.action == "filesystem.move" {
                         let destination = metadata
-                            .get("destinationDir")
-                            .or_else(|| metadata.get("destination"))
-                            .and_then(Value::as_str)
-                            .ok_or_else(|| AppError::bad("Destination directory is required"))?;
+                            .get("destination")
+                            .cloned()
+                            .ok_or_else(|| AppError::bad("Destination resource is required"))?;
+                        let destination: ResourceKeyDto = serde_json::from_value(destination)
+                            .map_err(|_| AppError::bad("Destination resource is invalid"))?;
+                        let (destination_root_id, destination_address) = decode_key(&destination)?;
+                        if destination_root_id == COLLECTION_ROOT_ID {
+                            return Err(AppError::bad(
+                                "Application collections cannot be move destinations",
+                            ));
+                        }
                         let name = address_path
                             .rsplit('/')
                             .next()
                             .ok_or_else(|| AppError::bad("Filesystem resource has no name"))?;
-                        child_path(destination, name)?
+                        (destination_root_id, child_path(&destination_address, name)?)
                     } else {
                         let name =
                             input_name.ok_or_else(|| AppError::bad("New name is required"))?;
                         let parent = address_path.rsplit_once('/').map_or("", |value| value.0);
-                        child_path(parent, name)?
+                        (root_id.clone(), child_path(parent, name)?)
                     };
                     if target_address.is_empty() {
                         return Err(AppError::bad("Destination path is required"));
                     }
-                    let target_logical = self.logical_path(&root_id, &target_address)?;
+                    let target_logical = self.logical_path(&target_root_id, &target_address)?;
                     state
                         .file_commands
                         .move_path(&logical, &target_logical)
                         .await?;
-                    crate::app::emit_path_moved(state, &logical, &target_logical);
-                    crate::app::emit(state, &logical);
-                    if crate::app::parent_logical(&logical)
-                        != crate::app::parent_logical(&target_logical)
-                    {
-                        crate::app::emit(state, &target_logical);
-                    }
-                    let resource = self.inspect(encode_key(&root_id, &target_address)).await?;
+                    let resource = self
+                        .inspect(encode_key(&target_root_id, &target_address))
+                        .await?;
                     Ok(action_outcome(
                         Some(resource),
                         json!({"message":"Renamed successfully"}),
@@ -672,24 +818,32 @@ impl ActionCapability for FilesystemIntegration {
                     if address_path.is_empty() {
                         return Err(AppError::bad("Filesystem root cannot be copied"));
                     }
-                    let destination_address = metadata
-                        .get("destinationDir")
-                        .or_else(|| metadata.get("destination"))
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| AppError::bad("Destination directory is required"))?;
-                    let destination_address = normalize_path(destination_address)?;
-                    let destination_logical = self.logical_path(&root_id, &destination_address)?;
-                    let copied = state
+                    let destination = metadata
+                        .get("destination")
+                        .cloned()
+                        .ok_or_else(|| AppError::bad("Destination resource is required"))?;
+                    let destination: ResourceKeyDto = serde_json::from_value(destination)
+                        .map_err(|_| AppError::bad("Destination resource is invalid"))?;
+                    let (destination_root_id, destination_address) = decode_key(&destination)?;
+                    if destination_root_id == COLLECTION_ROOT_ID {
+                        return Err(AppError::bad(
+                            "Application collections cannot be copy destinations",
+                        ));
+                    }
+                    let destination_logical =
+                        self.logical_path(&destination_root_id, &destination_address)?;
+                    state
                         .file_commands
                         .copy_path(&logical, &destination_logical)
                         .await?;
-                    crate::app::emit(state, &copied);
                     let name = address_path
                         .rsplit('/')
                         .next()
                         .ok_or_else(|| AppError::bad("Filesystem resource has no name"))?;
                     let copied_address = child_path(&destination_address, name)?;
-                    let resource = self.inspect(encode_key(&root_id, &copied_address)).await?;
+                    let resource = self
+                        .inspect(encode_key(&destination_root_id, &copied_address))
+                        .await?;
                     Ok(action_outcome(
                         Some(resource),
                         json!({"message":"Copied successfully"}),
@@ -700,8 +854,6 @@ impl ActionCapability for FilesystemIntegration {
                         return Err(AppError::bad("Filesystem root cannot be deleted"));
                     }
                     let outcome = state.file_commands.delete(&logical).await?;
-                    crate::app::emit_path_removed(state, &logical);
-                    crate::app::emit(state, &logical);
                     Ok(action_outcome(
                         None,
                         json!({
@@ -734,7 +886,11 @@ impl SearchCapability for FilesystemIntegration {
         request: IntegrationSearchRequest,
     ) -> BoxFuture<'a, AppResult<SearchContribution>> {
         Box::pin(async move {
-            let value = self.search.search(&request.query, request.limit).await.ok();
+            let value = if request.includes("filesystem.filename") {
+                self.search.search(&request.query, request.limit).await.ok()
+            } else {
+                None
+            };
             let rows = value
                 .as_ref()
                 .and_then(|value| value.get("results"))
@@ -751,6 +907,12 @@ impl SearchCapability for FilesystemIntegration {
                     .and_then(Value::as_str)
                     .unwrap_or(path)
                     .to_string();
+                if !media::logical_path_is_safe(path)
+                    || media::logical_component(std::ffi::OsStr::new(&name)).as_deref()
+                        != Some(name.as_str())
+                {
+                    continue;
+                }
                 let root_id = row
                     .get("rootId")
                     .and_then(Value::as_str)
@@ -815,95 +977,47 @@ impl SearchCapability for FilesystemIntegration {
                     action: None,
                 });
             }
-            let knowledge_roots = store::read(
-                &self.config,
-                store::StateDocument::SettingsV1,
-                crate::app::default_settings(),
-            )?["knowledgeBases"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            let needle = request.query.to_lowercase();
-            let mut knowledge_count = 0usize;
-            for root in knowledge_roots {
-                let Ok(resolved) = media::resolve(&self.config, &root) else {
-                    continue;
-                };
-                for entry in walkdir::WalkDir::new(&resolved.full)
-                    .into_iter()
-                    .filter_entry(visible_search_entry)
-                    .filter_map(Result::ok)
-                {
-                    if knowledge_count >= request.limit {
-                        break;
-                    }
-                    if !entry.file_type().is_file() {
-                        continue;
-                    }
-                    let extension = entry
-                        .path()
-                        .extension()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_ascii_lowercase();
-                    if !matches!(extension.as_str(), "md" | "txt") {
-                        continue;
-                    }
-                    let Ok(content) = std::fs::read_to_string(entry.path()) else {
-                        continue;
-                    };
-                    if !content.to_lowercase().contains(&needle) {
-                        continue;
-                    }
-                    let relative = entry
-                        .path()
-                        .strip_prefix(&resolved.root.path)
-                        .unwrap_or(entry.path())
-                        .to_string_lossy()
-                        .replace('\\', "/");
-                    let path = if self.config.roots.len() > 1 {
-                        format!("{}/{relative}", resolved.root.name)
-                    } else {
-                        relative
-                    };
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    let resource = ResourceSummaryDto {
-                        key: encode_key(DEFAULT_ROOT_ID, &path),
-                        name: name.clone(),
-                        kind: "file".into(),
-                        mime: mime_guess::from_path(&path).first_raw().map(str::to_string),
-                        capabilities: vec!["read".into()],
-                        presentation: Some("text".into()),
-                        appearance: None,
-                        size: entry.metadata().ok().map(|metadata| metadata.len()),
-                        metadata: Some(HashMap::from([(
-                            "logicalPath".into(),
-                            Value::String(path.clone()),
-                        )])),
-                    };
-                    results.push(IntegrationSearchResultDto {
-                        id: format!("filesystem.knowledge:{path}"),
-                        contributor: "filesystem.knowledge".into(),
-                        resource,
-                        title: name,
-                        detail: Some(root.clone()),
-                        snippet: Some(crate::app::search_snippet(&content, &needle)),
-                        score: 0.75 / (knowledge_count + 1) as f64,
-                        action: None,
-                    });
-                    knowledge_count += 1;
-                }
-            }
+            let knowledge = if request.includes("filesystem.knowledge") {
+                let knowledge_scope = request
+                    .scope
+                    .as_ref()
+                    .map(|key| {
+                        let (root_id, address_path) = decode_key(key)?;
+                        self.logical_path(&root_id, &address_path)
+                    })
+                    .transpose()?;
+                let config = self.config.clone();
+                let knowledge_query = request.query.clone();
+                let knowledge_limit = request.limit;
+                let knowledge_permit = self
+                    .knowledge_searches
+                    .clone()
+                    .try_acquire_owned()
+                    .map_err(|_| AppError::internal("Knowledge search queue is busy"))?;
+                tokio::task::spawn_blocking(move || {
+                    let _permit = knowledge_permit;
+                    search_knowledge_bases(
+                        &config,
+                        &knowledge_query,
+                        knowledge_limit,
+                        knowledge_scope.as_deref(),
+                    )
+                })
+                .await
+                .map_err(|error| {
+                    AppError::internal(format!("Knowledge search task failed: {error}"))
+                })??
+            } else {
+                KnowledgeSearchScan::default()
+            };
+            results.extend(knowledge.results);
             Ok(SearchContribution {
                 truncated: value
                     .as_ref()
                     .and_then(|value| value.get("truncated"))
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
-                    || knowledge_count >= request.limit,
+                    || knowledge.truncated,
                 results,
             })
         })
@@ -1019,11 +1133,20 @@ fn parse_cursor(cursor: Option<&str>) -> AppResult<usize> {
         .map_err(|_| AppError::bad("Browse cursor is invalid"))
 }
 
+fn next_cursor(offset: usize, limit: usize, total: usize) -> Option<String> {
+    offset
+        .checked_add(limit)
+        .filter(|next| *next < total)
+        .map(|next| next.to_string())
+}
+
 fn visible_search_entry(entry: &walkdir::DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_dir() {
         return true;
     }
-    let name = entry.file_name().to_string_lossy();
+    let Some(name) = media::logical_component(entry.file_name()) else {
+        return false;
+    };
     !name.starts_with('.')
         && ![
             "node_modules",
@@ -1035,7 +1158,7 @@ fn visible_search_entry(entry: &walkdir::DirEntry) -> bool {
             "__pycache__",
             ".DS_Store",
         ]
-        .contains(&name.as_ref())
+        .contains(&name.as_str())
 }
 
 #[cfg(test)]
@@ -1061,6 +1184,12 @@ mod tests {
         for id in fixtures["malformed"].as_array().unwrap() {
             assert!(decode_key(&ResourceKeyDto::new(PROVIDER_ID, id.as_str().unwrap())).is_err());
         }
+    }
+
+    #[test]
+    fn browse_cursor_overflow_has_no_next_page() {
+        assert_eq!(next_cursor(usize::MAX, 500, usize::MAX), None);
+        assert_eq!(next_cursor(20, 10, 31), Some("30".into()));
     }
 
     #[tokio::test]
@@ -1091,6 +1220,33 @@ mod tests {
         }
         std::fs::write(media.join("Notes/ignored.txt"), "ignored").unwrap();
         std::fs::write(media.join("Notes/.hidden/secret.md"), "hidden").unwrap();
+        #[cfg(unix)]
+        {
+            use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+            std::fs::write(media.join("   "), "spaces").unwrap();
+            std::fs::write(media.join("bad\nname.txt"), "newline").unwrap();
+            std::fs::write(media.join("bad\\name.txt"), "backslash").unwrap();
+            std::fs::write(
+                media.join(OsString::from_vec(b"bad-\xff.txt".to_vec())),
+                "non-utf8",
+            )
+            .unwrap();
+            std::fs::write(media.join("Notes/bad\nneedle.md"), "needle").unwrap();
+            std::fs::write(media.join("Notes/bad\\needle.md"), "needle").unwrap();
+            std::fs::write(
+                media
+                    .join("Notes")
+                    .join(OsString::from_vec(b"bad-\xff-needle.md".to_vec())),
+                "needle",
+            )
+            .unwrap();
+            let invalid_directory = media
+                .join("Notes")
+                .join(OsString::from_vec(b"bad-\xfe-directory".to_vec()));
+            std::fs::create_dir(&invalid_directory).unwrap();
+            std::fs::write(invalid_directory.join("needle.md"), "needle").unwrap();
+        }
         let config = Config {
             port: 3000,
             roots: vec![MediaRoot {
@@ -1125,6 +1281,20 @@ mod tests {
         .unwrap();
         let search = FileSearch::new(config.file_search.clone(), config.roots.clone());
         let runtime = FilesystemIntegration::new(config, search);
+
+        assert!(runtime.logical_path("forged-root", "Notes").is_err());
+        assert!(
+            runtime
+                .inspect(encode_key("forged-root", ""))
+                .await
+                .is_err()
+        );
+        assert!(
+            runtime
+                .inspect(encode_key("forged-root", "Notes"))
+                .await
+                .is_err()
+        );
 
         let notes = runtime
             .browse(BrowseRequest {
@@ -1196,6 +1366,90 @@ mod tests {
             .await
             .unwrap();
         assert!(documents.recent_items.is_empty());
+
+        #[cfg(unix)]
+        {
+            let root = runtime
+                .browse(BrowseRequest {
+                    key: encode_key(DEFAULT_ROOT_ID, ""),
+                    cursor: None,
+                    limit: 50,
+                })
+                .await
+                .unwrap();
+            let names = root
+                .items
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>();
+            assert!(names.contains(&"   "));
+            assert!(!names.contains(&"bad\nname.txt"));
+            assert!(!names.contains(&"bad\\name.txt"));
+            assert_eq!(root.total, 5);
+        }
+
+        let mut oversized = vec![b'x'; KNOWLEDGE_SEARCH_MAX_FILE_BYTES as usize + 1];
+        oversized[..6].copy_from_slice(b"needle");
+        std::fs::write(
+            runtime.config.roots[0]
+                .path
+                .join("Notes/oversized-needle.md"),
+            oversized,
+        )
+        .unwrap();
+        std::fs::write(
+            runtime.config.roots[0].path.join("Notes/bounded.md"),
+            "bounded needle",
+        )
+        .unwrap();
+        let knowledge = search_knowledge_bases(&runtime.config, "needle", 50, None).unwrap();
+        assert!(knowledge.truncated);
+        assert_eq!(knowledge.results.len(), 1);
+        assert!(
+            knowledge
+                .results
+                .iter()
+                .any(|result| result.title == "bounded.md")
+        );
+        assert!(
+            knowledge
+                .results
+                .iter()
+                .all(|result| result.title != "oversized-needle.md")
+        );
+
+        std::fs::create_dir_all(runtime.config.roots[0].path.join("Other")).unwrap();
+        for index in 0..55 {
+            std::fs::write(
+                runtime.config.roots[0]
+                    .path
+                    .join(format!("Other/needle-{index}.md")),
+                "needle",
+            )
+            .unwrap();
+        }
+        store::update(
+            &runtime.config,
+            store::StateDocument::SettingsV1,
+            crate::app::default_settings(),
+            |settings| {
+                settings["knowledgeBases"] = json!(["Other", "Notes"]);
+                Ok(())
+            },
+        )
+        .unwrap();
+        let scoped = runtime
+            .search(IntegrationSearchRequest {
+                query: "needle".into(),
+                limit: 50,
+                contributors: Some(vec!["filesystem.knowledge".into()]),
+                scope: Some(encode_key(DEFAULT_ROOT_ID, "Notes")),
+            })
+            .await
+            .unwrap();
+        assert_eq!(scoped.results.len(), 1);
+        assert_eq!(scoped.results[0].title, "bounded.md");
+        assert_eq!(scoped.results[0].contributor, "filesystem.knowledge");
         let _ = std::fs::remove_dir_all(base);
     }
 
@@ -1273,6 +1527,8 @@ mod tests {
                     .search(IntegrationSearchRequest {
                         query: "needle".into(),
                         limit: 20,
+                        contributors: None,
+                        scope: None,
                     })
                     .await
                     .unwrap();

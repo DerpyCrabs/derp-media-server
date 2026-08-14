@@ -26,7 +26,9 @@ import type {
   PaneContribution,
   PlaybackContribution,
   ResourceActionProvider,
+  ResourceRouteProvider,
 } from './contracts'
+import type { OpenContext, OpenIntent } from '../open/open-resource'
 import type { SearchContributor } from '../search/contracts'
 
 export type ContentRegistry = Readonly<{
@@ -35,6 +37,7 @@ export type ContentRegistry = Readonly<{
   module(id: string): IntegrationModule | null
   browse(location: ResourceKey): BrowseProvider | null
   inspect(resource: ResourceKey): InspectProvider | null
+  openRoute(resource: ResourceSummary, intent: OpenIntent, context: OpenContext): Promise<boolean>
   actions(resource: ResourceSummary): ResourceActionProvider | null
   playbackItem(resource: ResourceSummary): PlaybackItem | null
   playbackQueue(
@@ -212,6 +215,11 @@ export function createContentRegistry(
       return moduleEnabled(resource.provider, 'inspect')
         ? (byModule.get(resource.provider)?.inspect ?? null)
         : null
+    },
+    async openRoute(resource, intent, context) {
+      if (!moduleEnabled(resource.key.provider)) return false
+      const routes: ResourceRouteProvider | undefined = byModule.get(resource.key.provider)?.routes
+      return (await routes?.open(resource, intent, context)) ?? false
     },
     actions(resource) {
       return moduleEnabled(resource.key.provider, 'actions')

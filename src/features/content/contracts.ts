@@ -9,6 +9,7 @@ import type {
   ContentRendererMountCallbacks,
   RendererDescriptor,
 } from '@/src/features/open/renderer-registry'
+import type { OpenContext, OpenIntent } from '@/src/features/open/open-resource'
 import type {
   PlaybackItem,
   PlaybackSourceRequest,
@@ -91,6 +92,7 @@ export type ContentLifecycleDescriptor = Readonly<{
   id: string
   supports(instance: ContentInstance): boolean
   canClose?(instance: ContentInstance): boolean | Promise<boolean>
+  hasUnsavedChanges?(instance: ContentInstance): boolean
   dispose?(instance: ContentInstance): void | Promise<void>
 }>
 
@@ -129,6 +131,14 @@ export interface BrowseProvider {
 
 export interface InspectProvider {
   inspect(resource: ResourceKey, signal?: AbortSignal): Promise<ResourceSummary>
+}
+
+export interface ResourceRouteProvider {
+  open(
+    resource: ResourceSummary,
+    intent: OpenIntent,
+    context: OpenContext,
+  ): boolean | Promise<boolean>
 }
 
 export type PlaybackContribution = Readonly<{
@@ -218,6 +228,7 @@ export interface IntegrationModule {
   readonly root?: ResourceSummary
   readonly browse?: BrowseProvider
   readonly inspect?: InspectProvider
+  readonly routes?: ResourceRouteProvider
   readonly actions?: ResourceActionProvider
   readonly playback?: PlaybackContribution
   readonly content?: readonly ContentRendererDescriptor[]

@@ -5,9 +5,18 @@ import {
   type ApplicationExplorerHostAction,
 } from '@/src/integrations/ApplicationExplorerView'
 import { applicationContentRegistry } from '@/src/integrations/registry'
+import { useWorkspaceFileOpenTargetStore } from '@/lib/workspace-file-open-target'
+import { useStoreSync } from '@/src/lib/solid-store-sync'
 import type { WorkspaceBrowserPaneProps } from './workspace-browser-pane-types'
 
 export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
+  const fileOpenTargetTick = useStoreSync(useWorkspaceFileOpenTargetStore)
+
+  function usesNewTabFileTarget() {
+    void fileOpenTargetTick()
+    return useWorkspaceFileOpenTargetStore.getState().target === 'new-tab'
+  }
+
   async function openItem(resource: ResourceSummary) {
     const plan = openResource(resource, 'default', props.resourceOpenContext())
     if (plan.status !== 'ready') return
@@ -50,6 +59,19 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         run: (item) => props.onOpenInNewTab?.(props.windowId, item.resource),
       })
     }
+    if (props.onBeginFileOpenTargetPick && usesNewTabFileTarget()) {
+      actions.push({
+        descriptor: {
+          id: 'host.pickNewTabTarget',
+          operation: 'pickNewTabTarget',
+          label: 'Choose where new tabs open…',
+          capability: 'host.pickNewTabTarget',
+          scope: 'host',
+          interaction: 'immediate',
+        },
+        run: () => props.onBeginFileOpenTargetPick?.(),
+      })
+    }
     if (props.onOpenInSplitView) {
       actions.push({
         descriptor: {
@@ -72,7 +94,8 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         scope: 'host',
         interaction: 'immediate',
       },
-      available: (item) => resourceIsBrowsable(item.resource),
+      available: (item) =>
+        openResource(item.resource, 'read', props.resourceOpenContext()).status === 'ready',
       run: (item) => props.onOpenReader(props.windowId, item.resource),
     })
     if (props.onOpenFileInNewFloatingWindow) {

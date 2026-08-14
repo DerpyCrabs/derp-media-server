@@ -5,8 +5,7 @@ import {
   type CanvasCollection,
 } from './canvas-persistence'
 import type { ContentWindowPersistencePort } from './content-window-persistence'
-
-const CANVASES_PATH = '/api/canvases'
+import { apiRoutes } from './generated/api-contracts'
 
 function requireCanvasCollection(
   value: unknown,
@@ -20,7 +19,7 @@ function requireCanvasCollection(
 export async function getCanvasCollection(
   persistence: ContentWindowPersistencePort,
 ): Promise<CanvasCollection> {
-  return requireCanvasCollection(await api<unknown>(CANVASES_PATH), persistence)
+  return requireCanvasCollection(await api<unknown>(apiRoutes.canvases), persistence)
 }
 
 export async function putCanvasCollection(
@@ -28,7 +27,7 @@ export async function putCanvasCollection(
   persistence: ContentWindowPersistencePort,
 ): Promise<CanvasCollection> {
   return requireCanvasCollection(
-    await api<unknown>(CANVASES_PATH, {
+    await api<unknown>(apiRoutes.canvases, {
       method: 'PUT',
       body: JSON.stringify(canvasSaveRequest(collection, persistence)),
     }),

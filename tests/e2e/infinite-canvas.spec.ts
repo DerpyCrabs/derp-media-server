@@ -791,6 +791,34 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
   await expect(page.getByText('Stale remote chat', { exact: true })).toHaveCount(0)
 })
 
+test('guards unsent Hermes drafts across Canvas surface navigation and teardown', async ({
+  page,
+}) => {
+  await page.getByTestId('canvas-add-trigger').click()
+  await page.getByRole('button', { name: 'AI chat' }).click()
+  const composer = page.getByPlaceholder('Message Hermes…')
+  await composer.fill('Do not lose this draft')
+
+  const libraryLink = page
+    .getByRole('navigation', { name: 'Application surfaces' })
+    .getByRole('link', { name: 'Library' })
+  const dismissed = page.waitForEvent('dialog')
+  const rejectedNavigation = libraryLink.click()
+  await (await dismissed).dismiss()
+  await rejectedNavigation
+  await expect(page.locator('.canvas-layout')).toBeVisible()
+  await expect(composer).toHaveValue('Do not lose this draft')
+
+  const accepted = page.waitForEvent('dialog')
+  const acceptedNavigation = libraryLink.click()
+  await (await accepted).accept()
+  await acceptedNavigation
+  await expect(page.getByTestId('file-browser')).toBeVisible()
+  await page.goBack()
+  await expect(page.locator('.canvas-layout')).toBeVisible()
+  await expect(page.getByTestId('hermes-chat-pane')).toHaveCount(0)
+})
+
 test('persists canvas records through revisioned server API', async ({ request }) => {
   const id = `canvas-e2e-${Date.now()}`
   const record = {

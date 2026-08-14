@@ -18,7 +18,7 @@ import { FileSearchButton } from '@/src/FileSearchPalette'
 import type { SearchHit } from '@/src/features/search/contracts'
 import { contentWindowKind } from '@/lib/content-window'
 import { contentWindowFilesystemPath } from '@/src/integrations/current-window-content'
-import type { ResourceSummary } from '@/lib/domain/resource'
+import { resourceIsBrowsable, type ResourceSummary } from '@/lib/domain/resource'
 import { filesystemPathForResourceKey } from '@/src/integrations/filesystem/resource'
 
 export type WorkspacePageTaskbarProps = {
@@ -83,24 +83,29 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                         () => pin.resource,
                         async (key) => applicationContentRegistry.inspect(key)?.inspect(key),
                       )
-                      const isDirectory = () =>
-                        resource()?.capabilities.includes('browse') === true ||
-                        resource()?.presentation === 'browse'
+                      const inspectedResource = () =>
+                        resource.state === 'ready' || resource.state === 'refreshing'
+                          ? resource.latest
+                          : undefined
+                      const isDirectory = () => {
+                        const summary = inspectedResource()
+                        return summary ? resourceIsBrowsable(summary) : false
+                      }
                       const tooltip = () =>
                         `${isDirectory() ? 'Folder' : 'File'}: ${path ?? pin.title}`
                       return (
                         <div
                           class='flex shrink-0 items-center justify-center py-1 px-0.5'
                           data-taskbar-pin
-                          draggable={resource() !== undefined}
+                          draggable={inspectedResource() !== undefined}
                           on:dragstart={(e: DragEvent) => {
-                            const summary = resource()
+                            const summary = inspectedResource()
                             if (!summary) return
                             const dt = e.dataTransfer
                             if (!dt) return
                             setResourceDragData(dt, {
                               key: pin.resource,
-                              isDirectory: summary.capabilities.includes('browse'),
+                              isDirectory: resourceIsBrowsable(summary),
                             })
                             dt.effectAllowed = 'copy'
                           }}
@@ -125,7 +130,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                           >
                             {pinnedShellIcon(
                               pin,
-                              resource(),
+                              inspectedResource(),
                               props.settingsData()?.customIcons ?? {},
                               props.workspaceFileIconContext(),
                             )}

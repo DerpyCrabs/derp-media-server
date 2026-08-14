@@ -153,8 +153,10 @@ describe('Hermes window persistence boundary', () => {
         zIndex: 2,
       },
     ]
+    state.maximizedWindowId = 'draft'
     const encoded = serializeInfiniteCanvasState(state)
     expect(encoded).not.toContain('ephemeral-draft')
+    expect(JSON.parse(encoded).maximizedWindowId).toBeNull()
     const restored = parseInfiniteCanvasState(JSON.parse(encoded))
     expect(restored?.windows).toHaveLength(1)
     expect(hermesState(restored?.windows[0]?.definition)?.sessionId).toBe('durable-2')

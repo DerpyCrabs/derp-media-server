@@ -5,6 +5,12 @@ import {
 } from './content-window-persistence'
 import type { ContentInstance } from './domain/content'
 import type { ContentWindowDefinition } from './content-window'
+import type {
+  CanvasWindowSizeDto,
+  PersistedCanvasStateDto,
+  PersistedCanvasWindowDefinitionDto,
+  PersistedCanvasWindowDto,
+} from './generated/api-contracts'
 
 export const CANVAS_SCHEMA_VERSION = 1
 export const CANVAS_GRID_SIZE = 32
@@ -356,15 +362,75 @@ export function parseInfiniteCanvasState(
   }
 }
 
+function persistedWindowSize(size: CanvasWindowSize | undefined): CanvasWindowSizeDto | undefined {
+  return size ? { width: size.width, height: size.height } : undefined
+}
+
+export function persistedInfiniteCanvasState(
+  state: InfiniteCanvasState,
+  persistence: ContentWindowPersistencePort,
+): PersistedCanvasStateDto {
+  const windows = state.windows.flatMap<PersistedCanvasWindowDto>((window) => {
+    const persisted = persistedContentWindowRecord(persistence, window.definition)
+    if (!persisted) return []
+    const definition: PersistedCanvasWindowDefinitionDto = {
+      id: persisted.id,
+      title: persisted.title,
+      ...(persisted.iconName !== undefined ? { iconName: persisted.iconName } : {}),
+      content: persisted.content,
+    }
+    return [
+      {
+        id: window.id,
+        definition,
+        bounds: {
+          x: window.bounds.x,
+          y: window.bounds.y,
+          width: window.bounds.width,
+          height: window.bounds.height,
+        },
+        zIndex: window.zIndex,
+      },
+    ]
+  })
+  const persistedWindowIds = new Set(windows.map((window) => window.id))
+  const sizes = state.windowSizeByType
+  const browser = persistedWindowSize(sizes.browser)
+  const viewer = persistedWindowSize(sizes.viewer)
+  const integration = persistedWindowSize(sizes.integration)
+  const viewerAudio = persistedWindowSize(sizes['viewer-audio'])
+  const viewerVideo = persistedWindowSize(sizes['viewer-video'])
+  const viewerImage = persistedWindowSize(sizes['viewer-image'])
+  const viewerText = persistedWindowSize(sizes['viewer-text'])
+  const viewerPdf = persistedWindowSize(sizes['viewer-pdf'])
+  const viewerOther = persistedWindowSize(sizes['viewer-other'])
+  return {
+    version: CANVAS_SCHEMA_VERSION,
+    windows,
+    maximizedWindowId:
+      state.maximizedWindowId !== null && persistedWindowIds.has(state.maximizedWindowId)
+        ? state.maximizedWindowId
+        : null,
+    camera: { x: state.camera.x, y: state.camera.y, zoom: state.camera.zoom },
+    windowSizeByType: {
+      ...(browser ? { browser } : {}),
+      ...(viewer ? { viewer } : {}),
+      ...(integration ? { integration } : {}),
+      ...(viewerAudio ? { 'viewer-audio': viewerAudio } : {}),
+      ...(viewerVideo ? { 'viewer-video': viewerVideo } : {}),
+      ...(viewerImage ? { 'viewer-image': viewerImage } : {}),
+      ...(viewerText ? { 'viewer-text': viewerText } : {}),
+      ...(viewerPdf ? { 'viewer-pdf': viewerPdf } : {}),
+      ...(viewerOther ? { 'viewer-other': viewerOther } : {}),
+    },
+    nextItemId: state.nextItemId,
+    nextZIndex: state.nextZIndex,
+  }
+}
+
 export function serializeInfiniteCanvasState(
   state: InfiniteCanvasState,
   persistence: ContentWindowPersistencePort,
 ): string {
-  return JSON.stringify({
-    ...state,
-    windows: state.windows.flatMap((window) => {
-      const persisted = persistedContentWindowRecord(persistence, window.definition)
-      return persisted ? [{ ...window, definition: persisted }] : []
-    }),
-  })
+  return JSON.stringify(persistedInfiniteCanvasState(state, persistence))
 }

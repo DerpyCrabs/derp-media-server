@@ -1,9 +1,12 @@
 use crate::{
+    contracts::{
+        CANVAS_DOCUMENT_SCHEMA_VERSION, CanvasCameraDto, CanvasRectDto, CanvasWindowSizeDto,
+        PersistedCanvasStateDto, PersistedCanvasWindowDefinitionDto, PersistedContentEnvelopeDto,
+    },
     error::{AppError, AppResult},
     state_db,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -11,35 +14,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const CANVAS_DOCUMENT_SCHEMA_VERSION: u64 = 2;
+#[cfg(test)]
+use crate::contracts::CanvasRecordDto as CanvasRecord;
+pub(crate) use crate::contracts::{
+    CanvasDocumentDto as CanvasDocument, SaveCanvasDocumentDto as SaveCanvasDocument,
+};
 const CANVAS_DOCUMENT: state_db::StateDocument = state_db::StateDocument::CanvasV2;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CanvasRecord {
-    pub id: String,
-    pub name: String,
-    pub state: Value,
-    pub updated_at: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CanvasDocument {
-    pub schema_version: u64,
-    pub revision: u64,
-    pub active_id: Option<String>,
-    pub canvases: Vec<CanvasRecord>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SaveCanvasDocument {
-    pub schema_version: u64,
-    pub expected_revision: u64,
-    pub active_id: Option<String>,
-    pub canvases: Vec<CanvasRecord>,
-}
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -65,180 +45,59 @@ fn corrupt(message: impl std::fmt::Display) -> AppError {
     ))
 }
 
-fn exact_object<'a>(
-    value: &'a Value,
-    required: &[&str],
-    optional: &[&str],
-) -> Option<&'a serde_json::Map<String, Value>> {
-    let object = value.as_object()?;
-    if required.iter().any(|key| !object.contains_key(*key))
-        || object
-            .keys()
-            .any(|key| !required.contains(&key.as_str()) && !optional.contains(&key.as_str()))
-    {
-        return None;
-    }
-    Some(object)
+fn valid_rect(value: &CanvasRectDto) -> bool {
+    value.x.is_finite()
+        && value.y.is_finite()
+        && value.width.is_finite()
+        && value.width > 0.0
+        && value.height.is_finite()
+        && value.height > 0.0
 }
 
-fn valid_rect(value: &Value) -> bool {
-    exact_object(value, &["x", "y", "width", "height"], &[]).is_some()
-        && ["x", "y", "width", "height"].iter().all(|key| {
-            value
-                .get(key)
-                .and_then(Value::as_f64)
-                .is_some_and(f64::is_finite)
-        })
-        && value
-            .get("width")
-            .and_then(Value::as_f64)
-            .is_some_and(|x| x > 0.0)
-        && value
-            .get("height")
-            .and_then(Value::as_f64)
-            .is_some_and(|x| x > 0.0)
-}
-
-fn valid_content(content: &Value) -> bool {
-    exact_object(
-        content,
-        &["schemaVersion", "codec", "codecVersion", "payload"],
-        &[],
-    )
-    .is_some()
-        && content.get("schemaVersion").and_then(Value::as_u64) == Some(1)
-        && content
-            .get("codec")
-            .and_then(Value::as_str)
-            .is_some_and(|codec| !codec.trim().is_empty())
-        && content
-            .get("codecVersion")
-            .and_then(Value::as_u64)
-            .is_some_and(|version| version > 0)
-        && content.get("payload").is_some()
+fn valid_content(content: &PersistedContentEnvelopeDto) -> bool {
+    content.schema_version == 1 && !content.codec.trim().is_empty() && content.codec_version > 0
 }
 
 fn valid_text(value: &str, maximum: usize) -> bool {
     !value.trim().is_empty() && value.encode_utf16().count() <= maximum
 }
 
-fn valid_camera(value: &Value) -> bool {
-    exact_object(value, &["x", "y", "zoom"], &[]).is_some()
-        && ["x", "y", "zoom"].iter().all(|key| {
-            value
-                .get(key)
-                .and_then(Value::as_f64)
-                .is_some_and(f64::is_finite)
-        })
-        && value
-            .get("zoom")
-            .and_then(Value::as_f64)
-            .is_some_and(|zoom| zoom > 0.0)
+fn valid_camera(value: &CanvasCameraDto) -> bool {
+    value.x.is_finite() && value.y.is_finite() && value.zoom.is_finite() && value.zoom > 0.0
 }
 
-fn valid_window_size(value: &Value) -> bool {
-    exact_object(value, &["width", "height"], &[]).is_some()
-        && ["width", "height"].iter().all(|key| {
-            value
-                .get(key)
-                .and_then(Value::as_f64)
-                .is_some_and(|part| part.is_finite() && part > 0.0)
-        })
+fn valid_window_size(value: &CanvasWindowSizeDto) -> bool {
+    value.width.is_finite() && value.width > 0.0 && value.height.is_finite() && value.height > 0.0
 }
 
-fn valid_window_sizes(value: &Value) -> bool {
-    const KEYS: &[&str] = &[
-        "browser",
-        "viewer",
-        "integration",
-        "viewer-audio",
-        "viewer-video",
-        "viewer-image",
-        "viewer-text",
-        "viewer-pdf",
-        "viewer-other",
-    ];
-    value.as_object().is_some_and(|sizes| {
-        sizes
-            .iter()
-            .all(|(key, size)| KEYS.contains(&key.as_str()) && valid_window_size(size))
-    })
+fn valid_definition(definition: &PersistedCanvasWindowDefinitionDto, window_id: &str) -> bool {
+    definition.id == window_id && valid_content(&definition.content)
 }
 
-fn valid_definition(definition: &Value, window_id: &str) -> bool {
-    let Some(object) = exact_object(definition, &["id", "title", "content"], &["iconName"]) else {
-        return false;
-    };
-    object.get("id").and_then(Value::as_str) == Some(window_id)
-        && object.get("title").is_some_and(Value::is_string)
-        && object
-            .get("iconName")
-            .is_none_or(|icon| icon.is_null() || icon.is_string())
-        && object.get("content").is_some_and(valid_content)
-}
-
-fn valid_state(state: &Value) -> bool {
-    if exact_object(
-        state,
-        &[
-            "version",
-            "windows",
-            "maximizedWindowId",
-            "camera",
-            "windowSizeByType",
-            "nextItemId",
-            "nextZIndex",
-        ],
-        &[],
-    )
-    .is_none()
-        || state.get("version").and_then(Value::as_u64) != Some(1)
-        || !state.get("camera").is_some_and(valid_camera)
-        || !state
-            .get("windowSizeByType")
-            .is_some_and(valid_window_sizes)
-        || !state
-            .get("nextItemId")
-            .and_then(Value::as_u64)
-            .is_some_and(|value| value > 0)
-        || !state
-            .get("nextZIndex")
-            .and_then(Value::as_u64)
-            .is_some_and(|value| value > 0)
+fn valid_state(state: &PersistedCanvasStateDto) -> bool {
+    if state.version != 1
+        || !valid_camera(&state.camera)
+        || !state.window_size_by_type.values().all(valid_window_size)
+        || state.next_item_id == 0
+        || state.next_z_index == 0
     {
         return false;
     }
-    let Some(windows) = state.get("windows").and_then(Value::as_array) else {
-        return false;
-    };
     let mut ids = HashSet::new();
-    for window in windows {
-        let Some(object) = exact_object(window, &["id", "definition", "bounds", "zIndex"], &[])
-        else {
-            return false;
-        };
-        let Some(id) = object.get("id").and_then(Value::as_str) else {
-            return false;
-        };
-        if !valid_text(id, 128)
-            || !ids.insert(id)
-            || !object.get("bounds").is_some_and(valid_rect)
-            || !object
-                .get("zIndex")
-                .and_then(Value::as_u64)
-                .is_some_and(|value| value > 0)
-            || !object
-                .get("definition")
-                .is_some_and(|definition| valid_definition(definition, id))
+    for window in &state.windows {
+        if !valid_text(&window.id, 128)
+            || !ids.insert(window.id.as_str())
+            || !valid_rect(&window.bounds)
+            || window.z_index == 0
+            || !valid_definition(&window.definition, &window.id)
         {
             return false;
         }
     }
-    match state.get("maximizedWindowId") {
-        Some(Value::Null) => true,
-        Some(Value::String(id)) => ids.contains(id.as_str()),
-        _ => false,
-    }
+    state
+        .maximized_window_id
+        .as_ref()
+        .is_none_or(|id| ids.contains(id.as_str()))
 }
 
 fn validate_document(document: &CanvasDocument) -> AppResult<()> {
@@ -486,7 +345,7 @@ mod tests {
     use rusqlite::Connection;
     use serde_json::json;
 
-    fn state() -> Value {
+    fn state_value() -> Value {
         json!({
             "version":1,
             "windows":[],
@@ -496,6 +355,10 @@ mod tests {
             "nextItemId":1,
             "nextZIndex":1
         })
+    }
+
+    fn state() -> PersistedCanvasStateDto {
+        serde_json::from_value(state_value()).unwrap()
     }
 
     fn database(name: &str) -> std::path::PathBuf {
@@ -590,6 +453,57 @@ mod tests {
     }
 
     #[test]
+    fn rejects_save_request_without_required_active_id() {
+        let valid = serde_json::from_value::<SaveCanvasDocument>(json!({
+            "schemaVersion":2,
+            "expectedRevision":0,
+            "activeId":null,
+            "canvases":[]
+        }))
+        .unwrap();
+        assert_eq!(valid.active_id, None);
+
+        let error = serde_json::from_value::<SaveCanvasDocument>(json!({
+            "schemaVersion":2,
+            "expectedRevision":0,
+            "canvases":[]
+        }))
+        .unwrap_err();
+
+        assert!(error.to_string().contains("activeId"));
+    }
+
+    #[test]
+    fn nested_wire_state_requires_nullable_fields_and_rejects_null_window_sizes() {
+        let mut missing_maximized = state_value();
+        missing_maximized
+            .as_object_mut()
+            .unwrap()
+            .remove("maximizedWindowId");
+        let error =
+            serde_json::from_value::<PersistedCanvasStateDto>(missing_maximized).unwrap_err();
+        assert!(error.to_string().contains("maximizedWindowId"));
+
+        let mut null_window_size = state_value();
+        null_window_size["windowSizeByType"]["viewer"] = Value::Null;
+        assert!(serde_json::from_value::<PersistedCanvasStateDto>(null_window_size).is_err());
+    }
+
+    #[test]
+    fn stored_document_missing_active_id_is_rejected_without_mutation() {
+        let database = database("missing-active-id");
+        let raw = r#"{"schemaVersion":2,"revision":0,"canvases":[]}"#;
+        insert_raw(&database, raw);
+
+        let error = load(&database, "library").unwrap_err();
+
+        assert!(error.1.contains("was preserved"));
+        assert!(error.1.contains("activeId"));
+        assert_eq!(read_raw(&database), raw);
+        std::fs::remove_file(database).unwrap();
+    }
+
+    #[test]
     fn path_mutation_preserves_semantically_corrupt_document() {
         let database = database("corrupt-path-mutation");
         let raw = r#"{"schemaVersion":2,"revision":4,"activeId":"missing","canvases":[]}"#;
@@ -641,9 +555,7 @@ mod tests {
         let mut unexpected_host_field = document.clone();
         unexpected_host_field["canvases"][0]["state"]["windows"][0]["definition"]["unexpected"] =
             json!(true);
-        let unexpected_host_field: CanvasDocument =
-            serde_json::from_value(unexpected_host_field).unwrap();
-        assert!(validate_document(&unexpected_host_field).is_err());
+        assert!(serde_json::from_value::<CanvasDocument>(unexpected_host_field).is_err());
 
         mutate_contents(&mut document, 10, |content| {
             assert_eq!(content["codec"], "fixture.content");
@@ -662,7 +574,7 @@ mod tests {
 
     #[test]
     fn opaque_provider_payload_is_not_interpreted() {
-        let mut canvas_state = state();
+        let mut canvas_state = state_value();
         canvas_state["windows"] = json!([{
             "id":"window-1",
             "definition":{
@@ -687,7 +599,7 @@ mod tests {
             canvases: vec![CanvasRecord {
                 id: "canvas-1".into(),
                 name: "Canvas".into(),
-                state: canvas_state,
+                state: serde_json::from_value(canvas_state).unwrap(),
                 updated_at: 1,
             }],
         };
@@ -697,7 +609,7 @@ mod tests {
 
     #[test]
     fn removing_content_host_repairs_maximized_window() {
-        let mut canvas_state = state();
+        let mut canvas_state = state_value();
         canvas_state["windows"] = json!([{
             "id":"window-1",
             "definition":{

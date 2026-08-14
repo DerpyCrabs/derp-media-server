@@ -28,6 +28,7 @@ export type ContentRuntime = Readonly<{
     callbacks: ContentRendererMountCallbacks,
   ): Promise<ContentMountResult>
   canClose(instance: ContentInstance): Promise<boolean>
+  hasUnsavedChanges(instance: ContentInstance): boolean
   release(instance: ContentInstance): Promise<boolean>
 }>
 
@@ -157,6 +158,9 @@ export function createContentRuntime(registry: ContentRegistry): ContentRuntime 
     },
     async canClose(instance) {
       return (await registry.lifecycle(instance)?.canClose?.(instance)) ?? true
+    },
+    hasUnsavedChanges(instance) {
+      return registry.lifecycle(instance)?.hasUnsavedChanges?.(instance) ?? false
     },
     async release(instance) {
       const dispose = registry.lifecycle(instance)?.dispose

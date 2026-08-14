@@ -109,7 +109,9 @@ fn process_directory(
         if !is_directory && !is_file {
             continue;
         }
-        let name = item.file_name().to_string_lossy().into_owned();
+        let Some(name) = media::logical_component(&item.file_name()) else {
+            continue;
+        };
         let child = if relative.is_empty() {
             name.clone()
         } else {
@@ -177,7 +179,9 @@ pub(super) fn rescan_directory(
             if !is_directory && !is_file {
                 continue;
             }
-            let name = item.file_name().to_string_lossy().into_owned();
+            let Some(name) = media::logical_component(&item.file_name()) else {
+                continue;
+            };
             let child = if relative.is_empty() {
                 name.clone()
             } else {
@@ -509,6 +513,18 @@ mod tests {
         std::fs::create_dir_all(root_path.join("nested")).unwrap();
         std::fs::write(root_path.join("Needle One.md"), "one").unwrap();
         std::fs::write(root_path.join("nested").join("Needle Two.txt"), "two").unwrap();
+        #[cfg(unix)]
+        {
+            use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+            std::fs::write(root_path.join("Needle\nBad.md"), "newline").unwrap();
+            std::fs::write(root_path.join("Needle\\Bad.md"), "backslash").unwrap();
+            std::fs::write(
+                root_path.join(OsString::from_vec(b"Needle-\xff.md".to_vec())),
+                "non-utf8",
+            )
+            .unwrap();
+        }
         let config = FileSearchConfig {
             enabled: true,
             index_path: base.join("index.sqlite"),
@@ -536,6 +552,7 @@ mod tests {
             std::fs::write(root_path.join("Fresh Target.md"), "fresh").unwrap();
             rescan_directory(&mut db, &root, "", 10).unwrap();
             assert_eq!(db.search_rows("\"fresh\"").unwrap().len(), 1);
+            assert_eq!(db.search_rows("\"needle\"").unwrap().len(), 2);
 
             std::fs::remove_file(root_path.join("nested").join("Needle Two.txt")).unwrap();
             rescan_directory(&mut db, &root, "nested", 11).unwrap();

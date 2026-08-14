@@ -6,6 +6,7 @@ use crate::{
 use axum::http::StatusCode;
 use futures_util::future::BoxFuture;
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::UNIX_EPOCH,
@@ -22,9 +23,22 @@ pub(crate) enum CreateContent<'a> {
     File(&'a [u8]),
 }
 
+enum OwnedCreateContent {
+    Folder,
+    File(Vec<u8>),
+}
+
 #[derive(Debug)]
 pub(crate) struct DeleteOutcome {
     pub is_directory: bool,
+}
+
+async fn await_owned_mutation<T>(
+    operation: &'static str,
+    task: tokio::task::JoinHandle<AppResult<T>>,
+) -> AppResult<T> {
+    task.await
+        .map_err(|error| AppError::internal(format!("{operation} task failed: {error}")))?
 }
 
 trait FileMetadataRepair: Send + Sync {
@@ -61,22 +75,72 @@ impl FileMetadataRepair for PathMetadataRepair {
     }
 }
 
+pub(crate) trait FileMutationEvents: Send + Sync {
+    fn changed(&self, path: &str);
+    fn moved(&self, old_path: &str, new_path: &str);
+    fn removed(&self, path: &str);
+}
+
+#[cfg(test)]
+struct NoopFileMutationEvents;
+
+#[cfg(test)]
+impl FileMutationEvents for NoopFileMutationEvents {
+    fn changed(&self, _path: &str) {}
+    fn moved(&self, _old_path: &str, _new_path: &str) {}
+    fn removed(&self, _path: &str) {}
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct UploadTestGate {
+    entered: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+impl UploadTestGate {
+    async fn pause(&self) {
+        self.entered.notify_one();
+        self.resume.notified().await;
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+struct UploadTestHooks {
+    open: Option<Arc<UploadTestGate>>,
+    write: Option<Arc<UploadTestGate>>,
+}
+
+#[derive(Clone)]
 pub(crate) struct FileCommandService {
     config: Config,
     metadata: Arc<dyn FileMetadataRepair>,
+    events: Arc<dyn FileMutationEvents>,
     max_upload_bytes: u64,
-    operations: tokio::sync::Mutex<()>,
+    operations: Arc<tokio::sync::Mutex<()>>,
     upload_slots: Arc<tokio::sync::Semaphore>,
+    #[cfg(test)]
+    upload_test_hooks: Option<Arc<UploadTestHooks>>,
 }
 
 impl FileCommandService {
+    #[cfg(test)]
     pub fn new(config: Config) -> Self {
+        Self::new_with_events(config, Arc::new(NoopFileMutationEvents))
+    }
+
+    pub fn new_with_events(config: Config, events: Arc<dyn FileMutationEvents>) -> Self {
         Self {
             config,
             metadata: Arc::new(PathMetadataRepair),
+            events,
             max_upload_bytes: MAX_UPLOAD_BYTES,
-            operations: tokio::sync::Mutex::new(()),
+            operations: Arc::new(tokio::sync::Mutex::new(())),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_UPLOADS)),
+            #[cfg(test)]
+            upload_test_hooks: None,
         }
     }
 
@@ -89,39 +153,59 @@ impl FileCommandService {
         Self {
             config,
             metadata,
+            events: Arc::new(NoopFileMutationEvents),
             max_upload_bytes,
-            operations: tokio::sync::Mutex::new(()),
+            operations: Arc::new(tokio::sync::Mutex::new(())),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_UPLOADS)),
+            upload_test_hooks: None,
         }
     }
 
     pub async fn create(&self, path: &str, content: CreateContent<'_>) -> AppResult<()> {
+        let service = self.clone();
+        let path = path.to_string();
+        let content = match content {
+            CreateContent::Folder => OwnedCreateContent::Folder,
+            CreateContent::File(bytes) => OwnedCreateContent::File(bytes.to_vec()),
+        };
+        await_owned_mutation(
+            "create",
+            tokio::spawn(async move { service.create_owned(path, content).await }),
+        )
+        .await
+    }
+
+    async fn create_owned(&self, path: String, content: OwnedCreateContent) -> AppResult<()> {
         let _operation = self.operations.lock().await;
-        require_path(path)?;
-        if !media::editable(&self.config, &crate::app::parent_logical(path))
-            && !media::editable(&self.config, path)
+        require_path(&path)?;
+        if !media::editable(&self.config, &crate::app::parent_logical(&path))
+            && !media::editable(&self.config, &path)
         {
             return Err(AppError::forbidden("Path is not in an editable folder"));
         }
-        let destination = media::resolve(&self.config, path)?.full;
+        let destination = media::resolve(&self.config, &path)?.full;
         if metadata_optional(&destination).await?.is_some() {
             return Err(AppError::conflict(format!(
                 "A {} with this name already exists",
-                if matches!(content, CreateContent::Folder) {
+                if matches!(content, OwnedCreateContent::Folder) {
                     "folder"
                 } else {
                     "file"
                 }
             )));
         }
-        match content {
-            CreateContent::Folder => create_directory_atomically(&destination).await,
-            CreateContent::File(bytes) => {
-                let mut staged = self.stage(path, u64::MAX, "create").await?;
-                staged.write_chunk(bytes).await?;
+        let result = match content {
+            OwnedCreateContent::Folder => create_directory_atomically(&destination).await,
+            OwnedCreateContent::File(bytes) => {
+                let mut staged = self.stage(&path, u64::MAX, "create", None).await?;
+                staged.write_chunk(&bytes).await?;
                 self.finalize_new_file(staged, "create").await
             }
+        };
+        if result.is_ok() {
+            self.events.changed(&path);
         }
+        result
     }
 
     pub async fn edit(
@@ -130,10 +214,26 @@ impl FileCommandService {
         content: &[u8],
         expected_version: Option<f64>,
     ) -> AppResult<()> {
+        let service = self.clone();
+        let path = path.to_string();
+        let content = content.to_vec();
+        await_owned_mutation(
+            "edit",
+            tokio::spawn(async move { service.edit_owned(path, content, expected_version).await }),
+        )
+        .await
+    }
+
+    async fn edit_owned(
+        &self,
+        path: String,
+        content: Vec<u8>,
+        expected_version: Option<f64>,
+    ) -> AppResult<()> {
         let _operation = self.operations.lock().await;
-        require_path(path)?;
-        require_editable(&self.config, path, "Path is not in an editable folder")?;
-        let destination = media::resolve(&self.config, path)?.full;
+        require_path(&path)?;
+        require_editable(&self.config, &path, "Path is not in an editable folder")?;
+        let destination = media::resolve(&self.config, &path)?.full;
         let metadata = fs::symlink_metadata(&destination).await.map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 AppError::not_found("File not found")
@@ -160,28 +260,43 @@ impl FileCommandService {
                 ));
             }
         }
-        let mut staged = self.stage(path, u64::MAX, "edit").await?;
-        staged.write_chunk(content).await?;
-        self.finalize_replacement(staged, "edit").await
+        let mut staged = self.stage(&path, u64::MAX, "edit", None).await?;
+        staged.write_chunk(&content).await?;
+        let result = self.finalize_replacement(staged, "edit").await;
+        if result.is_ok() {
+            self.events.changed(&path);
+        }
+        result
     }
 
     pub async fn move_path(&self, old_path: &str, new_path: &str) -> AppResult<()> {
+        let service = self.clone();
+        let old_path = old_path.to_string();
+        let new_path = new_path.to_string();
+        await_owned_mutation(
+            "move",
+            tokio::spawn(async move { service.move_path_owned(old_path, new_path).await }),
+        )
+        .await
+    }
+
+    async fn move_path_owned(&self, old_path: String, new_path: String) -> AppResult<()> {
         let _operation = self.operations.lock().await;
         if old_path.is_empty() || new_path.is_empty() {
             return Err(AppError::bad("Both oldPath and newPath are required"));
         }
         require_editable(
             &self.config,
-            old_path,
+            &old_path,
             "Cannot rename: Source path is not in an editable folder",
         )?;
         require_editable(
             &self.config,
-            new_path,
+            &new_path,
             "Cannot rename: Destination path is not in an editable folder",
         )?;
-        let source = media::resolve(&self.config, old_path)?.full;
-        let destination = media::resolve(&self.config, new_path)?.full;
+        let source = media::resolve(&self.config, &old_path)?.full;
+        let destination = media::resolve(&self.config, &new_path)?.full;
         if metadata_optional(&destination).await?.is_some() {
             return Err(AppError::conflict(
                 "Destination file or directory already exists",
@@ -192,22 +307,50 @@ impl FileCommandService {
         fs::rename(&source, &destination)
             .await
             .map_err(AppError::io)?;
-        if let Err(error) = self.metadata.moved(&self.config, old_path, new_path).await {
+        if let Err(error) = self
+            .metadata
+            .moved(&self.config, &old_path, &new_path)
+            .await
+        {
             let compensation = fs::rename(&destination, &source).await;
             return Err(reconciliation_error(
                 "move",
-                old_path,
+                &old_path,
                 error,
                 compensation.err(),
             ));
+        }
+        self.events.moved(&old_path, &new_path);
+        self.events.changed(&old_path);
+        if logical_parent(&old_path) != logical_parent(&new_path) {
+            self.events.changed(&new_path);
         }
         Ok(())
     }
 
     pub async fn copy_path(&self, source_path: &str, destination_dir: &str) -> AppResult<String> {
+        let service = self.clone();
+        let source_path = source_path.to_string();
+        let destination_dir = destination_dir.to_string();
+        await_owned_mutation(
+            "copy",
+            tokio::spawn(
+                async move { service.copy_path_owned(source_path, destination_dir).await },
+            ),
+        )
+        .await
+    }
+
+    async fn copy_path_owned(
+        &self,
+        source_path: String,
+        destination_dir: String,
+    ) -> AppResult<String> {
         let _operation = self.operations.lock().await;
-        require_path(source_path)?;
-        let source = media::resolve(&self.config, source_path)?.full;
+        require_path(&source_path)?;
+        let source = media::resolve(&self.config, &source_path)?.full;
+        let source_metadata = fs::symlink_metadata(&source).await.map_err(AppError::io)?;
+        reject_symlink(&source_metadata)?;
         let name = source
             .file_name()
             .ok_or_else(|| AppError::bad("Invalid source path"))?
@@ -228,15 +371,43 @@ impl FileCommandService {
                 "Destination file or directory already exists",
             ));
         }
-        copy_recursive(&source, &destination).await?;
+        if source_metadata.is_dir() && path_is_within(&source, &destination).await? {
+            return Err(AppError::conflict(
+                "A folder cannot be copied into itself or one of its descendants",
+            ));
+        }
+        if let Err(error) = copy_recursive(&source, &destination).await {
+            if let Err(cleanup_error) = remove_path_if_exists(&destination).await {
+                return Err(AppError::needs_reconciliation(
+                    "copy",
+                    &logical,
+                    format!(
+                        "Copy failed: {}; partial destination cleanup also failed: {cleanup_error}",
+                        error.1
+                    ),
+                ));
+            }
+            return Err(error);
+        }
+        self.events.changed(&logical);
         Ok(logical)
     }
 
     pub async fn delete(&self, path: &str) -> AppResult<DeleteOutcome> {
+        let service = self.clone();
+        let path = path.to_string();
+        await_owned_mutation(
+            "delete",
+            tokio::spawn(async move { service.delete_owned(path).await }),
+        )
+        .await
+    }
+
+    async fn delete_owned(&self, path: String) -> AppResult<DeleteOutcome> {
         let _operation = self.operations.lock().await;
-        require_path(path)?;
-        require_editable(&self.config, path, "Path is not in an editable folder")?;
-        let source = media::resolve(&self.config, path)?.full;
+        require_path(&path)?;
+        require_editable(&self.config, &path, "Path is not in an editable folder")?;
+        let source = media::resolve(&self.config, &path)?.full;
         let metadata = fs::symlink_metadata(&source).await.map_err(AppError::io)?;
         reject_symlink(&metadata)?;
         let is_directory = metadata.is_dir();
@@ -244,11 +415,11 @@ impl FileCommandService {
         fs::rename(&source, &tombstone)
             .await
             .map_err(AppError::io)?;
-        if let Err(error) = self.metadata.removed(&self.config, path).await {
+        if let Err(error) = self.metadata.removed(&self.config, &path).await {
             let compensation = fs::rename(&tombstone, &source).await;
             return Err(reconciliation_error(
                 "delete",
-                path,
+                &path,
                 error,
                 compensation.err(),
             ));
@@ -261,12 +432,14 @@ impl FileCommandService {
         if let Err(error) = cleanup {
             return Err(AppError::needs_reconciliation(
                 "delete",
-                path,
+                &path,
                 format!(
                     "File metadata was repaired, but recoverable delete cleanup failed: {error}"
                 ),
             ));
         }
+        self.events.removed(&path);
+        self.events.changed(&path);
         Ok(DeleteOutcome { is_directory })
     }
 
@@ -285,40 +458,78 @@ impl FileCommandService {
             .acquire_owned()
             .await
             .map_err(|_| AppError::internal("Upload staging is unavailable"))?;
-        let mut staged = self.stage(path, self.max_upload_bytes, "upload").await?;
-        staged._upload_permit = Some(permit);
-        Ok(staged)
+        self.stage(path, self.max_upload_bytes, "upload", Some(permit))
+            .await
     }
 
     pub async fn finalize_uploads(&self, staged: Vec<StagedUpload>) -> AppResult<()> {
-        let _operation = self.operations.lock().await;
-        self.finalize_replacements(staged, "upload").await
+        let service = self.clone();
+        await_owned_mutation(
+            "upload",
+            tokio::spawn(async move { service.finalize_uploads_owned(staged).await }),
+        )
+        .await
     }
 
-    async fn stage(&self, path: &str, limit: u64, label: &str) -> AppResult<StagedUpload> {
+    async fn finalize_uploads_owned(&self, staged: Vec<StagedUpload>) -> AppResult<()> {
+        let _operation = self.operations.lock().await;
+        let mut changes = BTreeMap::new();
+        for item in &staged {
+            changes.insert(logical_parent(&item.logical), item.logical.clone());
+        }
+        let result = self.finalize_replacements(staged, "upload").await;
+        for logical in changes.values() {
+            self.events.changed(logical);
+        }
+        result
+    }
+
+    async fn stage(
+        &self,
+        path: &str,
+        limit: u64,
+        label: &str,
+        upload_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    ) -> AppResult<StagedUpload> {
         let destination = media::resolve(&self.config, path)?.full;
         let parent = destination
             .parent()
-            .ok_or_else(|| AppError::bad("Invalid destination path"))?;
-        fs::create_dir_all(parent).await.map_err(AppError::io)?;
+            .ok_or_else(|| AppError::bad("Invalid destination path"))?
+            .to_owned();
         let temporary = unique_sibling(&destination, label)?;
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .await
-            .map_err(AppError::io)?;
-        Ok(StagedUpload {
-            logical: path.to_string(),
-            destination,
-            temporary,
-            file: Some(file),
-            bytes_written: 0,
-            limit,
-            finished: false,
-            cleanup: true,
-            _upload_permit: None,
-        })
+        let logical = path.to_string();
+        #[cfg(test)]
+        let test_hooks = self.upload_test_hooks.clone();
+        await_owned_mutation(
+            "stage",
+            tokio::spawn(async move {
+                fs::create_dir_all(parent).await.map_err(AppError::io)?;
+                let file = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&temporary)
+                    .await
+                    .map_err(AppError::io)?;
+                #[cfg(test)]
+                if let Some(gate) = test_hooks.as_ref().and_then(|hooks| hooks.open.as_ref()) {
+                    gate.pause().await;
+                }
+                Ok(StagedUpload {
+                    logical,
+                    destination,
+                    temporary,
+                    file: Some(file),
+                    bytes_written: 0,
+                    limit,
+                    finished: false,
+                    cleanup: true,
+                    _upload_permit: upload_permit,
+                    #[cfg(test)]
+                    test_hooks,
+                })
+            }),
+        )
+        .await
     }
 
     async fn finalize_new_file(
@@ -430,7 +641,7 @@ impl FileCommandService {
                     }
                 }
                 if uncertain_current {
-                    prepared[index].staged.abort().await;
+                    prepared[index].staged.abort();
                 } else {
                     discard_prepared(&mut prepared[index]).await;
                 }
@@ -535,6 +746,8 @@ pub(crate) struct StagedUpload {
     finished: bool,
     cleanup: bool,
     _upload_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    #[cfg(test)]
+    test_hooks: Option<Arc<UploadTestHooks>>,
 }
 
 impl StagedUpload {
@@ -546,7 +759,7 @@ impl StagedUpload {
             AppError::with_status(StatusCode::PAYLOAD_TOO_LARGE, "Upload is too large")
         })?;
         if next > self.limit {
-            self.abort().await;
+            self.abort();
             return Err(AppError::with_status(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 format!("Upload exceeds {} byte limit", self.limit),
@@ -558,6 +771,14 @@ impl StagedUpload {
             .write_all(chunk)
             .await
             .map_err(AppError::io)?;
+        #[cfg(test)]
+        if let Some(gate) = self
+            .test_hooks
+            .as_ref()
+            .and_then(|hooks| hooks.write.as_ref())
+        {
+            gate.pause().await;
+        }
         self.bytes_written = next;
         Ok(())
     }
@@ -572,13 +793,13 @@ impl StagedUpload {
         if self.finished {
             return Ok(());
         }
-        let mut file = self
+        let file = self
             .file
-            .take()
+            .as_mut()
             .ok_or_else(|| AppError::internal("Upload temporary file is closed"))?;
         file.flush().await.map_err(AppError::io)?;
         file.sync_all().await.map_err(AppError::io)?;
-        drop(file);
+        self.file.take();
         let metadata = fs::metadata(&self.temporary).await.map_err(AppError::io)?;
         if !metadata.is_file() || metadata.len() != self.bytes_written {
             return Err(AppError::internal(
@@ -589,18 +810,47 @@ impl StagedUpload {
         Ok(())
     }
 
-    async fn abort(&mut self) {
-        self.file.take();
-        self.cleanup = fs::remove_file(&self.temporary).await.is_err();
+    fn abort(&mut self) {
+        self.start_cleanup();
+    }
+
+    fn start_cleanup(&mut self) {
+        if !std::mem::replace(&mut self.cleanup, false) {
+            return;
+        }
+        cleanup_temporary_file(self.file.take(), self.temporary.clone());
     }
 }
 
 impl Drop for StagedUpload {
     fn drop(&mut self) {
-        self.file.take();
-        if self.cleanup {
-            let _ = std::fs::remove_file(&self.temporary);
+        self.start_cleanup();
+    }
+}
+
+fn cleanup_temporary_file(file: Option<fs::File>, temporary: PathBuf) {
+    match std::fs::remove_file(&temporary) {
+        Ok(()) => {
+            drop(file);
+            return;
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            drop(file);
+            return;
+        }
+        Err(_) => {}
+    }
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        runtime.spawn(async move {
+            if let Some(mut file) = file {
+                let _ = file.flush().await;
+                drop(file);
+            }
+            let _ = fs::remove_file(temporary).await;
+        });
+    } else {
+        drop(file);
+        let _ = std::fs::remove_file(temporary);
     }
 }
 
@@ -610,6 +860,13 @@ fn require_path(path: &str) -> AppResult<()> {
     } else {
         Ok(())
     }
+}
+
+fn logical_parent(path: &str) -> String {
+    path.replace('\\', "/")
+        .rsplit_once('/')
+        .map(|value| value.0.into())
+        .unwrap_or_default()
 }
 
 fn require_editable(config: &Config, path: &str, message: &'static str) -> AppResult<()> {
@@ -635,6 +892,22 @@ async fn metadata_optional(path: &Path) -> AppResult<Option<std::fs::Metadata>> 
         Ok(metadata) => Ok(Some(metadata)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(AppError::io(error)),
+    }
+}
+
+async fn path_is_within(source: &Path, destination: &Path) -> AppResult<bool> {
+    let source = fs::canonicalize(source).await.map_err(AppError::io)?;
+    let mut existing = destination;
+    loop {
+        match fs::canonicalize(existing).await {
+            Ok(existing) => return Ok(existing.starts_with(&source)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                existing = existing
+                    .parent()
+                    .ok_or_else(|| AppError::bad("Invalid destination path"))?;
+            }
+            Err(error) => return Err(AppError::io(error)),
+        }
     }
 }
 
@@ -701,7 +974,7 @@ async fn rollback_prepared(item: &mut PreparedReplacement) -> std::io::Result<()
 }
 
 async fn discard_prepared(item: &mut PreparedReplacement) {
-    item.staged.abort().await;
+    item.staged.abort();
     if let Some(backup) = item.backup.take() {
         let _ = remove_file_if_exists(&backup).await;
     }
@@ -712,6 +985,19 @@ async fn remove_file_if_exists(path: &Path) -> std::io::Result<()> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
+    }
+}
+
+async fn remove_path_if_exists(path: &Path) -> std::io::Result<()> {
+    let metadata = match fs::symlink_metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(path).await
+    } else {
+        fs::remove_file(path).await
     }
 }
 
@@ -815,7 +1101,10 @@ mod tests {
         error::{AppError, AppResult},
     };
     use futures_util::future::BoxFuture;
-    use std::{path::PathBuf, sync::Arc};
+    use std::{
+        path::PathBuf,
+        sync::{Arc, Mutex as StdMutex},
+    };
 
     struct Fixture {
         base: PathBuf,
@@ -874,6 +1163,28 @@ mod tests {
 
     struct NoopMetadata;
 
+    #[derive(Default)]
+    struct RecordingEvents {
+        values: StdMutex<Vec<String>>,
+    }
+
+    impl FileMutationEvents for RecordingEvents {
+        fn changed(&self, path: &str) {
+            self.values.lock().unwrap().push(format!("changed:{path}"));
+        }
+
+        fn moved(&self, old_path: &str, new_path: &str) {
+            self.values
+                .lock()
+                .unwrap()
+                .push(format!("moved:{old_path}:{new_path}"));
+        }
+
+        fn removed(&self, path: &str) {
+            self.values.lock().unwrap().push(format!("removed:{path}"));
+        }
+    }
+
     impl FileMetadataRepair for NoopMetadata {
         fn content_replaced(&self, _config: &Config, _path: &str) -> AppResult<()> {
             Ok(())
@@ -930,6 +1241,46 @@ mod tests {
         let details = error.2.expect("missing reconciliation details");
         assert_eq!(details.operation, operation);
         assert_eq!(details.path, path);
+    }
+
+    async fn wait_for_owned_mutation(commands: &FileCommandService) {
+        tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            while Arc::strong_count(&commands.operations) < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("mutation did not enter its owned task");
+    }
+
+    async fn wait_for_path(path: &Path, exists: bool) {
+        tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            while path.exists() != exists {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("owned mutation did not finish after its waiter was aborted");
+    }
+
+    async fn wait_for_owned_mutations_idle(commands: &FileCommandService) {
+        tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            while Arc::strong_count(&commands.operations) != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("owned mutation task did not exit");
+    }
+
+    async fn wait_for_no_temporary_entries(directory: &Path) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while !temporary_entries(directory).is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("temporary upload cleanup did not finish");
     }
 
     #[tokio::test]
@@ -1132,6 +1483,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn canceled_upload_open_handoff_removes_the_created_temporary_file() {
+        let fixture = Fixture::new("upload-cancel-open");
+        let gate = Arc::new(UploadTestGate::default());
+        let mut command_service = service(&fixture, Arc::new(NoopMetadata));
+        command_service.upload_slots = Arc::new(tokio::sync::Semaphore::new(1));
+        command_service.upload_test_hooks = Some(Arc::new(UploadTestHooks {
+            open: Some(gate.clone()),
+            write: None,
+        }));
+        let commands = Arc::new(command_service);
+        let waiter = tokio::spawn({
+            let commands = commands.clone();
+            async move { commands.begin_upload("Editable/note.txt").await }
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), gate.entered.notified())
+            .await
+            .expect("upload open did not reach the handoff gate");
+        assert_eq!(temporary_entries(&fixture.path("Editable")).len(), 1);
+        waiter.abort();
+        assert!(matches!(waiter.await, Err(error) if error.is_cancelled()));
+
+        let next = tokio::spawn({
+            let commands = commands.clone();
+            async move { commands.begin_upload("Editable/next.txt").await }
+        });
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(20),
+                gate.entered.notified()
+            )
+            .await
+            .is_err(),
+            "a second upload bypassed the staging concurrency limit"
+        );
+
+        gate.resume.notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(1), gate.entered.notified())
+            .await
+            .expect("next upload did not start after the canceled stage released its permit");
+        next.abort();
+        assert!(matches!(next.await, Err(error) if error.is_cancelled()));
+        gate.resume.notify_one();
+
+        wait_for_no_temporary_entries(&fixture.path("Editable")).await;
+        assert_eq!(commands.upload_slots.available_permits(), 1);
+        assert!(!fixture.path("Editable/note.txt").exists());
+        assert!(!fixture.path("Editable/next.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn canceled_upload_write_closes_the_handle_before_removing_the_temporary_file() {
+        let fixture = Fixture::new("upload-cancel-write");
+        let gate = Arc::new(UploadTestGate::default());
+        let mut command_service = service(&fixture, Arc::new(NoopMetadata));
+        command_service.upload_test_hooks = Some(Arc::new(UploadTestHooks {
+            open: None,
+            write: Some(gate.clone()),
+        }));
+        let commands = Arc::new(command_service);
+        let upload = commands.begin_upload("Editable/note.txt").await.unwrap();
+        let writer = tokio::spawn(async move {
+            let mut upload = upload;
+            upload.write_chunk(&vec![b'x'; 512]).await
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), gate.entered.notified())
+            .await
+            .expect("upload write did not reach the cancellation gate");
+        assert_eq!(temporary_entries(&fixture.path("Editable")).len(), 1);
+        writer.abort();
+        assert!(matches!(writer.await, Err(error) if error.is_cancelled()));
+
+        wait_for_no_temporary_entries(&fixture.path("Editable")).await;
+        assert_eq!(
+            commands.upload_slots.available_permits(),
+            MAX_CONCURRENT_UPLOADS
+        );
+        assert!(!fixture.path("Editable/note.txt").exists());
+    }
+
+    #[tokio::test]
     async fn upload_metadata_failure_restores_previous_file() {
         let fixture = Fixture::new("upload-repair");
         let path = fixture.path("Editable/note.txt");
@@ -1173,6 +1606,132 @@ mod tests {
         assert!(!created.exists());
         assert_reconciliation(error, "upload", "Editable/existing.txt");
         assert!(temporary_entries(fixture.path("Editable").as_path()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn directory_copy_rejects_itself_and_descendants_without_mutation() {
+        let fixture = Fixture::new("copy-self");
+        let source = fixture.path("Editable/source");
+        std::fs::create_dir_all(source.join("child")).unwrap();
+        std::fs::write(source.join("note.txt"), "content").unwrap();
+        let commands = service(&fixture, Arc::new(NoopMetadata));
+
+        for destination in ["Editable/source", "Editable/source/child"] {
+            let error = commands
+                .copy_path("Editable/source", destination)
+                .await
+                .unwrap_err();
+            assert_eq!(error.0, axum::http::StatusCode::CONFLICT);
+            assert!(error.1.contains("cannot be copied into itself"));
+        }
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                fixture.path("Editable"),
+                fixture.path("Editable/alias-parent"),
+            )
+            .unwrap();
+            let error = commands
+                .copy_path("Editable/alias-parent/source", "Editable/source/child")
+                .await
+                .unwrap_err();
+            assert_eq!(error.0, axum::http::StatusCode::CONFLICT);
+        }
+
+        assert!(!source.join("source").exists());
+        assert!(!source.join("child/source").exists());
+        assert_eq!(
+            std::fs::read_to_string(source.join("note.txt")).unwrap(),
+            "content"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_recursive_copy_removes_partial_destination() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = Fixture::new("copy-cleanup");
+        let source = fixture.path("Editable/source");
+        let target = fixture.path("Editable/target");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(source.join("regular.txt"), "content").unwrap();
+        symlink(source.join("regular.txt"), source.join("unsupported-link")).unwrap();
+        let commands = service(&fixture, Arc::new(NoopMetadata));
+
+        let error = commands
+            .copy_path("Editable/source", "Editable/target")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.0, axum::http::StatusCode::FORBIDDEN);
+        assert!(!target.join("source").exists());
+    }
+
+    #[tokio::test]
+    async fn committed_mutations_finish_after_request_waiters_are_aborted() {
+        let fixture = Fixture::new("cancelled-waiters");
+        std::fs::create_dir_all(fixture.path("Editable/source")).unwrap();
+        std::fs::create_dir_all(fixture.path("Editable/target")).unwrap();
+        std::fs::write(fixture.path("Editable/source/note.txt"), "copy me").unwrap();
+        std::fs::write(fixture.path("Editable/delete.txt"), "delete me").unwrap();
+        let events = Arc::new(RecordingEvents::default());
+        let mut command_service = service(&fixture, Arc::new(NoopMetadata));
+        command_service.events = events.clone();
+        let commands = Arc::new(command_service);
+
+        let operation = commands.operations.lock().await;
+        let waiter = tokio::spawn({
+            let commands = commands.clone();
+            async move {
+                commands
+                    .copy_path("Editable/source", "Editable/target")
+                    .await
+            }
+        });
+        wait_for_owned_mutation(&commands).await;
+        waiter.abort();
+        drop(operation);
+        wait_for_path(&fixture.path("Editable/target/source/note.txt"), true).await;
+        wait_for_owned_mutations_idle(&commands).await;
+
+        let operation = commands.operations.lock().await;
+        let waiter = tokio::spawn({
+            let commands = commands.clone();
+            async move { commands.delete("Editable/delete.txt").await }
+        });
+        wait_for_owned_mutation(&commands).await;
+        waiter.abort();
+        drop(operation);
+        wait_for_path(&fixture.path("Editable/delete.txt"), false).await;
+        wait_for_owned_mutations_idle(&commands).await;
+
+        let mut staged = commands.begin_upload("Editable/upload.txt").await.unwrap();
+        staged.write_chunk(b"uploaded").await.unwrap();
+        staged.finish_staging().await.unwrap();
+        let operation = commands.operations.lock().await;
+        let waiter = tokio::spawn({
+            let commands = commands.clone();
+            async move { commands.finalize_uploads(vec![staged]).await }
+        });
+        wait_for_owned_mutation(&commands).await;
+        waiter.abort();
+        drop(operation);
+        wait_for_path(&fixture.path("Editable/upload.txt"), true).await;
+        wait_for_owned_mutations_idle(&commands).await;
+
+        assert!(temporary_entries(&fixture.path("Editable")).is_empty());
+        assert_eq!(
+            events.values.lock().unwrap().as_slice(),
+            [
+                "changed:Editable/target/source",
+                "removed:Editable/delete.txt",
+                "changed:Editable/delete.txt",
+                "changed:Editable/upload.txt",
+            ]
+        );
     }
 
     #[tokio::test]

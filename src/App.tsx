@@ -1,16 +1,29 @@
-import { Match, Show, Suspense, Switch, createMemo, createResource, lazy } from 'solid-js'
+import {
+  Match,
+  Show,
+  Suspense,
+  Switch,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+} from 'solid-js'
 import { getMediaTypeFromPath } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
-import { navigateHref, useBrowserHistory } from './browser-history'
+import { navigateHref, navigateSearchParams, useBrowserHistory } from './browser-history'
 import { FileBrowser } from './FileBrowser'
 import { hrefFor, parseRoute } from './lib/routes'
 import { SurfaceSwitcher } from './SurfaceSwitcher'
 import { ContentRuntimeView } from './features/content/ContentRuntimeView'
 import { filesystemContentInstance } from './integrations/filesystem/content'
 import { applicationContentRuntime } from './integrations/registry'
-import { closeReader } from './reader/reader-url'
 import { resourceKey } from '@/lib/domain/resource'
 import { filesystemPathForResourceKey } from './integrations/filesystem/resource'
+import { createSurfaceLifecycleCoordinator } from './features/content/surface-lifecycle'
+import type { AppRoute, AppSurface } from './lib/routes'
 
 const WorkspacePage = lazy(() =>
   import('./WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
@@ -65,8 +78,57 @@ function NotFoundPage() {
 }
 
 export function App() {
-  const location = useBrowserHistory()
-  const route = createMemo(() => parseRoute(location()))
+  const browserLocation = useBrowserHistory()
+  const [acceptedLocation, setAcceptedLocation] = createSignal(browserLocation())
+  const lifecycle = createSurfaceLifecycleCoordinator()
+  const route = createMemo(() => parseRoute(acceptedLocation()))
+  let pendingLocation: ReturnType<typeof browserLocation> | null = null
+  let transitionRunning = false
+
+  const locationHref = (location: ReturnType<typeof browserLocation>) =>
+    `${location.pathname}${location.search}${location.hash}`
+  const routeSurface = (value: AppRoute): AppSurface | null =>
+    value.kind === 'notFound' ? null : value.kind
+
+  async function applyPendingLocation() {
+    if (transitionRunning) return
+    transitionRunning = true
+    try {
+      while (pendingLocation) {
+        const requested = pendingLocation
+        pendingLocation = null
+        const current = acceptedLocation()
+        if (locationHref(requested) === locationHref(current)) continue
+        const currentSurface = routeSurface(parseRoute(current))
+        const requestedSurface = routeSurface(parseRoute(requested))
+        if (currentSurface === requestedSurface) {
+          setAcceptedLocation(requested)
+          continue
+        }
+        if (currentSurface && !(await lifecycle.leave(currentSurface))) {
+          pendingLocation = null
+          navigateHref(locationHref(current), 'replace')
+          continue
+        }
+        setAcceptedLocation(pendingLocation ?? requested)
+        pendingLocation = null
+      }
+    } finally {
+      transitionRunning = false
+      if (pendingLocation) void applyPendingLocation()
+    }
+  }
+
+  createEffect(() => {
+    pendingLocation = browserLocation()
+    void applyPendingLocation()
+  })
+
+  onMount(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => lifecycle.beforeUnload(event)
+    window.addEventListener('beforeunload', beforeUnload)
+    onCleanup(() => window.removeEventListener('beforeunload', beforeUnload))
+  })
   const readerPath = createMemo(() =>
     route().kind === 'notFound' ? null : (route().query.reader ?? null),
   )
@@ -97,9 +159,22 @@ export function App() {
     } as const
   })
   const [readyReaderContent] = createResource(readerRequest, filesystemContentInstance)
-  const visibleReaderContent = createMemo(() =>
-    readerRequest() ? (readyReaderContent() ?? null) : null,
-  )
+  createEffect(() => {
+    if (!readerRequest()) return
+    const resourceState = readyReaderContent.state
+    const unavailable =
+      resourceState === 'errored' ||
+      (resourceState === 'ready' && readyReaderContent.latest === null)
+    if (!unavailable) return
+    navigateSearchParams({ reader: null, readerKind: null }, 'replace')
+  })
+  const visibleReaderContent = createMemo(() => {
+    if (!readerRequest()) return null
+    const resourceState = readyReaderContent.state
+    return resourceState === 'ready' || resourceState === 'refreshing'
+      ? (readyReaderContent.latest ?? null)
+      : null
+  })
   const showSurfaceSwitcher = createMemo(() => {
     const current = route()
     return (
@@ -114,16 +189,16 @@ export function App() {
     <>
       <Switch fallback={<NotFoundPage />}>
         <Match when={route().kind === 'library'}>
-          <FileBrowser />
+          <FileBrowser location={acceptedLocation} />
         </Match>
         <Match when={route().kind === 'workspace'}>
           <Suspense fallback={<LoadingSurface />}>
-            <WorkspacePage />
+            <WorkspacePage lifecycle={lifecycle} />
           </Suspense>
         </Match>
         <Match when={route().kind === 'canvas'}>
           <Suspense fallback={<LoadingSurface />}>
-            <CanvasPage />
+            <CanvasPage lifecycle={lifecycle} />
           </Suspense>
         </Match>
         <Match when={route().kind === 'notFound'}>
@@ -138,7 +213,7 @@ export function App() {
           <ContentRuntimeView
             runtime={applicationContentRuntime}
             instance={visibleReaderContent}
-            onClose={closeReader}
+            onClose={() => navigateSearchParams({ reader: null, readerKind: null }, 'push')}
           />
         </div>
       </Show>

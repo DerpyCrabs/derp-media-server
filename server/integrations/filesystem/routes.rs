@@ -1,6 +1,6 @@
 use super::{COLLECTION_ROOT_ID, FilesystemIntegration, PROVIDER_ID, decode_key};
 use crate::{
-    app::{Shared, emit, parent_logical, safe_upload_name},
+    app::{Shared, safe_upload_name},
     error::{AppError, AppResult},
     extractors::{ApiMultipart, ApiQuery},
     integrations::contracts::ResourceKeyDto,
@@ -16,10 +16,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{
-    collections::{HashMap, HashSet},
-    io::Write,
-};
+use std::{collections::HashSet, io::Write};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 
@@ -39,7 +36,6 @@ async fn upload(
     let mut logical_paths = HashSet::new();
     let mut total_bytes = 0_u64;
     let mut count = 0;
-    let mut broadcasts = HashMap::new();
     let mut staged_uploads = Vec::new();
     while let Some(field) = multipart
         .next_field()
@@ -119,7 +115,6 @@ async fn upload(
                 staged.write_chunk(&chunk).await?;
             }
             staged.finish_staging().await?;
-            broadcasts.insert(parent_logical(&logical), logical);
             staged_uploads.push(staged);
             count += 1;
         }
@@ -127,15 +122,7 @@ async fn upload(
     if count == 0 {
         return Err(AppError::bad("No files provided"));
     }
-    if let Err(error) = state.file_commands.finalize_uploads(staged_uploads).await {
-        for logical in broadcasts.values() {
-            emit(&state, logical);
-        }
-        return Err(error);
-    }
-    for logical in broadcasts.values() {
-        emit(&state, logical);
-    }
+    state.file_commands.finalize_uploads(staged_uploads).await?;
     Ok(Json(json!({"success":true,"uploaded":count})))
 }
 

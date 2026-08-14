@@ -18,7 +18,7 @@ database.exec(`
   );
   INSERT INTO state_schema(id, version, applied_at) VALUES(1, 1, 0);
   CREATE TABLE state_documents (
-    kind TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('settings.v1', 'playback-stats.v1', 'canvas.v2')),
     library_key TEXT NOT NULL,
     value_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL,

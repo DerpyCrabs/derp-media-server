@@ -466,16 +466,17 @@ describe('Explorer controller', () => {
     controller.dispose()
   })
 
-  test('does not let source notifications supersede an active load or erase its error', async () => {
+  test('coalesces source notifications during an active load into one later refresh', async () => {
     const at = location('source-events')
     const pending = deferred<ExplorerPage<Payload>>()
+    const recovered = deferred<ExplorerPage<Payload>>()
     let attempt = 0
     const source = dataSourceHarness({
       browse: async () => {
         attempt += 1
         if (attempt === 1) return page(at, [item('existing')])
         if (attempt === 2) return pending.promise
-        return page(at, [item('recovered')])
+        return recovered.promise
       },
     })
     const controller = createExplorerController({
@@ -487,22 +488,75 @@ describe('Explorer controller', () => {
 
     const refreshing = controller.dispatch({ type: 'refresh' })
     source.notify()
+    source.notify()
+    source.notify()
     await settleHistory()
     expect(source.browseCalls).toHaveLength(2)
 
     pending.reject(new Error('load failed'))
     expect((await refreshing).kind).toBe('unavailable')
-    source.notify()
+    expect(controller.getSnapshot()).toMatchObject({
+      status: 'error',
+      error: { message: 'load failed' },
+    })
     await settleHistory()
-    expect(source.browseCalls).toHaveLength(2)
+    expect(source.browseCalls).toHaveLength(3)
     expect(controller.getSnapshot()).toMatchObject({
       status: 'error',
       error: { message: 'load failed' },
     })
 
-    await controller.dispatch({ type: 'refresh' })
+    recovered.resolve(page(at, [item('recovered')]))
+    await settleHistory()
     expect(source.browseCalls).toHaveLength(3)
     expect(controller.getSnapshot().status).toBe('ready')
+    expect(controller.getSnapshot().items[0]?.resource.name).toBe('recovered.txt')
+    controller.dispose()
+  })
+
+  test('coalesces source notifications while showing an error and keeps error until recovery', async () => {
+    const at = location('source-error')
+    const recovered = deferred<ExplorerPage<Payload>>()
+    let attempt = 0
+    const source = dataSourceHarness({
+      browse: async () => {
+        attempt += 1
+        if (attempt === 1) return page(at, [item('existing')])
+        if (attempt === 2) throw new Error('offline')
+        return recovered.promise
+      },
+    })
+    const controller = createExplorerController({
+      dataSource: source.dataSource,
+      history: historyHarness(at).history,
+      initialLocation: at,
+    })
+    await controller.dispatch({ type: 'initialize' })
+    await controller.dispatch({ type: 'refresh' })
+
+    source.notify()
+    source.notify()
+    source.notify()
+    expect(source.browseCalls).toHaveLength(2)
+    expect(controller.getSnapshot()).toMatchObject({
+      status: 'error',
+      error: { message: 'offline' },
+    })
+
+    await settleHistory()
+    expect(source.browseCalls).toHaveLength(3)
+    expect(controller.getSnapshot()).toMatchObject({
+      status: 'error',
+      error: { message: 'offline' },
+    })
+
+    recovered.resolve(page(at, [item('recovered')]))
+    await settleHistory()
+    expect(source.browseCalls).toHaveLength(3)
+    expect(controller.getSnapshot()).toMatchObject({
+      status: 'ready',
+      error: undefined,
+    })
     controller.dispose()
   })
 

@@ -215,6 +215,7 @@ export function createExplorerController<TPayload>(options: {
   let activeLoad: AbortController | undefined
   let suppressHistory = false
   let refreshQueued = false
+  let sourceRefreshPending = false
   const initialStored = validStoredState(storage.read(locationKey(initialLocation)))
   let snapshot: ExplorerSnapshot<TPayload> = {
     revision,
@@ -361,6 +362,7 @@ export function createExplorerController<TPayload>(options: {
     location: ExplorerLocation,
     reason: 'initialize' | 'navigate' | 'refresh' | 'loadMore' | 'reconcile',
     cursor?: string,
+    preserveSnapshot = false,
   ): Promise<ExplorerDispatchResult<TPayload>> {
     if (disposed) return { kind: 'stale' }
     const append = reason === 'loadMore'
@@ -398,7 +400,7 @@ export function createExplorerController<TPayload>(options: {
         contentSearch: undefined,
         recentItems: [],
       })
-    } else {
+    } else if (!preserveSnapshot) {
       emitProjected({
         status: baseItems.length === 0 ? 'loading' : snapshot.status,
         error: undefined,
@@ -428,8 +430,30 @@ export function createExplorerController<TPayload>(options: {
       })
       return { kind: 'unavailable', error: normalized }
     } finally {
-      if (activeLoad === abort) activeLoad = undefined
+      if (activeLoad === abort) {
+        activeLoad = undefined
+        scheduleSourceRefresh()
+      }
     }
+  }
+
+  function scheduleSourceRefresh() {
+    if (
+      disposed ||
+      !initialized ||
+      !sourceRefreshPending ||
+      refreshQueued ||
+      activeLoad !== undefined
+    ) {
+      return
+    }
+    refreshQueued = true
+    queueMicrotask(() => {
+      refreshQueued = false
+      if (disposed || !sourceRefreshPending || activeLoad !== undefined) return
+      sourceRefreshPending = false
+      void load(snapshot.location, 'refresh', undefined, true)
+    })
   }
 
   async function navigate(location: ExplorerLocation, replace = false) {
@@ -605,19 +629,9 @@ export function createExplorerController<TPayload>(options: {
     void load(location, 'navigate')
   })
   const unsubscribeDataSource = options.dataSource.subscribe?.(() => {
-    if (
-      disposed ||
-      !initialized ||
-      refreshQueued ||
-      activeLoad !== undefined ||
-      snapshot.status === 'error'
-    )
-      return
-    refreshQueued = true
-    queueMicrotask(() => {
-      refreshQueued = false
-      if (!disposed) void dispatch({ type: 'refresh' })
-    })
+    if (disposed || !initialized) return
+    sourceRefreshPending = true
+    scheduleSourceRefresh()
   })
 
   return {
@@ -635,6 +649,7 @@ export function createExplorerController<TPayload>(options: {
       for (const abort of commandAborts) abort.abort()
       commandAborts.clear()
       pending.length = 0
+      sourceRefreshPending = false
       unsubscribeHistory()
       unsubscribeDataSource?.()
       options.dataSource.dispose?.()

@@ -56,10 +56,10 @@ describe('confirmContentClose', () => {
       Bun.file('src/CanvasPage.tsx').text(),
     ])
 
-    expect(workspace.match(/confirmContentClose\(/g)).toHaveLength(3)
+    expect(workspace.match(/confirmContentClose\(/g)).toHaveLength(4)
     expect(workspace).toMatch(/v0 !== initial/)
     expect(workspace).toMatch(/currentTarget !== target/)
-    expect(canvas.match(/confirmContentClose\(/g)).toHaveLength(3)
+    expect(canvas.match(/confirmContentClose\(/g)).toHaveLength(4)
     expect(canvas).toMatch(/definition !== target/)
     expect(canvas).toMatch(/targetIsCurrent/)
   })

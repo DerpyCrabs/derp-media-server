@@ -63,4 +63,21 @@ test.describe('Workspace file open target', () => {
     await content.getByText('readme.txt').click()
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
+
+  test('exposes the window target picker when new tabs are enabled', async () => {
+    await gotoWorkspace(page)
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    await chooseWorkspaceOpenTarget(page, 'New tab')
+
+    const content = getBrowserContent(page)
+    await content.getByText('Documents', { exact: true }).click()
+    await expect(content.getByText('readme.txt')).toBeVisible({ timeout: 10_000 })
+    await content.getByText('readme.txt').click({ button: 'right' })
+    const trigger = page.getByTestId('workspace-pick-new-tab-target')
+    await expect(trigger).toHaveText('Choose where new tabs open…')
+    await trigger.click()
+    await expect(page.locator('body')).toHaveCSS('cursor', 'crosshair')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('body')).not.toHaveCSS('cursor', 'crosshair')
+  })
 })

@@ -77,27 +77,56 @@ async fn action(
 struct SearchQuery {
     q: Option<String>,
     limit: Option<usize>,
+    contributors: Option<String>,
+    scope_provider: Option<String>,
+    scope_resource: Option<String>,
 }
 
 async fn search(
     State(state): State<Shared>,
     ApiQuery(query): ApiQuery<SearchQuery>,
 ) -> AppResult<Json<IntegrationSearchResponseDto>> {
-    let requested_limit = query.limit;
-    let query = query
-        .q
+    let SearchQuery {
+        q,
+        limit: requested_limit,
+        contributors,
+        scope_provider,
+        scope_resource,
+    } = query;
+    let query = q
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| AppError::bad("q must be a non-empty string"))?;
     if query.chars().count() > 200 {
         return Err(AppError::bad("Query cannot exceed 200 characters"));
     }
+    let contributors = contributors
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|values| !values.is_empty());
+    let scope = match (scope_provider, scope_resource) {
+        (Some(provider), Some(resource)) => Some(ResourceKeyDto::new(provider, resource)),
+        (None, None) => None,
+        _ => {
+            return Err(AppError::bad(
+                "scopeProvider and scopeResource must be provided together",
+            ));
+        }
+    };
     Ok(Json(
         state
             .integrations
             .search(IntegrationSearchRequest {
                 query,
                 limit: query_limit(50, requested_limit),
+                contributors,
+                scope,
             })
             .await,
     ))

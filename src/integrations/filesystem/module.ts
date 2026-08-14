@@ -1,7 +1,9 @@
 import { isApiError } from '@/lib/api'
 import {
   FILESYSTEM_PROVIDER,
+  FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID,
   filesystemResourceAddress,
+  filesystemResourceKey,
   isResourceKey,
   type ResourceError,
   type ResourceKey,
@@ -22,13 +24,20 @@ import {
   runIntegrationAction,
   uploadIntegrationFiles,
 } from '@/src/integrations/http-client'
-import { DEFAULT_FILESYSTEM_ROOT_ID, filesystemResourceKeyForPath } from './resource'
+import {
+  DEFAULT_FILESYSTEM_ROOT_ID,
+  filesystemPathForResourceKey,
+  filesystemResourceIsDirectory,
+  filesystemResourceKeyForPath,
+  filesystemResourceMediaType,
+} from './resource'
 import {
   filesystemAudioPlaybackQueue,
   filesystemPlaybackItemFromResource,
   resolveFilesystemPlaybackSource,
 } from './playback'
 import { lazy } from 'solid-js'
+import { MediaType } from '@/lib/types'
 
 export {
   DEFAULT_FILESYSTEM_ROOT_ID,
@@ -148,6 +157,16 @@ function resourceError(error: unknown, resource?: ResourceSummary): ResourceErro
     code: 'internal',
     message: error instanceof Error ? error.message : String(error),
     ...(resource ? { resource: resource.key } : {}),
+  }
+}
+
+function badResourceRequest(message: string, resource: ResourceSummary): ResourceError {
+  return {
+    schemaVersion: 1,
+    code: 'badRequest',
+    message,
+    resource: resource.key,
+    retryable: false,
   }
 }
 
@@ -304,6 +323,24 @@ export function createFilesystemIntegrationModule(
     inspect: {
       inspect: transport.inspectResource,
     },
+    routes: {
+      async open(resource, intent, context) {
+        if (intent !== 'read' || context.surface !== 'library') return false
+        const path = filesystemPathForResourceKey(resource.key)
+        if (path === null) return false
+        const readerKind = filesystemResourceIsDirectory(resource)
+          ? 'folder'
+          : filesystemResourceMediaType(resource) === MediaType.BOOK
+            ? 'book'
+            : filesystemResourceMediaType(resource) === MediaType.PDF
+              ? 'pdf'
+              : null
+        if (readerKind === null) return false
+        const { navigateSearchParams } = await import('@/src/browser-history')
+        navigateSearchParams({ reader: path, readerKind }, 'push')
+        return true
+      },
+    },
     playback: {
       createItem: filesystemPlaybackItemFromResource,
       createQueue: (resources, current) =>
@@ -322,7 +359,8 @@ export function createFilesystemIntegrationModule(
           )
       },
       async run(request): Promise<ResourceActionOutcome> {
-        if (!filesystemResourceAddress(request.resource.key)) {
+        const sourceAddress = filesystemResourceAddress(request.resource.key)
+        if (!sourceAddress) {
           return resourceError(new Error('Invalid filesystem resource'), request.resource)
         }
         const descriptor = actionDescriptors.find((item) => item.id === request.actionId)
@@ -351,18 +389,34 @@ export function createFilesystemIntegrationModule(
         let input = request.input
         if (request.actionId === 'filesystem.move' || request.actionId === 'filesystem.copy') {
           const values = inputRecord(request.input)
-          const destination = values.destination
-          const destinationDir = isResourceKey(destination)
-            ? filesystemResourceAddress(destination)?.path
-            : typeof values.destinationDir === 'string'
-              ? values.destinationDir
-              : typeof destination === 'string'
-                ? destination
-                : undefined
-          if (typeof destinationDir !== 'string') {
-            return resourceError(new Error('destinationDir is required'), request.resource)
+          if (sourceAddress.rootId === FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID) {
+            return badResourceRequest('Application collections are read-only', request.resource)
           }
-          input = { ...values, destinationDir }
+          const rawDestination = values.destination
+          let destination: ResourceKey | null = null
+          if (isResourceKey(rawDestination)) {
+            destination = rawDestination
+          } else if (typeof rawDestination === 'string') {
+            try {
+              destination = filesystemResourceKey(DEFAULT_FILESYSTEM_ROOT_ID, rawDestination)
+            } catch {}
+          }
+          const destinationAddress = destination ? filesystemResourceAddress(destination) : null
+          if (!destinationAddress) {
+            return badResourceRequest(
+              'A filesystem destination resource is required',
+              request.resource,
+            )
+          }
+          if (destinationAddress.rootId === FILESYSTEM_APPLICATION_COLLECTION_ROOT_ID) {
+            return badResourceRequest(
+              'Application collections cannot be move or copy destinations',
+              request.resource,
+            )
+          }
+          const typedValues = { ...values }
+          delete typedValues.destinationDir
+          input = { ...typedValues, destination }
         }
         try {
           const response = await transport.runResourceAction(

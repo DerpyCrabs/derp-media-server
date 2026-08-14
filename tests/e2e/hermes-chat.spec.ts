@@ -17,6 +17,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
+  await page.request.post('/api/settings/workspaceTaskbarPins', { data: { items: [] } })
   await page.close()
 })
 
@@ -689,11 +690,37 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
       },
     })
   })
+  await page.route('**/api/integrations/hermes/inspect?*', async (route) => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    const item = items.find((candidate) => candidate.key.id === id)
+    if (!item) {
+      await route.fulfill({ status: 404, json: { error: 'not found' } })
+      return
+    }
+    await route.fulfill({ json: item })
+  })
   await page.route('**/api/integrations/hermes/actions', async (route) => {
     actions.push(route.request().postDataJSON())
     await route.fulfill({ json: { success: true } })
   })
   await page.goto('/workspace?ws=hermes-actions')
+
+  await page.getByText('Loose session', { exact: true }).click({ button: 'right' })
+  await expect(page.getByTestId('open-with-menu')).toHaveCount(0)
+  await page.getByRole('menuitem', { name: 'Add to taskbar' }).click()
+  const sessionPin = page
+    .locator('[data-taskbar-pin]')
+    .filter({ has: page.getByTitle('File: Loose session') })
+  await expect(sessionPin).toBeVisible()
+  await sessionPin.getByRole('button').click()
+  const pinnedChatWindow = page.locator('[data-window-group]').filter({
+    has: page.getByTestId('hermes-chat-pane'),
+  })
+  await expect(pinnedChatWindow).toBeVisible()
+  await pinnedChatWindow
+    .locator('.workspace-window-buttons')
+    .getByRole('button', { name: /^Close / })
+    .click()
 
   await page.getByText('Loose session', { exact: true }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: /Move to project/ }).click()
@@ -709,6 +736,7 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
     .getByRole('rowgroup')
     .getByText('Project Alpha', { exact: true })
     .click({ button: 'right' })
+  await expect(page.getByTestId('open-with-menu')).toHaveCount(0)
   await page.getByRole('menuitem', { name: 'Set appearance' }).click()
   const appearanceDialog = page.getByRole('dialog', { name: 'Project appearance' })
   await expect(appearanceDialog).toBeVisible()

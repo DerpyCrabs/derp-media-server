@@ -9,6 +9,7 @@ use self::{
 use crate::{
     config::{FileSearchConfig, MediaRoot},
     error::{AppError, AppResult},
+    media,
 };
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use serde_json::{Value, json};
@@ -108,7 +109,7 @@ impl FileSearch {
     }
 
     pub async fn search(self: &Arc<Self>, query_raw: &str, limit: usize) -> AppResult<Value> {
-        let _permit = self
+        let permit = self
             .requests
             .clone()
             .try_acquire_owned()
@@ -122,9 +123,12 @@ impl FileSearch {
         let query = normalize(query_raw);
         let roots = self.roots.read().await.clone();
         let service = self.clone();
-        tokio::task::spawn_blocking(move || service.search_sync(&query, limit, &roots))
-            .await
-            .map_err(|error| AppError::internal(error.to_string()))?
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            service.search_sync(&query, limit, &roots)
+        })
+        .await
+        .map_err(|error| AppError::internal(error.to_string()))?
     }
 
     fn search_sync(&self, query: &str, limit: usize, roots: &[Root]) -> AppResult<Value> {
@@ -158,6 +162,13 @@ impl FileSearch {
             let Some(root) = roots.iter().find(|root| &root.id == root_id) else {
                 continue;
             };
+            if !media::logical_path_is_safe(relative)
+                || !media::logical_path_is_safe(parent)
+                || media::logical_component(std::ffi::OsStr::new(name)).as_deref()
+                    != Some(name.as_str())
+            {
+                continue;
+            }
             let (extension, media_type) = packed
                 .split_once('\0')
                 .unwrap_or((packed.as_str(), "other"));
@@ -483,9 +494,9 @@ impl FileSearch {
                                 return;
                             }
                             for changed in event.paths {
-                                if let Ok(relative) = changed.strip_prefix(&base) {
-                                    let normalized =
-                                        normalize_relative(&relative.to_string_lossy());
+                                if let Some(normalized) =
+                                    media::logical_relative_path(&base, &changed)
+                                {
                                     if !ignored_event_path(&normalized) {
                                         let _ = sender.send(Request::ChangeRoot {
                                             root_id: id.clone(),
@@ -775,6 +786,22 @@ mod tests {
         let mut writer = IndexDb::open_or_recover(&config).unwrap();
         writer.sync_roots(std::slice::from_ref(&root)).unwrap();
         indexer::full_scan(&mut writer, &root).unwrap();
+        writer
+            .write_entries(
+                &root.id,
+                &[IndexedEntry {
+                    relative_path: "Unsafe Needle\n.txt".into(),
+                    parent_path: String::new(),
+                    name: "Unsafe Needle\n.txt".into(),
+                    is_directory: false,
+                    extension: "txt".into(),
+                    media_type: "text".into(),
+                    generation: 1,
+                    seen_token: 0,
+                    queue_directory: false,
+                }],
+            )
+            .unwrap();
         let (sender, _receiver) = mpsc::unbounded_channel();
         let service = Arc::new(FileSearch {
             config,
@@ -803,10 +830,42 @@ mod tests {
         release_sender.send(()).unwrap();
         writer_thread.join().unwrap();
 
-        assert_eq!(
-            search.unwrap().unwrap()["results"][0]["name"],
-            "Visible Needle.txt"
-        );
+        let search = search.unwrap().unwrap();
+        assert_eq!(search["results"].as_array().unwrap().len(), 1);
+        assert_eq!(search["results"][0]["name"], "Visible Needle.txt");
+
+        let (reader_locked_sender, reader_locked_receiver) = std::sync::mpsc::channel();
+        let (reader_release_sender, reader_release_receiver) = std::sync::mpsc::channel();
+        let reader_service = service.clone();
+        let reader_thread = std::thread::spawn(move || {
+            let _reader = reader_service.reader.lock().unwrap();
+            reader_locked_sender.send(()).unwrap();
+            reader_release_receiver.recv().unwrap();
+        });
+        reader_locked_receiver.recv().unwrap();
+
+        let abandoned_service = service.clone();
+        let abandoned = tokio::spawn(async move { abandoned_service.search("needle", 50).await });
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while service.requests.available_permits() == 64 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        abandoned.abort();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(service.requests.available_permits(), 63);
+
+        reader_release_sender.send(()).unwrap();
+        reader_thread.join().unwrap();
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while service.requests.available_permits() != 64 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
         drop(service);
         std::fs::remove_dir_all(base).unwrap();
     }

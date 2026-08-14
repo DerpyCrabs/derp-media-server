@@ -5,7 +5,7 @@ import type {
 } from '@/lib/use-workspace'
 import type { InfiniteCanvasState } from '@/lib/infinite-canvas'
 import { workspaceTaskbarPinPath } from '@/lib/workspace-taskbar-pins'
-import { filesystemResourceAddress, filesystemResourceKey } from '@/lib/domain/resource'
+import { filesystemResourceKey, physicalFilesystemResourceAddress } from '@/lib/domain/resource'
 import { liveContentInstance } from '@/lib/content-window'
 import type { ContentInstance } from '@/lib/domain/content'
 
@@ -64,7 +64,7 @@ function primaryPath(instance: ContentInstance): string | null {
       : instance.type === 'resource'
         ? instance.resource
         : null
-  return key ? (filesystemResourceAddress(key)?.path ?? null) : null
+  return key ? (physicalFilesystemResourceAddress(key)?.path ?? null) : null
 }
 
 function movedKey(
@@ -72,7 +72,7 @@ function movedKey(
   oldPath: string,
   newPath: string,
 ): { provider: string; id: string } {
-  const address = filesystemResourceAddress(key)
+  const address = physicalFilesystemResourceAddress(key)
   if (!address || !pathIsWithin(address.path, oldPath)) return key
   return filesystemResourceKey(address.rootId, movePath(address.path, oldPath, newPath))
 }
@@ -109,7 +109,7 @@ export function applyWorkspaceWindowPathMutation(
   const path = instance ? primaryPath(instance) : null
   if (path !== null && pathIsWithin(path, mutation.path)) return null
   if (instance?.type !== 'resource' || !instance.context) return window
-  const context = filesystemResourceAddress(instance.context)
+  const context = physicalFilesystemResourceAddress(instance.context)
   if (!context || !pathIsWithin(context.path, mutation.path)) return window
   const { context: _context, ...withoutContext } = instance
   return { ...window, content: undefined, contentInstance: withoutContext }
@@ -213,7 +213,7 @@ export function applyWorkspacePathMutation(
     const pinnedTaskbarItems = state.pinnedTaskbarItems.map((pin) => {
       const path = workspaceTaskbarPinPath(pin)
       if (path === null || !pathIsWithin(path, mutation.oldPath)) return pin
-      const address = filesystemResourceAddress(pin.resource)
+      const address = physicalFilesystemResourceAddress(pin.resource)
       if (!address) return pin
       changed = true
       return {

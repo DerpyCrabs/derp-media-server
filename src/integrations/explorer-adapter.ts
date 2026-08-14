@@ -1,6 +1,12 @@
-import { resourceKey, type ResourceKey, type ResourceSummary } from '@/lib/domain/resource'
+import {
+  FILESYSTEM_PROVIDER,
+  physicalFilesystemResourceAddress,
+  resourceIsBrowsable,
+  resourceKey,
+  type ResourceKey,
+  type ResourceSummary,
+} from '@/lib/domain/resource'
 import type { RouteQueryUpdates } from '@/src/lib/routes'
-import type { ContentInstance } from '@/lib/domain/content'
 import { apiEndpoints, type StatsResponse } from '@/lib/api-endpoints'
 import type { ServerConfigDto, SettingsDto } from '@/lib/generated/api-contracts'
 import type { Accessor } from 'solid-js'
@@ -31,6 +37,19 @@ const applicationExplorerListeners = new Set<() => void>()
 let applicationExplorerStats: StatsResponse | null = null
 let applicationExplorerSettingsGeneration = 0
 let applicationExplorerSseUnsubscribe: (() => void) | null = null
+
+export async function loadAtStableGeneration<T>(
+  generation: () => number,
+  load: () => Promise<T>,
+): Promise<{ value: T; generation: number }> {
+  for (;;) {
+    const requestedGeneration = generation()
+    const value = await load()
+    if (requestedGeneration === generation()) {
+      return { value, generation: requestedGeneration }
+    }
+  }
+}
 
 function notifyApplicationExplorers() {
   for (const listener of applicationExplorerListeners) listener()
@@ -261,13 +280,22 @@ export function createApplicationExplorerDataSource(
   let loadedSettingsGeneration = -1
   let serverConfig: ServerConfigDto | null = null
 
+  async function refreshSettings(): Promise<SettingsDto> {
+    const loaded = await loadAtStableGeneration(
+      () => applicationExplorerSettingsGeneration,
+      () => apiEndpoints.settings.get(),
+    )
+    settings = loaded.value
+    loadedSettingsGeneration = loaded.generation
+    return loaded.value
+  }
+
   async function loadSettings(): Promise<SettingsDto | null> {
     if (settings && loadedSettingsGeneration === applicationExplorerSettingsGeneration) {
       return settings
     }
     try {
-      settings = await apiEndpoints.settings.get()
-      loadedSettingsGeneration = applicationExplorerSettingsGeneration
+      return await refreshSettings()
     } catch {
       settings = null
     }
@@ -328,6 +356,8 @@ export function createApplicationExplorerDataSource(
         query: request.query,
         limit: SEARCH_DEFAULT_LIMIT,
         signal: request.signal,
+        contributorIds: ['filesystem.knowledge'],
+        scope: filesystemResourceKeyForPath(knowledgeBaseRoot),
       })
       return response.results.flatMap((result) => {
         const resource = result.resource
@@ -369,15 +399,13 @@ export function createApplicationExplorerDataSource(
       const path = filesystemPathForResourceKey(command.item.resource.key)
       if (path !== null && command.action.operation === 'favorite') {
         await apiEndpoints.settings.toggleFavorite({ filePath: path })
-        settings = await apiEndpoints.settings.get()
-        loadedSettingsGeneration = applicationExplorerSettingsGeneration
+        await refreshSettings()
         notifyApplicationExplorers()
         return { commandId: command.id, affectedResources: [command.item.resource.key] }
       }
       if (path !== null && command.action.operation === 'knowledgeBase') {
         await apiEndpoints.settings.toggleKnowledgeBase({ filePath: path })
-        settings = await apiEndpoints.settings.get()
-        loadedSettingsGeneration = applicationExplorerSettingsGeneration
+        await refreshSettings()
         notifyApplicationExplorers()
         return { commandId: command.id, affectedResources: [command.item.resource.key] }
       }
@@ -387,8 +415,7 @@ export function createApplicationExplorerDataSource(
         const name = typeof candidate === 'string' ? candidate.trim() : ''
         if (name) await apiEndpoints.settings.setCustomIcon({ path, iconName: name })
         else await apiEndpoints.settings.removeCustomIcon({ path })
-        settings = await apiEndpoints.settings.get()
-        loadedSettingsGeneration = applicationExplorerSettingsGeneration
+        await refreshSettings()
         notifyApplicationExplorers()
         return { commandId: command.id, affectedResources: [command.item.resource.key] }
       }
@@ -433,7 +460,7 @@ export function explorerLocationQuery(key: ResourceKey): RouteQueryUpdates {
 
 export async function recordApplicationExplorerView(resource: ResourceSummary): Promise<void> {
   const path = filesystemPathForResourceKey(resource.key)
-  if (path === null || resource.capabilities.includes('browse')) return
+  if (path === null || resourceIsBrowsable(resource)) return
   const result = await apiEndpoints.stats.addView(path)
   applicationExplorerStats = {
     views: { ...(applicationExplorerStats?.views ?? {}), [path]: result.viewCount },
@@ -441,10 +468,20 @@ export async function recordApplicationExplorerView(resource: ResourceSummary): 
   notifyApplicationExplorers()
 }
 
+export function canMoveApplicationResource(source: ResourceKey, destination: ResourceKey): boolean {
+  if (source.provider !== destination.provider) return false
+  if (source.provider !== FILESYSTEM_PROVIDER) return true
+  return (
+    physicalFilesystemResourceAddress(source) !== null &&
+    physicalFilesystemResourceAddress(destination) !== null
+  )
+}
+
 export async function moveApplicationResource(
   sourceKey: ResourceKey,
   destination: ResourceSummary,
 ): Promise<boolean> {
+  if (!canMoveApplicationResource(sourceKey, destination.key)) return false
   const inspector = applicationContentRegistry.inspect(sourceKey)
   if (!inspector) return false
   const resource = await inspector.inspect(sourceKey)
@@ -459,26 +496,4 @@ export async function moveApplicationResource(
   if (outcome && 'schemaVersion' in outcome && 'code' in outcome) throw outcome
   notifyApplicationExplorers()
   return true
-}
-
-export async function openApplicationResource(
-  key: ResourceKey,
-  name: string,
-  options?: Readonly<{ browse?: boolean }>,
-): Promise<ContentInstance | null> {
-  if (options?.browse) {
-    return { id: `pinned-${key.provider}-explorer`, type: 'explorer', location: key }
-  }
-  const resource: ResourceSummary = {
-    key,
-    name,
-    kind: 'resource',
-    capabilities: ['read', `${key.provider}.open`],
-  }
-  const provider = applicationContentRegistry.actions(resource)
-  const action = provider?.list(resource).find((candidate) => candidate.operation === 'open')
-  if (!provider || !action) return null
-  const outcome = await provider.run({ actionId: action.id, resource })
-  if (outcome && 'schemaVersion' in outcome && 'code' in outcome) throw outcome
-  return outcome?.content ?? null
 }
