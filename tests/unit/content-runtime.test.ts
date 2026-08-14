@@ -94,6 +94,44 @@ describe('content runtime', () => {
     expect(mounted.render()).toBe('mounted:one')
   })
 
+  test('mounts matching provider surfaces through runtime callbacks', async () => {
+    const instance = integrationInstance('surface')
+    const resizes: [number, number][] = []
+    const runtime = createContentRuntime(
+      createContentRegistry([
+        {
+          id: 'fixture',
+          content: [
+            {
+              id: 'fixture.renderer',
+              rules: [{ type: 'fallback' }],
+              matchesContent: () => true,
+              load: async () => ({ kind: 'content' as const, mount: () => 'renderer' }),
+            },
+          ],
+          surface: {
+            supports: () => true,
+            load: async () => ({
+              mount: (context) => {
+                context.resize?.(640, 480)
+                return `surface:${context.visible()}`
+              },
+            }),
+          },
+        },
+      ]),
+    )
+
+    const mounted = await runtime.mount(instance, {
+      replace: () => {},
+      visible: () => false,
+      resize: (width, height) => resizes.push([width, height]),
+    })
+    if (!mounted.ok) throw new Error('expected mounted surface')
+    expect(mounted.render()).toBe('surface:false')
+    expect(resizes).toEqual([[640, 480]])
+  })
+
   test('keeps one mounted renderer reactive across same-renderer resource changes', async () => {
     const first: ContentInstance = {
       id: 'viewer-one',

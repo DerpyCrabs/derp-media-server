@@ -3,13 +3,9 @@ import { resourceKey, type ResourcePage, type ResourceSummary } from '@/lib/doma
 import {
   defineIntegrationModule,
   isContentInstance,
-  type CanvasHost,
   type ContentCodecDescriptor,
   type ContentInstance,
-  type LibraryHost,
-  type WorkspaceHost,
 } from '@/src/features/content/contracts'
-import type { OpenReadyPlan } from '@/src/features/open/open-resource'
 
 const key = resourceKey('fixture', 'opaque-item')
 
@@ -107,35 +103,5 @@ describe('content and integration contracts', () => {
     expect(module.id).toBe('fixture')
     expect((await module.browse?.browse({ location: page.location })).items[0]).toEqual(item)
     expect(module.actions!.list(item)[0]?.id).toBe('fixture.pin')
-  })
-
-  test('host contracts contain placement commands but no geometry', () => {
-    const calls: OpenReadyPlan[] = []
-    const common = {
-      close: (_instanceId: string) => {},
-      focus: (_instanceId: string) => {},
-    }
-    const library: LibraryHost = {
-      surface: 'library',
-      ...common,
-      open: (plan) => calls.push(plan),
-    }
-    const workspace: WorkspaceHost = {
-      surface: 'workspace',
-      ...common,
-      open: (plan) => calls.push(plan),
-    }
-    const canvas: CanvasHost = {
-      surface: 'canvas',
-      ...common,
-      open: (plan) => calls.push(plan),
-    }
-
-    expect([library.surface, workspace.surface, canvas.surface]).toEqual([
-      'library',
-      'workspace',
-      'canvas',
-    ])
-    expect(Object.keys(canvas).sort()).toEqual(['close', 'focus', 'open', 'surface'])
   })
 })

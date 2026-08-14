@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
-import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
+import type {
+  NormalizePersistedWorkspaceOptions,
+  PersistedWorkspaceState,
+  WorkspaceWindowDefinition,
+} from '@/lib/use-workspace'
 import {
-  normalizePersistedWorkspaceState,
-  serializeWorkspacePersistedState,
+  normalizePersistedWorkspaceState as normalizePersistedWorkspaceStateWithPersistence,
+  serializeWorkspacePersistedState as serializeWorkspacePersistedStateWithPersistence,
 } from '@/lib/use-workspace'
 import {
   enterSplitViewState,
@@ -15,6 +19,14 @@ import {
   tabsInGroup,
 } from '@/src/workspace/tab-group-ops'
 import { workspaceContent, workspaceWindow } from './workspace-window-fixture'
+
+const serializeWorkspacePersistedState = (state: PersistedWorkspaceState) =>
+  serializeWorkspacePersistedStateWithPersistence(state, currentContentWindowPersistence)
+const normalizePersistedWorkspaceState = (
+  value: unknown,
+  options?: NormalizePersistedWorkspaceOptions,
+) =>
+  normalizePersistedWorkspaceStateWithPersistence(value, currentContentWindowPersistence, options)
 
 function browserTab(
   id: string,

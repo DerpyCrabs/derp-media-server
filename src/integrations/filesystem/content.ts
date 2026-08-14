@@ -26,7 +26,7 @@ export async function filesystemContentInstance(
   return {
     id: request.id,
     type: 'resource',
-    resource: plan.resource,
+    resource: plan.summary.key,
     renderer: plan.renderer,
     ...(request.contextPath === undefined
       ? {}

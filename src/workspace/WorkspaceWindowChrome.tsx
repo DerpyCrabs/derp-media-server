@@ -1,4 +1,4 @@
-import type { FileDragData } from '@/lib/file-drag-data'
+import type { ResourceDragData } from '@/lib/resource-drag-data'
 import { contentWindowKind } from '@/lib/content-window'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
@@ -62,7 +62,7 @@ export type WorkspaceWindowChromeProps = {
   onCloseTab?: (tabId: string) => void
   onToggleTabPinned?: (tabId: string) => void
   onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
-  onDropFileToTabBar?: (data: FileDragData, groupInsertIndex?: number) => void
+  onDropFileToTabBar?: (data: ResourceDragData, groupInsertIndex?: number) => void
   mergeTargetPreview?: Accessor<MergeTarget | null>
   draggingWindowId?: Accessor<string | null>
   splitLeftTabId?: Accessor<string | null | undefined>

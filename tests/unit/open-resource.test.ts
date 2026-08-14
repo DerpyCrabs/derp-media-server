@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { resourceKey, type ResourceSummary } from '@/lib/domain/resource'
-import { type OpenIntent, type OpenSurface } from '@/src/features/open/open-resource'
+import {
+  contentForOpenPlan,
+  type OpenIntent,
+  type OpenSurface,
+} from '@/src/features/open/open-resource'
 import {
   createRendererRegistry,
   type RendererDescriptor,
@@ -137,25 +141,43 @@ describe('openResource', () => {
       {
         status: 'ready',
         kind: 'render',
-        resource: resource().key,
+        summary: resource(),
         renderer: FILESYSTEM_RENDERER_ID.image,
         intent: 'default',
       },
       {
         status: 'ready',
         kind: 'render',
-        resource: resource().key,
+        summary: resource(),
         renderer: FILESYSTEM_RENDERER_ID.image,
         intent: 'default',
       },
       {
         status: 'ready',
         kind: 'render',
-        resource: resource().key,
+        summary: resource(),
         renderer: FILESYSTEM_RENDERER_ID.image,
         intent: 'default',
       },
     ])
+  })
+
+  test('creates durable host content from one complete ready plan', () => {
+    const input = resource()
+    const plan = openResource(input, 'view', {
+      surface: 'canvas',
+      disposition: 'window',
+    })
+    if (plan.status !== 'ready') throw new Error('Expected ready plan')
+
+    expect(plan.summary).toEqual(input)
+    expect(contentForOpenPlan(plan, 'content-1', resourceKey('filesystem', 'context'))).toEqual({
+      id: 'content-1',
+      type: 'resource',
+      resource: input.key,
+      renderer: FILESYSTEM_RENDERER_ID.image,
+      context: resourceKey('filesystem', 'context'),
+    })
   })
 
   test('returns typed blocked plans for incompatible intent and missing capability', () => {

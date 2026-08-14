@@ -75,6 +75,11 @@ function fixtureModule(id = 'fixture') {
         load: async () => ({ kind: 'content' as const, mount: () => null }),
       },
     ],
+    surface: {
+      supports: (instance: ContentInstance) =>
+        instance.type === 'integration' && instance.integration === id,
+      load: async () => ({ mount: () => null }),
+    },
     codecs: [
       {
         id: 'fixture.content',
@@ -170,6 +175,7 @@ describe('content registry', () => {
         .map((action) => action.id),
     ).toEqual(['fixture.pin'])
     expect(registry.renderer(instance)?.id).toBe('fixture.renderer')
+    expect(await registry.surface(instance)?.load()).toMatchObject({ mount: expect.any(Function) })
     expect(registry.presentation(instance)).toEqual({
       title: 'Fixture',
       icon: 'fixture',

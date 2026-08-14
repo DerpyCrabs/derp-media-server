@@ -13,7 +13,7 @@ import {
   usePlaybackSession,
   usePlaybackSnapshot,
 } from '../features/playback/PlaybackProvider'
-import { filesystemPlaybackItemPath } from '../integrations/filesystem/playback'
+import { playbackItemKey } from '../features/playback'
 import { closePlayer, setAudioOnly } from '../lib/url-state-actions'
 
 export function VideoPlayer() {
@@ -107,13 +107,13 @@ export function VideoPlayer() {
     return { 'max-height': '70vh', 'aspect-ratio': '16 / 9' }
   }
 
-  let lastScrolledPlayingPath: string | null = null
+  let lastScrolledPlaybackItem: string | null = null
   createEffect(() => {
     const item = currentItem()
-    const path = item ? filesystemPlaybackItemPath(item) : null
-    if (!path || !isVideoFile() || isMinimized()) return
-    if (lastScrolledPlayingPath === path) return
-    lastScrolledPlayingPath = path
+    if (!item || !isVideoFile() || isMinimized()) return
+    const identity = playbackItemKey(item)
+    if (lastScrolledPlaybackItem === identity) return
+    lastScrolledPlaybackItem = identity
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   })
 

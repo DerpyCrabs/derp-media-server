@@ -6,16 +6,13 @@ import {
   type SearchContributor,
   type SearchHit,
 } from '@/src/features/search/contracts'
-import { createSearchController } from '@/src/features/search/solid-controller'
 import { applicationSearchCoordinator } from '@/src/integrations/search'
 import { resourceSummaryIcon, type FileIconContext } from '@/src/lib/use-file-icon'
-import Search from 'lucide-solid/icons/search'
 import SquareStack from 'lucide-solid/icons/square-stack'
-import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import { For, createSignal } from 'solid-js'
 import { contentWindowKind } from '@/lib/content-window'
 import { contentWindowFilesystemPath } from '@/src/integrations/current-window-content'
+import { SearchPalette } from '@/src/features/search/SearchPalette'
 
 type SearchScope = 'all' | 'canvas' | 'library'
 
@@ -68,58 +65,9 @@ export function CanvasSearchPalette(props: Props) {
     ...applicationSearchCoordinator.contributors,
     canvasContributor,
   ])
-  const controller = createSearchController({
-    coordinator,
-    minimumQueryLength: 1,
-    limit: SEARCH_DEFAULT_LIMIT,
-    contributorIds: () =>
-      scope() === 'canvas'
-        ? [canvasContributor.id]
-        : scope() === 'library'
-          ? libraryContributorIds()
-          : undefined,
-  })
-  let inputEl: HTMLInputElement | undefined
-  let dialogEl: HTMLDivElement | undefined
-  const previousFocus = document.activeElement as HTMLElement | null
-
-  createEffect(() => {
-    const oldOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    queueMicrotask(() => inputEl?.focus())
-    const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        props.onClose()
-        return
-      }
-      if (event.key !== 'Tab' || !dialogEl) return
-      const focusable = [
-        ...dialogEl.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])'),
-      ].filter((element) => element.offsetParent !== null)
-      if (!focusable.length) return
-      const first = focusable[0]!
-      const last = focusable.at(-1)!
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', close)
-    onCleanup(() => {
-      document.body.style.overflow = oldOverflow
-      document.removeEventListener('keydown', close)
-      queueMicrotask(() => previousFocus?.focus())
-    })
-  })
-
-  function choose(item: SearchHit) {
+  function select(item: SearchHit) {
     if (item.resource) props.onResult(item)
     else void coordinator.execute(item)
-    props.onClose()
   }
 
   function resultPath(item: SearchHit): string | undefined {
@@ -128,40 +76,30 @@ export function CanvasSearchPalette(props: Props) {
   }
 
   return (
-    <Portal mount={document.body}>
-      <div
-        class='fixed inset-0 z-[1100000] flex items-start justify-center bg-black/55 px-4 pt-[10vh]'
-        onPointerDown={(event) => event.target === event.currentTarget && props.onClose()}
-      >
-        <div
-          ref={(element) => (dialogEl = element)}
-          role='dialog'
-          aria-modal='true'
-          aria-label='Search canvas and library'
-          data-testid='canvas-search-palette'
-          class='flex w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl'
-          style={{ 'max-height': 'min(480px, calc(100vh - 96px))' }}
-        >
-          <div class='flex items-center gap-2 border-b border-border px-3 py-2'>
-            <Search class='size-5 text-muted-foreground' />
-            <input
-              ref={(element) => (inputEl = element)}
-              aria-label='Search canvas and library'
-              class='h-11 min-w-0 flex-1 bg-transparent text-base outline-none'
-              placeholder='Search windows, files and folders…'
-              value={controller.query()}
-              onInput={(event) => controller.setQuery(event.currentTarget.value)}
-              onKeyDown={(event) => controller.onKeyDown(event, choose)}
-            />
-            <button
-              type='button'
-              class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
-              aria-label='Close search'
-              onClick={props.onClose}
-            >
-              <X class='size-5' />
-            </button>
-          </div>
+    <SearchPalette
+      search={{
+        coordinator,
+        minimumQueryLength: 1,
+        limit: SEARCH_DEFAULT_LIMIT,
+        contributorIds: () =>
+          scope() === 'canvas'
+            ? [canvasContributor.id]
+            : scope() === 'library'
+              ? libraryContributorIds()
+              : undefined,
+      }}
+      title='Search canvas and library'
+      testId='canvas-search-palette'
+      placeholder='Search windows, files and folders…'
+      onClose={props.onClose}
+      onSelect={select}
+      chrome={{
+        overlayClass:
+          'fixed inset-0 z-[1100000] flex items-start justify-center bg-black/55 px-4 pt-[10vh]',
+        dialogClass: 'max-w-2xl rounded-xl',
+        resultsClass: 'min-h-52',
+        dialogStyle: { 'max-height': 'min(480px, calc(100vh - 96px))' },
+        toolbar: (
           <div class='flex gap-1 border-b border-border px-3 py-2'>
             <For
               each={
@@ -184,79 +122,26 @@ export function CanvasSearchPalette(props: Props) {
               )}
             </For>
           </div>
-          <div class='min-h-52 flex-1 overflow-y-auto p-2'>
-            <Show when={!controller.query().trim()}>
-              <p class='flex min-h-48 items-center justify-center text-sm text-muted-foreground'>
-                Search current canvas immediately. Type {SEARCH_MIN_QUERY_LENGTH} characters for
-                library results.
-              </p>
-            </Show>
-            <Show
-              when={
-                controller.query().trim() &&
-                controller.results().length === 0 &&
-                !controller.loading()
-              }
-            >
-              <p class='flex min-h-48 items-center justify-center text-sm text-muted-foreground'>
-                No matches.
-              </p>
-            </Show>
-            <For each={controller.results()}>
-              {(item, index) => {
-                const group = () => item.group ?? item.contributorLabel
-                return (
-                  <>
-                    <Show
-                      when={
-                        index() === 0 ||
-                        (controller.results()[index() - 1]?.group ??
-                          controller.results()[index() - 1]?.contributorLabel) !== group()
-                      }
-                    >
-                      <p class='px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase'>
-                        {group()}
-                      </p>
-                    </Show>
-                    <button
-                      type='button'
-                      data-search-result-kind={item.resource ? 'file' : 'window'}
-                      data-search-result-path={resultPath(item)}
-                      class={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left ${
-                        index() === controller.activeIndex()
-                          ? 'bg-accent text-accent-foreground'
-                          : 'hover:bg-muted'
-                      }`}
-                      onPointerMove={() => controller.setActiveIndex(index())}
-                      onClick={() => choose(item)}
-                    >
-                      <Show when={!item.resource}>
-                        <SquareStack class='size-5 shrink-0' />
-                      </Show>
-                      <Show when={item.resource}>
-                        {(resource) => (
-                          <span class='shrink-0'>
-                            {resourceSummaryIcon(resource(), props.fileIconContext)}
-                          </span>
-                        )}
-                      </Show>
-                      <span class='min-w-0'>
-                        <span class='block truncate text-sm font-medium'>{item.title}</span>
-                        <span class='block truncate text-xs text-muted-foreground'>
-                          {item.detail ?? item.snippet ?? ''}
-                        </span>
-                      </span>
-                    </button>
-                  </>
-                )
-              }}
-            </For>
-            <Show when={controller.loading()}>
-              <p class='px-3 py-3 text-xs text-muted-foreground'>Searching…</p>
-            </Show>
-          </div>
-        </div>
-      </div>
-    </Portal>
+        ),
+      }}
+      messages={{
+        idle: `Search current canvas immediately. Type ${SEARCH_MIN_QUERY_LENGTH} characters for library results.`,
+        empty: 'No matches.',
+        stateClass: 'flex min-h-48 items-center justify-center text-sm text-muted-foreground',
+        loadingClass: 'px-3 py-3 text-xs text-muted-foreground',
+        loadingWithResults: true,
+      }}
+      result={{
+        icon: (item) =>
+          item.resource ? (
+            resourceSummaryIcon(item.resource, props.fileIconContext)
+          ) : (
+            <SquareStack class='size-5' />
+          ),
+        group: (item) => item.group ?? item.contributorLabel,
+        kind: (item) => (item.resource ? 'file' : 'window'),
+        path: resultPath,
+      }}
+    />
   )
 }

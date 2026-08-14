@@ -5,6 +5,7 @@ import {
   computeLayoutPreviewDetail,
 } from '@/lib/workspace-layout-preview'
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import Pin from 'lucide-solid/icons/pin'
 import { For, Show, createMemo, type ParentProps } from 'solid-js'
 
@@ -120,7 +121,9 @@ export function WorkspaceLayoutHoverPreview(props: {
   snapshot: PersistedWorkspaceState
   'aria-label': string
 }) {
-  const detail = createMemo(() => computeLayoutPreviewDetail(props.snapshot))
+  const detail = createMemo(() =>
+    computeLayoutPreviewDetail(props.snapshot, currentContentWindowPersistence),
+  )
 
   return (
     <Show when={detail()}>

@@ -9,7 +9,7 @@ use crate::{
     media,
 };
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
     response::{
         IntoResponse, Response,
@@ -20,7 +20,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 pub(crate) const SESSION_EXPORT_ROUTE: &str = "/api/hermes/sessions/{id}/export";
 
@@ -30,22 +30,8 @@ pub(crate) fn session_export_url(id: &str) -> AppResult<String> {
     Ok(SESSION_EXPORT_ROUTE.replace("{id}", &encoded))
 }
 
-fn hermes_runtime(state: &Shared) -> AppResult<&HermesRuntime> {
-    state
-        .integrations
-        .runtime_ref(super::PROVIDER_ID)
-        .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))
-}
-
-fn runtime_arc(state: &Shared) -> AppResult<std::sync::Arc<HermesRuntime>> {
-    state
-        .integrations
-        .runtime(super::PROVIDER_ID)
-        .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))
-}
-
-fn hub(state: &Shared) -> AppResult<&dyn HermesTransport> {
-    Ok(hermes_runtime(state)?.transport.as_ref())
+fn hub(runtime: &HermesRuntime) -> &dyn HermesTransport {
+    runtime.transport.as_ref()
 }
 
 fn profile_query(hub: &dyn HermesTransport) -> Vec<(&'static str, String)> {
@@ -61,11 +47,10 @@ struct MessagesQuery {
 }
 
 async fn messages(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Path(id): Path<String>,
     Query(input): Query<MessagesQuery>,
 ) -> AppResult<Json<Value>> {
-    let hermes = runtime_arc(&state)?;
     let hub = hermes.transport.as_ref();
     let path = session_api_path(&id, "/messages")?;
     let mut query = profile_query(hub);
@@ -80,15 +65,14 @@ async fn messages(
     Ok(Json(hub.get(&path, &query).await?))
 }
 
-async fn session(State(state): State<Shared>, Path(id): Path<String>) -> AppResult<Json<Value>> {
-    let gateway = hub(&state)?;
+async fn session(
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let gateway = hub(&hermes);
     let path = session_api_path(&id, "")?;
     let mut detail = gateway.get(&path, &profile_query(gateway)).await?;
-    let owned = hermes_runtime(&state)?
-        .active_ids
-        .lock()
-        .await
-        .contains(&id);
+    let owned = hermes.active_ids.lock().await.contains(&id);
     let active = detail
         .get("is_active")
         .or_else(|| detail.get("active"))
@@ -106,13 +90,13 @@ struct MediaQuery {
 }
 
 async fn media(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Query(input): Query<MediaQuery>,
 ) -> AppResult<Response> {
     if input.path.trim().is_empty() || input.path.contains(['\r', '\n']) {
         return Err(AppError::bad("Hermes image path is invalid"));
     }
-    let gateway = hub(&state)?;
+    let gateway = hub(&hermes);
     let mut query = profile_query(gateway);
     query.push(("path", input.path));
     let result = gateway.get("api/fs/read-data-url", &query).await?;
@@ -140,16 +124,16 @@ async fn media(
 }
 
 async fn export_session(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let gateway = hub(&state)?;
+    let gateway = hub(&hermes);
     let path = session_api_path(&id, "/export")?;
     Ok(Json(gateway.get(&path, &profile_query(gateway)).await?))
 }
 
-async fn model_options(State(state): State<Shared>) -> AppResult<Json<Value>> {
-    let gateway = hub(&state)?;
+async fn model_options(Extension(hermes): Extension<Arc<HermesRuntime>>) -> AppResult<Json<Value>> {
+    let gateway = hub(&hermes);
     Ok(Json(
         gateway
             .get("api/model/options", &profile_query(gateway))
@@ -157,8 +141,8 @@ async fn model_options(State(state): State<Shared>) -> AppResult<Json<Value>> {
     ))
 }
 
-async fn capabilities(State(state): State<Shared>) -> AppResult<Json<Value>> {
-    let gateway = hub(&state)?;
+async fn capabilities(Extension(hermes): Extension<Arc<HermesRuntime>>) -> AppResult<Json<Value>> {
+    let gateway = hub(&hermes);
     let config = gateway
         .get("api/config", &profile_query(gateway))
         .await
@@ -190,14 +174,14 @@ struct TranscribeBody {
 }
 
 async fn transcribe(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<TranscribeBody>,
 ) -> AppResult<Json<Value>> {
     if body.data_url.len() > 24 * 1024 * 1024 {
         return Err(AppError::bad("Voice recording is too large"));
     }
     Ok(Json(
-        hub(&state)?
+        hub(&hermes)
             .post(
                 "api/audio/transcribe",
                 json!({"data_url":body.data_url,"mime_type":body.mime_type}),
@@ -211,7 +195,10 @@ struct SpeakBody {
     text: String,
 }
 
-async fn speak(State(state): State<Shared>, Json(body): Json<SpeakBody>) -> AppResult<Json<Value>> {
+async fn speak(
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
+    Json(body): Json<SpeakBody>,
+) -> AppResult<Json<Value>> {
     let text = body.text.trim();
     if text.is_empty() || text.len() > 20_000 {
         return Err(AppError::bad(
@@ -219,7 +206,7 @@ async fn speak(State(state): State<Shared>, Json(body): Json<SpeakBody>) -> AppR
         ));
     }
     Ok(Json(
-        hub(&state)?
+        hub(&hermes)
             .post("api/audio/speak", json!({"text":text}))
             .await?,
     ))
@@ -392,17 +379,12 @@ pub(crate) fn start_event_bridge(
     });
 }
 
-async fn is_externally_active(state: &Shared, stored_id: &str) -> AppResult<bool> {
+async fn is_externally_active(runtime: &HermesRuntime, stored_id: &str) -> AppResult<bool> {
     validate_opaque_id(stored_id)?;
-    if hermes_runtime(state)?
-        .active_ids
-        .lock()
-        .await
-        .contains(stored_id)
-    {
+    if runtime.active_ids.lock().await.contains(stored_id) {
         return Ok(false);
     }
-    let hub = hub(state)?;
+    let hub = hub(runtime);
     let path = session_api_path(stored_id, "")?;
     let detail = hub.get(&path, &profile_query(hub)).await?;
     Ok(detail
@@ -412,20 +394,22 @@ async fn is_externally_active(state: &Shared, stored_id: &str) -> AppResult<bool
         .unwrap_or(false))
 }
 
-async fn turn(State(state): State<Shared>, Json(body): Json<TurnBody>) -> AppResult<Json<Value>> {
+async fn turn(
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
+    Json(body): Json<TurnBody>,
+) -> AppResult<Json<Value>> {
     let text = body.text.trim();
     if text.is_empty() {
         return Err(AppError::bad("Prompt is required"));
     }
     if let Some(stored_id) = body.session_id.as_deref() {
         validate_opaque_id(stored_id)?;
-        if !body.takeover && is_externally_active(&state, stored_id).await? {
+        if !body.takeover && is_externally_active(&hermes, stored_id).await? {
             return Err(AppError::conflict(
                 "Hermes session is active elsewhere; confirm takeover",
             ));
         }
     }
-    let hermes = runtime_arc(&state)?;
     let hub = hermes.transport.as_ref();
     let profile = hub.profile().map(str::to_string);
     let source = "derp-media-server";
@@ -735,12 +719,12 @@ struct BranchBody {
 }
 
 async fn attached_runtime_id(
-    state: &Shared,
+    runtime: &HermesRuntime,
     durable: &str,
     missing: &'static str,
 ) -> AppResult<String> {
     validate_opaque_id(durable)?;
-    hermes_runtime(state)?
+    runtime
         .runtime_ids
         .lock()
         .await
@@ -750,16 +734,16 @@ async fn attached_runtime_id(
 }
 
 async fn branch(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<BranchBody>,
 ) -> AppResult<Json<Value>> {
     let runtime = attached_runtime_id(
-        &state,
+        &hermes,
         &body.session_id,
         "Open the Hermes session before branching it",
     )
     .await?;
-    let result = hub(&state)?
+    let result = hub(&hermes)
         .rpc(
             "session.branch",
             json!({"session_id":runtime,"name":body.name,"count":body.count}),
@@ -772,11 +756,7 @@ async fn branch(
         let stored = gateway_session_id(Some(stored), "Hermes branch omitted durable session id")?;
         let runtime =
             gateway_session_id(Some(runtime), "Hermes branch omitted runtime session id")?;
-        hermes_runtime(&state)?
-            .runtime_ids
-            .lock()
-            .await
-            .insert(stored, runtime);
+        hermes.runtime_ids.lock().await.insert(stored, runtime);
     }
     Ok(Json(result))
 }
@@ -789,7 +769,7 @@ struct CompletionQuery {
 }
 
 async fn completions(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Query(query): Query<CompletionQuery>,
 ) -> AppResult<Json<Value>> {
     let (method, params) = match query.kind.as_str() {
@@ -800,7 +780,7 @@ async fn completions(
         ),
         _ => return Err(AppError::bad("Unknown Hermes completion kind")),
     };
-    Ok(Json(hub(&state)?.rpc(method, params).await?))
+    Ok(Json(hub(&hermes).rpc(method, params).await?))
 }
 
 #[derive(Deserialize)]
@@ -837,9 +817,10 @@ fn quoted_reference(kind: &str, path: &std::path::Path) -> AppResult<String> {
 
 async fn reference(
     State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<ReferenceBody>,
 ) -> AppResult<Json<Value>> {
-    let config = &hermes_runtime(&state)?.config;
+    let config = &hermes.config;
     let resolved = media::resolve(&state.config, &body.path)?;
     let metadata = tokio::fs::metadata(&resolved.full)
         .await
@@ -889,7 +870,7 @@ async fn reference(
 }
 
 async fn rewind(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<RewindBody>,
 ) -> AppResult<Json<Value>> {
     let text = body.text.trim();
@@ -897,13 +878,13 @@ async fn rewind(
         return Err(AppError::bad("Replacement prompt is required"));
     }
     let runtime = attached_runtime_id(
-        &state,
+        &hermes,
         &body.session_id,
         "Open the Hermes session before rewinding it",
     )
     .await?;
-    let gateway = hub(&state)?;
-    hermes_runtime(&state)?
+    let gateway = hub(&hermes);
+    hermes
         .active_ids
         .lock()
         .await
@@ -923,25 +904,21 @@ async fn rewind(
     match result {
         Ok(result) => Ok(Json(result)),
         Err(error) => {
-            hermes_runtime(&state)?
-                .active_ids
-                .lock()
-                .await
-                .remove(&body.session_id);
+            hermes.active_ids.lock().await.remove(&body.session_id);
             Err(error)
         }
     }
 }
 
 async fn rename(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<RenameBody>,
 ) -> AppResult<Json<Value>> {
     let title = body.title.trim();
     if title.is_empty() {
         return Err(AppError::bad("Session title is required"));
     }
-    let gateway = hub(&state)?;
+    let gateway = hub(&hermes);
     let path = session_api_path(&body.session_id, "")?;
     Ok(Json(
         gateway
@@ -950,46 +927,49 @@ async fn rename(
     ))
 }
 
-async fn steer(State(state): State<Shared>, Json(body): Json<SteerBody>) -> AppResult<Json<Value>> {
+async fn steer(
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
+    Json(body): Json<SteerBody>,
+) -> AppResult<Json<Value>> {
     let text = body.text.trim();
     if text.is_empty() {
         return Err(AppError::bad("Steer text is required"));
     }
     let runtime = attached_runtime_id(
-        &state,
+        &hermes,
         &body.session_id,
         "Hermes session is not attached in this server",
     )
     .await?;
     Ok(Json(
-        hub(&state)?
+        hub(&hermes)
             .rpc("session.steer", json!({"session_id":runtime,"text":text}))
             .await?,
     ))
 }
 
 async fn stop(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<SessionBody>,
 ) -> AppResult<Json<Value>> {
     let runtime = attached_runtime_id(
-        &state,
+        &hermes,
         &body.session_id,
         "Hermes session is not attached in this server",
     )
     .await?;
     Ok(Json(
-        hub(&state)?
+        hub(&hermes)
             .rpc("session.interrupt", json!({"session_id":runtime}))
             .await?,
     ))
 }
 
 async fn restore(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<SessionBody>,
 ) -> AppResult<Json<Value>> {
-    let gateway = hub(&state)?;
+    let gateway = hub(&hermes);
     let path = session_api_path(&body.session_id, "")?;
     Ok(Json(
         gateway
@@ -999,10 +979,10 @@ async fn restore(
 }
 
 async fn archive(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<SessionBody>,
 ) -> AppResult<Json<Value>> {
-    let gateway = hub(&state)?;
+    let gateway = hub(&hermes);
     let path = session_api_path(&body.session_id, "")?;
     let detail = gateway.get(&path, &profile_query(gateway)).await?;
     if detail.get("is_active").and_then(Value::as_bool) == Some(true)
@@ -1033,13 +1013,13 @@ struct DecisionBody {
 }
 
 async fn decision(
-    State(state): State<Shared>,
+    Extension(hermes): Extension<Arc<HermesRuntime>>,
     Json(body): Json<DecisionBody>,
 ) -> AppResult<Json<Value>> {
     let (method, params) = match body.kind.as_str() {
         "approval" => {
             let runtime = attached_runtime_id(
-                &state,
+                &hermes,
                 &body.session_id,
                 "Hermes session is not attached in this server",
             )
@@ -1063,11 +1043,10 @@ async fn decision(
         ),
         _ => return Err(AppError::bad("Unknown Hermes decision type")),
     };
-    Ok(Json(hub(&state)?.rpc(method, params).await?))
+    Ok(Json(hub(&hermes).rpc(method, params).await?))
 }
 
-async fn events(State(state): State<Shared>) -> Response {
-    let hermes = runtime_arc(&state).expect("Hermes route requires registered runtime");
+async fn events(Extension(hermes): Extension<Arc<HermesRuntime>>) -> Response {
     let mut receiver = hermes.events.subscribe();
     let _ = hermes.transport.ensure_events().await;
     let stream = async_stream::stream! {
@@ -1087,7 +1066,7 @@ async fn events(State(state): State<Shared>) -> Response {
         .into_response()
 }
 
-pub fn router() -> Router<Shared> {
+pub fn router(runtime: Arc<HermesRuntime>) -> Router<Shared> {
     Router::new()
         .route("/api/hermes/sessions/{id}/messages", get(messages))
         .route("/api/hermes/sessions/{id}", get(session))
@@ -1110,4 +1089,5 @@ pub fn router() -> Router<Shared> {
         .route("/api/hermes/decision", post(decision))
         .route("/api/hermes/events", get(events))
         .layer(DefaultBodyLimit::max(128 * 1024 * 1024))
+        .layer(Extension(runtime))
 }

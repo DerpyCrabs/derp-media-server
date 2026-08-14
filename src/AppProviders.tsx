@@ -9,8 +9,10 @@ import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { SolidThemeSync } from './SolidThemeSync'
 import { PlaybackMediaHost } from './features/playback/PlaybackMediaHost'
 import { PlaybackProvider } from './features/playback/PlaybackProvider'
-import { FilesystemPlaybackSync } from './integrations/filesystem/PlaybackSync'
-import { createFilesystemBrowserPlaybackSession } from './integrations/filesystem/playback'
+import {
+  ApplicationPlaybackLifecycles,
+  createApplicationBrowserPlaybackSession,
+} from './integrations/playback'
 
 export function createAppQueryClient(dehydratedState?: DehydratedState): QueryClient {
   const queryClient = new QueryClient({
@@ -27,7 +29,7 @@ export function createAppQueryClient(dehydratedState?: DehydratedState): QueryCl
 }
 
 export function AppProviders(props: ParentProps<{ queryClient: QueryClient }>) {
-  const playbackSession = createFilesystemBrowserPlaybackSession()
+  const playbackSession = createApplicationBrowserPlaybackSession()
 
   return (
     <QueryClientProvider client={props.queryClient}>
@@ -35,7 +37,7 @@ export function AppProviders(props: ParentProps<{ queryClient: QueryClient }>) {
         <SolidThemeSync />
         <GlobalForbiddenToast />
         <PlaybackMediaHost />
-        <FilesystemPlaybackSync />
+        <ApplicationPlaybackLifecycles />
         {props.children}
       </PlaybackProvider>
     </QueryClientProvider>

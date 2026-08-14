@@ -39,14 +39,7 @@ export type ResourcePageDto = {
   nextCursor?: string
   total: number
 }
-export type IntegrationCapabilityDto =
-  | 'browse'
-  | 'inspect'
-  | 'actions'
-  | 'search'
-  | 'assistant'
-  | 'panes'
-  | 'events'
+export type IntegrationCapabilityDto = 'browse' | 'inspect' | 'actions' | 'search'
 export type IntegrationDescriptorDto = {
   id: string
   name: string

@@ -3,7 +3,8 @@ import { describe, expect, test } from 'bun:test'
 describe('viewer ownership boundaries', () => {
   test('Canvas hosts neutral feature content without workspace viewer state', async () => {
     const canvasSource = await Bun.file('src/CanvasPage.tsx').text()
-    expect(canvasSource).toMatch(/integrations\/filesystem\/FilesystemResourceViewerContent/)
+    expect(canvasSource).toMatch(/features\/content\/ContentRuntimeView/)
+    expect(canvasSource).not.toMatch(/FilesystemResourceViewerContent|FILESYSTEM_RENDERER_ID/)
     expect(canvasSource).not.toMatch(/WorkspaceViewerPane|PersistedWorkspaceState|use-workspace/)
     expect(canvasSource).toMatch(/inspectCanvasCrashDraft/)
     expect(canvasSource).not.toMatch(
@@ -13,9 +14,8 @@ describe('viewer ownership boundaries', () => {
     const workspaceCanvasSource = await Bun.file(
       'src/workspace/workspace-page/WorkspacePageCanvas.tsx',
     ).text()
-    expect(workspaceCanvasSource).toMatch(
-      /integrations\/filesystem\/FilesystemResourceViewerContent/,
-    )
+    expect(workspaceCanvasSource).toMatch(/features\/content\/ContentRuntimeView/)
+    expect(workspaceCanvasSource).not.toMatch(/integrations\/filesystem|FILESYSTEM_RENDERER_ID/)
     expect(workspaceCanvasSource).not.toMatch(/WorkspaceViewerPane/)
 
     const canvasModel = await Bun.file('lib/infinite-canvas.ts').text()
@@ -110,8 +110,9 @@ describe('viewer ownership boundaries', () => {
       'src/workspace/workspace-page/WorkspacePageCanvas.tsx',
     ).text()
 
+    expect(canvas).toMatch(/ContentRuntimeView/)
+    expect(workspaceCanvas).toMatch(/ContentRuntimeView/)
     for (const source of [canvas, workspaceCanvas]) {
-      expect(source).toMatch(/ContentRuntimeView/)
       expect(source).toMatch(/contentInstanceFromCurrentWindow/)
       expect(source).not.toMatch(/HermesChatPane/)
     }
@@ -123,16 +124,29 @@ describe('viewer ownership boundaries', () => {
     expect(workspaceCanvas).not.toMatch(/bindHermesSession|openHermesBranch|renameHermesWindow/)
   })
 
-  test('all three route shells place content through their neutral host adapter', async () => {
+  test('Workspace renders every window through one shared neutral content block', async () => {
+    const source = await Bun.file('src/workspace/workspace-page/WorkspacePageCanvas.tsx').text()
+
+    expect(source.match(/<WorkspaceBrowserPane/g)).toHaveLength(1)
+    expect(source.match(/<ContentRuntimeView/g)).toHaveLength(1)
+    expect(source.match(/<WorkspaceWindowContent/g)).toHaveLength(3)
+    expect(source).not.toMatch(
+      /FilesystemResourceViewerContent|FILESYSTEM_RENDERER_ID|contentWindowFilesystem/,
+    )
+  })
+
+  test('all three route shells place complete plans without mutable side channels', async () => {
     const library = await Bun.file('src/FileBrowser.tsx').text()
     const workspace = await Bun.file('src/WorkspacePage.tsx').text()
     const canvas = await Bun.file('src/CanvasPage.tsx').text()
 
-    expect(library).toMatch(/createLibraryHost/)
-    expect(workspace).toMatch(/createWorkspaceHost/)
-    expect(canvas).toMatch(/createCanvasHost/)
-    expect(library).toMatch(/libraryHost\.open/)
-    expect(workspace).toMatch(/workspaceContentHost\.open/)
-    expect(canvas).toMatch(/canvasContentHost\.open/)
+    expect(library).toMatch(/placeLibraryPlan/)
+    expect(workspace).toMatch(/placeWorkspacePlan/)
+    expect(canvas).toMatch(/placeCanvasPlan/)
+    for (const source of [library, workspace, canvas]) {
+      expect(source).not.toMatch(
+        /plannedLibraryResource|pendingWorkspaceHostOpen|pendingCanvasHostOpen|create(?:Library|Workspace|Canvas)Host/,
+      )
+    }
   })
 })

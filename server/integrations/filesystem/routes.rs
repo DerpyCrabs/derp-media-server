@@ -7,7 +7,7 @@ use crate::{
     media,
 };
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, State},
     http::{HeaderValue, header},
@@ -30,15 +30,9 @@ pub(super) fn download_url(key: &ResourceKeyDto) -> String {
     format!("{DOWNLOAD_PATH}?id={id}")
 }
 
-fn filesystem(state: &Shared) -> AppResult<&FilesystemIntegration> {
-    state
-        .integrations
-        .runtime_ref(PROVIDER_ID)
-        .ok_or_else(|| AppError::not_found("Filesystem integration is disabled"))
-}
-
 async fn upload(
     State(state): State<Shared>,
+    Extension(filesystem): Extension<std::sync::Arc<FilesystemIntegration>>,
     ApiMultipart(mut multipart): ApiMultipart,
 ) -> AppResult<Json<Value>> {
     let mut target = None;
@@ -67,7 +61,7 @@ async fn upload(
             if root_id == COLLECTION_ROOT_ID {
                 return Err(AppError::bad("Application collections are read-only"));
             }
-            let logical = filesystem(&state)?.logical_path(&root_id, &path)?;
+            let logical = filesystem.logical_path(&root_id, &path)?;
             let resolved = media::resolve(&state.config, &logical)?;
             if !fs::metadata(&resolved.full)
                 .await
@@ -152,6 +146,7 @@ struct DownloadQuery {
 
 async fn download(
     State(state): State<Shared>,
+    Extension(filesystem): Extension<std::sync::Arc<FilesystemIntegration>>,
     ApiQuery(query): ApiQuery<DownloadQuery>,
 ) -> AppResult<Response> {
     let key = ResourceKeyDto::new(PROVIDER_ID, query.id);
@@ -161,7 +156,7 @@ async fn download(
             "Application collections cannot be downloaded",
         ));
     }
-    let logical = filesystem(&state)?.logical_path(&root_id, &path)?;
+    let logical = filesystem.logical_path(&root_id, &path)?;
     let full = media::resolve(&state.config, &logical)?.full;
     let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
     if metadata.is_dir() {
@@ -264,13 +259,14 @@ fn zip_body(source: std::path::PathBuf) -> Body {
     })
 }
 
-pub fn router() -> Router<Shared> {
+pub fn router(runtime: std::sync::Arc<FilesystemIntegration>) -> Router<Shared> {
     Router::new()
         .route(
             "/api/integrations/filesystem/upload",
             post(upload).layer(DefaultBodyLimit::max(10_000_000_000usize)),
         )
         .route(DOWNLOAD_PATH, get(download))
+        .layer(Extension(runtime))
 }
 
 #[cfg(test)]

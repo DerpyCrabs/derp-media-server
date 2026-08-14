@@ -8,7 +8,9 @@ import {
   isResourcePage,
   isResourceSummary,
   normalizeLogicalResourcePath,
+  resourceIsBrowsable,
   resourceKey,
+  resourceLogicalPath,
   type ResourceError,
   type ResourcePage,
   type ResourceSummary,
@@ -57,6 +59,29 @@ describe('resource contracts', () => {
     expect(() => normalizeLogicalResourcePath('bad\0path')).toThrow('must not contain NUL')
   })
 
+  test('projects generic Explorer behavior from resource contracts, not provider ids', () => {
+    const folder: ResourceSummary = {
+      key: resourceKey('fixture', 'opaque-folder'),
+      name: 'Fixture folder',
+      kind: 'fixture-collection',
+      capabilities: ['browse'],
+      metadata: { logicalPath: 'Projects/Fixture' },
+    }
+    expect(resourceLogicalPath(folder)).toBe('Projects/Fixture')
+    expect(resourceLogicalPath({ ...folder, metadata: { logicalPath: 42 } })).toBeUndefined()
+    expect(resourceIsBrowsable(folder)).toBe(true)
+    expect(
+      resourceIsBrowsable({
+        ...folder,
+        capabilities: [],
+        presentation: 'browse',
+      }),
+    ).toBe(true)
+    expect(resourceIsBrowsable({ ...folder, capabilities: [], metadata: {}, kind: 'folder' })).toBe(
+      true,
+    )
+  })
+
   test('round-trips typed pages with open provider capabilities and presentation hints', () => {
     const summary: ResourceSummary = {
       key: resourceKey('fixture', 'opaque-card'),
@@ -87,7 +112,12 @@ describe('resource contracts', () => {
         },
       ],
       items: [summary],
-      recentItems: [{ ...summary, metadata: { ...summary.metadata, modifiedAt: '2026-08-14' } }],
+      recentItems: [
+        {
+          ...summary,
+          metadata: { ...summary.metadata, modifiedAt: '2026-08-14' },
+        },
+      ],
       nextCursor: 'opaque-cursor',
       total: 2,
     }
@@ -107,7 +137,13 @@ describe('resource contracts', () => {
 
   test('validates neutral resource appearance hints', () => {
     expect(isResourceAppearance({})).toBe(true)
-    expect(isResourceAppearance({ icon: 'Archive', tone: 'violet', color: '#7c3aed' })).toBe(true)
+    expect(
+      isResourceAppearance({
+        icon: 'Archive',
+        tone: 'violet',
+        color: '#7c3aed',
+      }),
+    ).toBe(true)
     expect(isResourceAppearance({ icon: 42 })).toBe(false)
     expect(isResourceAppearance({ tone: null })).toBe(false)
     expect(isResourceAppearance([])).toBe(false)

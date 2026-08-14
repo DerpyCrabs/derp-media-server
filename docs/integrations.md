@@ -18,6 +18,7 @@ in `src/integrations/registry.ts`. A module may claim only the capabilities it i
 - resource actions;
 - search;
 - assistant/chat;
+- playback item, queue, source, and lifecycle behavior;
 - content renderers, codecs, presentation, and lifecycle behavior.
 
 Provider event transports stay private to their integration. Do not expose a second generic frontend
@@ -77,6 +78,18 @@ needed.
 Test resolution, lazy loading, codec round-trip, malformed and unknown payload recovery, close
 lifecycle, and mounting through Library, Workspace, and Canvas hosts. Surface code may provide chrome
 and geometry only.
+
+## Add playback
+
+Add one optional `playback` contribution to the owning frontend `IntegrationModule`. It creates a
+`PlaybackItem` from a `ResourceSummary`, builds provider-owned queues, resolves media sources, and may
+provide a Solid lifecycle component for provider-specific synchronization. The application registry
+dispatches all four behaviors by `ResourceKey.provider`.
+
+The integration's existing entry in `src/integrations/registry.ts` is the only registration required.
+Do not edit `AppProviders`, Library, Workspace, Canvas, or shared players when adding a playback
+provider. Test item and queue creation, source resolution, lifecycle reachability, and unknown-provider
+errors through `ContentRegistry`.
 
 ## Contracts and verification
 

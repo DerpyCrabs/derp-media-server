@@ -46,14 +46,13 @@ describe('integration availability', () => {
     availability.replace([descriptor('filesystem', ['browse', 'inspect', 'actions', 'search'])])
     expect(availability.root('filesystem', staticRoot)?.name).toBe('filesystem server root')
     expect(availability.isEnabled('filesystem', 'actions')).toBe(true)
-    expect(availability.isEnabled('filesystem', 'assistant')).toBe(false)
     expect(changes).toBe(1)
 
     availability.replace([
       descriptor('filesystem', ['browse', 'inspect', 'actions', 'search']),
-      descriptor('hermes', ['browse', 'assistant', 'panes']),
+      descriptor('hermes', ['browse']),
     ])
-    expect(availability.isEnabled('hermes', 'assistant')).toBe(true)
+    expect(availability.isEnabled('hermes')).toBe(true)
     expect(availability.isEnabled('hermes', 'actions')).toBe(false)
     expect(availability.root('hermes', undefined)?.key).toEqual({
       provider: 'hermes',

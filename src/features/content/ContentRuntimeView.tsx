@@ -1,4 +1,5 @@
 import type { ContentInstance } from '@/lib/domain/content'
+import type { ResourceKey } from '@/lib/domain/resource'
 import {
   ErrorBoundary,
   Show,
@@ -13,11 +14,17 @@ import type { ContentMountResult, ContentRuntime } from './runtime'
 export type ContentRuntimeViewProps = Readonly<{
   runtime: ContentRuntime
   instance: Accessor<ContentInstance | null | undefined>
+  visible?: Accessor<boolean>
   active?: Accessor<boolean>
+  autoPlay?: boolean
   onReplace?: (instance: ContentInstance) => void
+  onNavigate?: (resource: ResourceKey) => void
   onOpen?: (instance: ContentInstance) => void
   onClose?: () => void
   onFocus?: () => void
+  onResize?: (width: number, height: number) => void
+  onDetach?: () => void
+  onActivate?: () => void
   loading?: JSX.Element
   unavailable?: (reason: string) => JSX.Element
 }>
@@ -57,10 +64,16 @@ export function ContentRuntimeView(props: ContentRuntimeViewProps) {
     if (!initial) throw new Error('Content instance unavailable')
     return props.runtime.mount(() => props.instance() ?? initial, {
       replace: (next) => props.onReplace?.(next),
+      navigate: props.onNavigate,
       open: props.onOpen,
       close: props.onClose,
       focus: props.onFocus,
+      visible: props.visible,
       active: props.active,
+      autoPlay: props.autoPlay,
+      resize: props.onResize,
+      detach: props.onDetach,
+      activate: props.onActivate,
     })
   })
   const unavailable = (reason: string) =>

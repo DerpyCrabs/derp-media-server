@@ -1,4 +1,4 @@
-import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
+import { setResourceDragData } from '@/lib/resource-drag-data'
 import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 import { workspaceTaskbarPinPath } from '@/lib/workspace-taskbar-pins'
@@ -92,17 +92,16 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                         <div
                           class='flex shrink-0 items-center justify-center py-1 px-0.5'
                           data-taskbar-pin
-                          draggable={path !== null}
+                          draggable={resource() !== undefined}
                           on:dragstart={(e: DragEvent) => {
-                            if (path === null) return
+                            const summary = resource()
+                            if (!summary) return
                             const dt = e.dataTransfer
                             if (!dt) return
-                            const d: FileDragData = {
-                              path,
-                              isDirectory: isDirectory(),
-                              sourceKind: 'local',
-                            }
-                            setFileDragData(dt, d)
+                            setResourceDragData(dt, {
+                              key: pin.resource,
+                              isDirectory: summary.capabilities.includes('browse'),
+                            })
                             dt.effectAllowed = 'copy'
                           }}
                         >

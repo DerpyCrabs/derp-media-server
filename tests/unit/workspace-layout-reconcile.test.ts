@@ -1,15 +1,31 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import { reconcileLayoutBoundsFromSnapZones } from '@/lib/workspace-geometry'
-import { createWorkspaceLayoutPresetSnapshot } from '@/lib/workspace-layout-presets'
-import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { createWorkspaceLayoutPresetSnapshot as createWorkspaceLayoutPresetSnapshotWithPersistence } from '@/lib/workspace-layout-presets'
+import type {
+  NormalizePersistedWorkspaceOptions,
+  PersistedWorkspaceState,
+  WorkspaceWindowDefinition,
+} from '@/lib/use-workspace'
 import { workspaceTabIconColorKeyToHex } from '@/lib/workspace-tab-icon-colors'
 import {
-  normalizePersistedWorkspaceState,
-  serializeWorkspaceLayoutState,
-  serializeWorkspacePersistedState,
+  normalizePersistedWorkspaceState as normalizePersistedWorkspaceStateWithPersistence,
+  serializeWorkspaceLayoutState as serializeWorkspaceLayoutStateWithPersistence,
+  serializeWorkspacePersistedState as serializeWorkspacePersistedStateWithPersistence,
 } from '@/lib/use-workspace'
 import { workspaceWindow } from './workspace-window-fixture'
+
+const serializeWorkspacePersistedState = (state: PersistedWorkspaceState) =>
+  serializeWorkspacePersistedStateWithPersistence(state, currentContentWindowPersistence)
+const serializeWorkspaceLayoutState = (state: PersistedWorkspaceState) =>
+  serializeWorkspaceLayoutStateWithPersistence(state, currentContentWindowPersistence)
+const normalizePersistedWorkspaceState = (
+  value: unknown,
+  options?: NormalizePersistedWorkspaceOptions,
+) =>
+  normalizePersistedWorkspaceStateWithPersistence(value, currentContentWindowPersistence, options)
+const createWorkspaceLayoutPresetSnapshot = (state: PersistedWorkspaceState) =>
+  createWorkspaceLayoutPresetSnapshotWithPersistence(state, currentContentWindowPersistence)
 
 function currentPersistedState(value: unknown): unknown {
   return JSON.parse(serializeWorkspacePersistedState(value as PersistedWorkspaceState))

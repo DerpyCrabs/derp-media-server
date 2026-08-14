@@ -60,6 +60,21 @@ export type ResourceSummary = Readonly<{
   metadata?: Readonly<Record<string, unknown>>
 }>
 
+export function resourceLogicalPath(resource: ResourceSummary): string | undefined {
+  const path = resource.metadata?.logicalPath
+  return typeof path === 'string' ? path : undefined
+}
+
+export function resourceIsBrowsable(resource: ResourceSummary): boolean {
+  return (
+    resource.capabilities.includes(RESOURCE_CAPABILITY.browse) ||
+    resource.presentation === RESOURCE_PRESENTATION.browse ||
+    resource.kind === RESOURCE_KIND.root ||
+    resource.kind === RESOURCE_KIND.folder ||
+    resource.kind === RESOURCE_KIND.collection
+  )
+}
+
 export type ResourcePage = Readonly<{
   schemaVersion: 1
   location: ResourceKey
@@ -113,6 +128,10 @@ export function resourceKey(provider: string, id: string): ResourceKey {
     provider: requireIdentifier(provider, 'Resource provider'),
     id: requireIdentifier(id, 'Resource id'),
   }
+}
+
+export function sameResourceKey(left: ResourceKey, right: ResourceKey): boolean {
+  return left.provider === right.provider && left.id === right.id
 }
 
 export function normalizeLogicalResourcePath(path: string): string {

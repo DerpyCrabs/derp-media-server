@@ -3,7 +3,7 @@ import type { HermesContentState } from './module'
 import { createTranscriptScrollFollow } from './transcript-scroll-follow'
 import {
   addHermesAttachments,
-  addHermesDraggedPath,
+  addHermesDraggedResource,
   applyHermesCompletion,
   archiveHermesSession,
   answerHermesDecision,
@@ -55,7 +55,7 @@ import ArrowDown from 'lucide-solid/icons/arrow-down'
 import Pencil from 'lucide-solid/icons/pencil'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import { HermesMessageCard } from './HermesMessageCard'
-import { getFileDragData, hasFileDragData } from '@/lib/file-drag-data'
+import { getResourceDragData, hasResourceDragData } from '@/lib/resource-drag-data'
 import { unsupportedHermesCommand, voiceControlGates } from './chat-parity'
 
 export type HermesChatPaneProps = {
@@ -604,15 +604,15 @@ export function HermesChatPane(props: HermesChatPaneProps) {
           onDragOver={(event) => {
             if (
               event.dataTransfer?.types.includes('Files') ||
-              (event.dataTransfer && hasFileDragData(event.dataTransfer))
+              (event.dataTransfer && hasResourceDragData(event.dataTransfer))
             )
               event.preventDefault()
           }}
           onDrop={(event) => {
-            const dragged = event.dataTransfer && getFileDragData(event.dataTransfer)
+            const dragged = event.dataTransfer && getResourceDragData(event.dataTransfer)
             if (dragged) {
               event.preventDefault()
-              void addHermesDraggedPath(key(), dragged)
+              void addHermesDraggedResource(key(), dragged)
               return
             }
             if (!event.dataTransfer?.files.length) return

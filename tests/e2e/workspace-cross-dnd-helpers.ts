@@ -88,7 +88,7 @@ export async function deleteFileViaContextMenu(page: Page, content: Locator, fil
   })
 }
 
-/** Synthetic DnD so `dragstart` listeners (e.g. `setFileDragData`) populate `DataTransfer`. */
+/** Synthetic DnD so `dragstart` listeners populate canonical resource data. */
 export async function html5DragDrop(source: Locator, target: Locator) {
   const srcHandle = await source.elementHandle()
   const tgtHandle = await target.elementHandle()

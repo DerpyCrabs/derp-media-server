@@ -1,10 +1,10 @@
 import {
   RESOURCE_CAPABILITY,
-  RESOURCE_KIND,
-  RESOURCE_PRESENTATION,
+  resourceIsBrowsable,
   type ResourceKey,
   type ResourceSummary,
 } from '@/lib/domain/resource'
+import type { ContentInstance } from '@/lib/domain/content'
 import { type RendererIntent, type RendererRegistry } from './renderer-registry'
 
 export type OpenIntent = 'default' | 'browse' | RendererIntent
@@ -17,7 +17,7 @@ export type OpenContext = Readonly<{
 }>
 
 type OpenTarget = Readonly<{
-  resource: ResourceKey
+  summary: ResourceSummary
   intent: OpenIntent
 }>
 
@@ -52,6 +52,21 @@ export type OpenBlockedPlan = OpenTarget &
 
 export type OpenPlan = OpenReadyPlan | OpenBlockedPlan
 
+export function contentForOpenPlan(
+  plan: OpenReadyPlan,
+  id: string,
+  context?: ResourceKey,
+): ContentInstance {
+  if (plan.kind === 'browse') return { id, type: 'explorer', location: plan.summary.key }
+  return {
+    id,
+    type: 'resource',
+    resource: plan.summary.key,
+    renderer: plan.renderer,
+    ...(context ? { context } : {}),
+  }
+}
+
 export type ResourceOpener = (
   resource: ResourceSummary,
   intent: OpenIntent,
@@ -59,7 +74,7 @@ export type ResourceOpener = (
 ) => OpenPlan
 
 function target(resource: ResourceSummary, intent: OpenIntent): OpenTarget {
-  return { resource: { ...resource.key }, intent }
+  return { summary: resource, intent }
 }
 
 function blocked(
@@ -74,15 +89,6 @@ function blocked(
     reason,
     ...(requiredCapabilities ? { requiredCapabilities: [...requiredCapabilities] } : {}),
   }
-}
-
-function isBrowsable(resource: ResourceSummary): boolean {
-  return (
-    resource.presentation === RESOURCE_PRESENTATION.browse ||
-    resource.kind === RESOURCE_KIND.root ||
-    resource.kind === RESOURCE_KIND.folder ||
-    resource.kind === RESOURCE_KIND.collection
-  )
 }
 
 function hasAnyCapability(resource: ResourceSummary, required: readonly string[]): boolean {
@@ -104,7 +110,7 @@ function browsePlan(resource: ResourceSummary, intent: OpenIntent, context: Open
 
 export function createResourceOpener(registry: RendererRegistry): ResourceOpener {
   return (resource, intent, context) => {
-    const browsable = isBrowsable(resource)
+    const browsable = resourceIsBrowsable(resource)
     if (intent === 'browse') {
       return browsable
         ? browsePlan(resource, intent, context)

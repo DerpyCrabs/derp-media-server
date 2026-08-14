@@ -6,6 +6,7 @@ import {
 } from '@/lib/use-workspace'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import { defaultInitialBrowserTitle, defaultPersistedState } from '@/lib/workspace-default-state'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import { parseRoute } from '../lib/routes'
 
 export { defaultInitialBrowserTitle, defaultPersistedState }
@@ -21,7 +22,10 @@ export function persistWorkspaceState(storageKey: string, state: PersistedWorksp
       pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
       fileOpenTarget: state.fileOpenTarget ?? getWorkspaceFileOpenTarget(),
     }
-    localStorage.setItem(storageKey, serializeWorkspacePersistedState(toStore))
+    localStorage.setItem(
+      storageKey,
+      serializeWorkspacePersistedState(toStore, currentContentWindowPersistence),
+    )
   } catch {}
 }
 
@@ -29,9 +33,11 @@ export function loadPersisted(storageKey: string): PersistedWorkspaceState | nul
   const raw = localStorage.getItem(storageKey)
   if (!raw) return null
   try {
-    return normalizePersistedWorkspaceState(JSON.parse(raw) as unknown, {
-      reconcileSnapZones: false,
-    })
+    return normalizePersistedWorkspaceState(
+      JSON.parse(raw) as unknown,
+      currentContentWindowPersistence,
+      { reconcileSnapZones: false },
+    )
   } catch {
     return null
   }

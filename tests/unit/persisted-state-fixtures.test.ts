@@ -1,15 +1,30 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import {
   createDefaultCanvasCollection,
-  parseCanvasCollection,
-  serializeCanvasCollection,
+  parseCanvasCollection as parseCanvasCollectionWithPersistence,
+  serializeCanvasCollection as serializeCanvasCollectionWithPersistence,
+  type CanvasCollection,
 } from '@/lib/canvas-persistence'
 import {
-  normalizePersistedWorkspaceState,
-  serializeWorkspacePersistedState,
+  normalizePersistedWorkspaceState as normalizePersistedWorkspaceStateWithPersistence,
+  serializeWorkspacePersistedState as serializeWorkspacePersistedStateWithPersistence,
+  type NormalizePersistedWorkspaceOptions,
+  type PersistedWorkspaceState,
 } from '@/lib/use-workspace'
 import { filesystemResourceAddress } from '@/lib/domain/resource'
+
+const serializeWorkspacePersistedState = (state: PersistedWorkspaceState) =>
+  serializeWorkspacePersistedStateWithPersistence(state, currentContentWindowPersistence)
+const normalizePersistedWorkspaceState = (
+  value: unknown,
+  options?: NormalizePersistedWorkspaceOptions,
+) =>
+  normalizePersistedWorkspaceStateWithPersistence(value, currentContentWindowPersistence, options)
+const serializeCanvasCollection = (collection: CanvasCollection) =>
+  serializeCanvasCollectionWithPersistence(collection, currentContentWindowPersistence)
+const parseCanvasCollection = (value: unknown) =>
+  parseCanvasCollectionWithPersistence(value, currentContentWindowPersistence)
 
 const currentExplorerContent = {
   schemaVersion: 1 as const,

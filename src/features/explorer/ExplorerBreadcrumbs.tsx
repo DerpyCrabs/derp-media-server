@@ -8,13 +8,17 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'so
 import type { ExplorerBreadcrumb, ExplorerLocation } from './types'
 
 type BreadcrumbRow<TPayload> =
-  | Readonly<{ kind: 'crumb'; crumb: ExplorerBreadcrumb<TPayload>; index: number }>
+  | Readonly<{
+      kind: 'crumb'
+      crumb: ExplorerBreadcrumb<TPayload>
+      index: number
+    }>
   | Readonly<{ kind: 'ellipsis' }>
 
 export type ExplorerBreadcrumbsProps<TPayload> = Readonly<{
   breadcrumbs: Accessor<readonly ExplorerBreadcrumb<TPayload>[]>
   displayMode?: 'MediaServer' | 'Workspace'
-  domValue?: (location: ExplorerLocation) => string | undefined
+  domValue?: (breadcrumb: ExplorerBreadcrumb<TPayload>) => string | undefined
   onNavigate(location: ExplorerLocation): void
   onContextMenu?(event: MouseEvent, breadcrumb: ExplorerBreadcrumb<TPayload>): void
 }>
@@ -160,7 +164,7 @@ export function ExplorerBreadcrumbs<TPayload>(props: ExplorerBreadcrumbsProps<TP
         <button
           type='button'
           role='menuitem'
-          data-breadcrumb-path={props.domValue?.(crumb.location)}
+          data-breadcrumb-path={props.domValue?.(crumb)}
           class='flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground'
           onClick={() => {
             setPathMenuOpen(false)
@@ -231,9 +235,7 @@ export function ExplorerBreadcrumbs<TPayload>(props: ExplorerBreadcrumbsProps<TP
               ref={setPathMenuAnchor}
               type='button'
               data-breadcrumb-segment='path-picker'
-              data-breadcrumb-path={
-                currentCrumb() ? props.domValue?.(currentCrumb()!.location) : undefined
-              }
+              data-breadcrumb-path={currentCrumb() ? props.domValue?.(currentCrumb()!) : undefined}
               class={`inline-flex w-full min-w-0 items-center justify-between gap-2 rounded-md border border-border bg-muted/40 font-medium text-foreground ${
                 isWorkspace() ? 'h-7 px-2 text-xs' : 'h-8 px-2.5 text-sm'
               }`}
@@ -287,7 +289,7 @@ export function ExplorerBreadcrumbs<TPayload>(props: ExplorerBreadcrumbsProps<TP
                     </Show>
                     <button
                       type='button'
-                      data-breadcrumb-path={props.domValue?.(entry.crumb.location)}
+                      data-breadcrumb-path={props.domValue?.(entry.crumb)}
                       class={crumbClass(entry.index === props.breadcrumbs().length - 1)}
                       aria-label={entry.index === 0 ? 'Home' : entry.crumb.name}
                       onClick={() => props.onNavigate(entry.crumb.location)}

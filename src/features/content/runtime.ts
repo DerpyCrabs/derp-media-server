@@ -105,6 +105,29 @@ export function createContentRuntime(registry: ContentRegistry): ContentRuntime 
       const resolved = this.resolve(initialInstance)
       if (!resolved.ok) return resolved
       try {
+        const currentInstance = () => {
+          const current = this.resolve(readInstance())
+          return current.ok && current.renderer.id === resolved.renderer.id
+            ? current.instance
+            : resolved.instance
+        }
+        const surface = registry.surface(resolved.instance)
+        if (surface) {
+          const module = await surface.load()
+          return {
+            ok: true,
+            instance: resolved.instance,
+            renderer: resolved.renderer.id,
+            render: () =>
+              module.mount({
+                ...callbacks,
+                runtime: this,
+                instance: currentInstance,
+                visible: callbacks.visible ?? (() => true),
+                active: callbacks.active ?? callbacks.visible ?? (() => true),
+              }),
+          }
+        }
         const module = await this.loadRenderer(resolved.instance)
         if (module.kind === 'playback') {
           return {
@@ -120,12 +143,7 @@ export function createContentRuntime(registry: ContentRegistry): ContentRuntime 
           render: () =>
             module.mount({
               ...callbacks,
-              instance: () => {
-                const current = this.resolve(readInstance())
-                return current.ok && current.renderer.id === resolved.renderer.id
-                  ? current.instance
-                  : resolved.instance
-              },
+              instance: currentInstance,
               active: callbacks.active ?? (() => true),
             }),
         }

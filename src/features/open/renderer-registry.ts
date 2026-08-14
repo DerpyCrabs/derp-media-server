@@ -1,5 +1,5 @@
 import type { ContentInstance } from '@/lib/domain/content'
-import type { ResourceSummary } from '@/lib/domain/resource'
+import type { ResourceKey, ResourceSummary } from '@/lib/domain/resource'
 import type { JSX } from 'solid-js'
 
 export type RendererIntent = 'default' | 'view' | 'read' | 'play'
@@ -17,10 +17,16 @@ export type RendererRule =
 
 export type ContentRendererMountCallbacks = Readonly<{
   replace(instance: ContentInstance): void
+  navigate?: (resource: ResourceKey) => void
   open?: (instance: ContentInstance) => void
   close?: () => void
   focus?: () => void
+  visible?: () => boolean
   active?: () => boolean
+  autoPlay?: boolean
+  resize?: (width: number, height: number) => void
+  detach?: () => void
+  activate?: () => void
 }>
 
 export type ContentRendererMountContext = ContentRendererMountCallbacks &

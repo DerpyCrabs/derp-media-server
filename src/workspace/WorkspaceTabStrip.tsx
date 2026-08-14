@@ -1,5 +1,5 @@
-import type { FileDragData } from '@/lib/file-drag-data'
-import { getFileDragData, hasFileDragData } from '@/lib/file-drag-data'
+import type { ResourceDragData } from '@/lib/resource-drag-data'
+import { getResourceDragData, hasResourceDragData } from '@/lib/resource-drag-data'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { getWorkspaceWindowTitle } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
@@ -24,7 +24,7 @@ function TabStripDropSlot(props: {
   active: boolean
   highlighted?: boolean
   mergeHighlight?: boolean
-  onDropFile?: (data: FileDragData, groupInsertIndex?: number) => void
+  onDropFile?: (data: ResourceDragData, groupInsertIndex?: number) => void
   onSlotDragOver: (e: globalThis.DragEvent, groupInsertIndex: number) => void
   onSlotDragLeave: (e: globalThis.DragEvent) => void
   onSlotDrop: (e: globalThis.DragEvent, groupInsertIndex: number) => void
@@ -67,7 +67,7 @@ export type WorkspaceTabStripProps = {
   onCloseTab: (tabId: string) => void
   onToggleTabPinned?: (tabId: string) => void
   onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
-  onDropFile?: (data: FileDragData, groupInsertIndex?: number) => void
+  onDropFile?: (data: ResourceDragData, groupInsertIndex?: number) => void
   mergeHighlightInsertIndex?: () => number | null
   splitLeftTabId?: string | null
   onExitSplitView?: () => void
@@ -177,7 +177,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
   const handleSlotDragOver = (e: globalThis.DragEvent, groupInsertIndex: number) => {
     if (!fileDropSlotActiveByGroup(groupInsertIndex)) return
     const dtr = e.dataTransfer
-    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    if (!props.onDropFile || !dtr || !hasResourceDragData(dtr)) return
     e.preventDefault()
     e.stopPropagation()
     dtr.dropEffect = 'copy'
@@ -199,7 +199,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     if (!props.onDropFile) return
     const dtr = e.dataTransfer
     if (!dtr) return
-    const data = getFileDragData(dtr)
+    const data = getResourceDragData(dtr)
     if (!data) return
     e.preventDefault()
     e.stopPropagation()
@@ -216,7 +216,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 
   const handleScrollAreaDragOver = (e: globalThis.DragEvent) => {
     const dtr = e.dataTransfer
-    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    if (!props.onDropFile || !dtr || !hasResourceDragData(dtr)) return
     e.preventDefault()
     e.stopPropagation()
     dtr.dropEffect = 'copy'
@@ -228,7 +228,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     if (!props.onDropFile) return
     const dtr = e.dataTransfer
     if (!dtr) return
-    const data = getFileDragData(dtr)
+    const data = getResourceDragData(dtr)
     if (!data) return
     e.preventDefault()
     e.stopPropagation()
@@ -262,7 +262,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 
   const handleTabFileDragOver = (e: globalThis.DragEvent, displayTabIndex: number) => {
     const dtr = e.dataTransfer
-    if (!props.onDropFile || !dtr || !hasFileDragData(dtr)) return
+    if (!props.onDropFile || !dtr || !hasResourceDragData(dtr)) return
     e.preventDefault()
     e.stopPropagation()
     dtr.dropEffect = 'copy'
@@ -287,7 +287,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     if (!props.onDropFile) return
     const dtr = e.dataTransfer
     if (!dtr) return
-    const data = getFileDragData(dtr)
+    const data = getResourceDragData(dtr)
     if (!data) return
     e.preventDefault()
     e.stopPropagation()

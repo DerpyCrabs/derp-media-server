@@ -2,6 +2,7 @@ import { contentWindowKind, type ContentWindowDefinition } from '@/lib/content-w
 import {
   persistedContentWindowRecord,
   restorePersistedContentWindow,
+  type ContentWindowPersistencePort,
 } from '@/lib/content-window-persistence'
 import {
   createDefaultBounds,
@@ -151,12 +152,17 @@ function parseBrowserTabIconColor(v: unknown): string | undefined {
   return isWorkspaceTabIconColorKey(t) ? t : undefined
 }
 
-export function serializeWorkspacePersistedState(state: PersistedWorkspaceState): string {
-  const { windows, activeWindowId, activeTabMap, tabGroupSplits } =
-    persistentWorkspaceProjection(state)
+export function serializeWorkspacePersistedState(
+  state: PersistedWorkspaceState,
+  persistence: ContentWindowPersistencePort,
+): string {
+  const { windows, activeWindowId, activeTabMap, tabGroupSplits } = persistentWorkspaceProjection(
+    state,
+    persistence,
+  )
   return JSON.stringify({
     windows: windows.flatMap((window) => {
-      const persisted = persistedWorkspaceWindowContent(window)
+      const persisted = persistedWorkspaceWindowContent(window, persistence)
       return persisted ? [persisted] : []
     }),
     activeWindowId,
@@ -171,12 +177,17 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
   })
 }
 
-export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): string {
-  const { windows, activeWindowId, activeTabMap, tabGroupSplits } =
-    persistentWorkspaceProjection(state)
+export function serializeWorkspaceLayoutState(
+  state: PersistedWorkspaceState,
+  persistence: ContentWindowPersistencePort,
+): string {
+  const { windows, activeWindowId, activeTabMap, tabGroupSplits } = persistentWorkspaceProjection(
+    state,
+    persistence,
+  )
   return JSON.stringify({
     windows: windows.flatMap((window) => {
-      const persisted = persistedWorkspaceWindowContent(window)
+      const persisted = persistedWorkspaceWindowContent(window, persistence)
       return persisted ? [persisted] : []
     }),
     activeWindowId,
@@ -188,14 +199,18 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
   })
 }
 
-export function persistentWorkspaceWindows(windows: WorkspaceWindowDefinition[]) {
-  return windows.filter((window) => persistedWorkspaceWindowContent(window) !== null)
+export function persistentWorkspaceWindows(
+  windows: WorkspaceWindowDefinition[],
+  persistence: ContentWindowPersistencePort,
+) {
+  return windows.filter((window) => persistedWorkspaceWindowContent(window, persistence) !== null)
 }
 
 export function persistedWorkspaceWindowContent(
   window: WorkspaceWindowDefinition,
+  persistence: ContentWindowPersistencePort,
 ): Record<string, unknown> | null {
-  return persistedContentWindowRecord(window)
+  return persistedContentWindowRecord(persistence, window)
 }
 
 function sanitizeWorkspaceFocus(
@@ -226,8 +241,11 @@ function sanitizeWorkspaceFocus(
   return ensureSplitWorkspaceFocus(windows, activeTabMap, activeWindowId, splits)
 }
 
-function persistentWorkspaceProjection(state: PersistedWorkspaceState) {
-  const windows = persistentWorkspaceWindows(state.windows)
+function persistentWorkspaceProjection(
+  state: PersistedWorkspaceState,
+  persistence: ContentWindowPersistencePort,
+) {
+  const windows = persistentWorkspaceWindows(state.windows, persistence)
   const tabGroupSplits = sanitizeTabGroupSplitsField(windows, state.tabGroupSplits)
   const previousActive = state.windows.find((window) => window.id === state.activeWindowId)
   const focus = sanitizeWorkspaceFocus(
@@ -401,8 +419,9 @@ export type NormalizePersistedWorkspaceOptions = {
 
 export function restorePersistedWorkspaceWindowContent(
   value: unknown,
+  persistence: ContentWindowPersistencePort,
 ): WorkspaceWindowDefinition | null {
-  return restorePersistedContentWindow(value, [
+  return restorePersistedContentWindow(persistence, value, [
     'tabGroupId',
     'openedFromWindowId',
     'tabPinned',
@@ -413,6 +432,7 @@ export function restorePersistedWorkspaceWindowContent(
 
 export function normalizePersistedWorkspaceState(
   data: unknown,
+  persistence: ContentWindowPersistencePort,
   options?: NormalizePersistedWorkspaceOptions,
 ): PersistedWorkspaceState | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null
@@ -447,7 +467,7 @@ export function normalizePersistedWorkspaceState(
   const reconcileSnapZones = options?.reconcileSnapZones !== false
   const viewport = getViewportSize()
   const validatedWindows = parsed.windows
-    .map(restorePersistedWorkspaceWindowContent)
+    .map((window) => restorePersistedWorkspaceWindowContent(window, persistence))
     .filter(
       (w): w is WorkspaceWindowDefinition =>
         !!w && typeof w.id === 'string' && (!!w.contentInstance || !!w.contentRecoveryReason),

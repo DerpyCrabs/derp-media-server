@@ -77,7 +77,10 @@ impl FilesystemIntegration {
                 color: None,
             }),
             size: None,
-            metadata: None,
+            metadata: Some(HashMap::from([(
+                "logicalPath".into(),
+                Value::String(String::new()),
+            )])),
         }
     }
 
@@ -927,17 +930,13 @@ pub(crate) fn module(config: Config, search: Arc<FileSearch>) -> IntegrationModu
             ],
             root: Some(runtime.root_summary()),
         },
-        runtime: runtime.clone(),
         browse: Some(runtime.clone()),
         inspect: Some(runtime.clone()),
         actions: Some(runtime.clone()),
         search: Some(runtime.clone()),
-        assistant: None,
-        panes: None,
-        events: None,
-        change: Some(runtime),
+        change: Some(runtime.clone()),
         shutdown: None,
-        routes: routes::router(),
+        routes: routes::router(runtime),
     }
 }
 

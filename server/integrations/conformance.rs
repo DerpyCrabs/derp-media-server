@@ -29,13 +29,19 @@ mod tests {
         store,
         thumbnails::Thumbnailer,
     };
-    use axum::{Router, http::StatusCode};
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode, header},
+    };
     use futures_util::future::BoxFuture;
+    use http_body_util::BodyExt;
     use serde_json::{Value, json};
     use std::{
         collections::{HashSet, VecDeque},
         sync::{Arc, Mutex},
     };
+    use tower::ServiceExt;
 
     fn summary(provider: &str, id: &str, name: &str, kind: &str) -> ResourceSummaryDto {
         ResourceSummaryDto {
@@ -66,42 +72,6 @@ mod tests {
             validate_summary(&module.descriptor.id, root).unwrap();
             assert!(!root.key.id.contains("Hermes Sessions"));
         }
-        if claimed.contains(&IntegrationCapabilityDto::Assistant) {
-            assert!(module.assistant.as_ref().unwrap().available());
-        }
-        if claimed.contains(&IntegrationCapabilityDto::Panes) {
-            let pane_kinds = module.panes.as_ref().unwrap().pane_kinds();
-            assert!(!pane_kinds.is_empty());
-            assert_eq!(
-                pane_kinds.iter().collect::<HashSet<_>>().len(),
-                pane_kinds.len()
-            );
-            assert!(
-                pane_kinds
-                    .iter()
-                    .all(|kind| kind.starts_with(&format!("{}.", module.descriptor.id)))
-            );
-        }
-    }
-
-    async fn assert_event_contract(
-        module: &IntegrationModule,
-        sender: &tokio::sync::broadcast::Sender<Value>,
-    ) {
-        if !module
-            .claimed_capabilities()
-            .contains(&IntegrationCapabilityDto::Events)
-        {
-            return;
-        }
-        let mut receiver = module.events.as_ref().unwrap().subscribe();
-        let expected = json!({"kind":"fixture-event"});
-        sender.send(expected.clone()).unwrap();
-        let received = tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv())
-            .await
-            .expect("event capability did not deliver")
-            .unwrap();
-        assert_eq!(received, expected);
     }
 
     fn app_state(config: Config, integrations: Arc<IntegrationRegistry>) -> AppState {
@@ -385,7 +355,7 @@ mod tests {
         }
     }
 
-    fn hermes_module() -> (IntegrationModule, tokio::sync::broadcast::Sender<Value>) {
+    fn hermes_module() -> IntegrationModule {
         let config = HermesConfig {
             gateway_url: url::Url::parse("http://127.0.0.1:4000/").unwrap(),
             token: None,
@@ -410,22 +380,13 @@ mod tests {
             rpcs: Mutex::new(VecDeque::from([json!({"projects":[]})])),
         });
         let (events, _) = tokio::sync::broadcast::channel(8);
-        (
-            hermes::module_from_runtime(HermesRuntime::new(
-                config,
-                transport,
-                events.clone(),
-                None,
-            )),
-            events,
-        )
+        hermes::module_from_runtime(HermesRuntime::new(config, transport, events, None))
     }
 
     #[tokio::test]
     async fn hermes_provider_conforms_with_opaque_resources_only() {
-        let (module, events) = hermes_module();
+        let module = hermes_module();
         assert_declared_contract(&module);
-        assert_event_contract(&module, &events).await;
         let root = module.descriptor.root.as_ref().unwrap().key.clone();
         assert_eq!(root.id, "v1:4:root");
         let registry = IntegrationRegistry::new(vec![module]).unwrap();
@@ -564,28 +525,99 @@ mod tests {
                 ],
                 root: Some(FixtureIntegration::root()),
             },
-            runtime: runtime.clone(),
             browse: Some(runtime.clone()),
             inspect: Some(runtime.clone()),
             actions: Some(runtime.clone()),
             search: Some(runtime),
-            assistant: None,
-            panes: None,
-            events: None,
             change: None,
             shutdown: None,
             routes: Router::new(),
         }
     }
 
+    async fn response_json(router: &Router, request: Request<Body>) -> Value {
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap()
+    }
+
     #[tokio::test]
-    async fn fixture_module_needs_only_one_registry_registration() {
+    async fn fixture_module_single_registration_reaches_registry_http_and_ssr() {
         let module = fixture_module();
         assert_declared_contract(&module);
         let registry = IntegrationRegistry::new(vec![module]).unwrap();
         let (config, base) = filesystem_config();
-        let state = app_state(config, registry.clone());
+        let state = Arc::new(app_state(config, registry.clone()));
         assert_registry_contract(&registry, "fixture", &state, "fixture.open", "fixture").await;
+
+        let router = crate::server::build_router(state.clone());
+        let descriptors = response_json(
+            &router,
+            Request::builder()
+                .uri("/api/integrations")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(descriptors[0]["id"], "fixture");
+
+        let browsed = response_json(
+            &router,
+            Request::builder()
+                .uri("/api/integrations/fixture/browse?id=root")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(browsed["items"][0]["key"]["id"], "item-1");
+
+        let inspected = response_json(
+            &router,
+            Request::builder()
+                .uri("/api/integrations/fixture/inspect?id=item-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(inspected["key"]["id"], "item-1");
+
+        let action = response_json(
+            &router,
+            Request::builder()
+                .method("POST")
+                .uri("/api/integrations/fixture/actions")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "key":{"provider":"fixture","id":"root"},
+                        "action":"fixture.open"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(action["openTarget"]["resource"]["id"], "item-1");
+
+        let searched = response_json(
+            &router,
+            Request::builder()
+                .uri("/api/search?q=fixture&limit=10")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(searched["results"][0]["resource"]["key"]["id"], "item-1");
+
+        let dehydrated = crate::html::dehydrated(&state, &"/".parse().unwrap()).await;
+        let bootstrap = dehydrated["queries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|query| query["queryKey"] == json!(["integrations"]))
+            .unwrap()["state"]["data"]
+            .clone();
+        assert_eq!(bootstrap, descriptors);
         let _ = std::fs::remove_dir_all(base);
     }
 

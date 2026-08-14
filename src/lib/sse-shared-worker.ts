@@ -24,6 +24,7 @@ function portState(port: MessagePort): PortState {
 
 let applicationReferenceTotal = 0
 let applicationSource: EventSource | null = null
+let applicationConnected = false
 let applicationRetry = 0
 let applicationReconnectTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -46,6 +47,14 @@ function broadcastApplication(data: unknown) {
   }
 }
 
+function notifyApplicationConnected(port: MessagePort) {
+  try {
+    port.postMessage({ type: 'application-sse', data: { type: 'connected' } })
+  } catch {
+    // Ignore closed ports.
+  }
+}
+
 function openApplicationStream() {
   cancelApplicationReconnect()
   if (applicationSource || applicationReferenceTotal <= 0) return
@@ -54,12 +63,15 @@ function openApplicationStream() {
   applicationSource.onmessage = (event) => {
     applicationRetry = 0
     try {
-      broadcastApplication(JSON.parse(event.data))
+      const data = JSON.parse(event.data) as { type?: string }
+      if (data.type === 'connected') applicationConnected = true
+      broadcastApplication(data)
     } catch {
       // Ignore malformed events.
     }
   }
   applicationSource.onerror = () => {
+    applicationConnected = false
     applicationSource?.close()
     applicationSource = null
     if (applicationReferenceTotal <= 0) return
@@ -75,6 +87,7 @@ function closeApplicationStreamIfIdle() {
   cancelApplicationReconnect()
   if (applicationReferenceTotal > 0) return
   applicationRetry = 0
+  applicationConnected = false
   applicationSource?.close()
   applicationSource = null
 }
@@ -86,7 +99,11 @@ function onPortMessage(port: MessagePort, raw: unknown) {
     const state = portState(port)
     state.application++
     applicationReferenceTotal++
-    if (applicationReferenceTotal === 1) openApplicationStream()
+    if (applicationReferenceTotal === 1) {
+      openApplicationStream()
+    } else if (applicationConnected) {
+      notifyApplicationConnected(port)
+    }
     return
   }
   if (message.type === 'unsubscribe-application') {

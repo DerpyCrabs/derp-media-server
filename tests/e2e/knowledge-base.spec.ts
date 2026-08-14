@@ -112,12 +112,14 @@ test.describe('Knowledge Base', () => {
     expect(body.name).toMatch(/^Pasted image \d{14}(_\d+)?\.png$/)
     expect(typeof body.metadata?.base64Content).toBe('string')
     expect(body.metadata!.base64Content!.length).toBeGreaterThan(10)
+    const pastedMarkdown = `![[${body.name!}]]`
+    await expect(editor).toContainText(pastedMarkdown)
 
     await editor.focus()
     await page.keyboard.press('Control+a')
     await page.keyboard.press('Control+c')
     const after = await page.evaluate(() => navigator.clipboard.readText())
-    expect(after).toMatch(/\[\[Pasted image \d{14}(_\d+)?\.png\]\]/)
+    expect(after).toContain(pastedMarkdown)
     expect(after).toContain(before)
   })
 

@@ -10,9 +10,7 @@ use crate::{
 };
 use axum::Router;
 use futures_util::future::{BoxFuture, join_all};
-use serde_json::Value;
 use std::{
-    any::Any,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
@@ -46,18 +44,6 @@ pub(crate) trait SearchCapability: Send + Sync {
     ) -> BoxFuture<'a, AppResult<SearchContribution>>;
 }
 
-pub(crate) trait AssistantCapability: Send + Sync {
-    fn available(&self) -> bool;
-}
-
-pub(crate) trait PanesCapability: Send + Sync {
-    fn pane_kinds(&self) -> Vec<String>;
-}
-
-pub(crate) trait EventsCapability: Send + Sync {
-    fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Value>;
-}
-
 pub(crate) trait ChangeCapability: Send + Sync {
     fn changed(&self, locator: &str);
 }
@@ -68,14 +54,10 @@ pub(crate) trait ShutdownCapability: Send + Sync {
 
 pub(crate) struct IntegrationModule {
     pub descriptor: IntegrationDescriptorDto,
-    pub runtime: Arc<dyn Any + Send + Sync>,
     pub browse: Option<Arc<dyn BrowseCapability>>,
     pub inspect: Option<Arc<dyn InspectCapability>>,
     pub actions: Option<Arc<dyn ActionCapability>>,
     pub search: Option<Arc<dyn SearchCapability>>,
-    pub assistant: Option<Arc<dyn AssistantCapability>>,
-    pub panes: Option<Arc<dyn PanesCapability>>,
-    pub events: Option<Arc<dyn EventsCapability>>,
     pub change: Option<Arc<dyn ChangeCapability>>,
     pub shutdown: Option<Arc<dyn ShutdownCapability>>,
     pub routes: Router<Shared>,
@@ -92,12 +74,6 @@ impl IntegrationModule {
             (self.inspect.is_some(), IntegrationCapabilityDto::Inspect),
             (self.actions.is_some(), IntegrationCapabilityDto::Actions),
             (self.search.is_some(), IntegrationCapabilityDto::Search),
-            (
-                self.assistant.is_some(),
-                IntegrationCapabilityDto::Assistant,
-            ),
-            (self.panes.is_some(), IntegrationCapabilityDto::Panes),
-            (self.events.is_some(), IntegrationCapabilityDto::Events),
         ]
         .into_iter()
         .filter_map(|(present, capability)| present.then_some(capability))
@@ -116,23 +92,6 @@ impl IntegrationModule {
             return Err(format!(
                 "integration {id} capability claims do not match implementations"
             ));
-        }
-        if self
-            .assistant
-            .as_ref()
-            .is_some_and(|assistant| !assistant.available())
-        {
-            return Err(format!("integration {id} claims an unavailable assistant"));
-        }
-        if self
-            .panes
-            .as_ref()
-            .is_some_and(|panes| panes.pane_kinds().is_empty())
-        {
-            return Err(format!("integration {id} claims panes without pane kinds"));
-        }
-        if let Some(events) = self.events.as_ref() {
-            drop(events.subscribe());
         }
         if let Some(root) = self.descriptor.root.as_ref() {
             validate_key(&root.key, id)?;
@@ -182,18 +141,6 @@ impl IntegrationRegistry {
             .fold(Router::new(), |router, module| {
                 router.merge(module.routes.clone())
             })
-    }
-
-    pub(crate) fn runtime<T: Any + Send + Sync>(&self, provider: &str) -> Option<Arc<T>> {
-        self.modules
-            .get(provider)
-            .and_then(|module| Arc::clone(&module.runtime).downcast::<T>().ok())
-    }
-
-    pub(crate) fn runtime_ref<T: Any + Send + Sync>(&self, provider: &str) -> Option<&T> {
-        self.modules
-            .get(provider)
-            .and_then(|module| module.runtime.as_ref().downcast_ref::<T>())
     }
 
     pub(crate) async fn browse(

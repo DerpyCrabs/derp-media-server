@@ -1,5 +1,6 @@
 import { filesystemResourceAddress, type ResourceKey } from '@/lib/domain/resource'
 import { normalizePersistedWorkspaceState, type PersistedWorkspaceState } from '@/lib/use-workspace'
+import type { ContentWindowPersistencePort } from '@/lib/content-window-persistence'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import { createDefaultBounds, createWindowLayout } from '@/lib/workspace-geometry'
 import { defaultPersistedState } from '@/lib/workspace-default-state'
@@ -49,9 +50,10 @@ export function buildWorkspaceFromResource(resource: ResourceKey): PersistedWork
 function findPresetSnapshot(
   presetsList: WorkspaceLayoutPreset[],
   presetParam: string,
+  persistence: ContentWindowPersistencePort,
 ): PersistedWorkspaceState | null {
   const found = presetsList.find((p) => p.id === presetParam)
-  const normalized = found ? normalizePersistedWorkspaceState(found.snapshot) : null
+  const normalized = found ? normalizePersistedWorkspaceState(found.snapshot, persistence) : null
   if (!normalized?.windows.length) return null
   return normalized
 }
@@ -62,6 +64,7 @@ function findPresetSnapshot(
  */
 export function resolveWorkspaceInitialHydration(
   input: WorkspaceHydrationInput,
+  persistence: ContentWindowPersistencePort,
 ): WorkspaceHydrationInitialOutcome {
   const { resource, presetParam, loaded, presetsReadyNow, presetsList } = input
 
@@ -87,7 +90,7 @@ export function resolveWorkspaceInitialHydration(
   }
 
   if (presetParam && presetsReadyNow) {
-    const normalized = findPresetSnapshot(presetsList, presetParam)
+    const normalized = findPresetSnapshot(presetsList, presetParam, persistence)
     if (normalized) {
       const workspace = structuredClone(normalized)
       return {
@@ -133,15 +136,18 @@ export type DeferredPresetOutcome =
 /**
  * When session key is unchanged, settings become ready, URL still has `preset`, and no draft exists in storage.
  */
-export function resolveWorkspaceDeferredPresetApply(input: {
-  presetParam: string | null
-  presetsReadyNow: boolean
-  hasPersistedDraft: boolean
-  presetsList: WorkspaceLayoutPreset[]
-}): DeferredPresetOutcome | null {
+export function resolveWorkspaceDeferredPresetApply(
+  input: {
+    presetParam: string | null
+    presetsReadyNow: boolean
+    hasPersistedDraft: boolean
+    presetsList: WorkspaceLayoutPreset[]
+  },
+  persistence: ContentWindowPersistencePort,
+): DeferredPresetOutcome | null {
   const { presetParam, presetsReadyNow, hasPersistedDraft, presetsList } = input
   if (!presetParam || !presetsReadyNow || hasPersistedDraft) return null
-  const normalized = findPresetSnapshot(presetsList, presetParam)
+  const normalized = findPresetSnapshot(presetsList, presetParam, persistence)
   if (!normalized) return { kind: 'noop', stripPresetFromUrl: true }
   const workspace = structuredClone(normalized)
   return {

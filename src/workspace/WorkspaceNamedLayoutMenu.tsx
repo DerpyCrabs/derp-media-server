@@ -14,9 +14,10 @@ import Trash2 from 'lucide-solid/icons/trash-2'
 import { For, Show, createEffect, createSignal } from 'solid-js'
 import { navigateSearchParams } from '../browser-history'
 import { WorkspaceLayoutHoverPreview } from '@/src/workspace/WorkspaceLayoutHoverPreview'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 
 function snapshotForLayoutPreset(s: PersistedWorkspaceState): PersistedWorkspaceState {
-  return createWorkspaceLayoutPresetSnapshot(s)
+  return createWorkspaceLayoutPresetSnapshot(s, currentContentWindowPersistence)
 }
 
 type Props = {
@@ -294,7 +295,7 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
           const hp = getHp()
           const preset = props.presets.find((x) => x.id === hp.presetId)
           if (!preset) return null
-          const norm = computeLayoutPreviewDetail(preset.snapshot)
+          const norm = computeLayoutPreviewDetail(preset.snapshot, currentContentWindowPersistence)
           const previewW = 240
           const previewH = norm ? previewW / norm.aspectRatio : 112
           const pad = 10

@@ -5,7 +5,7 @@ import {
 } from '@/lib/domain/content'
 import type { ContentWindowDefinition } from '@/lib/content-window'
 import { filesystemResourceAddress } from '@/lib/domain/resource'
-import { installContentWindowPersistencePort } from '@/lib/content-window-persistence'
+import type { ContentWindowPersistencePort } from '@/lib/content-window-persistence'
 import { applicationContentRegistry } from '@/src/integrations/registry'
 
 export type CurrentContentWindow = Readonly<{
@@ -111,7 +111,7 @@ export function currentWindowFromPersistedContent(
   return { ok: true, instance: decoded.instance }
 }
 
-installContentWindowPersistencePort({
+export const currentContentWindowPersistence: ContentWindowPersistencePort = Object.freeze({
   contentInstance: contentInstanceFromCurrentWindow,
   encode: persistedContentFromCurrentWindow,
   decode: currentWindowFromPersistedContent,

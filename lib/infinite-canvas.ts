@@ -1,7 +1,7 @@
 import {
-  isRuntimeOnlyPersistedContentWindow,
   persistedContentWindowRecord,
   restorePersistedContentWindow,
+  type ContentWindowPersistencePort,
 } from './content-window-persistence'
 import type { ContentInstance } from './domain/content'
 import type { ContentWindowDefinition } from './content-window'
@@ -112,6 +112,7 @@ function preserveArray<T>(current: T[], incoming: T[]): T[] {
 export function reconcileInfiniteCanvasState(
   current: InfiniteCanvasState,
   incoming: InfiniteCanvasState,
+  persistence: ContentWindowPersistencePort,
 ): InfiniteCanvasState {
   if (sameValue(current, incoming)) return current
 
@@ -126,8 +127,7 @@ export function reconcileInfiniteCanvasState(
   })
   const incomingIds = new Set(incomingWindows.map((window) => window.id))
   const liveDrafts = current.windows.filter(
-    (window) =>
-      isRuntimeOnlyPersistedContentWindow(window.definition) && !incomingIds.has(window.id),
+    (window) => persistence.isRuntimeOnly(window.definition) && !incomingIds.has(window.id),
   )
   const windows = preserveArray(current.windows, [...incomingWindows, ...liveDrafts])
   return {
@@ -253,7 +253,10 @@ function canvasItemNumber(id: string): number {
   return match ? Number(match[1]) : 0
 }
 
-export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | null {
+export function parseInfiniteCanvasState(
+  value: unknown,
+  persistence: ContentWindowPersistencePort,
+): InfiniteCanvasState | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   if (
     !hasOnlyKeys(value, [
@@ -285,7 +288,7 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
     }
     const window = value as Partial<CanvasWindow>
     const bounds = parseRect(window.bounds)
-    const definition = restorePersistedContentWindow(window.definition, [])
+    const definition = restorePersistedContentWindow(persistence, window.definition, [])
     if (!bounds || typeof window.id !== 'string' || itemIds.has(window.id) || !definition) continue
     if (definition.id !== window.id) continue
     itemIds.add(window.id)
@@ -353,11 +356,14 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
   }
 }
 
-export function serializeInfiniteCanvasState(state: InfiniteCanvasState): string {
+export function serializeInfiniteCanvasState(
+  state: InfiniteCanvasState,
+  persistence: ContentWindowPersistencePort,
+): string {
   return JSON.stringify({
     ...state,
     windows: state.windows.flatMap((window) => {
-      const persisted = persistedContentWindowRecord(window.definition)
+      const persisted = persistedContentWindowRecord(persistence, window.definition)
       return persisted ? [{ ...window, definition: persisted }] : []
     }),
   })

@@ -1,17 +1,31 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import {
   createEmptyCanvasState,
-  parseInfiniteCanvasState,
-  serializeInfiniteCanvasState,
+  parseInfiniteCanvasState as parseInfiniteCanvasStateWithPersistence,
+  serializeInfiniteCanvasState as serializeInfiniteCanvasStateWithPersistence,
+  type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
 import {
-  normalizePersistedWorkspaceState,
-  serializeWorkspacePersistedState,
+  normalizePersistedWorkspaceState as normalizePersistedWorkspaceStateWithPersistence,
+  serializeWorkspacePersistedState as serializeWorkspacePersistedStateWithPersistence,
+  type NormalizePersistedWorkspaceOptions,
   type PersistedWorkspaceState,
   type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import { deletedHermesSessionIds } from '@/src/integrations/hermes/runtime-state'
+
+const serializeWorkspacePersistedState = (state: PersistedWorkspaceState) =>
+  serializeWorkspacePersistedStateWithPersistence(state, currentContentWindowPersistence)
+const normalizePersistedWorkspaceState = (
+  value: unknown,
+  options?: NormalizePersistedWorkspaceOptions,
+) =>
+  normalizePersistedWorkspaceStateWithPersistence(value, currentContentWindowPersistence, options)
+const serializeInfiniteCanvasState = (state: InfiniteCanvasState) =>
+  serializeInfiniteCanvasStateWithPersistence(state, currentContentWindowPersistence)
+const parseInfiniteCanvasState = (value: unknown) =>
+  parseInfiniteCanvasStateWithPersistence(value, currentContentWindowPersistence)
 
 function hermesWindow(id: string, sessionId?: string): WorkspaceWindowDefinition {
   return {

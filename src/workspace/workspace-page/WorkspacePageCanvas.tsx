@@ -6,34 +6,27 @@ import type {
   TabGroupSplitState,
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
-import { contentWindowKind } from '@/lib/content-window'
 import {
   getTabGroupSplit,
   resolveGroupVisibleTabId,
   tabsInGroup,
 } from '@/src/workspace/tab-group-ops'
 import { WorkspaceBrowserPane } from '@/src/workspace/WorkspaceBrowserPane'
-import { FilesystemResourceViewerContent } from '@/src/integrations/filesystem/FilesystemResourceViewerContent'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from '@/src/workspace/WorkspaceWindowChrome'
 import { WorkspaceSnapAssistBar } from '@/src/workspace/WorkspaceSnapAssistBar'
 import { WorkspaceTilingPicker } from '@/src/workspace/WorkspaceTilingPicker'
 import type { Accessor, Setter } from 'solid-js'
 import { For, Show, createMemo } from 'solid-js'
 import type { MergeTarget } from '@/src/workspace/merge-target'
-import type { FileDragData } from '@/lib/file-drag-data'
+import type { ResourceDragData } from '@/lib/resource-drag-data'
 import type { FileIconContext } from '@/src/lib/use-file-icon'
 import type { ContentInstance } from '@/lib/domain/content'
 import type { ResourceKey, ResourceSummary } from '@/lib/domain/resource'
 import type { ExplorerLocation } from '@/src/features/explorer/types'
 import { ContentRuntimeView } from '@/src/features/content/ContentRuntimeView'
 import { ContentRecoveryView } from '@/src/features/content/ContentRecoveryView'
-import {
-  contentInstanceFromCurrentWindow,
-  contentWindowFilesystemDirectory,
-  contentWindowFilesystemPath,
-} from '@/src/integrations/current-window-content'
+import { contentInstanceFromCurrentWindow } from '@/src/integrations/current-window-content'
 import { applicationContentRuntime } from '@/src/integrations/registry'
-import { FILESYSTEM_RENDERER_ID } from '@/src/integrations/filesystem/renderers'
 
 export type WorkspacePageCanvasProps = {
   emptyState: Readonly<{
@@ -88,7 +81,7 @@ export type WorkspacePageCanvasProps = {
     ) => void | Promise<void>
     togglePinned: (tabId: string) => void
     startPull: (groupId: string, tabId: string, e: PointerEvent) => void
-    dropFile: (targetLeaderWindowId: string, data: FileDragData, insertIndex?: number) => void
+    dropFile: (targetLeaderWindowId: string, data: ResourceDragData, insertIndex?: number) => void
     startSplitDrag: (groupId: string, e: PointerEvent) => void
   }>
   contentHost: Readonly<{
@@ -102,7 +95,7 @@ export type WorkspacePageCanvasProps = {
       forceTab?: boolean,
     ): void
     replace(windowId: string, content: ContentInstance): void
-    navigateResource(windowId: string, viewing: string): void
+    navigateResource(windowId: string, resource: ResourceKey): void
   }>
   files: Readonly<{
     addPinned: (resource: ResourceSummary) => void
@@ -115,65 +108,85 @@ export type WorkspacePageCanvasProps = {
   }>
 }
 
-function RuntimeWindowContent(props: {
+function WorkspaceWindowContent(props: {
+  canvas: WorkspacePageCanvasProps
+  windowId: Accessor<string>
   definition: Accessor<WorkspaceWindowDefinition | undefined>
-  active: Accessor<boolean>
-  onReplace: (content: ContentInstance) => void
-  onOpen: (content: ContentInstance) => void
-  onClose: () => void
+  visible: Accessor<boolean>
 }) {
   const content = createMemo(() => {
     const definition = props.definition()
-    if (!definition) return null
-    const instance = contentInstanceFromCurrentWindow(definition)
-    return instance?.type === 'integration' ? instance : null
+    return definition ? contentInstanceFromCurrentWindow(definition) : null
   })
+  const explorer = createMemo(() => {
+    const instance = content()
+    return instance?.type === 'explorer' ? instance : null
+  })
+  const surfaceContent = createMemo(() => {
+    const instance = content()
+    return instance && instance.type !== 'explorer' ? instance : null
+  })
+  const active = () => props.canvas.state.workspace()?.activeWindowId === props.windowId()
+  const location = (): ExplorerLocation => {
+    const instance = explorer()
+    if (!instance) throw new Error('Window does not contain Explorer content')
+    return { key: instance.location }
+  }
 
   return (
-    <ContentRuntimeView
-      runtime={applicationContentRuntime}
-      instance={content}
-      active={props.active}
-      onReplace={props.onReplace}
-      onOpen={props.onOpen}
-      onClose={props.onClose}
-    />
-  )
-}
-
-function resourceWindowContent(definition: WorkspaceWindowDefinition | undefined) {
-  if (!definition) return null
-  const instance = contentInstanceFromCurrentWindow(definition)
-  return instance?.type === 'resource' ? instance : null
-}
-
-function resourceWindowReaderKind(
-  definition: WorkspaceWindowDefinition | undefined,
-): 'pdf' | 'folder' | 'book' | null {
-  const instance = definition ? contentInstanceFromCurrentWindow(definition) : null
-  if (instance?.type !== 'resource') return null
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.pdf) return 'pdf'
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.folderReader) return 'folder'
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.book) return 'book'
-  return null
-}
-
-function explorerWindowLocation(
-  definition: WorkspaceWindowDefinition | undefined,
-): ExplorerLocation {
-  if (!definition) throw new Error('Explorer window definition unavailable')
-  const instance = contentInstanceFromCurrentWindow(definition)
-  if (instance?.type !== 'explorer') throw new Error('Window does not contain Explorer content')
-  return { key: instance.location }
-}
-
-function WindowContentRecovery(props: {
-  definition: Accessor<WorkspaceWindowDefinition | undefined>
-}) {
-  return (
-    <Show when={props.definition()?.contentRecoveryReason} keyed>
-      {(reason) => <ContentRecoveryView reason={reason} />}
-    </Show>
+    <>
+      <Show when={props.definition()?.contentRecoveryReason} keyed>
+        {(reason) => <ContentRecoveryView reason={reason} />}
+      </Show>
+      <Show when={!props.definition()?.contentRecoveryReason && explorer()}>
+        <WorkspaceBrowserPane
+          windowId={props.windowId()}
+          location={location}
+          active={active}
+          resourceOpenContext={() => ({
+            surface: 'workspace',
+            disposition: 'window',
+          })}
+          editableFolders={props.canvas.resources.editableFolders()}
+          fileIconContext={props.canvas.resources.fileIconContext}
+          onNavigate={props.canvas.contentHost.navigateExplorer}
+          onOpenResource={props.canvas.contentHost.openViewer}
+          onOpenReader={props.canvas.contentHost.openReader}
+          onOpenContent={props.canvas.contentHost.open}
+          onAddToTaskbar={props.canvas.files.addPinned}
+          onOpenInNewTab={props.canvas.files.openInNewTab}
+          onOpenInSplitView={props.canvas.files.openInSplit}
+          onRequestPlay={props.canvas.files.requestPlay}
+          onBeginFileOpenTargetPick={() => props.canvas.files.beginOpenTargetPick(props.windowId())}
+          onOpenFileInNewFloatingWindow={props.canvas.files.openFloating}
+        />
+      </Show>
+      <Show when={!props.definition()?.contentRecoveryReason && surfaceContent()}>
+        <ContentRuntimeView
+          runtime={applicationContentRuntime}
+          instance={surfaceContent}
+          visible={props.visible}
+          active={active}
+          onNavigate={(resource) =>
+            props.canvas.contentHost.navigateResource(props.windowId(), resource)
+          }
+          onReplace={(instance) => props.canvas.contentHost.replace(props.windowId(), instance)}
+          onOpen={(instance) =>
+            props.canvas.contentHost.open(props.windowId(), instance, undefined, true)
+          }
+          onClose={() => void props.canvas.tabs.close(props.windowId())}
+          onResize={(width, height) =>
+            props.canvas.files.resizeViewerForVideo(props.windowId(), width, height)
+          }
+          onDetach={() =>
+            void props.canvas.tabs.close(props.windowId(), {
+              ignoreTabPinForListenOnlyDismiss: true,
+            })
+          }
+          onActivate={() => props.canvas.windows.focus(props.windowId())}
+        />
+      </Show>
+    </>
   )
 }
 
@@ -297,85 +310,11 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             }`}
                             aria-hidden={tabId !== visibleTabId()}
                           >
-                            <WindowContentRecovery definition={windowDef} />
-                            <Show
-                              when={
-                                !windowDef()?.contentRecoveryReason &&
-                                windowDef() &&
-                                contentWindowKind(windowDef()!) === 'browser'
-                              }
-                            >
-                              <WorkspaceBrowserPane
-                                windowId={tabId}
-                                location={() => explorerWindowLocation(windowDef())}
-                                active={() => props.state.workspace()?.activeWindowId === tabId}
-                                resourceOpenContext={() => ({
-                                  surface: 'workspace',
-                                  disposition: 'window',
-                                })}
-                                editableFolders={props.resources.editableFolders()}
-                                fileIconContext={props.resources.fileIconContext}
-                                onNavigate={props.contentHost.navigateExplorer}
-                                onOpenViewer={props.contentHost.openViewer}
-                                onOpenReader={props.contentHost.openReader}
-                                onOpenContent={props.contentHost.open}
-                                onAddToTaskbar={props.files.addPinned}
-                                onOpenInNewTab={props.files.openInNewTab}
-                                onOpenInSplitView={props.files.openInSplit}
-                                onRequestPlay={props.files.requestPlay}
-                                onBeginFileOpenTargetPick={() =>
-                                  props.files.beginOpenTargetPick(tabId)
-                                }
-                                onOpenFileInNewFloatingWindow={props.files.openFloating}
-                              />
-                            </Show>
-                            <Show
-                              when={
-                                !windowDef()?.contentRecoveryReason &&
-                                windowDef() &&
-                                contentWindowKind(windowDef()!) === 'viewer'
-                              }
-                            >
-                              <FilesystemResourceViewerContent
-                                runtime={applicationContentRuntime}
-                                contentInstance={() => resourceWindowContent(windowDef())}
-                                contentVisible={() => tabId === visibleTabId()}
-                                viewingPath={() =>
-                                  windowDef()
-                                    ? (contentWindowFilesystemPath(windowDef()!) ?? '')
-                                    : ''
-                                }
-                                readerKind={() => resourceWindowReaderKind(windowDef())}
-                                directory={() =>
-                                  windowDef()
-                                    ? (contentWindowFilesystemDirectory(windowDef()!) ?? '')
-                                    : ''
-                                }
-                                active={() => props.state.workspace()?.activeWindowId === tabId}
-                                onNavigateViewing={(path) =>
-                                  props.contentHost.navigateResource(tabId, path)
-                                }
-                                onReplaceContent={(content) =>
-                                  props.contentHost.replace(tabId, content)
-                                }
-                                onVideoMetadataLoaded={(vw, vh) =>
-                                  props.files.resizeViewerForVideo(tabId, vw, vh)
-                                }
-                                onListenOnlyDismissViewer={() =>
-                                  props.tabs.close(tabId, {
-                                    ignoreTabPinForListenOnlyDismiss: true,
-                                  })
-                                }
-                              />
-                            </Show>
-                            <RuntimeWindowContent
+                            <WorkspaceWindowContent
+                              canvas={props}
+                              windowId={() => tabId}
                               definition={windowDef}
-                              active={() => props.state.workspace()?.activeWindowId === tabId}
-                              onReplace={(content) => props.contentHost.replace(tabId, content)}
-                              onOpen={(content) =>
-                                props.contentHost.open(tabId, content, undefined, true)
-                              }
-                              onClose={() => void props.tabs.close(tabId)}
+                              visible={() => tabId === visibleTabId()}
                             />
                           </div>
                         )
@@ -400,92 +339,21 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             width: `${(splitSnap()?.leftPaneFraction ?? 0.5) * 100}%`,
                           }}
                         >
-                          <WindowContentRecovery definition={leftWindowDef} />
-                          <Show
-                            when={
-                              !leftWindowDef()?.contentRecoveryReason &&
-                              leftWindowDef() &&
-                              contentWindowKind(leftWindowDef()!) === 'browser'
-                            }
-                          >
-                            <WorkspaceBrowserPane
-                              windowId={leftTabId()}
-                              location={() => explorerWindowLocation(leftWindowDef())}
-                              active={() => props.state.workspace()?.activeWindowId === leftTabId()}
-                              resourceOpenContext={() => ({
-                                surface: 'workspace',
-                                disposition: 'window',
-                              })}
-                              editableFolders={props.resources.editableFolders()}
-                              fileIconContext={props.resources.fileIconContext}
-                              onNavigate={props.contentHost.navigateExplorer}
-                              onOpenViewer={props.contentHost.openViewer}
-                              onOpenReader={props.contentHost.openReader}
-                              onOpenContent={props.contentHost.open}
-                              onAddToTaskbar={props.files.addPinned}
-                              onOpenInNewTab={props.files.openInNewTab}
-                              onOpenInSplitView={props.files.openInSplit}
-                              onRequestPlay={props.files.requestPlay}
-                              onBeginFileOpenTargetPick={() =>
-                                props.files.beginOpenTargetPick(leftTabId())
-                              }
-                              onOpenFileInNewFloatingWindow={props.files.openFloating}
-                            />
-                          </Show>
-                          <Show
-                            when={
-                              !leftWindowDef()?.contentRecoveryReason &&
-                              leftWindowDef() &&
-                              contentWindowKind(leftWindowDef()!) === 'viewer'
-                            }
-                          >
-                            <FilesystemResourceViewerContent
-                              runtime={applicationContentRuntime}
-                              contentInstance={() => resourceWindowContent(leftWindowDef())}
-                              contentVisible={() => true}
-                              viewingPath={() =>
-                                leftWindowDef()
-                                  ? (contentWindowFilesystemPath(leftWindowDef()!) ?? '')
-                                  : ''
-                              }
-                              readerKind={() => resourceWindowReaderKind(leftWindowDef())}
-                              directory={() =>
-                                leftWindowDef()
-                                  ? (contentWindowFilesystemDirectory(leftWindowDef()!) ?? '')
-                                  : ''
-                              }
-                              active={() => props.state.workspace()?.activeWindowId === leftTabId()}
-                              onNavigateViewing={(path) =>
-                                props.contentHost.navigateResource(leftTabId(), path)
-                              }
-                              onReplaceContent={(content) =>
-                                props.contentHost.replace(leftTabId(), content)
-                              }
-                              onVideoMetadataLoaded={(vw, vh) =>
-                                props.files.resizeViewerForVideo(leftTabId(), vw, vh)
-                              }
-                              onListenOnlyDismissViewer={() =>
-                                props.tabs.close(leftTabId(), {
-                                  ignoreTabPinForListenOnlyDismiss: true,
-                                })
-                              }
-                            />
-                          </Show>
-                          <RuntimeWindowContent
+                          <WorkspaceWindowContent
+                            canvas={props}
+                            windowId={leftTabId}
                             definition={leftWindowDef}
-                            active={() => props.state.workspace()?.activeWindowId === leftTabId()}
-                            onReplace={(content) => props.contentHost.replace(leftTabId(), content)}
-                            onOpen={(content) =>
-                              props.contentHost.open(leftTabId(), content, undefined, true)
-                            }
-                            onClose={() => void props.tabs.close(leftTabId())}
+                            visible={() => true}
                           />
                         </div>
                         <div
                           data-testid='workspace-split-divider'
                           data-no-window-drag
                           class='w-1.5 shrink-0 cursor-col-resize border-border bg-muted/40 hover:bg-primary/25'
-                          style={{ 'border-left-width': '1px', 'border-right-width': '1px' }}
+                          style={{
+                            'border-left-width': '1px',
+                            'border-right-width': '1px',
+                          }}
                           onPointerDown={(e) => props.tabs.startSplitDrag(gid, e)}
                         />
                         <div
@@ -496,93 +364,11 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             data-testid='workspace-window-visible-content'
                             class='h-full min-h-0'
                           >
-                            <WindowContentRecovery definition={rightWindowDef} />
-                            <Show
-                              when={
-                                !rightWindowDef()?.contentRecoveryReason &&
-                                rightWindowDef() &&
-                                contentWindowKind(rightWindowDef()!) === 'browser'
-                              }
-                            >
-                              <WorkspaceBrowserPane
-                                windowId={visibleTabId()}
-                                location={() => explorerWindowLocation(rightWindowDef())}
-                                active={() =>
-                                  props.state.workspace()?.activeWindowId === visibleTabId()
-                                }
-                                resourceOpenContext={() => ({
-                                  surface: 'workspace',
-                                  disposition: 'window',
-                                })}
-                                editableFolders={props.resources.editableFolders()}
-                                fileIconContext={props.resources.fileIconContext}
-                                onNavigate={props.contentHost.navigateExplorer}
-                                onOpenViewer={props.contentHost.openViewer}
-                                onOpenReader={props.contentHost.openReader}
-                                onOpenContent={props.contentHost.open}
-                                onAddToTaskbar={props.files.addPinned}
-                                onOpenInNewTab={props.files.openInNewTab}
-                                onOpenInSplitView={props.files.openInSplit}
-                                onRequestPlay={props.files.requestPlay}
-                                onBeginFileOpenTargetPick={() =>
-                                  props.files.beginOpenTargetPick(visibleTabId())
-                                }
-                                onOpenFileInNewFloatingWindow={props.files.openFloating}
-                              />
-                            </Show>
-                            <Show
-                              when={
-                                !rightWindowDef()?.contentRecoveryReason &&
-                                rightWindowDef() &&
-                                contentWindowKind(rightWindowDef()!) === 'viewer'
-                              }
-                            >
-                              <FilesystemResourceViewerContent
-                                runtime={applicationContentRuntime}
-                                contentInstance={() => resourceWindowContent(rightWindowDef())}
-                                contentVisible={() => true}
-                                viewingPath={() =>
-                                  rightWindowDef()
-                                    ? (contentWindowFilesystemPath(rightWindowDef()!) ?? '')
-                                    : ''
-                                }
-                                readerKind={() => resourceWindowReaderKind(rightWindowDef())}
-                                directory={() =>
-                                  rightWindowDef()
-                                    ? (contentWindowFilesystemDirectory(rightWindowDef()!) ?? '')
-                                    : ''
-                                }
-                                active={() =>
-                                  props.state.workspace()?.activeWindowId === visibleTabId()
-                                }
-                                onNavigateViewing={(path) =>
-                                  props.contentHost.navigateResource(visibleTabId(), path)
-                                }
-                                onReplaceContent={(content) =>
-                                  props.contentHost.replace(visibleTabId(), content)
-                                }
-                                onVideoMetadataLoaded={(vw, vh) =>
-                                  props.files.resizeViewerForVideo(visibleTabId(), vw, vh)
-                                }
-                                onListenOnlyDismissViewer={() =>
-                                  props.tabs.close(visibleTabId(), {
-                                    ignoreTabPinForListenOnlyDismiss: true,
-                                  })
-                                }
-                              />
-                            </Show>
-                            <RuntimeWindowContent
+                            <WorkspaceWindowContent
+                              canvas={props}
+                              windowId={visibleTabId}
                               definition={rightWindowDef}
-                              active={() =>
-                                props.state.workspace()?.activeWindowId === visibleTabId()
-                              }
-                              onReplace={(content) =>
-                                props.contentHost.replace(visibleTabId(), content)
-                              }
-                              onOpen={(content) =>
-                                props.contentHost.open(visibleTabId(), content, undefined, true)
-                              }
-                              onClose={() => void props.tabs.close(visibleTabId())}
+                              visible={() => true}
                             />
                           </div>
                         </div>

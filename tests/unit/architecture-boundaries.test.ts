@@ -41,7 +41,9 @@ describe('architecture boundaries', () => {
     for await (const relative of new Bun.Glob('**/*.rs').scan('server/integrations')) {
       if (relative.endsWith('routes.rs')) continue
       const path = `server/integrations/${relative}`
-      if ((await Bun.file(path).text()).includes('"/api/')) violations.push(path)
+      const source = await Bun.file(path).text()
+      if (source.startsWith('#[cfg(test)]')) continue
+      if (source.includes('"/api/')) violations.push(path)
     }
 
     expect(violations.sort()).toEqual([])

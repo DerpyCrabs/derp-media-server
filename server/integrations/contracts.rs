@@ -28,9 +28,6 @@ pub(crate) enum IntegrationCapabilityDto {
     Inspect,
     Actions,
     Search,
-    Assistant,
-    Panes,
-    Events,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]

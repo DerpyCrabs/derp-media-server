@@ -1,13 +1,28 @@
 import { describe, expect, test } from 'bun:test'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import {
   CANVAS_CRASH_DRAFT_STORAGE_KEY,
   clearCanvasCrashDraft,
   createDefaultCanvasCollection,
-  inspectCanvasCrashDraft,
-  parseCanvasCollection,
-  serializeCanvasCollection,
-  writeCanvasCrashDraft,
+  inspectCanvasCrashDraft as inspectCanvasCrashDraftWithPersistence,
+  parseCanvasCollection as parseCanvasCollectionWithPersistence,
+  serializeCanvasCollection as serializeCanvasCollectionWithPersistence,
+  writeCanvasCrashDraft as writeCanvasCrashDraftWithPersistence,
+  type CanvasCollection,
 } from '@/lib/canvas-persistence'
+
+const serializeCanvasCollection = (collection: CanvasCollection) =>
+  serializeCanvasCollectionWithPersistence(collection, currentContentWindowPersistence)
+const parseCanvasCollection = (value: unknown) =>
+  parseCanvasCollectionWithPersistence(value, currentContentWindowPersistence)
+const inspectCanvasCrashDraft = (source: Pick<Storage, 'getItem'>) =>
+  inspectCanvasCrashDraftWithPersistence(source, currentContentWindowPersistence)
+const writeCanvasCrashDraft = (
+  source: Pick<Storage, 'setItem' | 'removeItem'>,
+  collection: CanvasCollection,
+  savedAt?: number,
+) =>
+  writeCanvasCrashDraftWithPersistence(source, collection, currentContentWindowPersistence, savedAt)
 function storage(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial))
   return {

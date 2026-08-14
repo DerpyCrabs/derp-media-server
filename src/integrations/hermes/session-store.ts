@@ -1,5 +1,5 @@
 import { createStore, reconcile } from 'solid-js/store'
-import type { FileDragData } from '@/lib/file-drag-data'
+import type { ResourceDragData } from '@/lib/resource-drag-data'
 import { extractHermesMessageImages, filterHermesCompletions, rewindTarget } from './chat-parity'
 import {
   hermesCompletionsUrl,
@@ -10,6 +10,7 @@ import {
 import { deletedHermesSessionIds, registerHermesSessionLiveStatus } from './runtime-state'
 import { runIntegrationAction } from '../http-client'
 import { hermesResourceKey } from './resource-key'
+import { filesystemPathForResourceKey } from '../filesystem/resource'
 
 export type HermesMessage = {
   id: string
@@ -892,13 +893,18 @@ export async function addHermesAttachments(key: string, files: Iterable<File>) {
   }
 }
 
-export async function addHermesDraggedPath(key: string, dragged: FileDragData) {
+export async function addHermesDraggedResource(key: string, dragged: ResourceDragData) {
   if (!sessions[key]) return
+  const path = filesystemPathForResourceKey(dragged.key)
+  if (path === null) {
+    setSessions(key, 'error', 'Only filesystem resources can be attached')
+    return
+  }
   try {
     const payload = await jsonRequest(hermesTransportRoutes.reference, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: dragged.path, isDirectory: dragged.isDirectory }),
+      body: JSON.stringify({ path, isDirectory: dragged.isDirectory }),
     })
     if (!sessions[key]) return
     if (payload.mode === 'shared' && typeof payload.text === 'string') {

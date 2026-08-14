@@ -5,9 +5,18 @@ import {
   type ResourceSummary,
 } from '@/lib/domain/resource'
 import type { ContentInstance } from '@/lib/domain/content'
-import type { OpenDisposition, OpenReadyPlan, OpenSurface } from '@/src/features/open/open-resource'
-import type { RendererDescriptor } from '@/src/features/open/renderer-registry'
+import type {
+  ContentRendererMountCallbacks,
+  RendererDescriptor,
+} from '@/src/features/open/renderer-registry'
+import type {
+  PlaybackItem,
+  PlaybackSourceRequest,
+  PlaybackSourceResolution,
+} from '@/src/features/playback'
 import type { SearchContributor } from '@/src/features/search/contracts'
+import type { ContentRuntime } from './runtime'
+import type { Accessor, Component, JSX } from 'solid-js'
 
 export {
   CONTENT_ENVELOPE_SCHEMA_VERSION,
@@ -42,8 +51,20 @@ export type ContentSanitizerDescriptor = Readonly<{
   sanitize(instance: ContentInstance): ContentInstance | null
 }>
 
+export type ContentCategory =
+  | 'folder'
+  | 'audio'
+  | 'video'
+  | 'image'
+  | 'text'
+  | 'pdf'
+  | 'book'
+  | 'file'
+  | 'collection'
+
 export type ContentPresentation = Readonly<{
   title: string
+  category?: ContentCategory
   icon?: string
   subtitle?: string
   status?: Readonly<{ label: string; tone?: string }>
@@ -78,30 +99,22 @@ export type ContentRendererDescriptor = RendererDescriptor &
     matchesContent?: (instance: ContentInstance) => boolean
   }>
 
-export type HostOpenPlan<TDisposition extends OpenDisposition> = OpenReadyPlan &
-  Readonly<{ disposition: TDisposition }>
+export type ContentSurfaceMountContext = ContentRendererMountCallbacks &
+  Readonly<{
+    runtime: ContentRuntime
+    instance: Accessor<ContentInstance>
+    visible: Accessor<boolean>
+    active: Accessor<boolean>
+  }>
 
-export interface SurfaceContentHost<
-  TSurface extends OpenSurface,
-  TDisposition extends OpenDisposition,
-> {
-  readonly surface: TSurface
-  open(plan: HostOpenPlan<TDisposition>): void
-  close(instanceId: string): void
-  focus(instanceId: string): void
-}
+export type ContentSurfaceModule = Readonly<{
+  mount(context: ContentSurfaceMountContext): JSX.Element
+}>
 
-export interface LibraryHost extends SurfaceContentHost<
-  'library',
-  'replace' | 'modal' | 'fullscreen'
-> {}
-
-export interface WorkspaceHost extends SurfaceContentHost<
-  'workspace',
-  'replace' | 'pane' | 'window'
-> {}
-
-export interface CanvasHost extends SurfaceContentHost<'canvas', 'window'> {}
+export type ContentSurfaceDescriptor = Readonly<{
+  supports(instance: ContentInstance): boolean
+  load(): Promise<ContentSurfaceModule>
+}>
 
 export type BrowseRequest = Readonly<{
   location: ResourceKey
@@ -117,6 +130,15 @@ export interface BrowseProvider {
 export interface InspectProvider {
   inspect(resource: ResourceKey, signal?: AbortSignal): Promise<ResourceSummary>
 }
+
+export type PlaybackContribution = Readonly<{
+  createItem(resource: ResourceSummary): PlaybackItem | null
+  createQueue(resources: readonly ResourceSummary[], current: PlaybackItem): readonly PlaybackItem[]
+  resolveSource(
+    request: PlaybackSourceRequest,
+  ): PlaybackSourceResolution | Promise<PlaybackSourceResolution>
+  lifecycle?: Component
+}>
 
 export type ResourceActionForm =
   | Readonly<{
@@ -197,7 +219,9 @@ export interface IntegrationModule {
   readonly browse?: BrowseProvider
   readonly inspect?: InspectProvider
   readonly actions?: ResourceActionProvider
+  readonly playback?: PlaybackContribution
   readonly content?: readonly ContentRendererDescriptor[]
+  readonly surface?: ContentSurfaceDescriptor
   readonly codecs?: readonly ContentCodecDescriptor[]
   readonly sanitizers?: readonly ContentSanitizerDescriptor[]
   readonly presentations?: readonly ContentPresentationDescriptor[]

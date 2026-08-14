@@ -1,13 +1,22 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import { filesystemResourceKey } from '@/lib/domain/resource'
 import {
-  normalizePersistedWorkspaceState,
+  normalizePersistedWorkspaceState as normalizePersistedWorkspaceStateWithPersistence,
   resolveNewTabAnchorWindowId,
-  serializeWorkspacePersistedState,
+  serializeWorkspacePersistedState as serializeWorkspacePersistedStateWithPersistence,
+  type NormalizePersistedWorkspaceOptions,
   type PersistedWorkspaceState,
   type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
+
+const serializeWorkspacePersistedState = (state: PersistedWorkspaceState) =>
+  serializeWorkspacePersistedStateWithPersistence(state, currentContentWindowPersistence)
+const normalizePersistedWorkspaceState = (
+  value: unknown,
+  options?: NormalizePersistedWorkspaceOptions,
+) =>
+  normalizePersistedWorkspaceStateWithPersistence(value, currentContentWindowPersistence, options)
 
 function explorerWindow(
   id: string,

@@ -1,60 +1,29 @@
-import { getFileDragData, setFileDragData } from '@/lib/file-drag-data'
 import { openResource } from '@/src/integrations/open-resource'
-import { FILESYSTEM_RENDERER_ID } from '@/src/integrations/filesystem/renderers'
-import { ExplorerView } from '@/src/features/explorer/ExplorerView'
-import type { ExplorerHostAction } from '@/src/features/explorer/view-types'
-import type { ApplicationExplorerPayload } from '@/src/integrations/explorer-adapter'
+import { resourceIsBrowsable, type ResourceSummary } from '@/lib/domain/resource'
 import {
-  createApplicationExplorerDataSource,
-  moveFilesystemItemByPath,
-} from '@/src/integrations/explorer-adapter'
-import {
-  filesystemPathForResourceKey,
-  filesystemResourceIsDirectory,
-} from '@/src/integrations/filesystem/resource'
-import { gridResourceSummaryIcon, resourceSummaryIcon } from '@/src/lib/use-file-icon'
+  ApplicationExplorerView,
+  type ApplicationExplorerHostAction,
+} from '@/src/integrations/ApplicationExplorerView'
+import { applicationContentRegistry } from '@/src/integrations/registry'
 import type { WorkspaceBrowserPaneProps } from './workspace-browser-pane-types'
 
 export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
-  const dataSource = createApplicationExplorerDataSource({
-    editableFolders: () => props.editableFolders,
-  })
-
-  async function openItem(resource: ApplicationExplorerPayload['resource']) {
+  async function openItem(resource: ResourceSummary) {
     const plan = openResource(resource, 'default', props.resourceOpenContext())
-    if (
-      plan.status === 'ready' &&
-      plan.kind === 'render' &&
-      (plan.renderer === FILESYSTEM_RENDERER_ID.audio ||
-        plan.renderer === FILESYSTEM_RENDERER_ID.video)
-    ) {
+    if (plan.status !== 'ready') return
+    if (plan.kind === 'render' && applicationContentRegistry.playbackItem(resource)) {
       props.onRequestPlay?.(resource, props.location().key)
       return
     }
-    if (plan.status === 'ready' && plan.kind === 'browse') {
+    if (plan.kind === 'browse') {
       props.onNavigate(props.windowId, { key: resource.key })
       return
     }
-    if (filesystemPathForResourceKey(resource.key) !== null) {
-      props.onOpenViewer(props.windowId, resource)
-      return
-    }
-    if (plan.status === 'ready' && plan.kind === 'render') {
-      props.onOpenContent?.(
-        props.windowId,
-        {
-          id: props.windowId,
-          type: 'resource',
-          resource: plan.resource,
-          renderer: plan.renderer,
-        },
-        resource,
-      )
-    }
+    props.onOpenResource(props.windowId, resource)
   }
 
-  const hostActions = (): readonly ExplorerHostAction<ApplicationExplorerPayload>[] => {
-    const actions: ExplorerHostAction<ApplicationExplorerPayload>[] = []
+  const hostActions = (): readonly ApplicationExplorerHostAction[] => {
+    const actions: ApplicationExplorerHostAction[] = []
     if (props.onAddToTaskbar) {
       actions.push({
         descriptor: {
@@ -78,7 +47,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => filesystemPathForResourceKey(item.resource.key) !== null,
         run: (item) => props.onOpenInNewTab?.(props.windowId, item.resource),
       })
     }
@@ -92,7 +60,6 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => filesystemPathForResourceKey(item.resource.key) !== null,
         run: (item) => props.onOpenInSplitView?.(props.windowId, item.resource),
       })
     }
@@ -105,7 +72,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
         scope: 'host',
         interaction: 'immediate',
       },
-      available: (item) => filesystemResourceIsDirectory(item.resource),
+      available: (item) => resourceIsBrowsable(item.resource),
       run: (item) => props.onOpenReader(props.windowId, item.resource),
     })
     if (props.onOpenFileInNewFloatingWindow) {
@@ -118,9 +85,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) =>
-          filesystemPathForResourceKey(item.resource.key) !== null &&
-          !filesystemResourceIsDirectory(item.resource),
+        available: (item) => !resourceIsBrowsable(item.resource),
         run: (item) => props.onOpenFileInNewFloatingWindow?.(props.windowId, item.resource),
       })
     }
@@ -128,46 +93,19 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   return (
-    <ExplorerView
+    <ApplicationExplorerView
       location={props.location}
-      dataSource={dataSource}
       active={props.active}
+      editableFolders={() => props.editableFolders}
+      iconContext={props.fileIconContext}
       displayMode='Workspace'
       dropZoneTestId='workspace-upload-drop-zone'
       hostActions={hostActions}
-      itemDomValue={(item) => filesystemPathForResourceKey(item.resource.key) ?? undefined}
-      breadcrumbDomValue={(location) => filesystemPathForResourceKey(location.key) ?? undefined}
-      renderItemIcon={(item, size) =>
-        size === 'large'
-          ? gridResourceSummaryIcon(item.resource, props.fileIconContext())
-          : resourceSummaryIcon(item.resource, props.fileIconContext())
-      }
-      destinationPicker={(_action, item) => {
-        const path = filesystemPathForResourceKey(item.resource.key)
-        return path === null ? null : { filePath: path, editableFolders: props.editableFolders }
-      }}
       onNavigate={(location) => props.onNavigate(props.windowId, location)}
-      onOpen={(item) => openItem(item.resource)}
-      onOpenContent={(content, item) =>
-        props.onOpenContent?.(props.windowId, content, item.resource)
+      onOpen={openItem}
+      onOpenContent={(content, resource) =>
+        props.onOpenContent?.(props.windowId, content, resource)
       }
-      onDragStart={(item, event) => {
-        const path = filesystemPathForResourceKey(item.resource.key)
-        if (path === null || !event.dataTransfer) return
-        setFileDragData(event.dataTransfer, {
-          path,
-          isDirectory: filesystemResourceIsDirectory(item.resource),
-          sourceKind: 'local',
-        })
-      }}
-      onDropOnItem={(item, event) => {
-        if (!item.resource.capabilities.includes('browse')) return
-        const transfer = event.dataTransfer
-        const dragged = transfer ? getFileDragData(transfer) : null
-        if (!dragged) return
-        event.preventDefault()
-        void moveFilesystemItemByPath(dragged.path, item.resource)
-      }}
     />
   )
 }

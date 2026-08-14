@@ -19,29 +19,12 @@ export type ContentWindowPersistencePort = Readonly<{
   isRuntimeOnly(window: ContentWindowDefinition): boolean
 }>
 
-let persistencePort: ContentWindowPersistencePort | undefined
-
-export function installContentWindowPersistencePort(port: ContentWindowPersistencePort): void {
-  persistencePort = port
-}
-
-function port(): ContentWindowPersistencePort {
-  if (!persistencePort) {
-    throw new Error('Content window persistence is not installed by the application')
-  }
-  return persistencePort
-}
-
-export function isRuntimeOnlyPersistedContentWindow(window: ContentWindowDefinition): boolean {
-  return port().isRuntimeOnly(window)
-}
-
 export function persistedContentWindowRecord<T extends ContentWindowDefinition>(
+  persistence: ContentWindowPersistencePort,
   window: T,
 ): Record<string, unknown> | null {
-  const adapter = port()
-  const encoded = adapter.encode(window)
-  const live = adapter.contentInstance(window)
+  const encoded = persistence.encode(window)
+  const live = persistence.contentInstance(window)
   const content =
     encoded ?? (live === null && isPersistedContentEnvelope(window.content) ? window.content : null)
   if (!content) return null
@@ -55,6 +38,7 @@ export function persistedContentWindowRecord<T extends ContentWindowDefinition>(
 }
 
 export function restorePersistedContentWindow(
+  persistence: ContentWindowPersistencePort,
   value: unknown,
   hostFields: readonly string[],
 ): (ContentWindowDefinition & Record<string, unknown>) | null {
@@ -66,9 +50,8 @@ export function restorePersistedContentWindow(
   if (raw.iconName !== undefined && raw.iconName !== null && typeof raw.iconName !== 'string') {
     return null
   }
-  const adapter = port()
   if (!isPersistedContentEnvelope(raw.content)) return null
-  const restored = adapter.decode(raw.content, { id: raw.id })
+  const restored = persistence.decode(raw.content, { id: raw.id })
   if (!restored.ok) {
     return {
       ...raw,

@@ -1,4 +1,3 @@
-import { MediaType } from '@/lib/types'
 import { contentWindowKind } from '@/lib/content-window'
 import type { AssistGridSpan } from '@/lib/workspace-assist-grid'
 import {
@@ -6,11 +5,10 @@ import {
   createWindowLayout,
   getPlayerBoundsForAspectRatio,
   insertWindowAtGroupIndex,
-  isVideoPath,
   maxWorkspaceWindowZ,
   WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from '@/lib/workspace-geometry'
-import type { FileDragData } from '@/lib/file-drag-data'
+import type { ResourceDragData } from '@/lib/resource-drag-data'
 import type {
   PersistedWorkspaceState,
   PinnedTaskbarItem,
@@ -89,33 +87,30 @@ import {
   filesystemResourceAddress,
   filesystemResourceKey,
   resourceKey,
+  resourceIsBrowsable,
+  sameResourceKey,
   type ResourceKey,
   type ResourceSummary,
 } from '@/lib/domain/resource'
-import {
-  filesystemPlaybackItemFromResource,
-  filesystemPlaybackItemPath,
-} from './integrations/filesystem/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
-import type { OpenIntent } from './features/open/open-resource'
+import {
+  contentForOpenPlan,
+  type OpenIntent,
+  type OpenReadyPlan,
+} from './features/open/open-resource'
 import { openResource } from './integrations/open-resource'
 import {
   contentInstanceFromCurrentWindow,
   contentWindowFilesystemPath,
   contentWindowWithInstance,
   contentWithInstanceId,
+  currentContentWindowPersistence,
 } from './integrations/current-window-content'
-import type { HostOpenPlan } from './features/content/contracts'
-import { createWorkspaceHost } from './features/content/hosts'
 import { contentRuntimeIdentity } from './features/content/runtime'
 import { confirmContentClose } from './features/content/confirm-content-close'
 import { applicationContentRegistry, applicationContentRuntime } from './integrations/registry'
 import { openApplicationResource } from './integrations/explorer-adapter'
-import {
-  filesystemPathForResourceKey,
-  filesystemResourceIsDirectory,
-  filesystemResourceMediaType,
-} from './integrations/filesystem/resource'
+import { filesystemPathForResourceKey } from './integrations/filesystem/resource'
 import type { SearchHit } from './features/search/contracts'
 import { executeSearchHit } from './features/search/executor'
 import { applicationSearchCoordinator } from './integrations/search'
@@ -152,7 +147,11 @@ export function WorkspacePage() {
   const preferredSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
   const themeTick = useStoreSync(useThemeStore)
   const baseline = useWorkspacePageLayoutBaseline(workspace, setWorkspace)
-  const snap = createWorkspaceSnapDragModel({ workspace, setWorkspace, preferredSnapTick })
+  const snap = createWorkspaceSnapDragModel({
+    workspace,
+    setWorkspace,
+    preferredSnapTick,
+  })
 
   useWorkspacePageDocumentChrome(workspace, themeTick)
 
@@ -216,13 +215,16 @@ export function WorkspacePage() {
 
     if (lastHydratedStorageKey !== key) {
       lastHydratedStorageKey = key
-      const initial = resolveWorkspaceInitialHydration({
-        resource: routeResource,
-        presetParam,
-        loaded,
-        presetsReadyNow,
-        presetsList,
-      })
+      const initial = resolveWorkspaceInitialHydration(
+        {
+          resource: routeResource,
+          presetParam,
+          loaded,
+          presetsReadyNow,
+          presetsList,
+        },
+        currentContentWindowPersistence,
+      )
       untrack(() => {
         if (initial.kind === 'defer-preset') {
           setPinsHydratedFor('')
@@ -231,7 +233,10 @@ export function WorkspacePage() {
         if (initial.baselineSnapshot && initial.baselinePresetId) {
           baseline.setLayoutBaselinePresetId(initial.baselinePresetId)
           baseline.setLayoutBaselineSerialized(
-            serializeWorkspaceLayoutState(initial.baselineSnapshot),
+            serializeWorkspaceLayoutState(
+              initial.baselineSnapshot,
+              currentContentWindowPersistence,
+            ),
           )
           baseline.setLayoutBaselineSnapshot(initial.baselineSnapshot)
         } else {
@@ -246,18 +251,21 @@ export function WorkspacePage() {
       return
     }
 
-    const deferred = resolveWorkspaceDeferredPresetApply({
-      presetParam,
-      presetsReadyNow,
-      hasPersistedDraft: !!loadPersisted(key),
-      presetsList,
-    })
+    const deferred = resolveWorkspaceDeferredPresetApply(
+      {
+        presetParam,
+        presetsReadyNow,
+        hasPersistedDraft: !!loadPersisted(key),
+        presetsList,
+      },
+      currentContentWindowPersistence,
+    )
     if (!deferred) return
     untrack(() => {
       if (deferred.kind === 'apply') {
         baseline.setLayoutBaselinePresetId(deferred.baselinePresetId)
         baseline.setLayoutBaselineSerialized(
-          serializeWorkspaceLayoutState(deferred.baselineSnapshot),
+          serializeWorkspaceLayoutState(deferred.baselineSnapshot, currentContentWindowPersistence),
         )
         baseline.setLayoutBaselineSnapshot(deferred.baselineSnapshot)
         setWorkspace(deferred.workspace)
@@ -281,7 +289,9 @@ export function WorkspacePage() {
       if (serverPins.length > 0) {
         setWorkspace((prev) => (prev ? { ...prev, pinnedTaskbarItems: serverPins } : prev))
       } else if ((w.pinnedTaskbarItems?.length ?? 0) > 0) {
-        void server.persistPinsMutation.mutateAsync({ items: w.pinnedTaskbarItems ?? [] })
+        void server.persistPinsMutation.mutateAsync({
+          items: w.pinnedTaskbarItems ?? [],
+        })
       }
     })
     setPinsHydratedFor(key)
@@ -316,7 +326,10 @@ export function WorkspacePage() {
       activeTabMap: { ...w.activeTabMap, [gid]: focusWindowId },
       windows: w.windows.map((win) =>
         groupIdForWindow(win) === gid
-          ? { ...win, layout: { ...win.layout, zIndex: newZ, minimized: false } }
+          ? {
+              ...win,
+              layout: { ...win.layout, zIndex: newZ, minimized: false },
+            }
           : win,
       ),
     })
@@ -362,7 +375,12 @@ export function WorkspacePage() {
       const nextTabMap = { ...current.activeTabMap }
       delete nextTabMap[gid]
       closed = true
-      return { ...current, windows: next, activeWindowId: active, activeTabMap: nextTabMap }
+      return {
+        ...current,
+        windows: next,
+        activeWindowId: active,
+        activeTabMap: nextTabMap,
+      }
     })
     if (closed) {
       await Promise.all(content.map((instance) => applicationContentRuntime.release(instance)))
@@ -389,7 +407,10 @@ export function WorkspacePage() {
           activeTabMap: { ...prev.activeTabMap, [groupId]: effectiveRight },
           windows: prev.windows.map((win) =>
             groupIdForWindow(win) === groupId
-              ? { ...win, layout: { ...win.layout, zIndex: newZ, minimized: false } }
+              ? {
+                  ...win,
+                  layout: { ...win.layout, zIndex: newZ, minimized: false },
+                }
               : win,
           ),
         }
@@ -472,8 +493,15 @@ export function WorkspacePage() {
     setWorkspace((prev) => {
       if (!prev) return prev
       const w = prev.windows.find((x) => x.id === tabId)
-      const path = w ? contentWindowFilesystemPath(w) : null
-      if (!w || (contentWindowKind(w) === 'viewer' && path && isVideoPath(path))) return prev
+      const content = w ? contentInstanceFromCurrentWindow(w) : null
+      if (
+        !w ||
+        (contentWindowKind(w) === 'viewer' &&
+          content !== null &&
+          applicationContentRegistry.presentation(content)?.category === 'video')
+      ) {
+        return prev
+      }
       const gid = groupIdForWindow(w)
       if (isSplitLeftTab(prev, gid, tabId)) return prev
       return setTabPinnedAndReorderState(prev, tabId, !w.tabPinned)
@@ -526,7 +554,12 @@ export function WorkspacePage() {
         const newX = ev.clientX - c.left - width / 2
         const newY = Math.max(0, ev.clientY - c.top - 16)
 
-        const next = splitWindowFromGroupState(prev, tabId, { x: newX, y: newY, width, height })
+        const next = splitWindowFromGroupState(prev, tabId, {
+          x: newX,
+          y: newY,
+          width,
+          height,
+        })
         setWorkspace(next)
         focusWindow(tabId)
 
@@ -575,17 +608,19 @@ export function WorkspacePage() {
   }
 
   function requestPlay(resource: ResourceSummary, context?: ResourceKey) {
-    const plan = openResource(resource, 'play', { surface: 'workspace', disposition: 'window' })
+    const plan = openResource(resource, 'play', {
+      surface: 'workspace',
+      disposition: 'window',
+    })
     if (plan.status !== 'ready' || plan.kind !== 'render') return
-    const item = filesystemPlaybackItemFromResource(resource)
+    const item = applicationContentRegistry.playbackItem(resource)
     if (!item) return
-    const path = filesystemPlaybackItemPath(item)
-    if (path === null) return
+    const path = filesystemPathForResourceKey(item.resource)
     const isVideo = item.media === 'video'
     playbackSession.dispatch({
       type: 'load',
       item,
-      queue: [item],
+      queue: applicationContentRegistry.playbackQueue([resource], item),
       autoplay: true,
       mode: isVideo ? 'video' : 'audio',
     })
@@ -606,15 +641,19 @@ export function WorkspacePage() {
         activeTabMap: { ...work.activeTabMap, [gid]: target.id },
         windows: work.windows.map((win) =>
           groupIdForWindow(win) === gid
-            ? { ...win, layout: { ...win.layout, zIndex: maxZ, minimized: false } }
+            ? {
+                ...win,
+                layout: { ...win.layout, zIndex: maxZ, minimized: false },
+              }
             : win,
         ),
       })
     }
 
-    const existingViewer = work.windows.find(
-      (win) => contentWindowKind(win) === 'viewer' && contentWindowFilesystemPath(win) === path,
-    )
+    const existingViewer = work.windows.find((win) => {
+      const content = contentInstanceFromCurrentWindow(win)
+      return content?.type === 'resource' && sameResourceKey(content.resource, item.resource)
+    })
     if (existingViewer) {
       focusExistingMediaWindow(existingViewer)
       return
@@ -631,17 +670,20 @@ export function WorkspacePage() {
       }
     }
 
-    const resourceAddress = filesystemResourceAddress(plan.resource)
-    const parentDir = path.split(/[/\\]/).slice(0, -1).join('/')
+    const resourceAddress = filesystemResourceAddress(plan.summary.key)
+    const parentDir = path?.split(/[/\\]/).slice(0, -1).join('/')
     const initialContext =
       context ??
-      (resourceAddress ? filesystemResourceKey(resourceAddress.rootId, parentDir) : undefined)
+      (resourceAddress && parentDir !== undefined
+        ? filesystemResourceKey(resourceAddress.rootId, parentDir)
+        : undefined)
 
     const viewerId = `workspace-win-${work.nextWindowId}`
     const nextNextId = work.nextWindowId + 1
     const baseWindows = work.windows
     const zIndex = maxWorkspaceWindowZ(baseWindows) + 1
     const nextTabMap = { ...work.activeTabMap }
+    const content = contentForOpenPlan(plan, viewerId, initialContext)
 
     if (attachGroupId) {
       const anchor =
@@ -673,13 +715,7 @@ export function WorkspacePage() {
           id: viewerId,
           title: resource.name,
           iconName: null,
-          contentInstance: {
-            id: viewerId,
-            type: 'resource',
-            resource: plan.resource,
-            renderer: plan.renderer,
-            ...(initialContext ? { context: initialContext } : {}),
-          },
+          contentInstance: content,
           tabGroupId: attachGroupId,
           layout: sharedLayout,
         }
@@ -701,17 +737,13 @@ export function WorkspacePage() {
       id: viewerId,
       title: resource.name,
       iconName: null,
-      contentInstance: {
-        id: viewerId,
-        type: 'resource',
-        resource: plan.resource,
-        renderer: plan.renderer,
-        ...(initialContext ? { context: initialContext } : {}),
-      },
+      contentInstance: content,
       tabGroupId: null,
       layout: createWindowLayout(
         undefined,
-        viewerBoundsForVideoOpen(path, baseWindows.length),
+        path
+          ? viewerBoundsForVideoOpen(path, baseWindows.length)
+          : createDefaultBounds(baseWindows.length, 'viewer'),
         zIndex,
       ),
     }
@@ -768,15 +800,9 @@ export function WorkspacePage() {
     })
   }
 
-  async function updateWindowViewing(windowId: string, viewing: string) {
+  async function updateWindowResource(windowId: string, resourceKey: ResourceKey) {
     const currentWindow = workspace()?.windows.find((window) => window.id === windowId)
     const current = currentWindow ? contentInstanceFromCurrentWindow(currentWindow) : null
-    const currentAddress =
-      current?.type === 'resource' ? filesystemResourceAddress(current.resource) : null
-    const resourceKey = filesystemResourceKey(
-      currentAddress?.rootId ?? DEFAULT_FILESYSTEM_ROOT_ID,
-      viewing,
-    )
     const inspector = applicationContentRegistry.inspect(resourceKey)
     if (!inspector) return
     const resource = await inspector.inspect(resourceKey)
@@ -785,16 +811,11 @@ export function WorkspacePage() {
       disposition: 'pane',
     })
     if (plan.status !== 'ready' || plan.kind !== 'render') return
-    const address = filesystemResourceAddress(plan.resource)
-    if (!address) return
-    const parent = viewing.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
-    replaceWindowContent(windowId, {
-      id: windowId,
-      type: 'resource',
-      resource: filesystemResourceKey(address.rootId, viewing),
-      renderer: plan.renderer,
-      context: filesystemResourceKey(address.rootId, parent),
-    })
+    const context =
+      current?.type === 'resource' && current.resource.provider === resourceKey.provider
+        ? current.context
+        : undefined
+    replaceWindowContent(windowId, contentForOpenPlan(plan, windowId, context))
   }
 
   function navigateDir(windowId: string, location: ExplorerLocation) {
@@ -810,19 +831,12 @@ export function WorkspacePage() {
     resource: ResourceSummary,
     insertIndex?: number,
   ) {
-    const plan = openResource(
-      resource,
-      filesystemResourceIsDirectory(resource) ? 'browse' : 'default',
-      {
-        surface: 'workspace',
-        disposition: 'pane',
-      },
-    )
+    const plan = openResource(resource, resourceIsBrowsable(resource) ? 'browse' : 'default', {
+      surface: 'workspace',
+      disposition: 'pane',
+    })
     if (plan.status !== 'ready') return
-    const content = contentForWorkspacePlan(
-      plan as HostOpenPlan<'pane'>,
-      `planned-${crypto.randomUUID()}`,
-    )
+    const content = contentForWorkspacePlan(plan, `planned-${crypto.randomUUID()}`)
     if (!content) return
     setWorkspace((prev) =>
       prev
@@ -833,13 +847,12 @@ export function WorkspacePage() {
 
   async function dropFileToTabBar(
     targetLeaderWindowId: string,
-    data: FileDragData,
+    data: ResourceDragData,
     insertIndex?: number,
   ) {
-    const key = filesystemResourceKey(DEFAULT_FILESYSTEM_ROOT_ID, data.path)
-    const inspector = applicationContentRegistry.inspect(key)
+    const inspector = applicationContentRegistry.inspect(data.key)
     if (!inspector) return
-    openInNewTabInSameWindow(targetLeaderWindowId, await inspector.inspect(key), insertIndex)
+    openInNewTabInSameWindow(targetLeaderWindowId, await inspector.inspect(data.key), insertIndex)
   }
 
   function openBrowser(options?: { path?: string; rootId?: string }) {
@@ -876,8 +889,6 @@ export function WorkspacePage() {
   }
 
   function openViewerFromBrowser(windowId: string, resource: ResourceSummary) {
-    const path = filesystemPathForResourceKey(resource.key)
-    if (path === null) return
     const w = workspace()
     const winDef = w?.windows.find((x) => x.id === windowId)
     if (!winDef) return
@@ -983,27 +994,20 @@ export function WorkspacePage() {
   }
 
   function openInSplitViewFromBrowserPane(windowId: string, resource: ResourceSummary) {
-    const plan = openResource(
-      resource,
-      filesystemResourceIsDirectory(resource) ? 'browse' : 'default',
-      {
-        surface: 'workspace',
-        disposition: 'pane',
-      },
-    )
+    const plan = openResource(resource, resourceIsBrowsable(resource) ? 'browse' : 'default', {
+      surface: 'workspace',
+      disposition: 'pane',
+    })
     if (plan.status !== 'ready') return
     const w = workspace()
     const winDef = w?.windows.find((x) => x.id === windowId)
     if (!winDef || contentWindowKind(winDef) !== 'browser') return
-    if (filesystemResourceMediaType(resource) === MediaType.AUDIO) {
+    if (applicationContentRegistry.playbackItem(resource)?.media === 'audio') {
       const browser = contentInstanceFromCurrentWindow(winDef)
       requestPlay(resource, browser?.type === 'explorer' ? browser.location : undefined)
       return
     }
-    const content = contentForWorkspacePlan(
-      plan as HostOpenPlan<'pane'>,
-      `planned-${crypto.randomUUID()}`,
-    )
+    const content = contentForWorkspacePlan(plan, `planned-${crypto.randomUUID()}`)
     if (!content) return
     setWorkspace((prev) =>
       prev ? openInSplitViewFromBrowserState(prev, windowId, content, resource.name) : prev,
@@ -1037,98 +1041,66 @@ export function WorkspacePage() {
   function openFileInNewFloatingWindow(windowId: string, resource: ResourceSummary) {
     const w = workspace()
     const winDef = w?.windows.find((x) => x.id === windowId)
-    if (!winDef || filesystemResourceIsDirectory(resource)) return
+    if (!winDef || resourceIsBrowsable(resource)) return
     openViewer(windowId, resource)
   }
 
-  let pendingWorkspaceHostOpen:
-    | Readonly<{
-        fromWindowId: string
-        resource: ResourceSummary
-      }>
-    | undefined
-
-  function contentForWorkspacePlan(
-    plan: HostOpenPlan<'replace' | 'pane' | 'window'>,
-    id: string,
-  ): ContentInstance | null {
-    if (plan.kind === 'browse') return { id, type: 'explorer', location: plan.resource }
-    const address = filesystemResourceAddress(plan.resource)
-    return {
-      id,
-      type: 'resource',
-      resource: plan.resource,
-      renderer: plan.renderer,
-      ...(address
-        ? {
-            context: filesystemResourceKey(
-              address.rootId,
-              address.path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'),
-            ),
-          }
-        : {}),
-    }
+  function contentForWorkspacePlan(plan: OpenReadyPlan, id: string): ContentInstance {
+    return contentForOpenPlan(plan, id)
   }
 
-  const workspaceContentHost = createWorkspaceHost({
-    replace(plan) {
-      const pending = pendingWorkspaceHostOpen
-      if (!pending) return
-      const content = contentForWorkspacePlan(plan, pending.fromWindowId)
-      if (content) replaceWindowContent(pending.fromWindowId, content)
-    },
-    pane(plan) {
-      const pending = pendingWorkspaceHostOpen
-      if (!pending) return
-      const content = contentForWorkspacePlan(plan, `planned-${crypto.randomUUID()}`)
-      if (content) openContentWindow(pending.fromWindowId, content, undefined, true)
-    },
-    window(plan) {
-      const pending = pendingWorkspaceHostOpen
-      if (!pending) return
-      const resource = pending.resource
-      const w = workspace()
-      if (!w) return
-      const n = w.nextWindowId
-      const id = `workspace-window-${n}`
-      const content = contentForWorkspacePlan(plan, id)
-      if (!content) return
-      const base: WorkspaceWindowDefinition = {
-        id,
-        title: resource.name,
-        iconName: null,
-        contentInstance: content,
-        tabGroupId: null,
-        layout: createWindowLayout(
-          undefined,
-          filesystemResourceMediaType(resource) === MediaType.VIDEO &&
-            filesystemPathForResourceKey(resource.key) !== null
-            ? viewerBoundsForVideoOpen(
-                filesystemPathForResourceKey(resource.key)!,
-                w.windows.length,
-              )
-            : createDefaultBounds(w.windows.length, 'viewer'),
-          n,
-        ),
-      }
-      const projected = contentWindowWithInstance(base, content)
-      if (!projected) return
-      const newWin: WorkspaceWindowDefinition = {
-        ...projected,
-        layout: { ...projected.layout, zIndex: maxWorkspaceWindowZ(w.windows) + 1 },
-      }
-      setWorkspace({
-        ...w,
-        windows: [...w.windows, newWin],
-        nextWindowId: n + 1,
-        activeWindowId: id,
-      })
-    },
-    close(instanceId) {
-      void closeWindow(instanceId)
-    },
-    focus: focusWindow,
-  })
+  function placeWorkspacePlan(fromWindowId: string, plan: OpenReadyPlan) {
+    if (plan.disposition === 'replace') {
+      replaceWindowContent(fromWindowId, contentForWorkspacePlan(plan, fromWindowId))
+      return
+    }
+    if (plan.disposition === 'pane') {
+      openContentWindow(
+        fromWindowId,
+        contentForWorkspacePlan(plan, `planned-${crypto.randomUUID()}`),
+        undefined,
+        true,
+      )
+      return
+    }
+    if (plan.disposition !== 'window') return
+    const resource = plan.summary
+    const w = workspace()
+    if (!w) return
+    const n = w.nextWindowId
+    const id = `workspace-window-${n}`
+    const content = contentForWorkspacePlan(plan, id)
+    const path = filesystemPathForResourceKey(resource.key)
+    const base: WorkspaceWindowDefinition = {
+      id,
+      title: resource.name,
+      iconName: null,
+      contentInstance: content,
+      tabGroupId: null,
+      layout: createWindowLayout(
+        undefined,
+        applicationContentRegistry.playbackItem(resource)?.media === 'video' && path !== null
+          ? viewerBoundsForVideoOpen(path, w.windows.length)
+          : createDefaultBounds(w.windows.length, 'viewer'),
+        n,
+      ),
+    }
+    const projected = contentWindowWithInstance(base, content)
+    if (!projected) return
+    const newWin: WorkspaceWindowDefinition = {
+      ...projected,
+      layout: {
+        ...projected.layout,
+        zIndex: maxWorkspaceWindowZ(w.windows) + 1,
+      },
+    }
+    setWorkspace({
+      ...w,
+      windows: [...w.windows, newWin],
+      nextWindowId: n + 1,
+      activeWindowId: id,
+    })
+  }
 
   function openViewer(
     fromWindowId: string,
@@ -1140,12 +1112,7 @@ export function WorkspacePage() {
       disposition: 'window',
     })
     if (plan.status !== 'ready') return
-    pendingWorkspaceHostOpen = { fromWindowId, resource }
-    try {
-      workspaceContentHost.open(plan as HostOpenPlan<'window'>)
-    } finally {
-      pendingWorkspaceHostOpen = undefined
-    }
+    placeWorkspacePlan(fromWindowId, plan)
   }
 
   function openReaderFromBrowser(fromWindowId: string, resource: ResourceSummary) {
@@ -1158,15 +1125,7 @@ export function WorkspacePage() {
       context: { surface: 'workspace', disposition: 'window' },
       place(selected, plan) {
         if (!selected.resource || plan.status !== 'ready') return
-        pendingWorkspaceHostOpen = {
-          fromWindowId: workspace()?.activeWindowId ?? '',
-          resource: selected.resource,
-        }
-        try {
-          workspaceContentHost.open(plan as HostOpenPlan<'window'>)
-        } finally {
-          pendingWorkspaceHostOpen = undefined
-        }
+        placeWorkspacePlan(workspace()?.activeWindowId ?? '', plan)
       },
     })
   }
@@ -1214,7 +1173,7 @@ export function WorkspacePage() {
     if (!resource) return
     const summary = await applicationContentRegistry.inspect(resource)?.inspect(resource)
     if (!summary) return
-    const isDirectory = filesystemResourceIsDirectory(summary)
+    const isDirectory = resourceIsBrowsable(summary)
     const path = workspaceTaskbarPinPath(pin)
     if (path === null) {
       const content = await openApplicationResource(resource, pin.title, {
@@ -1231,8 +1190,7 @@ export function WorkspacePage() {
       })
       return
     }
-    const type = filesystemResourceMediaType(summary)
-    if (type === MediaType.VIDEO || type === MediaType.AUDIO) {
+    if (applicationContentRegistry.playbackItem(summary)) {
       requestPlay(summary)
       return
     }
@@ -1247,27 +1205,30 @@ export function WorkspacePage() {
 
   const playbackPlayingPath = createMemo(() => {
     const item = playback().currentItem
-    return item ? filesystemPlaybackItemPath(item) : null
+    return item ? filesystemPathForResourceKey(item.resource) : null
   })
 
   const suppressWorkspaceTaskbarAudioForVideoViewer = createMemo(() => {
     const w = workspace()
     const state = playback()
-    const path = state.currentItem ? filesystemPlaybackItemPath(state.currentItem) : null
-    if (!path || state.currentItem?.media !== 'video' || state.mode !== 'video' || !w) return false
-    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
-    const n = norm(path)
+    const item = state.currentItem
+    if (!item || item.media !== 'video' || state.mode !== 'video' || !w) return false
     return w.windows.some((win) => {
       if (contentWindowKind(win) !== 'viewer') return false
-      const v = contentWindowFilesystemPath(win)
-      if (!v || norm(v) !== n) return false
-      return isVideoPath(v)
+      const content = contentInstanceFromCurrentWindow(win)
+      return (
+        content?.type === 'resource' &&
+        sameResourceKey(content.resource, item.resource) &&
+        applicationContentRegistry.presentation(content)?.category === 'video'
+      )
     })
   })
 
   const workspaceFileIconContext = (): FileIconContext => {
     const state = playback()
-    const playing = state.currentItem ? filesystemPlaybackItemPath(state.currentItem) : null
+    const playing = state.currentItem
+      ? filesystemPathForResourceKey(state.currentItem.resource)
+      : null
 
     return {
       customIcons: server.settingsQuery.data?.customIcons ?? {},
@@ -1461,7 +1422,7 @@ export function WorkspacePage() {
             openReader: openReaderFromBrowser,
             open: openContentWindow,
             replace: replaceWindowContent,
-            navigateResource: updateWindowViewing,
+            navigateResource: updateWindowResource,
           }}
           files={{
             addPinned: addPinnedItem,

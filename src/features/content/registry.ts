@@ -6,6 +6,8 @@ import {
   type PersistedContentEnvelope,
 } from '@/lib/domain/content'
 import type { ResourceKey, ResourceSummary } from '@/lib/domain/resource'
+import type { PlaybackItem, PlaybackSourceRequest, PlaybackSourceResolution } from '../playback'
+import type { Component } from 'solid-js'
 import { createRendererRegistry, type RendererRegistry } from '../open/renderer-registry'
 import type {
   BrowseProvider,
@@ -18,9 +20,11 @@ import type {
   ContentPresentationDescriptor,
   ContentRendererDescriptor,
   ContentSanitizerDescriptor,
+  ContentSurfaceDescriptor,
   IntegrationModule,
   InspectProvider,
   PaneContribution,
+  PlaybackContribution,
   ResourceActionProvider,
 } from './contracts'
 import type { SearchContributor } from '../search/contracts'
@@ -32,11 +36,21 @@ export type ContentRegistry = Readonly<{
   browse(location: ResourceKey): BrowseProvider | null
   inspect(resource: ResourceKey): InspectProvider | null
   actions(resource: ResourceSummary): ResourceActionProvider | null
+  playbackItem(resource: ResourceSummary): PlaybackItem | null
+  playbackQueue(
+    resources: readonly ResourceSummary[],
+    current: PlaybackItem,
+  ): readonly PlaybackItem[]
+  resolvePlaybackSource(
+    request: PlaybackSourceRequest,
+  ): PlaybackSourceResolution | Promise<PlaybackSourceResolution>
+  playbackLifecycles(): readonly Component[]
   roots(): readonly ResourceSummary[]
   searches(): readonly SearchContributor[]
   assistants(): readonly AssistantProvider[]
   panes(kind?: string): readonly PaneContribution[]
   renderer(instance: ContentInstance): ContentRendererDescriptor | null
+  surface(instance: ContentInstance): ContentSurfaceDescriptor | null
   codec(id: string): ContentCodecDescriptor | null
   isDurable(instance: ContentInstance): boolean
   preservesRuntime(instance: ContentInstance): boolean
@@ -49,12 +63,10 @@ export type ContentRegistry = Readonly<{
 }>
 
 type Owned<T> = Readonly<{ moduleId: string; descriptor: T }>
-type IntegrationLiveCapability =
-  | keyof Pick<
-      IntegrationModule,
-      'browse' | 'inspect' | 'actions' | 'search' | 'assistant' | 'panes'
-    >
-  | 'events'
+type IntegrationLiveCapability = keyof Pick<
+  IntegrationModule,
+  'browse' | 'inspect' | 'actions' | 'search'
+>
 
 function requireId(id: string, label: string): string {
   if (!id.trim()) throw new Error(`${label} id must not be empty`)
@@ -70,6 +82,15 @@ function moduleOwnsInstance(moduleId: string, instance: ContentInstance): boolea
     case 'integration':
       return instance.integration === moduleId
   }
+}
+
+function playbackContribution(
+  modules: ReadonlyMap<string, IntegrationModule>,
+  moduleEnabled: (moduleId: string) => boolean,
+  provider: string,
+): PlaybackContribution | null {
+  if (!moduleEnabled(provider)) return null
+  return modules.get(provider)?.playback ?? null
 }
 
 function descriptorAcceptsInstance(
@@ -101,7 +122,7 @@ function uniqueDescriptors<T extends { id: string }>(
 export function createContentRegistry(
   modules: readonly IntegrationModule[],
   options: Readonly<{
-    enabled?: (moduleId: string, capability: IntegrationLiveCapability) => boolean
+    enabled?: (moduleId: string, capability?: IntegrationLiveCapability) => boolean
     root?: (moduleId: string, staticRoot: ResourceSummary | undefined) => ResourceSummary | null
   }> = {},
 ): ContentRegistry {
@@ -197,6 +218,37 @@ export function createContentRegistry(
         ? (byModule.get(resource.key.provider)?.actions ?? null)
         : null
     },
+    playbackItem(resource) {
+      return (
+        playbackContribution(byModule, moduleEnabled, resource.key.provider)?.createItem(
+          resource,
+        ) ?? null
+      )
+    },
+    playbackQueue(resources, current) {
+      const contribution = playbackContribution(byModule, moduleEnabled, current.resource.provider)
+      if (!contribution) return []
+      return contribution.createQueue(
+        resources.filter((resource) => resource.key.provider === current.resource.provider),
+        current,
+      )
+    },
+    resolvePlaybackSource(request) {
+      const provider = request.item.resource.provider
+      const contribution = playbackContribution(byModule, moduleEnabled, provider)
+      if (!contribution) {
+        return {
+          kind: 'error',
+          message: `No playback contribution registered for provider: ${provider}`,
+        }
+      }
+      return contribution.resolveSource(request)
+    },
+    playbackLifecycles() {
+      return frozenModules.flatMap((module) =>
+        moduleEnabled(module.id) && module.playback?.lifecycle ? [module.playback.lifecycle] : [],
+      )
+    },
     roots() {
       return frozenModules.flatMap((module) => {
         if (!moduleEnabled(module.id, 'browse')) return []
@@ -211,12 +263,12 @@ export function createContentRegistry(
     },
     assistants() {
       return frozenModules.flatMap((module) =>
-        moduleEnabled(module.id, 'assistant') && module.assistant ? [module.assistant] : [],
+        moduleEnabled(module.id) && module.assistant ? [module.assistant] : [],
       )
     },
     panes(kind) {
       const values = [...panes.values()]
-        .filter((value) => moduleEnabled(value.moduleId, 'panes'))
+        .filter((value) => moduleEnabled(value.moduleId))
         .map((value) => value.descriptor)
       return kind === undefined ? values : values.filter((pane) => pane.kind === kind)
     },
@@ -235,6 +287,16 @@ export function createContentRegistry(
         }
       }
       return null
+    },
+    surface(instance) {
+      const moduleId =
+        instance.type === 'integration'
+          ? instance.integration
+          : instance.type === 'resource'
+            ? instance.resource.provider
+            : instance.location.provider
+      const surface = byModule.get(moduleId)?.surface
+      return surface?.supports(instance) ? surface : null
     },
     codec(id) {
       return codecs.get(id)?.descriptor ?? null
@@ -275,8 +337,7 @@ export function createContentRegistry(
     },
     liveStatus(instance) {
       for (const module of frozenModules) {
-        if (!moduleEnabled(module.id, 'events') || !moduleOwnsInstance(module.id, instance))
-          continue
+        if (!moduleEnabled(module.id) || !moduleOwnsInstance(module.id, instance)) continue
         const value = module.status?.describe(instance)
         if (value) return value
       }

@@ -5,6 +5,7 @@ import {
 } from '@/lib/use-workspace'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 import { createWorkspaceLayoutPresetSnapshot } from '@/lib/workspace-layout-presets'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import { createMemo, createSignal, type Accessor, type Setter } from 'solid-js'
 
 export function useWorkspacePageLayoutBaseline(
@@ -49,8 +50,11 @@ export function useWorkspacePageLayoutBaseline(
     options?: { baselinePresetId?: string | null },
   ) {
     const normalized =
-      normalizePersistedWorkspaceState(snapshot) ??
-      normalizePersistedWorkspaceState(createWorkspaceLayoutPresetSnapshot(snapshot))
+      normalizePersistedWorkspaceState(snapshot, currentContentWindowPersistence) ??
+      normalizePersistedWorkspaceState(
+        createWorkspaceLayoutPresetSnapshot(snapshot, currentContentWindowPersistence),
+        currentContentWindowPersistence,
+      )
     if (!normalized?.windows.length) return
     const prev = workspace()
     const merged: PersistedWorkspaceState = {
@@ -61,7 +65,10 @@ export function useWorkspacePageLayoutBaseline(
       fileOpenTarget: normalized.fileOpenTarget ?? prev?.fileOpenTarget,
     }
     const clone = structuredClone(merged)
-    const baselineSnapshot = createWorkspaceLayoutPresetSnapshot(clone)
+    const baselineSnapshot = createWorkspaceLayoutPresetSnapshot(
+      clone,
+      currentContentWindowPersistence,
+    )
     setWorkspace(clone)
     setLayoutBaselineSerialized(JSON.stringify(baselineSnapshot))
     setLayoutBaselineSnapshot(baselineSnapshot)
@@ -78,7 +85,10 @@ export function useWorkspacePageLayoutBaseline(
 
   function syncLayoutBaselineToCurrent() {
     const snap = collectLayoutSnapshot()
-    const baselineSnapshot = createWorkspaceLayoutPresetSnapshot(snap)
+    const baselineSnapshot = createWorkspaceLayoutPresetSnapshot(
+      snap,
+      currentContentWindowPersistence,
+    )
     setLayoutBaselineSerialized(JSON.stringify(baselineSnapshot))
     setLayoutBaselineSnapshot(baselineSnapshot)
   }
@@ -96,7 +106,9 @@ export function useWorkspacePageLayoutBaseline(
   const isLayoutDirty = createMemo(() => {
     const b = layoutBaselineSerialized()
     if (b == null) return false
-    return serializeWorkspaceLayoutState(collectLayoutSnapshot()) !== b
+    return (
+      serializeWorkspaceLayoutState(collectLayoutSnapshot(), currentContentWindowPersistence) !== b
+    )
   })
 
   return {

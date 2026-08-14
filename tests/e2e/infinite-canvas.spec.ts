@@ -1215,8 +1215,11 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
   await canvas.evaluate((element) => {
     const transfer = new DataTransfer()
     transfer.setData(
-      'application/x-derp-file-drag',
-      JSON.stringify({ path: 'Notes/welcome.md', isDirectory: false, sourceKind: 'local' }),
+      'application/x-derp-resource-drag',
+      JSON.stringify({
+        key: { provider: 'filesystem', id: 'v1:18:configured-defaultNotes/welcome.md' },
+        isDirectory: false,
+      }),
     )
     element.dispatchEvent(
       new DragEvent('dragover', {
@@ -1242,8 +1245,11 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
   await canvas.evaluate((element) => {
     const transfer = new DataTransfer()
     transfer.setData(
-      'application/x-derp-file-drag',
-      JSON.stringify({ path: 'Notes/welcome.md', isDirectory: false, sourceKind: 'local' }),
+      'application/x-derp-resource-drag',
+      JSON.stringify({
+        key: { provider: 'filesystem', id: 'v1:18:configured-defaultNotes/welcome.md' },
+        isDirectory: false,
+      }),
     )
     element.dispatchEvent(
       new DragEvent('dragover', {
@@ -1260,8 +1266,11 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
   await canvas.evaluate((element) => {
     const transfer = new DataTransfer()
     transfer.setData(
-      'application/x-derp-file-drag',
-      JSON.stringify({ path: 'Notes/welcome.md', isDirectory: false, sourceKind: 'local' }),
+      'application/x-derp-resource-drag',
+      JSON.stringify({
+        key: { provider: 'filesystem', id: 'v1:18:configured-defaultNotes/welcome.md' },
+        isDirectory: false,
+      }),
     )
     element.dispatchEvent(
       new DragEvent('drop', {
@@ -1734,10 +1743,13 @@ test('remembers resized dimensions for new windows of same type', async ({ page 
   await canvas.evaluate((element) => {
     const transfer = new DataTransfer()
     transfer.setData(
-      'application/x-derp-file-drag',
-      JSON.stringify({ path: 'folder', isDirectory: true, sourceKind: 'local' }),
+      'application/x-derp-resource-drag',
+      JSON.stringify({
+        key: { provider: 'filesystem', id: 'v1:18:configured-defaultfolder' },
+        isDirectory: true,
+      }),
     )
-    transfer.setData('application/x-derp-file-drag-directory', '1')
+    transfer.setData('application/x-derp-resource-drag-directory', '1')
     element.dispatchEvent(
       new DragEvent('dragover', {
         bubbles: true,

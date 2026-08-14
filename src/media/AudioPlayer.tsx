@@ -17,11 +17,8 @@ import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import { Show, createEffect, createMemo } from 'solid-js'
 import { playbackItemKey, type PlaybackItem } from '../features/playback'
-import {
-  filesystemAudioPlaybackQueue,
-  filesystemPlaybackItemPath,
-} from '../integrations/filesystem/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from '../features/playback/PlaybackProvider'
+import { applicationContentRegistry } from '../integrations/registry'
 import { buildAudioMetadataUrl, buildMediaUrl, buildThumbnailUrl } from '@/lib/api-media-urls'
 import { setAudioOnly } from '../lib/url-state-actions'
 
@@ -74,7 +71,7 @@ export function AudioPlayer() {
   const shouldHandleAudio = createMemo(() => !!currentItem() && playbackMode() === 'audio')
   const playingPath = createMemo(() => {
     const item = currentItem()
-    return item ? (filesystemPlaybackItemPath(item) ?? '') : ''
+    return item ? (filesystemPathForResourceKey(item.resource) ?? '') : ''
   })
   const currentDir = createMemo(() => parentPath(playingPath()))
   const fileName = createMemo(() => currentItem()?.name ?? '')
@@ -82,14 +79,14 @@ export function AudioPlayer() {
 
   const filesQuery = useQuery(() => ({
     ...filesystemResourcesQueryOptions({ dir: currentDir() }),
-    enabled: shouldHandleAudio(),
+    enabled: shouldHandleAudio() && !!playingPath(),
   }))
   const resources = createMemo(() => filesQuery.data?.resources ?? [])
 
   createEffect(() => {
     const current = currentItem()
-    if (!current || playbackMode() !== 'audio') return
-    const queue = filesystemAudioPlaybackQueue(resources(), current)
+    if (!current || playbackMode() !== 'audio' || !playingPath()) return
+    const queue = applicationContentRegistry.playbackQueue(resources(), current)
     const state = session.getSnapshot()
     if (!sameQueue(state.queue, queue)) {
       session.dispatch({ type: 'setQueue', queue, current })
@@ -140,7 +137,7 @@ export function AudioPlayer() {
   })
 
   function incrementView(item: PlaybackItem | undefined) {
-    const path = item ? filesystemPlaybackItemPath(item) : null
+    const path = item ? filesystemPathForResourceKey(item.resource) : null
     if (path) void apiEndpoints.stats.addView(path).catch(() => undefined)
   }
 

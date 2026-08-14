@@ -1,11 +1,21 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import {
-  computeLayoutPreviewDetail,
-  computeLayoutPreviewNorm,
+  computeLayoutPreviewDetail as computeLayoutPreviewDetailWithPersistence,
+  computeLayoutPreviewNorm as computeLayoutPreviewNormWithPersistence,
 } from '@/lib/workspace-layout-preview'
-import { serializeWorkspacePersistedState, type PersistedWorkspaceState } from '@/lib/use-workspace'
+import {
+  serializeWorkspacePersistedState as serializeWorkspacePersistedStateWithPersistence,
+  type PersistedWorkspaceState,
+} from '@/lib/use-workspace'
 import { workspaceWindow } from './workspace-window-fixture'
+
+const serializeWorkspacePersistedState = (state: PersistedWorkspaceState) =>
+  serializeWorkspacePersistedStateWithPersistence(state, currentContentWindowPersistence)
+const computeLayoutPreviewDetail = (state: PersistedWorkspaceState) =>
+  computeLayoutPreviewDetailWithPersistence(state, currentContentWindowPersistence)
+const computeLayoutPreviewNorm = (state: PersistedWorkspaceState) =>
+  computeLayoutPreviewNormWithPersistence(state, currentContentWindowPersistence)
 
 function baseState(windows: PersistedWorkspaceState['windows']): PersistedWorkspaceState {
   return {

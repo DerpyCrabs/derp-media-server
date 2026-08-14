@@ -2,6 +2,7 @@ import type { JSX, Accessor } from 'solid-js'
 import type { ContentInstance } from '@/lib/domain/content'
 import type {
   ExplorerActionDescriptor,
+  ExplorerBreadcrumb,
   ExplorerDataSource,
   ExplorerDispatchResult,
   ExplorerHistory,
@@ -38,12 +39,15 @@ export type ExplorerViewProps<TPayload = unknown> = Readonly<{
   hostActions?: Accessor<readonly ExplorerHostAction<TPayload>[]>
   toolbarEnd?: Accessor<JSX.Element>
   itemDomValue?: (item: ExplorerItem<TPayload>) => string | undefined
-  breadcrumbDomValue?: (location: ExplorerLocation) => string | undefined
+  breadcrumbDomValue?: (breadcrumb: ExplorerBreadcrumb<TPayload>) => string | undefined
   renderItemIcon?: (item: ExplorerItem<TPayload>, size: 'small' | 'large') => JSX.Element
   destinationPicker?: (
     action: ExplorerActionDescriptor,
     item: ExplorerItem<TPayload>,
-  ) => Readonly<{ filePath: string; editableFolders: readonly string[] }> | null
+  ) => Readonly<{
+    filePath: string
+    editableFolders: readonly string[]
+  }> | null
   resolveActionInput?: (
     action: ExplorerActionDescriptor,
     item?: ExplorerItem<TPayload>,

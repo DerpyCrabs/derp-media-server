@@ -611,28 +611,6 @@ mod tests {
             .clone()
     }
 
-    fn fixture_descriptor_module() -> crate::integrations::registry::IntegrationModule {
-        crate::integrations::registry::IntegrationModule {
-            descriptor: crate::contracts::IntegrationDescriptorDto {
-                id: "fixture".into(),
-                name: "Fixture".into(),
-                capabilities: Vec::new(),
-                root: None,
-            },
-            runtime: Arc::new(()),
-            browse: None,
-            inspect: None,
-            actions: None,
-            search: None,
-            assistant: None,
-            panes: None,
-            events: None,
-            change: None,
-            shutdown: None,
-            routes: axum::Router::new(),
-        }
-    }
-
     async fn assert_integration_bootstrap(state: Shared, expected_ids: &[&str]) {
         let endpoint = response_json(state.clone(), "/api/integrations").await;
         let dehydrated = crate::html::dehydrated(&state, &"/".parse().unwrap()).await;
@@ -661,22 +639,6 @@ mod tests {
         let state = state_with_integrations(config, integrations);
 
         assert_integration_bootstrap(state, &["filesystem"]).await;
-
-        let _ = std::fs::remove_dir_all(base);
-    }
-
-    #[tokio::test]
-    async fn added_registry_descriptor_reaches_http_and_ssr_bootstrap() {
-        let (config, base) = test_config();
-        let file_search = FileSearch::new(config.file_search.clone(), config.roots.clone());
-        let integrations = crate::integrations::registry::IntegrationRegistry::new(vec![
-            crate::integrations::filesystem::module(config.clone(), file_search),
-            fixture_descriptor_module(),
-        ])
-        .unwrap();
-        let state = state_with_integrations(config, integrations);
-
-        assert_integration_bootstrap(state, &["filesystem", "fixture"]).await;
 
         let _ = std::fs::remove_dir_all(base);
     }

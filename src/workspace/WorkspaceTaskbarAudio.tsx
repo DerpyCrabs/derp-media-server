@@ -20,10 +20,7 @@ import X from 'lucide-solid/icons/x'
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import { buildAudioMetadataUrl, buildMediaUrl, buildThumbnailUrl } from '@/lib/api-media-urls'
 import { usePlaybackSession, usePlaybackSnapshot } from '../features/playback/PlaybackProvider'
-import {
-  filesystemAudioPlaybackQueue,
-  filesystemPlaybackItemPath,
-} from '../integrations/filesystem/playback'
+import { applicationContentRegistry } from '../integrations/registry'
 
 async function fetchAudioMetadata(url: string) {
   const response = await fetch(url)
@@ -61,7 +58,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const item = createMemo(() => playback().currentItem)
   const playingPath = createMemo(() => {
     const current = item()
-    return current ? filesystemPlaybackItemPath(current) : null
+    return current ? filesystemPathForResourceKey(current.resource) : null
   })
   const currentDir = createMemo(() => parentPath(playingPath() ?? ''))
   const isVideoFile = createMemo(() => item()?.media === 'video')
@@ -83,7 +80,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
   createEffect(() => {
     const current = item()
     if (!current || !shouldHandleAudio() || filesQuery.isPending) return
-    const queue = filesystemAudioPlaybackQueue(resources(), current)
+    const queue = applicationContentRegistry.playbackQueue(resources(), current)
     const signature = queue
       .map((candidate) => `${candidate.resource.provider}\0${candidate.resource.id}`)
       .join('\x01')

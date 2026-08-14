@@ -9,6 +9,7 @@ import {
 } from '@/lib/domain/resource'
 import {
   defineIntegrationModule,
+  type ContentCategory,
   type ContentDecodeResult,
   type ContentInstance,
   type ResourceActionOutcome,
@@ -22,6 +23,12 @@ import {
   uploadIntegrationFiles,
 } from '@/src/integrations/http-client'
 import { DEFAULT_FILESYSTEM_ROOT_ID, filesystemResourceKeyForPath } from './resource'
+import {
+  filesystemAudioPlaybackQueue,
+  filesystemPlaybackItemFromResource,
+  resolveFilesystemPlaybackSource,
+} from './playback'
+import { lazy } from 'solid-js'
 
 export {
   DEFAULT_FILESYSTEM_ROOT_ID,
@@ -32,6 +39,10 @@ export {
 } from './resource'
 
 export const FILESYSTEM_CONTENT_CODEC_ID = 'filesystem.content'
+
+const FilesystemPlaybackLifecycle = lazy(async () => ({
+  default: (await import('./PlaybackSync')).FilesystemPlaybackSync,
+}))
 
 export type FilesystemIntegrationTransport = Readonly<{
   browseResource: typeof browseIntegrationResource
@@ -253,6 +264,22 @@ function titleFromPath(path: string, fallback: string): string {
   return path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) ?? fallback
 }
 
+const rendererCategories: Readonly<Record<string, ContentCategory>> = {
+  [FILESYSTEM_RENDERER_ID.folderReader]: 'folder',
+  [FILESYSTEM_RENDERER_ID.audio]: 'audio',
+  [FILESYSTEM_RENDERER_ID.video]: 'video',
+  [FILESYSTEM_RENDERER_ID.image]: 'image',
+  [FILESYSTEM_RENDERER_ID.text]: 'text',
+  [FILESYSTEM_RENDERER_ID.pdf]: 'pdf',
+  [FILESYSTEM_RENDERER_ID.book]: 'book',
+  [FILESYSTEM_RENDERER_ID.unsupported]: 'file',
+}
+
+function filesystemContentCategory(instance: ContentInstance): ContentCategory {
+  if (instance.type === 'explorer') return 'folder'
+  return instance.type === 'resource' ? (rendererCategories[instance.renderer] ?? 'file') : 'file'
+}
+
 function filesystemLocationSummary(rootId: string, path: string): ResourceSummary {
   return {
     key: filesystemResourceKeyForPath(path, rootId),
@@ -260,6 +287,7 @@ function filesystemLocationSummary(rootId: string, path: string): ResourceSummar
     kind: path ? 'folder' : 'root',
     capabilities: ['browse', 'filesystem.create', 'filesystem.upload', 'filesystem.paste'],
     presentation: 'browse',
+    metadata: { logicalPath: path },
   }
 }
 
@@ -275,6 +303,13 @@ export function createFilesystemIntegrationModule(
     },
     inspect: {
       inspect: transport.inspectResource,
+    },
+    playback: {
+      createItem: filesystemPlaybackItemFromResource,
+      createQueue: (resources, current) =>
+        current.media === 'audio' ? filesystemAudioPlaybackQueue(resources, current) : [current],
+      resolveSource: resolveFilesystemPlaybackSource,
+      lifecycle: FilesystemPlaybackLifecycle,
     },
     actions: {
       list(resource) {
@@ -345,6 +380,16 @@ export function createFilesystemIntegrationModule(
         }
       },
     },
+    surface: {
+      supports: (instance) =>
+        instance.type === 'resource' &&
+        (instance.renderer === FILESYSTEM_RENDERER_ID.audio ||
+          instance.renderer === FILESYSTEM_RENDERER_ID.video),
+      load: async () => {
+        const module = await import('./FilesystemResourceViewerContent')
+        return module.filesystemContentSurfaceModule
+      },
+    },
     content: filesystemRendererDescriptors.map((descriptor) => ({
       ...descriptor,
       matchesContent: (instance: ContentInstance) =>
@@ -385,12 +430,22 @@ export function createFilesystemIntegrationModule(
           if (instance.type === 'explorer') {
             const address = filesystemResourceAddress(instance.location)
             return address
-              ? { title: titleFromPath(address.path, 'Library'), icon: 'folder' }
+              ? {
+                  title: titleFromPath(address.path, 'Library'),
+                  category: filesystemContentCategory(instance),
+                  icon: 'folder',
+                }
               : null
           }
           if (instance.type === 'resource') {
             const address = filesystemResourceAddress(instance.resource)
-            return address ? { title: titleFromPath(address.path, 'File'), icon: 'file' } : null
+            return address
+              ? {
+                  title: titleFromPath(address.path, 'File'),
+                  category: filesystemContentCategory(instance),
+                  icon: 'file',
+                }
+              : null
           }
           return null
         },

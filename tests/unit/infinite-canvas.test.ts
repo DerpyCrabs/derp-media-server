@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import {
   CANVAS_GRID_SIZE,
   canvasWindowVisualBounds,
@@ -56,7 +56,7 @@ function canvasWindow(id: string, bounds: CanvasWindow['bounds']): CanvasWindow 
 }
 
 function currentPersistedState(state: InfiniteCanvasState): unknown {
-  return JSON.parse(serializeInfiniteCanvasState(state))
+  return JSON.parse(serializeInfiniteCanvasState(state, currentContentWindowPersistence))
 }
 
 describe('infinite canvas geometry', () => {
@@ -107,7 +107,9 @@ describe('infinite canvas persistence', () => {
       draftId: 'draft-1',
       cwd: 'C:/repo',
     })
-    expect(JSON.parse(serializeInfiniteCanvasState(cloned)).windows).toEqual([])
+    expect(
+      JSON.parse(serializeInfiniteCanvasState(cloned, currentContentWindowPersistence)).windows,
+    ).toEqual([])
   })
 
   test('keeps live Hermes drafts while reconciling persisted state', () => {
@@ -134,10 +136,17 @@ describe('infinite canvas persistence', () => {
       zIndex: 2,
     }
     current.windows = [draft, durable]
-    const incoming = parseInfiniteCanvasState(JSON.parse(serializeInfiniteCanvasState(current)))
+    const incoming = parseInfiniteCanvasState(
+      JSON.parse(serializeInfiniteCanvasState(current, currentContentWindowPersistence)),
+      currentContentWindowPersistence,
+    )
     expect(incoming).not.toBeNull()
 
-    const reconciled = reconcileInfiniteCanvasState(current, incoming!)
+    const reconciled = reconcileInfiniteCanvasState(
+      current,
+      incoming!,
+      currentContentWindowPersistence,
+    )
 
     expect(reconciled.windows.find((window) => window.id === 'draft')).toBe(draft)
     expect(integrationState(reconciled.windows.find((window) => window.id === 'draft'))).toEqual({
@@ -162,8 +171,16 @@ describe('infinite canvas persistence', () => {
     ]
     deletedHermesSessionIds.add('deleted-session')
     try {
-      expect(JSON.parse(serializeInfiniteCanvasState(current)).windows).toEqual([])
-      expect(reconcileInfiniteCanvasState(current, createEmptyCanvasState()).windows).toEqual([])
+      expect(
+        JSON.parse(serializeInfiniteCanvasState(current, currentContentWindowPersistence)).windows,
+      ).toEqual([])
+      expect(
+        reconcileInfiniteCanvasState(
+          current,
+          createEmptyCanvasState(),
+          currentContentWindowPersistence,
+        ).windows,
+      ).toEqual([])
     } finally {
       deletedHermesSessionIds.delete('deleted-session')
     }
@@ -178,34 +195,52 @@ describe('infinite canvas persistence', () => {
     incoming.windows[1]!.bounds.x = 640
     incoming.nextZIndex = 3
 
-    const reconciled = reconcileInfiniteCanvasState(current, incoming)
+    const reconciled = reconcileInfiniteCanvasState(
+      current,
+      incoming,
+      currentContentWindowPersistence,
+    )
     expect(reconciled).not.toBe(current)
     expect(reconciled.windows[0]).toBe(stable)
     expect(reconciled.windows[1]).not.toBe(moved)
     expect(reconciled.windows[1]!.definition).toBe(moved.definition)
     expect(reconciled.camera).toBe(current.camera)
-    expect(reconcileInfiniteCanvasState(current, structuredClone(current))).toBe(current)
+    expect(
+      reconcileInfiniteCanvasState(
+        current,
+        structuredClone(current),
+        currentContentWindowPersistence,
+      ),
+    ).toBe(current)
   })
 
   test('rejects unknown versions and sanitizes camera zoom', () => {
-    expect(parseInfiniteCanvasState({ version: 2, windows: [] })).toBeNull()
-    const parsed = parseInfiniteCanvasState({
-      ...createEmptyCanvasState(),
-      camera: { x: 2, y: 3, zoom: 100 },
-    })
+    expect(
+      parseInfiniteCanvasState({ version: 2, windows: [] }, currentContentWindowPersistence),
+    ).toBeNull()
+    const parsed = parseInfiniteCanvasState(
+      {
+        ...createEmptyCanvasState(),
+        camera: { x: 2, y: 3, zoom: 100 },
+      },
+      currentContentWindowPersistence,
+    )
     expect(parsed?.camera).toEqual({ x: 2, y: 3, zoom: 1 })
   })
 
   test('restores snapped window sizes by type', () => {
-    const parsed = parseInfiniteCanvasState({
-      ...createEmptyCanvasState(),
-      windowSizeByType: {
-        browser: { width: 707, height: 515 },
-        viewer: { width: 511, height: 333 },
-        'viewer-audio': { width: 481, height: 225 },
-        'viewer-video': { width: 799, height: 479 },
+    const parsed = parseInfiniteCanvasState(
+      {
+        ...createEmptyCanvasState(),
+        windowSizeByType: {
+          browser: { width: 707, height: 515 },
+          viewer: { width: 511, height: 333 },
+          'viewer-audio': { width: 481, height: 225 },
+          'viewer-video': { width: 799, height: 479 },
+        },
       },
-    })
+      currentContentWindowPersistence,
+    )
     expect(parsed?.windowSizeByType).toEqual({
       browser: { width: 704, height: 512 },
       viewer: { width: 512, height: 320 },
@@ -223,10 +258,15 @@ describe('infinite canvas persistence', () => {
     }
 
     const persisted = currentPersistedState(saved) as InfiniteCanvasState
-    expect(parseInfiniteCanvasState(persisted)).toMatchObject({ maximizedWindowId: window.id })
-    expect(parseInfiniteCanvasState({ ...persisted, maximizedWindowId: 'missing' })).toMatchObject({
-      maximizedWindowId: null,
+    expect(parseInfiniteCanvasState(persisted, currentContentWindowPersistence)).toMatchObject({
+      maximizedWindowId: window.id,
     })
+    expect(
+      parseInfiniteCanvasState(
+        { ...persisted, maximizedWindowId: 'missing' },
+        currentContentWindowPersistence,
+      ),
+    ).toMatchObject({ maximizedWindowId: null })
   })
 
   test('deduplicates item ids and advances stale counters', () => {
@@ -244,6 +284,7 @@ describe('infinite canvas persistence', () => {
         nextItemId: 1,
         nextZIndex: 1,
       }),
+      currentContentWindowPersistence,
     )
     expect(parsed?.windows).toHaveLength(1)
     expect(parsed?.nextItemId).toBe(8)
@@ -258,10 +299,13 @@ describe('infinite canvas persistence', () => {
         title: 'Missing content',
       },
     } as unknown as CanvasWindow
-    const parsed = parseInfiniteCanvasState({
-      ...createEmptyCanvasState(),
-      windows: [persisted],
-    })
+    const parsed = parseInfiniteCanvasState(
+      {
+        ...createEmptyCanvasState(),
+        windows: [persisted],
+      },
+      currentContentWindowPersistence,
+    )
     expect(parsed?.windows).toEqual([])
   })
 
@@ -283,6 +327,7 @@ describe('infinite canvas persistence', () => {
         ...createEmptyCanvasState(),
         windows: [persisted],
       }),
+      currentContentWindowPersistence,
     )
     expect(parsed?.windows[0]?.definition.contentInstance).toMatchObject({
       resource: filesystemResourceKey('configured-default', 'Images'),

@@ -13,7 +13,7 @@ export type WorkspaceBrowserPaneProps = {
   fileIconContext: () => FileIconContext
   editableFolders: string[]
   onNavigate: (windowId: string, location: ExplorerLocation) => void
-  onOpenViewer: (windowId: string, resource: ResourceSummary) => void
+  onOpenResource: (windowId: string, resource: ResourceSummary) => void
   onOpenReader: (windowId: string, resource: ResourceSummary) => void
   onOpenContent?: (windowId: string, content: ContentInstance, resource: ResourceSummary) => void
   onAddToTaskbar?: (resource: ResourceSummary) => void

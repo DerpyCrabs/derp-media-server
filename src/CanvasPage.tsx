@@ -13,11 +13,10 @@ import {
   type PersistedCanvas,
 } from '@/lib/canvas-persistence'
 import {
-  getFileDragData,
-  hasFileDragData,
-  isDirectoryFileDragData,
-  setFileDragData,
-} from '@/lib/file-drag-data'
+  getResourceDragData,
+  hasResourceDragData,
+  isDirectoryResourceDragData,
+} from '@/lib/resource-drag-data'
 import {
   CANVAS_GRID_SIZE,
   CANVAS_MAX_ZOOM,
@@ -39,26 +38,20 @@ import {
   type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
 import { serverConfigQueryOptions, settingsQueryOptions } from '@/lib/query-options'
-import { MediaType } from '@/lib/types'
 import { contentWindowKind, type ContentWindowDefinition } from '@/lib/content-window'
 import { applyCanvasPathMutation, type WorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import type { ContentInstance } from '@/lib/domain/content'
 import {
-  filesystemResourceAddress,
+  DEFAULT_FILESYSTEM_ROOT_ID,
   filesystemResourceKey,
+  sameResourceKey,
   type ResourceKey,
   type ResourceSummary,
 } from '@/lib/domain/resource'
-import { ExplorerView } from '@/src/features/explorer/ExplorerView'
-import type { ExplorerHostAction } from '@/src/features/explorer/view-types'
-import type { ApplicationExplorerPayload } from '@/src/integrations/explorer-adapter'
-import { createApplicationExplorerDataSource } from '@/src/integrations/explorer-adapter'
 import {
-  DEFAULT_FILESYSTEM_ROOT_ID,
-  filesystemPathForResourceKey,
-  filesystemResourceIsDirectory,
-  filesystemResourceMediaType,
-} from '@/src/integrations/filesystem/resource'
+  ApplicationExplorerView,
+  type ApplicationExplorerHostAction,
+} from '@/src/integrations/ApplicationExplorerView'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
@@ -89,31 +82,22 @@ import {
   canvasReadingProgressKey,
 } from './canvas/reading-progress'
 import { useApplicationEventsStream } from './lib/use-application-events-stream'
-import {
-  EMPTY_FILE_ICON_CONTEXT,
-  gridResourceSummaryIcon,
-  resourceSummaryIcon,
-  workspaceTabIcon,
-} from './lib/use-file-icon'
-import { FilesystemResourceViewerContent } from './integrations/filesystem/FilesystemResourceViewerContent'
+import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { ContentRuntimeView } from './features/content/ContentRuntimeView'
 import { ContentRecoveryView } from './features/content/ContentRecoveryView'
 import { contentRuntimeIdentity } from './features/content/runtime'
 import { confirmContentClose } from './features/content/confirm-content-close'
-import type { HostOpenPlan } from './features/content/contracts'
-import { createCanvasHost } from './features/content/hosts'
 import {
   contentInstanceFromCurrentWindow,
-  contentWindowFilesystemDirectory,
   contentWindowFilesystemPath,
   contentWindowWithInstance,
   contentWithInstanceId,
+  currentContentWindowPersistence,
 } from './integrations/current-window-content'
 import { applicationContentRegistry, applicationContentRuntime } from './integrations/registry'
-import { FILESYSTEM_RENDERER_ID } from './integrations/filesystem/renderers'
 import { createFilesystemFile } from './integrations/filesystem/actions'
 import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
-import { filesystemPlaybackItemPath } from './integrations/filesystem/playback'
+import { contentForOpenPlan, type OpenReadyPlan } from './features/open/open-resource'
 import { openResource } from './integrations/open-resource'
 import type { SearchHit } from './features/search/contracts'
 import { executeSearchHit } from './features/search/executor'
@@ -180,27 +164,12 @@ function fileName(path: string): string {
   return path.replace(/\\/g, '/').split('/').at(-1) || path
 }
 
-function contentReaderKind(definition: ContentWindowDefinition): 'pdf' | 'folder' | 'book' | null {
-  const instance = contentInstanceFromCurrentWindow(definition)
-  if (instance?.type !== 'resource') return null
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.pdf) return 'pdf'
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.folderReader) return 'folder'
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.book) return 'book'
-  return null
+function instanceCategory(instance: ContentInstance | null) {
+  return instance ? (applicationContentRegistry.presentation(instance)?.category ?? 'file') : 'file'
 }
 
-function contentMediaType(definition: ContentWindowDefinition): MediaType {
-  const instance = contentInstanceFromCurrentWindow(definition)
-  if (instance?.type === 'explorer') return MediaType.FOLDER
-  if (instance?.type !== 'resource') return MediaType.OTHER
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.video) return MediaType.VIDEO
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.audio) return MediaType.AUDIO
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.image) return MediaType.IMAGE
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.text) return MediaType.TEXT
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.pdf) return MediaType.PDF
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.book) return MediaType.BOOK
-  if (instance.renderer === FILESYSTEM_RENDERER_ID.folderReader) return MediaType.FOLDER
-  return MediaType.OTHER
+function contentCategory(definition: ContentWindowDefinition) {
+  return instanceCategory(contentInstanceFromCurrentWindow(definition))
 }
 
 function explorerLocation(definition: ContentWindowDefinition) {
@@ -208,11 +177,6 @@ function explorerLocation(definition: ContentWindowDefinition) {
   if (instance?.type !== 'explorer')
     throw new Error('Canvas window does not contain Explorer content')
   return { key: instance.location }
-}
-
-function resourceContent(definition: ContentWindowDefinition) {
-  const instance = contentInstanceFromCurrentWindow(definition)
-  return instance?.type === 'resource' ? instance : null
 }
 
 function canvasWindowDetails(definition: ContentWindowDefinition): {
@@ -237,43 +201,44 @@ function canvasWindowDetails(definition: ContentWindowDefinition): {
       path,
     }
   }
-  const readerKind = contentReaderKind(definition)
-  if (readerKind === 'folder') {
+  const category = contentCategory(definition)
+  if (content?.type === 'resource' && category === 'folder') {
     return { kind: 'Image folder reader', path }
   }
-  if (readerKind === 'pdf') {
+  if (category === 'pdf') {
     return { kind: 'PDF reader', path }
   }
-  if (readerKind === 'book') {
+  if (category === 'book') {
     return { kind: 'Book reader', path }
   }
 
   const kind =
     {
-      [MediaType.AUDIO]: 'Audio',
-      [MediaType.VIDEO]: 'Video',
-      [MediaType.IMAGE]: 'Image',
-      [MediaType.TEXT]: 'Document',
-      [MediaType.PDF]: 'PDF',
-      [MediaType.BOOK]: 'Book',
-      [MediaType.FOLDER]: 'Folder',
-      [MediaType.OTHER]: 'File',
-    }[contentMediaType(definition)] ?? 'File'
+      audio: 'Audio',
+      video: 'Video',
+      image: 'Image',
+      text: 'Document',
+      pdf: 'PDF',
+      book: 'Book',
+      folder: 'Folder',
+      collection: 'Collection',
+      file: 'File',
+    }[category] ?? 'File'
   return { kind, path }
 }
 
-function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
-  switch (mediaType) {
-    case MediaType.AUDIO:
+function categoryWindowSizeKey(category: ReturnType<typeof contentCategory>): CanvasWindowSizeKey {
+  switch (category) {
+    case 'audio':
       return 'viewer-audio'
-    case MediaType.VIDEO:
+    case 'video':
       return 'viewer-video'
-    case MediaType.IMAGE:
+    case 'image':
       return 'viewer-image'
-    case MediaType.TEXT:
+    case 'text':
       return 'viewer-text'
-    case MediaType.PDF:
-    case MediaType.BOOK:
+    case 'pdf':
+    case 'book':
       return 'viewer-pdf'
     default:
       return 'viewer-other'
@@ -283,7 +248,17 @@ function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
 function windowSizeKey(definition: ContentWindowDefinition): CanvasWindowSizeKey {
   const kind = contentWindowKind(definition)
   if (kind !== 'viewer') return kind
-  return mediaWindowSizeKey(contentMediaType(definition))
+  return categoryWindowSizeKey(contentCategory(definition))
+}
+
+function resourceWindowSizeKey(resource: ResourceSummary): CanvasWindowSizeKey {
+  const plan = openResource(resource, 'default', {
+    surface: 'canvas',
+    disposition: 'window',
+  })
+  if (plan.status !== 'ready') return 'viewer'
+  if (plan.kind === 'browse') return 'browser'
+  return categoryWindowSizeKey(instanceCategory(contentForOpenPlan(plan, 'preview')))
 }
 
 function unionRects(rects: CanvasRect[]): CanvasRect {
@@ -324,13 +299,31 @@ function ResizeHandles(props: {
 }) {
   const handles: Array<{ direction: ResizeDirection; class: string }> = [
     { direction: 'n', class: 'top-[-5px] left-2 right-2 h-2 cursor-n-resize' },
-    { direction: 's', class: 'bottom-[-5px] left-2 right-2 h-2 cursor-s-resize' },
-    { direction: 'e', class: 'right-[-5px] top-2 bottom-2 w-2 cursor-e-resize' },
+    {
+      direction: 's',
+      class: 'bottom-[-5px] left-2 right-2 h-2 cursor-s-resize',
+    },
+    {
+      direction: 'e',
+      class: 'right-[-5px] top-2 bottom-2 w-2 cursor-e-resize',
+    },
     { direction: 'w', class: 'left-[-5px] top-2 bottom-2 w-2 cursor-w-resize' },
-    { direction: 'ne', class: 'right-[-6px] top-[-6px] size-3 cursor-ne-resize' },
-    { direction: 'nw', class: 'left-[-6px] top-[-6px] size-3 cursor-nw-resize' },
-    { direction: 'se', class: 'right-[-6px] bottom-[-6px] size-3 cursor-se-resize' },
-    { direction: 'sw', class: 'left-[-6px] bottom-[-6px] size-3 cursor-sw-resize' },
+    {
+      direction: 'ne',
+      class: 'right-[-6px] top-[-6px] size-3 cursor-ne-resize',
+    },
+    {
+      direction: 'nw',
+      class: 'left-[-6px] top-[-6px] size-3 cursor-nw-resize',
+    },
+    {
+      direction: 'se',
+      class: 'right-[-6px] bottom-[-6px] size-3 cursor-se-resize',
+    },
+    {
+      direction: 'sw',
+      class: 'left-[-6px] bottom-[-6px] size-3 cursor-sw-resize',
+    },
   ]
   return (
     <For each={handles}>
@@ -395,7 +388,7 @@ export function CanvasPage() {
           removeItem: () => {},
         } as Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>)
       : localStorage
-  const startupCrashDraft = inspectCanvasCrashDraft(browserStorage)
+  const startupCrashDraft = inspectCanvasCrashDraft(browserStorage, currentContentWindowPersistence)
   const localCandidate =
     startupCrashDraft.kind === 'valid'
       ? {
@@ -419,7 +412,10 @@ export function CanvasPage() {
   const [selectedIds, setSelectedIds] = createSignal<string[]>([])
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null)
   const [searchOpen, setSearchOpen] = createSignal(false)
-  const [searchAnchor, setSearchAnchor] = createSignal<{ x: number; y: number } | null>(null)
+  const [searchAnchor, setSearchAnchor] = createSignal<{
+    x: number
+    y: number
+  } | null>(null)
   const [overflowOpen, setOverflowOpen] = createSignal(false)
   const [addMenuOpen, setAddMenuOpen] = createSignal(false)
   const [outlineOpen, setOutlineOpen] = createSignal(false)
@@ -476,7 +472,6 @@ export function CanvasPage() {
   const settingsQuery = useQuery(settingsQueryOptions)
   const serverConfigQuery = useQuery(serverConfigQueryOptions)
   const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
-  const explorerDataSource = createApplicationExplorerDataSource({ editableFolders })
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const writableDirectories = createMemo(() =>
     [...new Set([...knowledgeBases(), ...editableFolders()])].map((path) =>
@@ -557,7 +552,8 @@ export function CanvasPage() {
       const active = current.canvases.find((item) => item.id === current.activeId)
       if (
         !active ||
-        serializeInfiniteCanvasState(active.state) === serializeInfiniteCanvasState(liveState)
+        serializeInfiniteCanvasState(active.state, currentContentWindowPersistence) ===
+          serializeInfiniteCanvasState(liveState, currentContentWindowPersistence)
       ) {
         result = current
         return current
@@ -579,7 +575,7 @@ export function CanvasPage() {
       return result
     })
     if (changed && canWriteCrashDraft()) {
-      writeCanvasCrashDraft(browserStorage, result)
+      writeCanvasCrashDraft(browserStorage, result, currentContentWindowPersistence)
     }
     return result
   }
@@ -587,7 +583,8 @@ export function CanvasPage() {
   function sameCanvasContent(left: PersistedCanvas, right: PersistedCanvas): boolean {
     return (
       left.name === right.name &&
-      serializeInfiniteCanvasState(left.state) === serializeInfiniteCanvasState(right.state)
+      serializeInfiniteCanvasState(left.state, currentContentWindowPersistence) ===
+        serializeInfiniteCanvasState(right.state, currentContentWindowPersistence)
     )
   }
 
@@ -598,7 +595,7 @@ export function CanvasPage() {
     setCollection(next)
     setState((current) =>
       preserveRuntime && previous.activeId === active.id
-        ? reconcileInfiniteCanvasState(current, active.state)
+        ? reconcileInfiniteCanvasState(current, active.state, currentContentWindowPersistence)
         : cloneState(active.state),
     )
     setUndoStack([])
@@ -610,7 +607,9 @@ export function CanvasPage() {
   function saveCollection(next: CanvasCollection, delay = 50) {
     setCollection(next)
     localGeneration += 1
-    if (canWriteCrashDraft()) writeCanvasCrashDraft(browserStorage, next)
+    if (canWriteCrashDraft()) {
+      writeCanvasCrashDraft(browserStorage, next, currentContentWindowPersistence)
+    }
     scheduleSync(delay)
   }
 
@@ -651,7 +650,7 @@ export function CanvasPage() {
   async function refreshCanvasAfterPathMutation() {
     const generation = localGeneration
     try {
-      const remote = await getCanvasCollection()
+      const remote = await getCanvasCollection(currentContentWindowPersistence)
       if (localGeneration !== generation) return
       showCollection(
         remote.canvases.length > 0
@@ -689,7 +688,11 @@ export function CanvasPage() {
         canvases: saved.canvases.map((canvas) => ({
           ...canvas,
           state: runtimeById.has(canvas.id)
-            ? reconcileInfiniteCanvasState(runtimeById.get(canvas.id)!, canvas.state)
+            ? reconcileInfiniteCanvasState(
+                runtimeById.get(canvas.id)!,
+                canvas.state,
+                currentContentWindowPersistence,
+              )
             : canvas.state,
         })),
       }
@@ -712,7 +715,7 @@ export function CanvasPage() {
     }
     setCollection(next)
     acknowledgedGeneration = sentGeneration
-    writeCanvasCrashDraft(browserStorage, next)
+    writeCanvasCrashDraft(browserStorage, next, currentContentWindowPersistence)
     saveAgain = true
   }
 
@@ -737,8 +740,8 @@ export function CanvasPage() {
     try {
       const current = persistActiveState()
       const sentGeneration = localGeneration
-      writeCanvasCrashDraft(browserStorage, current)
-      const saved = await putCanvasCollection(current)
+      writeCanvasCrashDraft(browserStorage, current, currentContentWindowPersistence)
+      const saved = await putCanvasCollection(current, currentContentWindowPersistence)
       acknowledgeSavedCollection(saved, sentGeneration)
       savedSuccessfully = true
       setSyncStatus('saved')
@@ -760,14 +763,14 @@ export function CanvasPage() {
     cancelScheduledSync()
     saveAgain = false
     const chosen = persistActiveState()
-    const chosenSnapshot = serializeCanvasCollection(chosen)
-    writeCanvasCrashDraft(browserStorage, chosen)
+    const chosenSnapshot = serializeCanvasCollection(chosen, currentContentWindowPersistence)
+    writeCanvasCrashDraft(browserStorage, chosen, currentContentWindowPersistence)
     setSyncStatus('saving')
     let saveDefault = false
     try {
-      const remote = await getCanvasCollection()
+      const remote = await getCanvasCollection(currentContentWindowPersistence)
       const latest = persistActiveState()
-      if (serializeCanvasCollection(latest) !== chosenSnapshot) {
+      if (serializeCanvasCollection(latest, currentContentWindowPersistence) !== chosenSnapshot) {
         cancelScheduledSync()
         setSyncStatus('conflict')
         return
@@ -782,7 +785,7 @@ export function CanvasPage() {
       clearCanvasCrashDraft(browserStorage)
       if (remote.canvases.length === 0) {
         localGeneration += 1
-        writeCanvasCrashDraft(browserStorage, selected)
+        writeCanvasCrashDraft(browserStorage, selected, currentContentWindowPersistence)
         saveDefault = true
       }
       setSyncStatus('saved')
@@ -802,16 +805,16 @@ export function CanvasPage() {
     saveAgain = false
     setSyncStatus('saving')
     try {
-      writeCanvasCrashDraft(browserStorage, persistActiveState())
-      const remote = await getCanvasCollection()
+      writeCanvasCrashDraft(browserStorage, persistActiveState(), currentContentWindowPersistence)
+      const remote = await getCanvasCollection(currentContentWindowPersistence)
       const latest = persistActiveState()
       cancelScheduledSync()
       saveAgain = false
       const rebased = { ...latest, revision: remote.revision }
       setCollection(rebased)
-      writeCanvasCrashDraft(browserStorage, rebased)
+      writeCanvasCrashDraft(browserStorage, rebased, currentContentWindowPersistence)
       const sentGeneration = localGeneration
-      const saved = await putCanvasCollection(rebased)
+      const saved = await putCanvasCollection(rebased, currentContentWindowPersistence)
       acknowledgeSavedCollection(saved, sentGeneration)
       setSyncStatus('saved')
     } catch (error) {
@@ -851,9 +854,12 @@ export function CanvasPage() {
     if (initializationPromise) return initializationPromise
     const task = (async () => {
       try {
-        const remote = await getCanvasCollection()
+        const remote = await getCanvasCollection(currentContentWindowPersistence)
         persistActiveState()
-        const currentDraft = inspectCanvasCrashDraft(browserStorage)
+        const currentDraft = inspectCanvasCrashDraft(
+          browserStorage,
+          currentContentWindowPersistence,
+        )
         if (currentDraft.kind === 'corrupt') setCorruptDraftRaw(currentDraft.raw)
 
         let selected = remote
@@ -867,7 +873,10 @@ export function CanvasPage() {
           }
           needsSave = true
         } else if (remote.canvases.length === 0) {
-          selected = { ...createDefaultCanvasCollection(), revision: remote.revision }
+          selected = {
+            ...createDefaultCanvasCollection(),
+            revision: remote.revision,
+          }
           needsSave = true
         }
 
@@ -878,7 +887,7 @@ export function CanvasPage() {
           if (!canWriteCrashDraft()) {
             setSyncStatus('saved')
           } else {
-            writeCanvasCrashDraft(browserStorage, selected)
+            writeCanvasCrashDraft(browserStorage, selected, currentContentWindowPersistence)
             if (selected.revision === remote.revision) scheduleSync(0)
             else setSyncStatus('conflict')
           }
@@ -925,7 +934,7 @@ export function CanvasPage() {
       }
     }
     let fileDropPreviewRequest = 0
-    let fileDropInspection: { path: string; promise: Promise<ResourceSummary> } | undefined
+    let fileDropInspection: { identity: string; promise: Promise<ResourceSummary> } | undefined
     const clearFileDropPreview = () => {
       fileDropPreviewRequest += 1
       setFileDropPreview(null)
@@ -935,7 +944,7 @@ export function CanvasPage() {
     const updateFileDropPreview = (event: DragEvent) => {
       const transfer = event.dataTransfer
       const rect = viewport?.getBoundingClientRect()
-      if (!transfer || !hasFileDragData(transfer) || !rect) return
+      if (!transfer || !hasResourceDragData(transfer) || !rect) return
       if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) {
         clearFileDropPreview()
         return
@@ -950,31 +959,25 @@ export function CanvasPage() {
         return
       }
       const point = screenToWorld(event.clientX, event.clientY)
-      if (isDirectoryFileDragData(transfer)) {
+      if (isDirectoryResourceDragData(transfer)) {
         fileDropPreviewRequest += 1
         setFileDropPreview(fileWindowPlacement(point, state(), 'browser'))
         return
       }
-      const data = getFileDragData(transfer)
+      const data = getResourceDragData(transfer)
       const request = ++fileDropPreviewRequest
       setFileDropPreview(fileWindowPlacement(point, state(), 'viewer'))
       if (!data) return
-      const key = filesystemResourceKey(DEFAULT_FILESYSTEM_ROOT_ID, data.path)
-      const inspector = applicationContentRegistry.inspect(key)
+      const inspector = applicationContentRegistry.inspect(data.key)
       if (!inspector) return
-      if (!fileDropInspection || fileDropInspection.path !== data.path) {
-        fileDropInspection = { path: data.path, promise: inspector.inspect(key) }
+      const identity = `${data.key.provider}\0${data.key.id}`
+      if (!fileDropInspection || fileDropInspection.identity !== identity) {
+        fileDropInspection = { identity, promise: inspector.inspect(data.key) }
       }
       void fileDropInspection.promise
         .then((resource) => {
           if (request !== fileDropPreviewRequest) return
-          setFileDropPreview(
-            fileWindowPlacement(
-              point,
-              state(),
-              mediaWindowSizeKey(filesystemResourceMediaType(resource)),
-            ),
-          )
+          setFileDropPreview(fileWindowPlacement(point, state(), resourceWindowSizeKey(resource)))
         })
         .catch(() => {})
     }
@@ -1000,7 +1003,7 @@ export function CanvasPage() {
   })
 
   createEffect(() => {
-    serializeInfiniteCanvasState(state())
+    serializeInfiniteCanvasState(state(), currentContentWindowPersistence)
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
     persistenceTimer = window.setTimeout(() => {
       const before = localGeneration
@@ -1316,79 +1319,53 @@ export function CanvasPage() {
           : content?.type === 'resource'
             ? content.resource
             : null
-      return key?.provider === resource.key.provider && key.id === resource.key.id
+      return key ? sameResourceKey(key, resource.key) : false
     })
   }
 
-  let pendingCanvasHostOpen:
-    | {
-        resource: ResourceSummary
-        point: { x: number; y: number }
-        options: AddFileWindowOptions
-        created?: CanvasWindow
+  function placeCanvasPlan(
+    plan: OpenReadyPlan,
+    point: { x: number; y: number },
+    options: AddFileWindowOptions,
+  ): CanvasWindow | undefined {
+    let created: CanvasWindow | undefined
+    commit((current) => {
+      const id = `canvas-window-${current.nextItemId}`
+      const content = contentForOpenPlan(plan, id)
+      const baseDefinition: ContentWindowDefinition = {
+        id,
+        title: plan.summary.name,
+        contentInstance: content,
       }
-    | undefined
-
-  const canvasContentHost = createCanvasHost({
-    window(plan) {
-      const pending = pendingCanvasHostOpen
-      if (!pending) return
-      let created: CanvasWindow | undefined
-      commit((current) => {
-        const id = `canvas-window-${current.nextItemId}`
-        const address = filesystemResourceAddress(plan.resource)
-        const content: ContentInstance =
-          plan.kind === 'browse'
-            ? { id, type: 'explorer', location: plan.resource }
-            : {
-                id,
-                type: 'resource',
-                resource: plan.resource,
-                renderer: plan.renderer,
-                ...(address
-                  ? { context: filesystemResourceKey(address.rootId, parentPath(address.path)) }
-                  : {}),
-              }
-        const baseDefinition: ContentWindowDefinition = {
-          id,
-          title: pending.resource.name,
-          contentInstance: content,
-        }
-        const definition = contentWindowWithInstance(baseDefinition, content) ?? baseDefinition
-        const sizeKey = windowSizeKey(definition)
-        const requestedBounds = findNearestFreeCanvasRect(
-          {
-            ...pending.point,
-            ...(current.windowSizeByType[sizeKey] ??
-              (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
-              DEFAULT_WINDOW_SIZE[sizeKey]),
-          },
-          placementObstacles(current),
-        )
-        const worldBounds =
-          pending.options.worldBounds ??
-          clampWindowBoundsToViewport(requestedBounds, current.camera)
-        created = {
-          id,
-          definition,
-          bounds: worldBounds,
-          zIndex: current.nextZIndex,
-        }
-        return {
-          ...current,
-          windows: [...current.windows, created!],
-          nextItemId: current.nextItemId + 1,
-          nextZIndex: current.nextZIndex + 1,
-        }
-      })
-      pending.created = created
-      if (created) selectWindow(created.id)
-    },
-    close(instanceId) {
-      void closeWindow(instanceId)
-    },
-    focus: focusWindow,
-  })
+      const definition = contentWindowWithInstance(baseDefinition, content) ?? baseDefinition
+      const sizeKey = windowSizeKey(definition)
+      const requestedBounds = findNearestFreeCanvasRect(
+        {
+          ...point,
+          ...(current.windowSizeByType[sizeKey] ??
+            (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
+            DEFAULT_WINDOW_SIZE[sizeKey]),
+        },
+        placementObstacles(current),
+      )
+      const worldBounds =
+        options.worldBounds ?? clampWindowBoundsToViewport(requestedBounds, current.camera)
+      created = {
+        id,
+        definition,
+        bounds: worldBounds,
+        zIndex: current.nextZIndex,
+      }
+      return {
+        ...current,
+        windows: [...current.windows, created!],
+        nextItemId: current.nextItemId + 1,
+        nextZIndex: current.nextZIndex + 1,
+      }
+    })
+    if (created) selectWindow(created.id)
+    return created
+  }
 
   function addResourceWindow(
     resource: ResourceSummary,
@@ -1398,28 +1375,27 @@ export function CanvasPage() {
     if (!options.duplicate) {
       const existing = existingWindowForResource(resource)
       if (existing) {
-        canvasContentHost.focus(existing.id)
+        focusWindow(existing.id)
         return existing
       }
     }
     const intent = options.readerKind
       ? 'read'
-      : filesystemResourceIsDirectory(resource)
+      : resource.capabilities.includes('browse')
         ? 'browse'
         : 'default'
-    const plan = openResource(resource, intent, { surface: 'canvas', disposition: 'window' })
+    const plan = openResource(resource, intent, {
+      surface: 'canvas',
+      disposition: 'window',
+    })
     if (plan.status !== 'ready') {
-      setDialog({ kind: 'message', message: `This resource cannot be opened (${plan.reason}).` })
+      setDialog({
+        kind: 'message',
+        message: `This resource cannot be opened (${plan.reason}).`,
+      })
       return undefined
     }
-    const pending: NonNullable<typeof pendingCanvasHostOpen> = { resource, point, options }
-    pendingCanvasHostOpen = pending
-    try {
-      canvasContentHost.open(plan as HostOpenPlan<'window'>)
-      return pending.created
-    } finally {
-      pendingCanvasHostOpen = undefined
-    }
+    return placeCanvasPlan(plan, point, options)
   }
 
   function addBrowsableRootWindow(point: { x: number; y: number }) {
@@ -1559,7 +1535,9 @@ export function CanvasPage() {
 
   function exportCanvas() {
     const bundle = createCanvasExport(activeCanvas()?.name ?? 'Canvas', cloneState(state()))
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+      type: 'application/json',
+    })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -1571,7 +1549,10 @@ export function CanvasPage() {
 
   async function importCanvasFile(file: File) {
     try {
-      const bundle = parseCanvasExport(JSON.parse(await file.text()))
+      const bundle = parseCanvasExport(
+        JSON.parse(await file.text()),
+        currentContentWindowPersistence,
+      )
       if (!bundle) throw new Error('Unsupported canvas file')
       const current = persistActiveState()
       const record = createCanvasRecord(bundle.name, bundle.state)
@@ -1617,10 +1598,13 @@ export function CanvasPage() {
 
   function openReaderFromBrowser(sourceWindowId: string, resource: ResourceSummary) {
     const source = state().windows.find((window) => window.id === sourceWindowId)
-    if (!source || !filesystemResourceIsDirectory(resource)) return
+    if (!source || !resource.capabilities.includes('browse')) return
     const created = addResourceWindow(
       resource,
-      { x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE, y: source.bounds.y },
+      {
+        x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE,
+        y: source.bounds.y,
+      },
       { duplicate: true, readerKind: 'folder' },
     )
     if (created) settleCanvasWindows([source.bounds, created.bounds])
@@ -1628,7 +1612,7 @@ export function CanvasPage() {
 
   function canvasExplorerHostActions(
     sourceWindowId: string,
-  ): readonly ExplorerHostAction<ApplicationExplorerPayload>[] {
+  ): readonly ApplicationExplorerHostAction[] {
     return [
       {
         descriptor: {
@@ -1650,7 +1634,7 @@ export function CanvasPage() {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => filesystemResourceIsDirectory(item.resource),
+        available: (item) => item.resource.capabilities.includes('browse'),
         run: (item) => openReaderFromBrowser(sourceWindowId, item.resource),
       },
     ]
@@ -1786,33 +1770,29 @@ export function CanvasPage() {
   }
 
   function navigateDir(windowId: string, location: ResourceKey) {
-    replaceWindowContent(windowId, { id: windowId, type: 'explorer', location })
+    replaceWindowContent(windowId, {
+      id: windowId,
+      type: 'explorer',
+      location,
+    })
   }
 
-  async function updateViewing(windowId: string, path: string) {
+  async function updateResource(windowId: string, resourceKey: ResourceKey) {
     const definition = state().windows.find((window) => window.id === windowId)?.definition
     const current = definition ? contentInstanceFromCurrentWindow(definition) : null
-    const currentAddress =
-      current?.type === 'resource' ? filesystemResourceAddress(current.resource) : null
-    const key = filesystemResourceKey(currentAddress?.rootId ?? DEFAULT_FILESYSTEM_ROOT_ID, path)
-    const inspector = applicationContentRegistry.inspect(key)
+    const inspector = applicationContentRegistry.inspect(resourceKey)
     if (!inspector) return
-    const resource = await inspector.inspect(key)
+    const resource = await inspector.inspect(resourceKey)
     const plan = openResource(resource, 'default', {
       surface: 'canvas',
       disposition: 'window',
     })
     if (plan.status !== 'ready' || plan.kind !== 'render') return
-    const planAddress = filesystemResourceAddress(plan.resource)
-    const rootId = currentAddress?.rootId ?? planAddress?.rootId
-    if (!rootId) return
-    replaceWindowContent(windowId, {
-      id: windowId,
-      type: 'resource',
-      resource: filesystemResourceKey(rootId, path),
-      renderer: plan.renderer,
-      context: filesystemResourceKey(rootId, parentPath(path)),
-    })
+    const context =
+      current?.type === 'resource' && current.resource.provider === resourceKey.provider
+        ? current.context
+        : undefined
+    replaceWindowContent(windowId, contentForOpenPlan(plan, windowId, context))
   }
 
   function sizeVideoWindow(windowId: string, videoWidth: number, videoHeight: number) {
@@ -1857,12 +1837,11 @@ export function CanvasPage() {
       return
     }
     if (!targetIsCurrent()) return
-    const viewing = contentWindowFilesystemPath(target.definition)
     const currentPlaybackItem = playbackSession.getSnapshot().currentItem
     if (
-      viewing &&
+      content?.type === 'resource' &&
       currentPlaybackItem &&
-      filesystemPlaybackItemPath(currentPlaybackItem) === viewing
+      sameResourceKey(currentPlaybackItem.resource, content.resource)
     ) {
       playbackSession.dispatch({ type: 'stop' })
     }
@@ -2002,7 +1981,10 @@ export function CanvasPage() {
         ...current,
         windowSizeByType: {
           ...current.windowSizeByType,
-          [windowSizeKey(resized.definition)]: { width: bounds.width, height: bounds.height },
+          [windowSizeKey(resized.definition)]: {
+            width: bounds.width,
+            height: bounds.height,
+          },
         },
       }
       setState(after)
@@ -2076,17 +2058,7 @@ export function CanvasPage() {
       context: { surface: 'canvas', disposition: 'window' },
       place(selected, plan) {
         if (!selected.resource || plan.status !== 'ready') return
-        const pending: NonNullable<typeof pendingCanvasHostOpen> = {
-          resource: selected.resource,
-          point: searchPlacement(),
-          options: {},
-        }
-        pendingCanvasHostOpen = pending
-        try {
-          canvasContentHost.open(plan as HostOpenPlan<'window'>)
-        } finally {
-          pendingCanvasHostOpen = undefined
-        }
+        placeCanvasPlan(plan, searchPlacement(), {})
       },
     })
   }
@@ -2161,16 +2133,18 @@ export function CanvasPage() {
     const audioWindows = stateWindows.filter(
       (window) =>
         contentWindowKind(window.definition) === 'viewer' &&
-        contentMediaType(window.definition) === MediaType.AUDIO,
+        contentCategory(window.definition) === 'audio',
     )
     const currentWindow =
       current.mode === 'audio' && current.currentItem
-        ? stateWindows.find(
-            (window) =>
-              contentWindowKind(window.definition) === 'viewer' &&
-              contentWindowFilesystemPath(window.definition) ===
-                (current.currentItem ? filesystemPlaybackItemPath(current.currentItem) : null),
-          )
+        ? stateWindows.find((window) => {
+            const content = contentInstanceFromCurrentWindow(window.definition)
+            return (
+              content?.type === 'resource' &&
+              current.currentItem &&
+              sameResourceKey(content.resource, current.currentItem.resource)
+            )
+          })
         : undefined
     const id = lastAudioWindowId()
     return (
@@ -2250,7 +2224,10 @@ export function CanvasPage() {
                             class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground'
                             onClick={() => {
                               setDialogInput(canvas.name)
-                              setDialog({ kind: 'rename-canvas', canvasId: canvas.id })
+                              setDialog({
+                                kind: 'rename-canvas',
+                                canvasId: canvas.id,
+                              })
                               setCanvasMenuOpen(false)
                             }}
                           >
@@ -2594,7 +2571,10 @@ export function CanvasPage() {
           ref={(element) => (viewportEl = element)}
           data-testid='infinite-canvas'
           class='relative min-h-0 flex-1 overflow-clip bg-muted/20 outline-none'
-          classList={{ 'cursor-grab': spaceHeld(), 'cursor-grabbing': geometryActive() }}
+          classList={{
+            'cursor-grab': spaceHeld(),
+            'cursor-grabbing': geometryActive(),
+          }}
           style={{
             'background-image':
               state().camera.zoom < FAR_ZOOM
@@ -2628,7 +2608,7 @@ export function CanvasPage() {
           }}
           onContextMenu={onCanvasContextMenu}
           onDragOver={(event) => {
-            if (!event.dataTransfer || !hasFileDragData(event.dataTransfer)) return
+            if (!event.dataTransfer || !hasResourceDragData(event.dataTransfer)) return
             if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
             event.preventDefault()
             event.dataTransfer.dropEffect = 'copy'
@@ -2642,20 +2622,17 @@ export function CanvasPage() {
             const transfer = event.dataTransfer
             if (!transfer) return
             if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
-            const data = getFileDragData(transfer)
-            if (!data || data.sourceKind !== 'local') return
+            const data = getResourceDragData(transfer)
+            if (!data) return
             event.preventDefault()
             const point = screenToWorld(event.clientX, event.clientY)
             const preview = fileDropPreview()
             setFileDropPreview(null)
             void (async () => {
-              const key = filesystemResourceKey(DEFAULT_FILESYSTEM_ROOT_ID, data.path)
-              const inspector = applicationContentRegistry.inspect(key)
+              const inspector = applicationContentRegistry.inspect(data.key)
               if (!inspector) return
-              const resource = await inspector.inspect(key)
-              const sizeKey = filesystemResourceIsDirectory(resource)
-                ? 'browser'
-                : mediaWindowSizeKey(filesystemResourceMediaType(resource))
+              const resource = await inspector.inspect(data.key)
+              const sizeKey = resourceWindowSizeKey(resource)
               const placement =
                 preview?.sizeKey === sizeKey
                   ? preview
@@ -2720,9 +2697,9 @@ export function CanvasPage() {
                 const item = createMemo(() =>
                   state().windows.find((window) => window.id === windowId),
                 )
-                const integrationContent = createMemo(() => {
+                const surfaceContent = createMemo(() => {
                   const instance = contentInstanceFromCurrentWindow(item()!.definition)
-                  return instance?.type === 'integration' ? instance : null
+                  return instance && instance.type !== 'explorer' ? instance : null
                 })
                 const worldBounds = createMemo(() => item()!.bounds)
                 const maximized = () => maximizedWindowId() === windowId
@@ -2857,7 +2834,11 @@ export function CanvasPage() {
                               <Show
                                 when={liveWindowChrome()}
                                 fallback={
-                                  <span style={{ transform: `scale(${actionIconScale()})` }}>
+                                  <span
+                                    style={{
+                                      transform: `scale(${actionIconScale()})`,
+                                    }}
+                                  >
                                     <Maximize2 class='size-5' stroke-width={2} />
                                   </span>
                                 }
@@ -2879,7 +2860,11 @@ export function CanvasPage() {
                             <Show
                               when={liveWindowChrome()}
                               fallback={
-                                <span style={{ transform: `scale(${actionIconScale()})` }}>
+                                <span
+                                  style={{
+                                    transform: `scale(${actionIconScale()})`,
+                                  }}
+                                >
                                   <Minimize2 class='size-5' stroke-width={2} />
                                 </span>
                               }
@@ -2899,7 +2884,11 @@ export function CanvasPage() {
                           <Show
                             when={liveWindowChrome()}
                             fallback={
-                              <span style={{ transform: `scale(${actionIconScale()})` }}>
+                              <span
+                                style={{
+                                  transform: `scale(${actionIconScale()})`,
+                                }}
+                              >
                                 <X class='size-5' stroke-width={2} />
                               </span>
                             }
@@ -2933,88 +2922,37 @@ export function CanvasPage() {
                             contentWindowKind(item()!.definition) === 'browser'
                           }
                         >
-                          <ExplorerView<ApplicationExplorerPayload>
+                          <ApplicationExplorerView
                             location={() => explorerLocation(item()!.definition)}
-                            dataSource={explorerDataSource}
                             active={() =>
                               selection()?.kind === 'window' && selection()!.id === windowId
                             }
+                            editableFolders={editableFolders}
+                            iconContext={fileIconContext}
                             displayMode='Workspace'
                             hostActions={() => canvasExplorerHostActions(windowId)}
-                            itemDomValue={(entry) =>
-                              filesystemPathForResourceKey(entry.resource.key) ?? undefined
-                            }
-                            breadcrumbDomValue={(location) =>
-                              filesystemPathForResourceKey(location.key) ?? undefined
-                            }
-                            renderItemIcon={(entry, size) => {
-                              const current = fileIconContext()
-                              return size === 'large'
-                                ? gridResourceSummaryIcon(entry.resource, current)
-                                : resourceSummaryIcon(entry.resource, current)
-                            }}
-                            destinationPicker={(_action, entry) => {
-                              const path = filesystemPathForResourceKey(entry.resource.key)
-                              return path === null
-                                ? null
-                                : { filePath: path, editableFolders: editableFolders() }
-                            }}
                             onNavigate={(location) => navigateDir(windowId, location.key)}
-                            onOpen={(entry) => openResourceFromBrowser(windowId, entry.resource)}
-                            onOpenContent={(content, entry) =>
-                              openContentWindow(windowId, content, entry.resource)
+                            onOpen={(resource) => openResourceFromBrowser(windowId, resource)}
+                            onOpenContent={(content, resource) =>
+                              openContentWindow(windowId, content, resource)
                             }
-                            onDragStart={(entry, event) => {
-                              const path = filesystemPathForResourceKey(entry.resource.key)
-                              if (path === null || !event.dataTransfer) return
-                              setFileDragData(event.dataTransfer, {
-                                path,
-                                isDirectory: filesystemResourceIsDirectory(entry.resource),
-                                sourceKind: 'local',
-                              })
-                            }}
                           />
                         </Show>
-                        <Show
-                          when={
-                            !item()!.definition.contentRecoveryReason &&
-                            contentWindowKind(item()!.definition) === 'viewer'
-                          }
-                        >
-                          <FilesystemResourceViewerContent
+                        <Show when={!item()!.definition.contentRecoveryReason && surfaceContent()}>
+                          <ContentRuntimeView
                             runtime={applicationContentRuntime}
-                            contentInstance={() => resourceContent(item()!.definition)}
-                            contentVisible={() => true}
-                            viewingPath={() =>
-                              contentWindowFilesystemPath(item()!.definition) ?? ''
-                            }
-                            readerKind={() => contentReaderKind(item()!.definition)}
-                            directory={() =>
-                              contentWindowFilesystemDirectory(item()!.definition) ?? ''
-                            }
+                            instance={surfaceContent}
+                            visible={() => true}
+                            autoPlay={false}
                             active={() =>
                               selection()?.kind === 'window' && selection()!.id === windowId
                             }
-                            autoPlayVideo={false}
-                            onNavigateViewing={(path) => updateViewing(windowId, path)}
-                            onReplaceContent={(content) => {
-                              replaceWindowContent(windowId, content)
-                            }}
-                            onVideoMetadataLoaded={(width, height) =>
-                              sizeVideoWindow(windowId, width, height)
-                            }
-                            onAudioActivate={() => handleAudioActivate(windowId)}
-                            showListenOnly={false}
-                          />
-                        </Show>
-                        <Show when={integrationContent()}>
-                          <ContentRuntimeView
-                            runtime={applicationContentRuntime}
-                            instance={integrationContent}
-                            active={() => selection()?.id === windowId}
+                            onNavigate={(resource) => updateResource(windowId, resource)}
                             onReplace={(content) => replaceWindowContent(windowId, content)}
                             onOpen={(content) => openContentWindow(windowId, content)}
                             onClose={() => void closeWindow(windowId)}
+                            onResize={(width, height) => sizeVideoWindow(windowId, width, height)}
+                            onActivate={() => handleAudioActivate(windowId)}
                           />
                         </Show>
                       </div>
@@ -3029,21 +2967,27 @@ export function CanvasPage() {
                           <span
                             data-testid='canvas-window-zoom-icon'
                             class='inline-flex items-center justify-center'
-                            style={{ transform: `scale(${summaryMetrics().iconScale})` }}
+                            style={{
+                              transform: `scale(${summaryMetrics().iconScale})`,
+                            }}
                           >
                             {workspaceTabIcon(item()!.definition, fileIconContext(), 'md')}
                           </span>
                           <p
                             data-testid='canvas-window-zoom-title'
                             class='max-w-full truncate font-semibold leading-[1.15]'
-                            style={{ 'font-size': `${summaryMetrics().title}px` }}
+                            style={{
+                              'font-size': `${summaryMetrics().title}px`,
+                            }}
                           >
                             {item()!.definition.title}
                           </p>
                           <p
                             data-testid='canvas-window-zoom-kind'
                             class='max-w-full truncate font-semibold leading-[1.15] text-foreground/80'
-                            style={{ 'font-size': `${summaryMetrics().kind}px` }}
+                            style={{
+                              'font-size': `${summaryMetrics().kind}px`,
+                            }}
                           >
                             {details().kind}
                           </p>
@@ -3051,7 +2995,9 @@ export function CanvasPage() {
                             <p
                               data-testid='canvas-window-zoom-path'
                               class='max-w-full truncate leading-[1.15] text-muted-foreground'
-                              style={{ 'font-size': `${summaryMetrics().path}px` }}
+                              style={{
+                                'font-size': `${summaryMetrics().path}px`,
+                              }}
                             >
                               {details().path}
                             </p>
@@ -3206,7 +3152,10 @@ export function CanvasPage() {
                 <MenuButton
                   onClick={() => {
                     const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
-                    addBrowsableRootWindow({ x: value.worldX, y: value.worldY })
+                    addBrowsableRootWindow({
+                      x: value.worldX,
+                      y: value.worldY,
+                    })
                     setMenu(null)
                   }}
                 >

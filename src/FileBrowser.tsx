@@ -5,11 +5,9 @@ import {
   useBrowserHistory,
 } from './browser-history'
 import { ContentRuntimeView } from './features/content/ContentRuntimeView'
-import type { HostOpenPlan } from './features/content/contracts'
-import { createLibraryHost } from './features/content/hosts'
-import { ExplorerView } from './features/explorer/ExplorerView'
-import type { ExplorerHistory, ExplorerItem, ExplorerSnapshot } from './features/explorer/types'
-import type { ExplorerHostAction } from './features/explorer/view-types'
+import { contentRuntimeIdentity } from './features/content/runtime'
+import { contentForOpenPlan, type OpenReadyPlan } from './features/open/open-resource'
+import type { ExplorerHistory } from './features/explorer/types'
 import { openResource } from './integrations/open-resource'
 import { applicationSearchCoordinator } from './integrations/search'
 import { executeSearchHit } from './features/search/executor'
@@ -17,64 +15,32 @@ import type { SearchHit } from './features/search/contracts'
 import {
   DEFAULT_FILESYSTEM_ROOT_ID,
   filesystemResourceKey,
+  resourceIsBrowsable,
   type ResourceSummary,
 } from '@/lib/domain/resource'
 import { playbackItemKey } from './features/playback'
-import {
-  filesystemAudioPlaybackQueue,
-  filesystemPlaybackItemFromResource,
-  filesystemPlaybackItemPath,
-} from './integrations/filesystem/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
 import { FileSearchButton } from './FileSearchPalette'
 import {
-  createApplicationExplorerDataSource,
   explorerLocationFromQuery,
   explorerLocationQuery,
   recordApplicationExplorerView,
-  type ApplicationExplorerPayload,
 } from './integrations/explorer-adapter'
 import {
-  filesystemPathForResourceKey,
-  filesystemResourceIsDirectory,
-} from './integrations/filesystem/resource'
+  ApplicationExplorerView,
+  type ApplicationExplorerHostAction,
+  type ApplicationExplorerSnapshot,
+} from './integrations/ApplicationExplorerView'
+import { filesystemPathForResourceKey } from './integrations/filesystem/resource'
 import { applicationContentRegistry, applicationContentRuntime } from './integrations/registry'
 import { hrefFor } from './lib/routes'
-import {
-  gridResourceSummaryIcon,
-  resourceSummaryIcon,
-  type FileIconContext,
-} from './lib/use-file-icon'
+import type { FileIconContext } from './lib/use-file-icon'
 import { useDynamicFavicon } from './lib/use-dynamic-favicon'
 import { closeViewer, playFile, viewFile } from './lib/url-state-actions'
 import { MainMediaPlayers } from './media/MainMediaPlayers'
 import { openInReader } from './reader/reader-url'
 import { ThemeSwitcher } from './ThemeSwitcher'
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-
-function editableFoldersFor(item: ExplorerItem<ApplicationExplorerPayload>): readonly string[] {
-  const folders = item.resource.metadata?.editableFolders
-  return Array.isArray(folders)
-    ? folders.filter((folder): folder is string => typeof folder === 'string')
-    : []
-}
-
-function sameContentIdentity(left: ContentInstance, right: ContentInstance): boolean {
-  if (left.id !== right.id || left.type !== right.type) return false
-  if (left.type === 'integration' && right.type === 'integration') {
-    return left.integration === right.integration && left.view === right.view
-  }
-  if (left.type === 'resource' && right.type === 'resource') {
-    return (
-      left.resource.provider === right.resource.provider &&
-      left.resource.id === right.resource.id &&
-      left.renderer === right.renderer
-    )
-  }
-  return left.type === 'explorer' && right.type === 'explorer'
-    ? left.location.provider === right.location.provider && left.location.id === right.location.id
-    : false
-}
 
 export function FileBrowser() {
   const browserLocation = useBrowserHistory()
@@ -84,13 +50,11 @@ export function FileBrowser() {
   const playbackSession = usePlaybackSession()
   const playbackSnapshot = usePlaybackSnapshot()
   const [integrationContent, setIntegrationContent] = createSignal<ContentInstance | null>(null)
-  const [explorerSnapshot, setExplorerSnapshot] =
-    createSignal<ExplorerSnapshot<ApplicationExplorerPayload> | null>(null)
-  const dataSource = createApplicationExplorerDataSource()
+  const [explorerSnapshot, setExplorerSnapshot] = createSignal<ApplicationExplorerSnapshot | null>(
+    null,
+  )
   let previousPlayingPath: string | null = null
   let playbackResolveVersion = 0
-  let integrationDialogRef: HTMLDivElement | undefined
-  let plannedLibraryResource: ResourceSummary | null = null
 
   createEffect(() => {
     const path = params().get('playing')
@@ -113,28 +77,38 @@ export function FileBrowser() {
       const inspector = applicationContentRegistry.inspect(key)
       const resource = listed ?? (inspector ? await inspector.inspect(key) : null)
       if (!resource || version !== playbackResolveVersion) return
-      const item = filesystemPlaybackItemFromResource(resource)
+      const item = applicationContentRegistry.playbackItem(resource)
       if (!item) return
       const mode = item.media === 'video' && audioOnly ? 'audio' : item.media
       const current = playbackSession.getSnapshot()
       const sameCurrent =
         !!current.currentItem && playbackItemKey(current.currentItem) === playbackItemKey(item)
       const resources = snapshot?.items.map((candidate) => candidate.resource) ?? []
-      const queue = item.media === 'audio' ? filesystemAudioPlaybackQueue(resources, item) : [item]
+      const queue = applicationContentRegistry.playbackQueue(resources, item)
       if (!sameCurrent) {
-        playbackSession.dispatch({ type: 'load', item, queue, mode, autoplay: true })
+        playbackSession.dispatch({
+          type: 'load',
+          item,
+          queue,
+          mode,
+          autoplay: true,
+        })
         return
       }
       if (current.mode !== mode) playbackSession.dispatch({ type: 'setMode', mode })
       if (item.media === 'audio') {
-        playbackSession.dispatch({ type: 'setQueue', queue, current: current.currentItem ?? item })
+        playbackSession.dispatch({
+          type: 'setQueue',
+          queue,
+          current: current.currentItem ?? item,
+        })
       }
     })()
   })
 
   async function replaceIntegrationContent(content: ContentInstance) {
     const previous = integrationContent()
-    if (previous && !sameContentIdentity(previous, content)) {
+    if (previous && contentRuntimeIdentity(previous) !== contentRuntimeIdentity(content)) {
       if (!(await applicationContentRuntime.canClose(previous))) return
       if (integrationContent() !== previous) return
       await applicationContentRuntime.release(previous)
@@ -190,18 +164,17 @@ export function FileBrowser() {
     },
   }
 
-  function openFilesystemResource(resource: ResourceSummary) {
+  function openLibraryResource(resource: ResourceSummary): boolean {
     const path = filesystemPathForResourceKey(resource.key)
-    if (path === null) return
-    if (filesystemResourceIsDirectory(resource)) {
+    if (resourceIsBrowsable(resource)) {
       navigateSearchParams(explorerLocationQuery(resource.key), 'push')
-      return
+      return true
     }
-    const item = filesystemPlaybackItemFromResource(resource)
+    const item = applicationContentRegistry.playbackItem(resource)
     if (item) {
       const current = playbackSession.getSnapshot()
       const resources = explorerSnapshot()?.items.map((listed) => listed.resource) ?? []
-      const queue = item.media === 'audio' ? filesystemAudioPlaybackQueue(resources, item) : [item]
+      const queue = applicationContentRegistry.playbackQueue(resources, item)
       if (
         current.currentItem &&
         playbackItemKey(current.currentItem) === playbackItemKey(item) &&
@@ -217,83 +190,45 @@ export function FileBrowser() {
           autoplay: true,
         })
       }
-      playFile(path)
-      return
+      if (path !== null) playFile(path)
+      return true
     }
+    if (path === null) return false
     viewFile(path)
+    return true
   }
 
-  function placeLibraryPlan(plan: HostOpenPlan<'replace' | 'modal' | 'fullscreen'>) {
-    const planned = plannedLibraryResource
-    const resource =
-      (planned &&
-      planned.key.provider === plan.resource.provider &&
-      planned.key.id === plan.resource.id
-        ? planned
-        : null) ??
-      explorerSnapshot()?.items.find(
-        (candidate) =>
-          candidate.resource.key.provider === plan.resource.provider &&
-          candidate.resource.key.id === plan.resource.id,
-      )?.resource
-    if (!resource) return
+  function placeLibraryPlan(plan: OpenReadyPlan) {
+    const resource = plan.summary
     if (plan.kind === 'browse') {
       navigateSearchParams(explorerLocationQuery(resource.key), 'push')
       return
     }
-    if (filesystemPathForResourceKey(resource.key) !== null) {
-      openFilesystemResource(resource)
-      return
-    }
-    void replaceIntegrationContent({
-      id: `library-${resource.key.provider}-${resource.key.id}`,
-      type: 'resource',
-      resource: resource.key,
-      renderer: plan.renderer,
-    })
+    if (openLibraryResource(resource)) return
+    void replaceIntegrationContent(
+      contentForOpenPlan(plan, `library-${resource.key.provider}-${resource.key.id}`),
+    )
   }
 
-  const libraryHost = createLibraryHost({
-    replace: placeLibraryPlan,
-    modal: placeLibraryPlan,
-    fullscreen: placeLibraryPlan,
-    close(instanceId) {
-      if (integrationContent()?.id === instanceId) void closeIntegrationContent()
-    },
-    focus(instanceId) {
-      if (integrationContent()?.id === instanceId) integrationDialogRef?.focus()
-    },
-  })
-
-  function openItem(item: ExplorerItem<ApplicationExplorerPayload>) {
-    const browsable =
-      item.resource.capabilities.includes('browse') || item.resource.presentation === 'browse'
-    const playable =
-      item.resource.presentation === 'audio' ||
-      item.resource.presentation === 'video' ||
-      item.resource.mime?.startsWith('audio/') ||
-      item.resource.mime?.startsWith('video/')
+  function openItem(resource: ResourceSummary) {
+    const browsable = resourceIsBrowsable(resource)
+    const playable = applicationContentRegistry.playbackItem(resource) !== null
     const intent = browsable ? 'browse' : playable ? 'play' : 'view'
-    const plan = openResource(item.resource, intent, {
+    const plan = openResource(resource, intent, {
       surface: 'library',
       disposition:
-        item.resource.presentation === 'pdf' ||
-        item.resource.presentation === 'book' ||
-        item.resource.mime === 'application/pdf' ||
-        item.resource.mime === 'application/epub+zip'
+        resource.presentation === 'pdf' ||
+        resource.presentation === 'book' ||
+        resource.mime === 'application/pdf' ||
+        resource.mime === 'application/epub+zip'
           ? 'fullscreen'
           : browsable
             ? 'replace'
             : 'modal',
     })
     if (plan.status === 'ready') {
-      void recordApplicationExplorerView(item.resource)
-      plannedLibraryResource = item.resource
-      try {
-        libraryHost.open(plan as HostOpenPlan<'replace' | 'modal' | 'fullscreen'>)
-      } finally {
-        plannedLibraryResource = null
-      }
+      void recordApplicationExplorerView(resource)
+      placeLibraryPlan(plan)
     }
   }
 
@@ -305,22 +240,20 @@ export function FileBrowser() {
           : resource.mime === 'application/pdf' || resource.mime === 'application/epub+zip'
             ? 'fullscreen'
             : 'modal'
-        return openResource(resource, intent, { surface: 'library', disposition })
+        return openResource(resource, intent, {
+          surface: 'library',
+          disposition,
+        })
       },
       context: { surface: 'library', disposition: 'modal' },
       place(selected, plan) {
         if (!selected.resource || plan.status !== 'ready') return
-        plannedLibraryResource = selected.resource
-        try {
-          libraryHost.open(plan as HostOpenPlan<'replace' | 'modal' | 'fullscreen'>)
-        } finally {
-          plannedLibraryResource = null
-        }
+        placeLibraryPlan(plan)
       },
     })
   }
 
-  function hostActions(): readonly ExplorerHostAction<ApplicationExplorerPayload>[] {
+  function hostActions(): readonly ApplicationExplorerHostAction[] {
     return [
       {
         descriptor: {
@@ -331,13 +264,16 @@ export function FileBrowser() {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => filesystemResourceIsDirectory(item.resource),
+        available: (item) => resourceIsBrowsable(item.resource),
         run: (item) => {
           window.open(
             new URL(
               hrefFor(
                 { kind: 'library' },
-                { provider: item.resource.key.provider, resource: item.resource.key.id },
+                {
+                  provider: item.resource.key.provider,
+                  resource: item.resource.key.id,
+                },
               ),
               window.location.origin,
             ).href,
@@ -354,12 +290,15 @@ export function FileBrowser() {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => filesystemResourceIsDirectory(item.resource),
+        available: (item) => resourceIsBrowsable(item.resource),
         run: (item) => {
           window.open(
             hrefFor(
               { kind: 'workspace' },
-              { provider: item.resource.key.provider, resource: item.resource.key.id },
+              {
+                provider: item.resource.key.provider,
+                resource: item.resource.key.id,
+              },
             ),
             '_blank',
           )
@@ -374,25 +313,20 @@ export function FileBrowser() {
           scope: 'host',
           interaction: 'immediate',
         },
-        available: (item) => filesystemResourceIsDirectory(item.resource),
+        available: (item) => resourceIsBrowsable(item.resource),
         run: (item) => openInReader(item.resource),
       },
     ]
   }
 
-  function iconContext(item: ExplorerItem<ApplicationExplorerPayload>): FileIconContext {
-    const path = filesystemPathForResourceKey(item.resource.key)
-    const metadata = item.resource.metadata ?? {}
+  function iconContext(): FileIconContext {
     const playback = playbackSnapshot()
     const playingPath = playback.currentItem
-      ? filesystemPlaybackItemPath(playback.currentItem)
+      ? filesystemPathForResourceKey(playback.currentItem.resource)
       : null
     return {
-      customIcons:
-        path !== null && typeof metadata.customIcon === 'string'
-          ? { [path]: metadata.customIcon }
-          : {},
-      knowledgeBases: path !== null && metadata.knowledgeBase === true ? [path] : [],
+      customIcons: {},
+      knowledgeBases: [],
       playingPath,
       currentFile: playingPath,
       mediaPlayerIsPlaying: playback.phase === 'playing',
@@ -415,10 +349,10 @@ export function FileBrowser() {
           data-testid='library-explorer-shell'
           class='min-h-[32rem] border-border bg-card shadow-sm lg:rounded-xl lg:border'
         >
-          <ExplorerView
+          <ApplicationExplorerView
             location={currentLocation}
-            dataSource={dataSource}
             history={explorerHistory}
+            iconContext={iconContext}
             testId='file-browser'
             dropZoneTestId='upload-drop-zone'
             scrollMode='window'
@@ -433,28 +367,13 @@ export function FileBrowser() {
                 <ThemeSwitcher />
               </>
             )}
-            itemDomValue={(item) => filesystemPathForResourceKey(item.resource.key) ?? undefined}
-            breadcrumbDomValue={(location) =>
-              filesystemPathForResourceKey(location.key) ?? undefined
-            }
-            renderItemIcon={(item, size) =>
-              size === 'large'
-                ? gridResourceSummaryIcon(item.resource, iconContext(item))
-                : resourceSummaryIcon(item.resource, iconContext(item))
-            }
-            destinationPicker={(_action, item) => {
-              const path = filesystemPathForResourceKey(item.resource.key)
-              return path === null
-                ? null
-                : { filePath: path, editableFolders: editableFoldersFor(item) }
-            }}
             onOpen={openItem}
             onSnapshot={(snapshot) => {
               setExplorerSnapshot(snapshot)
             }}
             onOpenContent={replaceIntegrationContent}
-            onUnsupportedChange={(item) => {
-              const path = item ? filesystemPathForResourceKey(item.resource.key) : null
+            onUnsupportedChange={(resource) => {
+              const path = resource ? filesystemPathForResourceKey(resource.key) : null
               if (path !== null) viewFile(path)
               else closeViewer()
             }}
@@ -464,7 +383,6 @@ export function FileBrowser() {
 
       <Show when={integrationContent()}>
         <div
-          ref={integrationDialogRef}
           role='dialog'
           aria-modal='true'
           tabindex={-1}

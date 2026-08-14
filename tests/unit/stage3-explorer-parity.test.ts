@@ -14,18 +14,31 @@ const EXPLORER_HOSTS = [
 ] as const
 
 describe('Stage 3 Explorer parity', () => {
-  test('Library, Workspace, and Canvas mount the same Explorer and application data source', async () => {
+  test('Library, Workspace, and Canvas mount one application Explorer boundary', async () => {
     for (const path of EXPLORER_HOSTS) {
       const source = await Bun.file(path).text()
-      expect(source, path).toMatch(/features\/explorer\/ExplorerView/)
-      expect(source, path).toMatch(/createApplicationExplorerDataSource/)
+      expect(source, path).toMatch(/integrations\/ApplicationExplorerView/)
+      expect(source, path).toMatch(/<ApplicationExplorerView/)
+      expect(source, path).not.toMatch(/features\/explorer\/ExplorerView/)
+      expect(source, path).not.toMatch(/createApplicationExplorerDataSource/)
+      expect(source, path).not.toMatch(
+        /itemDomValue=|breadcrumbDomValue=|renderItemIcon=|destinationPicker=/,
+      )
     }
+
+    const boundary = await Bun.file('src/integrations/ApplicationExplorerView.tsx').text()
+    expect(boundary).toMatch(/<ExplorerView/)
+    expect(boundary).toMatch(/createApplicationExplorerDataSource/)
+    expect(boundary).toMatch(/resourceLogicalPath/)
+    expect(boundary).toMatch(/setResourceDragData/)
+    expect(boundary).toMatch(/moveApplicationResource/)
   })
 
   test('Library host no longer owns file queries, mutations, or provider actions', async () => {
     const source = await Bun.file('src/FileBrowser.tsx').text()
 
-    expect(source).toMatch(/createLibraryHost/)
+    expect(source).toMatch(/placeLibraryPlan/)
+    expect(source).not.toMatch(/plannedLibraryResource|createLibraryHost/)
     expect(source).not.toMatch(/@tanstack\/solid-query/)
     expect(source).not.toMatch(
       /filesQueryOptions|fileMutationOptions|settingsMutationOptions|apiEndpoints/,
@@ -48,6 +61,9 @@ describe('Stage 3 Explorer parity', () => {
       )
     }
     expect(sources[0]).not.toMatch(/props\.workspace|initialState\.dir|legacyExplorerLocation/)
+    expect(sources[0]).not.toMatch(
+      /integrations\/filesystem|filesystemPathForResourceKey|FILESYSTEM_RENDERER_ID/,
+    )
   })
 
   test('filesystem resources retain applicable actions and presentation metadata', async () => {
@@ -99,14 +115,19 @@ describe('Stage 3 Explorer parity', () => {
     const folderActions = registry.actions(folder)!.list(folder)
     expect(folderActions.map((action) => action.id)).toContain('filesystem.copy')
     expect(folderActions).toContainEqual(
-      expect.objectContaining({ id: 'filesystem.download', label: 'Download as ZIP' }),
+      expect.objectContaining({
+        id: 'filesystem.download',
+        label: 'Download as ZIP',
+      }),
     )
 
     const download = await registry.actions(folder)!.run({
       actionId: 'filesystem.download',
       resource: folder,
     })
-    expect(download).toEqual({ value: { url: '/download', filename: 'Notes.zip' } })
+    expect(download).toEqual({
+      value: { url: '/download', filename: 'Notes.zip' },
+    })
 
     const applicationAdapter = await Bun.file('src/integrations/explorer-adapter.ts').text()
     expect(applicationAdapter).toMatch(/id: 'application\.favorite'/)

@@ -441,26 +441,20 @@ export async function recordApplicationExplorerView(resource: ResourceSummary): 
   notifyApplicationExplorers()
 }
 
-export async function moveFilesystemItemByPath(
-  sourcePath: string,
+export async function moveApplicationResource(
+  sourceKey: ResourceKey,
   destination: ResourceSummary,
 ): Promise<boolean> {
-  const destinationPath = filesystemPathForResourceKey(destination.key)
-  if (destinationPath === null) return false
-  const name = sourcePath.split(/[/\\]/).at(-1) ?? ''
-  const resource: ResourceSummary = {
-    key: filesystemResourceKeyForPath(sourcePath),
-    name,
-    kind: 'file',
-    capabilities: ['filesystem.move'],
-  }
+  const inspector = applicationContentRegistry.inspect(sourceKey)
+  if (!inspector) return false
+  const resource = await inspector.inspect(sourceKey)
   const provider = applicationContentRegistry.actions(resource)
   const action = provider?.list(resource).find((candidate) => candidate.operation === 'move')
   if (!provider || !action) return false
   const outcome = await provider.run({
     actionId: action.id,
     resource,
-    input: { destinationDir: destinationPath },
+    input: { destination: destination.key },
   })
   if (outcome && 'schemaVersion' in outcome && 'code' in outcome) throw outcome
   notifyApplicationExplorers()

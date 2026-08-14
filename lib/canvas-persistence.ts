@@ -4,6 +4,7 @@ import {
   serializeInfiniteCanvasState,
   type InfiniteCanvasState,
 } from './infinite-canvas'
+import type { ContentWindowPersistencePort } from './content-window-persistence'
 
 export const CANVAS_DOCUMENT_SCHEMA_VERSION = 2 as const
 export const CANVAS_CRASH_DRAFT_SCHEMA_VERSION = 1 as const
@@ -64,10 +65,13 @@ function hasOnlyKeys(value: object, keys: readonly string[]): boolean {
   )
 }
 
-function parseCanvasRecord(value: unknown): PersistedCanvas | null {
+function parseCanvasRecord(
+  value: unknown,
+  persistence: ContentWindowPersistencePort,
+): PersistedCanvas | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const raw = value as Partial<PersistedCanvas>
-  const state = parseInfiniteCanvasState(raw.state)
+  const state = parseInfiniteCanvasState(raw.state, persistence)
   if (
     !hasOnlyKeys(value, ['id', 'name', 'state', 'updatedAt']) ||
     !validId(raw.id) ||
@@ -82,12 +86,15 @@ function parseCanvasRecord(value: unknown): PersistedCanvas | null {
   return { id: raw.id, name: raw.name.trim(), state, updatedAt: raw.updatedAt }
 }
 
-function parseRecords(value: unknown): PersistedCanvas[] | null {
+function parseRecords(
+  value: unknown,
+  persistence: ContentWindowPersistencePort,
+): PersistedCanvas[] | null {
   if (!Array.isArray(value)) return null
   const canvases: PersistedCanvas[] = []
   const ids = new Set<string>()
   for (const item of value) {
-    const canvas = parseCanvasRecord(item)
+    const canvas = parseCanvasRecord(item, persistence)
     if (!canvas || ids.has(canvas.id)) return null
     ids.add(canvas.id)
     canvases.push(canvas)
@@ -101,10 +108,13 @@ function validActiveId(activeId: unknown, canvases: PersistedCanvas[]): activeId
     : typeof activeId === 'string' && canvases.some((canvas) => canvas.id === activeId)
 }
 
-export function parseCanvasCollection(value: unknown): CanvasCollection | null {
+export function parseCanvasCollection(
+  value: unknown,
+  persistence: ContentWindowPersistencePort,
+): CanvasCollection | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const raw = value as Partial<CanvasCollection>
-  const canvases = parseRecords(raw.canvases)
+  const canvases = parseRecords(raw.canvases, persistence)
   if (
     !hasOnlyKeys(value, ['schemaVersion', 'revision', 'activeId', 'canvases']) ||
     raw.schemaVersion !== CANVAS_DOCUMENT_SCHEMA_VERSION ||
@@ -122,24 +132,36 @@ export function parseCanvasCollection(value: unknown): CanvasCollection | null {
   }
 }
 
-function serializableRecords(canvases: PersistedCanvas[]): unknown[] {
+function serializableRecords(
+  canvases: PersistedCanvas[],
+  persistence: ContentWindowPersistencePort,
+): unknown[] {
   return canvases.map((canvas) => ({
     ...canvas,
-    state: JSON.parse(serializeInfiniteCanvasState(canvas.state)) as unknown,
+    state: JSON.parse(serializeInfiniteCanvasState(canvas.state, persistence)) as unknown,
   }))
 }
 
-export function serializeCanvasCollection(collection: CanvasCollection): string {
-  return JSON.stringify({ ...collection, canvases: serializableRecords(collection.canvases) })
+export function serializeCanvasCollection(
+  collection: CanvasCollection,
+  persistence: ContentWindowPersistencePort,
+): string {
+  return JSON.stringify({
+    ...collection,
+    canvases: serializableRecords(collection.canvases, persistence),
+  })
 }
 
-export function canvasSaveRequest(collection: CanvasCollection): SaveCanvasCollection {
+export function canvasSaveRequest(
+  collection: CanvasCollection,
+  persistence: ContentWindowPersistencePort,
+): SaveCanvasCollection {
   return {
     schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
     expectedRevision: collection.revision,
     activeId: collection.activeId,
     canvases: JSON.parse(
-      JSON.stringify(serializableRecords(collection.canvases)),
+      JSON.stringify(serializableRecords(collection.canvases, persistence)),
     ) as PersistedCanvas[],
   }
 }
@@ -169,17 +191,21 @@ export function createDefaultCanvasCollection(): CanvasCollection {
 
 export function inspectCanvasCrashDraft(
   storage: ReadStorage,
+  persistence: ContentWindowPersistencePort,
 ): StoredCanvasInspection<CanvasCrashDraft> {
   const raw = storage.getItem(CANVAS_CRASH_DRAFT_STORAGE_KEY)
   if (raw === null) return { kind: 'absent' }
   try {
     const value = JSON.parse(raw) as Partial<CanvasCrashDraft>
-    const document = parseCanvasCollection({
-      schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
-      revision: value.baseRevision,
-      activeId: value.activeId,
-      canvases: value.canvases,
-    })
+    const document = parseCanvasCollection(
+      {
+        schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+        revision: value.baseRevision,
+        activeId: value.activeId,
+        canvases: value.canvases,
+      },
+      persistence,
+    )
     if (
       !value ||
       !hasOnlyKeys(value, ['schemaVersion', 'baseRevision', 'savedAt', 'activeId', 'canvases']) ||
@@ -209,6 +235,7 @@ export function inspectCanvasCrashDraft(
 export function writeCanvasCrashDraft(
   storage: WriteStorage,
   collection: CanvasCollection,
+  persistence: ContentWindowPersistencePort,
   savedAt = Date.now(),
 ): void {
   const draft: CanvasCrashDraft = {
@@ -220,7 +247,10 @@ export function writeCanvasCrashDraft(
   }
   storage.setItem(
     CANVAS_CRASH_DRAFT_STORAGE_KEY,
-    JSON.stringify({ ...draft, canvases: serializableRecords(draft.canvases) }),
+    JSON.stringify({
+      ...draft,
+      canvases: serializableRecords(draft.canvases, persistence),
+    }),
   )
 }
 

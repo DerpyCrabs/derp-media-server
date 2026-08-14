@@ -6,15 +6,11 @@ import {
 } from '@/lib/domain/resource'
 import type { WorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import {
-  createBrowserPlaybackPersistence,
-  createPlaybackSession,
-  type BrowserPlaybackPersistenceOptions,
   type PlaybackItem,
   type PlaybackMedia,
   type PlaybackSession,
   type PlaybackSourceRequest,
   type PlaybackSourceResolution,
-  type PlaybackSourceResolver,
 } from '@/src/features/playback'
 import { buildAudioExtractUrl, buildMediaUrl } from '@/lib/api-media-urls'
 import {
@@ -147,28 +143,16 @@ export function applyFilesystemPlaybackPathMutation(
   })
 }
 
-export const filesystemPlaybackSourceResolver: PlaybackSourceResolver = Object.freeze({
-  resolve(request: PlaybackSourceRequest): PlaybackSourceResolution {
-    if (request.item.resource.provider !== FILESYSTEM_PROVIDER) {
-      return { kind: 'error', message: 'This provider does not expose a playback source.' }
-    }
-    const path = filesystemPlaybackItemPath(request.item)
-    if (path === null) {
-      return { kind: 'error', message: 'This filesystem resource cannot be played.' }
-    }
-    const url =
-      request.item.media === 'video' && request.mode === 'audio'
-        ? buildAudioExtractUrl(path)
-        : buildMediaUrl(path)
-    return { kind: 'resolved', url }
-  },
-})
-
-export function createFilesystemBrowserPlaybackSession(
-  persistenceOptions: BrowserPlaybackPersistenceOptions = {},
-): PlaybackSession {
-  return createPlaybackSession({
-    sourceResolver: filesystemPlaybackSourceResolver,
-    persistence: createBrowserPlaybackPersistence(persistenceOptions),
-  })
+export function resolveFilesystemPlaybackSource(
+  request: PlaybackSourceRequest,
+): PlaybackSourceResolution {
+  const path = filesystemPlaybackItemPath(request.item)
+  if (path === null) {
+    return { kind: 'error', message: 'This filesystem resource cannot be played.' }
+  }
+  const url =
+    request.item.media === 'video' && request.mode === 'audio'
+      ? buildAudioExtractUrl(path)
+      : buildMediaUrl(path)
+  return { kind: 'resolved', url }
 }

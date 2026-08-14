@@ -1,17 +1,32 @@
 import { describe, expect, test } from 'bun:test'
-import '@/src/integrations/current-window-content'
+import { currentContentWindowPersistence } from '@/src/integrations/current-window-content'
 import { filesystemResourceAddress, filesystemResourceKey } from '@/lib/domain/resource'
 import {
-  normalizePersistedWorkspaceState,
-  serializeWorkspacePersistedState,
+  normalizePersistedWorkspaceState as normalizePersistedWorkspaceStateWithPersistence,
+  serializeWorkspacePersistedState as serializeWorkspacePersistedStateWithPersistence,
+  type NormalizePersistedWorkspaceOptions,
   type PersistedWorkspaceState,
 } from '@/lib/use-workspace'
 import {
   buildWorkspaceFromResource,
-  resolveWorkspaceDeferredPresetApply,
-  resolveWorkspaceInitialHydration,
+  resolveWorkspaceDeferredPresetApply as resolveWorkspaceDeferredPresetApplyWithPersistence,
+  resolveWorkspaceInitialHydration as resolveWorkspaceInitialHydrationWithPersistence,
 } from '@/lib/workspace-bootstrap'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
+
+const serializeWorkspacePersistedState = (state: PersistedWorkspaceState) =>
+  serializeWorkspacePersistedStateWithPersistence(state, currentContentWindowPersistence)
+const normalizePersistedWorkspaceState = (
+  value: unknown,
+  options?: NormalizePersistedWorkspaceOptions,
+) =>
+  normalizePersistedWorkspaceStateWithPersistence(value, currentContentWindowPersistence, options)
+const resolveWorkspaceInitialHydration = (
+  input: Parameters<typeof resolveWorkspaceInitialHydrationWithPersistence>[0],
+) => resolveWorkspaceInitialHydrationWithPersistence(input, currentContentWindowPersistence)
+const resolveWorkspaceDeferredPresetApply = (
+  input: Parameters<typeof resolveWorkspaceDeferredPresetApplyWithPersistence>[0],
+) => resolveWorkspaceDeferredPresetApplyWithPersistence(input, currentContentWindowPersistence)
 
 function minimalPreset(
   id: string,

@@ -1,4 +1,5 @@
 import { createFullscreenBounds, getViewportSize } from '@/lib/workspace-geometry'
+import type { ContentWindowPersistencePort } from '@/lib/content-window-persistence'
 import {
   clampSplitPaneFraction,
   normalizePersistedWorkspaceState,
@@ -139,9 +140,10 @@ function pixelGroupsFromState(state: PersistedWorkspaceState): PixelGroup[] {
 
 export function computeLayoutPreviewDetail(
   snapshot: PersistedWorkspaceState,
+  persistence: ContentWindowPersistencePort,
 ): LayoutPreviewDetail | null {
   const raw = JSON.parse(JSON.stringify(snapshot)) as unknown
-  const state = normalizePersistedWorkspaceState(raw)
+  const state = normalizePersistedWorkspaceState(raw, persistence)
   if (!state) return null
   const pixel = pixelGroupsFromState(state)
   if (pixel.length === 0) return null
@@ -178,7 +180,10 @@ export function computeLayoutPreviewDetail(
   return { groups, aspectRatio: uw / uh }
 }
 
-export function computeLayoutPreviewNorm(snapshot: PersistedWorkspaceState): {
+export function computeLayoutPreviewNorm(
+  snapshot: PersistedWorkspaceState,
+  persistence: ContentWindowPersistencePort,
+): {
   panes: Array<{
     leftPct: number
     topPct: number
@@ -188,7 +193,7 @@ export function computeLayoutPreviewNorm(snapshot: PersistedWorkspaceState): {
   }>
   aspectRatio: number
 } | null {
-  const detail = computeLayoutPreviewDetail(snapshot)
+  const detail = computeLayoutPreviewDetail(snapshot, persistence)
   if (!detail) return null
   return {
     aspectRatio: detail.aspectRatio,
