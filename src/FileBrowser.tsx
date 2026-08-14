@@ -38,8 +38,7 @@ import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
 import type { PasteData } from '@/lib/paste-data'
 import { MediaType, type FileItem } from '@/lib/types'
 import { normalizeNewFilePath } from '@/lib/new-file-name'
-import { formatFileSize } from '@/lib/media-utils'
-import { useMediaPlayer } from '@/lib/use-media-player'
+import { formatFileSize, getMediaTypeFromPath } from '@/lib/media-utils'
 import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
@@ -102,11 +101,57 @@ import { playFile, viewFile } from './lib/url-state-actions'
 import { FileSearchButton } from './FileSearchPalette'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 import { hrefFor } from './lib/routes'
+import {
+  adaptFileItemResource,
+  type FileItemResourceOptions,
+} from '@/lib/domain/file-item-resource'
+import {
+  audioPlaybackQueueFromFiles,
+  createFilesystemPlaybackItem,
+  playbackItemFromFileItem,
+  playbackItemKey,
+  type PlaybackItem,
+} from './features/playback'
+import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
+import { openResource, type OpenDisposition, type OpenIntent } from './features/open/open-resource'
+
+function normalizedPlaybackPath(path: string) {
+  return path.replace(/\\/g, '/')
+}
+
+function safePlaybackItemFromFile(
+  file: FileItem,
+  options: FileItemResourceOptions = {},
+): PlaybackItem | null {
+  try {
+    return playbackItemFromFileItem(file, options)
+  } catch {
+    return null
+  }
+}
+
+function samePlaybackQueue(left: readonly PlaybackItem[], right: readonly PlaybackItem[]) {
+  return (
+    left.length === right.length &&
+    left.every((item, index) => {
+      const candidate = right[index]
+      return (
+        candidate !== undefined &&
+        playbackItemKey(item) === playbackItemKey(candidate) &&
+        item.locator === candidate.locator &&
+        item.name === candidate.name &&
+        item.media === candidate.media
+      )
+    })
+  )
+}
 
 export function FileBrowser() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const queryClient = useQueryClient()
+  const playbackSession = usePlaybackSession()
+  const playbackSnapshot = usePlaybackSnapshot()
   useAdminEventsStream()
 
   const currentPath = createMemo(() => urlSearchParams().get('dir') ?? '')
@@ -114,8 +159,6 @@ export function FileBrowser() {
   const playingParam = createMemo(() => urlSearchParams().get('playing'))
 
   const playingPath = createMemo(() => playingParam() ?? '')
-
-  const audioOnlyParam = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
 
   const isVirtualFolder = createMemo(() =>
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
@@ -150,41 +193,157 @@ export function FileBrowser() {
   const viewStats = useViewStats(() => ({}))
   useDynamicFavicon(() => customIcons(), { getSearch: () => history().search })
 
-  const mediaPlayerTick = useStoreSync(useMediaPlayer)
   const viewModeTick = useStoreSync(useBrowserViewModeStore)
 
+  function libraryOpenReady(
+    file: FileItem,
+    intent: OpenIntent,
+    options: FileItemResourceOptions = {},
+    dispositionOverride?: OpenDisposition,
+  ) {
+    if (file.isVirtual) return true
+    const disposition =
+      dispositionOverride ??
+      (intent === 'read' ||
+      file.type === MediaType.VIDEO ||
+      file.type === MediaType.PDF ||
+      file.type === MediaType.BOOK
+        ? 'fullscreen'
+        : file.isDirectory
+          ? 'replace'
+          : 'modal')
+    return (
+      openResource(adaptFileItemResource(file, options).resource, intent, {
+        surface: 'library',
+        disposition,
+      }).status === 'ready'
+    )
+  }
+
+  function openLibraryViewPath(path: string, sourceDir = currentPath()) {
+    const type = getMediaTypeFromPath(path)
+    const file: FileItem = {
+      path,
+      name: path.split(/[/\\]/).at(-1) || path,
+      type,
+      size: 0,
+      extension: path.toLowerCase().endsWith('.fb2.zip')
+        ? 'fb2.zip'
+        : (path.split('.').at(-1) ?? ''),
+      isDirectory: false,
+    }
+    if (libraryOpenReady(file, 'view')) viewFile(path, sourceDir)
+  }
+
+  function navigateLibraryFolderPath(path: string | null) {
+    const logicalPath = path ?? ''
+    const folder: FileItem = {
+      path: logicalPath,
+      name: logicalPath.split(/[/\\]/).at(-1) || 'Files',
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: isVirtualFolderPath(logicalPath),
+    }
+    if (libraryOpenReady(folder, 'browse')) navigateToFolder(path)
+  }
+
   const isAudioPlayingBar = createMemo(() => {
-    void mediaPlayerTick()
-    const p = playingPath()
-    if (!p) return false
-    const ext = p.split('.').pop()?.toLowerCase() || ''
-    const audioExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
-    const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
-    const inAud = audioExtensions.includes(ext)
-    const inVid = videoExtensions.includes(ext)
-    const mt = useMediaPlayer.getState().mediaType
-    if (inAud && !inVid) return true
-    if (inVid && !inAud) {
-      if (mt === 'video' && !audioOnlyParam()) return false
-      return audioOnlyParam() || mt === 'audio'
-    }
-    if (inAud && inVid) {
-      if (mt === 'video' && !audioOnlyParam()) return false
-      return audioOnlyParam() || mt === 'audio'
-    }
-    return false
+    const state = playbackSnapshot()
+    return !!state.currentItem && state.mode === 'audio'
   })
 
   const fileIconCtx = createMemo((): FileIconContext => {
-    void mediaPlayerTick()
-    const st = useMediaPlayer.getState()
+    const state = playbackSnapshot()
     return {
       customIcons: customIcons(),
       knowledgeBases: knowledgeBases(),
       playingPath: playingParam(),
-      currentFile: st.currentFile,
-      mediaPlayerIsPlaying: st.isPlaying,
-      mediaType: st.mediaType,
+      currentFile: state.currentItem?.locator ?? null,
+      mediaPlayerIsPlaying: state.phase === 'playing',
+      mediaType: state.currentItem ? state.mode : null,
+    }
+  })
+
+  function playbackItemForPath(path: string): PlaybackItem | null {
+    const normalizedPath = normalizedPlaybackPath(path)
+    const listed = files().find((file) => normalizedPlaybackPath(file.path) === normalizedPath)
+    if (listed) return safePlaybackItemFromFile(listed)
+    const mediaType = getMediaTypeFromPath(path)
+    const media =
+      mediaType === MediaType.AUDIO ? 'audio' : mediaType === MediaType.VIDEO ? 'video' : null
+    if (!media) return null
+    try {
+      return createFilesystemPlaybackItem({
+        locator: path,
+        name: path.split(/[/\\]/).pop() || path,
+        media,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  function playbackQueueFor(
+    item: PlaybackItem,
+    resourceOptions: FileItemResourceOptions = {},
+  ): PlaybackItem[] {
+    if (item.media === 'video') return [item]
+    const queue = audioPlaybackQueueFromFiles(files(), resourceOptions)
+    return queue.some((candidate) => playbackItemKey(candidate) === playbackItemKey(item))
+      ? queue
+      : [...queue, item]
+  }
+
+  let previousLibraryPlayingPath = playingParam()
+  createEffect(() => {
+    const path = playingParam()
+    if (window.location.pathname !== '/') return
+    if (!path) {
+      if (previousLibraryPlayingPath) playbackSession.dispatch({ type: 'stop' })
+      previousLibraryPlayingPath = null
+      return
+    }
+    previousLibraryPlayingPath = path
+    const listedFile = files().find(
+      (file) => normalizedPlaybackPath(file.path) === normalizedPlaybackPath(path),
+    )
+    const mediaType = getMediaTypeFromPath(path)
+    const plannedFile: FileItem =
+      listedFile ??
+      ({
+        path,
+        name: path.split(/[/\\]/).at(-1) || path,
+        type: mediaType,
+        size: 0,
+        extension: path.split('.').at(-1) ?? '',
+        isDirectory: false,
+      } satisfies FileItem)
+    if (!libraryOpenReady(plannedFile, 'play')) return
+    const item = playbackItemForPath(path)
+    if (!item) return
+    const mode =
+      item.media === 'video' && urlSearchParams().get('audioOnly') === 'true' ? 'audio' : item.media
+    const state = playbackSession.getSnapshot()
+    const sameCurrent =
+      state.currentItem !== null &&
+      normalizedPlaybackPath(state.currentItem.locator) === normalizedPlaybackPath(item.locator)
+    if (!sameCurrent) {
+      playbackSession.dispatch({
+        type: 'load',
+        item,
+        queue: playbackQueueFor(item),
+        mode,
+        autoplay: true,
+      })
+      return
+    }
+    if (state.mode !== mode) playbackSession.dispatch({ type: 'setMode', mode })
+    if (item.media !== 'audio') return
+    const queue = playbackQueueFor(item)
+    if (!samePlaybackQueue(state.queue, queue)) {
+      playbackSession.dispatch({ type: 'setQueue', queue, current: state.currentItem })
     }
   })
 
@@ -311,7 +470,7 @@ export function FileBrowser() {
   const createFileMutation = useMutation(() => ({
     ...fileMutationOptions.create(queryClient),
     onSuccess: (_d, variables) => {
-      viewFile(variables.path, currentPath())
+      openLibraryViewPath(variables.path)
     },
   }))
 
@@ -343,7 +502,7 @@ export function FileBrowser() {
     onSuccess: (_d, variables) => {
       setShowPasteDialog(false)
       setPasteData(null)
-      viewFile(variables.path, currentPath())
+      openLibraryViewPath(variables.path)
     },
     onSettled: () => invalidateFileQueries(queryClient),
   }))
@@ -466,6 +625,7 @@ export function FileBrowser() {
       path: file.path,
       isDirectory: file.isDirectory,
       sourceKind: 'local',
+      ...(file.isVirtual ? { isVirtual: true } : {}),
     })
     dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
     setDraggedPath(file.path)
@@ -608,7 +768,7 @@ export function FileBrowser() {
           setInlineMode(null)
           setInlineName('')
           createFolderMutation.reset()
-          if (inKb()) navigateToFolder(folderPath)
+          if (inKb()) navigateLibraryFolderPath(folderPath)
         },
       },
     )
@@ -712,18 +872,18 @@ export function FileBrowser() {
 
   function handleParentDirectory() {
     if (isVirtualFolder()) {
-      navigateToFolder(null)
+      navigateLibraryFolderPath(null)
       return
     }
     const parts = currentPath().split(/[/\\]/).filter(Boolean)
     if (parts.length > 0) {
       const parentPath = parts.slice(0, -1).join('/')
-      navigateToFolder(parentPath || null)
+      navigateLibraryFolderPath(parentPath || null)
     }
   }
 
   function handleBreadcrumbNavigate(path: string) {
-    navigateToFolder(path || null)
+    navigateLibraryFolderPath(path || null)
   }
 
   function breadcrumbAsFolderItem(m: BreadcrumbMenuTarget): FileItem {
@@ -772,6 +932,7 @@ export function FileBrowser() {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
+      if (!libraryOpenReady(breadcrumbAsFolderItem(m), 'browse', {}, 'window')) return
       window.open(new URL(hrefFor({ kind: 'library' }), window.location.origin).href, '_blank')
       return
     }
@@ -782,6 +943,7 @@ export function FileBrowser() {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
+      if (!libraryOpenReady(breadcrumbAsFolderItem(m), 'browse', {}, 'window')) return
       window.open(hrefFor({ kind: 'workspace' }), '_blank')
       return
     }
@@ -805,6 +967,7 @@ export function FileBrowser() {
 
   function handleContextOpenInNewTab(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
+    if (!libraryOpenReady(file, 'browse', {}, 'window')) return
     const url = new URL(
       hrefFor({ kind: 'library' }, file.path ? { dir: file.path } : undefined),
       window.location.origin,
@@ -814,6 +977,7 @@ export function FileBrowser() {
 
   function handleContextOpenInWorkspace(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
+    if (!libraryOpenReady(file, 'browse', {}, 'window')) return
     window.open(
       hrefFor({ kind: 'workspace' }, file.path ? { dir: file.path } : undefined),
       '_blank',
@@ -948,18 +1112,39 @@ export function FileBrowser() {
     return { queryClient, knowledgeBases: knowledgeBases() }
   }
 
-  function handleFileClick(file: FileItem, sourceDir = currentPath()) {
+  function handleFileClick(
+    file: FileItem,
+    sourceDir = currentPath(),
+    resourceOptions: FileItemResourceOptions = {},
+  ) {
     if (file.isDirectory) {
-      navigateToFolder(file.path)
+      if (libraryOpenReady(file, 'browse', resourceOptions)) navigateToFolder(file.path)
       return
     }
 
-    viewStats.incrementView(file.path)
     const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
+    if (!libraryOpenReady(file, isMediaFile ? 'play' : 'view', resourceOptions)) return
+    viewStats.incrementView(file.path)
     if (isMediaFile) {
-      useMediaPlayer
-        .getState()
-        .playFile(file.path, file.type === MediaType.AUDIO ? 'audio' : 'video')
+      const item = safePlaybackItemFromFile(file, resourceOptions)
+      if (!item) return
+      const state = playbackSession.getSnapshot()
+      if (
+        state.currentItem &&
+        normalizedPlaybackPath(state.currentItem.locator) ===
+          normalizedPlaybackPath(item.locator) &&
+        state.mode === item.media
+      ) {
+        playbackSession.dispatch({ type: 'toggle' })
+      } else {
+        playbackSession.dispatch({
+          type: 'load',
+          item,
+          queue: playbackQueueFor(item, resourceOptions),
+          mode: item.media,
+          autoplay: true,
+        })
+      }
       playFile(file.path, sourceDir)
     } else {
       viewFile(file.path, sourceDir)
@@ -967,7 +1152,10 @@ export function FileBrowser() {
   }
 
   function handleLibrarySearchResult(result: FileSearchResult) {
-    handleFileClick(fileSearchResultToFileItem(result), result.parentPath)
+    handleFileClick(fileSearchResultToFileItem(result), result.parentPath, {
+      rootId: result.rootId,
+      logicalPath: result.path,
+    })
   }
 
   function setViewMode(mode: 'list' | 'grid') {
@@ -978,11 +1166,15 @@ export function FileBrowser() {
   function handleKbResultClick(filePath: string) {
     setSearchQuery('')
     setSearchPopoverOpen(false)
-    viewFile(filePath, currentPath())
+    openLibraryViewPath(filePath)
   }
 
   function handleContextToggleKnowledgeBase(file: FileItem) {
     knowledgeBaseMutation.mutate({ filePath: file.path.replace(/\\/g, '/') })
+  }
+
+  function handleContextOpenWithReader(file: FileItem) {
+    if (libraryOpenReady(file, 'read')) openInReader(file)
   }
 
   function handleContextSetIcon(file: FileItem) {
@@ -1627,7 +1819,7 @@ export function FileBrowser() {
             onContextOpenInNewTab={handleContextOpenInNewTab}
             onContextOpenInWorkspace={handleContextOpenInWorkspace}
             onContextOpenWithBrowser={handleFileClick}
-            onContextOpenWithReader={openInReader}
+            onContextOpenWithReader={handleContextOpenWithReader}
             onContextToggleFavorite={handleContextToggleFavorite}
             isRowFavorite={isRowFavorite}
             onContextRename={handleContextRename}

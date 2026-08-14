@@ -1,8 +1,12 @@
 import { Match, Show, Suspense, Switch, createMemo, lazy } from 'solid-js'
+import { adaptFileItemResource } from '@/lib/domain/file-item-resource'
+import { getMediaTypeFromPath } from '@/lib/media-utils'
+import { MediaType, type FileItem } from '@/lib/types'
 import { navigateHref, useBrowserHistory } from './browser-history'
 import { FileBrowser } from './FileBrowser'
 import { hrefFor, parseRoute } from './lib/routes'
 import { SurfaceSwitcher } from './SurfaceSwitcher'
+import { openResource } from './features/open/open-resource'
 
 const WorkspacePage = lazy(() =>
   import('./WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
@@ -66,6 +70,24 @@ export function App() {
   const readerPath = createMemo(() =>
     route().kind === 'notFound' ? null : (route().query.reader ?? null),
   )
+  const readyReaderPath = createMemo(() => {
+    const path = readerPath()
+    if (!path) return null
+    const folder = route().query.readerKind === 'folder'
+    const file: FileItem = {
+      path,
+      name: path.split(/[/\\]/).at(-1) || path || 'Files',
+      type: folder ? MediaType.FOLDER : getMediaTypeFromPath(path),
+      size: 0,
+      extension: folder ? '' : (path.split('.').at(-1) ?? ''),
+      isDirectory: folder,
+    }
+    const plan = openResource(adaptFileItemResource(file).resource, 'read', {
+      surface: 'library',
+      disposition: 'fullscreen',
+    })
+    return plan.status === 'ready' ? path : null
+  })
   const showSurfaceSwitcher = createMemo(() => {
     const current = route()
     return (
@@ -99,7 +121,7 @@ export function App() {
       <Show when={showSurfaceSwitcher()}>
         <SurfaceSwitcher route={route} />
       </Show>
-      <Show when={readerPath()} keyed>
+      <Show when={readyReaderPath()} keyed>
         {(sourcePath) => (
           <Suspense fallback={null}>
             <ReaderDialog sourcePath={sourcePath} sourceKind={route().query.readerKind} />

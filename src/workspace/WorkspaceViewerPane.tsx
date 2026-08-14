@@ -1,6 +1,4 @@
 import type { PersistedWorkspaceState } from '@/lib/use-workspace'
-import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
-import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { apiEndpoints } from '@/lib/api-endpoints'
 import {
@@ -55,20 +53,25 @@ import { buildAdminMediaUrl, buildAudioMetadataUrl } from '../lib/build-media-ur
 import { createResponsiveImage } from '../lib/responsive-image'
 import { LazyMarkdownDocument } from '../media/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '../media/markdown/paste-completion'
+import {
+  audioPlaybackQueueFromFiles,
+  createFilesystemPlaybackItem,
+  playbackItemKey,
+  type PlaybackItem,
+  type PlaybackMedia,
+} from '../features/playback'
+import {
+  usePlaybackMediaHost,
+  usePlaybackSession,
+  usePlaybackSnapshot,
+} from '../features/playback/PlaybackProvider'
 
 const ReaderDialog = lazy(() =>
   import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
 )
 
-export type WorkspaceVideoListenOnlyDetail = {
-  path: string
-  dir?: string
-  videoCurrentTime: number
-}
-
 type Props = {
   windowId: string
-  storageKey: string
   contentVisible: Accessor<boolean>
   workspace: Accessor<PersistedWorkspaceState | null>
   editableFolders: string[]
@@ -77,14 +80,10 @@ type Props = {
   onUpdateViewing: (windowId: string, path: string) => void
   onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
   autoPlayVideo?: boolean
-  /** Hand off video audio to taskbar; parent sets transport + closes tab if needed. */
-  onListenOnlyHandoff?: (detail: WorkspaceVideoListenOnlyDetail) => void
   /** Close the viewer tab after switching to taskbar audio (playback keeps running). */
   onListenOnlyDismissViewer?: () => void
   showListenOnly?: boolean
-  onAudioPlay?: (element: HTMLAudioElement) => void
-  onAudioPause?: (element: HTMLAudioElement) => void
-  onAudioReady?: () => void
+  onAudioActivate?: () => void
 }
 
 type WorkspaceTextSaveQueryKey = ReturnType<typeof queryKeys.textContent>
@@ -116,8 +115,27 @@ function formatMediaTime(time: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+function normalizedPlaybackPath(path: string): string {
+  return path.replace(/\\/g, '/')
+}
+
+function playbackPathMatches(item: PlaybackItem | null, path: string): boolean {
+  return !!item && normalizedPlaybackPath(item.locator) === normalizedPlaybackPath(path)
+}
+
+function playbackItemForPath(path: string, media: PlaybackMedia): PlaybackItem {
+  return createFilesystemPlaybackItem({
+    locator: path,
+    name: path.split(/[/\\]/).pop() ?? path,
+    media,
+  })
+}
+
 export function WorkspaceViewerPane(props: Props) {
   const queryClient = useQueryClient()
+  const playbackSession = usePlaybackSession()
+  const playback = usePlaybackSnapshot()
+  const playbackMediaHost = usePlaybackMediaHost()
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === props.windowId))
   let paneEl: HTMLDivElement | undefined
 
@@ -143,14 +161,7 @@ export function WorkspaceViewerPane(props: Props) {
   const dirFromWindow = createMemo(() => win()?.initialState?.dir ?? '')
 
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
-  const [audioEl, setAudioEl] = createSignal<HTMLAudioElement | undefined>()
-  const [mediaLoading, setMediaLoading] = createSignal(false)
-  const [mediaError, setMediaError] = createSignal<string | null>(null)
-  const [audioPlaying, setAudioPlaying] = createSignal(false)
-  const [audioCurrentTime, setAudioCurrentTime] = createSignal(0)
-  const [audioDuration, setAudioDuration] = createSignal(0)
-  const [audioVolume, setAudioVolume] = createSignal(1)
-  const [audioMuted, setAudioMuted] = createSignal(false)
+  const [videoReadyGeneration, setVideoReadyGeneration] = createSignal(0)
   const [audioSurfaceEl, setAudioSurfaceEl] = createSignal<HTMLDivElement>()
   const [audioSurfaceSize, setAudioSurfaceSize] = createSignal({ width: 576, height: 256 })
 
@@ -174,124 +185,68 @@ export function WorkspaceViewerPane(props: Props) {
     return 'standard'
   })
 
-  const viewerShowVideoSurface = createMemo(
-    () => mediaType() === MediaType.VIDEO && !!viewingPath(),
-  )
-
-  createEffect(() => {
-    viewingPath()
-    const type = mediaType()
-    setMediaError(null)
-    setMediaLoading(type === MediaType.VIDEO || type === MediaType.AUDIO)
-    setAudioPlaying(false)
-    setAudioCurrentTime(0)
-    setAudioDuration(0)
+  const videoPlaybackActive = createMemo(() => {
+    const state = playback()
+    return (
+      mediaType() === MediaType.VIDEO &&
+      state.mode === 'video' &&
+      state.currentItem?.media === 'video' &&
+      playbackPathMatches(state.currentItem, viewingPath())
+    )
   })
+  const videoLoading = createMemo(() => {
+    if (!videoPlaybackActive()) return false
+    const state = playback()
+    if (state.phase === 'resolving') return true
+    return !!state.source && videoReadyGeneration() !== state.source.generation
+  })
+  const videoError = createMemo(() => (videoPlaybackActive() ? playback().error : null))
 
+  let offeredInitialVideoPath = ''
   createEffect(() => {
     const path = viewingPath()
-    const url = mediaUrl()
-    const vid = videoEl()
-    if (!path || !viewerShowVideoSurface() || !vid || !url) return
-
-    const abs = new URL(url, window.location.origin).href
-    const srcMismatch = vid.src !== abs
-
-    const ws = useWorkspaceAudio.getState()
-    const storedTime = ws.playing === path ? ws.currentTime : 0
-    const savedTime = useVideoPlaybackTime.getState().getSavedTime(path)
-    const timeToRestore = storedTime > 0 ? storedTime : (savedTime ?? 0)
-
-    let onCanPlay: () => void = () => {}
-
-    if (srcMismatch) {
-      onCanPlay = () => {
-        vid.removeEventListener('canplay', onCanPlay)
-        vid.removeEventListener('error', onCanPlay)
-        if (timeToRestore > 0) {
-          try {
-            vid.currentTime = timeToRestore
-          } catch {
-            /* ignore */
-          }
-        }
-        if (props.autoPlayVideo !== false) void vid.play().catch(() => {})
-      }
-      vid.addEventListener('canplay', onCanPlay)
-      vid.src = url
-      vid.load()
-    } else if (timeToRestore > 0) {
-      try {
-        vid.currentTime = timeToRestore
-      } catch {
-        /* ignore */
-      }
-      if (props.autoPlayVideo !== false) void vid.play().catch(() => {})
+    if (
+      !path ||
+      mediaType() !== MediaType.VIDEO ||
+      !props.contentVisible() ||
+      offeredInitialVideoPath === normalizedPlaybackPath(path)
+    ) {
+      return
     }
-
-    onCleanup(() => {
-      vid.removeEventListener('canplay', onCanPlay)
+    offeredInitialVideoPath = normalizedPlaybackPath(path)
+    const currentItem = playback().currentItem
+    if (playbackPathMatches(currentItem, path) || (currentItem && props.autoPlayVideo === false)) {
+      return
+    }
+    playbackSession.dispatch({
+      type: 'load',
+      item: playbackItemForPath(path, 'video'),
+      autoplay: props.autoPlayVideo !== false,
+      mode: 'video',
     })
   })
 
-  function handleMediaError(element: HTMLMediaElement) {
-    const code = element.error?.code
-    setMediaLoading(false)
-    setMediaError(code ? `Playback failed (media error ${code}).` : 'Playback failed.')
-  }
-
-  function retryMedia() {
-    const element = mediaType() === MediaType.VIDEO ? videoEl() : audioEl()
-    if (!element) return
-    setMediaError(null)
-    setMediaLoading(true)
-    element.load()
-    void element.play().catch(() => {})
-  }
-
-  function toggleAudioPlayback() {
-    const element = audioEl()
-    if (!element) return
-    if (element.paused) void element.play().catch(() => {})
-    else {
-      element.pause()
-      props.onAudioPause?.(element)
-    }
-  }
-
-  function seekAudio(time: number) {
-    const element = audioEl()
-    if (!element || !Number.isFinite(time)) return
-    element.currentTime = time
-    setAudioCurrentTime(time)
-  }
-
-  function setAudioPlayerVolume(volume: number) {
-    const element = audioEl()
-    const next = Math.max(0, Math.min(1, volume))
-    setAudioVolume(next)
-    setAudioMuted(next === 0)
-    if (element) {
-      element.volume = next
-      element.muted = next === 0
-    }
-  }
-
-  function toggleAudioMute() {
-    const element = audioEl()
-    const muted = !audioMuted()
-    setAudioMuted(muted)
-    if (element) element.muted = muted
-  }
+  createEffect(() => {
+    const generation = videoPlaybackActive() ? (playback().source?.generation ?? 0) : 0
+    if (videoReadyGeneration() !== generation) setVideoReadyGeneration(0)
+  })
 
   createEffect(() => {
-    const vis = props.contentVisible()
-    const vid = videoEl()
+    const element = videoEl()
     const path = viewingPath()
-    if (mediaType() !== MediaType.VIDEO || !path || !vid || !viewerShowVideoSurface()) return
-    if (!vis) {
-      vid.pause()
-    }
+    if (!element || !path || !props.contentVisible() || !videoPlaybackActive()) return
+    const detach = playbackMediaHost.attach(element, 'video')
+    onCleanup(() => {
+      const state = playbackSession.getSnapshot()
+      if (
+        state.mode === 'video' &&
+        state.desiredPlaying &&
+        playbackPathMatches(state.currentItem, path)
+      ) {
+        playbackSession.dispatch({ type: 'pause' })
+      }
+      detach()
+    })
   })
 
   const listDirForFiles = createMemo(() => dirFromWindow())
@@ -311,6 +266,162 @@ export function WorkspaceViewerPane(props: Props) {
   const folderAudioFiles = createMemo(() =>
     (filesQuery.data?.files ?? []).filter((file) => file.type === MediaType.AUDIO),
   )
+
+  const audioQueue = createMemo(() => {
+    const queue = audioPlaybackQueueFromFiles(folderAudioFiles())
+    const path = viewingPath()
+    if (!path || mediaType() !== MediaType.AUDIO) return queue
+    if (queue.some((item) => playbackPathMatches(item, path))) return queue
+    return [...queue, playbackItemForPath(path, 'audio')]
+  })
+  const audioPlaybackActive = createMemo(() => {
+    const state = playback()
+    return (
+      mediaType() === MediaType.AUDIO &&
+      state.mode === 'audio' &&
+      state.currentItem?.media === 'audio' &&
+      playbackPathMatches(state.currentItem, viewingPath())
+    )
+  })
+  const audioPlaying = createMemo(() => audioPlaybackActive() && playback().desiredPlaying)
+  const audioCurrentTime = createMemo(() => (audioPlaybackActive() ? playback().position : 0))
+  const audioDuration = createMemo(() => (audioPlaybackActive() ? playback().duration : 0))
+  const audioVolume = createMemo(() => playback().volume)
+  const audioMuted = createMemo(() => playback().muted)
+  const audioLoading = createMemo(() => audioPlaybackActive() && playback().phase === 'resolving')
+  const audioError = createMemo(() => (audioPlaybackActive() ? playback().error : null))
+
+  function audioItem(path: string): PlaybackItem {
+    return (
+      audioQueue().find((item) => playbackPathMatches(item, path)) ??
+      playbackItemForPath(path, 'audio')
+    )
+  }
+
+  function loadAudio(path: string, autoplay: boolean, position?: number) {
+    playbackSession.dispatch({
+      type: 'load',
+      item: audioItem(path),
+      queue: audioQueue(),
+      autoplay,
+      mode: 'audio',
+      ...(position === undefined ? {} : { position }),
+    })
+  }
+
+  function toggleAudioPlayback() {
+    const path = viewingPath()
+    if (!path) return
+    props.onAudioActivate?.()
+    if (audioPlaybackActive()) playbackSession.dispatch({ type: 'toggle' })
+    else loadAudio(path, true)
+  }
+
+  function seekAudio(time: number) {
+    if (!Number.isFinite(time)) return
+    const path = viewingPath()
+    if (!path) return
+    props.onAudioActivate?.()
+    if (audioPlaybackActive()) playbackSession.dispatch({ type: 'seek', position: time })
+    else loadAudio(path, false, time)
+  }
+
+  function setAudioPlayerVolume(volume: number) {
+    playbackSession.dispatch({ type: 'setVolume', volume })
+  }
+
+  function toggleAudioMute() {
+    playbackSession.dispatch({ type: 'setMuted', muted: !playback().muted })
+  }
+
+  function selectAudioFile(file: FileItem) {
+    const controlledCurrent = audioPlaybackActive()
+    props.onAudioActivate?.()
+    props.onUpdateViewing(props.windowId, file.path)
+    if (controlledCurrent) {
+      const queue = audioPlaybackQueueFromFiles(folderAudioFiles())
+      const item = queue.find((candidate) => playbackPathMatches(candidate, file.path))
+      if (item) {
+        playbackSession.dispatch({
+          type: 'load',
+          item,
+          queue,
+          autoplay: false,
+          mode: 'audio',
+        })
+      }
+    }
+  }
+
+  let offeredInitialAudioPath = ''
+  createEffect(() => {
+    const path = viewingPath()
+    if (
+      props.autoPlayVideo !== false ||
+      !path ||
+      mediaType() !== MediaType.AUDIO ||
+      !props.contentVisible() ||
+      offeredInitialAudioPath === normalizedPlaybackPath(path)
+    ) {
+      return
+    }
+    offeredInitialAudioPath = normalizedPlaybackPath(path)
+    if (!playback().currentItem) loadAudio(path, false)
+  })
+
+  createEffect(() => {
+    if (!audioPlaybackActive()) return
+    const state = playback()
+    const queue = audioQueue()
+    if (queue.length === 0 || !state.currentItem) return
+    const sameQueue =
+      state.queue.length === queue.length &&
+      state.queue.every((item, index) => {
+        const candidate = queue[index]
+        return (
+          !!candidate &&
+          playbackItemKey(item) === playbackItemKey(candidate) &&
+          item.locator === candidate.locator &&
+          item.name === candidate.name &&
+          item.media === candidate.media
+        )
+      })
+    if (!sameQueue) {
+      playbackSession.dispatch({ type: 'setQueue', queue, current: state.currentItem })
+    }
+  })
+
+  function retryMedia() {
+    if (videoPlaybackActive() || audioPlaybackActive()) {
+      playbackSession.dispatch({ type: 'retry' })
+    }
+  }
+
+  function handleListenOnly() {
+    const path = viewingPath()
+    if (!path) return
+    const elementTime = videoEl()?.currentTime
+    const position =
+      elementTime !== undefined && Number.isFinite(elementTime)
+        ? elementTime
+        : videoPlaybackActive()
+          ? playback().position
+          : 0
+    if (videoPlaybackActive()) {
+      playbackSession.dispatch({ type: 'seek', position })
+      playbackSession.dispatch({ type: 'setMode', mode: 'audio' })
+      playbackSession.dispatch({ type: 'play' })
+    } else {
+      playbackSession.dispatch({
+        type: 'load',
+        item: playbackItemForPath(path, 'video'),
+        autoplay: true,
+        position,
+        mode: 'audio',
+      })
+    }
+    props.onListenOnlyDismissViewer?.()
+  }
 
   const audioMetadataUrl = createMemo(() => {
     const path = viewingPath()
@@ -848,7 +959,7 @@ export function WorkspaceViewerPane(props: Props) {
                   data-audio-playlist-path={file.path}
                   class='flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted'
                   classList={{ 'bg-primary/10 text-primary': active() }}
-                  onClick={() => props.onUpdateViewing(props.windowId, file.path)}
+                  onClick={() => selectAudioFile(file)}
                 >
                   <Music2 class='size-3.5 shrink-0' />
                   <span class='min-w-0 flex-1 truncate text-xs' title={label()}>
@@ -1026,41 +1137,20 @@ export function WorkspaceViewerPane(props: Props) {
                   title='Listen only'
                   aria-label='Listen only'
                   class='bg-secondary inline-flex h-7 w-7 items-center justify-center rounded-md'
-                  onClick={() => {
-                    const handoff = props.onListenOnlyHandoff
-                    const vid = videoEl()
-                    const path = viewingPath()
-                    if (!path) return
-                    if (handoff) {
-                      handoff({
-                        path,
-                        dir: dirFromWindow() || undefined,
-                        videoCurrentTime: vid?.currentTime ?? 0,
-                      })
-                      return
-                    }
-                    const key = props.storageKey
-                    if (vid) useWorkspaceAudio.getState().setCurrentTime(vid.currentTime)
-                    if (key) {
-                      useWorkspaceAudio.getState().armUserGestureTransport(path)
-                      useWorkspaceAudio.getState().playAudio(path, dirFromWindow() || undefined)
-                      useWorkspaceAudio.getState().setAudioOnly(key, true)
-                    }
-                    props.onListenOnlyDismissViewer?.()
-                  }}
+                  onClick={handleListenOnly}
                 >
                   <Headphones class='h-4 w-4' stroke-width={2} />
                 </button>
               </div>
             </Show>
-            <Show when={mediaLoading() && !mediaError()}>
+            <Show when={videoLoading() && !videoError()}>
               <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/45 text-white'>
                 <LoaderCircle class='h-7 w-7 animate-spin' stroke-width={2} />
               </div>
             </Show>
-            <Show when={mediaError()}>
+            <Show when={videoError()}>
               <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center text-white'>
-                <p class='text-sm'>{mediaError()}</p>
+                <p class='text-sm'>{videoError()}</p>
                 <div class='flex gap-2'>
                   <button
                     type='button'
@@ -1085,10 +1175,11 @@ export function WorkspaceViewerPane(props: Props) {
               controls
               playsinline
               data-media-type={MediaType.VIDEO}
+              data-playback-media-host={
+                videoPlaybackActive() && props.contentVisible() ? 'video' : undefined
+              }
               title={fileName()}
-              onLoadStart={() => setMediaLoading(true)}
-              onCanPlay={() => setMediaLoading(false)}
-              onError={(event) => handleMediaError(event.currentTarget)}
+              onCanPlay={() => setVideoReadyGeneration(playback().source?.generation ?? 0)}
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget
                 if (v.videoWidth > 0 && v.videoHeight > 0) {
@@ -1107,41 +1198,14 @@ export function WorkspaceViewerPane(props: Props) {
           data-audio-layout={audioLayout()}
           class='relative h-full min-h-0 overflow-hidden bg-gradient-to-br from-muted/45 via-background to-background'
         >
-          <audio
-            ref={(element) => setAudioEl(element)}
-            src={mediaUrl()}
-            preload='auto'
-            class='hidden'
-            title={fileName()}
-            data-canvas-audio-player={props.windowId}
-            onLoadStart={() => setMediaLoading(true)}
-            onCanPlay={() => {
-              setMediaLoading(false)
-              props.onAudioReady?.()
-            }}
-            onLoadedMetadata={(event) => setAudioDuration(event.currentTarget.duration || 0)}
-            onDurationChange={(event) => setAudioDuration(event.currentTarget.duration || 0)}
-            onTimeUpdate={(event) => setAudioCurrentTime(event.currentTarget.currentTime)}
-            onPlay={(event) => {
-              setAudioPlaying(true)
-              props.onAudioPlay?.(event.currentTarget)
-            }}
-            onPause={() => setAudioPlaying(false)}
-            onEnded={(event) => {
-              setAudioPlaying(false)
-              props.onAudioPause?.(event.currentTarget)
-            }}
-            onError={(event) => handleMediaError(event.currentTarget)}
-          />
-
-          <Show when={mediaLoading() && !mediaError()}>
+          <Show when={audioLoading() && !audioError()}>
             <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/55 backdrop-blur-sm'>
               <LoaderCircle class='h-7 w-7 animate-spin text-muted-foreground' stroke-width={2} />
             </div>
           </Show>
-          <Show when={mediaError()}>
+          <Show when={audioError()}>
             <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center'>
-              <p class='text-destructive text-sm'>{mediaError()}</p>
+              <p class='text-destructive text-sm'>{audioError()}</p>
               <div class='flex gap-2'>
                 <button
                   type='button'

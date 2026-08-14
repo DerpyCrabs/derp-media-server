@@ -1,114 +1,60 @@
-import { useMediaPlayer } from '@/lib/use-media-player'
-import { useVideoPlaybackTime } from '@/lib/use-video-playback-time'
 import {
   getDefaultPosition,
   useVideoPlayerPosition,
   validatePosition,
 } from '@/lib/use-video-player-position'
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js'
 import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
-import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import {
+  usePlaybackMediaHost,
+  usePlaybackSession,
+  usePlaybackSnapshot,
+} from '../features/playback/PlaybackProvider'
 import { closePlayer, setAudioOnly } from '../lib/url-state-actions'
-import { buildAdminMediaUrl } from '../lib/build-media-url'
-
-const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
 
 export function VideoPlayer() {
-  const history = useBrowserHistory()
-  const urlSearchParams = createUrlSearchParamsMemo(history)
-
-  const playingPath = createMemo(() => urlSearchParams().get('playing'))
-
-  const audioOnly = createMemo(() => urlSearchParams().get('audioOnly') === 'true')
-
-  const extension = createMemo(() => (playingPath() || '').split('.').pop()?.toLowerCase() || '')
+  const session = usePlaybackSession()
+  const snapshot = usePlaybackSnapshot()
+  const mediaHost = usePlaybackMediaHost()
+  const currentItem = createMemo(() => snapshot().currentItem)
   const isVideoFile = createMemo(
-    () => !!playingPath() && VIDEO_EXTENSIONS.includes(extension()) && !audioOnly(),
+    () => currentItem()?.media === 'video' && snapshot().mode === 'video',
   )
-
-  const mediaUrl = createMemo(() => {
-    const path = playingPath()
-    if (!path) return ''
-    return buildAdminMediaUrl(path)
-  })
-
-  const fileName = createMemo(() => (playingPath() || '').split('/').pop() || '')
+  const fileName = createMemo(() => currentItem()?.name ?? '')
 
   const [isMinimized, setIsMinimized] = createSignal(false)
   const [position, setPositionView] = createSignal(useVideoPlayerPosition.getState().position)
+  const [videoEl, setVideoEl] = createSignal<HTMLVideoElement>()
 
   onMount(() => {
-    const unsub = useVideoPlayerPosition.subscribe((s) => {
-      setPositionView(s.position)
+    const unsubscribe = useVideoPlayerPosition.subscribe((state) => {
+      setPositionView(state.position)
     })
-    onCleanup(unsub)
-  })
-
-  const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
-
-  createEffect(() => {
-    const path = playingPath()
-    const url = mediaUrl()
-    const vid = videoEl()
-    if (!path || !isVideoFile() || !vid || !url) return
-
-    useMediaPlayer.getState().setCurrentFile(path, 'video')
-
-    const targetHref = new URL(url, window.location.origin).href
-    const srcMismatch = vid.src !== targetHref
-
-    const finish = () => {
-      const st = useMediaPlayer.getState()
-      const storeT = st.currentFile === path && st.mediaType === 'video' ? st.currentTime : 0
-      const savedT = useVideoPlaybackTime.getState().getSavedTime(path) ?? 0
-      const t = storeT > 0 ? storeT : savedT
-      if (t > 0) {
-        try {
-          vid.currentTime = t
-        } catch {
-          /* ignore */
-        }
-      }
-      void vid.play().catch(() => {})
-    }
-
-    let onCanPlay: () => void = () => {}
-
-    if (srcMismatch) {
-      onCanPlay = () => {
-        vid.removeEventListener('canplay', onCanPlay)
-        vid.removeEventListener('error', onCanPlay)
-        finish()
-      }
-      vid.addEventListener('canplay', onCanPlay)
-      vid.addEventListener('error', onCanPlay)
-      vid.pause()
-      vid.src = targetHref
-      vid.load()
-    } else {
-      finish()
-    }
-
-    onCleanup(() => {
-      vid.removeEventListener('canplay', onCanPlay)
-      vid.removeEventListener('error', onCanPlay)
-    })
+    onCleanup(unsubscribe)
   })
 
   createEffect(() => {
-    const path = playingPath()
-    const vid = videoEl()
-    if (!path || !isVideoFile()) {
-      if (vid) {
-        vid.pause()
-        vid.removeAttribute('src')
-        vid.load()
-      }
-    }
+    const element = videoEl()
+    if (!element || !isVideoFile()) return
+    const detach = mediaHost.attach(element, 'video')
+    onCleanup(detach)
   })
+
+  function checkpointVideo() {
+    const element = videoEl()
+    const state = session.getSnapshot()
+    if (!element || !state.source || state.mode !== 'video') return
+    session.dispatch({
+      type: 'mediaTime',
+      generation: state.source.generation,
+      position: element.currentTime,
+      ...(Number.isFinite(element.duration) ? { duration: element.duration } : {}),
+    })
+    session.dispatch({ type: 'checkpoint' })
+  }
 
   function toggleMinimize() {
     const next = !isMinimized()
@@ -116,12 +62,12 @@ export function VideoPlayer() {
 
     if (next && typeof window !== 'undefined') {
       const store = useVideoPlayerPosition.getState()
-      const pos = store.position
-      const validatedPos = validatePosition(pos)
-      if (pos.x === 0 && pos.y === 0) {
+      const current = store.position
+      const validated = validatePosition(current)
+      if (current.x === 0 && current.y === 0) {
         store.setPosition(getDefaultPosition())
-      } else if (validatedPos.x !== pos.x || validatedPos.y !== pos.y) {
-        store.setPosition(validatedPos)
+      } else if (validated.x !== current.x || validated.y !== current.y) {
+        store.setPosition(validated)
       }
     } else if (!next && typeof window !== 'undefined') {
       requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
@@ -129,44 +75,24 @@ export function VideoPlayer() {
   }
 
   function handleAudioOnly() {
-    const vid = videoEl()
-    const path = playingPath()
-    if (!path) return
-    if (vid) {
-      vid.pause()
-      useMediaPlayer.getState().setCurrentTime(vid.currentTime)
-    }
+    if (!currentItem()) return
+    checkpointVideo()
+    session.dispatch({ type: 'setMode', mode: 'audio' })
     setAudioOnly(true)
-    useMediaPlayer.getState().setCurrentFile(path, 'audio')
-    useMediaPlayer.getState().setIsPlaying(true)
   }
 
   function handleClose() {
-    const vid = videoEl()
-    if (vid) {
-      vid.pause()
-      vid.removeAttribute('src')
-      vid.load()
-    }
+    session.dispatch({ type: 'stop' })
     closePlayer()
     setIsMinimized(false)
   }
-
-  onCleanup(() => {
-    const vid = videoEl()
-    if (vid) {
-      vid.pause()
-      vid.removeAttribute('src')
-      vid.load()
-    }
-  })
 
   const containerClass = () => (isMinimized() ? 'fixed z-40 w-80' : 'w-full bg-background')
 
   const containerStyle = (): Record<string, string | undefined> => {
     if (!isMinimized()) return {}
-    const p = position()
-    return { left: `${p.x}px`, top: `${p.y}px` }
+    const current = position()
+    return { left: `${current.x}px`, top: `${current.y}px` }
   }
 
   const videoAreaStyle = (): Record<string, string | undefined> => {
@@ -181,9 +107,8 @@ export function VideoPlayer() {
   }
 
   let lastScrolledPlayingPath: string | null = null
-
   createEffect(() => {
-    const path = playingPath()
+    const path = currentItem()?.locator ?? null
     if (!path || !isVideoFile() || isMinimized()) return
     if (lastScrolledPlayingPath === path) return
     lastScrolledPlayingPath = path
@@ -191,7 +116,7 @@ export function VideoPlayer() {
   })
 
   return (
-    <Show when={isVideoFile() && playingPath()}>
+    <Show when={isVideoFile() && currentItem()}>
       <div
         class={containerClass()}
         style={containerStyle()}
@@ -207,7 +132,7 @@ export function VideoPlayer() {
                 <button
                   type='button'
                   class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted'
-                  onClick={() => handleAudioOnly()}
+                  onClick={handleAudioOnly}
                   aria-label='Audio only mode'
                 >
                   <Headphones class='h-4 w-4' size={16} stroke-width={2} />
@@ -215,7 +140,7 @@ export function VideoPlayer() {
                 <button
                   type='button'
                   class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted'
-                  onClick={() => toggleMinimize()}
+                  onClick={toggleMinimize}
                   aria-label={isMinimized() ? 'Maximize player' : 'Minimize player'}
                 >
                   <Show
@@ -228,21 +153,14 @@ export function VideoPlayer() {
                 <button
                   type='button'
                   class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted'
-                  onClick={() => handleClose()}
+                  onClick={handleClose}
                   aria-label='Close player'
                 >
                   <X class='h-4 w-4' size={16} stroke-width={2} />
                 </button>
               </div>
             </div>
-            <video
-              ref={(el) => {
-                setVideoEl(el ?? undefined)
-              }}
-              controls
-              class='w-full bg-black'
-              style={videoAreaStyle()}
-            >
+            <video ref={setVideoEl} controls class='w-full bg-black' style={videoAreaStyle()}>
               Your browser does not support the video tag.
             </video>
           </div>

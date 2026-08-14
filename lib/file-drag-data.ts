@@ -5,6 +5,7 @@ export interface FileDragData {
   path: string
   isDirectory: boolean
   sourceKind: 'local'
+  isVirtual?: boolean
   virtualOpenTarget?: import('./virtual-directory').VirtualOpenTarget
 }
 
@@ -20,6 +21,7 @@ export function getFileDragData(dt: DataTransfer): FileDragData | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as FileDragData
     if (typeof parsed.path !== 'string' || typeof parsed.isDirectory !== 'boolean') return null
+    if (parsed.isVirtual !== undefined && typeof parsed.isVirtual !== 'boolean') return null
     if (
       parsed.virtualOpenTarget &&
       parsed.virtualOpenTarget.type !== 'hermesSession' &&

@@ -1,7 +1,11 @@
 import { isVirtualFolderPath } from '@/lib/constants'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
-import { getMediaType } from '@/lib/media-utils'
+import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
+import {
+  adaptFileItemResource,
+  type FileItemResourceOptions,
+} from '@/lib/domain/file-item-resource'
 import type { AssistGridSpan } from '@/lib/workspace-assist-grid'
 import {
   createDefaultBounds,
@@ -35,7 +39,6 @@ import {
   resolveWorkspaceDeferredPresetApply,
   resolveWorkspaceInitialHydration,
 } from '@/lib/workspace-bootstrap'
-import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import { useWorkspacePreferredSnapStore } from '@/lib/workspace-preferred-snap-store'
 import {
   getWorkspaceFileOpenTarget,
@@ -81,7 +84,6 @@ import {
   tabsInGroup,
 } from './workspace/tab-group-ops'
 import { TaskbarGroupRow } from './workspace/WorkspaceTaskbarRows'
-import type { WorkspaceVideoListenOnlyDetail } from './workspace/WorkspaceViewerPane'
 import {
   DEFAULT_WORKSPACE_SOURCE,
   isWorkspaceRoute,
@@ -90,10 +92,31 @@ import {
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
 import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
+import { resourceKey, type ResourceKey } from '@/lib/domain/resource'
+import { createFilesystemPlaybackItem } from './features/playback/items'
+import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
+import { openResource, type OpenDisposition, type OpenIntent } from './features/open/open-resource'
 
 export function WorkspacePage() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
+  const playbackSession = usePlaybackSession()
+  const playback = usePlaybackSnapshot()
+
+  function workspaceOpenReady(
+    file: FileItem,
+    intent: OpenIntent,
+    disposition: OpenDisposition = 'window',
+    resourceOptions: FileItemResourceOptions = {},
+  ) {
+    if (file.isVirtual) return true
+    return (
+      openResource(adaptFileItemResource(file, resourceOptions).resource, intent, {
+        surface: 'workspace',
+        disposition,
+      }).status === 'ready'
+    )
+  }
 
   const server = useWorkspacePageServerData()
   const browserSource = () => DEFAULT_WORKSPACE_SOURCE
@@ -288,9 +311,7 @@ export function WorkspacePage() {
   }
 
   function stopWorkspacePlaybackFromTaskbar() {
-    const key = storageSessionKeyFull().key
-    if (!key) return
-    useWorkspaceAudio.getState().closePlayer(key)
+    playbackSession.dispatch({ type: 'stop' })
   }
 
   function closeWindow(windowId: string) {
@@ -395,18 +416,6 @@ export function WorkspacePage() {
         activeTabMap: nextMap,
       })
     })
-  }
-
-  function listenOnlyHandoffFromWorkspaceViewer(
-    tabId: string,
-    detail: WorkspaceVideoListenOnlyDetail,
-  ) {
-    if (!storageSessionKeyFull().key) return
-    useWorkspaceAudio.getState().setCurrentTime(detail.videoCurrentTime)
-    useWorkspaceAudio.getState().armUserGestureTransport(detail.path)
-    useWorkspaceAudio.getState().playAudio(detail.path, detail.dir)
-    useWorkspaceAudio.getState().setAudioOnly(undefined, true)
-    closeTab(tabId, { ignoreTabPinForListenOnlyDismiss: true })
   }
 
   function toggleTabPinned(tabId: string) {
@@ -518,18 +527,38 @@ export function WorkspacePage() {
     document.addEventListener('pointercancel', onUp)
   }
 
-  function requestPlay(source: WorkspaceSource, path: string, dir?: string) {
-    const key = storageSessionKeyFull().key
-    if (!key) return
-    if (!isVideoPath(path)) {
-      useWorkspaceAudio.getState().armUserGestureTransport(path)
-      useWorkspaceAudio.getState().playAudio(path, dir)
+  function requestPlay(source: WorkspaceSource, path: string, dir?: string, rootId?: string) {
+    const isVideo = isVideoPath(path)
+    const file: FileItem = {
+      path,
+      name: path.split(/[/\\]/).at(-1) || path,
+      type: isVideo ? MediaType.VIDEO : MediaType.AUDIO,
+      size: 0,
+      extension: path.split('.').at(-1) ?? '',
+      isDirectory: false,
+    }
+    if (!workspaceOpenReady(file, 'play', 'window', rootId ? { rootId, logicalPath: path } : {})) {
+      return
+    }
+    const item = createFilesystemPlaybackItem({
+      locator: path,
+      name: path.split(/[/\\]/).at(-1) || path,
+      media: isVideo ? 'video' : 'audio',
+      rootId,
+      logicalPath: path,
+    })
+    playbackSession.dispatch({
+      type: 'load',
+      item,
+      queue: [item],
+      autoplay: true,
+      mode: isVideo ? 'video' : 'audio',
+    })
+    if (!isVideo) {
       return
     }
     const w = workspace()
     if (!w) return
-
-    useWorkspaceAudio.getState().setAudioOnly(undefined, false)
 
     let work: PersistedWorkspaceState = w
 
@@ -700,6 +729,15 @@ export function WorkspacePage() {
   }
 
   function updateWindowViewing(windowId: string, viewing: string) {
+    const file: FileItem = {
+      path: viewing,
+      name: viewing.split(/[/\\]/).at(-1) || viewing,
+      type: getMediaTypeFromPath(viewing),
+      size: 0,
+      extension: viewing.split('.').at(-1) ?? '',
+      isDirectory: false,
+    }
+    if (!workspaceOpenReady(file, 'default', 'pane')) return
     const w = workspace()
     if (!w) return
     const title = viewing.split(/[/\\]/).pop() ?? 'File'
@@ -714,6 +752,17 @@ export function WorkspacePage() {
   }
 
   function navigateDir(windowId: string, dir: string) {
+    if (!isVirtualFolderPath(dir)) {
+      const folder: FileItem = {
+        path: dir,
+        name: dir.split(/[/\\]/).at(-1) || 'Files',
+        type: MediaType.FOLDER,
+        size: 0,
+        extension: '',
+        isDirectory: true,
+      }
+      if (!workspaceOpenReady(folder, 'browse', 'pane')) return
+    }
     const w = workspace()
     if (!w) return
     setWorkspace({
@@ -741,6 +790,18 @@ export function WorkspacePage() {
     insertIndex?: number,
     sourceOverride?: WorkspaceSource,
   ) {
+    if (!file.isVirtual) {
+      const type = file.isDirectory ? MediaType.FOLDER : getMediaTypeFromPath(file.path)
+      const summary: FileItem = {
+        path: file.path,
+        name: file.path.split(/[/\\]/).at(-1) || file.path || 'Files',
+        type,
+        size: 0,
+        extension: file.path.split('.').at(-1) ?? '',
+        isDirectory: file.isDirectory,
+      }
+      if (!workspaceOpenReady(summary, file.isDirectory ? 'browse' : 'default', 'pane')) return
+    }
     setWorkspace((prev) =>
       prev
         ? openInNewTabInGroupState(
@@ -773,12 +834,23 @@ export function WorkspacePage() {
           extension: '',
         },
         data.virtualOpenTarget,
+        resourceKey('hermes', data.virtualOpenTarget.sessionId ?? crypto.randomUUID()),
         true,
       )
       return
     }
+    if (data.isVirtual) return
     const source: WorkspaceSource = DEFAULT_WORKSPACE_SOURCE
     const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
+    const droppedFile: FileItem = {
+      path: data.path,
+      name: data.path.split(/[/\\]/).at(-1) || data.path,
+      type: data.isDirectory ? MediaType.FOLDER : getMediaTypeFromPath(data.path),
+      size: 0,
+      extension: data.path.split('.').at(-1) ?? '',
+      isDirectory: data.isDirectory,
+    }
+    if (!workspaceOpenReady(droppedFile, data.isDirectory ? 'browse' : 'default', 'pane')) return
     setWorkspace((prev) =>
       prev
         ? openInNewTabInGroupState(
@@ -794,6 +866,17 @@ export function WorkspacePage() {
   }
 
   function openBrowser(options?: { source?: WorkspaceSource; initialState?: { dir?: string } }) {
+    const effectiveDir = options?.initialState?.dir ?? ''
+    const folder: FileItem = {
+      path: effectiveDir,
+      name: effectiveDir.split(/[/\\]/).at(-1) || 'Files',
+      type: MediaType.FOLDER,
+      size: 0,
+      extension: '',
+      isDirectory: true,
+      isVirtual: isVirtualFolderPath(effectiveDir),
+    }
+    if (!workspaceOpenReady(folder, 'browse', 'window')) return
     const w = workspace()
     if (!w) return
     const n = w.nextWindowId
@@ -801,7 +884,6 @@ export function WorkspacePage() {
     const source = options?.source ?? browserSource()
     const dirOpt = options?.initialState?.dir
     const initialState = dirOpt != null ? { dir: dirOpt } : {}
-    const effectiveDir = dirOpt ?? ''
     const browserTitle =
       effectiveDir !== '' ? workspaceBrowserDirTitle(effectiveDir) : workspaceBrowserDirTitle('')
     const newWin: WorkspaceWindowDefinition = {
@@ -865,6 +947,7 @@ export function WorkspacePage() {
     windowId: string,
     file: FileItem,
     target: VirtualOpenTarget,
+    _resource: ResourceKey,
     forceTab = false,
   ) {
     const w = workspace()
@@ -949,6 +1032,7 @@ export function WorkspacePage() {
         isVirtual: true,
       },
       { type: 'hermesSession', sessionId, readOnly: false },
+      resourceKey('hermes', sessionId),
       true,
     )
   }
@@ -967,6 +1051,7 @@ export function WorkspacePage() {
   }
 
   function openInSplitViewFromBrowserPane(windowId: string, file: FileItem) {
+    if (!workspaceOpenReady(file, file.isDirectory ? 'browse' : 'default', 'pane')) return
     const w = workspace()
     const winDef = w?.windows.find((x) => x.id === windowId)
     if (!winDef || winDef.type !== 'browser') return
@@ -1019,7 +1104,13 @@ export function WorkspacePage() {
     openViewer(windowId, file, winDef.source)
   }
 
-  function openViewer(_fromWindowId: string, file: FileItem, source: WorkspaceSource) {
+  function openViewer(
+    _fromWindowId: string,
+    file: FileItem,
+    source: WorkspaceSource,
+    resourceOptions: FileItemResourceOptions = {},
+  ) {
+    if (!workspaceOpenReady(file, 'default', 'window', resourceOptions)) return
     const w = workspace()
     if (!w) return
     const n = w.nextWindowId
@@ -1055,6 +1146,7 @@ export function WorkspacePage() {
   }
 
   function openReaderFromBrowser(fromWindowId: string, file: FileItem) {
+    if (!workspaceOpenReady(file, 'read', 'window')) return
     const w = workspace()
     const sourceWindow = w?.windows.find((window) => window.id === fromWindowId)
     if (!w || !sourceWindow || !file.isDirectory) return
@@ -1090,15 +1182,17 @@ export function WorkspacePage() {
   function openGlobalSearchResult(result: FileSearchResult) {
     const file = fileSearchResultToFileItem(result)
     const source = browserSource()
+    const resourceOptions = { rootId: result.rootId, logicalPath: result.path }
     if (file.isDirectory) {
+      if (!workspaceOpenReady(file, 'browse', 'window', resourceOptions)) return
       openBrowser({ source, initialState: { dir: file.path } })
       return
     }
     if (file.type === MediaType.AUDIO || file.type === MediaType.VIDEO) {
-      requestPlay(source, file.path, result.parentPath || undefined)
+      requestPlay(source, file.path, result.parentPath || undefined, result.rootId)
       return
     }
-    openViewer(workspace()?.activeWindowId ?? '', file, source)
+    openViewer(workspace()?.activeWindowId ?? '', file, source, resourceOptions)
   }
 
   function addPinnedItem(file: FileItem) {
@@ -1149,7 +1243,12 @@ export function WorkspacePage() {
           type: MediaType.OTHER,
           extension: '',
         }
-        openHermesFromBrowser(workspace()?.activeWindowId ?? '', synthetic, target)
+        openHermesFromBrowser(
+          workspace()?.activeWindowId ?? '',
+          synthetic,
+          target,
+          resourceKey('hermes', target.sessionId ?? crypto.randomUUID()),
+        )
       }
       return
     }
@@ -1160,6 +1259,7 @@ export function WorkspacePage() {
     const ext = pin.path.split('.').pop()?.toLowerCase() ?? ''
     const type = getMediaType(ext)
     if (type === MediaType.VIDEO || type === MediaType.AUDIO) {
+      requestPlay(pin.source, pin.path, pin.path.split(/[/\\]/).slice(0, -1).join('/') || undefined)
       return
     }
     const synthetic: FileItem = {
@@ -1180,19 +1280,13 @@ export function WorkspacePage() {
     pinId: string
   } | null>(null)
 
-  const wxAudioTick = useStoreSync(useWorkspaceAudio)
-
-  const playbackPlayingPath = createMemo(() => {
-    void wxAudioTick()
-    return useWorkspaceAudio.getState().playing ?? null
-  })
+  const playbackPlayingPath = createMemo(() => playback().currentItem?.locator ?? null)
 
   const suppressWorkspaceTaskbarAudioForVideoViewer = createMemo(() => {
-    void wxAudioTick()
     const w = workspace()
-    const st = useWorkspaceAudio.getState()
-    const path = st.playing
-    if (!path || !isVideoPath(path) || st.audioOnly || !w) return false
+    const state = playback()
+    const path = state.currentItem?.locator
+    if (!path || state.currentItem?.media !== 'video' || state.mode !== 'video' || !w) return false
     const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
     const n = norm(path)
     return w.windows.some((win) => {
@@ -1204,24 +1298,16 @@ export function WorkspacePage() {
   })
 
   const workspaceFileIconContext = (): FileIconContext => {
-    void wxAudioTick()
-    const key = storageSessionKeyFull().key
-    const slice = key ? useWorkspaceAudio.getState().byKey[key] : undefined
-    const tm = useWorkspaceAudio.getState()
-    const playing = slice?.playing ?? null
-    const audioOnly = slice?.audioOnly ?? false
-    const audioMode = !!(playing && (!isVideoPath(playing) || audioOnly))
-    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
-    const transportAudioForRow = !!playing && !!tm.playing && norm(playing) === norm(tm.playing)
-    const taskbarDrivesIcon = audioMode && transportAudioForRow
+    const state = playback()
+    const playing = state.currentItem?.locator ?? null
 
     return {
       customIcons: server.settingsQuery.data?.customIcons ?? {},
       knowledgeBases: server.settingsQuery.data?.knowledgeBases ?? [],
       playingPath: playing,
-      currentFile: audioMode ? playing : null,
-      mediaPlayerIsPlaying: taskbarDrivesIcon ? tm.isPlaying : false,
-      mediaType: audioMode ? 'audio' : null,
+      currentFile: playing,
+      mediaPlayerIsPlaying: state.phase === 'playing',
+      mediaType: state.currentItem ? state.mode : null,
     }
   }
 
@@ -1374,7 +1460,6 @@ export function WorkspacePage() {
           openLayoutPicker={(windowId, anchor) => setLayoutPicker({ windowId, anchor })}
           editableFolders={server.editableFolders}
           knowledgeBases={() => server.settingsQuery.data?.knowledgeBases ?? []}
-          storageKey={() => storageSessionKeyFull().key}
           workspaceFileIconContext={workspaceFileIconContext}
           focusWindow={focusWindow}
           closeWindow={closeWindow}
@@ -1404,7 +1489,6 @@ export function WorkspacePage() {
           requestPlay={requestPlay}
           updateWindowViewing={updateWindowViewing}
           resizeViewerWindowForVideoMetadata={resizeViewerWindowForVideoMetadata}
-          listenOnlyHandoff={listenOnlyHandoffFromWorkspaceViewer}
           onBeginFileOpenTargetPick={beginFileOpenTargetPick}
           openFileInNewFloatingWindow={openFileInNewFloatingWindow}
         />

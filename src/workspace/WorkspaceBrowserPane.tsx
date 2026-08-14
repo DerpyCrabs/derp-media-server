@@ -101,8 +101,14 @@ import { useStoreSync } from '../lib/solid-store-sync'
 import { useViewStats } from '../lib/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '../lib/use-file-icon'
 import { hrefFor } from '../lib/routes'
+import type { OpenIntent } from '../features/open/open-resource'
 import { workspaceBrowserPaneParentDir } from './workspace-browser-pane-paths'
 import type { WorkspaceBrowserPaneProps } from './workspace-browser-pane-types'
+import {
+  explicitVirtualResourceKey,
+  planWorkspaceBrowserResourceOpen,
+  workspaceBrowserOpenAction,
+} from './workspace-browser-resource-open'
 
 export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   const queryClient = useQueryClient()
@@ -383,7 +389,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       const popName = pathToOpen.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
       const lower = popName.toLowerCase()
       const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
-      props.onOpenViewer(props.windowId, {
+      openViewerAfterPlanning({
         path: pathToOpen,
         name: popName,
         isDirectory: false,
@@ -590,7 +596,11 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
           name: `${file.name} branch`,
           path: `virtual-branch-${Date.now()}`,
         }
-        props.onOpenVirtualTarget?.(props.windowId, branch, result.openTarget)
+        const key = explicitVirtualResourceKey({
+          provider: entry?.provider ?? virtualDirectory()?.provider ?? '',
+          id: result.openTarget.sessionId,
+        })
+        if (key) props.onOpenVirtualTarget?.(props.windowId, branch, result.openTarget, key)
       })
       return
     }
@@ -724,6 +734,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
 
   function openDirectoryInMediaServer(file: FileItem) {
     if (!file.isDirectory || file.isVirtual) return
+    if (planNonVirtualOpen(file, 'browse').plan.status === 'blocked') return
     window.open(hrefFor({ kind: 'library' }, file.path ? { dir: file.path } : undefined), '_blank')
   }
 
@@ -777,11 +788,16 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
+      if (
+        planNonVirtualOpen(workspaceBreadcrumbAsFolderItem(m), 'browse').plan.status === 'blocked'
+      )
+        return
       window.open('/', '_blank')
       return
     }
     const item = workspaceBreadcrumbAsFolderItem(m)
     if (!item.isDirectory || item.isVirtual) return
+    if (planNonVirtualOpen(item, 'browse').plan.status === 'blocked') return
     if (props.onOpenInNewTab) {
       props.onOpenInNewTab(
         props.windowId,
@@ -797,11 +813,16 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     const m = breadcrumbMenu()
     if (!m) return
     if (m.isHome) {
+      if (
+        planNonVirtualOpen(workspaceBreadcrumbAsFolderItem(m), 'browse').plan.status === 'blocked'
+      )
+        return
       window.open('/', '_blank')
       return
     }
     const item = workspaceBreadcrumbAsFolderItem(m)
     if (!item.isDirectory || item.isVirtual) return
+    if (planNonVirtualOpen(item, 'browse').plan.status === 'blocked') return
     window.open(hrefFor({ kind: 'library' }, item.path ? { dir: item.path } : undefined), '_blank')
   }
 
@@ -840,12 +861,37 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     props.onOpenInSplitView?.(props.windowId, file)
   }
 
+  function planNonVirtualOpen(file: FileItem, intent: OpenIntent) {
+    return planWorkspaceBrowserResourceOpen(file, intent, props.resourceOpenContext())
+  }
+
+  function openViewerAfterPlanning(file: FileItem) {
+    const opened = planNonVirtualOpen(file, 'view')
+    if (opened.plan.status === 'blocked') {
+      setUnsupportedFile(file)
+      return
+    }
+    props.onOpenViewer(props.windowId, file)
+  }
+
   function openWithBrowser(file: FileItem) {
+    if (file.isVirtual) return
+    const opened = planNonVirtualOpen(file, file.isDirectory ? 'browse' : 'view')
+    if (opened.plan.status === 'blocked') {
+      setUnsupportedFile(file)
+      return
+    }
     if (file.isDirectory) props.onNavigateDir(props.windowId, file.path)
     else props.onOpenViewer(props.windowId, file)
   }
 
   function openWithReader(file: FileItem) {
+    if (file.isVirtual) return
+    const opened = planNonVirtualOpen(file, 'read')
+    if (opened.plan.status === 'blocked') {
+      setUnsupportedFile(file)
+      return
+    }
     props.onOpenReader(props.windowId, file)
   }
 
@@ -864,8 +910,14 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
             isDirectory: false,
             isVirtual: true,
           }
-          props.onOpenVirtualTarget?.(props.windowId, draft, result.openTarget)
-          if (!props.onOpenVirtualTarget) {
+          const key = explicitVirtualResourceKey({
+            provider: virtualDirectory()?.provider ?? '',
+            id: result.openTarget.sessionId ?? crypto.randomUUID(),
+          })
+          if (props.onOpenVirtualTarget && key) {
+            props.onOpenVirtualTarget(props.windowId, draft, result.openTarget, key)
+          }
+          if (!props.onOpenVirtualTarget || !key) {
             setVirtualDetail({
               file: draft,
               entry: {
@@ -1006,7 +1058,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
     setSearchQuery('')
     setDebouncedSearch('')
     setSearchPopoverOpen(false)
-    props.onOpenViewer(props.windowId, fileItemFromPath(filePath, displayName))
+    openViewerAfterPlanning(fileItemFromPath(filePath, displayName))
   }
 
   function handleKbResultClickFromSearch(path: string) {
@@ -1040,7 +1092,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       setInlineMode(null)
       setInlineName('')
       createFileMutation.reset()
-      props.onOpenViewer(props.windowId, fileItemFromPath(finalPath))
+      openViewerAfterPlanning(fileItemFromPath(finalPath))
     } catch {
       /* createFileMutation.isError surfaces failures */
     }
@@ -1094,28 +1146,43 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
   }
 
   function handleFileClick(file: FileItem, sourceDir = currentPath()) {
-    if (file.isDirectory) {
+    const entry = virtualEntry(file)
+    if (file.isVirtual || entry) {
+      if (file.isDirectory) {
+        setUnsupportedFile(null)
+        props.onNavigateDir(props.windowId, file.path)
+        return
+      }
+      if (entry?.openTarget) {
+        setUnsupportedFile(null)
+        const key = explicitVirtualResourceKey(entry)
+        if (props.onOpenVirtualTarget && key) {
+          props.onOpenVirtualTarget(props.windowId, file, entry.openTarget, key)
+        } else {
+          setVirtualDetail({ file, entry })
+        }
+        return
+      }
+      viewStats.incrementView(file.path)
+      setUnsupportedFile(file)
+      return
+    }
+
+    const opened = planNonVirtualOpen(file, 'default')
+    const action = workspaceBrowserOpenAction(opened.plan)
+    if (action === 'navigate') {
       setUnsupportedFile(null)
       props.onNavigateDir(props.windowId, file.path)
       return
     }
-    const entry = virtualEntry(file)
-    if (entry?.openTarget) {
-      setUnsupportedFile(null)
-      if (props.onOpenVirtualTarget)
-        props.onOpenVirtualTarget(props.windowId, file, entry.openTarget)
-      else setVirtualDetail({ file, entry })
-      return
-    }
     viewStats.incrementView(file.path)
-    const mt = file.type
-    if (mt === MediaType.AUDIO || mt === MediaType.VIDEO) {
+    if (action === 'play') {
       const wdef = props.workspace()?.windows.find((x) => x.id === props.windowId)
       const src = wdef?.source ?? DEFAULT_WORKSPACE_SOURCE
       props.onRequestPlay?.(src, file.path, sourceDir || undefined)
       return
     }
-    if (mt === MediaType.OTHER) {
+    if (action === 'unsupported') {
       setUnsupportedFile(file)
       return
     }
@@ -1179,6 +1246,7 @@ export function WorkspaceBrowserPane(props: WorkspaceBrowserPaneProps) {
       path: file.path,
       isDirectory: file.isDirectory,
       sourceKind: 'local',
+      ...(file.isVirtual ? { isVirtual: true } : {}),
       ...(virtualEntry(file)?.openTarget
         ? { virtualOpenTarget: virtualEntry(file)!.openTarget }
         : {}),

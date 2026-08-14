@@ -41,7 +41,7 @@ export const BATCHES = [
   },
   {
     id: '4',
-    tests: ['editable-folders', 'url-state', 'multiple-media-dirs'],
+    tests: ['editable-folders', 'url-state', 'multiple-media-dirs', 'stage2-playback-continuity'],
   },
   {
     id: '5',

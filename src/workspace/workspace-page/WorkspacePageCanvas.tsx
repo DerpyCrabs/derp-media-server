@@ -13,10 +13,7 @@ import {
   tabsInGroup,
 } from '@/src/workspace/tab-group-ops'
 import { WorkspaceBrowserPane } from '@/src/workspace/WorkspaceBrowserPane'
-import {
-  WorkspaceViewerPane,
-  type WorkspaceVideoListenOnlyDetail,
-} from '@/src/workspace/WorkspaceViewerPane'
+import { WorkspaceViewerPane } from '@/src/workspace/WorkspaceViewerPane'
 import { WorkspaceWindowChrome, type WorkspaceBounds } from '@/src/workspace/WorkspaceWindowChrome'
 import { WorkspaceSnapAssistBar } from '@/src/workspace/WorkspaceSnapAssistBar'
 import { WorkspaceTilingPicker } from '@/src/workspace/WorkspaceTilingPicker'
@@ -26,6 +23,7 @@ import type { MergeTarget } from '@/src/workspace/merge-target'
 import type { FileDragData } from '@/lib/file-drag-data'
 import type { FileIconContext } from '@/src/lib/use-file-icon'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
+import type { ResourceKey } from '@/lib/domain/resource'
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 
 export type WorkspacePageCanvasProps = {
@@ -51,7 +49,6 @@ export type WorkspacePageCanvasProps = {
   openLayoutPicker: (windowId: string, anchor: DOMRect) => void
   editableFolders: () => string[]
   knowledgeBases: () => string[]
-  storageKey: () => string
   workspaceFileIconContext: () => FileIconContext
   focusWindow: (windowId: string) => void
   closeWindow: (windowId: string) => void
@@ -76,7 +73,12 @@ export type WorkspacePageCanvasProps = {
   navigateDir: (windowId: string, dir: string) => void
   openViewerFromBrowser: (windowId: string, file: FileItem) => void
   openReaderFromBrowser: (windowId: string, file: FileItem) => void
-  openHermesFromBrowser: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
+  openHermesFromBrowser: (
+    windowId: string,
+    file: FileItem,
+    target: VirtualOpenTarget,
+    resource: ResourceKey,
+  ) => void
   bindHermesSession: (windowId: string, sessionId: string) => void
   openHermesBranch: (windowId: string, sessionId: string, title: string) => void
   renameHermesWindow: (windowId: string, title: string) => void
@@ -96,7 +98,6 @@ export type WorkspacePageCanvasProps = {
     videoWidth: number,
     videoHeight: number,
   ) => void
-  listenOnlyHandoff: (tabId: string, detail: WorkspaceVideoListenOnlyDetail) => void
   onBeginFileOpenTargetPick: (browserWindowId: string) => void
   openFileInNewFloatingWindow: (windowId: string, file: FileItem) => void
 }
@@ -222,6 +223,10 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             <Show when={windowDef()?.type === 'browser'}>
                               <WorkspaceBrowserPane
                                 windowId={tabId}
+                                resourceOpenContext={() => ({
+                                  surface: 'workspace',
+                                  disposition: 'window',
+                                })}
                                 workspace={props.workspace}
                                 editableFolders={props.editableFolders()}
                                 fileIconContext={props.workspaceFileIconContext}
@@ -244,7 +249,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             <Show when={windowDef()?.type === 'viewer'}>
                               <WorkspaceViewerPane
                                 windowId={tabId}
-                                storageKey={props.storageKey()}
                                 contentVisible={() => tabId === visibleTabId()}
                                 workspace={props.workspace}
                                 editableFolders={props.editableFolders()}
@@ -253,7 +257,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 onVideoMetadataLoaded={(vw, vh) =>
                                   props.resizeViewerWindowForVideoMetadata(tabId, vw, vh)
                                 }
-                                onListenOnlyHandoff={(d) => props.listenOnlyHandoff(tabId, d)}
                                 onListenOnlyDismissViewer={() =>
                                   props.closeTab(tabId, { ignoreTabPinForListenOnlyDismiss: true })
                                 }
@@ -297,6 +300,10 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                           <Show when={leftWindowDef()?.type === 'browser'}>
                             <WorkspaceBrowserPane
                               windowId={leftTabId()}
+                              resourceOpenContext={() => ({
+                                surface: 'workspace',
+                                disposition: 'window',
+                              })}
                               workspace={props.workspace}
                               editableFolders={props.editableFolders()}
                               fileIconContext={props.workspaceFileIconContext}
@@ -319,7 +326,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                           <Show when={leftWindowDef()?.type === 'viewer'}>
                             <WorkspaceViewerPane
                               windowId={leftTabId()}
-                              storageKey={props.storageKey()}
                               contentVisible={() => true}
                               workspace={props.workspace}
                               editableFolders={props.editableFolders()}
@@ -328,7 +334,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                               onVideoMetadataLoaded={(vw, vh) =>
                                 props.resizeViewerWindowForVideoMetadata(leftTabId(), vw, vh)
                               }
-                              onListenOnlyHandoff={(d) => props.listenOnlyHandoff(leftTabId(), d)}
                               onListenOnlyDismissViewer={() =>
                                 props.closeTab(leftTabId(), {
                                   ignoreTabPinForListenOnlyDismiss: true,
@@ -369,6 +374,10 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             <Show when={rightWindowDef()?.type === 'browser'}>
                               <WorkspaceBrowserPane
                                 windowId={visibleTabId()}
+                                resourceOpenContext={() => ({
+                                  surface: 'workspace',
+                                  disposition: 'window',
+                                })}
                                 workspace={props.workspace}
                                 editableFolders={props.editableFolders()}
                                 fileIconContext={props.workspaceFileIconContext}
@@ -391,7 +400,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             <Show when={rightWindowDef()?.type === 'viewer'}>
                               <WorkspaceViewerPane
                                 windowId={visibleTabId()}
-                                storageKey={props.storageKey()}
                                 contentVisible={() => true}
                                 workspace={props.workspace}
                                 editableFolders={props.editableFolders()}
@@ -399,9 +407,6 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                                 onUpdateViewing={props.updateWindowViewing}
                                 onVideoMetadataLoaded={(vw, vh) =>
                                   props.resizeViewerWindowForVideoMetadata(visibleTabId(), vw, vh)
-                                }
-                                onListenOnlyHandoff={(d) =>
-                                  props.listenOnlyHandoff(visibleTabId(), d)
                                 }
                                 onListenOnlyDismissViewer={() =>
                                   props.closeTab(visibleTabId(), {

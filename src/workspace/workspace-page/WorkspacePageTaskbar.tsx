@@ -2,7 +2,6 @@ import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
 import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
-import { useWorkspaceAudio } from '@/lib/workspace-audio-store'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import { For, Show, type JSX } from 'solid-js'
@@ -145,12 +144,8 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
             />
             <WorkspaceTaskbarAudio
               suppressTaskbarAudioChrome={props.suppressTaskbarAudioChrome}
-              storageKey={() => props.storageSessionKey()}
-              onShowVideo={() => {
-                const key = props.storageSessionKey()
-                const path = key ? (useWorkspaceAudio.getState().byKey[key]?.playing ?? null) : null
+              onShowVideo={(path, dir) => {
                 if (!path) return
-                const dir = key ? useWorkspaceAudio.getState().byKey[key]?.dir : undefined
                 const w = props.workspace()
                 const viewerWin = w?.windows.find(
                   (win) => win.type === 'viewer' && win.initialState?.viewing === path,
@@ -159,7 +154,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                   props.focusWindow(viewerWin.id)
                   return
                 }
-                props.requestPlay(props.browserSource(), path, dir ?? undefined)
+                props.requestPlay(props.browserSource(), path, dir)
               }}
               onStopPlayback={props.stopWorkspacePlaybackFromTaskbar}
             />

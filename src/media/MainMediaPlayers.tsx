@@ -1,6 +1,8 @@
 import { getMediaTypeFromPath } from '@/lib/media-utils'
-import { MediaType } from '@/lib/types'
-import { Show, lazy } from 'solid-js'
+import { MediaType, type FileItem } from '@/lib/types'
+import { Show, createMemo, lazy } from 'solid-js'
+import { adaptFileItemResource } from '@/lib/domain/file-item-resource'
+import { openResource } from '../features/open/open-resource'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { AudioPlayer } from './AudioPlayer'
 import { ImageViewerDialog } from './ImageViewerDialog'
@@ -40,17 +42,43 @@ function LazyDocumentReader() {
 }
 
 export function MainMediaPlayers(props: Props) {
+  const history = useBrowserHistory()
+  const params = createUrlSearchParamsMemo(history)
+  const viewingPlanReady = createMemo(() => {
+    const path = params().get('viewing')
+    if (!path) return true
+    const type = getMediaTypeFromPath(path)
+    const file: FileItem = {
+      path,
+      name: path.split(/[/\\]/).at(-1) || path,
+      type,
+      size: 0,
+      extension: path.toLowerCase().endsWith('.fb2.zip')
+        ? 'fb2.zip'
+        : (path.split('.').at(-1) ?? ''),
+      isDirectory: false,
+    }
+    return (
+      openResource(adaptFileItemResource(file).resource, 'view', {
+        surface: 'library',
+        disposition: type === MediaType.PDF || type === MediaType.BOOK ? 'fullscreen' : 'modal',
+      }).status === 'ready'
+    )
+  })
+
   return (
     <>
-      <TextViewerDialog
-        editableFolders={props.editableFolders}
-        knowledgeBases={props.knowledgeBases}
-      />
-      <ImageViewerDialog />
-      <LazyDocumentReader />
+      <Show when={viewingPlanReady()}>
+        <TextViewerDialog
+          editableFolders={props.editableFolders}
+          knowledgeBases={props.knowledgeBases}
+        />
+        <ImageViewerDialog />
+        <LazyDocumentReader />
+        <UnsupportedFileViewerDialog />
+      </Show>
       <VideoPlayer />
       <AudioPlayer />
-      <UnsupportedFileViewerDialog />
     </>
   )
 }

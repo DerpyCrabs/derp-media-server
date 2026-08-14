@@ -1,6 +1,6 @@
 # Workspace Refactor Roadmap
 
-Status: active; Stage 1 complete
+Status: active; Stage 2 complete
 Initiative branch: `derp-desk-attempt-2`
 Baseline: `master` at `3695a88`
 Last updated: 2026-08-14
@@ -192,7 +192,7 @@ Every stage exit also requires:
 | Stage | Release outcome                                                                                | Status      |
 | ----- | ---------------------------------------------------------------------------------------------- | ----------- |
 | 1     | Safe file operations, stable app lifetime, typed routes/contracts, fast route delivery         | Complete    |
-| 2     | One resource/open model and one playback session across all surfaces                           | Not started |
+| 2     | One resource/open model and one playback session across all surfaces                           | Complete    |
 | 3     | One Explorer/Reader/viewer content layer behind three surface hosts                            | Not started |
 | 4     | Filesystem and Hermes use one integration seam; legacy persistence and duplicate paths removed | Not started |
 
@@ -268,11 +268,11 @@ Every currently openable item has one lean resource descriptor and one pure open
 
 ### Work packages
 
-- [ ] **2.1 Define resource address and transport semantics.** Add `ResourceKey`, `ResourceSummary`, capabilities, presentation hints, and typed pages/errors. Filesystem identity remains configured-root plus normalized logical path; Hermes uses opaque IDs. Existing `FileItem` and path URLs remain behind temporary adapters. Saved path references continue to follow current path-mutation events.
-- [ ] **2.2 Add one pure opener and lazy renderer registry.** Implement `openResource(resource, intent, context): OpenPlan`. Register renderer descriptors by MIME/kind and lazy import factory. Keep authorization, route mutation, pane geometry, and component state outside the registry. Route Library, Workspace, and Canvas opens through the same planner while each surface executes its existing disposition.
-- [ ] **2.3 Define neutral content-host and integration contribution contracts.** Introduce host-neutral `ContentInstance`, content codec/sanitizer descriptors, narrow `LibraryHost`/`WorkspaceHost`/`CanvasHost` contracts, and compile-time `IntegrationModule` contribution shapes before new resource/viewer code hardcodes Hermes. Keep Workspace tiling and Canvas geometry types unchanged. Do not build a universal visual pane frame yet.
-- [ ] **2.4 Introduce one owner-only `PlaybackSession` and media host.** Port only the useful state-machine ideas and tests from `derp-desk` commit `891bf76`: queue, source generation, stale-event rejection, play/pause, seek, next/previous, repeat, persistence, audio/video mode, and host continuity. Add a small media-element host that owns source/event synchronization without owning surface controls. Remove every Grant, offline, revocation, and shared-version branch before integration.
-- [ ] **2.5 Migrate playback one surface at a time.** Mount the session and shared host lifecycle in the Stage 1 composition root. Migrate Workspace taskbar/pane and Canvas first, then replace root ownership with the same session. Keep each surface's visual controls and current media URLs unchanged; views consume one reactive snapshot and command interface. Delete `use-media-player` and `workspace-audio-store` ownership after the final caller moves; no proxy bridge may survive stage exit.
+- [x] **2.1 Define resource address and transport semantics.** Add `ResourceKey`, `ResourceSummary`, capabilities, presentation hints, and typed pages/errors. Filesystem identity remains configured-root plus normalized logical path; Hermes uses opaque IDs. Existing `FileItem` and path URLs remain behind temporary adapters. Saved path references continue to follow current path-mutation events.
+- [x] **2.2 Add one pure opener and lazy renderer registry.** Implement `openResource(resource, intent, context): OpenPlan`. Register renderer descriptors by MIME/kind and lazy import factory. Keep authorization, route mutation, pane geometry, and component state outside the registry. Route Library, Workspace, and Canvas opens through the same planner while each surface executes its existing disposition.
+- [x] **2.3 Define neutral content-host and integration contribution contracts.** Introduce host-neutral `ContentInstance`, content codec/sanitizer descriptors, narrow `LibraryHost`/`WorkspaceHost`/`CanvasHost` contracts, and compile-time `IntegrationModule` contribution shapes before new resource/viewer code hardcodes Hermes. Keep Workspace tiling and Canvas geometry types unchanged. Do not build a universal visual pane frame yet.
+- [x] **2.4 Introduce one owner-only `PlaybackSession` and media host.** Port only the useful state-machine ideas and tests from `derp-desk` commit `891bf76`: queue, source generation, stale-event rejection, play/pause, seek, next/previous, repeat, persistence, audio/video mode, and host continuity. Add a small media-element host that owns source/event synchronization without owning surface controls. Remove every Grant, offline, revocation, and shared-version branch before integration.
+- [x] **2.5 Migrate playback one surface at a time.** Mount the session and shared host lifecycle in the Stage 1 composition root. Migrate Workspace taskbar/pane and Canvas first, then replace root ownership with the same session. Keep each surface's visual controls and current media URLs unchanged; views consume one reactive snapshot and command interface. Delete `use-media-player` and `workspace-audio-store` ownership after the final caller moves; no proxy bridge may survive stage exit.
 
 ### Likely code areas
 
@@ -299,6 +299,18 @@ Every currently openable item has one lean resource descriptor and one pure open
 - Existing distinct Library, Workspace, and Canvas media views remain visually compatible while sharing no playback state-machine logic.
 - Old playback stores and bridge/proxy code are deleted.
 - No server-wide resource catalog, identity reconciliation system, or new UI shell has appeared.
+
+### Completion record
+
+- Completed: Work packages 2.1 through 2.5. Resource identity, typed transport shapes, pure open planning, lazy renderer descriptors, neutral content/integration contracts, one owner-only playback session, one root media host, and all three surface migrations are in place.
+- Commits: Baseline remains `master` at `3695a88`; Stage 2 implementation is in the current working tree because no commit was requested.
+- User-visible behavior: Library, Workspace, and Canvas keep their existing navigation, player, taskbar, viewer, and spatial chrome. One playback queue and transport now survives client-side route changes, and multiple Canvas audio windows act as presenters for the same physical media host.
+- Data/schema behavior: Filesystem resource identity is configured-root plus normalized logical path while executors retain exact legacy paths for URLs and persisted panes. Playback writes only `derp-playback-session-owner-v1`, restores paused, and reads `video-playback-times` only as a bounded legacy fallback. Existing path mutation events update or remove current playback resources. Existing Workspace and Canvas payloads remain readable.
+- Tests and manual checks: `bun run test:unit` passes 70 Rust and 365 Bun tests; `bun run test:batch` passes all 378 Playwright tests across six batches. Type/generated-contract, lint, format, Rust-format, production-build, and diff checks pass. Production direct-navigation smoke checks pass for Library, Workspace, and Canvas at 1440x900 and 390x844 with exactly one file-playback audio element and no browser warnings or errors.
+- Metrics before/after: Production file-playback `<audio>` declarations fall from four to one; Media Session action-handler owners fall from two files to one; three legacy playback owner/persistence modules fall to zero; and CI remains at six E2E batches. Manifest reachability still keeps Workspace, Canvas, and Hermes outside the Library eager closure.
+- Compatibility adapters removed: `lib/use-media-player.ts`, `lib/workspace-audio-store.ts`, `lib/use-video-playback-time.ts`, the fake keyed Workspace-audio proxy, user-gesture bridge state, and surface-local file-playback ownership are deleted. No playback proxy bridge remains.
+- Intentional remaining duplication: Surface-specific media controls and the existing Library dialogs/`MainMediaPlayers` and Workspace/Canvas `WorkspaceViewerPane` visuals remain for Stage 3. Their static imports can coalesce renderer chunks even though registry factories are lazy and never run during planning. The bounded `FileItem`/legacy-path adapter and read-only legacy playback decoder remain until pane migration and recovery coverage allow removal.
+- Next stage/package: Stage 3 package 3.1, extracting one shared Explorer content/controller slice while keeping current surface hosts.
 
 ### Recovery
 

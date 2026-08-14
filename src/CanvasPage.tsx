@@ -1,5 +1,6 @@
 import { api } from '@/lib/api'
 import { apiEndpoints } from '@/lib/api-endpoints'
+import { isVirtualFolderPath } from '@/lib/constants'
 import { createCanvasExport, parseCanvasExport } from '@/lib/canvas-features'
 import {
   CANVAS_COLLECTION_STORAGE_KEY,
@@ -39,6 +40,10 @@ import {
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
 import { serverConfigQueryOptions, settingsQueryOptions } from '@/lib/query-options'
 import { MediaType, type FileItem } from '@/lib/types'
+import {
+  adaptFileItemResource,
+  type FileItemResourceOptions,
+} from '@/lib/domain/file-item-resource'
 import type {
   PersistedWorkspaceState,
   WorkspaceSource,
@@ -47,6 +52,7 @@ import type {
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 import { applyCanvasPathMutation, type WorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import type { VirtualOpenTarget } from '@/lib/virtual-directory'
+import type { ResourceKey } from '@/lib/domain/resource'
 import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
 import { HermesChatPane } from '@/src/workspace/HermesChatPane'
 import { useQuery } from '@tanstack/solid-query'
@@ -79,6 +85,8 @@ import { useAdminEventsStream } from './lib/use-admin-events-stream'
 import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
 import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
 import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
+import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
+import { openResource } from './features/open/open-resource'
 
 const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
@@ -338,6 +346,8 @@ function canvasDialogLabel(dialog: CanvasDialogState): string {
 }
 
 export function CanvasPage() {
+  const playbackSession = usePlaybackSession()
+  const playback = usePlaybackSnapshot()
   const browserStorage =
     typeof localStorage === 'undefined'
       ? ({ getItem: () => null } as Pick<Storage, 'getItem'>)
@@ -374,7 +384,6 @@ export function CanvasPage() {
   const [noteDirectory, setNoteDirectory] = createSignal('')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
   const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
-  let activeCanvasAudio: { windowId: string; element: HTMLAudioElement } | null = null
   const [syncStatus, setSyncStatus] = createSignal<'saved' | 'saving' | 'error'>('saved')
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let importInputEl: HTMLInputElement | undefined
@@ -1135,8 +1144,34 @@ export function CanvasPage() {
       duplicate?: boolean
       worldBounds?: CanvasRect
       readerKind?: 'pdf' | 'folder' | 'book'
+      resourceOptions?: FileItemResourceOptions
     } = {},
   ) {
+    const plannedFile: FileItem =
+      file ??
+      ({
+        path: '',
+        name: 'Files',
+        type: MediaType.FOLDER,
+        size: 0,
+        extension: '',
+        isDirectory: true,
+      } satisfies FileItem)
+    if (!plannedFile.isVirtual) {
+      const intent = options.readerKind ? 'read' : plannedFile.isDirectory ? 'browse' : 'default'
+      const plan = openResource(
+        adaptFileItemResource(plannedFile, options.resourceOptions).resource,
+        intent,
+        {
+          surface: 'canvas',
+          disposition: 'window',
+        },
+      )
+      if (plan.status === 'blocked') {
+        setDialog({ kind: 'message', message: `This resource cannot be opened (${plan.reason}).` })
+        return undefined
+      }
+    }
     if (file && !options.duplicate) {
       const existing = existingWindowForFile(file)
       if (existing) {
@@ -1178,16 +1213,8 @@ export function CanvasPage() {
     return created
   }
 
-  function resumeActiveAudioAfterWindowChange() {
-    const active = activeCanvasAudio
-    if (!active || !active.element.isConnected || !active.element.paused) return
-    void active.element.play().catch(() => {})
-  }
-
   function settleCanvasWindows(bounds: CanvasRect[]) {
     ensureBoundsVisible(bounds)
-    queueMicrotask(resumeActiveAudioAfterWindowChange)
-    requestAnimationFrame(resumeActiveAudioAfterWindowChange)
   }
 
   async function addTextEditor(
@@ -1379,6 +1406,7 @@ export function CanvasPage() {
     sourceWindowId: string,
     file: FileItem,
     target: VirtualOpenTarget,
+    _resource: ResourceKey,
   ) {
     const source = state().windows.find((window) => window.id === sourceWindowId)
     if (!source) return
@@ -1504,6 +1532,21 @@ export function CanvasPage() {
   }
 
   function navigateDir(windowId: string, dir: string) {
+    if (!isVirtualFolderPath(dir)) {
+      const folder: FileItem = {
+        path: dir,
+        name: dir.split(/[/\\]/).at(-1) || 'Files',
+        type: MediaType.FOLDER,
+        size: 0,
+        extension: '',
+        isDirectory: true,
+      }
+      const plan = openResource(adaptFileItemResource(folder).resource, 'browse', {
+        surface: 'canvas',
+        disposition: 'window',
+      })
+      if (plan.status === 'blocked') return
+    }
     updateDefinition(windowId, (definition) => ({
       ...definition,
       title: workspaceBrowserDirTitle(dir),
@@ -1514,6 +1557,19 @@ export function CanvasPage() {
   }
 
   function updateViewing(windowId: string, path: string) {
+    const file: FileItem = {
+      path,
+      name: path.split(/[/\\]/).at(-1) || path,
+      type: getMediaTypeFromPath(path),
+      size: 0,
+      extension: path.split('.').at(-1) ?? '',
+      isDirectory: false,
+    }
+    const plan = openResource(adaptFileItemResource(file).resource, 'default', {
+      surface: 'canvas',
+      disposition: 'window',
+    })
+    if (plan.status === 'blocked') return
     updateDefinition(windowId, (definition) => ({
       ...definition,
       title: fileName(path),
@@ -1545,23 +1601,17 @@ export function CanvasPage() {
     ensureWindowsVisible([windowId])
   }
 
-  function handleAudioPlay(windowId: string, element: HTMLAudioElement) {
-    document.querySelectorAll<HTMLAudioElement>('[data-canvas-audio-player]').forEach((audio) => {
-      if (audio !== element && !audio.paused) audio.pause()
-    })
-    activeCanvasAudio = { windowId, element }
+  function handleAudioActivate(windowId: string) {
     setLastAudioWindowId(windowId)
-  }
-
-  function handleAudioPause(windowId: string, element: HTMLAudioElement) {
-    const active = activeCanvasAudio
-    if (active?.windowId === windowId && active.element === element) activeCanvasAudio = null
   }
 
   function closeWindow(windowId: string) {
     const target = state().windows.find((window) => window.id === windowId)
     if (!canCloseHermesWindow(target?.definition.hermes)) return
-    if (activeCanvasAudio?.windowId === windowId) activeCanvasAudio = null
+    const viewing = target?.definition.initialState.viewing
+    if (viewing && playbackSession.getSnapshot().currentItem?.locator === viewing) {
+      playbackSession.dispatch({ type: 'stop' })
+    }
     if (lastAudioWindowId() === windowId) setLastAudioWindowId(null)
     if (maximizedWindowId() === windowId) setMaximizedWindowId(null)
     commit((current) => ({
@@ -1762,7 +1812,9 @@ export function CanvasPage() {
   }
 
   function onLibrarySearchResult(result: FileSearchResult) {
-    addFileWindow(fileSearchResultToFileItem(result), searchPlacement())
+    addFileWindow(fileSearchResultToFileItem(result), searchPlacement(), {
+      resourceOptions: { rootId: result.rootId, logicalPath: result.path },
+    })
   }
 
   createEffect(() => {
@@ -1829,13 +1881,24 @@ export function CanvasPage() {
       : undefined
   })
   const lastAudioWindow = createMemo(() => {
-    const audioWindows = state().windows.filter(
+    const stateWindows = state().windows
+    const current = playback()
+    const audioWindows = stateWindows.filter(
       (window) =>
         window.definition.type === 'viewer' &&
         getMediaTypeFromPath(window.definition.initialState.viewing ?? '') === MediaType.AUDIO,
     )
+    const currentWindow =
+      current.mode === 'audio' && current.currentItem
+        ? stateWindows.find(
+            (window) =>
+              window.definition.type === 'viewer' &&
+              window.definition.initialState.viewing === current.currentItem?.locator,
+          )
+        : undefined
     const id = lastAudioWindowId()
     return (
+      currentWindow ??
       audioWindows.find((window) => window.id === id) ??
       audioWindows.reduce<CanvasWindow | undefined>(
         (latest, window) => (!latest || window.zIndex > latest.zIndex ? window : latest),
@@ -2297,6 +2360,7 @@ export function CanvasPage() {
             )
             return
           }
+          if (data.isVirtual) return
           addFileWindow(fileItemFromDrag(data.path, data.isDirectory), point, {
             duplicate: true,
             worldBounds: placement.bounds,
@@ -2556,6 +2620,10 @@ export function CanvasPage() {
                       <Show when={item()!.definition.type === 'browser'}>
                         <WorkspaceBrowserPane
                           windowId={windowId}
+                          resourceOpenContext={() => ({
+                            surface: 'canvas',
+                            disposition: 'window',
+                          })}
                           workspace={workspace}
                           fileIconContext={fileIconContext}
                           editableFolders={editableFolders()}
@@ -2582,7 +2650,6 @@ export function CanvasPage() {
                       <Show when={item()!.definition.type === 'viewer'}>
                         <WorkspaceViewerPane
                           windowId={windowId}
-                          storageKey={CANVAS_STORAGE_KEY}
                           contentVisible={() => true}
                           workspace={workspace}
                           editableFolders={editableFolders()}
@@ -2592,9 +2659,7 @@ export function CanvasPage() {
                           onVideoMetadataLoaded={(width, height) =>
                             sizeVideoWindow(windowId, width, height)
                           }
-                          onAudioPlay={(element) => handleAudioPlay(windowId, element)}
-                          onAudioPause={(element) => handleAudioPause(windowId, element)}
-                          onAudioReady={resumeActiveAudioAfterWindowChange}
+                          onAudioActivate={() => handleAudioActivate(windowId)}
                           showListenOnly={false}
                         />
                       </Show>
