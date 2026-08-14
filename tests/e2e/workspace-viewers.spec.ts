@@ -250,6 +250,7 @@ test.describe('Workspace Image Viewer', () => {
     const viewer = await openFileFromBrowser(page, 'Images', 'photo.jpg')
 
     await test.step('shows image and zoom controls', async () => {
+      await expect(viewer.getByTestId('image-viewer-content')).toBeVisible()
       await expect(viewer.locator('img[alt="photo.jpg"]')).toBeVisible()
       await expect(viewer.locator('button:has(.lucide-zoom-in)')).toBeVisible()
       await expect(viewer.locator('button:has(.lucide-zoom-out)')).toBeVisible()
@@ -786,10 +787,11 @@ test.describe('Workspace Text Viewer', () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Documents', 'readme.txt')
     await test.step('displays text content', async () => {
+      await expect(viewer.getByTestId('text-viewer-content')).toBeVisible()
       await expect(viewer.getByText('This is a test readme file')).toBeVisible()
     })
     await test.step('shows file type and line count', async () => {
-      await expect(viewer.getByText('TXT')).toBeVisible()
+      await expect(viewer.getByText(/^TXT File/)).toBeVisible()
       await expect(viewer.getByText(/\d+ lines/)).toBeVisible()
     })
     await test.step('does not show edit button for non-editable folders', async () => {

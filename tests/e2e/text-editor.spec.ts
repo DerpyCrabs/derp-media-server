@@ -87,6 +87,7 @@ test.describe('Text Editor', () => {
     await page.goto('/?dir=Documents')
     await page.locator('table').getByText('readme.txt').click()
     await page.waitForURL(/viewing=/)
+    await expect(page.getByTestId('text-viewer-content')).toBeVisible()
     await expect(page.getByText('This is a test readme file')).toBeVisible()
   })
 

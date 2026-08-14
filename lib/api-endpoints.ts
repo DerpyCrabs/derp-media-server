@@ -30,13 +30,15 @@ export type AddViewResponse = { success: boolean; viewCount: number }
 
 export type FileListParameters = {
   dir: string
-  surface?: 'workspace'
+  surface?: 'library' | 'workspace' | 'canvas'
   offset?: number
 }
 
 export function fileListUrl(parameters: FileListParameters): string {
   const search = new URLSearchParams()
-  if (parameters.surface) search.set('surface', parameters.surface)
+  if (parameters.surface && (parameters.surface !== 'library' || (parameters.offset ?? 0) > 0)) {
+    search.set('surface', parameters.surface)
+  }
   search.set('dir', parameters.dir)
   if (parameters.offset) search.set('offset', String(parameters.offset))
   return `${apiRoutes.files}?${search.toString()}`
@@ -56,14 +58,20 @@ export const apiEndpoints = {
     get: () => api<ServerConfigDto>(apiRoutes.config),
   },
   files: {
-    list: (parameters: FileListParameters) => api<FileListResponse>(fileListUrl(parameters)),
-    create: (body: CreateFileRequest) => post<FileMutationResponse>(apiRoutes.filesCreate, body),
-    edit: (body: EditFileRequest) => post<FileMutationResponse>(apiRoutes.filesEdit, body),
-    delete: (body: FilePathRequest) => post<FileMutationResponse>(apiRoutes.filesDelete, body),
-    rename: (body: RenameFileRequest) => post<FileMutationResponse>(apiRoutes.filesRename, body),
-    copy: (body: CopyFileRequest) => post<FileMutationResponse>(apiRoutes.filesCopy, body),
-    upload: (body: FormData) =>
-      api<UploadResponse>(apiRoutes.filesUpload, { method: 'POST', body }),
+    list: (parameters: FileListParameters, signal?: AbortSignal) =>
+      api<FileListResponse>(fileListUrl(parameters), { signal }),
+    create: (body: CreateFileRequest, signal?: AbortSignal) =>
+      post<FileMutationResponse>(apiRoutes.filesCreate, body, signal),
+    edit: (body: EditFileRequest, signal?: AbortSignal) =>
+      post<FileMutationResponse>(apiRoutes.filesEdit, body, signal),
+    delete: (body: FilePathRequest, signal?: AbortSignal) =>
+      post<FileMutationResponse>(apiRoutes.filesDelete, body, signal),
+    rename: (body: RenameFileRequest, signal?: AbortSignal) =>
+      post<FileMutationResponse>(apiRoutes.filesRename, body, signal),
+    copy: (body: CopyFileRequest, signal?: AbortSignal) =>
+      post<FileMutationResponse>(apiRoutes.filesCopy, body, signal),
+    upload: (body: FormData, signal?: AbortSignal) =>
+      api<UploadResponse>(apiRoutes.filesUpload, { method: 'POST', body, signal }),
     downloadUrl: fileDownloadUrl,
   },
   settings: {

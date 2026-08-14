@@ -28,6 +28,7 @@ test.describe('Image Viewer', () => {
     await page.goto('/?dir=Images')
     await useListView(page)
     await page.locator('table').getByText('photo.jpg').click()
+    await expect(page.getByTestId('image-viewer-content')).toBeVisible()
     const image = page.locator('img[alt="photo.jpg"]')
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /\/api\/image\/Images\/photo\.jpg\?/)

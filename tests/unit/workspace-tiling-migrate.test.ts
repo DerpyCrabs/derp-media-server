@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { applyAssistCustomSnapToWindows } from '@/lib/workspace-assist-grid'
-import { normalizePersistedWorkspaceState } from '@/lib/use-workspace'
+import {
+  normalizePersistedWorkspaceState,
+  serializeWorkspacePersistedState,
+  type PersistedWorkspaceState,
+} from '@/lib/use-workspace'
 import { MediaType } from '@/lib/types'
 import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
@@ -53,12 +57,15 @@ describe('migrateLegacyAssistCustomToTiling', () => {
   })
 
   test('normalizePersistedWorkspaceState migrates assist-custom presets', () => {
-    const normalized = normalizePersistedWorkspaceState({
+    const live = {
       windows: obsidianLegacyWindows(),
       activeWindowId: 'left',
       activeTabMap: {},
       nextWindowId: 10,
-    })
+      pinnedTaskbarItems: [],
+    }
+    const persisted = JSON.parse(serializeWorkspacePersistedState(live as PersistedWorkspaceState))
+    const normalized = normalizePersistedWorkspaceState(persisted)
     expect(normalized).toBeTruthy()
     expect(normalized!.windows.every((w) => w.layout?.snapZone !== 'assist-custom')).toBe(true)
     expect(normalized!.windows.every((w) => w.layout?.tiling?.cols === 3)).toBe(true)

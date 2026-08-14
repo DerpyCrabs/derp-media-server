@@ -10,8 +10,34 @@ import {
   serializeInfiniteCanvasState,
   snapCanvasRect,
   type CanvasWindow,
+  type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
 import { MediaType } from '@/lib/types'
+import { deletedHermesSessionIds } from '@/lib/hermes-session-store'
+
+function integrationDefinition(id: string, state: Record<string, unknown>) {
+  return {
+    id,
+    type: 'integration' as const,
+    title: 'Hermes',
+    source: { kind: 'local' as const },
+    initialState: {},
+    runtimeContent: {
+      id,
+      type: 'integration' as const,
+      integration: 'hermes',
+      view: 'chat',
+      state,
+    },
+  }
+}
+
+function integrationState(window: CanvasWindow | undefined) {
+  const content = window?.definition.runtimeContent
+  return content?.type === 'integration' && typeof content.state === 'object'
+    ? (content.state as Record<string, unknown>)
+    : undefined
+}
 
 function canvasWindow(id: string, bounds: CanvasWindow['bounds']): CanvasWindow {
   return {
@@ -27,6 +53,10 @@ function canvasWindow(id: string, bounds: CanvasWindow['bounds']): CanvasWindow 
       initialState: { viewing: `${id}.md` },
     },
   }
+}
+
+function currentPersistedState(state: InfiniteCanvasState): unknown {
+  return JSON.parse(serializeInfiniteCanvasState(state))
 }
 
 describe('infinite canvas geometry', () => {
@@ -60,14 +90,10 @@ describe('infinite canvas persistence', () => {
     state.windows = [
       {
         id: 'canvas-window-1',
-        definition: {
-          id: 'canvas-window-1',
-          type: 'hermes',
-          title: 'Hermes',
-          source: { kind: 'local' },
-          initialState: {},
-          hermes: { draftId: 'draft-1', cwd: 'C:/repo' },
-        },
+        definition: integrationDefinition('canvas-window-1', {
+          draftId: 'draft-1',
+          cwd: 'C:/repo',
+        }),
         bounds: { x: 0, y: 0, width: 640, height: 480 },
         zIndex: 1,
       },
@@ -77,7 +103,7 @@ describe('infinite canvas persistence', () => {
 
     expect(cloned).not.toBe(state)
     expect(cloned.windows[0]).not.toBe(state.windows[0])
-    expect(cloned.windows[0]?.definition.hermes).toEqual({
+    expect(integrationState(cloned.windows[0])).toEqual({
       draftId: 'draft-1',
       cwd: 'C:/repo',
     })
@@ -88,14 +114,10 @@ describe('infinite canvas persistence', () => {
     const current = createEmptyCanvasState()
     const draft: CanvasWindow = {
       id: 'draft',
-      definition: {
-        id: 'draft',
-        type: 'hermes',
-        title: 'Hermes',
-        source: { kind: 'local' },
-        initialState: {},
-        hermes: { draftId: 'draft-1', cwd: 'C:/repo' },
-      },
+      definition: integrationDefinition('draft', {
+        draftId: 'draft-1',
+        cwd: 'C:/repo',
+      }),
       bounds: { x: 0, y: 0, width: 640, height: 480 },
       zIndex: 1,
     }
@@ -103,9 +125,10 @@ describe('infinite canvas persistence', () => {
       ...draft,
       id: 'durable',
       definition: {
-        ...draft.definition,
-        id: 'durable',
-        hermes: { sessionId: 'session-1', cwd: 'C:/repo' },
+        ...integrationDefinition('durable', {
+          sessionId: 'session-1',
+          cwd: 'C:/repo',
+        }),
       },
       bounds: { x: 640, y: 0, width: 640, height: 480 },
       zIndex: 2,
@@ -117,17 +140,34 @@ describe('infinite canvas persistence', () => {
     const reconciled = reconcileInfiniteCanvasState(current, incoming!)
 
     expect(reconciled.windows.find((window) => window.id === 'draft')).toBe(draft)
-    expect(reconciled.windows.find((window) => window.id === 'draft')?.definition.hermes).toEqual({
+    expect(integrationState(reconciled.windows.find((window) => window.id === 'draft'))).toEqual({
       draftId: 'draft-1',
       cwd: 'C:/repo',
     })
-    expect(reconciled.windows.find((window) => window.id === 'durable')?.definition.hermes).toEqual(
+    expect(integrationState(reconciled.windows.find((window) => window.id === 'durable'))).toEqual({
+      sessionId: 'session-1',
+      readOnly: false,
+      cwd: 'C:/repo',
+    })
+  })
+
+  test('does not serialize or reconcile a deleted durable integration window', () => {
+    const current = createEmptyCanvasState()
+    current.windows = [
       {
-        sessionId: 'session-1',
-        readOnly: false,
-        cwd: 'C:/repo',
+        id: 'deleted',
+        definition: integrationDefinition('deleted', { sessionId: 'deleted-session' }),
+        bounds: { x: 0, y: 0, width: 640, height: 480 },
+        zIndex: 1,
       },
-    )
+    ]
+    deletedHermesSessionIds.add('deleted-session')
+    try {
+      expect(JSON.parse(serializeInfiniteCanvasState(current)).windows).toEqual([])
+      expect(reconcileInfiniteCanvasState(current, createEmptyCanvasState()).windows).toEqual([])
+    } finally {
+      deletedHermesSessionIds.delete('deleted-session')
+    }
   })
 
   test('reconciles remote state without replacing unchanged canvas branches', () => {
@@ -183,10 +223,9 @@ describe('infinite canvas persistence', () => {
       maximizedWindowId: window.id,
     }
 
-    expect(parseInfiniteCanvasState(JSON.parse(serializeInfiniteCanvasState(saved)))).toMatchObject(
-      { maximizedWindowId: window.id },
-    )
-    expect(parseInfiniteCanvasState({ ...saved, maximizedWindowId: 'missing' })).toMatchObject({
+    const persisted = currentPersistedState(saved) as InfiniteCanvasState
+    expect(parseInfiniteCanvasState(persisted)).toMatchObject({ maximizedWindowId: window.id })
+    expect(parseInfiniteCanvasState({ ...persisted, maximizedWindowId: 'missing' })).toMatchObject({
       maximizedWindowId: null,
     })
   })
@@ -199,18 +238,20 @@ describe('infinite canvas persistence', () => {
       width: 320,
       height: 224,
     })
-    const parsed = parseInfiniteCanvasState({
-      ...createEmptyCanvasState(),
-      windows: [{ ...first, zIndex: 12 }, duplicate],
-      nextItemId: 1,
-      nextZIndex: 1,
-    })
+    const parsed = parseInfiniteCanvasState(
+      currentPersistedState({
+        ...createEmptyCanvasState(),
+        windows: [{ ...first, zIndex: 12 }, duplicate],
+        nextItemId: 1,
+        nextZIndex: 1,
+      }),
+    )
     expect(parsed?.windows).toHaveLength(1)
     expect(parsed?.nextItemId).toBe(8)
     expect(parsed?.nextZIndex).toBe(13)
   })
 
-  test('normalizes unsafe persisted window definitions', () => {
+  test('drops persisted panes without an authoritative content envelope', () => {
     const persisted = {
       ...canvasWindow('canvas-window-1', { x: 0, y: 0, width: 320, height: 224 }),
       definition: {
@@ -224,12 +265,7 @@ describe('infinite canvas persistence', () => {
       ...createEmptyCanvasState(),
       windows: [persisted],
     })
-    expect(parsed?.windows[0]?.definition).toMatchObject({
-      title: persisted.id,
-      source: { kind: 'local' },
-      initialState: { viewing: 'safe.md' },
-      tabGroupId: null,
-    })
+    expect(parsed?.windows).toEqual([])
   })
 
   test('preserves reader source kind for persisted viewer windows', () => {
@@ -243,11 +279,13 @@ describe('infinite canvas persistence', () => {
       viewing: 'Images',
       readerKind: 'folder',
     }
-    const parsed = parseInfiniteCanvasState({
-      ...createEmptyCanvasState(),
-      windows: [persisted],
-    })
-    expect(parsed?.windows[0]?.definition.initialState).toEqual({
+    const parsed = parseInfiniteCanvasState(
+      currentPersistedState({
+        ...createEmptyCanvasState(),
+        windows: [persisted],
+      }),
+    )
+    expect(parsed?.windows[0]?.definition.initialState).toMatchObject({
       viewing: 'Images',
       readerKind: 'folder',
     })

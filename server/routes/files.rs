@@ -34,7 +34,6 @@ use tokio_util::io::ReaderStream;
 struct DirQuery {
     #[serde(default)]
     dir: String,
-    surface: Option<String>,
     #[serde(default)]
     offset: usize,
 }
@@ -49,13 +48,7 @@ async fn list(
     ApiQuery(query): ApiQuery<DirQuery>,
 ) -> AppResult<Json<FileListResponse>> {
     Ok(Json(
-        application_queries::file_listing(
-            &state,
-            &query.dir,
-            query.surface.as_deref() == Some("workspace"),
-            query.offset,
-        )
-        .await?,
+        application_queries::file_listing(&state, &query.dir, query.offset).await?,
     ))
 }
 

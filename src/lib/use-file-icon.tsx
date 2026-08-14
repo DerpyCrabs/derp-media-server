@@ -25,6 +25,7 @@ import Archive from 'lucide-solid/icons/archive'
 import Bot from 'lucide-solid/icons/bot'
 import FolderKanban from 'lucide-solid/icons/folder-kanban'
 import MessageSquare from 'lucide-solid/icons/message-square'
+import { applicationContentRegistry } from '@/src/integrations/registry'
 
 export type FileIconContext = {
   customIcons: Record<string, string>
@@ -355,6 +356,20 @@ export function gridHeroIcon(
   return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
 }
 
+function registeredContentIcon(tab: WorkspaceWindowDefinition, size: IconSize): JSX.Element | null {
+  const instance = tab.runtimeContent
+  if (!instance) return null
+  const presentation = applicationContentRegistry.presentation(instance)
+  if (!presentation?.icon) return null
+  return virtualAppearanceIcon(
+    {
+      icon: presentation.icon,
+      tone: presentation.icon === 'project' ? 'indigo' : 'violet',
+    },
+    size,
+  )
+}
+
 export function workspaceTabIcon(
   tab: WorkspaceWindowDefinition,
   ctx: FileIconContext,
@@ -364,12 +379,9 @@ export function workspaceTabIcon(
     const { cls, sz, sw } = sizeProps(size)
     return <BookOpen class={`${cls} text-orange-500`} size={sz} stroke-width={sw} />
   }
-  const virtualAppearance = virtualAppearanceForPath(
-    tab.iconPath ??
-      (tab.type === 'hermes'
-        ? `Hermes Sessions/session/${tab.hermes?.sessionId ?? tab.hermes?.draftId ?? 'draft'}`
-        : ''),
-  )
+  const contentIcon = registeredContentIcon(tab, size)
+  if (contentIcon) return contentIcon
+  const virtualAppearance = virtualAppearanceForPath(tab.iconPath ?? '')
   if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, size)
   const iconType = tab.iconType ?? (tab.type === 'browser' ? MediaType.FOLDER : MediaType.OTHER)
   const iconPath = tab.iconPath ?? (tab.type === 'browser' ? (tab.initialState.dir ?? '') : '')
@@ -394,12 +406,9 @@ export function workspaceTaskbarRowIcon(
     const { cls, sz, sw } = sizeProps(size)
     return <BookOpen class={`${cls} text-orange-500`} size={sz} stroke-width={sw} />
   }
-  const virtualAppearance = virtualAppearanceForPath(
-    tab.iconPath ??
-      (tab.type === 'hermes'
-        ? `Hermes Sessions/session/${tab.hermes?.sessionId ?? tab.hermes?.draftId ?? 'draft'}`
-        : ''),
-  )
+  const contentIcon = registeredContentIcon(tab, size)
+  if (contentIcon) return contentIcon
+  const virtualAppearance = virtualAppearanceForPath(tab.iconPath ?? '')
   if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, size)
   const path =
     tab.iconPath ??

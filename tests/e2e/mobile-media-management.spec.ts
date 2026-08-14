@@ -5,12 +5,12 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true
 test.describe('mobile media management', () => {
   test('exposes 44px action targets and preserves the chosen view', async ({ page }) => {
     await page.goto('/?dir=Images')
-    await page.getByRole('button', { name: 'Grid view' }).click()
+    const gridView = page.getByRole('button', { name: 'Grid view' })
+    if ((await gridView.getAttribute('aria-pressed')) !== 'true') await gridView.click()
     await expect(page.locator('.file-browser-grid')).toBeVisible()
     const more = page.getByRole('button', { name: 'More actions for photo.jpg', exact: true })
-    const box = await more.boundingBox()
-    expect(box?.width).toBeGreaterThanOrEqual(44)
-    expect(box?.height).toBeGreaterThanOrEqual(44)
+    await expect.poll(async () => (await more.boundingBox())?.width).toBeGreaterThanOrEqual(44)
+    await expect.poll(async () => (await more.boundingBox())?.height).toBeGreaterThanOrEqual(44)
     await more.click()
     await expect(page.getByRole('menu')).toBeVisible()
     await page.keyboard.press('Escape')

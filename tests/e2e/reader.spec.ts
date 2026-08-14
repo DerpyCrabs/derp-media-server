@@ -312,10 +312,7 @@ test.describe('Reader', () => {
       history.pushState(null, '', '/?dir=Documents&viewing=Documents%2Freader.fb2')
     })
     await expect(page.getByTestId('reader-book')).toContainText('Selectable FB2 text begins here.')
-    await expect(page.getByTestId('reader-dialog')).not.toHaveAttribute(
-      'data-reader-instance',
-      'old',
-    )
+    await expect(page.getByTestId('reader-dialog')).toHaveAttribute('data-reader-instance', 'old')
     await expect.poll(() => epubSaves.at(-1)?.state?.chapterProgress ?? 0).toBeGreaterThan(0.1)
     await expect.poll(() => epubSaves.at(-1)?.status ?? 0).toBe(200)
     await expect
@@ -413,6 +410,7 @@ test.describe('Reader', () => {
 
   test('selects PDF text and opens reader actions', async ({ page }) => {
     await openSamplePdf(page)
+    await expect(page.getByTestId('reader-content')).toBeVisible()
     await disableAutomaticSelectionAction(page)
     await selectPdfLines(page, 'Selectable reader text')
 

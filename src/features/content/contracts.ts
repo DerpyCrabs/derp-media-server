@@ -1,32 +1,25 @@
 import {
-  isResourceKey,
   type ResourceError,
   type ResourceKey,
   type ResourcePage,
   type ResourceSummary,
 } from '@/lib/domain/resource'
+import type { ContentInstance } from '@/lib/domain/content'
 import type { OpenDisposition, OpenReadyPlan, OpenSurface } from '@/src/features/open/open-resource'
 import type { RendererDescriptor } from '@/src/features/open/renderer-registry'
 
-export type ContentInstance =
-  | Readonly<{
-      id: string
-      type: 'explorer'
-      location: ResourceKey
-    }>
-  | Readonly<{
-      id: string
-      type: 'resource'
-      resource: ResourceKey
-      renderer: string
-    }>
-  | Readonly<{
-      id: string
-      type: 'integration'
-      integration: string
-      view: string
-      state: unknown
-    }>
+export {
+  CONTENT_ENVELOPE_SCHEMA_VERSION,
+  isContentInstance,
+  isPersistedContentEnvelope,
+} from '@/lib/domain/content'
+export type {
+  ContentInstance,
+  ExplorerContentInstance,
+  IntegrationContentInstance,
+  PersistedContentEnvelope,
+  ResourceContentInstance,
+} from '@/lib/domain/content'
 
 export type ContentDecodeResult =
   | Readonly<{ ok: true; instance: ContentInstance }>
@@ -35,16 +28,43 @@ export type ContentDecodeResult =
 export type ContentCodecDescriptor = Readonly<{
   id: string
   version: number
+  supports?: (instance: ContentInstance) => boolean
   encode(instance: ContentInstance): unknown
-  decode(value: unknown): ContentDecodeResult
+  decode(value: unknown, encodedVersion?: number): ContentDecodeResult
 }>
 
 export type ContentSanitizerDescriptor = Readonly<{
   id: string
+  supports?: (instance: ContentInstance) => boolean
   sanitize(instance: ContentInstance): ContentInstance | null
 }>
 
-type HostOpenPlan<TDisposition extends OpenDisposition> = OpenReadyPlan &
+export type ContentPresentation = Readonly<{
+  title: string
+  icon?: string
+  subtitle?: string
+  status?: Readonly<{ label: string; tone?: string }>
+  preferredSize?: Readonly<{ width: number; height: number }>
+}>
+
+export type ContentPresentationDescriptor = Readonly<{
+  id: string
+  describe(instance: ContentInstance): ContentPresentation | null
+}>
+
+export type ContentLifecycleDescriptor = Readonly<{
+  id: string
+  supports(instance: ContentInstance): boolean
+  canClose?(instance: ContentInstance): boolean | Promise<boolean>
+  dispose?(instance: ContentInstance): void | Promise<void>
+}>
+
+export type ContentRendererDescriptor = RendererDescriptor &
+  Readonly<{
+    matchesContent?: (instance: ContentInstance) => boolean
+  }>
+
+export type HostOpenPlan<TDisposition extends OpenDisposition> = OpenReadyPlan &
   Readonly<{ disposition: TDisposition }>
 
 export interface SurfaceContentHost<
@@ -80,89 +100,44 @@ export interface BrowseProvider {
   browse(request: BrowseRequest): Promise<ResourcePage>
 }
 
-export type SearchRequest = Readonly<{
-  query: string
-  cursor?: string
-  limit?: number
-  signal?: AbortSignal
-}>
-
-export type ResourceSearchPage = Readonly<{
-  items: readonly ResourceSummary[]
-  nextCursor?: string
-  total: number
-}>
-
-export interface SearchContributor {
-  search(request: SearchRequest): Promise<ResourceSearchPage>
-}
-
 export type ResourceActionDescriptor = Readonly<{
   id: string
   label: string
   capability: string
+  icon?: string
+  dangerous?: boolean
+  interaction?: 'immediate' | 'name' | 'destination' | 'upload' | 'paste' | 'text' | 'appearance'
 }>
 
 export type ResourceActionRequest = Readonly<{
   actionId: string
   resource: ResourceSummary
+  input?: unknown
   signal?: AbortSignal
 }>
 
+export type ResourceActionOutcome =
+  | void
+  | ResourceError
+  | Readonly<{ content?: ContentInstance; value?: unknown }>
+
 export interface ResourceActionProvider {
   list(resource: ResourceSummary): readonly ResourceActionDescriptor[]
-  run(request: ResourceActionRequest): Promise<void | ResourceError>
+  run(request: ResourceActionRequest): Promise<ResourceActionOutcome>
 }
 
 export interface IntegrationModule {
   readonly id: string
   readonly browse?: BrowseProvider
-  readonly search?: SearchContributor
   readonly actions?: ResourceActionProvider
-  readonly content?: readonly RendererDescriptor[]
+  readonly content?: readonly ContentRendererDescriptor[]
   readonly codecs?: readonly ContentCodecDescriptor[]
   readonly sanitizers?: readonly ContentSanitizerDescriptor[]
+  readonly presentations?: readonly ContentPresentationDescriptor[]
+  readonly lifecycles?: readonly ContentLifecycleDescriptor[]
 }
 
 export function defineIntegrationModule<const T extends IntegrationModule>(module: T): T {
   if (!module.id.trim()) throw new Error('Integration id must not be empty')
   return module
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  const allowed = new Set(keys)
-  return Object.keys(value).every((key) => allowed.has(key))
-}
-
-export function isContentInstance(value: unknown): value is ContentInstance {
-  const instance = record(value)
-  if (!instance || typeof instance.id !== 'string' || !instance.id) return false
-  if (instance.type === 'explorer') {
-    return hasOnlyKeys(instance, ['id', 'type', 'location']) && isResourceKey(instance.location)
-  }
-  if (instance.type === 'resource') {
-    return !!(
-      hasOnlyKeys(instance, ['id', 'type', 'resource', 'renderer']) &&
-      isResourceKey(instance.resource) &&
-      typeof instance.renderer === 'string' &&
-      instance.renderer
-    )
-  }
-  if (instance.type === 'integration') {
-    return !!(
-      hasOnlyKeys(instance, ['id', 'type', 'integration', 'view', 'state']) &&
-      typeof instance.integration === 'string' &&
-      instance.integration &&
-      typeof instance.view === 'string' &&
-      instance.view &&
-      Object.prototype.hasOwnProperty.call(instance, 'state')
-    )
-  }
-  return false
 }

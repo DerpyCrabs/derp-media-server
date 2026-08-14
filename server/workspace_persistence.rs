@@ -9,6 +9,38 @@ fn valid_source(source: &Value) -> bool {
     source.get("kind").and_then(Value::as_str) == Some("local")
 }
 
+fn valid_content(content: &Value) -> bool {
+    content.as_object().is_some_and(|object| {
+        object.len() == 4
+            && ["schemaVersion", "codec", "codecVersion", "payload"]
+                .iter()
+                .all(|key| object.contains_key(*key))
+    }) && content.get("schemaVersion").and_then(Value::as_u64) == Some(1)
+        && content
+            .get("codec")
+            .and_then(Value::as_str)
+            .is_some_and(|codec| !codec.trim().is_empty())
+        && content
+            .get("codecVersion")
+            .and_then(Value::as_u64)
+            .is_some_and(|version| version > 0)
+        && content.get("payload").is_some()
+}
+
+fn has_legacy_window_fields(window: &Value) -> bool {
+    [
+        "type",
+        "source",
+        "initialState",
+        "hermes",
+        "iconPath",
+        "iconType",
+        "iconIsVirtual",
+    ]
+    .iter()
+    .any(|key| window.get(*key).is_some())
+}
+
 fn valid_pin(pin: &Value) -> bool {
     pin.get("id").and_then(Value::as_str).is_some()
         && pin.get("path").and_then(Value::as_str).is_some()
@@ -35,19 +67,12 @@ pub fn admin_pins(raw: &Value) -> Value {
 
 fn window_paths(window: &Value) -> Vec<&str> {
     let mut paths = Vec::new();
-    if let Some(path) = window
-        .get("iconPath")
-        .and_then(Value::as_str)
-        .filter(|x| !x.is_empty())
-    {
-        paths.push(path);
-    }
-    if let Some(initial) = window.get("initialState") {
-        for key in ["dir", "viewing"] {
-            if let Some(path) = initial
-                .get(key)
+    if window["content"]["codec"].as_str() == Some("filesystem.content") {
+        for key in ["address", "contextAddress"] {
+            if let Some(path) = window["content"]["payload"][key]
+                .get("path")
                 .and_then(Value::as_str)
-                .filter(|x| !x.is_empty())
+                .filter(|path| !path.is_empty())
             {
                 paths.push(path);
             }
@@ -64,10 +89,13 @@ fn valid_snapshot(snapshot: &Value) -> bool {
         return false;
     }
     for window in windows {
-        let Some(source) = window.get("source") else {
-            return false;
-        };
-        if !valid_source(source) {
+        if window
+            .get("id")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+            || has_legacy_window_fields(window)
+            || !window.get("content").is_some_and(valid_content)
+        {
             return false;
         }
         for path in window_paths(window) {
@@ -132,4 +160,90 @@ pub fn presets(raw: &Value) -> Value {
         }
     }
     Value::Array(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_new_content_windows_and_rejects_unsafe_filesystem_paths() {
+        let snapshot = json!({
+            "windows":[{
+                "id":"viewer-1",
+                "title":"Chapter",
+                "content":{
+                    "schemaVersion":1,
+                    "codec":"filesystem.content",
+                    "codecVersion":1,
+                    "payload":{
+                        "kind":"resource",
+                        "id":"viewer-1",
+                        "address":{"rootId":"configured-default","path":"Books/chapter.pdf"},
+                        "renderer":"pdf-reader"
+                    }
+                }
+            }],
+            "pinnedTaskbarItems":[]
+        });
+        assert!(valid_snapshot(&snapshot));
+
+        let mut unsafe_snapshot = snapshot;
+        unsafe_snapshot["windows"][0]["content"]["payload"]["address"]["path"] =
+            json!("../outside");
+        assert!(!valid_snapshot(&unsafe_snapshot));
+    }
+
+    #[test]
+    fn accepts_unknown_versioned_content_for_recovery() {
+        let snapshot = json!({
+            "windows":[{
+                "id":"future-1",
+                "content":{
+                    "schemaVersion":1,
+                    "codec":"future.content",
+                    "codecVersion":7,
+                    "payload":{"opaque":true}
+                }
+            }],
+            "pinnedTaskbarItems":[]
+        });
+        assert!(valid_snapshot(&snapshot));
+    }
+
+    #[test]
+    fn rejects_legacy_and_dual_window_schemas() {
+        let legacy = json!({
+            "windows":[{
+                "id":"browser-1",
+                "type":"browser",
+                "source":{"kind":"local"},
+                "initialState":{"dir":"Books"}
+            }],
+            "pinnedTaskbarItems":[]
+        });
+        assert!(!valid_snapshot(&legacy));
+
+        let dual = json!({
+            "windows":[{
+                "id":"browser-1",
+                "type":"browser",
+                "source":{"kind":"local"},
+                "initialState":{"dir":"Books"},
+                "content":{
+                    "schemaVersion":1,
+                    "codec":"filesystem.content",
+                    "codecVersion":1,
+                    "payload":{
+                        "kind":"explorer",
+                        "id":"browser-1",
+                        "address":{"rootId":"configured-default","path":"Books"}
+                    }
+                }
+            }],
+            "pinnedTaskbarItems":[]
+        });
+        assert!(!valid_snapshot(&dual));
+    }
 }

@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { resourceKey, type ResourceSummary } from '@/lib/domain/resource'
-import { openResource, type OpenIntent, type OpenSurface } from '@/src/features/open/open-resource'
+import { type OpenIntent, type OpenSurface } from '@/src/features/open/open-resource'
 import {
   BUILT_IN_RENDERER_ID,
   createRendererRegistry,
   type RendererDescriptor,
 } from '@/src/features/open/renderer-registry'
 import { createResourceOpener } from '@/src/features/open/open-resource'
+import { openResource } from '@/src/integrations/open-resource'
+import { HERMES_CHAT_RENDERER_ID, hermesResourceKey } from '@/src/integrations/hermes/module'
 
 function resource(overrides: Partial<ResourceSummary> = {}): ResourceSummary {
   return {
@@ -180,7 +182,7 @@ describe('openResource', () => {
       requiresAnyCapability: ['fixture.open'],
       load: async () => {
         loads += 1
-        return {}
+        return { kind: 'content', mount: () => null }
       },
     }
     const registry = createRendererRegistry([descriptor])
@@ -200,5 +202,26 @@ describe('openResource', () => {
     expect(loads).toBe(0)
     await registry.load('fixture-renderer')
     expect(loads).toBe(1)
+  })
+
+  test('uses the assembled integration registry for Hermes without surface branches', () => {
+    const input = resource({
+      key: hermesResourceKey('session', 'opaque-session'),
+      name: 'Hermes session',
+      kind: 'hermes-session',
+      mime: undefined,
+      presentation: 'hermes-session',
+      capabilities: ['read'],
+    })
+    const plans = (['library', 'workspace', 'canvas'] as const).map((surface) =>
+      openResource(input, 'default', { surface, disposition: 'window' }),
+    )
+
+    expect(plans).toEqual([plans[0], plans[0], plans[0]])
+    expect(plans[0]).toMatchObject({
+      status: 'ready',
+      kind: 'render',
+      renderer: HERMES_CHAT_RENDERER_ID,
+    })
   })
 })

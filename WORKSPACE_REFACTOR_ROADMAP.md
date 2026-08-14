@@ -1,6 +1,6 @@
 # Workspace Refactor Roadmap
 
-Status: active; Stage 2 complete
+Status: active; Stage 3 complete
 Initiative branch: `derp-desk-attempt-2`
 Baseline: `master` at `3695a88`
 Last updated: 2026-08-14
@@ -193,7 +193,7 @@ Every stage exit also requires:
 | ----- | ---------------------------------------------------------------------------------------------- | ----------- |
 | 1     | Safe file operations, stable app lifetime, typed routes/contracts, fast route delivery         | Complete    |
 | 2     | One resource/open model and one playback session across all surfaces                           | Complete    |
-| 3     | One Explorer/Reader/viewer content layer behind three surface hosts                            | Not started |
+| 3     | One Explorer/Reader/viewer content layer behind three surface hosts                            | Complete    |
 | 4     | Filesystem and Hermes use one integration seam; legacy persistence and duplicate paths removed | Not started |
 
 ---
@@ -336,12 +336,12 @@ Stage 3 must proceed as vertical migrations. Do not create a large `PaneHost` fi
 
 ### Work packages
 
-- [ ] **3.1 Build the complete shared Explorer feature.** Extract one Explorer data source/controller plus shared responsive view, action descriptors, menus, dialogs, rows/grid, breadcrumbs, search, upload/paste, selection, history, sort/view mode, stale-request cancellation, pagination, drag rules, and optimistic mutation reconciliation. Use provider capabilities for resource actions and host capabilities only for placement. Root and desktop may supply narrow toolbar/chrome slots, not separate feature bodies.
-- [ ] **3.2 Cut over desktop reference hosts, then root mobile host.** Move `WorkspaceBrowserPane` first; Canvas receives the same feature through its host. Then replace `FileBrowser` internals with that exact Explorer feature plus mobile URL, long-press, sheet/dialog, and fullscreen adapters. Use the Stage 1 matrix to expose Workspace resource features currently missing from root. Delete root-owned file queries, mutations, action tables, and duplicated modal logic after cutover.
-- [ ] **3.3 Extract shared Reader and non-media viewer content one type at a time.** Start with image and text, then Reader content and reading state, then PDF and unsupported resources. Each type gets one shared controller and content renderer. `ReaderDialog`, Library dialogs, Workspace panes, and Canvas windows become thin hosts around the same renderer. Unify autosave, read-only, outline/position, selection/AI actions, error, loading, and persistence behavior through tests. Audio/video keep their Stage 2 surface views over the common playback session and media host. Do not make wrappers that merely import the whole `WorkspaceViewerPane` or `ReaderDialog`.
-- [ ] **3.4 Introduce the neutral content runtime and three hosts.** Only after renderers accept small host-neutral inputs, add a registry-driven content runtime. Explorer, Reader/viewer, and Hermes content register codecs, sanitizers, titles/icons, actions, and lazy renderers. `LibraryHost` owns URL/modal/fullscreen presentation, `WorkspaceHost` owns pane/window/tab/taskbar presentation, and `CanvasHost` owns spatial presentation. Canvas stops fabricating `PersistedWorkspaceState`.
-- [ ] **3.5 Prove the contribution seam with real filesystem and Hermes content.** Both contributors use registered resource/action/content descriptors. Core Explorer, opener, viewer, Workspace layout, and Canvas layout receive no provider-specific branches. Keep current Hermes routes and backend transport until Stage 4.
-- [ ] **3.6 Remove surface-shaped feature ownership.** Delete replaced handlers, viewer/Reader branches, pane proxies, root business logic, and giant prop plumbing per vertical slice. Replace broad modal/page prop bags with feature-scoped accessors/actions or contexts only where several descendants consume the same live state.
+- [x] **3.1 Build the complete shared Explorer feature.** Extract one Explorer data source/controller plus shared responsive view, action descriptors, menus, dialogs, rows/grid, breadcrumbs, search, upload/paste, selection, history, sort/view mode, stale-request cancellation, pagination, drag rules, and optimistic mutation reconciliation. Use provider capabilities for resource actions and host capabilities only for placement. Root and desktop may supply narrow toolbar/chrome slots, not separate feature bodies.
+- [x] **3.2 Cut over desktop reference hosts, then root mobile host.** Move `WorkspaceBrowserPane` first; Canvas receives the same feature through its host. Then replace `FileBrowser` internals with that exact Explorer feature plus mobile URL, long-press, sheet/dialog, and fullscreen adapters. Use the Stage 1 matrix to expose Workspace resource features currently missing from root. Delete root-owned file queries, mutations, action tables, and duplicated modal logic after cutover.
+- [x] **3.3 Extract shared Reader and non-media viewer content one type at a time.** Start with image and text, then Reader content and reading state, then PDF and unsupported resources. Each type gets one shared controller and content renderer. `ReaderDialog`, Library dialogs, Workspace panes, and Canvas windows become thin hosts around the same renderer. Unify autosave, read-only, outline/position, selection/AI actions, error, loading, and persistence behavior through tests. Audio/video keep their Stage 2 surface views over the common playback session and media host. Do not make wrappers that merely import the whole `WorkspaceViewerPane` or `ReaderDialog`.
+- [x] **3.4 Introduce the neutral content runtime and three hosts.** Only after renderers accept small host-neutral inputs, add a registry-driven content runtime. Explorer, Reader/viewer, and Hermes content register codecs, sanitizers, titles/icons, actions, and lazy renderers. `LibraryHost` owns URL/modal/fullscreen presentation, `WorkspaceHost` owns pane/window/tab/taskbar presentation, and `CanvasHost` owns spatial presentation. Canvas stops fabricating `PersistedWorkspaceState`.
+- [x] **3.5 Prove the contribution seam with real filesystem and Hermes content.** Both contributors use registered resource/action/content descriptors. Core Explorer, opener, viewer, Workspace layout, and Canvas layout receive no provider-specific branches. Keep current Hermes routes and backend transport until Stage 4.
+- [x] **3.6 Remove surface-shaped feature ownership.** Delete replaced handlers, viewer/Reader branches, pane proxies, root business logic, and giant prop plumbing per vertical slice. Replace broad modal/page prop bags with feature-scoped accessors/actions or contexts only where several descendants consume the same live state.
 
 ### Likely code areas
 
@@ -378,6 +378,18 @@ Stage 3 must proceed as vertical migrations. Do not create a large `PaneHost` fi
 - Filesystem and Hermes content prove the integration contract without core provider branches.
 - Adding a resource action or renderer requires one feature implementation. Surface edits are needed only for genuinely different chrome or placement.
 - Replaced Explorer, Reader, viewer, and pane implementations are deleted before stage exit.
+
+### Completion record
+
+- Completed: Work packages 3.1 through 3.6. Library, Workspace, and Canvas now mount one responsive Explorer feature and one registry-driven Reader/non-media viewer content layer through three narrow surface hosts. Filesystem and Hermes contribute browse, action, codec, presentation, lifecycle, and lazy renderer descriptors. Canvas no longer fabricates Workspace state, and broad Workspace page plumbing is split into feature-scoped inputs.
+- Commits: Baseline remains `master` at `3695a88`; Stage 3 implementation remains in the current working tree because no commit was requested.
+- User-visible behavior: Library, Workspace, and Canvas retain their route, navigation, Explorer, Reader/viewer, playback, taskbar, tiling, and spatial workflows while sharing resource actions and content behavior. Dirty-content close and replacement paths now honor asynchronous lifecycle checks. Current URL and deep-link forms remain valid.
+- Data/schema behavior: No database schema migration. Workspace and Canvas write only versioned content envelopes for Explorer, resource, and Hermes windows, with no dual write. Per explicit user direction, legacy support is intentionally omitted only for pre-Stage 3 saved Workspace/Canvas pane and window layouts: old Workspace snapshots and named-layout panes are rejected, while old Canvas panes are dropped. Unknown codecs and well-formed but undecodable current envelopes remain recoverable through visible recovery content; invalid windows do not prevent unrelated valid content from loading. Library URLs, Reader state, file-path mutation behavior, and unrelated settings retain compatibility.
+- Tests and manual checks: `bun run tsgo`, `bun run lint-errors`, `bun run fmt:check`, `cargo fmt --check`, `bun run test:unit`, `bun run test:batch`, and `git diff --check` pass. Rust tests pass 74/74, Bun unit tests pass 440/440, and Playwright E2E tests pass 380/380 across six batches. Production build and direct-navigation smoke checks pass for `/`, `/workspace`, and `/canvas` at 1440x900 and 390x844 with no console errors, page errors, failed requests, or HTTP error responses.
+- Metrics before/after: `FileBrowser.tsx` shrinks from 1,909 to 447 lines and `WorkspaceBrowserPane.tsx` from 2,240 to 184 lines. Duplicate root and Workspace Explorer bodies, surface-owned Reader/viewer implementations, and Workspace Hermes copies are removed. Production manifest reachability keeps Workspace, Canvas, desktop viewers, Reader, and Hermes chat outside the Library eager closure, and CI remains at six E2E batches.
+- Compatibility adapters removed: Root-owned file queries, mutations, action tables, and Explorer dialog state; `ReaderDialog`; Library image, PDF, text, and unsupported viewer dialogs; `WorkspaceViewerPane`; `WorkspaceBrowserModalLayer`; Workspace Hermes pane/message copies; the Workspace browser open proxy; and replaced root/Workspace Explorer components are deleted.
+- Intentional remaining duplication: Surface-specific audio/video controls and Workspace/Canvas geometry remain deliberate presentation differences. Bounded Stage 4 debt remains in `FileItem` and filesystem-path projection adapters at route/viewer edges, the `lib/content-window-persistence.ts` and `lib/infinite-canvas.ts` dependency on `src/integrations/current-window-content.ts`, backend Hermes transport and fake-path compatibility, and surface-specific search entry implementations. Core content and layout code contains no Hermes branch.
+- Next stage/package: Stage 4 package 4.1, building the server integration registry, followed by the Hermes vertical cutover and bounded path, search, and dependency-adapter removal in packages 4.2 through 4.6.
 
 ### Recovery
 

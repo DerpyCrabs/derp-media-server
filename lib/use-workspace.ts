@@ -1,5 +1,8 @@
-import type { NavigationState } from '@/lib/navigation-session'
-import { MediaType } from '@/lib/types'
+import type { ContentWindowDefinition, ContentWindowSource } from '@/lib/content-window'
+import {
+  persistedContentWindowRecord,
+  restorePersistedContentWindow,
+} from '@/lib/content-window-persistence'
 import {
   createDefaultBounds,
   getViewportSize,
@@ -10,12 +13,8 @@ import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrat
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
-import { deletedHermesSessionIds } from '@/lib/hermes-session-store'
 
-export interface WorkspaceSource {
-  kind: 'local'
-  rootPath?: string | null
-}
+export type WorkspaceSource = ContentWindowSource
 
 export type SnapZone =
   | 'assist-custom'
@@ -74,16 +73,7 @@ export interface WorkspaceTilingPlacement {
   rowLines: number[]
 }
 
-export interface WorkspaceWindowDefinition {
-  id: string
-  type: 'browser' | 'viewer' | 'hermes'
-  title: string
-  iconName?: string | null
-  iconPath?: string | null
-  iconType?: MediaType | null
-  iconIsVirtual?: boolean
-  source: WorkspaceSource
-  initialState: Partial<NavigationState>
+export interface WorkspaceWindowDefinition extends ContentWindowDefinition {
   tabGroupId?: string | null
   openedFromWindowId?: string | null
   /** Pinned tabs stay on the left and cannot be closed from the strip. */
@@ -91,13 +81,6 @@ export interface WorkspaceWindowDefinition {
   layout?: WorkspaceWindowLayout
   /** When set on a browser, open-in-new-tab targets this window's tab group (if it still exists). */
   fileOpenTargetWindowId?: string | null
-  /** Durable Hermes identity. Draft ids exist only in live UI state and are stripped on save. */
-  hermes?: {
-    sessionId?: string
-    draftId?: string
-    cwd?: string | null
-    readOnly?: boolean
-  }
 }
 
 export type PinnedTaskbarItem = WorkspaceTaskbarPin
@@ -172,7 +155,10 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
   const { windows, activeWindowId, activeTabMap, tabGroupSplits } =
     persistentWorkspaceProjection(state)
   return JSON.stringify({
-    windows,
+    windows: windows.flatMap((window) => {
+      const persisted = persistedWorkspaceWindowContent(window)
+      return persisted ? [persisted] : []
+    }),
     activeWindowId,
     activeTabMap: sortTabMapKeys(activeTabMap),
     nextWindowId: state.nextWindowId,
@@ -189,7 +175,10 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
   const { windows, activeWindowId, activeTabMap, tabGroupSplits } =
     persistentWorkspaceProjection(state)
   return JSON.stringify({
-    windows,
+    windows: windows.flatMap((window) => {
+      const persisted = persistedWorkspaceWindowContent(window)
+      return persisted ? [persisted] : []
+    }),
     activeWindowId,
     activeTabMap: sortTabMapKeys(activeTabMap),
     nextWindowId: state.nextWindowId,
@@ -200,19 +189,13 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
 }
 
 export function persistentWorkspaceWindows(windows: WorkspaceWindowDefinition[]) {
-  return windows
-    .filter((window) => window.type !== 'hermes' || !!window.hermes?.sessionId)
-    .filter(
-      (window) =>
-        window.type !== 'hermes' ||
-        !window.hermes?.sessionId ||
-        !deletedHermesSessionIds.has(window.hermes.sessionId),
-    )
-    .map((window) => {
-      if (window.type !== 'hermes') return window
-      const { draftId: _draftId, ...hermes } = window.hermes ?? {}
-      return { ...window, hermes }
-    })
+  return windows.filter((window) => persistedWorkspaceWindowContent(window) !== null)
+}
+
+export function persistedWorkspaceWindowContent(
+  window: WorkspaceWindowDefinition,
+): Record<string, unknown> | null {
+  return persistedContentWindowRecord(window)
 }
 
 function sanitizeWorkspaceFocus(
@@ -416,6 +399,12 @@ export type NormalizePersistedWorkspaceOptions = {
   reconcileSnapZones?: boolean
 }
 
+export function restorePersistedWorkspaceWindowContent(
+  value: unknown,
+): WorkspaceWindowDefinition | null {
+  return restorePersistedContentWindow(value) as WorkspaceWindowDefinition | null
+}
+
 export function normalizePersistedWorkspaceState(
   data: unknown,
   options?: NormalizePersistedWorkspaceOptions,
@@ -427,14 +416,14 @@ export function normalizePersistedWorkspaceState(
   const reconcileSnapZones = options?.reconcileSnapZones !== false
   const viewport = getViewportSize()
   const validatedWindows = parsed.windows
+    .map(restorePersistedWorkspaceWindowContent)
     .filter(
       (w): w is WorkspaceWindowDefinition =>
         !!w &&
         typeof w.id === 'string' &&
-        (w.type === 'browser' || w.type === 'viewer' || w.type === 'hermes') &&
+        (w.type === 'browser' || w.type === 'viewer' || w.type === 'integration') &&
         !!w.source &&
-        isValidSource(w.source) &&
-        (w.type !== 'hermes' || typeof w.hermes?.sessionId === 'string'),
+        isValidSource(w.source),
     )
     .map((w, i) => {
       const b = w.layout?.bounds

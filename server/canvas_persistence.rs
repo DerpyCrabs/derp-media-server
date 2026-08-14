@@ -21,6 +21,46 @@ fn valid_rect(value: &Value) -> bool {
             .is_some_and(|x| x > 0.0)
 }
 
+fn valid_content(content: &Value) -> bool {
+    content.as_object().is_some_and(|object| {
+        object.len() == 4
+            && ["schemaVersion", "codec", "codecVersion", "payload"]
+                .iter()
+                .all(|key| object.contains_key(*key))
+    }) && content.get("schemaVersion").and_then(Value::as_u64) == Some(1)
+        && content
+            .get("codec")
+            .and_then(Value::as_str)
+            .is_some_and(|codec| !codec.trim().is_empty())
+        && content
+            .get("codecVersion")
+            .and_then(Value::as_u64)
+            .is_some_and(|version| version > 0)
+        && content.get("payload").is_some()
+}
+
+fn has_legacy_window_fields(definition: &Value) -> bool {
+    [
+        "type",
+        "source",
+        "initialState",
+        "hermes",
+        "iconPath",
+        "iconType",
+        "iconIsVirtual",
+    ]
+    .iter()
+    .any(|key| definition.get(*key).is_some())
+}
+
+fn content_paths(content: &Value) -> impl Iterator<Item = &str> {
+    ["address", "contextAddress"].into_iter().filter_map(|key| {
+        (content["codec"].as_str() == Some("filesystem.content"))
+            .then(|| content["payload"][key].get("path")?.as_str())
+            .flatten()
+    })
+}
+
 fn valid_state(state: &Value) -> bool {
     if state.get("version").and_then(Value::as_u64) != Some(1)
         || !state.get("windows").is_some_and(Value::is_array)
@@ -33,31 +73,23 @@ fn valid_state(state: &Value) -> bool {
             let Some(definition) = window.get("definition") else {
                 return false;
             };
-            let local = definition
-                .get("source")
-                .is_some_and(|source| source.get("kind").and_then(Value::as_str) == Some("local"));
-            let safe_paths = ["iconPath"]
+            let content_valid = definition.get("content").is_some_and(valid_content);
+            let safe_paths = definition
+                .get("content")
                 .into_iter()
-                .filter_map(|key| definition.get(key).and_then(Value::as_str))
-                .chain(
-                    ["dir", "viewing", "playing"]
-                        .into_iter()
-                        .filter_map(|key| definition.get("initialState")?.get(key)?.as_str()),
-                )
+                .flat_map(content_paths)
                 .all(|path| !has_dot_dot(path));
-            window.get("id").and_then(Value::as_str).is_some()
+            let durable_content = definition["content"]["codec"].as_str() != Some("hermes.content")
+                || definition["content"]["payload"]["sessionId"]
+                    .as_str()
+                    .is_some();
+            let window_id = window.get("id").and_then(Value::as_str);
+            window_id.is_some_and(|id| !id.is_empty())
+                && definition.get("id").and_then(Value::as_str) == window_id
                 && window.get("bounds").is_some_and(valid_rect)
-                && matches!(
-                    definition.get("type").and_then(Value::as_str),
-                    Some("browser" | "viewer" | "hermes")
-                )
-                && (definition.get("type").and_then(Value::as_str) != Some("hermes")
-                    || definition
-                        .get("hermes")
-                        .and_then(|h| h.get("sessionId"))
-                        .and_then(Value::as_str)
-                        .is_some())
-                && local
+                && !has_legacy_window_fields(definition)
+                && content_valid
+                && durable_content
                 && safe_paths
         })
     })
@@ -102,19 +134,24 @@ fn moved_path(path: &str, old_path: &str, new_path: &str) -> String {
 }
 
 fn definition_paths_mut(definition: &mut Value, mut update: impl FnMut(&mut Value)) {
-    if let Some(value) = definition.get_mut("iconPath") {
-        update(value);
-    }
-    if let Some(initial) = definition
-        .get_mut("initialState")
-        .and_then(Value::as_object_mut)
-    {
-        for key in ["dir", "viewing"] {
-            if let Some(value) = initial.get_mut(key) {
+    if definition["content"]["codec"].as_str() == Some("filesystem.content") {
+        for key in ["address", "contextAddress"] {
+            if let Some(value) = definition
+                .get_mut("content")
+                .and_then(|content| content.get_mut("payload"))
+                .and_then(|payload| payload.get_mut(key))
+                .and_then(|address| address.get_mut("path"))
+            {
                 update(value);
             }
         }
     }
+}
+
+fn definition_target(definition: &Value) -> Option<&str> {
+    (definition["content"]["codec"].as_str() == Some("filesystem.content"))
+        .then(|| definition["content"]["payload"]["address"]["path"].as_str())
+        .flatten()
 }
 
 fn bump_record(record: &mut Value, updated_at: u128) {
@@ -170,36 +207,22 @@ pub fn remove_paths(records: &mut Value, path: &str, updated_at: u128) {
         };
         let mut changed = false;
         windows.retain_mut(|window| {
-            let Some(definition) = window.get("definition") else {
+            let Some(definition) = window.get_mut("definition") else {
                 return true;
             };
-            let target = definition
-                .get("initialState")
-                .and_then(|initial| initial.get("viewing"))
-                .and_then(Value::as_str)
-                .or_else(|| {
-                    definition
-                        .get("initialState")
-                        .and_then(|initial| initial.get("playing"))
-                        .and_then(Value::as_str)
-                })
-                .or_else(|| {
-                    definition
-                        .get("initialState")
-                        .and_then(|initial| initial.get("dir"))
-                        .and_then(Value::as_str)
-                })
-                .or_else(|| definition.get("iconPath").and_then(Value::as_str));
+            let target = definition_target(definition);
             if target.is_some_and(|value| matches_path(value, path)) {
                 changed = true;
                 return false;
             }
-            if definition
-                .get("iconPath")
-                .and_then(Value::as_str)
-                .is_some_and(|value| matches_path(value, path))
+            if definition["content"]["codec"].as_str() == Some("filesystem.content")
+                && definition["content"]["payload"]["contextAddress"]["path"]
+                    .as_str()
+                    .is_some_and(|value| matches_path(value, path))
             {
-                window["definition"]["iconPath"] = Value::Null;
+                definition["content"]["payload"]
+                    .as_object_mut()
+                    .map(|payload| payload.remove("contextAddress"));
                 changed = true;
             }
             true
@@ -286,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_persisted_canvas_fixture() {
+    fn rejects_retired_legacy_canvas_fixture() {
         let fixture: Value = serde_json::from_str(include_str!(
             "../tests/fixtures/persisted-state/reference/canvas-collection.json"
         ))
@@ -294,15 +317,7 @@ mod tests {
 
         let merged = merge(&json!([]), &fixture["canvases"]);
 
-        assert_eq!(merged.as_array().unwrap().len(), 1);
-        assert_eq!(
-            merged[0]["state"]["windows"][2]["definition"]["hermes"]["sessionId"],
-            "reference-session"
-        );
-        assert_eq!(
-            merged[0]["state"]["windows"][1]["definition"]["initialState"]["readerKind"],
-            "folder"
-        );
+        assert!(merged.as_array().unwrap().is_empty());
     }
 
     #[test]
@@ -317,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn path_changes_rewrite_and_remove_canvas_windows() {
+    fn rejects_legacy_window_records() {
         let mut records = json!([record(1, "Canvas", false)]);
         records[0]["state"]["maximizedWindowId"] = json!("window-1");
         records[0]["state"]["windows"] = json!([{
@@ -331,40 +346,54 @@ mod tests {
             }
         }]);
 
-        move_paths(&mut records, "Books/Old", "Books/New", 10);
-        assert_eq!(
-            records[0]["state"]["windows"][0]["definition"]["iconPath"],
-            "Books/New/chapter.pdf"
-        );
-        assert_eq!(records[0]["updatedAt"], 10);
-
-        remove_paths(&mut records, "Books/New", 20);
-        assert_eq!(records[0]["state"]["windows"], json!([]));
-        assert_eq!(records[0]["state"]["maximizedWindowId"], Value::Null);
-        assert_eq!(records[0]["updatedAt"], 20);
+        assert!(merge(&json!([]), &records).as_array().unwrap().is_empty());
     }
 
     #[test]
-    fn remove_keeps_viewer_that_navigated_away_from_stale_icon() {
+    fn accepts_and_rewrites_new_content_windows() {
         let mut records = json!([record(1, "Canvas", false)]);
         records[0]["state"]["windows"] = json!([{
             "id":"window-1",
             "bounds":{"x":0,"y":0,"width":320,"height":224},
             "definition":{
-                "type":"viewer",
-                "source":{"kind":"local"},
-                "iconPath":"Books/Old.pdf",
-                "initialState":{"viewing":"Books/Current.pdf"}
+                "id":"window-1",
+                "title":"Chapter",
+                "content":{
+                    "schemaVersion":1,
+                    "codec":"filesystem.content",
+                    "codecVersion":1,
+                    "payload":{
+                        "kind":"resource",
+                        "id":"window-1",
+                        "address":{"rootId":"configured-default","path":"Books/Old/chapter.pdf"},
+                        "contextAddress":{"rootId":"configured-default","path":"Books/Old"},
+                        "renderer":"pdf-reader"
+                    }
+                }
             }
         }]);
 
-        remove_paths(&mut records, "Books/Old.pdf", 20);
+        assert_eq!(merge(&json!([]), &records).as_array().unwrap().len(), 1);
 
-        assert_eq!(records[0]["state"]["windows"].as_array().unwrap().len(), 1);
+        let mut dual = records.clone();
+        dual[0]["state"]["windows"][0]["definition"]["type"] = json!("viewer");
+        dual[0]["state"]["windows"][0]["definition"]["source"] = json!({"kind":"local"});
+        dual[0]["state"]["windows"][0]["definition"]["initialState"] =
+            json!({"viewing":"Books/Old/chapter.pdf"});
+        assert!(merge(&json!([]), &dual).as_array().unwrap().is_empty());
+
+        move_paths(&mut records, "Books/Old", "Books/New", 10);
         assert_eq!(
-            records[0]["state"]["windows"][0]["definition"]["iconPath"],
-            Value::Null
+            records[0]["state"]["windows"][0]["definition"]["content"]["payload"]["address"]["path"],
+            "Books/New/chapter.pdf"
         );
-        assert_eq!(records[0]["updatedAt"], 20);
+        assert_eq!(
+            records[0]["state"]["windows"][0]["definition"]["content"]["payload"]["contextAddress"]
+                ["path"],
+            "Books/New"
+        );
+
+        remove_paths(&mut records, "Books/New", 20);
+        assert_eq!(records[0]["state"]["windows"], json!([]));
     }
 }

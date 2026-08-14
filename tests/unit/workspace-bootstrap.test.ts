@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { MediaType } from '@/lib/types'
-import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
+import {
+  normalizePersistedWorkspaceState,
+  serializeWorkspacePersistedState,
+  type PersistedWorkspaceState,
+  type WorkspaceSource,
+} from '@/lib/use-workspace'
 import {
   buildWorkspaceFromDirParam,
   resolveWorkspaceDeferredPresetApply,
@@ -25,7 +30,7 @@ function minimalPreset(
     id,
     name: id,
     scope: 'admin',
-    snapshot: snap,
+    snapshot: JSON.parse(serializeWorkspacePersistedState(snap)) as PersistedWorkspaceState,
     createdAt: '',
   }
 }
@@ -172,5 +177,22 @@ describe('workspace-bootstrap', () => {
   test('buildWorkspaceFromDirParam sets virtual flag from path', () => {
     const w = buildWorkspaceFromDirParam('Favorites', localSource)
     expect(w.windows[0]?.iconIsVirtual).toBe(true)
+  })
+
+  test('fresh default workspace writes and restores current content envelopes', () => {
+    const result = resolveWorkspaceInitialHydration({
+      dirParam: null,
+      presetParam: null,
+      loaded: null,
+      presetsReadyNow: true,
+      presetsList: [],
+      source: localSource,
+    })
+    expect(result.kind).toBe('set-workspace')
+    if (result.kind !== 'set-workspace') return
+
+    const encoded = serializeWorkspacePersistedState(result.workspace)
+    expect(JSON.parse(encoded).windows[0]).toHaveProperty('content')
+    expect(normalizePersistedWorkspaceState(JSON.parse(encoded))).not.toBeNull()
   })
 })

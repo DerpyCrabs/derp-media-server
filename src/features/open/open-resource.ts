@@ -5,11 +5,7 @@ import {
   type ResourceKey,
   type ResourceSummary,
 } from '@/lib/domain/resource'
-import {
-  builtInRendererRegistry,
-  type RendererIntent,
-  type RendererRegistry,
-} from './renderer-registry'
+import { type RendererIntent, type RendererRegistry } from './renderer-registry'
 
 export type OpenIntent = 'default' | 'browse' | RendererIntent
 export type OpenSurface = 'library' | 'workspace' | 'canvas'
@@ -139,5 +135,3 @@ export function createResourceOpener(registry: RendererRegistry): ResourceOpener
     }
   }
 }
-
-export const openResource = createResourceOpener(builtInRendererRegistry)

@@ -857,3 +857,22 @@ body {
 .canvas-layout [data-slot='input'] {
   user-select: text;
 }
+@container (max-width: 480px) {
+  .explorer-list-kind,
+  .explorer-list-size,
+  .explorer-list-favorite {
+    display: none;
+  }
+
+  .explorer-list-icon {
+    width: 3rem;
+  }
+
+  .explorer-list-actions {
+    width: 3.5rem;
+  }
+}
+
+.explorer-list-container {
+  container-type: inline-size;
+}

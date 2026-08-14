@@ -51,11 +51,14 @@ export type ResourceSummary = Readonly<{
   capabilities: readonly ResourceCapability[]
   presentation?: ResourcePresentation
   size?: number
+  metadata?: Readonly<Record<string, unknown>>
 }>
 
 export type ResourcePage = Readonly<{
   schemaVersion: 1
   location: ResourceKey
+  locationSummary?: ResourceSummary
+  breadcrumbs?: readonly ResourceSummary[]
   items: readonly ResourceSummary[]
   nextCursor?: string
   total: number
@@ -176,7 +179,8 @@ export function isResourceSummary(value: unknown): value is ResourceSummary {
     summary.capabilities.every((capability) => typeof capability === 'string') &&
     (summary.presentation === undefined || typeof summary.presentation === 'string') &&
     (summary.size === undefined ||
-      (typeof summary.size === 'number' && Number.isFinite(summary.size) && summary.size >= 0))
+      (typeof summary.size === 'number' && Number.isFinite(summary.size) && summary.size >= 0)) &&
+    (summary.metadata === undefined || record(summary.metadata) !== null)
   )
 }
 
@@ -186,6 +190,9 @@ export function isResourcePage(value: unknown): value is ResourcePage {
     page &&
     page.schemaVersion === 1 &&
     isResourceKey(page.location) &&
+    (page.locationSummary === undefined || isResourceSummary(page.locationSummary)) &&
+    (page.breadcrumbs === undefined ||
+      (Array.isArray(page.breadcrumbs) && page.breadcrumbs.every(isResourceSummary))) &&
     Array.isArray(page.items) &&
     page.items.every(isResourceSummary) &&
     (page.nextCursor === undefined || typeof page.nextCursor === 'string') &&

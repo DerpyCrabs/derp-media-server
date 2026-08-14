@@ -1,6 +1,5 @@
 import { api } from '@/lib/api'
 import { apiEndpoints } from '@/lib/api-endpoints'
-import { isVirtualFolderPath } from '@/lib/constants'
 import { createCanvasExport, parseCanvasExport } from '@/lib/canvas-features'
 import {
   CANVAS_COLLECTION_STORAGE_KEY,
@@ -14,7 +13,13 @@ import {
   type CanvasCollection,
   type PersistedCanvas,
 } from '@/lib/canvas-persistence'
-import { getFileDragData, hasFileDragData, isDirectoryFileDragData } from '@/lib/file-drag-data'
+import {
+  getFileDragData,
+  hasFileDragData,
+  isDirectoryFileDragData,
+  setFileDragData,
+  type FileDragData,
+} from '@/lib/file-drag-data'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
 import {
   CANVAS_GRID_SIZE,
@@ -22,7 +27,6 @@ import {
   CANVAS_MIN_WINDOW_HEIGHT,
   CANVAS_MIN_WINDOW_WIDTH,
   CANVAS_MIN_ZOOM,
-  CANVAS_STORAGE_KEY,
   canvasWindowVisualBounds,
   cloneInfiniteCanvasState,
   equalInfiniteCanvasState,
@@ -44,17 +48,26 @@ import {
   adaptFileItemResource,
   type FileItemResourceOptions,
 } from '@/lib/domain/file-item-resource'
-import type {
-  PersistedWorkspaceState,
-  WorkspaceSource,
-  WorkspaceWindowDefinition,
-} from '@/lib/use-workspace'
+import type { ContentWindowDefinition, ContentWindowSource } from '@/lib/content-window'
 import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
 import { applyCanvasPathMutation, type WorkspacePathMutation } from '@/lib/workspace-path-mutation'
-import type { VirtualOpenTarget } from '@/lib/virtual-directory'
-import type { ResourceKey } from '@/lib/domain/resource'
-import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
-import { HermesChatPane } from '@/src/workspace/HermesChatPane'
+import type { ContentInstance } from '@/lib/domain/content'
+import {
+  filesystemResourceAddress,
+  filesystemResourceKey,
+  type ResourceSummary,
+} from '@/lib/domain/resource'
+import { preloadWorkspaceVideoIntrinsics } from '@/lib/workspace-video-intrinsics-preload'
+import { ExplorerView } from '@/src/features/explorer/ExplorerView'
+import type { ExplorerHostAction } from '@/src/features/explorer/view-types'
+import type { ApplicationExplorerPayload } from '@/src/integrations/explorer-adapter'
+import {
+  createApplicationExplorerDataSource,
+  legacyExplorerLocation,
+  legacyFilesystemExplorerPath,
+  legacyExplorerPath,
+  legacyFileItemForResource,
+} from '@/src/integrations/explorer-adapter'
 import { useQuery } from '@tanstack/solid-query'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
@@ -82,17 +95,38 @@ import { canvasEdgeAutoPanVelocity } from './canvas/canvas-edge-auto-pan'
 import { createCanvasPanController } from './canvas/create-canvas-pan-controller'
 import { bindReadingProgress as bindReadingProgressEvents } from './canvas/reading-progress'
 import { useAdminEventsStream } from './lib/use-admin-events-stream'
-import { EMPTY_FILE_ICON_CONTEXT, workspaceTabIcon } from './lib/use-file-icon'
-import { WorkspaceBrowserPane } from './workspace/WorkspaceBrowserPane'
-import { WorkspaceViewerPane } from './workspace/WorkspaceViewerPane'
+import {
+  EMPTY_FILE_ICON_CONTEXT,
+  fileItemIcon,
+  gridHeroIcon,
+  workspaceTabIcon,
+} from './lib/use-file-icon'
+import { ResourceViewerContent } from './features/viewer/ResourceViewerContent'
+import { ContentRuntimeView } from './features/content/ContentRuntimeView'
+import { ContentRecoveryView } from './features/content/ContentRecoveryView'
+import { contentRuntimeIdentity } from './features/content/runtime'
+import { confirmContentClose } from './features/content/confirm-content-close'
+import type { HostOpenPlan } from './features/content/contracts'
+import { createCanvasHost } from './features/content/hosts'
+import {
+  contentInstanceFromCurrentWindow,
+  contentWithInstanceId,
+  projectContentOntoCurrentWindow,
+} from './integrations/current-window-content'
+import {
+  applicationContentRegistry,
+  applicationContentRuntime,
+  createApplicationAssistantDraftContent,
+} from './integrations/registry'
+import { legacyFilesystemContentInstance } from './integrations/filesystem/legacy-content'
 import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
-import { openResource } from './features/open/open-resource'
+import { openResource } from './integrations/open-resource'
 
-const LOCAL_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
+const LOCAL_SOURCE: ContentWindowSource = { kind: 'local', rootPath: null }
 const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
   browser: { width: 640, height: 480 },
   viewer: { width: 640, height: 480 },
-  hermes: { width: 640, height: 480 },
+  integration: { width: 640, height: 480 },
   'viewer-audio': { width: 576, height: 288 },
   'viewer-video': { width: 800, height: 480 },
   'viewer-image': { width: 640, height: 480 },
@@ -127,6 +161,13 @@ type CanvasDialogState =
   | { kind: 'import-canvas' }
   | { kind: 'message'; message: string }
 type FileDropPreview = { bounds: CanvasRect }
+
+type AddFileWindowOptions = Readonly<{
+  duplicate?: boolean
+  worldBounds?: CanvasRect
+  readerKind?: 'pdf' | 'folder' | 'book'
+  resourceOptions?: FileItemResourceOptions
+}>
 
 function cloneState(state: InfiniteCanvasState): InfiniteCanvasState {
   return cloneInfiniteCanvasState(state)
@@ -169,14 +210,18 @@ function fileName(path: string): string {
   return path.replace(/\\/g, '/').split('/').at(-1) || path
 }
 
-function canvasWindowDetails(definition: WorkspaceWindowDefinition): {
+function canvasWindowDetails(definition: ContentWindowDefinition): {
   kind: string
   path: string | null
 } {
-  if (definition.type === 'hermes') {
+  const content = contentInstanceFromCurrentWindow(definition)
+  if (content?.type === 'integration') {
+    const presentation = applicationContentRegistry.presentation(content)
     return {
-      kind: definition.hermes?.readOnly ? 'Hermes session · Read only' : 'Hermes session',
-      path: definition.hermes?.cwd ?? null,
+      kind: presentation?.status
+        ? `${presentation.title} · ${presentation.status.label}`
+        : (presentation?.title ?? 'Integration content'),
+      path: presentation?.subtitle ?? null,
     }
   }
 
@@ -241,7 +286,7 @@ function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
   }
 }
 
-function windowSizeKey(definition: WorkspaceWindowDefinition): CanvasWindowSizeKey {
+function windowSizeKey(definition: ContentWindowDefinition): CanvasWindowSizeKey {
   if (definition.type !== 'viewer') return definition.type
   const path = definition.initialState.viewing ?? ''
   return mediaWindowSizeKey(getMediaTypeFromPath(path))
@@ -352,10 +397,7 @@ export function CanvasPage() {
     typeof localStorage === 'undefined'
       ? ({ getItem: () => null } as Pick<Storage, 'getItem'>)
       : localStorage
-  const hadLocalCanvas = Boolean(
-    browserStorage.getItem(CANVAS_COLLECTION_STORAGE_KEY) ??
-    browserStorage.getItem(CANVAS_STORAGE_KEY),
-  )
+  const hadLocalCanvas = Boolean(browserStorage.getItem(CANVAS_COLLECTION_STORAGE_KEY))
   const loadedCollection = loadCanvasCollection(browserStorage)
   const initialCollection = loadedCollection
   const initialCanvas = initialCollection.canvases.find(
@@ -418,6 +460,7 @@ export function CanvasPage() {
   const settingsQuery = useQuery(settingsQueryOptions)
   const serverConfigQuery = useQuery(serverConfigQueryOptions)
   const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
+  const explorerDataSource = createApplicationExplorerDataSource({ editableFolders })
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const writableDirectories = createMemo(() =>
     [...new Set([...knowledgeBases(), ...editableFolders()])].map((path) =>
@@ -433,17 +476,6 @@ export function CanvasPage() {
     const preview = fileDropPreview()
     return preview ? canvasWindowVisualBounds(preview.bounds) : null
   })
-
-  const workspace = createMemo<PersistedWorkspaceState>(() => ({
-    windows: state().windows.map((window) => ({
-      ...window.definition,
-      layout: { ...window.definition.layout, bounds: window.bounds, zIndex: window.zIndex },
-    })),
-    activeWindowId: selection()?.kind === 'window' ? selection()!.id : null,
-    activeTabMap: {},
-    nextWindowId: state().nextItemId,
-    pinnedTaskbarItems: [],
-  }))
 
   const activeCanvas = createMemo(() =>
     collection().canvases.find((item) => item.id === collection().activeId && !item.deleted),
@@ -503,7 +535,6 @@ export function CanvasPage() {
 
   function storeCollection(next: CanvasCollection) {
     localStorage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(next))
-    localStorage.setItem(CANVAS_STORAGE_KEY, serializeInfiniteCanvasState(state()))
   }
 
   function persistActiveState(): CanvasCollection {
@@ -729,13 +760,11 @@ export function CanvasPage() {
         return
       }
       const data = getFileDragData(transfer)
-      const sizeKey = data?.virtualOpenTarget
-        ? 'hermes'
-        : isDirectoryFileDragData(transfer)
-          ? 'browser'
-          : data
-            ? mediaWindowSizeKey(getMediaTypeFromPath(data.path))
-            : 'viewer'
+      const sizeKey = isDirectoryFileDragData(transfer)
+        ? 'browser'
+        : data
+          ? mediaWindowSizeKey(getMediaTypeFromPath(data.path))
+          : 'viewer'
       setFileDropPreview(
         fileWindowPlacement(screenToWorld(event.clientX, event.clientY), state(), sizeKey),
       )
@@ -1098,7 +1127,7 @@ export function CanvasPage() {
     file?: FileItem,
     dir = '',
     readerKind?: 'pdf' | 'folder' | 'book',
-  ): WorkspaceWindowDefinition {
+  ): ContentWindowDefinition {
     if (!file || (file.isDirectory && !readerKind)) {
       const path = file?.path ?? dir
       return {
@@ -1109,7 +1138,6 @@ export function CanvasPage() {
         iconType: MediaType.FOLDER,
         source: LOCAL_SOURCE,
         initialState: path ? { dir: path } : {},
-        tabGroupId: null,
       }
     }
     return {
@@ -1124,7 +1152,6 @@ export function CanvasPage() {
         dir: parentPath(file.path),
         readerKind: readerKind ?? null,
       },
-      tabGroupId: null,
     }
   }
 
@@ -1137,15 +1164,82 @@ export function CanvasPage() {
     )
   }
 
+  let pendingCanvasHostOpen:
+    | {
+        file: FileItem | null
+        point: { x: number; y: number }
+        options: AddFileWindowOptions
+        created?: CanvasWindow
+      }
+    | undefined
+
+  const canvasContentHost = createCanvasHost({
+    window(plan) {
+      const pending = pendingCanvasHostOpen
+      if (!pending) return
+      let created: CanvasWindow | undefined
+      commit((current) => {
+        const id = `canvas-window-${current.nextItemId}`
+        const legacyDefinition = makeDefinition(
+          id,
+          pending.file ?? undefined,
+          '',
+          pending.options.readerKind,
+        )
+        const address = filesystemResourceAddress(plan.resource)
+        const content: ContentInstance =
+          plan.kind === 'browse'
+            ? { id, type: 'explorer', location: plan.resource }
+            : {
+                id,
+                type: 'resource',
+                resource: plan.resource,
+                renderer: plan.renderer,
+                ...(address
+                  ? { context: filesystemResourceKey(address.rootId, parentPath(address.path)) }
+                  : {}),
+              }
+        const definition =
+          projectContentOntoCurrentWindow(legacyDefinition, content) ?? legacyDefinition
+        const sizeKey = windowSizeKey(definition)
+        const requestedBounds = findNearestFreeCanvasRect(
+          {
+            ...pending.point,
+            ...(current.windowSizeByType[sizeKey] ??
+              (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
+              DEFAULT_WINDOW_SIZE[sizeKey]),
+          },
+          placementObstacles(current),
+        )
+        const worldBounds =
+          pending.options.worldBounds ??
+          clampWindowBoundsToViewport(requestedBounds, current.camera)
+        created = {
+          id,
+          definition,
+          bounds: worldBounds,
+          zIndex: current.nextZIndex,
+        }
+        return {
+          ...current,
+          windows: [...current.windows, created!],
+          nextItemId: current.nextItemId + 1,
+          nextZIndex: current.nextZIndex + 1,
+        }
+      })
+      pending.created = created
+      if (created) selectWindow(created.id)
+    },
+    close(instanceId) {
+      void closeWindow(instanceId)
+    },
+    focus: focusWindow,
+  })
+
   function addFileWindow(
     file: FileItem | null,
     point: { x: number; y: number },
-    options: {
-      duplicate?: boolean
-      worldBounds?: CanvasRect
-      readerKind?: 'pdf' | 'folder' | 'book'
-      resourceOptions?: FileItemResourceOptions
-    } = {},
+    options: AddFileWindowOptions = {},
   ) {
     const plannedFile: FileItem =
       file ??
@@ -1157,60 +1251,32 @@ export function CanvasPage() {
         extension: '',
         isDirectory: true,
       } satisfies FileItem)
-    if (!plannedFile.isVirtual) {
-      const intent = options.readerKind ? 'read' : plannedFile.isDirectory ? 'browse' : 'default'
-      const plan = openResource(
-        adaptFileItemResource(plannedFile, options.resourceOptions).resource,
-        intent,
-        {
-          surface: 'canvas',
-          disposition: 'window',
-        },
-      )
-      if (plan.status === 'blocked') {
-        setDialog({ kind: 'message', message: `This resource cannot be opened (${plan.reason}).` })
-        return undefined
-      }
-    }
+    if (plannedFile.isVirtual) return undefined
     if (file && !options.duplicate) {
       const existing = existingWindowForFile(file)
       if (existing) {
-        focusWindow(existing.id)
+        canvasContentHost.focus(existing.id)
         return existing
       }
     }
-    let created: CanvasWindow | undefined
-    commit((current) => {
-      const id = `canvas-window-${current.nextItemId}`
-      const definition = makeDefinition(id, file ?? undefined, '', options.readerKind)
-      const sizeKey = windowSizeKey(definition)
-      const requestedBounds = findNearestFreeCanvasRect(
-        {
-          ...point,
-          ...(current.windowSizeByType[sizeKey] ??
-            (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
-            DEFAULT_WINDOW_SIZE[sizeKey]),
-        },
-        placementObstacles(current),
-      )
-      const worldBounds =
-        options.worldBounds ?? clampWindowBoundsToViewport(requestedBounds, current.camera)
-      const base: CanvasWindow = {
-        id,
-        definition,
-        bounds: worldBounds,
-        zIndex: current.nextZIndex,
-      }
-      created = base
-      return {
-        ...current,
-        windows: [...current.windows, base],
-        nextItemId: current.nextItemId + 1,
-        nextZIndex: current.nextZIndex + 1,
-      }
-    })
-    if (created) selectWindow(created.id)
-    return created
+    const intent = options.readerKind ? 'read' : plannedFile.isDirectory ? 'browse' : 'default'
+    const plan = openResource(
+      adaptFileItemResource(plannedFile, options.resourceOptions).resource,
+      intent,
+      { surface: 'canvas', disposition: 'window' },
+    )
+    if (plan.status === 'blocked') {
+      setDialog({ kind: 'message', message: `This resource cannot be opened (${plan.reason}).` })
+      return undefined
+    }
+    const pending: NonNullable<typeof pendingCanvasHostOpen> = { file, point, options }
+    pendingCanvasHostOpen = pending
+    try {
+      canvasContentHost.open(plan as HostOpenPlan<'window'>)
+      return pending.created
+    } finally {
+      pendingCanvasHostOpen = undefined
+    }
   }
 
   function settleCanvasWindows(bounds: CanvasRect[]) {
@@ -1300,19 +1366,31 @@ export function CanvasPage() {
     )
   }
 
-  function deleteSelected() {
+  async function deleteSelected() {
     const ids = new Set(selectedIds())
     if (!ids.size) return
     const targets = state().windows.filter((item) => ids.has(item.id))
-    if (targets.some((item) => !canCloseHermesWindow(item.definition.hermes))) return
+    const content = targets
+      .map((item) => contentInstanceFromCurrentWindow(item.definition))
+      .filter((instance): instance is ContentInstance => instance !== null)
+    const targetsAreCurrent = () =>
+      targets.every(
+        (target) => state().windows.find((window) => window.id === target.id) === target,
+      )
+    if (!(await confirmContentClose(applicationContentRuntime, content, targetsAreCurrent))) return
+    if (!targetsAreCurrent()) return
+    let removedAny = false
     commit((current) => {
       const removed = new Set(
         current.windows.filter((item) => ids.has(item.id)).map((item) => item.id),
       )
+      removedAny = removed.size > 0
       const windows = current.windows.filter((item) => !removed.has(item.id))
       return { ...current, windows }
     })
-    for (const target of targets) discardHermesDraft(target.definition.hermes)
+    if (removedAny) {
+      await Promise.all(content.map((instance) => applicationContentRuntime.release(instance)))
+    }
     clearSelection()
   }
 
@@ -1402,79 +1480,90 @@ export function CanvasPage() {
     if (created) settleCanvasWindows([source.bounds, created.bounds])
   }
 
-  function openHermesFromBrowser(
+  function canvasExplorerHostActions(
     sourceWindowId: string,
-    file: FileItem,
-    target: VirtualOpenTarget,
-    _resource: ResourceKey,
-  ) {
-    const source = state().windows.find((window) => window.id === sourceWindowId)
-    if (!source) return
-    if (target.sessionId) {
-      const existing = state().windows.find(
-        (window) =>
-          window.definition.type === 'hermes' &&
-          window.definition.hermes?.sessionId === target.sessionId,
-      )
-      if (existing) {
-        focusWindow(existing.id)
-        return
-      }
-    }
-    const sourceBounds = source.bounds
-    addHermesWindow(file, target, {
-      x: sourceBounds.x + sourceBounds.width + CANVAS_GRID_SIZE,
-      y: sourceBounds.y,
-    })
+  ): readonly ExplorerHostAction<ApplicationExplorerPayload>[] {
+    return [
+      {
+        descriptor: {
+          id: 'host.openInNewWindow',
+          label: 'Open in new canvas window',
+          capability: 'host.newWindow',
+          scope: 'host',
+        },
+        available: (item) =>
+          legacyFilesystemExplorerPath(item.resource.key) !== null &&
+          legacyFileItemForResource(item.resource) !== null,
+        run: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          if (file) openFromBrowser(sourceWindowId, file, true)
+        },
+      },
+      {
+        descriptor: {
+          id: 'host.openWithReader',
+          label: 'Open with Reader',
+          capability: 'host.reader',
+          scope: 'host',
+        },
+        available: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          return legacyFilesystemExplorerPath(item.resource.key) !== null && !!file?.isDirectory
+        },
+        run: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          if (file) openReaderFromBrowser(sourceWindowId, file)
+        },
+      },
+    ]
   }
 
-  function addHermesWindow(
-    file: FileItem,
-    target: VirtualOpenTarget,
+  function addContentWindowAtPoint(
+    content: ContentInstance,
     point: { x: number; y: number },
+    source?: ResourceSummary,
     requestedBounds?: CanvasRect,
   ) {
-    if (target.sessionId) {
-      const existing = state().windows.find(
-        (window) =>
-          window.definition.type === 'hermes' &&
-          window.definition.hermes?.sessionId === target.sessionId,
-      )
-      if (existing) {
-        focusWindow(existing.id)
-        return existing.id
-      }
+    const comparable = JSON.stringify({ ...content, id: '' })
+    const existing = state().windows.find((window) => {
+      const instance = contentInstanceFromCurrentWindow(window.definition)
+      return instance && JSON.stringify({ ...instance, id: '' }) === comparable
+    })
+    if (existing) {
+      focusWindow(existing.id)
+      return existing
     }
-    let createdId = ''
+    let created: CanvasWindow | undefined
     commit((current) => {
       const id = `canvas-window-${current.nextItemId}`
-      createdId = id
-      const definition: WorkspaceWindowDefinition = {
+      const hosted = contentWithInstanceId(content, id)
+      const presentation = applicationContentRegistry.presentation(hosted)
+      const baseDefinition: ContentWindowDefinition = {
         id,
-        type: 'hermes',
-        title: target.type === 'hermesDraft' ? 'New Hermes session' : file.name,
-        iconName: null,
-        iconPath: file.path,
-        iconIsVirtual: true,
+        type: 'viewer',
+        title: source?.name ?? presentation?.title ?? 'Content',
+        iconName: presentation?.icon ?? null,
         source: LOCAL_SOURCE,
         initialState: {},
-        tabGroupId: null,
-        hermes: {
-          sessionId: target.sessionId,
-          draftId: target.type === 'hermesDraft' ? crypto.randomUUID() : undefined,
-          cwd: target.projectPath,
-          readOnly: target.readOnly,
-        },
       }
+      const projected = projectContentOntoCurrentWindow(baseDefinition, hosted)
+      if (!projected) return current
+      const definition: ContentWindowDefinition = {
+        ...projected,
+        title: source?.name ?? projected.title,
+      }
+      const sizeKey = windowSizeKey(definition)
       const worldBounds = findNearestFreeCanvasRect(
         {
           ...point,
-          ...(current.windowSizeByType.hermes ?? DEFAULT_WINDOW_SIZE.hermes),
+          ...(current.windowSizeByType[sizeKey] ??
+            (sizeKey.startsWith('viewer-') ? current.windowSizeByType.viewer : undefined) ??
+            DEFAULT_WINDOW_SIZE[sizeKey]),
         },
         placementObstacles(current),
       )
       const bounds = requestedBounds ?? worldBounds
-      const base: CanvasWindow = {
+      created = {
         id,
         definition,
         bounds,
@@ -1482,57 +1571,85 @@ export function CanvasPage() {
       }
       return {
         ...current,
-        windows: [...current.windows, base],
+        windows: [...current.windows, created!],
         nextItemId: current.nextItemId + 1,
         nextZIndex: current.nextZIndex + 1,
       }
     })
-    if (createdId) selectWindow(createdId)
-    return createdId
+    if (created) selectWindow(created.id)
+    return created
   }
 
-  function addBlankHermesWindow(point = viewportCenterWorld()) {
-    return addHermesWindow(
+  function addAssistantWindow(point = viewportCenterWorld()) {
+    const id = `assistant-draft-${crypto.randomUUID()}`
+    return addContentWindowAtPoint(createApplicationAssistantDraftContent(id), point)
+  }
+
+  function openContentWindow(
+    sourceWindowId: string,
+    content: ContentInstance,
+    source?: ResourceSummary,
+  ) {
+    const sourceWindow = state().windows.find((window) => window.id === sourceWindowId)
+    if (!sourceWindow) return
+    const created = addContentWindowAtPoint(
+      content,
       {
-        name: 'New AI chat',
-        path: 'Hermes Sessions/draft',
-        type: MediaType.OTHER,
-        size: 0,
-        extension: '',
-        isDirectory: false,
-        isVirtual: true,
+        x: sourceWindow.bounds.x + sourceWindow.bounds.width + CANVAS_GRID_SIZE,
+        y: sourceWindow.bounds.y,
       },
-      { type: 'hermesDraft', readOnly: false },
-      point,
+      source,
     )
+    if (!created) return
+    settleCanvasWindows([sourceWindow.bounds, created.bounds])
   }
 
-  function bindHermesSession(windowId: string, sessionId: string) {
-    updateDefinition(windowId, (definition) => ({
-      ...definition,
-      title: definition.title === 'New Hermes session' ? 'Hermes session' : definition.title,
-      iconPath: `Hermes Sessions/session/${sessionId}`,
-      hermes: { ...definition.hermes, sessionId, draftId: undefined },
-    }))
+  async function replaceWindowContent(windowId: string, content: ContentInstance) {
+    const target = state().windows.find((window) => window.id === windowId)?.definition
+    if (!target) return
+    const previous = contentInstanceFromCurrentWindow(target)
+    const hosted = contentWithInstanceId(content, windowId)
+    const changesRuntimeOwner =
+      previous !== null && contentRuntimeIdentity(previous) !== contentRuntimeIdentity(hosted)
+    if (
+      changesRuntimeOwner &&
+      !(await confirmContentClose(applicationContentRuntime, [previous], () =>
+        state().windows.some((window) => window.id === windowId && window.definition === target),
+      ))
+    ) {
+      return
+    }
+    let replaced = false
+    updateDefinition(windowId, (definition) => {
+      if (definition !== target) return definition
+      const projected = projectContentOntoCurrentWindow(definition, hosted)
+      if (!projected) return definition
+      replaced = true
+      return projected
+    })
+    if (replaced && changesRuntimeOwner) await applicationContentRuntime.release(previous)
   }
 
   function updateDefinition(
     windowId: string,
-    update: (definition: WorkspaceWindowDefinition) => WorkspaceWindowDefinition,
+    update: (definition: ContentWindowDefinition) => ContentWindowDefinition,
   ) {
     setState((current) => {
       let changed = false
       const windows = current.windows.map((window) => {
         if (window.id !== windowId) return window
+        const definition = update(window.definition)
+        if (definition === window.definition) return window
         changed = true
-        return { ...window, definition: update(window.definition) }
+        return { ...window, definition }
       })
       return changed ? { ...current, windows } : current
     })
   }
 
   function navigateDir(windowId: string, dir: string) {
-    if (!isVirtualFolderPath(dir)) {
+    const location = legacyExplorerLocation(dir).key
+    if (legacyFilesystemExplorerPath(location) !== null) {
       const folder: FileItem = {
         path: dir,
         name: dir.split(/[/\\]/).at(-1) || 'Files',
@@ -1547,13 +1664,7 @@ export function CanvasPage() {
       })
       if (plan.status === 'blocked') return
     }
-    updateDefinition(windowId, (definition) => ({
-      ...definition,
-      title: workspaceBrowserDirTitle(dir),
-      iconPath: dir,
-      iconType: MediaType.FOLDER,
-      initialState: { ...definition.initialState, dir },
-    }))
+    replaceWindowContent(windowId, { id: windowId, type: 'explorer', location })
   }
 
   function updateViewing(windowId: string, path: string) {
@@ -1569,14 +1680,21 @@ export function CanvasPage() {
       surface: 'canvas',
       disposition: 'window',
     })
-    if (plan.status === 'blocked') return
-    updateDefinition(windowId, (definition) => ({
-      ...definition,
-      title: fileName(path),
-      iconPath: path,
-      iconType: getMediaTypeFromPath(path),
-      initialState: { ...definition.initialState, viewing: path, dir: parentPath(path) },
-    }))
+    if (plan.status !== 'ready' || plan.kind !== 'render') return
+    const definition = state().windows.find((window) => window.id === windowId)?.definition
+    const current = definition ? contentInstanceFromCurrentWindow(definition) : null
+    const currentAddress =
+      current?.type === 'resource' ? filesystemResourceAddress(current.resource) : null
+    const planAddress = filesystemResourceAddress(plan.resource)
+    const rootId = currentAddress?.rootId ?? planAddress?.rootId
+    if (!rootId) return
+    replaceWindowContent(windowId, {
+      id: windowId,
+      type: 'resource',
+      resource: filesystemResourceKey(rootId, path),
+      renderer: plan.renderer,
+      context: filesystemResourceKey(rootId, parentPath(path)),
+    })
   }
 
   function sizeVideoWindow(windowId: string, videoWidth: number, videoHeight: number) {
@@ -1605,20 +1723,38 @@ export function CanvasPage() {
     setLastAudioWindowId(windowId)
   }
 
-  function closeWindow(windowId: string) {
+  async function closeWindow(windowId: string) {
     const target = state().windows.find((window) => window.id === windowId)
-    if (!canCloseHermesWindow(target?.definition.hermes)) return
+    if (!target) return
+    const content = contentInstanceFromCurrentWindow(target.definition)
+    const targetIsCurrent = () =>
+      state().windows.find((window) => window.id === windowId) === target
+    if (
+      !(await confirmContentClose(
+        applicationContentRuntime,
+        content ? [content] : [],
+        targetIsCurrent,
+      ))
+    ) {
+      return
+    }
+    if (!targetIsCurrent()) return
     const viewing = target?.definition.initialState.viewing
     if (viewing && playbackSession.getSnapshot().currentItem?.locator === viewing) {
       playbackSession.dispatch({ type: 'stop' })
     }
     if (lastAudioWindowId() === windowId) setLastAudioWindowId(null)
     if (maximizedWindowId() === windowId) setMaximizedWindowId(null)
-    commit((current) => ({
-      ...current,
-      windows: current.windows.filter((window) => window.id !== windowId),
-    }))
-    discardHermesDraft(target?.definition.hermes)
+    let removed = false
+    commit((current) => {
+      if (!current.windows.some((window) => window.id === windowId)) return current
+      removed = true
+      return {
+        ...current,
+        windows: current.windows.filter((window) => window.id !== windowId),
+      }
+    })
+    if (removed && content) await applicationContentRuntime.release(content)
     setSelectedIds((ids) => ids.filter((id) => id !== windowId))
     if (selection()?.id === windowId) setSelection(null)
   }
@@ -1856,7 +1992,7 @@ export function CanvasPage() {
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
         if (selectedIds().length) {
           event.preventDefault()
-          deleteSelected()
+          void deleteSelected()
         }
       } else if (event.key === 'Escape') {
         setMenu(null)
@@ -2073,7 +2209,7 @@ export function CanvasPage() {
                   </MenuButton>
                   <MenuButton
                     onClick={() => {
-                      addBlankHermesWindow()
+                      addAssistantWindow()
                       setAddMenuOpen(false)
                     }}
                   >
@@ -2336,7 +2472,7 @@ export function CanvasPage() {
           if (!transfer) return
           if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
           const data = getFileDragData(transfer)
-          if (!data || data.sourceKind !== 'local') return
+          if (!data || data.sourceKind !== 'local' || data.isVirtual) return
           event.preventDefault()
           const point = screenToWorld(event.clientX, event.clientY)
           const placement =
@@ -2344,23 +2480,9 @@ export function CanvasPage() {
             fileWindowPlacement(
               point,
               state(),
-              data.virtualOpenTarget
-                ? 'hermes'
-                : data.isDirectory
-                  ? 'browser'
-                  : mediaWindowSizeKey(getMediaTypeFromPath(data.path)),
+              data.isDirectory ? 'browser' : mediaWindowSizeKey(getMediaTypeFromPath(data.path)),
             )
           setFileDropPreview(null)
-          if (data.virtualOpenTarget) {
-            addHermesWindow(
-              fileItemFromDrag(data.path, false),
-              data.virtualOpenTarget,
-              point,
-              placement.bounds,
-            )
-            return
-          }
-          if (data.isVirtual) return
           addFileWindow(fileItemFromDrag(data.path, data.isDirectory), point, {
             duplicate: true,
             worldBounds: placement.bounds,
@@ -2392,7 +2514,7 @@ export function CanvasPage() {
                 <button
                   type='button'
                   class='rounded-md border border-border px-3 py-2 text-sm hover:bg-muted'
-                  onClick={() => addBlankHermesWindow()}
+                  onClick={() => addAssistantWindow()}
                 >
                   Ask AI
                 </button>
@@ -2420,6 +2542,10 @@ export function CanvasPage() {
               const item = createMemo(() =>
                 state().windows.find((window) => window.id === windowId),
               )
+              const integrationContent = createMemo(() => {
+                const instance = contentInstanceFromCurrentWindow(item()!.definition)
+                return instance?.type === 'integration' ? instance : null
+              })
               const worldBounds = createMemo(() => item()!.bounds)
               const maximized = () => maximizedWindowId() === windowId
               const visualBounds = createMemo(() => {
@@ -2587,7 +2713,7 @@ export function CanvasPage() {
                         style={{ width: `${titlebarHeight()}px` }}
                         aria-label={`Close ${item()!.definition.title}`}
                         onPointerDown={(event) => event.stopPropagation()}
-                        onClick={() => closeWindow(windowId)}
+                        onClick={() => void closeWindow(windowId)}
                       >
                         <Show
                           when={liveWindowChrome()}
@@ -2617,45 +2743,111 @@ export function CanvasPage() {
                           state().camera.zoom < LIVE_ZOOM && !maximized(),
                       }}
                     >
-                      <Show when={item()!.definition.type === 'browser'}>
-                        <WorkspaceBrowserPane
-                          windowId={windowId}
-                          resourceOpenContext={() => ({
-                            surface: 'canvas',
-                            disposition: 'window',
-                          })}
-                          workspace={workspace}
-                          fileIconContext={fileIconContext}
-                          editableFolders={editableFolders()}
-                          onNavigateDir={navigateDir}
-                          onOpenViewer={(windowId, file) => openFromBrowser(windowId, file)}
-                          onOpenReader={openReaderFromBrowser}
-                          onOpenVirtualTarget={openHermesFromBrowser}
-                          onOpenInNewTab={(windowId, file) =>
-                            openFromBrowser(
-                              windowId,
-                              fileItemFromDrag(file.path, file.isDirectory),
-                              true,
-                            )
+                      <Show when={item()!.definition.contentRecoveryReason} keyed>
+                        {(reason) => <ContentRecoveryView reason={reason} />}
+                      </Show>
+                      <Show
+                        when={
+                          !item()!.definition.contentRecoveryReason &&
+                          item()!.definition.type === 'browser'
+                        }
+                      >
+                        <ExplorerView<ApplicationExplorerPayload>
+                          location={() =>
+                            legacyExplorerLocation(item()!.definition.initialState?.dir ?? '')
                           }
-                          openInNewTabLabel='Open in new canvas window'
-                          onRequestPlay={(_source, path) =>
-                            openFromBrowser(windowId, fileItemFromDrag(path, false))
+                          dataSource={explorerDataSource}
+                          active={() =>
+                            selection()?.kind === 'window' && selection()!.id === windowId
                           }
-                          onOpenFileInNewFloatingWindow={(windowId, file) =>
-                            openFromBrowser(windowId, file, true)
+                          displayMode='Workspace'
+                          hostActions={() => canvasExplorerHostActions(windowId)}
+                          itemDomValue={(entry) =>
+                            legacyExplorerPath(entry.resource.key) ?? undefined
                           }
+                          breadcrumbDomValue={(location) =>
+                            legacyExplorerPath(location.key) ?? undefined
+                          }
+                          renderItemIcon={(entry, size) => {
+                            const file = legacyFileItemForResource(entry.resource)
+                            if (!file) return undefined
+                            const metadata = entry.resource.metadata ?? {}
+                            const current = fileIconContext()
+                            const iconContext = {
+                              ...current,
+                              customIcons:
+                                typeof metadata.customIcon === 'string'
+                                  ? { ...current.customIcons, [file.path]: metadata.customIcon }
+                                  : current.customIcons,
+                              knowledgeBases:
+                                metadata.knowledgeBase === true &&
+                                !current.knowledgeBases.includes(file.path)
+                                  ? [...current.knowledgeBases, file.path]
+                                  : current.knowledgeBases,
+                            }
+                            return size === 'large'
+                              ? gridHeroIcon(file, iconContext)
+                              : fileItemIcon(file, iconContext)
+                          }}
+                          destinationPicker={(_action, entry) => {
+                            const path = legacyFilesystemExplorerPath(entry.resource.key)
+                            return path === null
+                              ? null
+                              : { filePath: path, editableFolders: editableFolders() }
+                          }}
+                          onNavigate={(location) => {
+                            const path = legacyExplorerPath(location.key)
+                            if (path !== null) navigateDir(windowId, path)
+                          }}
+                          onOpen={(entry) => {
+                            const file = legacyFileItemForResource(entry.resource)
+                            if (file && !file.isVirtual) openFromBrowser(windowId, file)
+                          }}
+                          onOpenContent={(content, entry) =>
+                            openContentWindow(windowId, content, entry.resource)
+                          }
+                          onDragStart={(entry, event) => {
+                            const file = legacyFileItemForResource(entry.resource)
+                            if (!file || !event.dataTransfer) return
+                            setFileDragData(event.dataTransfer, {
+                              path: file.path,
+                              isDirectory: file.isDirectory,
+                              sourceKind: 'local',
+                              ...(file.isVirtual ? { isVirtual: true } : {}),
+                            })
+                          }}
                         />
                       </Show>
-                      <Show when={item()!.definition.type === 'viewer'}>
-                        <WorkspaceViewerPane
-                          windowId={windowId}
+                      <Show
+                        when={
+                          !item()!.definition.contentRecoveryReason &&
+                          item()!.definition.type === 'viewer'
+                        }
+                      >
+                        <ResourceViewerContent
+                          runtime={applicationContentRuntime}
+                          contentInstance={() =>
+                            legacyFilesystemContentInstance({
+                              id: windowId,
+                              path: item()!.definition.initialState.viewing ?? '',
+                              contextPath: item()!.definition.initialState.dir ?? '',
+                              readerKind: item()!.definition.initialState.readerKind,
+                              surface: 'canvas',
+                              disposition: 'window',
+                            })
+                          }
                           contentVisible={() => true}
-                          workspace={workspace}
-                          editableFolders={editableFolders()}
-                          knowledgeBases={knowledgeBases()}
+                          viewingPath={() => item()!.definition.initialState.viewing ?? ''}
+                          readerKind={() => item()!.definition.initialState.readerKind ?? null}
+                          directory={() => item()!.definition.initialState.dir ?? ''}
+                          active={() =>
+                            selection()?.kind === 'window' && selection()!.id === windowId
+                          }
                           autoPlayVideo={false}
-                          onUpdateViewing={updateViewing}
+                          onNavigateViewing={(path) => updateViewing(windowId, path)}
+                          onReplaceContent={(content) => {
+                            replaceWindowContent(windowId, content)
+                          }}
                           onVideoMetadataLoaded={(width, height) =>
                             sizeVideoWindow(windowId, width, height)
                           }
@@ -2663,14 +2855,14 @@ export function CanvasPage() {
                           showListenOnly={false}
                         />
                       </Show>
-                      <Show when={item()!.definition.type === 'hermes'}>
-                        <HermesChatPane
-                          window={() => item()!.definition}
+                      <Show when={integrationContent()}>
+                        <ContentRuntimeView
+                          runtime={applicationContentRuntime}
+                          instance={integrationContent}
                           active={() => selection()?.id === windowId}
-                          onSessionCreated={(id) => bindHermesSession(windowId, id)}
-                          onTitleChanged={(title) =>
-                            updateDefinition(windowId, (definition) => ({ ...definition, title }))
-                          }
+                          onReplace={(content) => replaceWindowContent(windowId, content)}
+                          onOpen={(content) => openContentWindow(windowId, content)}
+                          onClose={() => void closeWindow(windowId)}
                         />
                       </Show>
                     </div>
@@ -2870,7 +3062,7 @@ export function CanvasPage() {
               <MenuButton
                 onClick={() => {
                   const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
-                  addBlankHermesWindow({ x: value.worldX, y: value.worldY })
+                  addAssistantWindow({ x: value.worldX, y: value.worldY })
                   setMenu(null)
                 }}
               >

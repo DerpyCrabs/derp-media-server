@@ -96,6 +96,8 @@ const retryTransient = async <T>(request: () => Promise<T>): Promise<T> => {
 }
 
 export async function loadSyncedReaderState(path: string): Promise<ReaderStateEnvelope> {
+  const pendingSave = readerStateSaveQueues.get(path.replace(/\\/g, '/'))
+  if (pendingSave) await pendingSave.catch(() => null)
   const result = await retryTransient(() =>
     api<ReaderStateEnvelope>(`${stateEndpoint}?path=${encodeURIComponent(path)}`),
   )

@@ -20,6 +20,40 @@ test.afterEach(async () => {
   await page.close()
 })
 
+async function seedHermesExplorer(workspaceId: string) {
+  await page.addInitScript(
+    ({ storageKey }) => {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          windows: [
+            {
+              id: 'hermes-browser',
+              title: 'Hermes Sessions',
+              content: {
+                schemaVersion: 1,
+                codec: 'hermes.content',
+                codecVersion: 1,
+                payload: {
+                  kind: 'explorer',
+                  id: 'hermes-browser',
+                  location: { provider: 'hermes', id: 'v1:4:root' },
+                },
+              },
+              layout: { bounds: { x: 40, y: 40, width: 700, height: 560 }, zIndex: 1 },
+            },
+          ],
+          activeWindowId: 'hermes-browser',
+          activeTabMap: {},
+          nextWindowId: 2,
+          pinnedTaskbarItems: [],
+        }),
+      )
+    },
+    { storageKey: `workspace-state-${workspaceId}` },
+  )
+}
+
 test('renders parity controls and native export, then archives read-only', async () => {
   let archived = false
   let archiveRequests = 0
@@ -132,11 +166,18 @@ test('renders parity controls and native export, then archives read-only', async
         windows: [
           {
             id: 'hermes-window',
-            type: 'hermes',
             title: '20260808_212600_f9c4f6',
-            source: { kind: 'local' },
-            initialState: {},
-            hermes: { sessionId: 'session-1', readOnly: false },
+            content: {
+              schemaVersion: 1,
+              codec: 'hermes.content',
+              codecVersion: 1,
+              payload: {
+                kind: 'chat',
+                id: 'hermes-window',
+                sessionId: 'session-1',
+                readOnly: false,
+              },
+            },
             layout: { bounds: { x: 40, y: 40, width: 760, height: 620 }, zIndex: 1 },
           },
         ],
@@ -321,11 +362,18 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
         windows: [
           {
             id: 'hermes-stable',
-            type: 'hermes',
             title: 'session-stable',
-            source: { kind: 'local' },
-            initialState: {},
-            hermes: { sessionId: 'session-stable', readOnly: false },
+            content: {
+              schemaVersion: 1,
+              codec: 'hermes.content',
+              codecVersion: 1,
+              payload: {
+                kind: 'chat',
+                id: 'hermes-stable',
+                sessionId: 'session-stable',
+                readOnly: false,
+              },
+            },
             layout: { bounds: { x: 20, y: 20, width: 680, height: 520 }, zIndex: 1 },
           },
         ],
@@ -435,7 +483,7 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
     .poll(() =>
       page.evaluate(() => {
         const saved = JSON.parse(localStorage.getItem('workspace-state-ws-hermes-stable') ?? 'null')
-        return saved?.windows?.[0]?.hermes?.sessionId
+        return saved?.windows?.[0]?.content?.payload?.sessionId
       }),
     )
     .toBe('session-rotated')
@@ -497,11 +545,18 @@ test('pages older history and opens externally active sessions in observer mode'
         windows: [
           {
             id: 'hermes-paged',
-            type: 'hermes',
             title: 'session-paged',
-            source: { kind: 'local' },
-            initialState: {},
-            hermes: { sessionId: 'session-paged', readOnly: false },
+            content: {
+              schemaVersion: 1,
+              codec: 'hermes.content',
+              codecVersion: 1,
+              payload: {
+                kind: 'chat',
+                id: 'hermes-paged',
+                sessionId: 'session-paged',
+                readOnly: false,
+              },
+            },
             layout: { bounds: { x: 20, y: 20, width: 760, height: 620 }, zIndex: 1 },
           },
         ],
@@ -526,6 +581,7 @@ test('pages older history and opens externally active sessions in observer mode'
 })
 
 test('keeps the Hermes project dialog compact inside its browser window', async () => {
+  await seedHermesExplorer('ws-hermes-project-dialog')
   await page.route('**/api/files?*', async (route) => {
     const url = new URL(route.request().url())
     if (url.searchParams.get('dir') !== 'Hermes Sessions') {
@@ -551,29 +607,8 @@ test('keeps the Hermes project dialog compact inside its browser window', async 
   await page.route('**/api/virtual-directory/fs?*', (route) =>
     route.fulfill({ json: { entries: [] } }),
   )
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'workspace-state-ws-hermes-project-dialog',
-      JSON.stringify({
-        windows: [
-          {
-            id: 'hermes-browser',
-            type: 'browser',
-            title: 'Hermes Sessions',
-            source: { kind: 'local' },
-            initialState: { dir: 'Hermes Sessions' },
-            layout: { bounds: { x: 30, y: 30, width: 760, height: 560 }, zIndex: 1 },
-          },
-        ],
-        activeWindowId: 'hermes-browser',
-        activeTabMap: {},
-        nextWindowId: 2,
-        pinnedTaskbarItems: [],
-      }),
-    )
-  })
   await page.goto('/workspace?ws=hermes-project-dialog')
-  await page.getByRole('button', { name: 'Create new project' }).click()
+  await page.locator('button[title="Create new project"]').click()
   const dialog = page.getByRole('dialog', { name: 'Create Hermes project' })
   await expect(dialog).toBeVisible()
   const browser = dialog.locator(
@@ -589,6 +624,7 @@ test('keeps the Hermes project dialog compact inside its browser window', async 
 })
 
 test('uses in-window Hermes project actions with gateway-backed choices', async () => {
+  await seedHermesExplorer('ws-hermes-actions')
   const actions: Array<Record<string, unknown>> = []
   const files = [
     {
@@ -659,31 +695,10 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
     actions.push(route.request().postDataJSON())
     await route.fulfill({ json: {} })
   })
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'workspace-state-ws-hermes-actions',
-      JSON.stringify({
-        windows: [
-          {
-            id: 'hermes-browser',
-            type: 'browser',
-            title: 'Hermes Sessions',
-            source: { kind: 'local' },
-            initialState: { dir: 'Hermes Sessions' },
-            layout: { bounds: { x: 30, y: 30, width: 760, height: 560 }, zIndex: 1 },
-          },
-        ],
-        activeWindowId: 'hermes-browser',
-        activeTabMap: {},
-        nextWindowId: 2,
-        pinnedTaskbarItems: [],
-      }),
-    )
-  })
   await page.goto('/workspace?ws=hermes-actions')
 
   await page.getByText('Loose session', { exact: true }).click({ button: 'right' })
-  await page.getByRole('button', { name: /Move to project/ }).click()
+  await page.getByRole('menuitem', { name: /Move to project/ }).click()
   const moveDialog = page.getByRole('dialog', { name: 'Move to Hermes project' })
   await expect(moveDialog).toBeVisible()
   await expect(moveDialog.getByRole('combobox')).toHaveValue('Project Alpha')
@@ -696,7 +711,7 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
     .getByRole('rowgroup')
     .getByText('Project Alpha', { exact: true })
     .click({ button: 'right' })
-  await page.getByRole('button', { name: /Appearance/ }).click()
+  await page.getByRole('menuitem', { name: 'Set appearance' }).click()
   const appearanceDialog = page.getByRole('dialog', { name: 'Project appearance' })
   await expect(appearanceDialog).toBeVisible()
   await appearanceDialog.getByRole('button', { name: 'Star' }).click()

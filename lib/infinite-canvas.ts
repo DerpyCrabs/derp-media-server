@@ -1,7 +1,11 @@
-import type { WorkspaceWindowDefinition } from './use-workspace'
-import { deletedHermesSessionIds } from './hermes-session-store'
+import {
+  persistedContentWindowRecord,
+  restorePersistedContentWindow,
+} from './content-window-persistence'
+import { isRuntimeOnlyContentWindow } from '@/src/integrations/current-window-content'
+import type { ContentInstance } from './domain/content'
+import type { ContentWindowDefinition } from './content-window'
 
-export const CANVAS_STORAGE_KEY = 'infinite-canvas-state-v1'
 export const CANVAS_SCHEMA_VERSION = 1
 export const CANVAS_GRID_SIZE = 32
 export const CANVAS_WINDOW_GAP = 8
@@ -12,7 +16,7 @@ export const CANVAS_MIN_WINDOW_HEIGHT = 224
 
 export type CanvasRect = { x: number; y: number; width: number; height: number }
 export type CanvasCamera = { x: number; y: number; zoom: number }
-export type CanvasWindowType = 'browser' | 'viewer' | 'hermes'
+export type CanvasWindowType = 'browser' | 'viewer' | 'integration'
 export type CanvasWindowSizeKey =
   | CanvasWindowType
   | 'viewer-audio'
@@ -25,7 +29,7 @@ export type CanvasWindowSize = Pick<CanvasRect, 'width' | 'height'>
 
 export type CanvasWindow = {
   id: string
-  definition: WorkspaceWindowDefinition
+  definition: ContentWindowDefinition
   bounds: CanvasRect
   zIndex: number
 }
@@ -52,6 +56,18 @@ export function createEmptyCanvasState(): InfiniteCanvasState {
   }
 }
 
+function cloneRuntimeContent(instance: ContentInstance): ContentInstance {
+  if (
+    instance.type === 'integration' &&
+    typeof instance.state === 'object' &&
+    instance.state !== null &&
+    !Array.isArray(instance.state)
+  ) {
+    return { ...instance, state: { ...instance.state } }
+  }
+  return { ...instance }
+}
+
 /** Clone live canvas state without applying persistence-only filtering. */
 export function cloneInfiniteCanvasState(state: InfiniteCanvasState): InfiniteCanvasState {
   return {
@@ -67,27 +83,11 @@ export function cloneInfiniteCanvasState(state: InfiniteCanvasState): InfiniteCa
         ...window.definition,
         source: { ...window.definition.source },
         initialState: { ...window.definition.initialState },
-        ...(window.definition.layout
+        ...(window.definition.runtimeContent
           ? {
-              layout: {
-                ...window.definition.layout,
-                bounds: window.definition.layout.bounds
-                  ? { ...window.definition.layout.bounds }
-                  : window.definition.layout.bounds,
-                restoreBounds: window.definition.layout.restoreBounds
-                  ? { ...window.definition.layout.restoreBounds }
-                  : window.definition.layout.restoreBounds,
-                tiling: window.definition.layout.tiling
-                  ? {
-                      ...window.definition.layout.tiling,
-                      colLines: [...window.definition.layout.tiling.colLines],
-                      rowLines: [...window.definition.layout.tiling.rowLines],
-                    }
-                  : window.definition.layout.tiling,
-              },
+              runtimeContent: cloneRuntimeContent(window.definition.runtimeContent),
             }
           : {}),
-        ...(window.definition.hermes ? { hermes: { ...window.definition.hermes } } : {}),
       },
     })),
   }
@@ -129,11 +129,7 @@ export function reconcileInfiniteCanvasState(
   })
   const incomingIds = new Set(incomingWindows.map((window) => window.id))
   const liveDrafts = current.windows.filter(
-    (window) =>
-      window.definition.type === 'hermes' &&
-      !!window.definition.hermes?.draftId &&
-      !window.definition.hermes.sessionId &&
-      !incomingIds.has(window.id),
+    (window) => isRuntimeOnlyContentWindow(window.definition) && !incomingIds.has(window.id),
   )
   const windows = preserveArray(current.windows, [...incomingWindows, ...liveDrafts])
   return {
@@ -263,20 +259,13 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
     if (!value || typeof value !== 'object') continue
     const window = value as Partial<CanvasWindow>
     const bounds = parseRect(window.bounds)
-    const definition = window.definition
-    if (
-      !bounds ||
-      typeof window.id !== 'string' ||
-      itemIds.has(window.id) ||
-      !definition ||
-      typeof definition !== 'object'
-    )
-      continue
+    const definition = restorePersistedContentWindow(window.definition)
+    if (!bounds || typeof window.id !== 'string' || itemIds.has(window.id) || !definition) continue
     if (
       definition.id !== window.id ||
       (definition.type !== 'browser' &&
         definition.type !== 'viewer' &&
-        definition.type !== 'hermes')
+        definition.type !== 'integration')
     )
       continue
     itemIds.add(window.id)
@@ -302,18 +291,6 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
             ? { readerKind: initialStateRaw.readerKind }
             : {}),
         },
-        ...(definition.type === 'hermes' && typeof definition.hermes?.sessionId === 'string'
-          ? {
-              hermes: {
-                sessionId: definition.hermes.sessionId,
-                readOnly: !!definition.hermes.readOnly,
-                ...(typeof definition.hermes.cwd === 'string' || definition.hermes.cwd === null
-                  ? { cwd: definition.hermes.cwd }
-                  : {}),
-              },
-            }
-          : {}),
-        tabGroupId: null,
       },
       bounds,
       zIndex: Math.max(1, Math.floor(finiteNumber(window.zIndex, 1))),
@@ -326,7 +303,7 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
   const sizeKeys: CanvasWindowSizeKey[] = [
     'browser',
     'viewer',
-    'hermes',
+    'integration',
     'viewer-audio',
     'viewer-video',
     'viewer-image',
@@ -361,33 +338,12 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
   }
 }
 
-export function loadInfiniteCanvasState(storage: Pick<Storage, 'getItem'>): InfiniteCanvasState {
-  try {
-    const raw = storage.getItem(CANVAS_STORAGE_KEY)
-    if (!raw) return createEmptyCanvasState()
-    return parseInfiniteCanvasState(JSON.parse(raw)) ?? createEmptyCanvasState()
-  } catch {
-    return createEmptyCanvasState()
-  }
-}
-
 export function serializeInfiniteCanvasState(state: InfiniteCanvasState): string {
   return JSON.stringify({
     ...state,
-    windows: state.windows
-      .filter(
-        (window) => window.definition.type !== 'hermes' || !!window.definition.hermes?.sessionId,
-      )
-      .filter(
-        (window) =>
-          window.definition.type !== 'hermes' ||
-          !window.definition.hermes?.sessionId ||
-          !deletedHermesSessionIds.has(window.definition.hermes.sessionId),
-      )
-      .map((window) => {
-        if (window.definition.type !== 'hermes') return window
-        const { draftId: _draftId, ...hermes } = window.definition.hermes ?? {}
-        return { ...window, definition: { ...window.definition, hermes } }
-      }),
+    windows: state.windows.flatMap((window) => {
+      const persisted = persistedContentWindowRecord(window.definition)
+      return persisted ? [{ ...window, definition: persisted }] : []
+    }),
   })
 }

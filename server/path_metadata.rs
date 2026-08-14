@@ -72,9 +72,21 @@ fn move_workspace_window(window: &mut Value, old_path: &str, new_path: &str) {
     for key in ["dir", "viewing", "playing"] {
         move_path_value(&mut window["initialState"][key], old_path, new_path);
     }
+    if window["content"]["codec"].as_str() == Some("filesystem.content") {
+        for key in ["address", "contextAddress"] {
+            move_path_value(
+                &mut window["content"]["payload"][key]["path"],
+                old_path,
+                new_path,
+            );
+        }
+    }
 }
 
 fn workspace_window_target(window: &Value) -> Option<&str> {
+    if window["content"]["codec"].as_str() == Some("filesystem.content") {
+        return window["content"]["payload"]["address"]["path"].as_str();
+    }
     window["initialState"]["viewing"]
         .as_str()
         .or_else(|| window["initialState"]["playing"].as_str())
@@ -138,6 +150,15 @@ fn remove_workspace_snapshot(snapshot: &mut Value, path: &str) -> bool {
                 .is_some_and(|value| matches(value, path))
             {
                 window["iconPath"] = Value::Null;
+            }
+            if window["content"]["codec"].as_str() == Some("filesystem.content")
+                && window["content"]["payload"]["contextAddress"]["path"]
+                    .as_str()
+                    .is_some_and(|value| matches(value, path))
+            {
+                window["content"]["payload"]
+                    .as_object_mut()
+                    .map(|payload| payload.remove("contextAddress"));
             }
             true
         });
@@ -314,6 +335,51 @@ mod tests {
             "Books/New/chapter.pdf"
         );
         assert_eq!(snapshot["pinnedTaskbarItems"][0]["path"], "Books/New");
+    }
+
+    #[test]
+    fn new_workspace_content_paths_follow_renames_and_deletes() {
+        let mut settings = json!({
+            "workspaceLayoutPresets":[{"snapshot":{
+                "windows":[{
+                    "id":"reader",
+                    "content":{
+                        "schemaVersion":1,
+                        "codec":"filesystem.content",
+                        "codecVersion":1,
+                        "payload":{
+                            "kind":"resource",
+                            "id":"reader",
+                            "address":{"rootId":"configured-default","path":"Books/Old/chapter.pdf"},
+                            "contextAddress":{"rootId":"configured-default","path":"Books/Old"},
+                            "renderer":"pdf-reader"
+                        }
+                    }
+                }],
+                "activeWindowId":"reader",
+                "activeTabMap":{"reader":"reader"},
+                "pinnedTaskbarItems":[]
+            }}]
+        });
+
+        move_workspace_metadata(&mut settings, "Books/Old", "Books/New");
+        let window = &settings["workspaceLayoutPresets"][0]["snapshot"]["windows"][0];
+        assert_eq!(
+            window["content"]["payload"]["address"]["path"],
+            "Books/New/chapter.pdf"
+        );
+        assert_eq!(
+            window["content"]["payload"]["contextAddress"]["path"],
+            "Books/New"
+        );
+
+        remove_workspace_metadata(&mut settings, "Books/New");
+        assert!(
+            settings["workspaceLayoutPresets"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

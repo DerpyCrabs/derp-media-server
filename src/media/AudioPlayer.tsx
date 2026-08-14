@@ -77,7 +77,10 @@ export function AudioPlayer() {
   const fileName = createMemo(() => currentItem()?.name ?? '')
   const isVideoFile = createMemo(() => currentItem()?.media === 'video')
 
-  const filesQuery = useQuery(() => filesQueryOptions({ dir: currentDir() }))
+  const filesQuery = useQuery(() => ({
+    ...filesQueryOptions({ dir: currentDir() }),
+    enabled: shouldHandleAudio(),
+  }))
   const allFiles = createMemo(() => filesQuery.data?.files ?? [])
 
   createEffect(() => {

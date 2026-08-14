@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { resourceKey, type ResourceSummary } from '@/lib/domain/resource'
 import {
   BUILT_IN_RENDERER_ID,
-  builtInRendererRegistry,
+  builtInRendererDescriptors,
   createRendererRegistry,
   type RendererDescriptor,
 } from '@/src/features/open/renderer-registry'
@@ -19,6 +19,7 @@ function resource(overrides: Partial<ResourceSummary> = {}): ResourceSummary {
 }
 
 describe('renderer registry', () => {
+  const registry = createRendererRegistry(builtInRendererDescriptors)
   const cases = [
     ['video/mp4', 'unsupported', 'default', BUILT_IN_RENDERER_ID.video],
     ['audio/mpeg', 'unsupported', 'play', BUILT_IN_RENDERER_ID.audio],
@@ -33,33 +34,28 @@ describe('renderer registry', () => {
 
   for (const [mime, presentation, intent, expected] of cases) {
     test(`maps ${mime ?? presentation} to ${expected} for ${intent}`, () => {
-      expect(builtInRendererRegistry.resolve(resource({ mime, presentation }), intent)?.id).toBe(
-        expected,
-      )
+      expect(registry.resolve(resource({ mime, presentation }), intent)?.id).toBe(expected)
     })
   }
 
   test('keeps ambiguous OGG video-first compatibility', () => {
     expect(
-      builtInRendererRegistry.resolve(
-        resource({ mime: 'video/ogg', presentation: 'audio' }),
-        'default',
-      )?.id,
+      registry.resolve(resource({ mime: 'video/ogg', presentation: 'audio' }), 'default')?.id,
     ).toBe(BUILT_IN_RENDERER_ID.video)
-    expect(builtInRendererRegistry.resolve(resource({ mime: 'audio/ogg' }), 'default')?.id).toBe(
+    expect(registry.resolve(resource({ mime: 'audio/ogg' }), 'default')?.id).toBe(
       BUILT_IN_RENDERER_ID.audio,
     )
   })
 
   test('matches kinds for Reader without inferring from resource id or name', () => {
     expect(
-      builtInRendererRegistry.resolve(
+      registry.resolve(
         resource({ kind: 'folder', presentation: 'browse', mime: undefined }),
         'read',
       )?.id,
     ).toBe(BUILT_IN_RENDERER_ID.folderReader)
     expect(
-      builtInRendererRegistry.resolve(
+      registry.resolve(
         resource({
           name: 'movie.mp4',
           key: resourceKey('fixture', 'looks/like/movie.mp4'),
@@ -78,7 +74,7 @@ describe('renderer registry', () => {
       rules: [{ type: 'kind', value: 'fixture-card', intents: ['default'] }],
       load: async () => {
         loads += 1
-        return { render: true }
+        return { kind: 'content', mount: () => null }
       },
     }
     const registry = createRendererRegistry([descriptor])
@@ -88,7 +84,7 @@ describe('renderer registry', () => {
       'fixture-renderer',
     )
     expect(loads).toBe(0)
-    expect(await registry.load('fixture-renderer')).toEqual({ render: true })
+    expect(await registry.load('fixture-renderer')).toMatchObject({ kind: 'content' })
     expect(loads).toBe(1)
   })
 
@@ -96,7 +92,7 @@ describe('renderer registry', () => {
     const descriptor: RendererDescriptor = {
       id: 'fixture-renderer',
       rules: [{ type: 'presentation', value: 'fixture-card' }],
-      load: async () => ({}),
+      load: async () => ({ kind: 'content', mount: () => null }),
     }
     expect(() => createRendererRegistry([descriptor, descriptor])).toThrow('Duplicate renderer id')
   })

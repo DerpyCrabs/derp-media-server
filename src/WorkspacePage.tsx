@@ -1,4 +1,3 @@
-import { isVirtualFolderPath } from '@/lib/constants'
 import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import { getMediaType, getMediaTypeFromPath } from '@/lib/media-utils'
@@ -90,12 +89,28 @@ import {
   loadPersisted,
 } from './workspace/workspace-page-persistence'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
-import type { VirtualOpenTarget } from '@/lib/virtual-directory'
-import { canCloseHermesWindow, discardHermesDraft } from '@/lib/hermes-session-store'
-import { resourceKey, type ResourceKey } from '@/lib/domain/resource'
+import type { ContentInstance } from '@/lib/domain/content'
+import type { ExplorerLocation } from './features/explorer/types'
+import {
+  filesystemResourceAddress,
+  filesystemResourceKey,
+  type ResourceSummary,
+} from '@/lib/domain/resource'
 import { createFilesystemPlaybackItem } from './features/playback/items'
 import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
-import { openResource, type OpenDisposition, type OpenIntent } from './features/open/open-resource'
+import type { OpenDisposition, OpenIntent } from './features/open/open-resource'
+import { openResource } from './integrations/open-resource'
+import {
+  contentInstanceFromCurrentWindow,
+  contentWithInstanceId,
+  projectContentOntoCurrentWindow,
+} from './integrations/current-window-content'
+import type { HostOpenPlan } from './features/content/contracts'
+import { createWorkspaceHost } from './features/content/hosts'
+import { contentRuntimeIdentity } from './features/content/runtime'
+import { confirmContentClose } from './features/content/confirm-content-close'
+import { applicationContentRegistry, applicationContentRuntime } from './integrations/registry'
+import { openLegacyApplicationResource } from './integrations/explorer-adapter'
 
 export function WorkspacePage() {
   const history = useBrowserHistory()
@@ -314,23 +329,47 @@ export function WorkspacePage() {
     playbackSession.dispatch({ type: 'stop' })
   }
 
-  function closeWindow(windowId: string) {
+  async function closeWindow(windowId: string) {
     const w = workspace()
     if (!w) return
     const t = w.windows.find((x) => x.id === windowId)
     const gid = t ? groupIdForWindow(t) : windowId
     const toRemove = new Set(w.windows.filter((x) => groupIdForWindow(x) === gid).map((x) => x.id))
     const removed = w.windows.filter((x) => toRemove.has(x.id))
-    if (removed.some((x) => !canCloseHermesWindow(x.hermes))) return
-    const next = w.windows.filter((x) => !toRemove.has(x.id))
-    let active = w.activeWindowId
-    if (active != null && toRemove.has(active)) {
-      active = next[next.length - 1]?.id ?? active
+    const content = removed
+      .map((window) => contentInstanceFromCurrentWindow(window))
+      .filter((instance): instance is ContentInstance => instance !== null)
+    const groupIsCurrent = () => {
+      const current = workspace()
+      if (!current) return false
+      const currentGroup = current.windows.filter((window) => groupIdForWindow(window) === gid)
+      return (
+        currentGroup.length === removed.length &&
+        currentGroup.every((window, index) => window === removed[index])
+      )
     }
-    const nextTabMap = { ...w.activeTabMap }
-    delete nextTabMap[gid]
-    setWorkspace({ ...w, windows: next, activeWindowId: active, activeTabMap: nextTabMap })
-    for (const window of removed) discardHermesDraft(window.hermes)
+    if (!(await confirmContentClose(applicationContentRuntime, content, groupIsCurrent))) return
+    let closed = false
+    setWorkspace((current) => {
+      if (!current) return current
+      const currentGroup = current.windows.filter((window) => groupIdForWindow(window) === gid)
+      if (
+        currentGroup.length !== removed.length ||
+        !currentGroup.every((window, index) => window === removed[index])
+      ) {
+        return current
+      }
+      const next = current.windows.filter((window) => !toRemove.has(window.id))
+      let active = current.activeWindowId
+      if (active != null && toRemove.has(active)) active = next[next.length - 1]?.id ?? null
+      const nextTabMap = { ...current.activeTabMap }
+      delete nextTabMap[gid]
+      closed = true
+      return { ...current, windows: next, activeWindowId: active, activeTabMap: nextTabMap }
+    })
+    if (closed) {
+      await Promise.all(content.map((instance) => applicationContentRuntime.release(instance)))
+    }
   }
 
   function setActiveTab(groupId: string, tabId: string) {
@@ -366,21 +405,34 @@ export function WorkspacePage() {
     })
   }
 
-  function closeTab(tabId: string, opts?: { ignoreTabPinForListenOnlyDismiss?: boolean }) {
+  async function closeTab(tabId: string, opts?: { ignoreTabPinForListenOnlyDismiss?: boolean }) {
+    const current = workspace()
+    const initial = current?.windows.find((window) => window.id === tabId)
+    if (!initial || (initial.tabPinned && !opts?.ignoreTabPinForListenOnlyDismiss)) return
+    const content = contentInstanceFromCurrentWindow(initial)
+    if (
+      !(await confirmContentClose(
+        applicationContentRuntime,
+        content ? [content] : [],
+        () => workspace()?.windows.find((window) => window.id === tabId) === initial,
+      ))
+    ) {
+      return
+    }
+    let removed = false
     setWorkspace((prev) => {
       if (!prev) return prev
       let work = prev
       const v0 = work.windows.find((w) => w.id === tabId)
-      if (!v0) return prev
+      if (v0 !== initial) return prev
       if (v0.tabPinned && !opts?.ignoreTabPinForListenOnlyDismiss) return prev
-      if (!canCloseHermesWindow(v0.hermes)) return prev
       const g0 = groupIdForWindow(v0)
       if (work.tabGroupSplits?.[g0]?.leftTabId === tabId) {
         work = exitSplitViewState(work, g0)
       }
       const victim = work.windows.find((w) => w.id === tabId)
       if (!victim) return pruneTabGroupSplitsState(work)
-      discardHermesDraft(victim.hermes)
+      removed = true
       const gid = groupIdForWindow(victim)
       const members = work.windows.filter((w) => groupIdForWindow(w) === gid)
       if (members.length <= 1) {
@@ -416,6 +468,7 @@ export function WorkspacePage() {
         activeTabMap: nextMap,
       })
     })
+    if (removed && content) await applicationContentRuntime.release(content)
   }
 
   function toggleTabPinned(tabId: string) {
@@ -729,6 +782,10 @@ export function WorkspacePage() {
   }
 
   function updateWindowViewing(windowId: string, viewing: string) {
+    const currentWindow = workspace()?.windows.find((window) => window.id === windowId)
+    const current = currentWindow ? contentInstanceFromCurrentWindow(currentWindow) : null
+    const currentAddress =
+      current?.type === 'resource' ? filesystemResourceAddress(current.resource) : null
     const file: FileItem = {
       path: viewing,
       name: viewing.split(/[/\\]/).at(-1) || viewing,
@@ -737,49 +794,32 @@ export function WorkspacePage() {
       extension: viewing.split('.').at(-1) ?? '',
       isDirectory: false,
     }
-    if (!workspaceOpenReady(file, 'default', 'pane')) return
-    const w = workspace()
-    if (!w) return
-    const title = viewing.split(/[/\\]/).pop() ?? 'File'
-    setWorkspace({
-      ...w,
-      windows: w.windows.map((win) =>
-        win.id === windowId
-          ? { ...win, title, initialState: { ...win.initialState, viewing } }
-          : win,
-      ),
+    const plan = openResource(
+      adaptFileItemResource(
+        file,
+        currentAddress ? { rootId: currentAddress.rootId, logicalPath: viewing } : {},
+      ).resource,
+      'default',
+      { surface: 'workspace', disposition: 'pane' },
+    )
+    if (plan.status !== 'ready' || plan.kind !== 'render') return
+    const address = filesystemResourceAddress(plan.resource)
+    if (!address) return
+    const parent = viewing.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
+    replaceWindowContent(windowId, {
+      id: windowId,
+      type: 'resource',
+      resource: filesystemResourceKey(address.rootId, viewing),
+      renderer: plan.renderer,
+      context: filesystemResourceKey(address.rootId, parent),
     })
   }
 
-  function navigateDir(windowId: string, dir: string) {
-    if (!isVirtualFolderPath(dir)) {
-      const folder: FileItem = {
-        path: dir,
-        name: dir.split(/[/\\]/).at(-1) || 'Files',
-        type: MediaType.FOLDER,
-        size: 0,
-        extension: '',
-        isDirectory: true,
-      }
-      if (!workspaceOpenReady(folder, 'browse', 'pane')) return
-    }
-    const w = workspace()
-    if (!w) return
-    setWorkspace({
-      ...w,
-      windows: w.windows.map((win) => {
-        if (win.id !== windowId) return win
-        const next = { ...win, initialState: { ...win.initialState, dir } }
-        if (win.type !== 'browser') return next
-        const title = workspaceBrowserDirTitle(dir)
-        return {
-          ...next,
-          title,
-          iconPath: dir,
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: isVirtualFolderPath(dir),
-        }
-      }),
+  function navigateDir(windowId: string, location: ExplorerLocation) {
+    replaceWindowContent(windowId, {
+      id: windowId,
+      type: 'explorer',
+      location: location.key,
     })
   }
 
@@ -821,24 +861,6 @@ export function WorkspacePage() {
     data: FileDragData,
     insertIndex?: number,
   ) {
-    if (data.virtualOpenTarget) {
-      openHermesFromBrowser(
-        targetLeaderWindowId,
-        {
-          path: data.path,
-          name: data.path.split('/').at(-1) ?? 'Hermes session',
-          isDirectory: false,
-          isVirtual: true,
-          size: 0,
-          type: MediaType.OTHER,
-          extension: '',
-        },
-        data.virtualOpenTarget,
-        resourceKey('hermes', data.virtualOpenTarget.sessionId ?? crypto.randomUUID()),
-        true,
-      )
-      return
-    }
     if (data.isVirtual) return
     const source: WorkspaceSource = DEFAULT_WORKSPACE_SOURCE
     const dir = data.isDirectory ? '' : data.path.split(/[/\\]/).slice(0, -1).join('/')
@@ -874,7 +896,7 @@ export function WorkspacePage() {
       size: 0,
       extension: '',
       isDirectory: true,
-      isVirtual: isVirtualFolderPath(effectiveDir),
+      isVirtual: false,
     }
     if (!workspaceOpenReady(folder, 'browse', 'window')) return
     const w = workspace()
@@ -893,7 +915,7 @@ export function WorkspacePage() {
       iconName: null,
       iconPath: effectiveDir,
       iconType: MediaType.FOLDER,
-      iconIsVirtual: isVirtualFolderPath(effectiveDir),
+      iconIsVirtual: false,
       source,
       initialState,
       tabGroupId: null,
@@ -943,44 +965,37 @@ export function WorkspacePage() {
     openViewer(windowId, file, winDef.source)
   }
 
-  function openHermesFromBrowser(
+  function openContentWindow(
     windowId: string,
-    file: FileItem,
-    target: VirtualOpenTarget,
-    _resource: ResourceKey,
+    content: ContentInstance,
+    resource?: ResourceSummary,
     forceTab = false,
   ) {
     const w = workspace()
     if (!w) return
-    if (target.sessionId) {
-      const existing = w.windows.find(
-        (win) => win.type === 'hermes' && win.hermes?.sessionId === target.sessionId,
-      )
-      if (existing) {
-        focusWindow(existing.id)
-        return
-      }
+    const comparable = JSON.stringify({ ...content, id: '' })
+    const existing = w.windows.find((window) => {
+      const instance = contentInstanceFromCurrentWindow(window)
+      return instance && JSON.stringify({ ...instance, id: '' }) === comparable
+    })
+    if (existing) {
+      focusWindow(existing.id)
+      return
     }
     const id = `workspace-window-${w.nextWindowId}`
     const sourceWindow = w.windows.find((win) => win.id === windowId)
     const attachToTab = (forceTab || getWorkspaceFileOpenTarget() === 'new-tab') && sourceWindow
     const gid = attachToTab ? groupIdForWindow(sourceWindow) : null
-    const newWin: WorkspaceWindowDefinition = {
+    const hosted = contentWithInstanceId(content, id)
+    const presentation = applicationContentRegistry.presentation(hosted)
+    const base: WorkspaceWindowDefinition = {
       id,
-      type: 'hermes',
-      title: target.type === 'hermesDraft' ? 'New Hermes session' : file.name,
-      iconName: null,
-      iconPath: file.path,
-      iconIsVirtual: true,
+      type: 'viewer',
+      title: resource?.name ?? presentation?.title ?? 'Content',
+      iconName: presentation?.icon ?? null,
       source: { kind: 'local', rootPath: null },
       initialState: {},
       tabGroupId: gid,
-      hermes: {
-        sessionId: target.sessionId,
-        draftId: target.type === 'hermesDraft' ? crypto.randomUUID() : undefined,
-        cwd: target.projectPath,
-        readOnly: target.readOnly,
-      },
       layout:
         attachToTab && sourceWindow?.layout
           ? { ...sourceWindow.layout, minimized: false }
@@ -989,6 +1004,12 @@ export function WorkspacePage() {
               createDefaultBounds(w.windows.length, 'viewer'),
               maxWorkspaceWindowZ(w.windows) + 1,
             ),
+    }
+    const projected = projectContentOntoCurrentWindow(base, hosted)
+    if (!projected) return
+    const newWin: WorkspaceWindowDefinition = {
+      ...projected,
+      title: resource?.name ?? projected.title,
     }
     setWorkspace({
       ...w,
@@ -999,55 +1020,35 @@ export function WorkspacePage() {
     })
   }
 
-  function bindHermesSession(windowId: string, sessionId: string) {
-    setWorkspace((prev) =>
-      prev
-        ? {
-            ...prev,
-            windows: prev.windows.map((win) =>
-              win.id === windowId
-                ? {
-                    ...win,
-                    title: win.title === 'New Hermes session' ? 'Hermes session' : win.title,
-                    iconPath: `Hermes Sessions/session/${sessionId}`,
-                    hermes: { ...win.hermes, sessionId, draftId: undefined },
-                  }
-                : win,
-            ),
-          }
-        : prev,
-    )
-  }
-
-  function openHermesBranch(windowId: string, sessionId: string, title: string) {
-    openHermesFromBrowser(
-      windowId,
-      {
-        name: title,
-        path: `Hermes Sessions/session/${sessionId}`,
-        type: MediaType.OTHER,
-        size: 0,
-        extension: '',
-        isDirectory: false,
-        isVirtual: true,
-      },
-      { type: 'hermesSession', sessionId, readOnly: false },
-      resourceKey('hermes', sessionId),
-      true,
-    )
-  }
-
-  function renameHermesWindow(windowId: string, title: string) {
-    setWorkspace((current) =>
-      current
-        ? {
-            ...current,
-            windows: current.windows.map((window) =>
-              window.id === windowId ? { ...window, title } : window,
-            ),
-          }
-        : current,
-    )
+  async function replaceWindowContent(windowId: string, content: ContentInstance) {
+    const target = workspace()?.windows.find((window) => window.id === windowId)
+    if (!target) return
+    const previous = contentInstanceFromCurrentWindow(target)
+    const hosted = contentWithInstanceId(content, windowId)
+    const changesRuntimeOwner =
+      previous !== null && contentRuntimeIdentity(previous) !== contentRuntimeIdentity(hosted)
+    if (
+      changesRuntimeOwner &&
+      !(await confirmContentClose(applicationContentRuntime, [previous], () =>
+        Boolean(workspace()?.windows.some((window) => window.id === windowId && window === target)),
+      ))
+    ) {
+      return
+    }
+    let replaced = false
+    setWorkspace((current) => {
+      if (!current) return current
+      const currentTarget = current.windows.find((window) => window.id === windowId)
+      if (currentTarget !== target) return current
+      const projected = projectContentOntoCurrentWindow(currentTarget, hosted)
+      if (!projected) return current
+      replaced = true
+      return {
+        ...current,
+        windows: current.windows.map((window) => (window === currentTarget ? projected : window)),
+      }
+    })
+    if (replaced && changesRuntimeOwner) await applicationContentRuntime.release(previous)
   }
 
   function openInSplitViewFromBrowserPane(windowId: string, file: FileItem) {
@@ -1104,45 +1105,115 @@ export function WorkspacePage() {
     openViewer(windowId, file, winDef.source)
   }
 
+  let pendingWorkspaceHostOpen:
+    | Readonly<{
+        fromWindowId: string
+        file: FileItem
+        source: WorkspaceSource
+      }>
+    | undefined
+
+  function contentForWorkspacePlan(
+    plan: HostOpenPlan<'replace' | 'pane' | 'window'>,
+    id: string,
+  ): ContentInstance | null {
+    if (plan.kind !== 'render') return null
+    const address = filesystemResourceAddress(plan.resource)
+    return {
+      id,
+      type: 'resource',
+      resource: plan.resource,
+      renderer: plan.renderer,
+      ...(address
+        ? {
+            context: filesystemResourceKey(
+              address.rootId,
+              address.path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'),
+            ),
+          }
+        : {}),
+    }
+  }
+
+  const workspaceContentHost = createWorkspaceHost({
+    replace(plan) {
+      const pending = pendingWorkspaceHostOpen
+      if (!pending) return
+      const content = contentForWorkspacePlan(plan, pending.fromWindowId)
+      if (content) replaceWindowContent(pending.fromWindowId, content)
+    },
+    pane(plan) {
+      const pending = pendingWorkspaceHostOpen
+      if (!pending) return
+      const content = contentForWorkspacePlan(plan, `planned-${crypto.randomUUID()}`)
+      if (content) openContentWindow(pending.fromWindowId, content, undefined, true)
+    },
+    window(plan) {
+      const pending = pendingWorkspaceHostOpen
+      if (!pending) return
+      const { file, source } = pending
+      const w = workspace()
+      if (!w) return
+      const n = w.nextWindowId
+      const id = `workspace-window-${n}`
+      const parentDir = file.path.split(/[/\\]/).slice(0, -1).join('/') || ''
+      const base: WorkspaceWindowDefinition = {
+        id,
+        type: 'viewer',
+        title: file.name,
+        iconName: null,
+        iconPath: file.path,
+        iconType: file.type,
+        iconIsVirtual: false,
+        source,
+        initialState: { dir: parentDir, viewing: file.path },
+        tabGroupId: null,
+        layout: createWindowLayout(
+          undefined,
+          file.type === MediaType.VIDEO
+            ? viewerBoundsForVideoOpen(file.path, source, w.windows.length)
+            : createDefaultBounds(w.windows.length, 'viewer'),
+          n,
+        ),
+      }
+      const content = contentForWorkspacePlan(plan, id)
+      if (!content) return
+      const projected = projectContentOntoCurrentWindow(base, content)
+      if (!projected) return
+      const newWin: WorkspaceWindowDefinition = {
+        ...projected,
+        layout: { ...projected.layout, zIndex: maxWorkspaceWindowZ(w.windows) + 1 },
+      }
+      setWorkspace({
+        ...w,
+        windows: [...w.windows, newWin],
+        nextWindowId: n + 1,
+        activeWindowId: id,
+      })
+    },
+    close(instanceId) {
+      void closeWindow(instanceId)
+    },
+    focus: focusWindow,
+  })
+
   function openViewer(
-    _fromWindowId: string,
+    fromWindowId: string,
     file: FileItem,
     source: WorkspaceSource,
     resourceOptions: FileItemResourceOptions = {},
   ) {
-    if (!workspaceOpenReady(file, 'default', 'window', resourceOptions)) return
-    const w = workspace()
-    if (!w) return
-    const n = w.nextWindowId
-    const id = `workspace-window-${n}`
-    const parentDir = file.path.split(/[/\\]/).slice(0, -1).join('/') || ''
-    const newWin: WorkspaceWindowDefinition = {
-      id,
-      type: 'viewer',
-      title: file.name,
-      iconName: null,
-      iconPath: file.path,
-      iconType: file.type,
-      iconIsVirtual: false,
-      source,
-      initialState: { dir: parentDir, viewing: file.path },
-      tabGroupId: null,
-      layout: createWindowLayout(
-        undefined,
-        file.type === MediaType.VIDEO
-          ? viewerBoundsForVideoOpen(file.path, source, w.windows.length)
-          : createDefaultBounds(w.windows.length, 'viewer'),
-        n,
-      ),
-    }
-    const maxZ = maxWorkspaceWindowZ(w.windows)
-    newWin.layout = { ...newWin.layout, zIndex: maxZ + 1 }
-    setWorkspace({
-      ...w,
-      windows: [...w.windows, newWin],
-      nextWindowId: n + 1,
-      activeWindowId: id,
+    const plan = openResource(adaptFileItemResource(file, resourceOptions).resource, 'default', {
+      surface: 'workspace',
+      disposition: 'window',
     })
+    if (plan.status !== 'ready') return
+    pendingWorkspaceHostOpen = { fromWindowId, file, source }
+    try {
+      workspaceContentHost.open(plan as HostOpenPlan<'window'>)
+    } finally {
+      pendingWorkspaceHostOpen = undefined
+    }
   }
 
   function openReaderFromBrowser(fromWindowId: string, file: FileItem) {
@@ -1227,29 +1298,8 @@ export function WorkspacePage() {
 
   async function selectPinned(pin: PinnedTaskbarItem) {
     if (pin.isVirtual) {
-      const response = await fetch(
-        `/api/virtual-directory/open?path=${encodeURIComponent(pin.path)}`,
-      )
-      if (!response.ok) return
-      const payload = await response.json()
-      const target = payload.openTarget as VirtualOpenTarget | undefined
-      if (target) {
-        const synthetic: FileItem = {
-          path: pin.path,
-          name: pin.title,
-          isDirectory: false,
-          isVirtual: true,
-          size: 0,
-          type: MediaType.OTHER,
-          extension: '',
-        }
-        openHermesFromBrowser(
-          workspace()?.activeWindowId ?? '',
-          synthetic,
-          target,
-          resourceKey('hermes', target.sessionId ?? crypto.randomUUID()),
-        )
-      }
+      const content = await openLegacyApplicationResource(pin.path, pin.title)
+      if (content) openContentWindow(workspace()?.activeWindowId ?? '', content)
       return
     }
     if (pin.isDirectory) {
@@ -1438,59 +1488,72 @@ export function WorkspacePage() {
         ref={(el) => snap.bindWorkspaceAreaRoot(el)}
       >
         <WorkspacePageCanvas
-          hasWorkspaceWindows={hasWorkspaceWindows}
-          onOpenBrowser={() => openBrowser()}
-          bindSnapPreview={(el) => snap.bindSnapPreview(el)}
-          workspaceAreaNode={snap.workspaceAreaNode}
-          getWorkspaceAreaElement={snap.getWorkspaceAreaElement}
-          snapAssistShown={snap.snapAssistShown}
-          engageSnapAssistFromHandle={snap.engageSnapAssistFromHandle}
-          disengageSnapAssistFromPanel={snap.disengageSnapAssistFromPanel}
-          assistHoverPick={snap.assistHoverPick}
-          bindSnapAssistRoot={(el) => snap.bindSnapAssistRoot(el)}
-          renderedGroupIds={orderedWindowGroupIds}
-          workspace={workspace}
-          setWorkspace={setWorkspace}
-          mergeTargetPreview={snap.mergeTargetPreview}
-          dragSnapWindowId={snap.dragSnapWindowId}
-          layoutPicker={layoutPicker}
-          closeLayoutPicker={() => setLayoutPicker(null)}
-          onTilingPick={handleWorkspaceTilingPick}
-          setTilingPickerHoverPreview={snap.setTilingPickerHoverPreview}
-          openLayoutPicker={(windowId, anchor) => setLayoutPicker({ windowId, anchor })}
-          editableFolders={server.editableFolders}
-          knowledgeBases={() => server.settingsQuery.data?.knowledgeBases ?? []}
-          workspaceFileIconContext={workspaceFileIconContext}
-          focusWindow={focusWindow}
-          closeWindow={closeWindow}
-          setWindowMinimized={snap.setWindowMinimized}
-          toggleFullscreenWindow={snap.toggleFullscreenWindow}
-          restoreDrag={snap.restoreDrag}
-          handleDragPointerMove={snap.handleDragPointerMove}
-          onDragPointerEnd={snap.onDragPointerEnd}
-          updateWindowBounds={snap.updateWindowBounds}
-          resizeSnappedWindowBounds={snap.resizeSnappedWindowBounds}
-          setActiveTab={setActiveTab}
-          closeTab={closeTab}
-          toggleTabPinned={toggleTabPinned}
-          handleTabPullStart={handleTabPullStart}
-          dropFileToTabBar={dropFileToTabBar}
-          startSplitPaneDrag={startSplitPaneDrag}
-          navigateDir={navigateDir}
-          openViewerFromBrowser={openViewerFromBrowser}
-          openReaderFromBrowser={openReaderFromBrowser}
-          openHermesFromBrowser={openHermesFromBrowser}
-          bindHermesSession={bindHermesSession}
-          openHermesBranch={openHermesBranch}
-          renameHermesWindow={renameHermesWindow}
-          addPinnedItem={addPinnedItem}
-          openInNewTabInSameWindow={openInNewTabInSameWindow}
-          openInSplitViewFromBrowserPane={openInSplitViewFromBrowserPane}
-          requestPlay={requestPlay}
-          updateWindowViewing={updateWindowViewing}
-          resizeViewerWindowForVideoMetadata={resizeViewerWindowForVideoMetadata}
-          onBeginFileOpenTargetPick={beginFileOpenTargetPick}
-          openFileInNewFloatingWindow={openFileInNewFloatingWindow}
+          emptyState={{
+            hasWindows: hasWorkspaceWindows,
+            openBrowser,
+          }}
+          snapAssist={{
+            bindPreview: snap.bindSnapPreview,
+            areaNode: snap.workspaceAreaNode,
+            getAreaElement: snap.getWorkspaceAreaElement,
+            shown: snap.snapAssistShown,
+            engageFromHandle: snap.engageSnapAssistFromHandle,
+            disengageFromPanel: snap.disengageSnapAssistFromPanel,
+            hoverPick: snap.assistHoverPick,
+            bindRoot: snap.bindSnapAssistRoot,
+            renderedGroupIds: orderedWindowGroupIds,
+            mergeTargetPreview: snap.mergeTargetPreview,
+            dragWindowId: snap.dragSnapWindowId,
+          }}
+          state={{ workspace, setWorkspace }}
+          layoutPicker={{
+            current: layoutPicker,
+            close: () => setLayoutPicker(null),
+            pick: handleWorkspaceTilingPick,
+            setHoverPreview: snap.setTilingPickerHoverPreview,
+            open: (windowId, anchor) => setLayoutPicker({ windowId, anchor }),
+          }}
+          resources={{
+            editableFolders: server.editableFolders,
+            knowledgeBases: () => server.settingsQuery.data?.knowledgeBases ?? [],
+            fileIconContext: workspaceFileIconContext,
+          }}
+          windows={{
+            focus: focusWindow,
+            close: closeWindow,
+            setMinimized: snap.setWindowMinimized,
+            toggleFullscreen: snap.toggleFullscreenWindow,
+            restoreDrag: snap.restoreDrag,
+            moveDrag: snap.handleDragPointerMove,
+            endDrag: snap.onDragPointerEnd,
+            updateBounds: snap.updateWindowBounds,
+            resizeSnapped: snap.resizeSnappedWindowBounds,
+          }}
+          tabs={{
+            setActive: setActiveTab,
+            close: closeTab,
+            togglePinned: toggleTabPinned,
+            startPull: handleTabPullStart,
+            dropFile: dropFileToTabBar,
+            startSplitDrag: startSplitPaneDrag,
+          }}
+          contentHost={{
+            navigateExplorer: navigateDir,
+            openViewer: openViewerFromBrowser,
+            openReader: openReaderFromBrowser,
+            open: openContentWindow,
+            replace: replaceWindowContent,
+            navigateResource: updateWindowViewing,
+          }}
+          files={{
+            addPinned: addPinnedItem,
+            openInNewTab: openInNewTabInSameWindow,
+            openInSplit: openInSplitViewFromBrowserPane,
+            requestPlay,
+            resizeViewerForVideo: resizeViewerWindowForVideoMetadata,
+            beginOpenTargetPick: beginFileOpenTargetPick,
+            openFloating: openFileInNewFloatingWindow,
+          }}
         />
         <Show when={fileOpenTargetPick()}>
           <Show when={fileOpenPickHoverId()} keyed fallback={null}>

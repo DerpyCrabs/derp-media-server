@@ -5,8 +5,10 @@ export const queryKeys = {
     if (path === undefined) return [apiQueryRoots.files] as const
     return [apiQueryRoots.files, path] as const
   },
-  filesPage: (path: string, surface?: 'workspace', offset = 0) => {
-    if (!surface && offset === 0) return [apiQueryRoots.files, path] as const
+  filesPage: (path: string, surface?: 'library' | 'workspace' | 'canvas', offset = 0) => {
+    if ((!surface || surface === 'library') && offset === 0) {
+      return [apiQueryRoots.files, path] as const
+    }
     return [apiQueryRoots.files, path, surface ?? 'library', offset] as const
   },
   settings: () => [apiQueryRoots.settings] as const,

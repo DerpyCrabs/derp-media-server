@@ -3,6 +3,7 @@ import { MediaType } from '@/lib/types'
 import {
   normalizePersistedWorkspaceState,
   resolveNewTabAnchorWindowId,
+  serializeWorkspacePersistedState,
   type PersistedWorkspaceState,
 } from '@/lib/use-workspace'
 import { DEFAULT_WORKSPACE_SOURCE } from '@/src/workspace/workspace-page-persistence'
@@ -15,6 +16,10 @@ function minimalState(windows: PersistedWorkspaceState['windows']): PersistedWor
     nextWindowId: 10,
     pinnedTaskbarItems: [],
   }
+}
+
+function currentPersistedState(value: unknown): unknown {
+  return JSON.parse(serializeWorkspacePersistedState(value as PersistedWorkspaceState))
 }
 
 describe('resolveNewTabAnchorWindowId', () => {
@@ -115,7 +120,9 @@ describe('normalizePersistedWorkspaceState fileOpenTargetWindowId', () => {
       nextWindowId: 2,
       pinnedTaskbarItems: [],
     }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+      reconcileSnapZones: false,
+    })
     expect(n?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()
   })
 
@@ -142,7 +149,9 @@ describe('normalizePersistedWorkspaceState fileOpenTargetWindowId', () => {
       nextWindowId: 2,
       pinnedTaskbarItems: [],
     }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+      reconcileSnapZones: false,
+    })
     expect(n?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()
   })
 })

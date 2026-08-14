@@ -7,7 +7,7 @@ import { FloatingContextMenu } from '../file-browser/FloatingContextMenu'
 import { Show, createSignal } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { resolveGroupVisibleTabId, tabsInGroup } from './tab-group-ops'
-import { hermesSessions } from '@/lib/hermes-session-store'
+import { applicationContentLiveStatus } from '@/src/integrations/content-live-status'
 
 export function TaskbarGroupRow(props: {
   groupId: string
@@ -52,10 +52,7 @@ export function TaskbarGroupRow(props: {
   }
   const isActive = () => groupWindows().some((w) => w.id === props.activeWindowId())
   const isMinimized = () => leader()?.layout?.minimized ?? false
-  const hermesState = () => {
-    const id = displayWindow()?.hermes?.sessionId
-    return id ? hermesSessions[`session:${id}`] : undefined
-  }
+  const contentStatus = () => applicationContentLiveStatus(displayWindow()?.runtimeContent)
 
   const onSelect = () => {
     const g = groupWindows()
@@ -131,21 +128,16 @@ export function TaskbarGroupRow(props: {
             )}
           </span>
           <span class='min-w-0 truncate'>{rowLabel()}</span>
-          <Show when={hermesState()?.decision}>
+          <Show when={contentStatus()?.needsInput}>
             <span class='size-2 shrink-0 rounded-full bg-amber-500' title='Needs input' />
           </Show>
-          <Show
-            when={
-              !hermesState()?.decision &&
-              (hermesState()?.status === 'sending' || hermesState()?.status === 'streaming')
-            }
-          >
+          <Show when={contentStatus()?.working}>
             <span class='size-2 shrink-0 animate-pulse rounded-full bg-blue-500' title='Working' />
           </Show>
-          <Show when={hermesState()?.status === 'error'}>
+          <Show when={contentStatus()?.failed}>
             <span class='size-2 shrink-0 rounded-full bg-red-500' title='Failed' />
           </Show>
-          <Show when={hermesState()?.unread}>
+          <Show when={contentStatus()?.unread}>
             <span class='size-2 shrink-0 rounded-full bg-emerald-500' title='Unread response' />
           </Show>
         </button>

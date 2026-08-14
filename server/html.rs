@@ -47,10 +47,10 @@ pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value
     if path == "/" || path == "/workspace" || path == "/canvas" {
         let dir = params.get("dir").cloned().unwrap_or_default();
         if path == "/"
-            && let Ok(listing) = application_queries::file_listing(state, &dir, false, 0).await
+            && let Ok(listing) = application_queries::file_listing(state, &dir, 0).await
         {
             queries.push(query(
-                application_queries::files_query_key(&dir, false, 0),
+                application_queries::files_query_key(&dir, None, 0),
                 json!(listing),
             ));
         }
@@ -93,11 +93,9 @@ pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value
                     .get("dir")
                     .cloned()
                     .unwrap_or_else(|| parent(viewing));
-                if let Ok(files) =
-                    application_queries::file_listing(state, &listing, false, 0).await
-                {
+                if let Ok(files) = application_queries::file_listing(state, &listing, 0).await {
                     queries.push(query(
-                        application_queries::files_query_key(&listing, false, 0),
+                        application_queries::files_query_key(&listing, None, 0),
                         json!(files),
                     ));
                 }
@@ -123,11 +121,9 @@ pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value
                     .get("dir")
                     .cloned()
                     .unwrap_or_else(|| parent(playing));
-                if let Ok(files) =
-                    application_queries::file_listing(state, &listing, false, 0).await
-                {
+                if let Ok(files) = application_queries::file_listing(state, &listing, 0).await {
                     queries.push(query(
-                        application_queries::files_query_key(&listing, false, 0),
+                        application_queries::files_query_key(&listing, None, 0),
                         json!(files),
                     ));
                 }

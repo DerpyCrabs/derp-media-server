@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { MediaType } from '@/lib/types'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
-import { normalizePersistedWorkspaceState } from '@/lib/use-workspace'
+import {
+  normalizePersistedWorkspaceState,
+  serializeWorkspacePersistedState,
+} from '@/lib/use-workspace'
 import {
   enterSplitViewState,
   exitSplitViewState,
@@ -57,6 +60,10 @@ function baseState(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceStat
     nextWindowId: 10,
     pinnedTaskbarItems: [],
   }
+}
+
+function currentPersistedState(value: unknown): unknown {
+  return JSON.parse(serializeWorkspacePersistedState(value as PersistedWorkspaceState))
 }
 
 describe('workspace split view', () => {
@@ -134,7 +141,9 @@ describe('workspace split view', () => {
       pinnedTaskbarItems: [],
       tabGroupSplits: { g1: { leftTabId: 'a', leftPaneFraction: 0.5 } },
     }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+      reconcileSnapZones: false,
+    })
     expect(n?.tabGroupSplits).toBeUndefined()
   })
 

@@ -1,81 +1,61 @@
+import type { ResourceContentInstance } from '@/lib/domain/content'
 import { getMediaTypeFromPath } from '@/lib/media-utils'
-import { MediaType, type FileItem } from '@/lib/types'
-import { Show, createMemo, lazy } from 'solid-js'
-import { adaptFileItemResource } from '@/lib/domain/file-item-resource'
-import { openResource } from '../features/open/open-resource'
+import { MediaType } from '@/lib/types'
+import { Show, createMemo } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
+import { ContentRuntimeView } from '../features/content/ContentRuntimeView'
+import {
+  legacyFilesystemContentInstance,
+  legacyFilesystemPathForContent,
+} from '../integrations/filesystem/legacy-content'
+import { applicationContentRuntime } from '../integrations/registry'
+import { closeViewer, viewFile } from '../lib/url-state-actions'
 import { AudioPlayer } from './AudioPlayer'
-import { ImageViewerDialog } from './ImageViewerDialog'
-import { TextViewerDialog } from './TextViewerDialog'
-import { UnsupportedFileViewerDialog } from './UnsupportedFileViewerDialog'
 import { VideoPlayer } from './VideoPlayer'
-import { closeViewer } from '../lib/url-state-actions'
-
-const ReaderDialog = lazy(() =>
-  import('../reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
-)
 
 type Props = {
   editableFolders?: string[]
   knowledgeBases?: string[]
 }
 
-function LazyDocumentReader() {
+export function MainMediaPlayers(_props: Props) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
-  const viewingPath = () => params().get('viewing') ?? ''
-  const mediaType = () => getMediaTypeFromPath(viewingPath())
-  const readerKind = (): 'pdf' | 'book' | null =>
-    mediaType() === MediaType.PDF ? 'pdf' : mediaType() === MediaType.BOOK ? 'book' : null
-
-  return (
-    <Show when={readerKind() && viewingPath()} keyed>
-      {(sourcePath) => (
-        <ReaderDialog
-          sourcePath={sourcePath}
-          sourceKind={getMediaTypeFromPath(sourcePath) === MediaType.PDF ? 'pdf' : 'book'}
-          onClose={closeViewer}
-        />
-      )}
-    </Show>
-  )
-}
-
-export function MainMediaPlayers(props: Props) {
-  const history = useBrowserHistory()
-  const params = createUrlSearchParamsMemo(history)
-  const viewingPlanReady = createMemo(() => {
+  const directory = createMemo(() => params().get('dir') ?? '')
+  const content = createMemo<ResourceContentInstance | null>(() => {
     const path = params().get('viewing')
-    if (!path) return true
+    if (!path) return null
     const type = getMediaTypeFromPath(path)
-    const file: FileItem = {
+    if (type === MediaType.AUDIO || type === MediaType.VIDEO) return null
+    return legacyFilesystemContentInstance({
+      id: 'library-viewer',
       path,
-      name: path.split(/[/\\]/).at(-1) || path,
-      type,
-      size: 0,
-      extension: path.toLowerCase().endsWith('.fb2.zip')
-        ? 'fb2.zip'
-        : (path.split('.').at(-1) ?? ''),
-      isDirectory: false,
-    }
-    return (
-      openResource(adaptFileItemResource(file).resource, 'view', {
-        surface: 'library',
-        disposition: type === MediaType.PDF || type === MediaType.BOOK ? 'fullscreen' : 'modal',
-      }).status === 'ready'
-    )
+      surface: 'library',
+      disposition: type === MediaType.PDF || type === MediaType.BOOK ? 'fullscreen' : 'modal',
+      contextPath: directory() || undefined,
+    })
   })
 
   return (
     <>
-      <Show when={viewingPlanReady()}>
-        <TextViewerDialog
-          editableFolders={props.editableFolders}
-          knowledgeBases={props.knowledgeBases}
-        />
-        <ImageViewerDialog />
-        <LazyDocumentReader />
-        <UnsupportedFileViewerDialog />
+      <Show when={content()}>
+        <div
+          role='dialog'
+          aria-modal='true'
+          data-testid='content-runtime-viewer'
+          class='fixed inset-0 z-[70] min-h-0 overflow-hidden bg-background'
+        >
+          <ContentRuntimeView
+            runtime={applicationContentRuntime}
+            instance={content}
+            onReplace={(next) => {
+              if (next.type !== 'resource') return
+              const path = legacyFilesystemPathForContent(next)
+              if (path !== null) viewFile(path, directory())
+            }}
+            onClose={closeViewer}
+          />
+        </div>
       </Show>
       <VideoPlayer />
       <AudioPlayer />

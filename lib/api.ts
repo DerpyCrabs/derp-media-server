@@ -60,6 +60,6 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json()
 }
 
-export function post<T>(url: string, body: unknown): Promise<T> {
-  return api<T>(url, { method: 'POST', body: JSON.stringify(body) })
+export function post<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return api<T>(url, { method: 'POST', body: JSON.stringify(body), signal })
 }

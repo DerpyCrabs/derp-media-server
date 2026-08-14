@@ -72,6 +72,10 @@ export async function createTempFile(page: Page, content: Locator, fileName: str
   await dialog.locator('input[placeholder*="File name"]').fill(fileName)
   await dialog.getByRole('button', { name: 'Create' }).click()
   await expect(dialog).toBeHidden()
+  const closeCreatedViewer = page
+    .locator('.workspace-window-buttons')
+    .getByRole('button', { name: `Close ${fileName}`, exact: true })
+  if (await closeCreatedViewer.isVisible()) await closeCreatedViewer.click()
   await expect(content.getByText(fileName)).toBeVisible({ timeout: 5_000 })
 }
 

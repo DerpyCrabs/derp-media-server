@@ -1,7 +1,8 @@
 import { computeLayoutPreviewDetail } from '@/lib/workspace-layout-preview'
 import { settingsMutationOptions } from '@/lib/query-options'
-import { persistentWorkspaceWindows, type PersistedWorkspaceState } from '@/lib/use-workspace'
+import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import {
+  createWorkspaceLayoutPresetSnapshot,
   makeWorkspaceLayoutPresetId,
   type WorkspaceLayoutPreset,
 } from '@/lib/workspace-layout-presets'
@@ -15,15 +16,7 @@ import { navigateSearchParams } from '../browser-history'
 import { WorkspaceLayoutHoverPreview } from '@/src/workspace/WorkspaceLayoutHoverPreview'
 
 function snapshotForLayoutPreset(s: PersistedWorkspaceState): PersistedWorkspaceState {
-  const plain = structuredClone(s)
-  return {
-    ...plain,
-    windows: persistentWorkspaceWindows(plain.windows),
-    pinnedTaskbarItems: plain.pinnedTaskbarItems,
-    browserTabTitle: undefined,
-    browserTabIcon: undefined,
-    browserTabIconColor: undefined,
-  }
+  return createWorkspaceLayoutPresetSnapshot(s)
 }
 
 type Props = {

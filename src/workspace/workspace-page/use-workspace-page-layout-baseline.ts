@@ -4,6 +4,7 @@ import {
   type PersistedWorkspaceState,
 } from '@/lib/use-workspace'
 import { getWorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
+import { createWorkspaceLayoutPresetSnapshot } from '@/lib/workspace-layout-presets'
 import { createMemo, createSignal, type Accessor, type Setter } from 'solid-js'
 
 export function useWorkspacePageLayoutBaseline(
@@ -47,7 +48,9 @@ export function useWorkspacePageLayoutBaseline(
     snapshot: PersistedWorkspaceState,
     options?: { baselinePresetId?: string | null },
   ) {
-    const normalized = normalizePersistedWorkspaceState(snapshot)
+    const normalized =
+      normalizePersistedWorkspaceState(snapshot) ??
+      normalizePersistedWorkspaceState(createWorkspaceLayoutPresetSnapshot(snapshot))
     if (!normalized?.windows.length) return
     const prev = workspace()
     const merged: PersistedWorkspaceState = {
@@ -58,9 +61,10 @@ export function useWorkspacePageLayoutBaseline(
       fileOpenTarget: normalized.fileOpenTarget ?? prev?.fileOpenTarget,
     }
     const clone = structuredClone(merged)
+    const baselineSnapshot = createWorkspaceLayoutPresetSnapshot(clone)
     setWorkspace(clone)
-    setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
-    setLayoutBaselineSnapshot(structuredClone(clone))
+    setLayoutBaselineSerialized(JSON.stringify(baselineSnapshot))
+    setLayoutBaselineSnapshot(baselineSnapshot)
     if (options && 'baselinePresetId' in options) {
       setLayoutBaselinePresetId(options.baselinePresetId ?? null)
     }
@@ -74,9 +78,9 @@ export function useWorkspacePageLayoutBaseline(
 
   function syncLayoutBaselineToCurrent() {
     const snap = collectLayoutSnapshot()
-    const clone = structuredClone(snap)
-    setLayoutBaselineSerialized(serializeWorkspaceLayoutState(clone))
-    setLayoutBaselineSnapshot(clone)
+    const baselineSnapshot = createWorkspaceLayoutPresetSnapshot(snap)
+    setLayoutBaselineSerialized(JSON.stringify(baselineSnapshot))
+    setLayoutBaselineSnapshot(baselineSnapshot)
   }
 
   function declareBaselinePresetId(id: string | null) {

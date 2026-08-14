@@ -9,9 +9,15 @@ describe('typed API endpoint paths', () => {
     )
   })
 
-  test('includes workspace pagination only when requested', () => {
+  test('keeps host identity in paginated Explorer requests', () => {
     expect(fileListUrl({ dir: 'Hermes Sessions', surface: 'workspace', offset: 200 })).toBe(
       '/api/files?surface=workspace&dir=Hermes+Sessions&offset=200',
+    )
+    expect(fileListUrl({ dir: 'Hermes Sessions', surface: 'library', offset: 200 })).toBe(
+      '/api/files?surface=library&dir=Hermes+Sessions&offset=200',
+    )
+    expect(fileListUrl({ dir: 'Hermes Sessions', surface: 'canvas', offset: 200 })).toBe(
+      '/api/files?surface=canvas&dir=Hermes+Sessions&offset=200',
     )
     expect(queryKeys.filesPage('Hermes Sessions', 'workspace', 200)).toEqual([
       'files',
@@ -19,10 +25,18 @@ describe('typed API endpoint paths', () => {
       'workspace',
       200,
     ])
+    expect(queryKeys.filesPage('Hermes Sessions', 'library', 200)).toEqual([
+      'files',
+      'Hermes Sessions',
+      'library',
+      200,
+    ])
   })
 
   test('root hydration key stays compatible with existing dehydrated state', () => {
     expect(queryKeys.filesPage('', undefined, 0)).toEqual(['files', ''])
+    expect(queryKeys.filesPage('', 'library', 0)).toEqual(['files', ''])
+    expect(fileListUrl({ dir: '', surface: 'library' })).toBe('/api/files?dir=')
   })
 
   test('encodes download and search inputs through the canonical endpoint module', () => {

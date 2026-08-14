@@ -37,7 +37,7 @@ export function settingsQueryOptions() {
 export function filesQueryOptions(parameters: FileListParameters) {
   return queryOptions({
     queryKey: queryKeys.filesPage(parameters.dir, parameters.surface, parameters.offset),
-    queryFn: () => apiEndpoints.files.list(parameters),
+    queryFn: ({ signal }) => apiEndpoints.files.list(parameters, signal),
   })
 }
 

@@ -12,16 +12,11 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::{collections::HashMap, path::Path};
 
-pub(crate) fn files_query_key(path: &str, workspace: bool, offset: usize) -> Value {
-    if !workspace && offset == 0 {
+pub(crate) fn files_query_key(path: &str, surface: Option<&str>, offset: usize) -> Value {
+    if matches!(surface, None | Some("library")) && offset == 0 {
         json!([QUERY_FILES, path])
     } else {
-        json!([
-            QUERY_FILES,
-            path,
-            if workspace { "workspace" } else { "library" },
-            offset
-        ])
+        json!([QUERY_FILES, path, surface.unwrap_or("library"), offset])
     }
 }
 
@@ -216,15 +211,11 @@ pub(crate) fn kb_recent(state: &AppState, root: &str) -> AppResult<Value> {
 pub(crate) async fn file_listing(
     state: &AppState,
     dir: &str,
-    workspace: bool,
     offset: usize,
 ) -> AppResult<FileListResponse> {
     if dir == crate::virtual_directory::HERMES_ROOT
         || dir.starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
     {
-        if !workspace {
-            return Err(AppError::not_found("Directory not found"));
-        }
         let listing = crate::virtual_directory::list_hermes(state, dir, offset).await?;
         return Ok(FileListResponse {
             files: listing.files.into_iter().map(FileItemDto::from).collect(),
@@ -242,7 +233,7 @@ pub(crate) async fn file_listing(
 
     let mut files = list_items(state, dir)?;
     let mut virtual_entries = HashMap::new();
-    if dir.is_empty() && workspace && state.hermes.is_some() {
+    if dir.is_empty() && state.hermes.is_some() {
         let path = crate::virtual_directory::HERMES_ROOT.to_string();
         files.push(media::FileItem {
             name: path.clone(),
@@ -383,13 +374,18 @@ mod tests {
 
     #[test]
     fn query_keys_match_client_contract() {
+        assert_eq!(files_query_key("Music", None, 0), json!(["files", "Music"]));
         assert_eq!(
-            files_query_key("Music", false, 0),
-            json!(["files", "Music"])
+            files_query_key("Hermes Sessions", Some("workspace"), 200),
+            json!(["files", "Hermes Sessions", "workspace", 200])
         );
         assert_eq!(
-            files_query_key("Hermes Sessions", true, 200),
-            json!(["files", "Hermes Sessions", "workspace", 200])
+            files_query_key("Hermes Sessions", Some("library"), 200),
+            json!(["files", "Hermes Sessions", "library", 200])
+        );
+        assert_eq!(
+            files_query_key("Music", Some("library"), 0),
+            json!(["files", "Music"])
         );
         assert_eq!(settings_query_key(), json!(["settings"]));
         assert_eq!(server_config_query_key(), json!(["server-config"]));

@@ -6,7 +6,6 @@ import {
   getDragHandle,
   getVisibleContent,
   getWindowGroups,
-  gotoWorkspace as gotoWorkspaceDnd,
   html5DragDrop,
   navigateToMediaContent,
   openBrowserWindow,
@@ -16,6 +15,7 @@ import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
 let browserContext: BrowserContext
 let page: Page
+let workspacePath: string
 
 test.beforeAll(async ({ browser }) => {
   browserContext = await createWorkspaceE2EContext(browser)
@@ -25,8 +25,10 @@ test.afterAll(async () => {
   await browserContext.close()
 })
 
-test.beforeEach(async () => {
+test.beforeEach(async ({}, testInfo) => {
   page = await browserContext.newPage()
+  const slug = testInfo.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+  workspacePath = `/workspace?ws=taskbar-pins-${slug}`
 })
 
 test.afterEach(async () => {
@@ -34,7 +36,7 @@ test.afterEach(async () => {
 })
 
 async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
+  await page.goto(workspacePath)
   await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
 }
 
@@ -108,7 +110,7 @@ test.describe('Workspace taskbar pins', () => {
 
     await expect(getWindowGroups(page)).toHaveCount(2)
     const viewerContent = getWindowGroups(page).nth(1).locator('.workspace-window-content')
-    await expect(viewerContent.getByText('readme', { exact: false })).toBeVisible({
+    await expect(viewerContent.getByRole('heading', { name: 'readme.txt' })).toBeVisible({
       timeout: 5_000,
     })
   })
@@ -159,7 +161,8 @@ test.describe('Workspace taskbar pins', () => {
   })
 
   test('dragging pinned file to folder in another browser moves the file', async () => {
-    await gotoWorkspaceDnd(page)
+    await page.goto(workspacePath)
+    await expect(getWindowGroups(page).first()).toBeVisible()
     await openBrowserWindow(page)
 
     const groups = getWindowGroups(page)

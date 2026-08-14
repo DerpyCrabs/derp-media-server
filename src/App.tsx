@@ -1,22 +1,21 @@
 import { Match, Show, Suspense, Switch, createMemo, lazy } from 'solid-js'
-import { adaptFileItemResource } from '@/lib/domain/file-item-resource'
+import type { ResourceContentInstance } from '@/lib/domain/content'
 import { getMediaTypeFromPath } from '@/lib/media-utils'
-import { MediaType, type FileItem } from '@/lib/types'
+import { MediaType } from '@/lib/types'
 import { navigateHref, useBrowserHistory } from './browser-history'
 import { FileBrowser } from './FileBrowser'
 import { hrefFor, parseRoute } from './lib/routes'
 import { SurfaceSwitcher } from './SurfaceSwitcher'
-import { openResource } from './features/open/open-resource'
+import { ContentRuntimeView } from './features/content/ContentRuntimeView'
+import { legacyFilesystemContentInstance } from './integrations/filesystem/legacy-content'
+import { applicationContentRuntime } from './integrations/registry'
+import { closeReader } from './reader/reader-url'
 
 const WorkspacePage = lazy(() =>
   import('./WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
 )
 const CanvasPage = lazy(() =>
   import('./CanvasPage').then((module) => ({ default: module.CanvasPage })),
-)
-
-const ReaderDialog = lazy(() =>
-  import('./reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
 )
 
 function LoadingSurface() {
@@ -70,23 +69,22 @@ export function App() {
   const readerPath = createMemo(() =>
     route().kind === 'notFound' ? null : (route().query.reader ?? null),
   )
-  const readyReaderPath = createMemo(() => {
+  const readyReaderContent = createMemo<ResourceContentInstance | null>(() => {
     const path = readerPath()
     if (!path) return null
     const folder = route().query.readerKind === 'folder'
-    const file: FileItem = {
+    return legacyFilesystemContentInstance({
+      id: 'library-reader',
       path,
-      name: path.split(/[/\\]/).at(-1) || path || 'Files',
-      type: folder ? MediaType.FOLDER : getMediaTypeFromPath(path),
-      size: 0,
-      extension: folder ? '' : (path.split('.').at(-1) ?? ''),
-      isDirectory: folder,
-    }
-    const plan = openResource(adaptFileItemResource(file).resource, 'read', {
+      readerKind: folder
+        ? 'folder'
+        : getMediaTypeFromPath(path) === MediaType.BOOK
+          ? 'book'
+          : 'pdf',
       surface: 'library',
       disposition: 'fullscreen',
+      contextPath: route().query.dir ?? '',
     })
-    return plan.status === 'ready' ? path : null
   })
   const showSurfaceSwitcher = createMemo(() => {
     const current = route()
@@ -121,12 +119,14 @@ export function App() {
       <Show when={showSurfaceSwitcher()}>
         <SurfaceSwitcher route={route} />
       </Show>
-      <Show when={readyReaderPath()} keyed>
-        {(sourcePath) => (
-          <Suspense fallback={null}>
-            <ReaderDialog sourcePath={sourcePath} sourceKind={route().query.readerKind} />
-          </Suspense>
-        )}
+      <Show when={readyReaderContent()}>
+        <div class='fixed inset-0 z-[70] min-h-0 overflow-hidden bg-neutral-900'>
+          <ContentRuntimeView
+            runtime={applicationContentRuntime}
+            instance={readyReaderContent}
+            onClose={closeReader}
+          />
+        </div>
       </Show>
     </>
   )

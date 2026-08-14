@@ -184,7 +184,9 @@ test.describe('Knowledge Base', () => {
 
   test('shows knowledge-base root icon marker on KB folder rows', async ({ page }) => {
     await page.goto('/')
-    const notesRow = page.locator('table tbody tr').filter({ hasText: /^Notes$/ })
+    const notesRow = page
+      .locator('table tbody tr')
+      .filter({ has: page.getByText('Notes', { exact: true }) })
     await expect(notesRow.locator('[data-kb-root-icon]')).toBeVisible()
   })
 

@@ -5,6 +5,27 @@ import path from 'path'
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
 
+type PersistedCanvasState = {
+  camera?: { x?: number; y?: number; zoom?: number }
+  windows?: Array<{
+    definition?: {
+      content?: { payload?: { address?: { path?: string } } }
+    }
+  }>
+}
+
+async function persistedActiveCanvasState(page: Page): Promise<PersistedCanvasState | null> {
+  return page.evaluate(() => {
+    const raw = localStorage.getItem('infinite-canvases-v1')
+    if (!raw) return null
+    const collection = JSON.parse(raw) as {
+      activeId?: string
+      canvases?: Array<{ id?: string; state?: PersistedCanvasState }>
+    }
+    return collection.canvases?.find((canvas) => canvas.id === collection.activeId)?.state ?? null
+  })
+}
+
 function canvasAudioWindow(page: Page, title: string) {
   const player = page.getByTestId('canvas-audio-player-ui').filter({
     has: page.getByRole('heading', { name: title, exact: true }),
@@ -143,22 +164,10 @@ test('searches canvases from picker', async ({ page }) => {
 test('keeps canvas camera fixed with an unmodified wheel', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.hover({ position: { x: 900, y: 500 } })
-  const before = await page.evaluate(() => {
-    const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
-      camera?: { x?: number; y?: number }
-    }
-    return raw.camera ?? { x: 0, y: 0 }
-  })
+  const before = (await persistedActiveCanvasState(page))?.camera ?? { x: 0, y: 0 }
   await page.mouse.wheel(40, 80)
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
-          camera?: { x?: number; y?: number }
-        }
-        return raw.camera
-      }),
-    )
+    .poll(async () => (await persistedActiveCanvasState(page))?.camera)
     .toEqual({ x: before.x ?? 0, y: before.y ?? 0, zoom: 1 })
 })
 
@@ -248,7 +257,7 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
         windows: canvas.state.windows.map((window: any) => ({
           ...window,
           definition:
-            window.definition.type === 'hermes'
+            window.definition.content?.codec === 'hermes.content'
               ? { ...window.definition, title: 'Stale remote chat' }
               : window.definition,
         })),
@@ -308,14 +317,7 @@ test('locally restores canvas windows', async ({ page }) => {
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
 
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const raw = localStorage.getItem('infinite-canvas-state-v1')
-        if (!raw) return null
-        const state = JSON.parse(raw) as { windows?: unknown[] }
-        return state.windows?.length ?? 0
-      }),
-    )
+    .poll(async () => (await persistedActiveCanvasState(page))?.windows?.length ?? 0)
     .toBe(1)
   await page.reload()
   await expect(page.getByTestId('canvas-window')).toHaveCount(1)
@@ -1102,15 +1104,10 @@ test('loads large virtualized directories inside canvas browser', async ({ page 
   await expect(firstItem).toBeVisible()
 
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const raw = localStorage.getItem('infinite-canvas-state-v1')
-        if (!raw) return null
-        const state = JSON.parse(raw) as {
-          windows?: Array<{ definition?: { initialState?: { dir?: string } } }>
-        }
-        return state.windows?.[0]?.definition?.initialState?.dir ?? null
-      }),
+    .poll(
+      async () =>
+        (await persistedActiveCanvasState(page))?.windows?.[0]?.definition?.content?.payload
+          ?.address?.path ?? null,
     )
     .toBe(folderName)
   await page.reload()

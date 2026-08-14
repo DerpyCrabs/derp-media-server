@@ -5,14 +5,11 @@ import {
   parseCanvasRecords,
   serializeCanvasCollection,
 } from '@/lib/canvas-persistence'
-import { parseInfiniteCanvasState } from '@/lib/infinite-canvas'
-import { applyCanvasPathMutation, applyWorkspacePathMutation } from '@/lib/workspace-path-mutation'
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
 } from '@/lib/use-workspace'
 import canvasFixture from '../fixtures/persisted-state/reference/canvas-collection.json'
-import hermesFixture from '../fixtures/persisted-state/reference/hermes-window.json'
 import settingsFixture from '../fixtures/persisted-state/reference/settings.json'
 import workspaceFixture from '../fixtures/persisted-state/reference/workspace-layout.json'
 
@@ -20,104 +17,183 @@ function storage(values: Record<string, string>) {
   return { getItem: (key: string) => values[key] ?? null }
 }
 
-describe('Persisted-state compatibility fixtures', () => {
-  test('settings document retains representative Library and named-layout state', () => {
+const currentExplorerContent = {
+  schemaVersion: 1 as const,
+  codec: 'filesystem.content',
+  codecVersion: 1,
+  payload: {
+    kind: 'explorer',
+    id: 'current-browser',
+    address: { rootId: 'configured-default', path: 'Notes' },
+  },
+}
+
+describe('current persisted content schema', () => {
+  test('restores and writes only authoritative workspace content envelopes', () => {
+    const futureContent = {
+      schemaVersion: 1 as const,
+      codec: 'future.content',
+      codecVersion: 9,
+      payload: { opaque: true },
+    }
+    const raw = {
+      windows: [
+        {
+          id: 'current-browser',
+          title: 'Notes',
+          content: currentExplorerContent,
+          layout: { bounds: { x: 0, y: 0, width: 480, height: 320 } },
+        },
+        {
+          id: 'future-pane',
+          title: 'Future pane',
+          content: futureContent,
+          layout: { bounds: { x: 480, y: 0, width: 480, height: 320 } },
+        },
+      ],
+      activeWindowId: 'future-pane',
+      activeTabMap: {},
+      nextWindowId: 3,
+      pinnedTaskbarItems: [],
+    }
+
+    const restored = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+
+    expect(restored?.windows).toHaveLength(2)
+    expect(restored?.windows[0]?.initialState.dir).toBe('Notes')
+    expect(restored?.windows[1]).toMatchObject({
+      id: 'future-pane',
+      contentRecoveryReason: 'Unknown content codec: future.content',
+    })
+    const encoded = JSON.parse(serializeWorkspacePersistedState(restored!)) as {
+      windows: Record<string, unknown>[]
+    }
+    expect(encoded.windows.every((window) => 'content' in window)).toBe(true)
+    expect(encoded.windows.every((window) => !('type' in window))).toBe(true)
+    expect(encoded.windows.every((window) => !('source' in window))).toBe(true)
+    expect(encoded.windows.every((window) => !('initialState' in window))).toBe(true)
+  })
+
+  test('restores and rewrites a current canvas collection', () => {
+    const collection = {
+      version: 1 as const,
+      activeId: 'canvas-1',
+      writerId: 'writer-1',
+      lastTimestamp: 1,
+      canvases: [
+        {
+          id: 'canvas-1',
+          name: 'Canvas',
+          updatedAt: 1,
+          writerId: 'writer-1',
+          deleted: false,
+          state: {
+            version: 1 as const,
+            windows: [
+              {
+                id: 'current-browser',
+                definition: {
+                  id: 'current-browser',
+                  title: 'Notes',
+                  content: currentExplorerContent,
+                },
+                bounds: { x: 0, y: 0, width: 480, height: 320 },
+                zIndex: 1,
+              },
+            ],
+            maximizedWindowId: null,
+            camera: { x: 0, y: 0, zoom: 1 },
+            windowSizeByType: {},
+            nextItemId: 2,
+            nextZIndex: 2,
+          },
+        },
+      ],
+    }
+
+    expect(parseCanvasRecords(collection.canvases)).toHaveLength(1)
+    const restored = loadCanvasCollection(
+      storage({ [CANVAS_COLLECTION_STORAGE_KEY]: JSON.stringify(collection) }),
+    )
+    expect(restored.canvases[0]?.state?.windows[0]?.definition.initialState.dir).toBe('Notes')
+    const encoded = serializeCanvasCollection(restored)
+    const encodedDefinition = JSON.parse(encoded).canvases[0].state.windows[0].definition as Record<
+      string,
+      unknown
+    >
+    expect(encodedDefinition.content).toEqual(currentExplorerContent)
+    expect(encodedDefinition).not.toHaveProperty('type')
+    expect(encodedDefinition).not.toHaveProperty('source')
+    expect(encodedDefinition).not.toHaveProperty('initialState')
+    const second = loadCanvasCollection(storage({ [CANVAS_COLLECTION_STORAGE_KEY]: encoded }))
+    expect(serializeCanvasCollection(second)).toBe(encoded)
+  })
+})
+
+describe('retired persisted window fixtures', () => {
+  test('keeps unrelated settings data but drops old named-layout panes', () => {
     const settings = settingsFixture['reference-library']
 
     expect(settings.viewModes).toEqual({ '': 'grid', Notes: 'list', Pictures: 'grid' })
     expect(settings.favorites).toEqual(['Pictures/cover.jpg', 'Notes'])
     expect(settings.knowledgeBases).toEqual(['Notes'])
-    expect(settings.customIcons).toEqual({ Notes: 'NotebookTabs' })
-    expect(settings.autoSave['Notes/todo.md']).toEqual({ enabled: true, readOnly: false })
-    expect(settings.workspaceTaskbarPins).toHaveLength(1)
     expect(settings.workspaceLayoutPresets).toHaveLength(1)
-    expect(settings.workspaceLayoutPresets[0]?.snapshot).toEqual(workspaceFixture)
     expect(
       normalizePersistedWorkspaceState(settings.workspaceLayoutPresets[0]?.snapshot),
-    ).not.toBeNull()
+    ).toBeNull()
   })
 
-  test('workspace layout reopens browser, viewer, split, pin, and durable Hermes identity', () => {
-    const rawHermes = workspaceFixture.windows.find((window) => window.id === 'reference-hermes')
-    expect(rawHermes).toEqual(hermesFixture)
-
-    const restored = normalizePersistedWorkspaceState(workspaceFixture, {
-      reconcileSnapZones: false,
-    })
-    expect(restored).not.toBeNull()
-    expect(restored?.windows.map((window) => window.type)).toEqual(['browser', 'viewer', 'hermes'])
-    expect(restored?.tabGroupSplits?.['reference-main-group']).toEqual({
-      leftTabId: 'reference-browser',
-      leftPaneFraction: 0.42,
-    })
-    expect(restored?.pinnedTaskbarItems[0]?.path).toBe('Notes')
-    expect(restored?.fileOpenTarget).toBe('new-tab')
-    expect(restored?.windows.find((window) => window.type === 'hermes')?.hermes).toEqual({
-      sessionId: 'reference-session',
-      cwd: '/srv/media',
-      readOnly: false,
-    })
-
-    const encoded = serializeWorkspacePersistedState(restored!)
-    expect(encoded).toContain('reference-session')
-    expect(encoded).not.toContain('draftId')
-    expect(
-      normalizePersistedWorkspaceState(JSON.parse(encoded), { reconcileSnapZones: false }),
-    ).not.toBeNull()
+  test('rejects old workspace panes without content envelopes', () => {
+    expect(normalizePersistedWorkspaceState(workspaceFixture)).toBeNull()
   })
 
-  test('canvas collection and server record array round-trip without losing Hermes or Reader state', () => {
-    const rawCanvas = canvasFixture.canvases[0]?.state
-    const rawHermes = rawCanvas?.windows.find((window) => window.id === 'reference-hermes')
-    expect(rawHermes?.definition).toEqual(hermesFixture)
-    expect(parseCanvasRecords(canvasFixture.canvases)).toHaveLength(1)
+  test('rejects persisted windows that mix content and runtime-only fields', () => {
+    const dual = {
+      windows: [
+        {
+          id: 'current-browser',
+          title: 'Notes',
+          content: currentExplorerContent,
+          type: 'browser',
+          source: { kind: 'local' },
+          initialState: { dir: 'Notes' },
+        },
+      ],
+      activeWindowId: 'current-browser',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+    }
+    expect(normalizePersistedWorkspaceState(dual)).toBeNull()
 
-    const first = loadCanvasCollection(
+    const canvas = {
+      id: 'canvas-1',
+      name: 'Canvas',
+      updatedAt: 1,
+      writerId: 'writer-1',
+      deleted: false,
+      state: {
+        version: 1,
+        windows: [
+          {
+            id: 'current-browser',
+            definition: dual.windows[0],
+            bounds: { x: 0, y: 0, width: 480, height: 320 },
+            zIndex: 1,
+          },
+        ],
+        camera: { x: 0, y: 0, zoom: 1 },
+      },
+    }
+    expect(parseCanvasRecords([canvas])[0]?.state?.windows).toEqual([])
+  })
+
+  test('drops old canvas panes instead of migrating them', () => {
+    expect(parseCanvasRecords(canvasFixture.canvases)[0]?.state?.windows).toEqual([])
+    const loaded = loadCanvasCollection(
       storage({ [CANVAS_COLLECTION_STORAGE_KEY]: JSON.stringify(canvasFixture) }),
     )
-    expect(first.activeId).toBe('reference-canvas')
-    expect(first.canvases[0]?.state?.windows.map((window) => window.definition.type)).toEqual([
-      'browser',
-      'viewer',
-      'hermes',
-    ])
-    expect(first.canvases[0]?.state?.windows[1]?.definition.initialState).toMatchObject({
-      viewing: 'Pictures',
-      readerKind: 'folder',
-    })
-    expect(first.canvases[0]?.state?.windows[2]?.definition.hermes).toEqual({
-      sessionId: 'reference-session',
-      cwd: '/srv/media',
-      readOnly: false,
-    })
-
-    const encoded = serializeCanvasCollection(first)
-    const second = loadCanvasCollection(storage({ [CANVAS_COLLECTION_STORAGE_KEY]: encoded }))
-    expect(second).toEqual(first)
-  })
-
-  test('representative logical paths retain current move-mutation behavior', () => {
-    const workspace = normalizePersistedWorkspaceState(workspaceFixture, {
-      reconcileSnapZones: false,
-    })!
-    const movedWorkspace = applyWorkspacePathMutation(workspace, {
-      type: 'path-moved',
-      oldPath: 'Notes',
-      newPath: 'Archive/Notes',
-    })
-    expect(movedWorkspace.windows[0]?.initialState.dir).toBe('Archive/Notes')
-    expect(movedWorkspace.windows[1]?.initialState.viewing).toBe('Archive/Notes/todo.md')
-    expect(movedWorkspace.pinnedTaskbarItems[0]?.path).toBe('Archive/Notes')
-    expect(movedWorkspace.windows[2]?.hermes?.sessionId).toBe('reference-session')
-
-    const canvas = parseInfiniteCanvasState(canvasFixture.canvases[0]?.state)!
-    const movedCanvas = applyCanvasPathMutation(canvas, {
-      type: 'path-moved',
-      oldPath: 'Pictures',
-      newPath: 'Archive/Pictures',
-    })
-    expect(movedCanvas.windows[0]?.definition.initialState.dir).toBe('Archive/Pictures')
-    expect(movedCanvas.windows[1]?.definition.initialState.viewing).toBe('Archive/Pictures')
-    expect(movedCanvas.windows[2]?.definition.hermes?.sessionId).toBe('reference-session')
+    expect(loaded.activeId).toBe('reference-canvas')
+    expect(loaded.canvases[0]?.state?.windows).toEqual([])
   })
 })

@@ -1,5 +1,4 @@
 import {
-  CANVAS_STORAGE_KEY,
   createEmptyCanvasState,
   parseInfiniteCanvasState,
   serializeInfiniteCanvasState,
@@ -133,12 +132,7 @@ export function loadCanvasCollection(storage: ReadStorage): CanvasCollection {
       }
     }
   } catch {}
-  let legacy = createEmptyCanvasState()
-  try {
-    const raw = storage.getItem(CANVAS_STORAGE_KEY)
-    legacy = raw ? (parseInfiniteCanvasState(JSON.parse(raw)) ?? legacy) : legacy
-  } catch {}
-  return newCollection(legacy)
+  return newCollection(createEmptyCanvasState())
 }
 
 export function nextCanvasTimestamp(collection: CanvasCollection, now = Date.now()): number {

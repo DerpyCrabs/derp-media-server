@@ -49,10 +49,25 @@ describe('resource contracts', () => {
       capabilities: ['read', 'fixture.pin'],
       presentation: 'fixture-card',
       size: 42,
+      metadata: { status: 'ready', viewCount: 3 },
     }
     const page: ResourcePage = {
       schemaVersion: 1,
       location: resourceKey('fixture', 'root'),
+      locationSummary: {
+        key: resourceKey('fixture', 'root'),
+        name: 'Fixture root',
+        kind: 'root',
+        capabilities: ['browse'],
+      },
+      breadcrumbs: [
+        {
+          key: resourceKey('fixture', 'root'),
+          name: 'Fixture root',
+          kind: 'root',
+          capabilities: ['browse'],
+        },
+      ],
       items: [summary],
       nextCursor: 'opaque-cursor',
       total: 2,
@@ -65,6 +80,8 @@ describe('resource contracts', () => {
     const invalid = structuredClone(page) as Record<string, unknown>
     invalid.items = [{ ...summary, capabilities: [1] }]
     expect(isResourcePage(invalid)).toBe(false)
+    expect(isResourcePage({ ...page, breadcrumbs: [{ bad: true }] })).toBe(false)
+    expect(isResourcePage({ ...page, items: [{ ...summary, metadata: [] }] })).toBe(false)
   })
 
   test('validates tagged transport errors without provider-specific branches', () => {

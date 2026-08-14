@@ -1,12 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import { reconcileLayoutBoundsFromSnapZones } from '@/lib/workspace-geometry'
-import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { createWorkspaceLayoutPresetSnapshot } from '@/lib/workspace-layout-presets'
+import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { workspaceTabIconColorKeyToHex } from '@/lib/workspace-tab-icon-colors'
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspaceLayoutState,
   serializeWorkspacePersistedState,
 } from '@/lib/use-workspace'
+
+function currentPersistedState(value: unknown): unknown {
+  return JSON.parse(serializeWorkspacePersistedState(value as PersistedWorkspaceState))
+}
 
 function win(
   id: string,
@@ -52,6 +57,45 @@ describe('reconcileLayoutBoundsFromSnapZones', () => {
 })
 
 describe('normalizePersistedWorkspaceState', () => {
+  test('named-layout snapshots contain only current persisted content envelopes', () => {
+    const state = {
+      windows: [
+        {
+          id: 'browser-1',
+          type: 'browser',
+          title: 'Pictures',
+          source: { kind: 'local' },
+          initialState: { dir: 'Pictures' },
+        },
+      ],
+      activeWindowId: 'browser-1',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+      browserTabTitle: 'Runtime title',
+      browserTabIcon: 'LayoutDashboard',
+    } satisfies PersistedWorkspaceState
+
+    const snapshot = createWorkspaceLayoutPresetSnapshot(state)
+    const window = snapshot.windows[0] as unknown as Record<string, unknown>
+
+    expect(window.content).toMatchObject({
+      schemaVersion: 1,
+      codec: 'filesystem.content',
+      payload: { kind: 'explorer', id: 'browser-1' },
+    })
+    expect(window).not.toHaveProperty('type')
+    expect(window).not.toHaveProperty('source')
+    expect(window).not.toHaveProperty('initialState')
+    expect(snapshot).not.toHaveProperty('browserTabTitle')
+    expect(snapshot).not.toHaveProperty('browserTabIcon')
+    expect(normalizePersistedWorkspaceState(snapshot)?.windows[0]).toMatchObject({
+      id: 'browser-1',
+      type: 'browser',
+      initialState: { dir: 'Pictures' },
+    })
+  })
+
   test('session draft (reconcileSnapZones false) keeps saved snapped bounds', () => {
     const raw = {
       windows: [
@@ -75,8 +119,9 @@ describe('normalizePersistedWorkspaceState', () => {
       nextWindowId: 2,
       pinnedTaskbarItems: [],
     }
-    const draft = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
-    const presetStyle = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: true })
+    const persisted = currentPersistedState(raw)
+    const draft = normalizePersistedWorkspaceState(persisted, { reconcileSnapZones: false })
+    const presetStyle = normalizePersistedWorkspaceState(persisted, { reconcileSnapZones: true })
     expect(draft?.windows[0]?.layout?.bounds).toEqual({
       x: 900,
       y: 10,
@@ -112,7 +157,9 @@ describe('normalizePersistedWorkspaceState', () => {
       browserTabTitle: '  Review  ',
       browserTabIcon: 'LayoutDashboard',
     }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+      reconcileSnapZones: false,
+    })
     expect(n?.browserTabTitle).toBe('Review')
     expect(n?.browserTabIcon).toBe('LayoutDashboard')
     expect(serializeWorkspacePersistedState(n!)).toContain('browserTabTitle')
@@ -143,7 +190,9 @@ describe('normalizePersistedWorkspaceState', () => {
       pinnedTaskbarItems: [],
       browserTabIcon: 'not-valid!',
     }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+      reconcileSnapZones: false,
+    })
     expect(n?.browserTabIcon).toBeUndefined()
   })
 
@@ -171,7 +220,9 @@ describe('normalizePersistedWorkspaceState', () => {
       pinnedTaskbarItems: [],
       browserTabIconColor: 'blue-500',
     }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+      reconcileSnapZones: false,
+    })
     expect(n?.browserTabIconColor).toBe('blue-500')
     expect(workspaceTabIconColorKeyToHex('blue-500')).toBe('#3b82f6')
   })
@@ -200,7 +251,9 @@ describe('normalizePersistedWorkspaceState', () => {
       pinnedTaskbarItems: [],
       browserTabIconColor: '#ff0000',
     }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
+    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+      reconcileSnapZones: false,
+    })
     expect(n?.browserTabIconColor).toBeUndefined()
   })
 })

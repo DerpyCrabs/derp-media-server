@@ -74,7 +74,6 @@ function moveWindow(
   oldPath: string,
   newPath: string,
 ): WorkspaceWindowDefinition {
-  if (window.type === 'hermes') return window
   let changed = false
   const initialState = { ...window.initialState }
   for (const key of ['dir', 'viewing', 'playing'] as const) {
@@ -104,7 +103,6 @@ export function applyWorkspaceWindowPathMutation(
   mutation: WorkspacePathMutation,
 ): WorkspaceWindowDefinition | null {
   if (mutation.type === 'path-moved') return moveWindow(window, mutation.oldPath, mutation.newPath)
-  if (window.type === 'hermes') return window
   const authoritativePath = authoritativeWindowPath(window)
   const shouldRemove =
     authoritativePath === undefined
@@ -139,7 +137,6 @@ function clearRemovedSecondaryPaths(
   window: WorkspaceWindowDefinition,
   removedPath: string,
 ): WorkspaceWindowDefinition {
-  if (window.type === 'hermes') return window
   let changed = false
   const initialState = { ...window.initialState }
   for (const key of ['dir', 'viewing', 'playing'] as const) {

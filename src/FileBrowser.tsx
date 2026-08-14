@@ -1,1909 +1,447 @@
-import {
-  getFileDragData,
-  hasFileDragData,
-  isCompatibleSource,
-  setFileDragData,
-} from '@/lib/file-drag-data'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import { collectDroppedUploadFiles } from '@/lib/collect-dropped-upload-files'
-import {
-  finePointerDragEnabled,
-  subscribeFinePointerDragEnabled,
-} from '@/lib/enable-fine-pointer-drag'
-import { extractPasteDataFromClipboardData } from '@/lib/extract-paste-data'
-import { shouldOfferPasteAsNewFile } from '@/lib/should-offer-paste-as-new-file'
-import {
-  breadcrumbFloating,
-  resetBreadcrumbFloating,
-  setBreadcrumbFolderMenu,
-} from '@/lib/breadcrumb-floating-store'
-import { api } from '@/lib/api'
-import { apiEndpoints } from '@/lib/api-endpoints'
-import { fileDownloadHref } from '@/lib/download-urls'
-import {
-  prefetchFolderContentsOnHover,
-  prefetchParentDirectoryHover,
-  type PrefetchFolderHoverContext,
-} from '@/lib/prefetch-folder-hover'
-import { queryKeys } from '@/lib/query-keys'
-import {
-  fileMutationOptions,
-  filesQueryOptions,
-  invalidateFileQueries,
-  serverConfigQueryOptions,
-  settingsMutationOptions,
-  settingsQueryOptions,
-} from '@/lib/query-options'
-import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/constants'
-import type { PasteData } from '@/lib/paste-data'
+import type { ContentInstance } from '@/lib/domain/content'
+import type { FileSearchResult } from '@/lib/file-search'
+import { fileSearchResultToFileItem } from '@/lib/file-search'
+import { getMediaTypeFromPath } from '@/lib/media-utils'
 import { MediaType, type FileItem } from '@/lib/types'
-import { normalizeNewFilePath } from '@/lib/new-file-name'
-import { formatFileSize, getMediaTypeFromPath } from '@/lib/media-utils'
-import { cn, getKnowledgeBaseRoot, isPathEditable } from '@/lib/utils'
-import ArrowUp from 'lucide-solid/icons/arrow-up'
-import FilePlus from 'lucide-solid/icons/file-plus'
-import FolderPlus from 'lucide-solid/icons/folder-plus'
-import BookOpenText from 'lucide-solid/icons/book-open-text'
-import Star from 'lucide-solid/icons/star'
-import Upload from 'lucide-solid/icons/upload'
-import Eye from 'lucide-solid/icons/eye'
-import Ellipsis from 'lucide-solid/icons/ellipsis'
 import {
-  batch,
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  Match,
-  on,
-  onCleanup,
-  onMount,
-  Show,
-  Switch,
-} from 'solid-js'
-import type { FileIconContext } from './lib/use-file-icon'
-import { fileItemIcon, gridHeroIcon } from './lib/use-file-icon'
-import { createUrlSearchParamsMemo, useBrowserHistory } from './browser-history'
-import type { BreadcrumbMenuTarget } from './file-browser/BreadcrumbContextMenu'
-import { Breadcrumbs } from './file-browser/Breadcrumbs'
-import { FileBrowserModalLayer } from './file-browser/FileBrowserModalLayer'
-import { DirectoryBackgroundContextMenu } from './file-browser/DirectoryBackgroundContextMenu'
-import { KbDashboard } from './file-browser/KbDashboard'
-import { KbInlineCreateFooter } from './file-browser/KbInlineCreateFooter'
-import { KbSearchResults } from './file-browser/KbSearchResults'
-import { navigateToFolder } from './file-browser/navigate-folder'
-import { useFileRowContextMenu } from './file-browser/use-file-row-context-menu'
-import { UploadMenu } from './file-browser/UploadMenu'
-import type { UploadToastState } from './file-browser/types'
-import {
-  DirectoryListingEmpty,
-  DirectoryListingEmptyTableRow,
-  DirectoryListingErrorPanel,
-  DirectoryListingLoading,
-} from './file-browser/DirectoryListingFeedback'
-import { FloatingScrollActions } from './file-browser/FloatingScrollActions'
-import { useInlineModeInputFocus } from './file-browser/use-inline-mode-input-focus'
-import { registerKbSearchHotkeys } from './file-browser/use-kb-search-hotkey'
-import { VirtualDirectoryGrid } from './file-browser/VirtualDirectoryGrid'
-import { VirtualDirectoryList } from './file-browser/VirtualDirectoryList'
-import { ViewModeToggle } from './file-browser/ViewModeToggle'
-import { ThemeSwitcher } from './ThemeSwitcher'
-import { useAdminEventsStream } from './lib/use-admin-events-stream'
-import { MainMediaPlayers } from './media/MainMediaPlayers'
-import { useDynamicFavicon } from './lib/use-dynamic-favicon'
-import { useStoreSync } from './lib/solid-store-sync'
-import { useBrowserViewModeStore } from '@/lib/browser-view-mode-store'
-import { openInReader } from './reader/reader-url'
-import { useViewStats } from './lib/use-view-stats'
-import { createLongPressContextMenuHandlers } from './lib/long-press-context-menu'
-import { useDeferredLoading } from './lib/use-deferred-loading'
-import { playFile, viewFile } from './lib/url-state-actions'
-import { FileSearchButton } from './FileSearchPalette'
-import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/file-search'
-import { hrefFor } from './lib/routes'
-import {
-  adaptFileItemResource,
-  type FileItemResourceOptions,
-} from '@/lib/domain/file-item-resource'
-import {
-  audioPlaybackQueueFromFiles,
-  createFilesystemPlaybackItem,
-  playbackItemFromFileItem,
-  playbackItemKey,
-  type PlaybackItem,
-} from './features/playback'
+  createUrlSearchParamsMemo,
+  navigateSearchParams,
+  useBrowserHistory,
+} from './browser-history'
+import { ContentRuntimeView } from './features/content/ContentRuntimeView'
+import type { HostOpenPlan } from './features/content/contracts'
+import { createLibraryHost } from './features/content/hosts'
+import { ExplorerView } from './features/explorer/ExplorerView'
+import type {
+  ExplorerHistory,
+  ExplorerItem,
+  ExplorerLocation,
+  ExplorerSnapshot,
+} from './features/explorer/types'
+import type { ExplorerHostAction } from './features/explorer/view-types'
+import { openResource } from './integrations/open-resource'
+import { audioPlaybackQueueFromFiles, playbackItemFromFileItem } from './features/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from './features/playback/PlaybackProvider'
-import { openResource, type OpenDisposition, type OpenIntent } from './features/open/open-resource'
+import { FileSearchButton } from './FileSearchPalette'
+import {
+  createApplicationExplorerDataSource,
+  legacyExplorerLocation,
+  legacyExplorerPath,
+  legacyFileItemForResource,
+  legacyFilesystemExplorerPath,
+  recordApplicationExplorerView,
+  type ApplicationExplorerPayload,
+} from './integrations/explorer-adapter'
+import { applicationContentRuntime } from './integrations/registry'
+import { hrefFor } from './lib/routes'
+import { fileItemIcon, gridHeroIcon, type FileIconContext } from './lib/use-file-icon'
+import { useDynamicFavicon } from './lib/use-dynamic-favicon'
+import { closeViewer, playFile, viewFile } from './lib/url-state-actions'
+import { MainMediaPlayers } from './media/MainMediaPlayers'
+import { openInReader } from './reader/reader-url'
+import { ThemeSwitcher } from './ThemeSwitcher'
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 
-function normalizedPlaybackPath(path: string) {
-  return path.replace(/\\/g, '/')
+function pathFromLocation(location: ExplorerLocation): string {
+  return legacyExplorerPath(location.key) ?? ''
 }
 
-function safePlaybackItemFromFile(
-  file: FileItem,
-  options: FileItemResourceOptions = {},
-): PlaybackItem | null {
-  try {
-    return playbackItemFromFileItem(file, options)
-  } catch {
-    return null
+function editableFoldersFor(item: ExplorerItem<ApplicationExplorerPayload>): readonly string[] {
+  const folders = item.resource.metadata?.editableFolders
+  return Array.isArray(folders)
+    ? folders.filter((folder): folder is string => typeof folder === 'string')
+    : []
+}
+
+function sameContentIdentity(left: ContentInstance, right: ContentInstance): boolean {
+  if (left.id !== right.id || left.type !== right.type) return false
+  if (left.type === 'integration' && right.type === 'integration') {
+    return left.integration === right.integration && left.view === right.view
   }
-}
-
-function samePlaybackQueue(left: readonly PlaybackItem[], right: readonly PlaybackItem[]) {
-  return (
-    left.length === right.length &&
-    left.every((item, index) => {
-      const candidate = right[index]
-      return (
-        candidate !== undefined &&
-        playbackItemKey(item) === playbackItemKey(candidate) &&
-        item.locator === candidate.locator &&
-        item.name === candidate.name &&
-        item.media === candidate.media
-      )
-    })
-  )
+  if (left.type === 'resource' && right.type === 'resource') {
+    return (
+      left.resource.provider === right.resource.provider &&
+      left.resource.id === right.resource.id &&
+      left.renderer === right.renderer
+    )
+  }
+  return left.type === 'explorer' && right.type === 'explorer'
+    ? left.location.provider === right.location.provider && left.location.id === right.location.id
+    : false
 }
 
 export function FileBrowser() {
-  const history = useBrowserHistory()
-  const urlSearchParams = createUrlSearchParamsMemo(history)
-  const queryClient = useQueryClient()
+  const browserLocation = useBrowserHistory()
+  const params = createUrlSearchParamsMemo(browserLocation)
+  const currentPath = createMemo(() => params().get('dir') ?? '')
   const playbackSession = usePlaybackSession()
   const playbackSnapshot = usePlaybackSnapshot()
-  useAdminEventsStream()
+  const [integrationContent, setIntegrationContent] = createSignal<ContentInstance | null>(null)
+  const [explorerSnapshot, setExplorerSnapshot] =
+    createSignal<ExplorerSnapshot<ApplicationExplorerPayload> | null>(null)
+  const dataSource = createApplicationExplorerDataSource()
+  let previousPlayingPath: string | null = null
+  let integrationDialogRef: HTMLDivElement | undefined
+  let plannedLibraryItem: ExplorerItem<ApplicationExplorerPayload> | null = null
 
-  const currentPath = createMemo(() => urlSearchParams().get('dir') ?? '')
-
-  const playingParam = createMemo(() => urlSearchParams().get('playing'))
-
-  const playingPath = createMemo(() => playingParam() ?? '')
-
-  const isVirtualFolder = createMemo(() =>
-    (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
-  )
-
-  const serverConfigQuery = useQuery(serverConfigQueryOptions)
-
-  const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
-  const mediaRoots = createMemo(() => serverConfigQuery.data?.mediaRoots ?? [])
-  const isEditable = createMemo(
-    () => !isVirtualFolder() && isPathEditable(currentPath(), editableFolders(), mediaRoots()),
-  )
-
-  const filesQuery = useQuery(() => filesQueryOptions({ dir: currentPath() }))
-
-  const settingsQuery = useQuery(settingsQueryOptions)
-
-  const files = createMemo(() => filesQuery.data?.files ?? [])
-  const fileBrowserScrollScope = () => 'main-file-browser'
-  const isFilesLoadingInitial = createMemo(
-    () => filesQuery.isPending && filesQuery.data === undefined,
-  )
-  const showFilesDeferredLoading = useDeferredLoading(() => isFilesLoadingInitial())
-  const pasteExistingFiles = createMemo(() => files())
-
-  const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
-  const kbRootPath = createMemo(() => getKnowledgeBaseRoot(currentPath(), knowledgeBases()))
-  const inKb = createMemo(() => kbRootPath() !== null)
-  const customIcons = createMemo(() => settingsQuery.data?.customIcons ?? {})
-  const hasEditableFolders = createMemo(() => editableFolders().length > 0)
-
-  const viewStats = useViewStats(() => ({}))
-  useDynamicFavicon(() => customIcons(), { getSearch: () => history().search })
-
-  const viewModeTick = useStoreSync(useBrowserViewModeStore)
-
-  function libraryOpenReady(
-    file: FileItem,
-    intent: OpenIntent,
-    options: FileItemResourceOptions = {},
-    dispositionOverride?: OpenDisposition,
-  ) {
-    if (file.isVirtual) return true
-    const disposition =
-      dispositionOverride ??
-      (intent === 'read' ||
-      file.type === MediaType.VIDEO ||
-      file.type === MediaType.PDF ||
-      file.type === MediaType.BOOK
-        ? 'fullscreen'
-        : file.isDirectory
-          ? 'replace'
-          : 'modal')
-    return (
-      openResource(adaptFileItemResource(file, options).resource, intent, {
-        surface: 'library',
-        disposition,
-      }).status === 'ready'
-    )
-  }
-
-  function openLibraryViewPath(path: string, sourceDir = currentPath()) {
+  createEffect(() => {
+    const path = params().get('playing')
+    if (!path) {
+      if (previousPlayingPath) playbackSession.dispatch({ type: 'stop' })
+      previousPlayingPath = null
+      return
+    }
+    previousPlayingPath = path
+    const listed = explorerSnapshot()
+      ?.items.map((item) => legacyFileItemForResource(item.resource))
+      .find((file) => file?.path.replace(/\\/g, '/') === path.replace(/\\/g, '/'))
     const type = getMediaTypeFromPath(path)
-    const file: FileItem = {
+    const file: FileItem = listed ?? {
       path,
       name: path.split(/[/\\]/).at(-1) || path,
       type,
       size: 0,
-      extension: path.toLowerCase().endsWith('.fb2.zip')
-        ? 'fb2.zip'
-        : (path.split('.').at(-1) ?? ''),
+      extension: path.split('.').at(-1) ?? '',
       isDirectory: false,
     }
-    if (libraryOpenReady(file, 'view')) viewFile(path, sourceDir)
-  }
-
-  function navigateLibraryFolderPath(path: string | null) {
-    const logicalPath = path ?? ''
-    const folder: FileItem = {
-      path: logicalPath,
-      name: logicalPath.split(/[/\\]/).at(-1) || 'Files',
-      type: MediaType.FOLDER,
-      size: 0,
-      extension: '',
-      isDirectory: true,
-      isVirtual: isVirtualFolderPath(logicalPath),
-    }
-    if (libraryOpenReady(folder, 'browse')) navigateToFolder(path)
-  }
-
-  const isAudioPlayingBar = createMemo(() => {
-    const state = playbackSnapshot()
-    return !!state.currentItem && state.mode === 'audio'
-  })
-
-  const fileIconCtx = createMemo((): FileIconContext => {
-    const state = playbackSnapshot()
-    return {
-      customIcons: customIcons(),
-      knowledgeBases: knowledgeBases(),
-      playingPath: playingParam(),
-      currentFile: state.currentItem?.locator ?? null,
-      mediaPlayerIsPlaying: state.phase === 'playing',
-      mediaType: state.currentItem ? state.mode : null,
-    }
-  })
-
-  function playbackItemForPath(path: string): PlaybackItem | null {
-    const normalizedPath = normalizedPlaybackPath(path)
-    const listed = files().find((file) => normalizedPlaybackPath(file.path) === normalizedPath)
-    if (listed) return safePlaybackItemFromFile(listed)
-    const mediaType = getMediaTypeFromPath(path)
-    const media =
-      mediaType === MediaType.AUDIO ? 'audio' : mediaType === MediaType.VIDEO ? 'video' : null
-    if (!media) return null
-    try {
-      return createFilesystemPlaybackItem({
-        locator: path,
-        name: path.split(/[/\\]/).pop() || path,
-        media,
-      })
-    } catch {
-      return null
-    }
-  }
-
-  function playbackQueueFor(
-    item: PlaybackItem,
-    resourceOptions: FileItemResourceOptions = {},
-  ): PlaybackItem[] {
-    if (item.media === 'video') return [item]
-    const queue = audioPlaybackQueueFromFiles(files(), resourceOptions)
-    return queue.some((candidate) => playbackItemKey(candidate) === playbackItemKey(item))
-      ? queue
-      : [...queue, item]
-  }
-
-  let previousLibraryPlayingPath = playingParam()
-  createEffect(() => {
-    const path = playingParam()
-    if (window.location.pathname !== '/') return
-    if (!path) {
-      if (previousLibraryPlayingPath) playbackSession.dispatch({ type: 'stop' })
-      previousLibraryPlayingPath = null
-      return
-    }
-    previousLibraryPlayingPath = path
-    const listedFile = files().find(
-      (file) => normalizedPlaybackPath(file.path) === normalizedPlaybackPath(path),
-    )
-    const mediaType = getMediaTypeFromPath(path)
-    const plannedFile: FileItem =
-      listedFile ??
-      ({
-        path,
-        name: path.split(/[/\\]/).at(-1) || path,
-        type: mediaType,
-        size: 0,
-        extension: path.split('.').at(-1) ?? '',
-        isDirectory: false,
-      } satisfies FileItem)
-    if (!libraryOpenReady(plannedFile, 'play')) return
-    const item = playbackItemForPath(path)
+    const item = playbackItemFromFileItem(file)
     if (!item) return
     const mode =
-      item.media === 'video' && urlSearchParams().get('audioOnly') === 'true' ? 'audio' : item.media
-    const state = playbackSession.getSnapshot()
+      item.media === 'video' && params().get('audioOnly') === 'true' ? 'audio' : item.media
+    const current = playbackSession.getSnapshot()
     const sameCurrent =
-      state.currentItem !== null &&
-      normalizedPlaybackPath(state.currentItem.locator) === normalizedPlaybackPath(item.locator)
+      current.currentItem?.locator.replace(/\\/g, '/') === item.locator.replace(/\\/g, '/')
+    const listedFiles =
+      explorerSnapshot()?.items.flatMap((candidate) => {
+        const candidateFile = legacyFileItemForResource(candidate.resource)
+        return candidateFile ? [candidateFile] : []
+      }) ?? []
+    const queue =
+      item.media === 'audio' ? audioPlaybackQueueFromFiles(listedFiles, {}, item) : [item]
     if (!sameCurrent) {
-      playbackSession.dispatch({
-        type: 'load',
-        item,
-        queue: playbackQueueFor(item),
-        mode,
-        autoplay: true,
-      })
+      playbackSession.dispatch({ type: 'load', item, queue, mode, autoplay: true })
       return
     }
-    if (state.mode !== mode) playbackSession.dispatch({ type: 'setMode', mode })
-    if (item.media !== 'audio') return
-    const queue = playbackQueueFor(item)
-    if (!samePlaybackQueue(state.queue, queue)) {
-      playbackSession.dispatch({ type: 'setQueue', queue, current: state.currentItem })
+    if (current.mode !== mode) playbackSession.dispatch({ type: 'setMode', mode })
+    if (item.media === 'audio') {
+      playbackSession.dispatch({ type: 'setQueue', queue, current: current.currentItem ?? item })
     }
   })
 
-  const [searchQuery, setSearchQuery] = createSignal('')
-  const [debouncedSearch, setDebouncedSearch] = createSignal('')
-  const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
-  const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
-  const breadcrumbMenu = () => breadcrumbFloating.folderMenu
+  async function replaceIntegrationContent(content: ContentInstance) {
+    const previous = integrationContent()
+    if (previous && !sameContentIdentity(previous, content)) {
+      if (!(await applicationContentRuntime.canClose(previous))) return
+      if (integrationContent() !== previous) return
+      await applicationContentRuntime.release(previous)
+    }
+    setIntegrationContent(content)
+  }
 
-  createEffect(() => {
-    const q = searchQuery()
-    const id = window.setTimeout(() => setDebouncedSearch(q), 300)
-    onCleanup(() => clearTimeout(id))
+  async function closeIntegrationContent() {
+    const current = integrationContent()
+    if (!current || !(await applicationContentRuntime.canClose(current))) return
+    await applicationContentRuntime.release(current)
+    if (integrationContent() === current) setIntegrationContent(null)
+  }
+
+  onCleanup(() => {
+    const current = integrationContent()
+    if (current) void applicationContentRuntime.release(current)
   })
 
-  createEffect(
-    on(
-      currentPath,
-      () => {
-        batch(() => {
-          setSearchQuery('')
-          setDebouncedSearch('')
-          setSearchPopoverOpen(false)
-          setInlineMode(null)
-          setInlineName('')
-          resetBreadcrumbFloating()
-        })
-      },
-      { defer: true },
-    ),
-  )
-
-  registerKbSearchHotkeys({
-    active: inKb,
-    isOpen: searchPopoverOpen,
-    setOpen: (open) => {
-      setSearchPopoverOpen(open)
-      if (!open) {
-        setSearchQuery('')
-        setDebouncedSearch('')
-      }
+  useDynamicFavicon(
+    () => {
+      const location = explorerSnapshot()?.locationItem
+      if (!location) return {}
+      const path = legacyExplorerPath(location.resource.key)
+      const icon = location.resource.metadata?.customIcon
+      return path !== null && typeof icon === 'string' ? { [path]: icon } : {}
     },
-    focusInput: () => kbSearchInputEl?.focus(),
-  })
-
-  const kbSearchQuery = useQuery(() => ({
-    queryKey: queryKeys.kbSearch(kbRootPath()!, debouncedSearch()),
-    queryFn: () =>
-      api<{ results: { path: string; name: string; snippet: string }[] }>(
-        `/api/kb/search?root=${encodeURIComponent(kbRootPath()!)}&q=${encodeURIComponent(debouncedSearch())}`,
-      ),
-    enabled: !!kbRootPath() && searchPopoverOpen() && debouncedSearch().trim().length > 0,
-  }))
-
-  const viewMode = createMemo(() => {
-    void viewModeTick()
-    const s = settingsQuery.data
-    return useBrowserViewModeStore
-      .getState()
-      .getViewMode(`admin-viewmode-${currentPath()}`, s?.viewModes?.[currentPath()] ?? 'list')
-  })
-
-  const favorites = createMemo(() => settingsQuery.data?.favorites ?? [])
-  const favoriteSet = createMemo(() => new Set(favorites()))
-
-  const viewModeMutation = useMutation(() => settingsMutationOptions.viewMode(queryClient))
-
-  const favoriteMutation = useMutation(() => settingsMutationOptions.favorite(queryClient))
-  const uploadMutation = useMutation(() => fileMutationOptions.upload(queryClient))
-
-  const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
-  const [deleteTarget, setDeleteTarget] = createSignal<FileItem | null>(null)
-  const [showCreateFolder, setShowCreateFolder] = createSignal(false)
-  const [showCreateFile, setShowCreateFile] = createSignal(false)
-  const [showRename, setShowRename] = createSignal(false)
-  const [renameItem, setRenameItem] = createSignal<FileItem | null>(null)
-  const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
-  const [showMoveDialog, setShowMoveDialog] = createSignal(false)
-  const [copyTarget, setCopyTarget] = createSignal<FileItem | null>(null)
-  const [showCopyDialog, setShowCopyDialog] = createSignal(false)
-  const [newItemName, setNewItemName] = createSignal('')
-  const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
-  const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
-  const [dragAllowsMove, setDragAllowsMove] = createSignal(false)
-  const [enableDrag, setEnableDrag] = createSignal(finePointerDragEnabled())
-  let externalUploadDragDepth = 0
-  const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
-  const [pasteData, setPasteData] = createSignal<PasteData | null>(null)
-  const [showPasteDialog, setShowPasteDialog] = createSignal(false)
-  const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
-  const [inlineName, setInlineName] = createSignal('')
-  const [directoryBackgroundMenu, setDirectoryBackgroundMenu] = createSignal<{
-    x: number
-    y: number
-  } | null>(null)
-  let inlineFileInputEl: HTMLInputElement | undefined
-  let inlineFolderInputEl: HTMLInputElement | undefined
-  let kbSearchInputEl: HTMLInputElement | undefined
-
-  useInlineModeInputFocus(
-    inlineMode,
-    () => inlineFileInputEl,
-    () => inlineFolderInputEl,
+    { getSearch: () => browserLocation().search },
   )
 
-  onMount(() => {
-    setEnableDrag(finePointerDragEnabled())
-    return subscribeFinePointerDragEnabled(setEnableDrag)
-  })
-
-  const fileRowMenu = useFileRowContextMenu({
-    onDeleteRequest: (f) => setDeleteTarget(f),
-  })
-
-  createEffect(() => {
-    if (fileRowMenu.menu()) setDirectoryBackgroundMenu(null)
-  })
-
-  const isUploading = createMemo(() => uploadToast().kind === 'uploading')
-  const deleteMutation = useMutation(() => fileMutationOptions.delete(queryClient))
-
-  const createFolderMutation = useMutation(() => fileMutationOptions.create(queryClient))
-
-  const createFileMutation = useMutation(() => ({
-    ...fileMutationOptions.create(queryClient),
-    onSuccess: (_d, variables) => {
-      openLibraryViewPath(variables.path)
+  const explorerHistory: ExplorerHistory = {
+    current: () => legacyExplorerLocation(currentPath()),
+    push(location) {
+      navigateSearchParams({ dir: pathFromLocation(location) || null }, 'push')
     },
-  }))
-
-  const renameMutation = useMutation(() => fileMutationOptions.rename(queryClient))
-
-  const moveMutation = useMutation(() => fileMutationOptions.rename(queryClient))
-
-  const pasteMutation = useMutation(() => ({
-    mutationFn: (vars: {
-      path: string
-      content?: string
-      base64Content?: string
-      mode: 'create' | 'replace'
-      expectedVersion?: number
-    }) =>
-      vars.mode === 'replace'
-        ? apiEndpoints.files.edit({
-            path: vars.path,
-            content: vars.content,
-            base64Content: vars.base64Content,
-            expectedVersion: vars.expectedVersion,
-          })
-        : apiEndpoints.files.create({
-            type: 'file',
-            path: vars.path,
-            content: vars.content,
-            base64Content: vars.base64Content,
-          }),
-    onSuccess: (_d, variables) => {
-      setShowPasteDialog(false)
-      setPasteData(null)
-      openLibraryViewPath(variables.path)
+    replace(location) {
+      navigateSearchParams({ dir: pathFromLocation(location) || null }, 'replace')
     },
-    onSettled: () => invalidateFileQueries(queryClient),
-  }))
-
-  function closePasteDialog() {
-    setShowPasteDialog(false)
-    setPasteData(null)
-    pasteMutation.reset()
+    back() {
+      window.history.back()
+    },
+    forward() {
+      window.history.forward()
+    },
+    subscribe() {
+      return () => undefined
+    },
   }
 
-  async function handlePasteEvent(e: ClipboardEvent) {
-    if (!isEditable()) return
-    if (!shouldOfferPasteAsNewFile(e)) return
-    e.preventDefault()
-    const data = await extractPasteDataFromClipboardData(e.clipboardData, {
-      textSuggestedExtension: inKb() ? 'md' : 'txt',
-    })
-    if (!data) return
-    setPasteData(data)
-    setShowPasteDialog(true)
-  }
-
-  function handlePasteFileSubmit(
-    fileName: string,
-    mode: 'create' | 'replace',
-    expectedVersion?: number,
-  ) {
-    const pd = pasteData()
-    if (!pd) return
-    const rel = currentPath() ? `${currentPath()}/${fileName}` : fileName
-    if (pd.type === 'image') {
-      pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
-    } else if (pd.type === 'file') {
-      if (pd.isTextContent) {
-        pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
-      } else {
-        pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
-      }
-    } else {
-      pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
-    }
-  }
-
-  const parentDirForDrop = createMemo(() => {
-    const parts = currentPath().split(/[/\\]/).filter(Boolean)
-    return parts.slice(0, -1).join('/')
-  })
-
-  const canDropOnParent = createMemo(
-    () =>
-      isEditable() &&
-      !!currentPath() &&
-      isPathEditable(parentDirForDrop() || '', editableFolders()),
-  )
-
-  function canDropOn(targetPath: string, sourcePath?: string | null) {
-    const src = sourcePath ?? draggedPath()
-    if (!src || src === targetPath) return false
-    if (targetPath.startsWith(src + '/')) return false
-    return true
-  }
-
-  function parentDirFromCurrent(): string {
-    const parts = currentPath().split(/[/\\]/).filter(Boolean)
-    if (parts.length <= 1) return ''
-    return parts.slice(0, -1).join('/')
-  }
-
-  function handleMoveFileFromDrag(sourcePath: string, destinationDir: string) {
-    const fileName = sourcePath.split(/[/\\]/).pop()!
-    const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
-    moveMutation.mutate({ oldPath: sourcePath, newPath })
-  }
-
-  const allowMoveFile = createMemo(() => (isEditable() ? handleMoveFileFromDrag : undefined))
-
-  function parentRowDragOver(e: globalThis.DragEvent) {
-    const mv = allowMoveFile()
-    const dtr = e.dataTransfer
-    if (!mv || !canDropOnParent() || !dtr || (!draggedPath() && !hasFileDragData(dtr))) return
-    if (draggedPath() && !dragAllowsMove()) return
-    e.preventDefault()
-    dtr.dropEffect = 'move'
-    setDragOverPath('__parent__')
-  }
-
-  function parentRowDragLeave(e: globalThis.DragEvent) {
-    const cur = e.currentTarget as Node | null
-    if (cur && !cur.contains(e.relatedTarget as Node) && dragOverPath() === '__parent__') {
-      setDragOverPath(null)
-    }
-  }
-
-  function parentRowDrop(e: globalThis.DragEvent) {
-    e.preventDefault()
-    setDragOverPath(null)
-    const mv = allowMoveFile()
-    if (!mv) return
-    const dest = parentDirFromCurrent()
-    const dp = draggedPath()
-    if (dp) {
-      if (!dragAllowsMove()) return
-      mv(dp, dest)
-      return
-    }
-    const dtr = e.dataTransfer
-    if (!dtr) return
-    const data = getFileDragData(dtr)
-    if (data && isCompatibleSource({ sourceKind: 'local' }, data) && canDropOn(dest, data.path)) {
-      mv(data.path, dest)
-    }
-  }
-
-  function onFileDragStart(file: FileItem, e: globalThis.DragEvent) {
-    const dtr = e.dataTransfer
-    if (!dtr || !enableDrag()) return
-    const canMove = !!allowMoveFile() && isPathEditable(file.path, editableFolders())
-    setDragAllowsMove(canMove)
-    setFileDragData(dtr, {
-      path: file.path,
-      isDirectory: file.isDirectory,
-      sourceKind: 'local',
-      ...(file.isVirtual ? { isVirtual: true } : {}),
-    })
-    dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
-    setDraggedPath(file.path)
-  }
-
-  function onFileDragEnd() {
-    setDraggedPath(null)
-    setDragOverPath(null)
-    setDragAllowsMove(false)
-  }
-
-  function onFolderDragOver(file: FileItem, e: globalThis.DragEvent) {
-    const dtr = e.dataTransfer
-    if (!file.isDirectory || !allowMoveFile() || !dtr) return
-    const hasCross = !draggedPath() && hasFileDragData(dtr)
-    if (!draggedPath() && !hasCross) return
-    const dp = draggedPath()
-    if (dp && !dragAllowsMove()) return
-    if (dp && !canDropOn(file.path)) return
-    if (!isPathEditable(file.path, editableFolders())) return
-    e.preventDefault()
-    dtr.dropEffect = 'move'
-    setDragOverPath(file.path)
-  }
-
-  function onFolderDragLeave(file: FileItem, e: globalThis.DragEvent) {
-    const cur = e.currentTarget as Node | null
-    if (cur && !cur.contains(e.relatedTarget as Node) && dragOverPath() === file.path) {
-      setDragOverPath(null)
-    }
-  }
-
-  function handleFolderRowDragOver(path: string, e: globalThis.DragEvent) {
-    const file = files().find((x) => x.path === path)
-    if (file?.isDirectory) onFolderDragOver(file, e)
-  }
-
-  function handleFolderRowDragLeave(path: string, e: globalThis.DragEvent) {
-    const file = files().find((x) => x.path === path)
-    if (file?.isDirectory) onFolderDragLeave(file, e)
-  }
-
-  function handleFolderRowDrop(path: string, e: globalThis.DragEvent) {
-    const file = files().find((x) => x.path === path)
-    if (file?.isDirectory) onFolderDrop(file, e)
-  }
-
-  function onFolderDrop(file: FileItem, e: globalThis.DragEvent) {
-    e.preventDefault()
-    setDragOverPath(null)
-    const mv = allowMoveFile()
-    if (!mv || !file.isDirectory) return
-    const dp = draggedPath()
-    if (dp && canDropOn(file.path)) {
-      if (!dragAllowsMove()) return
-      mv(dp, file.path)
-      return
-    }
-    if (!dp) {
-      const dtr = e.dataTransfer
-      if (!dtr) return
-      const data = getFileDragData(dtr)
-      if (
-        data &&
-        isCompatibleSource({ sourceKind: 'local' }, data) &&
-        canDropOn(file.path, data.path)
-      ) {
-        mv(data.path, file.path)
-      }
-    }
-  }
-
-  const copyMutation = useMutation(() => fileMutationOptions.copy(queryClient))
-
-  const knowledgeBaseMutation = useMutation(() =>
-    settingsMutationOptions.knowledgeBase(queryClient),
-  )
-
-  const setCustomIconMutation = useMutation(() => settingsMutationOptions.customIcon(queryClient))
-
-  const removeCustomIconMutation = useMutation(() =>
-    settingsMutationOptions.removeCustomIcon(queryClient),
-  )
-
-  const folderExists = createMemo(() => {
-    const n = newItemName().trim()
-    if (!n) return false
-    return files().some((f) => f.isDirectory && f.name.toLowerCase() === n.toLowerCase())
-  })
-
-  const fileExists = createMemo(() => {
-    const n = newItemName().trim()
-    if (!n) return false
-    const fileName = normalizeNewFilePath(n, inKb())
-    return files().some((f) => !f.isDirectory && f.name.toLowerCase() === fileName.toLowerCase())
-  })
-
-  const showInlineCreate = createMemo(() => isEditable() && inKb())
-
-  const inlineFileExists = createMemo(() => {
-    if (inlineMode() !== 'file') return false
-    const stem = inlineName().trim()
-    if (!stem) return false
-    const finalName = normalizeNewFilePath(stem, inKb())
-    return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
-  })
-
-  const inlineFolderExists = createMemo(() => {
-    if (inlineMode() !== 'folder') return false
-    const n = inlineName().trim().toLowerCase()
-    if (!n) return false
-    return files().some((f) => f.isDirectory && f.name.toLowerCase() === n)
-  })
-
-  function submitInlineFile() {
-    const stem = inlineName().trim()
-    if (!stem || inlineFileExists() || !showInlineCreate()) return
-    const base = currentPath() ? `${currentPath()}/${stem}` : stem
-    const finalPath = normalizeNewFilePath(base, inKb())
-    createFileMutation.mutate(
-      { type: 'file', path: finalPath, content: '' },
-      {
-        onSuccess: () => {
-          setInlineMode(null)
-          setInlineName('')
-          createFileMutation.reset()
-        },
-      },
-    )
-  }
-
-  function submitInlineFolder() {
-    const name = inlineName().trim()
-    if (!name || inlineFolderExists() || !showInlineCreate()) return
-    const folderPath = currentPath() ? `${currentPath()}/${name}` : name
-    createFolderMutation.mutate(
-      { type: 'folder', path: folderPath },
-      {
-        onSuccess: () => {
-          setInlineMode(null)
-          setInlineName('')
-          createFolderMutation.reset()
-          if (inKb()) navigateLibraryFolderPath(folderPath)
-        },
-      },
-    )
-  }
-
-  function resetInlineCreate() {
-    setInlineMode(null)
-    setInlineName('')
-    createFileMutation.reset()
-    createFolderMutation.reset()
-  }
-
-  function openDirectoryBackgroundContextMenu(e: MouseEvent) {
-    if (!showInlineCreate()) return
-    const target = e.target
-    if (!(target instanceof Element)) return
-    if (target.closest('[data-file-path]')) return
-    e.preventDefault()
-    e.stopPropagation()
-    fileRowMenu.dismiss()
-    setDirectoryBackgroundMenu({ x: e.clientX, y: e.clientY })
-  }
-
-  const renameTargetExists = createMemo(() => {
-    const n = newItemName().trim()
-    const ed = renameItem()
-    if (!n || !ed || renameMutation.isPending) return false
-    return files().some((f) => f.path !== ed.path && f.name.toLowerCase() === n.toLowerCase())
-  })
-
-  const renameTargetIsDirectory = createMemo(() => {
-    const ed = renameItem()
-    if (!ed) return false
-    return files().find((f) => f.path === ed.path)?.isDirectory ?? ed.isDirectory
-  })
-
-  const moveDialogTarget = createMemo(() => (showMoveDialog() ? moveTarget() : null))
-  const copyDialogTarget = createMemo(() => (showCopyDialog() ? copyTarget() : null))
-
-  async function uploadFilesToServer(files: File[], targetDir: string) {
-    if (files.length === 0) return
-    setUploadToast({ kind: 'uploading', fileCount: files.length })
-    try {
-      const formData = new FormData()
-      formData.append('targetDir', targetDir)
-      for (const file of files) {
-        formData.append('files', file, file.name)
-      }
-      await uploadMutation.mutateAsync(formData)
-      setUploadToast({ kind: 'success' })
-      window.setTimeout(() => {
-        setUploadToast({ kind: 'hidden' })
-      }, 2000)
-    } catch (err) {
-      setUploadToast({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Upload failed',
-      })
-    }
-  }
-
-  function isOsFileUploadDrag(e: globalThis.DragEvent) {
-    const dtr = e.dataTransfer
-    return !!(dtr && dtr.types.includes('Files') && !hasFileDragData(dtr))
-  }
-
-  function onExternalUploadDragEnter(e: globalThis.DragEvent) {
-    if (!isEditable() || !isOsFileUploadDrag(e)) return
-    e.preventDefault()
-    externalUploadDragDepth++
-    if (externalUploadDragDepth === 1) setExternalUploadDragOver(true)
-  }
-
-  function onExternalUploadDragLeave(e: globalThis.DragEvent) {
-    if (!isEditable()) return
-    e.preventDefault()
-    externalUploadDragDepth--
-    if (externalUploadDragDepth <= 0) {
-      externalUploadDragDepth = 0
-      setExternalUploadDragOver(false)
-    }
-  }
-
-  function onExternalUploadDragOver(e: globalThis.DragEvent) {
-    if (!isEditable() || !isOsFileUploadDrag(e)) return
-    e.preventDefault()
-    const dtr = e.dataTransfer
-    if (dtr) dtr.dropEffect = 'copy'
-  }
-
-  async function onExternalUploadDrop(e: globalThis.DragEvent) {
-    e.preventDefault()
-    externalUploadDragDepth = 0
-    setExternalUploadDragOver(false)
-    if (!isEditable()) return
-    const dtr = e.dataTransfer
-    if (!dtr || dtr.files.length === 0) return
-    const files = await collectDroppedUploadFiles(dtr)
-    if (files.length > 0) void uploadFilesToServer(files, currentPath())
-  }
-
-  function handleParentDirectory() {
-    if (isVirtualFolder()) {
-      navigateLibraryFolderPath(null)
-      return
-    }
-    const parts = currentPath().split(/[/\\]/).filter(Boolean)
-    if (parts.length > 0) {
-      const parentPath = parts.slice(0, -1).join('/')
-      navigateLibraryFolderPath(parentPath || null)
-    }
-  }
-
-  function handleBreadcrumbNavigate(path: string) {
-    navigateLibraryFolderPath(path || null)
-  }
-
-  function breadcrumbAsFolderItem(m: BreadcrumbMenuTarget): FileItem {
-    const p = m.serverPath
-    return {
-      name: m.displayName,
-      path: p,
-      type: MediaType.FOLDER,
-      size: 0,
-      extension: '',
-      isDirectory: true,
-      isVirtual: isVirtualFolderPath(p),
-    }
-  }
-
-  const breadcrumbMenuActions = createMemo(() => {
-    const m = breadcrumbMenu()
-    if (!m) {
-      return { showOpenInNewTab: false, showOpenInWorkspace: false, showSetIcon: false }
-    }
-    if (m.isHome) {
-      return { showOpenInNewTab: true, showOpenInWorkspace: true, showSetIcon: false }
-    }
-    const virt = isVirtualFolderPath(m.serverPath)
-    return {
-      showOpenInNewTab: !virt,
-      showOpenInWorkspace: !virt,
-      showSetIcon: !virt,
-    }
-  })
-
-  function handleBreadcrumbCrumbContextMenu(
-    e: MouseEvent,
-    info: { navigatePath: string; displayName: string; isHome: boolean },
-  ) {
-    setBreadcrumbFolderMenu({
-      x: e.clientX,
-      y: e.clientY,
-      serverPath: info.navigatePath.replace(/\\/g, '/'),
-      displayName: info.displayName,
-      isHome: info.isHome,
-    })
-  }
-
-  function handleBreadcrumbOpenInNewTab() {
-    const m = breadcrumbMenu()
-    if (!m) return
-    if (m.isHome) {
-      if (!libraryOpenReady(breadcrumbAsFolderItem(m), 'browse', {}, 'window')) return
-      window.open(new URL(hrefFor({ kind: 'library' }), window.location.origin).href, '_blank')
-      return
-    }
-    handleContextOpenInNewTab(breadcrumbAsFolderItem(m))
-  }
-
-  function handleBreadcrumbOpenInWorkspace() {
-    const m = breadcrumbMenu()
-    if (!m) return
-    if (m.isHome) {
-      if (!libraryOpenReady(breadcrumbAsFolderItem(m), 'browse', {}, 'window')) return
-      window.open(hrefFor({ kind: 'workspace' }), '_blank')
-      return
-    }
-    handleContextOpenInWorkspace(breadcrumbAsFolderItem(m))
-  }
-
-  function handleBreadcrumbSetIcon() {
-    const m = breadcrumbMenu()
-    if (!m || m.isHome || isVirtualFolderPath(m.serverPath)) return
-    setIconEditTarget(breadcrumbAsFolderItem(m))
-  }
-
-  function handleContextDownload(file: FileItem) {
-    const link = document.createElement('a')
-    link.href = fileDownloadHref(file.path)
-    link.download = file.isDirectory ? `${file.name}.zip` : file.name
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  function handleContextOpenInNewTab(file: FileItem) {
-    if (!file.isDirectory || file.isVirtual) return
-    if (!libraryOpenReady(file, 'browse', {}, 'window')) return
-    const url = new URL(
-      hrefFor({ kind: 'library' }, file.path ? { dir: file.path } : undefined),
-      window.location.origin,
-    ).href
-    window.open(url, '_blank')
-  }
-
-  function handleContextOpenInWorkspace(file: FileItem) {
-    if (!file.isDirectory || file.isVirtual) return
-    if (!libraryOpenReady(file, 'browse', {}, 'window')) return
-    window.open(
-      hrefFor({ kind: 'workspace' }, file.path ? { dir: file.path } : undefined),
-      '_blank',
-    )
-  }
-
-  function handleContextToggleFavorite(file: FileItem) {
-    favoriteMutation.mutate({ filePath: file.path })
-  }
-
-  function isRowFavorite(file: FileItem) {
-    return favoriteSet().has(file.path)
-  }
-
-  function openCreateFolder() {
-    setNewItemName('')
-    createFolderMutation.reset()
-    setShowCreateFolder(true)
-  }
-
-  function openCreateFile() {
-    setNewItemName('')
-    createFileMutation.reset()
-    setShowCreateFile(true)
-  }
-
-  function submitCreateFolder() {
-    const name = newItemName().trim()
-    const folderPath = currentPath() ? `${currentPath()}/${name}` : name
-    createFolderMutation.mutate(
-      { type: 'folder', path: folderPath },
-      {
-        onSuccess: () => {
-          setShowCreateFolder(false)
-          setNewItemName('')
-          createFolderMutation.reset()
-        },
-      },
-    )
-  }
-
-  function submitCreateFile() {
-    let filePath = newItemName().trim()
-    if (!filePath) return
-    filePath = currentPath() ? `${currentPath()}/${filePath}` : filePath
-    filePath = normalizeNewFilePath(filePath, inKb())
-    createFileMutation.mutate(
-      { type: 'file', path: filePath, content: '' },
-      {
-        onSuccess: () => {
-          setShowCreateFile(false)
-          setNewItemName('')
-          createFileMutation.reset()
-        },
-      },
-    )
-  }
-
-  function handleContextRename(file: FileItem) {
-    setRenameItem(file)
-    setNewItemName(file.name)
-    renameMutation.reset()
-    setShowRename(true)
-  }
-
-  function submitRename() {
-    const ed = renameItem()
-    if (!ed) return
-    const pathParts = ed.path.split(/[/\\]/).filter(Boolean)
-    const parentPath = pathParts.slice(0, -1).join('/')
-    const newPath = parentPath ? `${parentPath}/${newItemName().trim()}` : newItemName().trim()
-    renameMutation.mutate(
-      { oldPath: ed.path, newPath },
-      {
-        onSuccess: () => {
-          setShowRename(false)
-          setRenameItem(null)
-          setNewItemName('')
-          renameMutation.reset()
-        },
-      },
-    )
-  }
-
-  function handleContextMove(file: FileItem) {
-    setMoveTarget(file)
-    moveMutation.reset()
-    setShowMoveDialog(true)
-  }
-
-  function handleDialogMove(dest: string) {
-    const t = moveTarget()
-    if (!t) return
-    const fileName = t.path.split(/[/\\]/).pop()!
-    const normDest = dest.replace(/\\/g, '/').replace(/\/+$/, '')
-    const newPath = normDest ? `${normDest}/${fileName}` : fileName
-    const oldPath = t.path.replace(/\\/g, '/')
-    moveMutation.mutate(
-      { oldPath, newPath },
-      {
-        onSuccess: () => {
-          setShowMoveDialog(false)
-          setMoveTarget(null)
-          moveMutation.reset()
-        },
-      },
-    )
-  }
-
-  function handleContextCopyTo(file: FileItem) {
-    setCopyTarget(file)
-    copyMutation.reset()
-    setShowCopyDialog(true)
-  }
-
-  function handleCopyToDestination(dest: string) {
-    const t = copyTarget()
-    if (!t) return
-    copyMutation.mutate(
-      { sourcePath: t.path, destinationDir: dest },
-      {
-        onSuccess: () => {
-          setShowCopyDialog(false)
-          setCopyTarget(null)
-          copyMutation.reset()
-        },
-      },
-    )
-  }
-
-  function fileBrowserPrefetchCtx(): PrefetchFolderHoverContext {
-    return { queryClient, knowledgeBases: knowledgeBases() }
-  }
-
-  function handleFileClick(
-    file: FileItem,
-    sourceDir = currentPath(),
-    resourceOptions: FileItemResourceOptions = {},
-  ) {
+  function openFile(file: FileItem, sourceDir = currentPath()) {
     if (file.isDirectory) {
-      if (libraryOpenReady(file, 'browse', resourceOptions)) navigateToFolder(file.path)
+      navigateSearchParams({ dir: file.path || null }, 'push')
       return
     }
-
-    const isMediaFile = file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
-    if (!libraryOpenReady(file, isMediaFile ? 'play' : 'view', resourceOptions)) return
-    viewStats.incrementView(file.path)
-    if (isMediaFile) {
-      const item = safePlaybackItemFromFile(file, resourceOptions)
+    if (file.type === MediaType.AUDIO || file.type === MediaType.VIDEO) {
+      const item = playbackItemFromFileItem(file)
       if (!item) return
-      const state = playbackSession.getSnapshot()
-      if (
-        state.currentItem &&
-        normalizedPlaybackPath(state.currentItem.locator) ===
-          normalizedPlaybackPath(item.locator) &&
-        state.mode === item.media
-      ) {
+      const current = playbackSession.getSnapshot()
+      const listedFiles =
+        explorerSnapshot()?.items.flatMap((listed) => {
+          const listedFile = legacyFileItemForResource(listed.resource)
+          return listedFile ? [listedFile] : []
+        }) ?? []
+      const queue =
+        item.media === 'audio' ? audioPlaybackQueueFromFiles(listedFiles, {}, item) : [item]
+      if (current.currentItem?.locator === item.locator && current.mode === item.media) {
         playbackSession.dispatch({ type: 'toggle' })
       } else {
         playbackSession.dispatch({
           type: 'load',
           item,
-          queue: playbackQueueFor(item, resourceOptions),
+          queue,
           mode: item.media,
           autoplay: true,
         })
       }
       playFile(file.path, sourceDir)
-    } else {
-      viewFile(file.path, sourceDir)
+      return
     }
+    viewFile(file.path, sourceDir)
   }
 
-  function handleLibrarySearchResult(result: FileSearchResult) {
-    handleFileClick(fileSearchResultToFileItem(result), result.parentPath, {
-      rootId: result.rootId,
-      logicalPath: result.path,
+  function placeLibraryPlan(plan: HostOpenPlan<'replace' | 'modal' | 'fullscreen'>) {
+    const planned = plannedLibraryItem
+    const item =
+      (planned &&
+      planned.resource.key.provider === plan.resource.provider &&
+      planned.resource.key.id === plan.resource.id
+        ? planned
+        : null) ??
+      explorerSnapshot()?.items.find(
+        (candidate) =>
+          candidate.resource.key.provider === plan.resource.provider &&
+          candidate.resource.key.id === plan.resource.id,
+      )
+    const file = item ? legacyFileItemForResource(item.resource) : null
+    if (file) openFile(file)
+  }
+
+  const libraryHost = createLibraryHost({
+    replace: placeLibraryPlan,
+    modal: placeLibraryPlan,
+    fullscreen: placeLibraryPlan,
+    close(instanceId) {
+      if (integrationContent()?.id === instanceId) void closeIntegrationContent()
+    },
+    focus(instanceId) {
+      if (integrationContent()?.id === instanceId) integrationDialogRef?.focus()
+    },
+  })
+
+  function openItem(item: ExplorerItem<ApplicationExplorerPayload>) {
+    const file = legacyFileItemForResource(item.resource)
+    if (!file) return
+    const intent = file.isDirectory
+      ? 'browse'
+      : file.type === MediaType.AUDIO || file.type === MediaType.VIDEO
+        ? 'play'
+        : 'view'
+    const plan = openResource(item.resource, intent, {
+      surface: 'library',
+      disposition:
+        file.type === MediaType.PDF || file.type === MediaType.BOOK
+          ? 'fullscreen'
+          : file.isDirectory
+            ? 'replace'
+            : 'modal',
     })
-  }
-
-  function setViewMode(mode: 'list' | 'grid') {
-    useBrowserViewModeStore.getState().setViewMode(`admin-viewmode-${currentPath()}`, mode)
-    viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
-  }
-
-  function handleKbResultClick(filePath: string) {
-    setSearchQuery('')
-    setSearchPopoverOpen(false)
-    openLibraryViewPath(filePath)
-  }
-
-  function handleContextToggleKnowledgeBase(file: FileItem) {
-    knowledgeBaseMutation.mutate({ filePath: file.path.replace(/\\/g, '/') })
-  }
-
-  function handleContextOpenWithReader(file: FileItem) {
-    if (libraryOpenReady(file, 'read')) openInReader(file)
-  }
-
-  function handleContextSetIcon(file: FileItem) {
-    setIconEditTarget(file)
-  }
-
-  function handleSaveCustomIcon(iconName: string | null) {
-    const t = iconEditTarget()
-    if (!t) return
-    const p = t.path.replace(/\\/g, '/')
-    if (iconName) {
-      void setCustomIconMutation.mutateAsync({ path: p, iconName })
-    } else {
-      void removeCustomIconMutation.mutateAsync({ path: p })
+    if (plan.status === 'ready') {
+      void recordApplicationExplorerView(item.resource)
+      plannedLibraryItem = item
+      try {
+        libraryHost.open(plan as HostOpenPlan<'replace' | 'modal' | 'fullscreen'>)
+      } finally {
+        plannedLibraryItem = null
+      }
     }
   }
 
-  function isRowKnowledgeBase(file: FileItem) {
-    return file.isDirectory && knowledgeBases().includes(file.path.replace(/\\/g, '/'))
+  function openSearchResult(result: FileSearchResult) {
+    openFile(fileSearchResultToFileItem(result), result.parentPath)
   }
 
-  const showKbSearchResults = createMemo(() => inKb() && searchQuery().trim().length > 0)
-  const showEmptyFolder = createMemo(
-    () =>
-      !filesQuery.isError &&
-      filesQuery.data !== undefined &&
-      files().length === 0 &&
-      !showKbSearchResults(),
-  )
+  function hostActions(): readonly ExplorerHostAction<ApplicationExplorerPayload>[] {
+    return [
+      {
+        descriptor: {
+          id: 'host.openInNewTab',
+          label: 'Open in new tab',
+          capability: 'host.newTab',
+          scope: 'host',
+        },
+        available: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          return !!file?.isDirectory && !file.isVirtual
+        },
+        run: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          if (!file) return
+          window.open(
+            new URL(
+              hrefFor({ kind: 'library' }, file.path ? { dir: file.path } : undefined),
+              window.location.origin,
+            ).href,
+            '_blank',
+          )
+        },
+      },
+      {
+        descriptor: {
+          id: 'host.openInWorkspace',
+          label: 'Open in Workspace',
+          capability: 'host.workspace',
+          scope: 'host',
+        },
+        available: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          return !!file?.isDirectory && !file.isVirtual
+        },
+        run: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          if (!file) return
+          window.open(
+            hrefFor({ kind: 'workspace' }, file.path ? { dir: file.path } : undefined),
+            '_blank',
+          )
+        },
+      },
+      {
+        descriptor: {
+          id: 'host.openWithReader',
+          label: 'Open with Reader',
+          capability: 'host.reader',
+          scope: 'host',
+        },
+        available: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          return !!file?.isDirectory && !file.isVirtual
+        },
+        run: (item) => {
+          const file = legacyFileItemForResource(item.resource)
+          if (file) openInReader(file)
+        },
+      },
+    ]
+  }
+
+  function iconContext(item: ExplorerItem<ApplicationExplorerPayload>): FileIconContext {
+    const file = legacyFileItemForResource(item.resource)
+    const metadata = item.resource.metadata ?? {}
+    const playback = playbackSnapshot()
+    return {
+      customIcons:
+        file && typeof metadata.customIcon === 'string' ? { [file.path]: metadata.customIcon } : {},
+      knowledgeBases: file && metadata.knowledgeBase === true ? [file.path] : [],
+      playingPath: playback.currentItem?.locator ?? null,
+      currentFile: playback.currentItem?.locator ?? null,
+      mediaPlayerIsPlaying: playback.phase === 'playing',
+      mediaType: playback.currentItem?.media ?? null,
+    }
+  }
 
   return (
     <div class='min-h-screen bg-background'>
-      <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />
+      <MainMediaPlayers />
       <div
-        class={cn(
-          isAudioPlayingBar() &&
-            'max-[649px]:pb-[calc(2.875rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-12',
-        )}
+        class='container mx-auto min-h-screen p-0 lg:p-4'
+        classList={{
+          'max-[649px]:pb-[calc(2.875rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-12':
+            !!playbackSnapshot().currentItem && playbackSnapshot().mode === 'audio',
+        }}
         data-testid='media-chrome-pad-root'
       >
         <div
-          data-testid='file-browser'
-          class='flex min-h-0 flex-1 flex-col'
-          tabIndex={0}
-          title={
-            isEditable() && inKb()
-              ? 'Focus here and paste (Ctrl+V) to create a file from the clipboard.'
-              : undefined
-          }
-          onPaste={(e) => void handlePasteEvent(e)}
+          data-testid='library-explorer-shell'
+          class='min-h-[32rem] border-border bg-card shadow-sm lg:rounded-xl lg:border'
         >
-          <div class='container mx-auto lg:p-4'>
-            <div class='ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none py-0 text-sm shadow-xs ring-1 lg:rounded-xl'>
-              <div class='shrink-0 border-b border-border bg-muted/30 p-1.5 lg:p-2'>
-                <div class='flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'>
-                  <div
-                    data-breadcrumb-slot
-                    data-testid='breadcrumb-slot'
-                    class='relative flex min-h-0 min-w-0 flex-1 overflow-hidden'
-                  >
-                    <Breadcrumbs
-                      currentPath={currentPath()}
-                      onNavigate={handleBreadcrumbNavigate}
-                      onCrumbContextMenu={handleBreadcrumbCrumbContextMenu}
-                    />
-                  </div>
-                  <Show when={inKb()}>
-                    <div class='order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'>
-                      <button
-                        type='button'
-                        aria-label='Search note contents'
-                        title='Search note contents (Ctrl+K)'
-                        aria-pressed={searchPopoverOpen()}
-                        class={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors ${
-                          searchPopoverOpen()
-                            ? 'bg-accent text-accent-foreground shadow-sm'
-                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                        }`}
-                        onClick={() => {
-                          const open = !searchPopoverOpen()
-                          setSearchPopoverOpen(open)
-                          if (!open) {
-                            setSearchQuery('')
-                            setDebouncedSearch('')
-                          }
-                        }}
-                      >
-                        <BookOpenText class='h-4 w-4' aria-hidden='true' stroke-width={2} />
-                      </button>
-                    </div>
-                  </Show>
-                  <div class='flex items-center gap-1'>
-                    <Show when={isEditable()}>
-                      <button
-                        type='button'
-                        title='Create new folder'
-                        aria-label='New folder'
-                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
-                        onClick={() => openCreateFolder()}
-                      >
-                        <FolderPlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
-                      </button>
-                      <button
-                        type='button'
-                        title='Create new file'
-                        aria-label='New file'
-                        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
-                        onClick={() => openCreateFile()}
-                      >
-                        <FilePlus class='h-4 w-4' aria-hidden='true' stroke-width={2} />
-                      </button>
-                      <UploadMenu
-                        disabled={isUploading()}
-                        onUpload={(files) => void uploadFilesToServer(files, currentPath())}
-                      />
-                    </Show>
-                    <FileSearchButton
-                      title='Search library'
-                      testId='classic-file-search-trigger'
-                      onSelect={handleLibrarySearchResult}
-                    />
-                    <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
-                    <ThemeSwitcher />
-                  </div>
-                </div>
-                <Show when={inKb() && searchPopoverOpen()}>
-                  <div class='pt-1.5' data-testid='kb-search-bar'>
-                    <input
-                      ref={(el) => {
-                        kbSearchInputEl = el ?? undefined
-                      }}
-                      type='text'
-                      placeholder='Search notes...'
-                      autocomplete='off'
-                      class='border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:outline-none'
-                      value={searchQuery()}
-                      onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    />
-                  </div>
-                </Show>
-              </div>
-
-              <div
-                class='relative flex flex-col'
-                data-testid='upload-drop-zone'
-                onDragEnter={onExternalUploadDragEnter}
-                onDragLeave={onExternalUploadDragLeave}
-                onDragOver={onExternalUploadDragOver}
-                onDrop={(e) => void onExternalUploadDrop(e)}
-                onContextMenu={openDirectoryBackgroundContextMenu}
-              >
-                <div>
-                  <Show when={filesQuery.isError}>
-                    <DirectoryListingErrorPanel
-                      onRetry={() => void filesQuery.refetch()}
-                      detail={filesQuery.error?.message}
-                    />
-                  </Show>
-
-                  <Show when={!filesQuery.isError}>
-                    <Show
-                      when={showKbSearchResults()}
-                      fallback={
-                        <>
-                          <Show when={inKb() && !!currentPath()}>
-                            <KbDashboard
-                              scopePath={currentPath()}
-                              onFileClick={handleKbResultClick}
-                              recentDragCanMove={(p) =>
-                                !!allowMoveFile() && isPathEditable(p, editableFolders())
-                              }
-                            />
-                          </Show>
-                          <DirectoryListingLoading
-                            show={isFilesLoadingInitial() && showFilesDeferredLoading()}
-                          />
-                          <Show when={!isFilesLoadingInitial()}>
-                            <Switch>
-                              <Match when={viewMode() === 'grid'}>
-                                <div class='py-4 px-4'>
-                                  <VirtualDirectoryGrid
-                                    files={files}
-                                    includeParent={() => !!currentPath()}
-                                    scrollTarget={{ kind: 'window' }}
-                                    scrollScope={fileBrowserScrollScope}
-                                    class='gap-4'
-                                    renderParentCard={() => (
-                                      <div
-                                        class='ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col'
-                                        onClick={handleParentDirectory}
-                                        onPointerEnter={() =>
-                                          prefetchParentDirectoryHover(fileBrowserPrefetchCtx(), {
-                                            currentPath: currentPath(),
-                                            isVirtualFolder: isVirtualFolder(),
-                                          })
-                                        }
-                                        onKeyDown={(e) =>
-                                          e.key === 'Enter' && handleParentDirectory()
-                                        }
-                                        role='button'
-                                        tabindex={0}
-                                      >
-                                        <div class='flex aspect-video flex-col items-center justify-center p-4 bg-muted/80'>
-                                          <ArrowUp
-                                            class='mb-2 h-12 w-12 text-muted-foreground'
-                                            size={48}
-                                            stroke-width={2}
-                                          />
-                                          <p class='text-center text-sm font-medium'>..</p>
-                                          <p class='text-center text-xs text-muted-foreground'>
-                                            Parent Folder
-                                          </p>
-                                        </div>
-                                      </div>
-                                    )}
-                                    renderFileCard={(file) => {
-                                      const isFav = () => favoriteSet().has(file.path)
-                                      return (
-                                        <div
-                                          data-file-path={file.path}
-                                          class={cn(
-                                            'ring-foreground/10 bg-card text-card-foreground cursor-pointer py-0 transition-colors select-none hover:bg-muted/50 rounded-xl text-left shadow-xs ring-1 overflow-hidden flex flex-col',
-                                            playingParam() === file.path ? 'bg-primary/10' : '',
-                                          )}
-                                          onClick={() => handleFileClick(file)}
-                                          onPointerEnter={() =>
-                                            prefetchFolderContentsOnHover(
-                                              fileBrowserPrefetchCtx(),
-                                              file,
-                                            )
-                                          }
-                                          onContextMenu={(e) =>
-                                            fileRowMenu.openRowContextMenu(e, file)
-                                          }
-                                          {...createLongPressContextMenuHandlers()}
-                                          onKeyDown={(e) =>
-                                            e.key === 'Enter' && handleFileClick(file)
-                                          }
-                                          role='button'
-                                          tabindex={0}
-                                        >
-                                          <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-                                            <button
-                                              type='button'
-                                              aria-label={`More actions for ${file.name}`}
-                                              class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm'
-                                              onClick={(e) =>
-                                                fileRowMenu.openRowMenuFromButton(e, file)
-                                              }
-                                            >
-                                              <Ellipsis class='h-5 w-5' aria-hidden='true' />
-                                            </button>
-                                            <Show when={!file.isDirectory}>
-                                              <button
-                                                type='button'
-                                                class={cn(
-                                                  'absolute top-1.5 left-1.5 z-10 rounded-full p-1 transition-all',
-                                                  isFav()
-                                                    ? 'bg-background/90 shadow-sm hover:bg-background'
-                                                    : 'bg-background/70 opacity-60 hover:bg-background/90 group-hover:opacity-100',
-                                                )}
-                                                title={
-                                                  isFav()
-                                                    ? 'Remove from favorites'
-                                                    : 'Add to favorites'
-                                                }
-                                                aria-label={
-                                                  isFav()
-                                                    ? `Remove ${file.name} from favorites`
-                                                    : `Add ${file.name} to favorites`
-                                                }
-                                                onClick={(e) => {
-                                                  e.stopPropagation()
-                                                  favoriteMutation.mutate({ filePath: file.path })
-                                                }}
-                                              >
-                                                <Star
-                                                  class={cn(
-                                                    'h-3.5 w-3.5',
-                                                    isFav()
-                                                      ? 'fill-yellow-400 text-yellow-400'
-                                                      : 'text-muted-foreground',
-                                                  )}
-                                                  fill={isFav() ? 'currentColor' : 'none'}
-                                                  stroke-width={2}
-                                                />
-                                              </button>
-                                            </Show>
-                                            <Show when={!file.isDirectory}>
-                                              <div
-                                                class={cn(
-                                                  'absolute top-1.5 right-1.5 z-10 flex items-center gap-1',
-                                                  viewStats.getViewCount(file.path) > 0
-                                                    ? ''
-                                                    : 'hidden',
-                                                )}
-                                              >
-                                                <Show when={viewStats.getViewCount(file.path) > 0}>
-                                                  <div
-                                                    class='flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 shadow-sm backdrop-blur-sm'
-                                                    title={`${viewStats.getViewCount(file.path)} views`}
-                                                  >
-                                                    <Eye
-                                                      class='h-3 w-3 text-muted-foreground'
-                                                      stroke-width={2}
-                                                    />
-                                                    <span class='text-xs font-medium text-muted-foreground'>
-                                                      {viewStats.getViewCount(file.path)}
-                                                    </span>
-                                                  </div>
-                                                </Show>
-                                              </div>
-                                            </Show>
-                                            <div
-                                              class='text-muted-foreground'
-                                              {...(isRowKnowledgeBase(file)
-                                                ? { 'data-kb-root-icon': '' }
-                                                : {})}
-                                            >
-                                              {gridHeroIcon(file, fileIconCtx())}
-                                            </div>
-                                          </div>
-                                          <div class='flex flex-col gap-1 p-3'>
-                                            <p
-                                              class='truncate text-sm font-medium'
-                                              title={file.name}
-                                            >
-                                              {file.name}
-                                            </p>
-                                            <Show
-                                              when={isVirtualFolder() && !file.isDirectory}
-                                              fallback={
-                                                <div class='flex items-center justify-end text-xs text-muted-foreground'>
-                                                  <span>
-                                                    {file.isDirectory
-                                                      ? ''
-                                                      : formatFileSize(file.size)}
-                                                  </span>
-                                                </div>
-                                              }
-                                            >
-                                              <p
-                                                class='truncate text-xs text-muted-foreground'
-                                                title={
-                                                  file.path.split(/[/\\]/).slice(0, -1).join('/') ||
-                                                  '/'
-                                                }
-                                              >
-                                                {file.path.split(/[/\\]/).slice(0, -1).join('/') ||
-                                                  '/'}
-                                              </p>
-                                            </Show>
-                                          </div>
-                                        </div>
-                                      )
-                                    }}
-                                  />
-                                  <DirectoryListingEmpty
-                                    show={showEmptyFolder()}
-                                    canUpload={isEditable()}
-                                  />
-                                </div>
-                              </Match>
-                              <Match when={viewMode() === 'list'}>
-                                <div class='sm:px-4 py-2'>
-                                  <VirtualDirectoryList
-                                    files={files}
-                                    includeParent={() => !!currentPath()}
-                                    scrollTarget={{ kind: 'window' }}
-                                    scrollScope={fileBrowserScrollScope}
-                                    class='relative w-full overflow-x-auto'
-                                    colSpan={4}
-                                    sizeColumnClass='w-28'
-                                    renderParentRow={() => (
-                                      <tr
-                                        class={cn(
-                                          'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none',
-                                          dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
-                                        )}
-                                        onClick={handleParentDirectory}
-                                        onPointerEnter={() =>
-                                          prefetchParentDirectoryHover(fileBrowserPrefetchCtx(), {
-                                            currentPath: currentPath(),
-                                            isVirtualFolder: isVirtualFolder(),
-                                          })
-                                        }
-                                        onDragOver={
-                                          allowMoveFile() && canDropOnParent()
-                                            ? parentRowDragOver
-                                            : undefined
-                                        }
-                                        onDragLeave={
-                                          allowMoveFile() && canDropOnParent()
-                                            ? parentRowDragLeave
-                                            : undefined
-                                        }
-                                        onDrop={
-                                          allowMoveFile() && canDropOnParent()
-                                            ? parentRowDrop
-                                            : undefined
-                                        }
-                                      >
-                                        <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'>
-                                          <div class='flex items-center justify-center'>
-                                            <ArrowUp
-                                              class='h-5 w-5 text-muted-foreground'
-                                              size={20}
-                                              stroke-width={2}
-                                            />
-                                          </div>
-                                        </td>
-                                        <td class='min-w-0 p-2 align-middle font-medium'>..</td>
-                                        <td class='min-w-0 p-2 align-middle text-right text-muted-foreground' />
-                                        <td />
-                                      </tr>
-                                    )}
-                                    renderFileRow={(file) => {
-                                      const isFav = () => favoriteSet().has(file.path)
-                                      const canDragRow = enableDrag()
-                                      return (
-                                        <tr
-                                          data-file-path={file.path}
-                                          class={cn(
-                                            'border-b border-border transition-colors hover:bg-muted/50 cursor-pointer select-none group',
-                                            playingParam() === file.path ? 'bg-primary/10' : '',
-                                            file.isDirectory && dragOverPath() === file.path
-                                              ? 'bg-primary/20'
-                                              : '',
-                                            draggedPath() === file.path ? 'opacity-50' : '',
-                                          )}
-                                          draggable={canDragRow}
-                                          onClick={() => handleFileClick(file)}
-                                          onPointerEnter={() =>
-                                            prefetchFolderContentsOnHover(
-                                              fileBrowserPrefetchCtx(),
-                                              file,
-                                            )
-                                          }
-                                          onContextMenu={(e) =>
-                                            fileRowMenu.openRowContextMenu(e, file)
-                                          }
-                                          {...createLongPressContextMenuHandlers()}
-                                          onDragStart={(e) => onFileDragStart(file, e)}
-                                          onDragEnd={onFileDragEnd}
-                                          onDragOver={(e) => {
-                                            if (!file.isDirectory || !allowMoveFile()) return
-                                            handleFolderRowDragOver(file.path, e)
-                                          }}
-                                          onDragLeave={(e) => {
-                                            if (!file.isDirectory || !allowMoveFile()) return
-                                            handleFolderRowDragLeave(file.path, e)
-                                          }}
-                                          onDrop={(e) => {
-                                            if (!file.isDirectory || !allowMoveFile()) return
-                                            handleFolderRowDrop(file.path, e)
-                                          }}
-                                        >
-                                          <td
-                                            class='w-[40px] min-w-[40px] max-w-[40px] box-border p-2 align-middle'
-                                            {...(isRowKnowledgeBase(file)
-                                              ? { 'data-kb-root-icon': '' }
-                                              : {})}
-                                          >
-                                            <div class='flex items-center justify-center'>
-                                              {fileItemIcon(file, fileIconCtx())}
-                                            </div>
-                                          </td>
-                                          <td class='min-w-0 p-2 align-middle font-medium'>
-                                            <div class='flex items-center gap-2 min-w-0'>
-                                              <Show when={!file.isDirectory}>
-                                                <button
-                                                  type='button'
-                                                  class='shrink-0 opacity-50 hover:opacity-100 group-hover:opacity-100 transition-opacity inline-flex'
-                                                  title={
-                                                    isFav()
-                                                      ? 'Remove from favorites'
-                                                      : 'Add to favorites'
-                                                  }
-                                                  aria-label={
-                                                    isFav()
-                                                      ? `Remove ${file.name} from favorites`
-                                                      : `Add ${file.name} to favorites`
-                                                  }
-                                                  onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    favoriteMutation.mutate({
-                                                      filePath: file.path,
-                                                    })
-                                                  }}
-                                                >
-                                                  <Star
-                                                    class={cn(
-                                                      'h-4 w-4',
-                                                      isFav()
-                                                        ? 'fill-yellow-400 text-yellow-400 opacity-100'
-                                                        : 'text-muted-foreground',
-                                                    )}
-                                                    fill={isFav() ? 'currentColor' : 'none'}
-                                                    size={16}
-                                                    stroke-width={2}
-                                                  />
-                                                </button>
-                                              </Show>
-                                              <div class='min-w-0 flex-1'>
-                                                <span class='block truncate'>{file.name}</span>
-                                                <Show when={isVirtualFolder() && !file.isDirectory}>
-                                                  <span class='block truncate text-xs text-muted-foreground'>
-                                                    {file.path
-                                                      .split(/[/\\]/)
-                                                      .slice(0, -1)
-                                                      .join('/') || '/'}
-                                                  </span>
-                                                </Show>
-                                              </div>
-                                            </div>
-                                          </td>
-                                          <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
-                                            <div class='flex items-center justify-end gap-2'>
-                                              <Show when={!file.isDirectory}>
-                                                <Show when={viewStats.getViewCount(file.path) > 0}>
-                                                  <div
-                                                    class='flex items-center gap-1 text-xs'
-                                                    title={`${viewStats.getViewCount(file.path)} views`}
-                                                    data-testid='file-view-count'
-                                                  >
-                                                    <Eye
-                                                      class='h-3.5 w-3.5 shrink-0'
-                                                      stroke-width={2}
-                                                    />
-                                                    <span>{viewStats.getViewCount(file.path)}</span>
-                                                  </div>
-                                                </Show>
-                                              </Show>
-                                              <span class='inline-block w-20 tabular-nums shrink-0'>
-                                                {file.isDirectory ? '' : formatFileSize(file.size)}
-                                              </span>
-                                            </div>
-                                          </td>
-                                          <td class='p-1 align-middle'>
-                                            <button
-                                              type='button'
-                                              aria-label={`More actions for ${file.name}`}
-                                              class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted'
-                                              onClick={(e) =>
-                                                fileRowMenu.openRowMenuFromButton(e, file)
-                                              }
-                                            >
-                                              <Ellipsis class='h-5 w-5' aria-hidden='true' />
-                                            </button>
-                                          </td>
-                                        </tr>
-                                      )
-                                    }}
-                                    renderEmptyRow={() => (
-                                      <DirectoryListingEmptyTableRow
-                                        show={showEmptyFolder()}
-                                        canUpload={isEditable()}
-                                      />
-                                    )}
-                                  />
-                                </div>
-                              </Match>
-                            </Switch>
-                          </Show>
-                        </>
-                      }
-                    >
-                      <KbSearchResults
-                        results={kbSearchQuery.data?.results ?? []}
-                        query={searchQuery()}
-                        isLoading={kbSearchQuery.isLoading}
-                        currentPath={currentPath()}
-                        onResultClick={handleKbResultClick}
-                      />
-                    </Show>
-                  </Show>
-                </div>
-                <Show when={showInlineCreate()}>
-                  <KbInlineCreateFooter
-                    inlineMode={inlineMode}
-                    setInlineMode={setInlineMode}
-                    inlineName={inlineName}
-                    setInlineName={setInlineName}
-                    inlineFileExists={inlineFileExists}
-                    inlineFolderExists={inlineFolderExists}
-                    createFilePending={() => createFileMutation.isPending}
-                    createFileIsError={() => createFileMutation.isError}
-                    createFileError={() => createFileMutation.error as Error | undefined}
-                    createFolderPending={() => createFolderMutation.isPending}
-                    createFolderIsError={() => createFolderMutation.isError}
-                    createFolderError={() => createFolderMutation.error as Error | undefined}
-                    submitInlineFile={submitInlineFile}
-                    submitInlineFolder={submitInlineFolder}
-                    resetInlineCreate={resetInlineCreate}
-                    onFileInputRef={(el) => {
-                      inlineFileInputEl = el
-                    }}
-                    onFolderInputRef={(el) => {
-                      inlineFolderInputEl = el
-                    }}
-                  />
-                </Show>
-                <Show when={externalUploadDragOver()}>
-                  <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>
-                    <div class='text-primary flex flex-col items-center gap-2'>
-                      <Upload class='h-10 w-10' stroke-width={2} />
-                      <span class='text-lg font-medium'>Drop files to upload</span>
-                    </div>
-                  </div>
-                </Show>
-              </div>
-            </div>
-          </div>
-
-          <DirectoryBackgroundContextMenu
-            menu={directoryBackgroundMenu}
-            onDismiss={() => setDirectoryBackgroundMenu(null)}
-            onNewFile={openCreateFile}
-            onNewFolder={openCreateFolder}
+          <ExplorerView
+            location={() => legacyExplorerLocation(currentPath())}
+            dataSource={dataSource}
+            history={explorerHistory}
+            testId='file-browser'
+            dropZoneTestId='upload-drop-zone'
+            scrollMode='window'
+            hostActions={hostActions}
+            toolbarEnd={() => (
+              <>
+                <FileSearchButton
+                  title='Search library'
+                  testId='classic-file-search-trigger'
+                  onSelect={openSearchResult}
+                />
+                <ThemeSwitcher />
+              </>
+            )}
+            itemDomValue={(item) => legacyExplorerPath(item.resource.key) ?? undefined}
+            breadcrumbDomValue={(location) => legacyExplorerPath(location.key) ?? undefined}
+            renderItemIcon={(item, size) => {
+              const file = legacyFileItemForResource(item.resource)
+              if (!file) return undefined
+              return size === 'large'
+                ? gridHeroIcon(file, iconContext(item))
+                : fileItemIcon(file, iconContext(item))
+            }}
+            destinationPicker={(_action, item) => {
+              const path = legacyFilesystemExplorerPath(item.resource.key)
+              return path === null
+                ? null
+                : { filePath: path, editableFolders: editableFoldersFor(item) }
+            }}
+            onOpen={openItem}
+            onSnapshot={(snapshot) => {
+              setExplorerSnapshot(snapshot)
+            }}
+            onOpenContent={replaceIntegrationContent}
+            onUnsupportedChange={(item) => {
+              const file = item ? legacyFileItemForResource(item.resource) : null
+              if (file) viewFile(file.path, currentPath())
+              else closeViewer()
+            }}
           />
-
-          <FileBrowserModalLayer
-            iconEditTarget={iconEditTarget}
-            setIconEditTarget={setIconEditTarget}
-            customIcons={customIcons}
-            onSaveCustomIcon={handleSaveCustomIcon}
-            setCustomIconPending={setCustomIconMutation.isPending}
-            removeCustomIconPending={removeCustomIconMutation.isPending}
-            uploadToast={uploadToast}
-            setUploadToastHidden={() => setUploadToast({ kind: 'hidden' })}
-            breadcrumbMenu={breadcrumbMenu}
-            setBreadcrumbMenu={setBreadcrumbFolderMenu}
-            breadcrumbMenuActions={breadcrumbMenuActions}
-            onBreadcrumbOpenInNewTab={handleBreadcrumbOpenInNewTab}
-            onBreadcrumbOpenInWorkspace={handleBreadcrumbOpenInWorkspace}
-            onBreadcrumbSetIcon={handleBreadcrumbSetIcon}
-            fileRowMenu={fileRowMenu}
-            editableFolders={editableFolders}
-            isEditable={isEditable}
-            hasEditableFolders={hasEditableFolders}
-            onContextDownload={handleContextDownload}
-            onContextOpenInNewTab={handleContextOpenInNewTab}
-            onContextOpenInWorkspace={handleContextOpenInWorkspace}
-            onContextOpenWithBrowser={handleFileClick}
-            onContextOpenWithReader={handleContextOpenWithReader}
-            onContextToggleFavorite={handleContextToggleFavorite}
-            isRowFavorite={isRowFavorite}
-            onContextRename={handleContextRename}
-            onContextMove={handleContextMove}
-            onContextCopyTo={handleContextCopyTo}
-            onContextSetIcon={handleContextSetIcon}
-            onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
-            isRowKnowledgeBase={isRowKnowledgeBase}
-            deleteTarget={deleteTarget}
-            setDeleteTarget={setDeleteTarget}
-            deletePending={deleteMutation.isPending}
-            onConfirmDelete={() => {
-              const it = deleteTarget()
-              if (!it) return
-              void deleteMutation.mutateAsync({ path: it.path }).then(() => setDeleteTarget(null))
-            }}
-            showCreateFolder={showCreateFolder}
-            newItemName={newItemName}
-            setNewItemName={setNewItemName}
-            submitCreateFolder={submitCreateFolder}
-            cancelCreateFolder={() => {
-              setShowCreateFolder(false)
-              setNewItemName('')
-              createFolderMutation.reset()
-            }}
-            createFolderPending={createFolderMutation.isPending}
-            createFolderError={(createFolderMutation.error as Error) ?? null}
-            folderExists={folderExists}
-            showCreateFile={showCreateFile}
-            submitCreateFile={submitCreateFile}
-            cancelCreateFile={() => {
-              setShowCreateFile(false)
-              setNewItemName('')
-              createFileMutation.reset()
-            }}
-            createFilePending={createFileMutation.isPending}
-            createFileError={(createFileMutation.error as Error) ?? null}
-            fileExists={fileExists}
-            inKb={inKb}
-            showRename={showRename}
-            renameItem={renameItem}
-            newNameForRename={newItemName}
-            setNewNameForRename={setNewItemName}
-            submitRename={submitRename}
-            cancelRename={() => {
-              setShowRename(false)
-              setRenameItem(null)
-              setNewItemName('')
-              renameMutation.reset()
-            }}
-            renamePending={renameMutation.isPending}
-            renameError={(renameMutation.error as Error) ?? null}
-            renameTargetExists={renameTargetExists}
-            renameTargetIsDirectory={renameTargetIsDirectory}
-            moveDialogTarget={moveDialogTarget}
-            copyDialogTarget={copyDialogTarget}
-            closeMoveDialog={() => {
-              setShowMoveDialog(false)
-              setMoveTarget(null)
-              moveMutation.reset()
-            }}
-            closeCopyDialog={() => {
-              setShowCopyDialog(false)
-              setCopyTarget(null)
-              copyMutation.reset()
-            }}
-            onDialogMove={handleDialogMove}
-            onCopyToDestination={handleCopyToDestination}
-            movePending={moveMutation.isPending}
-            moveError={(moveMutation.error as Error) ?? null}
-            copyPending={copyMutation.isPending}
-            copyError={(copyMutation.error as Error) ?? null}
-            editableFoldersList={editableFolders}
-            showPasteDialog={showPasteDialog}
-            pasteData={pasteData}
-            pastePending={pasteMutation.isPending}
-            pasteError={(pasteMutation.error as Error) ?? null}
-            pasteExistingFiles={pasteExistingFiles}
-            onPasteFileSubmit={handlePasteFileSubmit}
-            closePasteDialog={closePasteDialog}
-          />
-          <FloatingScrollActions playingPath={playingPath} scrollScope={fileBrowserScrollScope} />
         </div>
       </div>
+
+      <Show when={integrationContent()}>
+        <div
+          ref={integrationDialogRef}
+          role='dialog'
+          aria-modal='true'
+          tabindex={-1}
+          class='fixed inset-0 z-[70] min-h-0 overflow-hidden bg-background'
+        >
+          <button
+            type='button'
+            class='absolute top-2 right-2 z-20 inline-flex min-h-11 items-center rounded-md border border-border bg-background/90 px-3 text-sm font-medium shadow-sm hover:bg-muted'
+            aria-label='Close integration content'
+            onClick={() => void closeIntegrationContent()}
+          >
+            Close
+          </button>
+          <ContentRuntimeView
+            runtime={applicationContentRuntime}
+            instance={integrationContent}
+            onReplace={(content) => void replaceIntegrationContent(content)}
+            onOpen={(content) => {
+              void replaceIntegrationContent(content)
+            }}
+            onClose={() => void closeIntegrationContent()}
+          />
+        </div>
+      </Show>
     </div>
   )
 }

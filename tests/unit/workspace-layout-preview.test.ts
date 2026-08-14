@@ -4,7 +4,11 @@ import {
   computeLayoutPreviewDetail,
   computeLayoutPreviewNorm,
 } from '@/lib/workspace-layout-preview'
-import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
+import {
+  serializeWorkspacePersistedState,
+  type PersistedWorkspaceState,
+  type WorkspaceSource,
+} from '@/lib/use-workspace'
 
 const localSource: WorkspaceSource = { kind: 'local', rootPath: null }
 
@@ -16,6 +20,10 @@ function baseState(windows: PersistedWorkspaceState['windows']): PersistedWorksp
     nextWindowId: windows.length + 1,
     pinnedTaskbarItems: [],
   }
+}
+
+function currentSnapshot(state: PersistedWorkspaceState): PersistedWorkspaceState {
+  return JSON.parse(serializeWorkspacePersistedState(state)) as PersistedWorkspaceState
 }
 
 describe('computeLayoutPreviewDetail', () => {
@@ -48,7 +56,7 @@ describe('computeLayoutPreviewDetail', () => {
         layout: { snapZone: 'right', zIndex: 2, minimized: false },
       },
     ])
-    const detail = computeLayoutPreviewDetail(snap)
+    const detail = computeLayoutPreviewDetail(currentSnapshot(snap))
     expect(detail).not.toBeNull()
     if (!detail) return
     expect(detail.groups.length).toBe(2)
@@ -95,7 +103,7 @@ describe('computeLayoutPreviewDetail', () => {
       ],
       activeWindowId: 't1',
     }
-    const detail = computeLayoutPreviewDetail(snap)
+    const detail = computeLayoutPreviewDetail(currentSnapshot(snap))
     expect(detail).not.toBeNull()
     if (!detail) return
     expect(detail.groups.length).toBe(1)
@@ -131,7 +139,7 @@ describe('computeLayoutPreviewDetail', () => {
           iconType: MediaType.VIDEO,
           iconIsVirtual: false,
           source: localSource,
-          initialState: {},
+          initialState: { dir: '/', viewing: '/video.mp4' },
           tabGroupId: 'grp',
           layout: { zIndex: 1, minimized: false },
         },
@@ -141,7 +149,7 @@ describe('computeLayoutPreviewDetail', () => {
         grp: { leftTabId: 'left', leftPaneFraction: 0.4 },
       },
     }
-    const detail = computeLayoutPreviewDetail(snap)
+    const detail = computeLayoutPreviewDetail(currentSnapshot(snap))
     expect(detail).not.toBeNull()
     if (!detail) return
     expect(detail.groups.length).toBe(1)
@@ -187,7 +195,7 @@ describe('computeLayoutPreviewDetail', () => {
       ],
       activeWindowId: 't2',
     }
-    const detail = computeLayoutPreviewDetail(snap)
+    const detail = computeLayoutPreviewDetail(currentSnapshot(snap))
     expect(detail).not.toBeNull()
     if (!detail) return
     const g = detail.groups[0]!
@@ -217,7 +225,7 @@ describe('computeLayoutPreviewDetail', () => {
         },
       },
     ])
-    const detail = computeLayoutPreviewDetail(snap)
+    const detail = computeLayoutPreviewDetail(currentSnapshot(snap))
     expect(detail).not.toBeNull()
     if (!detail) return
     const g = detail.groups[0]!
@@ -271,7 +279,7 @@ describe('computeLayoutPreviewNorm', () => {
         layout: { snapZone: 'right', zIndex: 2, minimized: false },
       },
     ])
-    const norm = computeLayoutPreviewNorm(snap)
+    const norm = computeLayoutPreviewNorm(currentSnapshot(snap))
     expect(norm).not.toBeNull()
     if (!norm) return
     expect(norm.panes.length).toBe(2)

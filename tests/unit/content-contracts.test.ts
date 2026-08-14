@@ -17,7 +17,13 @@ describe('content and integration contracts', () => {
   test('accepts neutral content instances and rejects geometry-shaped payloads', () => {
     const instances: ContentInstance[] = [
       { id: 'explorer-1', type: 'explorer', location: key },
-      { id: 'resource-1', type: 'resource', resource: key, renderer: 'fixture-renderer' },
+      {
+        id: 'resource-1',
+        type: 'resource',
+        resource: key,
+        renderer: 'fixture-renderer',
+        context: resourceKey('fixture', 'parent'),
+      },
       {
         id: 'integration-1',
         type: 'integration',
@@ -75,9 +81,6 @@ describe('content and integration contracts', () => {
     const module = defineIntegrationModule({
       id: 'fixture',
       browse: { browse: async (_request) => page },
-      search: {
-        search: async (_request) => ({ items: [item], total: 1 }),
-      },
       actions: {
         list: (_resource) => [{ id: 'fixture.pin', label: 'Pin', capability: 'fixture.pin' }],
         run: async (_request) => {},
@@ -86,7 +89,7 @@ describe('content and integration contracts', () => {
         {
           id: 'fixture-renderer',
           rules: [{ type: 'kind', value: 'fixture-card' }],
-          load: async () => ({ render: true }),
+          load: async () => ({ kind: 'content' as const, mount: () => null }),
         },
       ],
       codecs: [],

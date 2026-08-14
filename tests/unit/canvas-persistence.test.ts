@@ -7,11 +7,9 @@ import {
   parseCanvasRecords,
   type PersistedCanvas,
 } from '@/lib/canvas-persistence'
-import {
-  CANVAS_STORAGE_KEY,
-  createEmptyCanvasState,
-  serializeInfiniteCanvasState,
-} from '@/lib/infinite-canvas'
+import { createEmptyCanvasState, serializeInfiniteCanvasState } from '@/lib/infinite-canvas'
+
+const RETIRED_CANVAS_STORAGE_KEY = 'infinite-canvas-state-v1'
 
 function storage(values: Record<string, string>) {
   return { getItem: (key: string) => values[key] ?? null }
@@ -30,18 +28,18 @@ function record(overrides: Partial<PersistedCanvas> = {}): PersistedCanvas {
 }
 
 describe('canvas persistence', () => {
-  test('migrates legacy single canvas state', () => {
+  test('ignores retired single-canvas storage and boots an empty collection', () => {
     const state = { ...createEmptyCanvasState(), camera: { x: 10, y: 20, zoom: 0.5 } }
     const collection = loadCanvasCollection(
-      storage({ [CANVAS_STORAGE_KEY]: serializeInfiniteCanvasState(state) }),
+      storage({ [RETIRED_CANVAS_STORAGE_KEY]: serializeInfiniteCanvasState(state) }),
     )
 
     expect(collection.canvases).toHaveLength(1)
-    expect(collection.canvases[0]?.state?.camera).toEqual(state.camera)
+    expect(collection.canvases[0]?.state).toEqual(createEmptyCanvasState())
     expect(collection.activeId).toBe(collection.canvases[0]?.id)
   })
 
-  test('loads valid collection instead of legacy state', () => {
+  test('loads valid collection without consulting retired single-canvas storage', () => {
     const saved = {
       version: 1,
       activeId: 'canvas-1',
@@ -52,7 +50,7 @@ describe('canvas persistence', () => {
     const collection = loadCanvasCollection(
       storage({
         [CANVAS_COLLECTION_STORAGE_KEY]: JSON.stringify(saved),
-        [CANVAS_STORAGE_KEY]: serializeInfiniteCanvasState(createEmptyCanvasState()),
+        [RETIRED_CANVAS_STORAGE_KEY]: serializeInfiniteCanvasState(createEmptyCanvasState()),
       }),
     )
     expect(collection.canvases[0]?.name).toBe('Saved')

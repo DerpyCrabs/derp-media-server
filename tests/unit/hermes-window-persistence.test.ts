@@ -10,16 +10,30 @@ import {
   type PersistedWorkspaceState,
   type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
+import { deletedHermesSessionIds } from '@/lib/hermes-session-store'
 
 function hermesWindow(id: string, sessionId?: string): WorkspaceWindowDefinition {
   return {
     id,
-    type: 'hermes',
+    type: 'integration',
     title: 'Hermes',
     source: { kind: 'local' },
     initialState: {},
-    hermes: { sessionId, draftId: 'ephemeral-draft', cwd: 'C:/repo' },
+    runtimeContent: {
+      id,
+      type: 'integration',
+      integration: 'hermes',
+      view: 'chat',
+      state: { sessionId, draftId: 'ephemeral-draft', cwd: 'C:/repo' },
+    },
   }
+}
+
+function hermesState(window: WorkspaceWindowDefinition | undefined) {
+  const content = window?.runtimeContent
+  return content?.type === 'integration' && typeof content.state === 'object'
+    ? (content.state as Record<string, unknown>)
+    : undefined
 }
 
 describe('Hermes window persistence boundary', () => {
@@ -38,7 +52,7 @@ describe('Hermes window persistence boundary', () => {
     const restored = normalizePersistedWorkspaceState(JSON.parse(encoded), {
       reconcileSnapZones: false,
     })
-    expect(restored?.windows.map((window) => window.hermes?.sessionId)).toEqual(['durable-1'])
+    expect(restored?.windows.map((window) => hermesState(window)?.sessionId)).toEqual(['durable-1'])
   })
 
   test('workspace repairs focus after filtering active Hermes draft', () => {
@@ -64,6 +78,53 @@ describe('Hermes window persistence boundary', () => {
     expect(restored?.activeTabMap).toEqual({})
   })
 
+  test('does not resurrect a deleted restored session from its stored envelope', () => {
+    const state: PersistedWorkspaceState = {
+      windows: [hermesWindow('saved', 'deleted-session')],
+      activeWindowId: 'saved',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+    }
+    const restored = normalizePersistedWorkspaceState(
+      JSON.parse(serializeWorkspacePersistedState(state)),
+      { reconcileSnapZones: false },
+    )!
+
+    deletedHermesSessionIds.add('deleted-session')
+    try {
+      expect(JSON.parse(serializeWorkspacePersistedState(restored)).windows).toEqual([])
+    } finally {
+      deletedHermesSessionIds.delete('deleted-session')
+    }
+  })
+
+  test('does not persist a live draft through a stale durable envelope', () => {
+    const state: PersistedWorkspaceState = {
+      windows: [hermesWindow('saved', 'previous-session')],
+      activeWindowId: 'saved',
+      activeTabMap: {},
+      nextWindowId: 2,
+      pinnedTaskbarItems: [],
+    }
+    const restored = normalizePersistedWorkspaceState(
+      JSON.parse(serializeWorkspacePersistedState(state)),
+      { reconcileSnapZones: false },
+    )!
+    restored.windows[0] = {
+      ...restored.windows[0]!,
+      runtimeContent: {
+        id: 'saved',
+        type: 'integration',
+        integration: 'hermes',
+        view: 'chat',
+        state: { draftId: 'new-draft', cwd: 'C:/repo' },
+      },
+    }
+
+    expect(JSON.parse(serializeWorkspacePersistedState(restored)).windows).toEqual([])
+  })
+
   test('canvas drops drafts and restores durable Hermes windows', () => {
     const state = createEmptyCanvasState()
     state.windows = [
@@ -84,7 +145,7 @@ describe('Hermes window persistence boundary', () => {
     expect(encoded).not.toContain('ephemeral-draft')
     const restored = parseInfiniteCanvasState(JSON.parse(encoded))
     expect(restored?.windows).toHaveLength(1)
-    expect(restored?.windows[0]?.definition.hermes?.sessionId).toBe('durable-2')
-    expect(restored?.windows[0]?.definition.hermes?.cwd).toBe('C:/repo')
+    expect(hermesState(restored?.windows[0]?.definition)?.sessionId).toBe('durable-2')
+    expect(hermesState(restored?.windows[0]?.definition)?.cwd).toBe('C:/repo')
   })
 })
